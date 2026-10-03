@@ -21,12 +21,18 @@
 // - event props taking the synthetic event (EVENT_PROPS), checked against
 //   React DOM's root-listener dispatch (checkEvents); component functions
 //   used as listener values are one object per render (checkListenerIdentity);
+// - rest props (`{ a, ...rest }`) → an attribute bag of the props each call
+//   site passes beyond the declared ones, coerced as React DOM sets
+//   attributes (restEntry) and spread onto elements with `{...rest}`;
+// - `ref` as a prop (React 19), attached to an element or passed on: the
+//   parent's ref object receives the element through a bound prop;
 // - JSX → IR nodes with React's whitespace and child rendering rules.
 import ts from 'typescript';
 import path from 'node:path';
 import { decodeHTMLStrict } from 'entities';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
 import type {
+  AttrItem,
   Cell,
   Component,
   Effect,
@@ -133,6 +139,112 @@ const BOOLEAN_ATTRS = new Set([
   'autofocus',
   'multiple',
 ]);
+/**
+ * Rest props (attribute bags) follow React DOM's attribute rules (setProp in
+ * react-dom 19.3). Props set as presence attributes when truthy:
+ */
+const PRESENCE_PROPS = new Set([
+  'allowFullScreen',
+  'async',
+  'autoPlay',
+  'controls',
+  'credentialless',
+  'default',
+  'defer',
+  'disabled',
+  'disablePictureInPicture',
+  'disableRemotePlayback',
+  'formNoValidate',
+  'hidden',
+  'inert',
+  'loop',
+  'noModule',
+  'noValidate',
+  'open',
+  'playsInline',
+  'readOnly',
+  'required',
+  'reversed',
+  'scoped',
+  'seamless',
+  'itemScope',
+]);
+/** Props React sets under another attribute name (setProp and its alias table). */
+const RENAMED_PROPS: Record<string, string> = {
+  className: 'class',
+  tabIndex: 'tabindex',
+  htmlFor: 'for',
+  acceptCharset: 'accept-charset',
+  httpEquiv: 'http-equiv',
+  crossOrigin: 'crossorigin',
+};
+/** camelCase props React sets with setAttribute under their own name (HTML lowercases it). */
+const CAMEL_ATTRS = new Set([
+  'maxLength',
+  'minLength',
+  'autoComplete',
+  'autoCapitalize',
+  'inputMode',
+  'enterKeyHint',
+  'accessKey',
+]);
+/**
+ * Props with rules of their own (URLs, numeric checks, DOM properties,
+ * input values, styles, inner content), which rest props do not carry.
+ */
+const SPECIAL_PROPS = new Set([
+  'style',
+  'children',
+  'dangerouslySetInnerHTML',
+  'innerHTML',
+  'innerText',
+  'textContent',
+  'value',
+  'defaultValue',
+  'checked',
+  'defaultChecked',
+  'selected',
+  'type',
+  'name',
+  'autoFocus',
+  'multiple',
+  'muted',
+  'capture',
+  'download',
+  'cols',
+  'rows',
+  'size',
+  'span',
+  'rowSpan',
+  'start',
+  'src',
+  'href',
+  'data',
+  'action',
+  'formAction',
+  'contentEditable',
+  'spellCheck',
+  'draggable',
+  'autoReverse',
+  'externalResourcesRequired',
+  'focusable',
+  'preserveAlpha',
+  'popover',
+  'popoverTarget',
+  'is',
+  'suppressContentEditableWarning',
+  'suppressHydrationWarning',
+]);
+/** The attribute a rest prop sets (undefined: unsupported in rest props). */
+function restAttribute(key: string): string | undefined {
+  if (SPECIAL_PROPS.has(key) || /^on/i.test(key)) return undefined;
+  if (Object.hasOwn(RENAMED_PROPS, key)) return RENAMED_PROPS[key];
+  if (/^(data|aria)-[a-z0-9-]+$/i.test(key)) return key.toLowerCase();
+  if (PRESENCE_PROPS.has(key) || CAMEL_ATTRS.has(key)) return key.toLowerCase();
+  return /^[a-z][a-z0-9-]*$/.test(key) ? key : undefined;
+}
+/** The type of element refs and ref props: the element while mounted, null after. */
+const REF_TYPE: Type = { maybe: 'element' };
 
 interface Graph {
   root: string;
@@ -203,6 +315,17 @@ interface Scope {
   elementRefs: Set<number>;
   /** Nesting depth of JSX that may render more than once (list items, slot content). */
   repeated: number;
+  /** The rest props cell (an attribute bag) and the props it may hold. */
+  rest?: { cell: number; keys: Set<string> };
+}
+
+/** A component's destructured props, rest binding and the props its rest bag may hold. */
+interface PropsDecl {
+  declared: Set<string>;
+  rest?: ts.Symbol;
+  /** Destructured `ref` (React 19 passes it as a prop). */
+  ref?: ts.Symbol;
+  keys: Set<string>;
 }
 
 /**
@@ -438,6 +561,117 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   if (rendered.attributes.properties.length)
     fail(rendered.attributes, 'E_BOOTSTRAP', 'The root component is rendered without props');
 
+  // --- Rest props (docs/design/M5-PLATFORM.md): each component's declared
+  // props and rest binding, and the props its rest bag may hold, gathered
+  // from every call site and through forwarding (`<Child {...rest} />`) ---
+  const propsDecls = new Map<ts.FunctionLikeDeclaration, PropsDecl>();
+  for (const { decl } of componentDecls.values()) {
+    const d: PropsDecl = { declared: new Set(), keys: new Set() };
+    const p = decl.parameters[0];
+    if (p && ts.isObjectBindingPattern(p.name))
+      for (const el of p.name.elements) {
+        if (el.dotDotDotToken) {
+          if (ts.isIdentifier(el.name)) d.rest = checker.getSymbolAtLocation(el.name);
+          continue;
+        }
+        const key = el.propertyName
+          ? propertyName(el.propertyName)
+          : ts.isIdentifier(el.name)
+            ? el.name.text
+            : '';
+        d.declared.add(key);
+        if (key === 'ref' && ts.isIdentifier(el.name)) d.ref = checker.getSymbolAtLocation(el.name);
+      }
+    propsDecls.set(decl, d);
+  }
+  /** The component a JSX tag names, if it is a local function component. */
+  const componentOf = (tag: ts.JsxTagNameExpression) =>
+    ts.isIdentifier(tag) && /^[A-Z]/.test(tag.text)
+      ? componentDecls.get(symbolOf(tag)!)
+      : undefined;
+  const forwards: { from: PropsDecl; to: PropsDecl; name: string; at: ts.Node }[] = [];
+  for (const { decl } of componentDecls.values()) {
+    const own = propsDecls.get(decl)!;
+    const visit = (n: ts.Node) => {
+      if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) {
+        const target = componentOf(n.tagName);
+        const to = target && propsDecls.get(target.decl);
+        for (const a of n.attributes.properties) {
+          if (ts.isJsxSpreadAttribute(a)) {
+            const e = skipParens(a.expression);
+            if (!own.rest || !ts.isIdentifier(e) || symbolOf(e) !== own.rest)
+              fail(
+                a,
+                'E_JSX',
+                'Spread attributes are supported for rest props ({...rest}); other spreads are planned for later',
+              );
+            if (target) {
+              if (!to!.rest)
+                fail(
+                  a,
+                  'E_PROPS',
+                  `${target.name} takes no rest props (destructure them: { a, ...rest })`,
+                );
+              forwards.push({ from: own, to: to!, name: target.name, at: a });
+            }
+          } else if (to?.rest) {
+            const key = a.name.getText();
+            if (key !== 'key' && !to.declared.has(key)) to.keys.add(key);
+          }
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    if (decl.body) visit(decl.body);
+    // Rest props are forwarded, not read; a ref prop is attached or passed on.
+    const uses = (n: ts.Node) => {
+      if (ts.isIdentifier(n) && !ts.isBindingElement(n.parent)) {
+        const s = ts.isShorthandPropertyAssignment(n.parent)
+          ? checker.getShorthandAssignmentValueSymbol(n.parent)
+          : symbolOf(n);
+        if (s && s === own.rest && !ts.isJsxSpreadAttribute(n.parent))
+          fail(
+            n,
+            'E_PROPS',
+            'Rest props can only be spread ({...rest}); reading them by name is planned for later',
+          );
+        if (
+          s &&
+          s === own.ref &&
+          !(
+            ts.isJsxExpression(n.parent) &&
+            ts.isJsxAttribute(n.parent.parent) &&
+            n.parent.parent.name.getText() === 'ref'
+          )
+        )
+          fail(
+            n,
+            'E_REF',
+            "A ref prop can only be attached to an element or passed on (ref={ref}): it is the parent's ref object, or undefined when the parent passes none",
+          );
+      }
+      ts.forEachChild(n, uses);
+    };
+    if (decl.body && (own.rest || own.ref)) uses(decl.body);
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const { from, to } of forwards)
+      for (const k of from.keys)
+        if (!to.keys.has(k)) {
+          to.keys.add(k);
+          changed = true;
+        }
+  }
+  for (const { from, to, name, at } of forwards)
+    for (const k of from.keys)
+      if (to.declared.has(k))
+        fail(
+          at,
+          'E_PROPS',
+          `The rest props may hold ${k}, which ${name} declares; pass ${k} explicitly`,
+        );
+
   // --- Components: lowered on first use, children while their parent's template is lowered ---
   const components: Component[] = [];
   /** Slots of each lowered component. */
@@ -525,8 +759,13 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       return true;
     };
     const propCell = (key: string, type: Type, at: ts.Node): number => {
-      if (key === 'key' || key === 'ref')
-        fail(at, 'E_PROPS', `${key} is not passed to components as a prop`);
+      if (key === 'key') fail(at, 'E_PROPS', 'key is not passed to components as a prop');
+      if (key === 'ref')
+        fail(
+          at,
+          'E_REF',
+          'Read the ref prop by destructuring it ({ ref }) and attach it to an element (ref={ref})',
+        );
       cells.push({
         name: key,
         type,
@@ -541,12 +780,44 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     };
     if (param && ts.isObjectBindingPattern(param.name)) {
       for (const el of param.name.elements) {
-        if (el.dotDotDotToken) fail(el, 'E_PROPS', 'Rest props are planned for a later milestone');
+        if (el.dotDotDotToken) {
+          // Rest props: an attribute bag of the props a call site passes beyond these.
+          if (!ts.isIdentifier(el.name)) fail(el, 'E_PROPS', 'Rest props need a name');
+          cells.push({
+            name: (el.name as ts.Identifier).text,
+            type: 'attrs',
+            init: { op: 'attrs', items: [] },
+            tracking: 'identity',
+            readonly: true,
+            prop: '...',
+            source: sourceOf(el),
+          });
+          cur.rest = { cell: cells.length - 1, keys: propsDecls.get(decl)!.keys };
+          continue;
+        }
         if (!ts.isIdentifier(el.name))
           fail(el, 'E_PROPS', 'Nested prop destructuring is planned for a later milestone');
         const local = el.name as ts.Identifier;
         const key = el.propertyName ? propertyName(el.propertyName) : local.text;
         const sym = checker.getSymbolAtLocation(local)!;
+        if (key === 'ref') {
+          // React 19 passes `ref` as a prop. Its uses are `ref={ref}` only
+          // (checked with the rest props): the cell holds the element it is
+          // attached to, and the call site binds it to the parent's ref.
+          if (el.initializer) fail(el.initializer, 'E_REF', 'A ref prop cannot have a default');
+          cells.push({
+            name: local.text,
+            type: REF_TYPE,
+            init: { op: 'null', type: REF_TYPE },
+            tracking: 'none',
+            prop: 'ref',
+            source: sourceOf(el),
+          });
+          cur.refs.add(cells.length - 1);
+          cur.elementRefs.add(cells.length - 1);
+          lower.bindings.set(sym, { kind: 'ref', cell: cells.length - 1, field: 'current' });
+          continue;
+        }
         if (slotProp(key, checker.getTypeAtLocation(local), el)) {
           if (el.initializer)
             fail(
@@ -1262,6 +1533,122 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     cur.handlers.push({ event, ...rest, source: sourceOf(where) });
     return { event, handler: cur.handlers.length - 1, ...(args?.length ? { args } : {}) };
   };
+  /** Listeners passed in rest props, by the component whose call site created them. */
+  const bagListeners: {
+    k: number;
+    event: HandlerEvent;
+    value: Expr;
+    source: Handler['source'];
+  }[] = [];
+  /**
+   * A prop passed into rest props, as React DOM sets it on the element it is
+   * spread onto (setProp): event props become `on<event>` listeners; known
+   * boolean props set presence when truthy; other attributes are strings,
+   * numbers stringified, booleans set only for `data-*` and `aria-*` (as
+   * "true"/"false"), nullish values absent.
+   */
+  const restEntry = (attr: ts.JsxAttribute, child: string): AttrItem => {
+    const key = attr.name.getText();
+    const init = attr.initializer;
+    if (Object.hasOwn(EVENT_PROPS, key)) {
+      const e = init && ts.isJsxExpression(init) ? init.expression : undefined;
+      if (!e) return fail(attr, 'E_EVENT', 'Event props need a handler expression');
+      const event = EVENT_PROPS[key];
+      const v = expr(e);
+      const t = typeOf(e, v);
+      if (
+        typeof t !== 'object' ||
+        !('fn' in t) ||
+        !(t.fn.params.length === 0 || (t.fn.params.length === 1 && t.fn.params[0] === 'event'))
+      )
+        fail(
+          attr,
+          'E_EVENT',
+          `${key} in the rest props of ${child} must be a function taking no parameter or the event object`,
+        );
+      bagListeners.push({ k: cur.index, event, value: v, source: sourceOf(attr) });
+      return { name: `on${event}`, value: v };
+    }
+    if (key === 'onWheel') return wheelUnsupported(attr);
+    if (key === 'onChange')
+      return fail(
+        attr,
+        'E_EVENT',
+        `onChange in the rest props of ${child} is unsupported (React makes it the input or the change event by the element it reaches); declare it as a prop`,
+      );
+    if (/^on[A-Z]/.test(key))
+      return fail(
+        attr,
+        'E_EVENT',
+        `${key} is unsupported (supported: ${Object.keys(EVENT_PROPS).join(', ')} and onChange on inputs)`,
+      );
+    if (/^on./i.test(key))
+      return fail(
+        attr,
+        'E_PROPS',
+        `${key}: React DOM sets no attribute for props starting with "on"; use an event prop (onClick)`,
+      );
+    if (key === 'ref')
+      return fail(
+        attr,
+        'E_REF',
+        `ref goes into the rest props of ${child}, which is unsupported; destructure ref ({ ref, ...rest }) and attach it`,
+      );
+    if (key === 'style')
+      return fail(attr, 'E_JSX', 'Style objects are planned for a later milestone');
+    const name = restAttribute(key);
+    if (!name)
+      return fail(
+        attr,
+        'E_PROPS',
+        `${key} in the rest props of ${child} is unsupported (React sets it by a rule of its own); declare it as a prop`,
+      );
+    const presence = PRESENCE_PROPS.has(key);
+    const flag = /^(data|aria)-/.test(name);
+    if (!init)
+      return { name, value: { op: 'lit', value: presence ? true : flag ? 'true' : false } };
+    if (ts.isStringLiteral(init)) {
+      const text = decodeHTMLStrict(init.text);
+      return { name, value: { op: 'lit', value: presence ? text !== '' : text } };
+    }
+    const e = (init as ts.JsxExpression).expression;
+    if (!e) return fail(attr, 'E_PROPS', `${key} needs a value`);
+    const v = expr(e);
+    const t = typeOf(e, v);
+    const base = maybeInner(t) ?? t;
+    if (base !== 'string' && base !== 'number' && base !== 'boolean')
+      return fail(
+        attr,
+        'E_PROPS',
+        `${key} in rest props has type ${JSON.stringify(t)}; React sets attributes from strings, numbers and booleans here`,
+      );
+    if (presence) return { name, value: t === 'boolean' ? v : lower.truthy(v, t) };
+    if (base === 'boolean' && !flag) {
+      // React does not set booleans on other attributes (the value is still evaluated).
+      const local = cur.tb.local('$unset', t);
+      return { name, value: { op: 'with', local, value: v, body: { op: 'lit', value: false } } };
+    }
+    if (t === 'string' || t === 'number' || t === 'boolean')
+      return { name, value: t === 'string' ? v : { op: 'to-string', arg: v } };
+    if (base === 'string') return { name, value: v };
+    // A nullable number or boolean: absent when nullish, otherwise its text.
+    const local = cur.tb.local('$attr', base);
+    return {
+      name,
+      value: {
+        op: 'optional',
+        value: v,
+        local,
+        then: { op: 'some', value: { op: 'to-string', arg: { op: 'local', local } } },
+      },
+    };
+  };
+  const wheelUnsupported = (attr: ts.Node): never =>
+    fail(
+      attr,
+      'E_EVENT',
+      "onWheel is unsupported: React's root wheel listener is passive, so preventDefault() has no effect and Chromium scrolls before it dispatches the event, to the element under the pointer after scrolling",
+    );
   /** `ref={r}` on an element: the cell of a useRef object of this component. */
   const elementRef = (attr: ts.JsxAttribute): number => {
     const init = attr.initializer;
@@ -1629,9 +2016,21 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         const v = ts.isJsxExpression(a.initializer) ? a.initializer.expression : a.initializer;
         return !!v && ts.isStringLiteralLike(v) && v.text === 'checkbox';
       });
+    // `{...rest}`: this component's rest props (the only spread the pre-pass allows).
+    const spreadAt = opening.attributes.properties.findIndex(ts.isJsxSpreadAttribute);
+    const restKeys = spreadAt >= 0 ? cur.rest!.keys : new Set<string>();
+    if (spreadAt >= 0) {
+      if (opening.attributes.properties.filter(ts.isJsxSpreadAttribute).length > 1)
+        fail(opening, 'E_JSX', 'One spread per element is supported');
+      if (checkbox)
+        fail(
+          opening.attributes.properties[spreadAt],
+          'E_JSX',
+          'Spread attributes on checkboxes are planned for later',
+        );
+    }
     for (const a of opening.attributes.properties) {
-      if (!ts.isJsxAttribute(a))
-        fail(a, 'E_JSX', 'Spread attributes are planned for a later milestone');
+      if (ts.isJsxSpreadAttribute(a)) continue;
       const attr = a as ts.JsxAttribute;
       const raw = attr.name.getText();
       const init = attr.initializer;
@@ -1648,9 +2047,10 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         if (
           (raw === 'onMouseMove' || raw === 'onMouseEnter') &&
           (name === 'button' || name === 'input') &&
-          opening.attributes.properties.some(
-            p => ts.isJsxAttribute(p) && p.name.getText() === 'disabled',
-          )
+          (restKeys.has('disabled') ||
+            opening.attributes.properties.some(
+              p => ts.isJsxAttribute(p) && p.name.getText() === 'disabled',
+            ))
         )
           fail(
             attr,
@@ -1660,12 +2060,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         listeners.push(handlerFor((init as ts.JsxExpression).expression!, event, attr));
         continue;
       }
-      if (raw === 'onWheel')
-        fail(
-          attr,
-          'E_EVENT',
-          "onWheel is unsupported: React's root wheel listener is passive, so preventDefault() has no effect and Chromium scrolls before it dispatches the event, to the element under the pointer after scrolling",
-        );
+      if (raw === 'onWheel') wheelUnsupported(attr);
       if (/^on[A-Z]/.test(raw))
         fail(
           attr,
@@ -1728,6 +2123,53 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         'E_JSX',
         'Checkboxes must be controlled with checked={…} (uncontrolled checkboxes and defaultChecked are planned for M5)',
       );
+    // With rest props spread, the element's own attributes that the bag may
+    // also hold join it in source order: React builds one props object, in
+    // which a later prop wins.
+    let spread: Expr | undefined;
+    if (spreadAt >= 0) {
+      const names = new Map<string, string>();
+      for (const k of restKeys) {
+        const n = Object.hasOwn(EVENT_PROPS, k) ? `on${EVENT_PROPS[k]}` : restAttribute(k);
+        if (n) names.set(n, k);
+      }
+      const position = (attrName: string) =>
+        opening.attributes.properties.findIndex(
+          p => ts.isJsxAttribute(p) && (ATTRS[p.name.getText()] ?? p.name.getText()) === attrName,
+        );
+      const before: AttrItem[] = [];
+      const after: AttrItem[] = [];
+      for (const x of [...attrs])
+        if (names.has(x.name)) {
+          (position(x.name) < spreadAt ? before : after).push({ name: x.name, value: x.value });
+          attrs.splice(attrs.indexOf(x), 1);
+        }
+      for (const l of listeners)
+        if (names.has(`on${l.event}`))
+          fail(
+            opening,
+            'E_JSX',
+            `${names.get(`on${l.event}`)} is both on the element and possibly in the spread rest props`,
+          );
+      if (
+        (name === 'button' || name === 'input') &&
+        (restKeys.has('onMouseMove') || restKeys.has('onMouseEnter')) &&
+        (restKeys.has('disabled') ||
+          opening.attributes.properties.some(
+            p => ts.isJsxAttribute(p) && p.name.getText() === 'disabled',
+          ))
+      )
+        fail(
+          opening.attributes.properties[spreadAt],
+          'E_EVENT',
+          'React ignores onMouseMove and onMouseEnter on disabled controls, which still receive the browser event; such rest props on a control that may be disabled are unsupported',
+        );
+      const bag: Expr = { op: 'cell', cell: cur.rest!.cell, read: 'snapshot' };
+      spread =
+        before.length || after.length
+          ? { op: 'attrs', items: [...before, { spread: bag }, ...after] }
+          : bag;
+    }
     return keyed(
       keyAttr,
       [
@@ -1738,6 +2180,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           ...(props.length ? { props } : {}),
           ...(listeners.length ? { listeners } : {}),
           ...(ref !== undefined ? { ref } : {}),
+          ...(spread ? { spread } : {}),
           ...(kids.length ? { children: children(kids) } : {}),
           source: sourceOf(n),
         },
@@ -1798,17 +2241,35 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       kids?: ts.JsxChild[];
       at: ts.Node;
     }[] = [];
+    const info = propsDecls.get(entry.decl)!;
+    // Props the child does not declare go into its rest props, in source order.
+    const bag: AttrItem[] = [];
+    /** The ref object passed as `ref` (a cell of this component). */
+    let refCell: number | undefined;
     for (const a of opening.attributes.properties) {
-      if (!ts.isJsxAttribute(a)) fail(a, 'E_JSX', 'Spread props are planned for a later milestone');
+      if (ts.isJsxSpreadAttribute(a)) {
+        // This component's rest props, to a child taking rest props (checked above).
+        bag.push({ spread: { op: 'cell', cell: cur.rest!.cell, read: 'snapshot' } });
+        continue;
+      }
       const attr = a as ts.JsxAttribute;
       const name = attr.name.getText();
       if (name === 'key') continue;
-      if (name === 'ref')
-        fail(
-          attr,
-          'E_REF',
-          'Passing a ref to a component (ref forwarding) is unsupported; attach refs to elements',
-        );
+      if (name === 'ref') {
+        if (info.rest && !info.declared.has('ref')) restEntry(attr, entry.name);
+        if (!info.declared.has('ref'))
+          fail(
+            attr,
+            'E_REF',
+            `${entry.name} does not take a ref: React 19 passes ref as a prop, so destructure it ({ ref }) and attach it to an element`,
+          );
+        refCell = elementRef(attr);
+        continue;
+      }
+      if (info.rest && !info.declared.has(name)) {
+        bag.push(restEntry(attr, entry.name));
+        continue;
+      }
       const init = attr.initializer;
       const kind = kindOf(name, init);
       if (kind !== 'value') {
@@ -1825,6 +2286,12 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       passed.push({ name, value, type: lower.irType(value, cur.tb), at: attr });
     }
     if (content.length) {
+      if (info.rest && !info.declared.has('children'))
+        fail(
+          at,
+          'E_PROPS',
+          `The children of ${entry.name} go into its rest props, which is unsupported; destructure children`,
+        );
       if (given.some(g => g.name === 'children'))
         fail(at, 'E_PROPS', 'children are passed both as a prop and between the tags');
       const single = content.length === 1 ? content[0] : undefined;
@@ -1881,11 +2348,38 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     for (const c of target.cells)
       if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
         fail(at, 'E_PROPS', `${entry.name} requires the prop ${c.prop}`);
+    const all: { name: string; value: Expr; bind?: Expr }[] = props;
+    if (refCell !== undefined) {
+      // The child's ref prop holds its element while mounted and null after;
+      // as a bound prop it writes both to this component's ref object. What
+      // is passed down is never read (the child only attaches the ref).
+      const own = refCell;
+      const setter = lower.reserve();
+      lower.functions[setter] = {
+        name: `${cur.cells[own].name}$ref`,
+        component: cur.index,
+        params: [{ name: 'element', type: REF_TYPE }],
+        locals: [],
+        result: 'void',
+        body: [{ op: 'set', cell: own, value: { op: 'local', local: 0 } }],
+        source: sourceOf(at),
+      };
+      all.push({
+        name: 'ref',
+        value: { op: 'null', type: REF_TYPE },
+        bind: { op: 'closure', function: setter, captures: [] },
+      });
+    }
+    if (bag.length)
+      all.push({
+        name: '...',
+        value: bag.length === 1 && 'spread' in bag[0] ? bag[0].spread : { op: 'attrs', items: bag },
+      });
     return [
       {
         kind: 'component',
         component: index,
-        ...(props.length ? { props } : {}),
+        ...(all.length ? { props: all } : {}),
         ...(defs.length ? { slots: defs } : {}),
         source: sourceOf(at),
       },
@@ -2309,6 +2803,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
             n.attrs ?? [],
             n.props ?? [],
             (n.listeners ?? []).map(l => l.args ?? []),
+            n.spread ?? [],
           );
           templateExprs(n.children ?? [], text, rest);
           break;
@@ -2361,86 +2856,109 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     return found;
   };
 
+  /**
+   * The code a listener passed in rest props runs: an inline function's
+   * body, or (any other function value) a call with the event.
+   */
+  const bagRoot = (l: (typeof bagListeners)[number]) => {
+    if (l.value.op === 'closure') {
+      const f = lower.functions[l.value.function];
+      return { body: f.body, component: f.component, locals: localsOf(f) };
+    }
+    return {
+      body: [{ op: 'expr', value: { op: 'call-value', callee: l.value, args: [{ op: 'event' }] } }],
+      component: l.k,
+      locals: components[l.k].templateLocals ?? [],
+    };
+  };
+
   const checkEvents = () => {
-    const written = new Map<string, { k: number; cell: number; handler: Handler }>();
-    components.forEach((c, k) =>
-      c.handlers.forEach(h => {
-        const prop = propOf(h.event);
-        const root = handlerRoot(k, h);
-        let micro = false;
-        let current = false;
-        runs(
-          [root],
-          o => {
-            const member = eventMember(o);
-            if (member === 'stopImmediatePropagation')
-              rejectEvent(
-                h.source,
-                "React's synthetic events have no stopImmediatePropagation(); use stopPropagation()",
-              );
-            if (
-              ENTER_LEAVE.has(h.event) &&
-              ['preventDefault', 'stopPropagation', 'target', 'value', 'checked'].includes(
-                member ?? '',
-              )
-            )
-              rejectEvent(
-                h.source,
-                `${prop} uses e.${member === 'value' || member === 'checked' ? 'target' : member}: React dispatches one synthetic ${h.event} event to all entered (or left) elements, whose target is the innermost one and whose propagation and cancellation span them, unlike the browser's events per element`,
-              );
-            if (h.event === 'input' && (member === 'type' || member === 'preventDefault'))
-              rejectEvent(
-                h.source,
-                `onChange of a text input reads e.${member}: React's change event comes from the input event (type "change"; preventDefault() marks it prevented though input events cannot be cancelled)`,
-              );
-            if (
-              h.event === 'change' &&
-              (member === 'preventDefault' || member === 'stopPropagation')
-            )
-              rejectEvent(
-                h.source,
-                `onChange of a checkbox calls e.${member}(): React applies it to the click that produced the change`,
-              );
-            if (member === 'currentTarget') current = true;
-            if (o.op === 'builtin' && /^(microtask|promise)\./.test(o.name as string)) micro = true;
-          },
-          true,
-        );
-        if (current && micro)
-          rejectEvent(
-            h.source,
-            'e.currentTarget in a handler that awaits or queues microtasks: React sets currentTarget to null when the listener returns, before microtasks run',
-          );
-        if (!CONTINUOUS.has(h.event)) return;
-        // Continuous events: React renders their updates after the input,
-        // or with the next discrete update (a click's press after its move),
-        // while the IR renders after each dispatch. Supported where the two
-        // agree: updates of state that is only rendered as text.
-        runs([root], (o, component, locals) => {
-          if (o.op === 'builtin' && /^(timer|microtask|promise|flush)\./.test(o.name as string))
+    const written = new Map<
+      string,
+      { k: number; cell: number; handler: { event: HandlerEvent } }
+    >();
+    // Element listeners, and listeners passed in rest props.
+    const listening = [
+      ...components.flatMap((c, k) =>
+        c.handlers.map(h => ({
+          h: h as { event: HandlerEvent; source: Handler['source'] },
+          root: handlerRoot(k, h),
+        })),
+      ),
+      ...bagListeners.map(l => ({ h: l, root: bagRoot(l) })),
+    ];
+    for (const { h, root } of listening) {
+      const prop = propOf(h.event);
+      let micro = false;
+      let current = false;
+      runs(
+        [root],
+        o => {
+          const member = eventMember(o);
+          if (member === 'stopImmediatePropagation')
             rejectEvent(
               h.source,
-              `${prop} schedules a timer, microtask or promise: React renders updates from continuous events after the input (after such callbacks), which is unsupported`,
+              "React's synthetic events have no stopImmediatePropagation(); use stopPropagation()",
             );
-          if (o.op === 'call-value') {
-            const callee = o.callee as Expr;
-            if (
-              callee.op !== 'closure' &&
-              !(callee.op === 'local' && locals[callee.local]?.name.endsWith('$fn'))
+          if (
+            ENTER_LEAVE.has(h.event) &&
+            ['preventDefault', 'stopPropagation', 'target', 'value', 'checked'].includes(
+              member ?? '',
             )
-              rejectEvent(
-                h.source,
-                `${prop} calls a function value (such as a callback prop): updates from continuous events are supported only for this component's state`,
-              );
-          }
-          if (o.op === 'set' && component !== undefined) {
-            const cell = o.cell as number;
-            if (components[component].cells[cell].tracking !== 'none')
-              written.set(`${component}:${cell}`, { k: component, cell, handler: h });
-          }
-        });
-      }),
-    );
+          )
+            rejectEvent(
+              h.source,
+              `${prop} uses e.${member === 'value' || member === 'checked' ? 'target' : member}: React dispatches one synthetic ${h.event} event to all entered (or left) elements, whose target is the innermost one and whose propagation and cancellation span them, unlike the browser's events per element`,
+            );
+          if (h.event === 'input' && (member === 'type' || member === 'preventDefault'))
+            rejectEvent(
+              h.source,
+              `onChange of a text input reads e.${member}: React's change event comes from the input event (type "change"; preventDefault() marks it prevented though input events cannot be cancelled)`,
+            );
+          if (h.event === 'change' && (member === 'preventDefault' || member === 'stopPropagation'))
+            rejectEvent(
+              h.source,
+              `onChange of a checkbox calls e.${member}(): React applies it to the click that produced the change`,
+            );
+          if (member === 'currentTarget') current = true;
+          if (o.op === 'builtin' && /^(microtask|promise)\./.test(o.name as string)) micro = true;
+        },
+        true,
+      );
+      if (current && micro)
+        rejectEvent(
+          h.source,
+          'e.currentTarget in a handler that awaits or queues microtasks: React sets currentTarget to null when the listener returns, before microtasks run',
+        );
+      if (!CONTINUOUS.has(h.event)) continue;
+      // Continuous events: React renders their updates after the input,
+      // or with the next discrete update (a click's press after its move),
+      // while the IR renders after each dispatch. Supported where the two
+      // agree: updates of state that is only rendered as text.
+      runs([root], (o, component, locals) => {
+        if (o.op === 'builtin' && /^(timer|microtask|promise|flush)\./.test(o.name as string))
+          rejectEvent(
+            h.source,
+            `${prop} schedules a timer, microtask or promise: React renders updates from continuous events after the input (after such callbacks), which is unsupported`,
+          );
+        if (o.op === 'call-value') {
+          const callee = o.callee as Expr;
+          if (
+            callee.op !== 'closure' &&
+            !(callee.op === 'local' && locals[callee.local]?.name.endsWith('$fn'))
+          )
+            rejectEvent(
+              h.source,
+              `${prop} calls a function value (such as a callback prop): updates from continuous events are supported only for this component's state`,
+            );
+        }
+        if (o.op === 'set' && component !== undefined) {
+          const cell = o.cell as number;
+          if (components[component].cells[cell].tracking !== 'none')
+            written.set(`${component}:${cell}`, { k: component, cell, handler: h });
+        }
+      });
+    }
     // State updated by continuous handlers: rendered as text only, so the
     // render's timing is not observable.
     for (const { k, cell, handler } of written.values()) {
@@ -2528,19 +3046,21 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     }
     // A cancelled checkbox click: React still runs onChange and keeps the
     // state it sets, while the browser reverts the box.
+    const prevents = (root: Parameters<typeof runs>[0][number]) => {
+      let found = false;
+      runs(
+        [root],
+        o => {
+          if (eventMember(o) === 'preventDefault') found = true;
+        },
+        true,
+      );
+      return found;
+    };
     const cancels = (k: number, n: Node & { kind: 'element' }) =>
-      (n.listeners ?? []).some(l => {
-        if (l.event !== 'click') return false;
-        let found = false;
-        runs(
-          [handlerRoot(k, components[k].handlers[l.handler])],
-          o => {
-            if (eventMember(o) === 'preventDefault') found = true;
-          },
-          true,
-        );
-        return found;
-      });
+      (n.listeners ?? []).some(
+        l => l.event === 'click' && prevents(handlerRoot(k, components[k].handlers[l.handler])),
+      );
     const checkboxes = (k: number, nodes: Node[], seen = new Set<number>()): boolean =>
       nodes.some(n => {
         switch (n.kind) {
@@ -2589,6 +3109,15 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       }
     };
     components.forEach((c, k) => visitElements(k, c.template));
+    // A click listener in rest props may reach any element with a spread, and
+    // children content around it: rejected if it cancels and the program has
+    // such a checkbox.
+    const cancelling = bagListeners.find(l => l.event === 'click' && prevents(bagRoot(l)));
+    if (cancelling && components.some((c, k) => checkboxes(k, c.template)))
+      rejectEvent(
+        cancelling.source,
+        'A click handler in rest props may cancel the click on a checkbox whose onChange updates state: React still runs onChange (and keeps that state) while the browser reverts the box, which is unsupported; ignore the change in onChange instead',
+      );
   };
 
   /**
