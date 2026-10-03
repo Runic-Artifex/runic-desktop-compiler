@@ -3,7 +3,7 @@
   "accepted": true,
   "candidateHash": "1b7a9380d96bf1c0c0163e5e971b9f83cfa9cc2f1187be085fee321a134b85f6",
   "validator": "runic-independent-v2",
-  "validatorHash": "caa30e805896cdedd83de91127024551b5abd096adcdae38dfdbaef47e0f146b",
+  "validatorHash": "bf4e7bd223fc0956754b37108b72683953a4233f29032221cc0a03a22f47c9bc",
   "corpusHash": "729e4038439b92f64c1aae1de2aacbc4aad9041fcf553a9bc83f855e919830b4",
   "oracle": "JavaScript execution of compiler-owned source generated from the structurally checked matcher; independent IR lowering evaluation",
   "exhaustive": {

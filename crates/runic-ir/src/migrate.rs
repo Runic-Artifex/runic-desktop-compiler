@@ -358,7 +358,11 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
             provenance: v.get("provenance").cloned().unwrap_or(Json::Null),
             mappings,
         },
-        renderer: Renderer::Cpu,
+        renderer: match v.get("renderer").and_then(Json::as_str) {
+            None | Some("cpu") => Renderer::Cpu,
+            Some("gpu") => Renderer::Gpu,
+            Some(_) => return bad("renderer"),
+        },
         capabilities,
         styles: Styles {
             css: field(v, "css")?.as_str().unwrap_or_default().to_owned(),

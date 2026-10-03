@@ -4,7 +4,7 @@
   outputs = { self, nixpkgs }: let
     system = "x86_64-linux";
     pkgs = import nixpkgs { inherit system; };
-    runtime = with pkgs; [ wayland libxkbcommon libx11 libxcursor libxi libxrandr libxcb ];
+    runtime = with pkgs; [ wayland libxkbcommon libx11 libxcursor libxi libxrandr libxcb vulkan-loader ];
     # Browser reference runs: full Chromium (new headless mode) at the revision
     # pinned by playwright-driver. The npm `playwright-core` must match its version.
     playwrightBrowsers = pkgs.playwright-driver.browsers.override {
@@ -15,7 +15,7 @@
     };
   in {
     devShells.${system}.default = pkgs.mkShell {
-      packages = with pkgs; [ nodejs_24 cargo rustc rustfmt clippy pkg-config python3 clang lld git patchelf xdotool imagemagick prettier ] ++ runtime;
+      packages = with pkgs; [ nodejs_24 cargo rustc rustfmt clippy pkg-config python3 clang lld git patchelf xdotool imagemagick prettier xvfb-run xvfb ] ++ runtime;
       LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
       LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtime;
       RUST_BACKTRACE = "1";

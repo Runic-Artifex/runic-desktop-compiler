@@ -20,6 +20,8 @@ export function newIR(graph, name) {
     mappings: [],
     capabilities: ['dom', 'css', 'window', 'click', 'keyboard', 'finite-state'],
     provenance: graph.manifest,
+    // D12: the renderer is a per-project choice carried to the backend.
+    ...(graph.config.renderer ? { renderer: graph.config.renderer } : {}),
   };
 }
 export function finishIR(ir) {

@@ -222,12 +222,16 @@ fn utf16_to_byte(text: &str, units: usize) -> usize {
 }
 
 fn perform<A: App>(native: &mut Native<A>, action: &Value) {
-    let target = action["id"].as_str().map(|id| {
-        native
-            .doc
-            .get_element_by_id(id)
-            .unwrap_or_else(|| panic!("no element #{id}"))
-    });
+    let target = match action["id"].as_str() {
+        Some(id) => match native.doc.get_element_by_id(id) {
+            Some(n) => Some(n),
+            None => {
+                native.log.push(format!("missing target #{id}"));
+                return;
+            }
+        },
+        None => None,
+    };
     match action["kind"].as_str().expect("action kind") {
         "click" => {
             let id = target.expect("click target");
@@ -264,6 +268,25 @@ fn perform<A: App>(native: &mut Native<A>, action: &Value) {
             }
         }
         "blur" => native.doc.clear_focus(),
+        "input" => {
+            // Semantic value change (differential tests): the control's new
+            // value arrives through the normal Input event path, unless the
+            // control is disabled or read-only, as with real typing.
+            let id = target.expect("input target");
+            let locked = native.doc.get_node(id).is_some_and(|n| {
+                n.attr("disabled".into()).is_some() || n.attr("readonly".into()).is_some()
+            });
+            if !locked {
+                let value = action["value"].as_str().expect("value").to_owned();
+                controls::live_value(&mut native.doc, id, &value);
+                native.dispatch_dom(blitz_traits::events::DomEvent::new(
+                    id,
+                    blitz_traits::events::DomEventData::Input(
+                        blitz_traits::events::BlitzInputEvent { value },
+                    ),
+                ));
+            }
+        }
         "select" => {
             let id = target.expect("select target");
             let text = controls::value(&native.doc, id).expect("text control");

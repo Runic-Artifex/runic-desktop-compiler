@@ -1,0 +1,109 @@
+233 files, 14164 lines in /home/viktor/Development/RunicArtifex/runic-sdk/apps/translations-editor/Frontend
+
+M1    13 features   1974 occurrences
+M2    30 features   2767 occurrences
+M3    16 features   1935 occurrences
+M4     8 features    275 occurrences
+M5    23 features    386 occurrences
+M6     5 features    178 occurrences
+
+Features (milestone, count, first locations):
+  M1   svelte:dynamic-attr                742  src/lib/AppDialog.svelte:29, src/lib/AppDialog.svelte:31
+  M1   js:arrow-function                  404  src/lib/ArtifactPreviewPanel.svelte:35, src/lib/CommandPalette.svelte:32
+  M1   svelte:if                          180  src/lib/AppDialog.svelte:39, src/lib/AppDialog.svelte:44
+  M1   js:interface-or-type               142  src/lib/EditorModeSwitcher.svelte:2, src/lib/EditorSidebarHeader.svelte:2
+  M1   js:ternary                         128  src/lib/ArtifactPreviewPanel.svelte:34, src/lib/EditorSettingsFooter.svelte:47
+  M1   svelte:event:click                 118  src/lib/ArtifactPreviewPanel.svelte:51, src/lib/CommandPalette.svelte:130
+  M1   svelte:$state                      111  src/lib/CommandPalette.svelte:26, src/lib/CommandPalette.svelte:27
+  M1   svelte:$derived                     58  src/lib/ArtifactPreviewPanel.svelte:33, src/lib/CommandPalette.svelte:31
+  M1   svelte:bind:value                   36  src/lib/CommandPalette.svelte:104, src/lib/InterchangeDialog.svelte:74
+  M1   api:Math                            21  src/lib/CommandPalette.svelte:44, src/lib/CommandPalette.svelte:78
+  M1   svelte:event:input                  17  src/lib/CommandPalette.svelte:110, src/lib/InlineMessageEditor.svelte:341
+  M1   svelte:$derived.by                  16  src/lib/CommandPalette.svelte:32, src/lib/CommandPalette.svelte:41
+  M1   import:css                           1  src/routes/+layout.svelte:2
+  M2   js:let-mutation                    435  src/lib/AppDialog.svelte:6, src/lib/ArtifactPreviewPanel.svelte:7
+  M2   js:object-literal                  426  src/generated-translation-types.contract.ts:4, src/generated-translation-types.contract.ts:7
+  M2   js:closure                         366  src/lib/InlineMessageEditor.svelte:84, src/lib/InlineMessageEditor.svelte:205
+  M2   js:optional-chaining               264  src/lib/CommandPalette.svelte:41, src/lib/CommandPalette.svelte:57
+  M2   js:destructuring                   205  src/lib/AppDialog.svelte:6, src/lib/ArtifactPreviewPanel.svelte:7
+  M2   js:nullish-coalescing              204  src/lib/InlineMessageEditor.svelte:97, src/lib/InlineMessageEditor.svelte:134
+  M2   js:array-literal                   202  src/lib/ArtifactPreviewPanel.svelte:34, src/lib/CommandPalette.svelte:33
+  M2   js:new                              76  src/lib/MessageComposer.svelte:63, src/lib/MessageComposer.svelte:80
+  M2   js:spread                           67  src/lib/MessageComposer.svelte:65, src/lib/MessageComposer.svelte:297
+  M2   js:for-loop                         63  src/lib/CommandPalette.svelte:35, src/lib/InlineMessageEditor.svelte:61
+  M2   js:template-literal                 60  src/lib/EditorSettingsFooter.svelte:48, src/lib/InlineMessageEditor.svelte:84
+  M2   js:typeof                           58  src/lib/MessageComposer.svelte:209, src/lib/MessageComposer.svelte:262
+  M2   api:structuredClone                 44  src/lib/InlineMessageEditor.svelte:188, src/lib/InlineMessageEditor.svelte:214
+  M2   js:try-catch                        43  src/lib/InlineMessageEditor.svelte:132, src/lib/InlineMessageEditor.svelte:153
+  M2   api:Object                          42  src/lib/InlineMessageEditor.svelte:57, src/lib/MessageComposer.svelte:61
+  M2   api:Set                             36  src/lib/MessageComposer.svelte:63, src/lib/MessageComposer.svelte:80
+  M2   api:JSON                            31  src/lib/InlineMessageEditor.svelte:115, src/lib/InlineMessageEditor.svelte:133
+  M2   api:Map                             27  src/lib/ValidationPanel.svelte:45, src/lib/command-palette.ts:413
+  M2   js:throw                            21  src/lib/PatternEditor.svelte:51, src/lib/editor-bridge.ts:49
+  M2   api:Array                           20  src/lib/CommandPalette.svelte:33, src/lib/MessageComposer.svelte:316
+  M2   svelte:$state.raw                   17  src/routes/+page.svelte:129, src/routes/+page.svelte:139
+  M2   js:regex                            16  src/lib/InlineMessageEditor.svelte:70, src/lib/InlineMessageEditor.svelte:190
+  M2   js:delete                           14  src/lib/InlineMessageEditor.svelte:208, src/lib/MessageComposer.svelte:108
+  M2   js:instanceof                       10  src/lib/MessageComposer.svelte:225, src/lib/editor-bridge.ts:66
+  M2   api:String                           8  src/lib/MessageComposer.svelte:225, src/lib/appearance.ts:63
+  M2   svelte:const                         3  src/lib/CommandPalette.svelte:120, src/lib/InlineMessageEditor.svelte:262
+  M2   js:while-loop                        3  src/lib/PatternEditor.svelte:91, src/lib/mock-bridge.ts:105
+  M2   js:class                             3  src/lib/components/ui/sidebar/context.svelte.ts:23, src/lib/hooks/is-mobile.svelte.ts:5
+  M2   api:Number                           2  src/lib/SidebarSectionPanels.svelte:40, src/lib/SidebarSectionPanels.svelte:41
+  M2   js:switch                            1  src/lib/mock-bridge.ts:690
+  M3   svelte:component                   852  src/lib/AppDialog.svelte:29, src/lib/AppDialog.svelte:30
+  M3   import:svelte-component            195  src/lib/ArtifactPreviewPanel.svelte:2, src/lib/InterchangeDialog.svelte:8
+  M3   svelte:$props                      181  src/lib/AppDialog.svelte:26, src/lib/ArtifactPreviewPanel.svelte:29
+  M3   svelte:$bindable                   181  src/lib/InterchangeDialog.svelte:18, src/lib/InterchangeDialog.svelte:20
+  M3   svelte:spread                      180  src/lib/EditorSettingsFooter.svelte:57, src/lib/EditorSidebarHeader.svelte:57
+  M3   svelte:render                      124  src/lib/AppDialog.svelte:42, src/lib/AppDialog.svelte:46
+  M3   svelte:bind:this                    83  src/lib/CommandPalette.svelte:116, src/lib/SidebarSectionPanels.svelte:101
+  M3   svelte:each-keyed                   64  src/lib/CommandPalette.svelte:117, src/lib/CommandPalette.svelte:119
+  M3   svelte:snippet                      34  src/lib/ArtifactPreviewPanel.svelte:40, src/lib/EditorSettingsFooter.svelte:56
+  M3   svelte:module-script                17  src/lib/EditorModeSwitcher.svelte:1, src/lib/EditorSidebarHeader.svelte:1
+  M3   svelte:style-directive               6  src/lib/MessageList.svelte:167, src/lib/MessageList.svelte:168
+  M3   svelte:style-attr                    6  src/lib/components/ui/progress/progress.svelte:25, src/lib/components/ui/sidebar/sidebar-menu-skeleton.svelte:33
+  M3   svelte:context                       5  src/lib/components/ui/sidebar/context.svelte.ts:1, src/lib/components/ui/toggle-group/toggle-group.svelte:2
+  M3   host:focus()                         3  src/lib/CommandPalette.svelte:57, src/lib/InlineMessageEditor.svelte:254
+  M3   svelte:class-directive               3  src/lib/PatternEditor.svelte:119, src/lib/TranslationEditor.svelte:58
+  M3   svelte:element                       1  src/lib/components/ui/badge/badge.svelte:40
+  M4   api:Promise                        115  src/lib/CommandPalette.svelte:60, src/lib/CommandPalette.svelte:66
+  M4   js:async-function                   71  src/lib/CommandPalette.svelte:60, src/lib/CommandPalette.svelte:66
+  M4   js:await                            69  src/lib/CommandPalette.svelte:62, src/lib/CommandPalette.svelte:69
+  M4   host:setTimeout                      8  src/lib/appearance.ts:25, src/lib/appearance.ts:32
+  M4   svelte:lifecycle                     7  src/lib/CommandPalette.svelte:2, src/lib/InlineMessageEditor.svelte:20
+  M4   svelte:$effect                       3  src/lib/CommandPalette.svelte:43, src/lib/CommandPalette.svelte:46
+  M4   host:AbortController                 1  src/lib/appearance.ts:24
+  M4   host:setInterval                     1  src/routes/+page.svelte:455
+  M5   host:document                      147  src/lib/WorkspacePanel.svelte:16, src/lib/appearance.ts:59
+  M5   svelte:bind:other                   99  src/lib/CommandPalette.svelte:103, src/lib/LocaleSwitcher.svelte:58
+  M5   svelte:event:other                  61  src/lib/InlineMessageEditor.svelte:279, src/lib/InlineMessageEditor.svelte:340
+  M5   svelte:event:pointer                13  src/lib/CommandPalette.svelte:131, src/lib/InlineMessageEditor.svelte:276
+  M5   svelte:event:change                 12  src/lib/MessageComposer.svelte:433, src/lib/MessageComposer.svelte:439
+  M5   host:window                          9  src/lib/MessageList.svelte:86, src/lib/MessageList.svelte:87
+  M5   api:crypto                           9  src/lib/mock-bridge.ts:185, src/lib/mock-bridge.ts:244
+  M5   svelte:event:focus                   6  src/lib/InlineMessageEditor.svelte:339, src/lib/InlineMessageEditor.svelte:342
+  M5   svelte:event:keyboard                5  src/lib/CommandPalette.svelte:97, src/lib/MessageComposer.svelte:600
+  M5   host:matchMedia                      4  src/lib/appearance.ts:61, src/lib/appearance.ts:63
+  M5   svelte:bind:checked                  4  src/lib/components/ui/checkbox/checkbox.svelte:23, src/lib/components/ui/dropdown-menu/dropdown-menu-checkbox-item.svelte:22
+  M5   host:history                         3  src/lib/contracts.ts:82, src/lib/contracts.ts:126
+  M5   api:Intl                             2  src/lib/MessageComposer.svelte:289, src/routes/+page.svelte:1264
+  M5   svelte:window                        2  src/lib/components/ui/sidebar/sidebar-provider.svelte:38, src/routes/+page.svelte:1795
+  M5   host:navigator                       2  src/lib/mock-bridge.ts:445, src/routes/+page.svelte:963
+  M5   host:scrollTo                        1  src/lib/CommandPalette.svelte:63
+  M5   svelte:event:scroll                  1  src/lib/MessageList.svelte:156
+  M5   host:getBoundingClientRect           1  src/lib/SidebarSectionPanels.svelte:53
+  M5   host:fetch                           1  src/lib/appearance.ts:28
+  M5   host:location                        1  src/lib/contracts.ts:273
+  M5   host:addEventListener                1  src/routes/+page.svelte:434
+  M5   host:clipboard                       1  src/routes/+page.svelte:963
+  M5   api:Date                             1  src/routes/+page.svelte:1702
+  M6   import:package                     166  src/generated-translation-types.contract.ts:1, src/lib/EditorSettingsFooter.svelte:2
+  M6   svelte:scoped-style                  7  src/lib/ArtifactPreviewPanel.svelte:93, src/lib/InlinePreview.svelte:38
+  M6   api:Symbol                           2  src/lib/components/ui/sidebar/context.svelte.ts:69, src/lib/components/ui/sidebar/context.svelte.ts:78
+  M6   kit:route-file                       2  src/routes/+layout.svelte:1, src/routes/+page.svelte:1
+  M6   svelte:head                          1  src/routes/+page.svelte:1791
+
+Packages: @lucide/svelte (75), bits-ui (74), tailwind-variants (12), virtual:runic-translations (3), clsx (1), tailwind-merge (1)
+
+Excluded 9 generated bridge files (D13): src/generated/editor.ts, src/generated/editorDiagnostics.ts, src/generated/editorDocument.ts, src/generated/editorDocumentTools.ts, src/generated/editorInterchange.ts, src/generated/editorLocalState.ts, src/generated/editorProject.ts, src/generated/editorReview.ts, src/generated/editorWorkspace.ts

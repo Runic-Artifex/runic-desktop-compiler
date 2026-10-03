@@ -44,6 +44,21 @@ impl<A: App> Document for Native<A> {
     }
 }
 
+impl<A: App> Native<A> {
+    /// Dispatch a synthetic DOM event (probe-only semantic input).
+    #[cfg(feature = "probe")]
+    pub(crate) fn dispatch_dom(&mut self, event: DomEvent) {
+        let handler = Handler {
+            app: &mut self.app,
+            listeners: &mut self.listeners,
+            space_target: &mut self.space_target,
+            nav_start: &mut self.nav_start,
+            log: &mut self.log,
+        };
+        EventDriver::new(&mut self.doc, handler).handle_dom_event(event);
+    }
+}
+
 struct Handler<'a, A: App> {
     app: &'a mut A,
     listeners: &'a mut Listeners,

@@ -2,7 +2,7 @@
 // Conformance runner: original framework in headless Chromium vs the native
 // application, per case, fixture and viewport.
 //
-//   node conformance/run.mjs [case-name ...] [--pixels] [--release] [--out DIR]
+//   node conformance/run.mjs [case-name ...] [--pixels] [--release] [--no-opt] [--out DIR]
 //
 // Exit codes: 0 all gates passed, 1 a failure, 2 incomplete (a stage could
 // not run). Reports: <out>/report.json and one file per run.
@@ -21,6 +21,7 @@ const { values, positionals } = parseArgs({
   options: {
     pixels: { type: 'boolean' },
     release: { type: 'boolean' },
+    'no-opt': { type: 'boolean' },
     out: { type: 'string' },
     quiet: { type: 'boolean' },
   },
@@ -57,7 +58,7 @@ try {
     const actions = expand(c.actions);
     for (const fixture of c.fixtures) {
       const dir = path.join(repo, 'fixtures', fixture);
-      if (!binaries.has(fixture)) binaries.set(fixture, await buildProbe(dir, { release: values.release }));
+      if (!binaries.has(fixture)) binaries.set(fixture, await buildProbe(dir, { release: values.release, noOpt: values['no-opt'] }));
       const { binary, ir } = binaries.get(fixture);
       for (const viewport of viewports) {
         const label = `${c.name}/${fixture}/${viewport.width}x${viewport.height}`;

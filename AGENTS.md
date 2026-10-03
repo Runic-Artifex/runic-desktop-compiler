@@ -13,10 +13,10 @@ Start here:
 
 | Path | Content |
 |---|---|
-| `compiler/` | Node-hosted compiler: collector, language layer, framework adapters (`adapters/`), IR, codegen, mappings, CLI. M1 moves IR/codegen to `crates/` and converts the rest to TypeScript |
-| `native/` | Rust runtime and probes copied into generated apps (becomes `crates/runic-runtime` in M1) |
+| `compiler/` | Node-hosted frontend: collector, language layer, framework adapters (`adapters/`), schema 3 IR and mapping validation, `scan`, CLI. `codegen.mjs` bridges to the Rust backend |
+| `crates/` | Rust workspace: `runic-ir` (schema 4 types, validator, migration, reference interpreter), `runic-codegen` (Rust generation, `runic-codegen` binary), `runic-runtime` (library linked by every generated app), `runic-js` (JS value semantics), `runic-blitz-probes` (Blitz behaviour probes) |
 | `fixtures/` | Example and conformance applications per framework, including expected-rejection fixtures |
-| `conformance/` | Isolated framework-version environments (more Vue/Svelte pins); the conformance harness lands here in M1 |
+| `conformance/` | Harness (`run.mjs`: browser vs native; `differential.mjs`: interpreter vs native; `measure.mjs`: startup/size), case manifests (`cases/`), committed result summaries (`results/`), isolated framework-version environments |
 | `mappings/` | Pinned mapping packs (`accepted/`), their proofs (`proofs/`), `registry.lock.json`, validation corpus |
 | `tests/` | `node --test` suites; `tests/data/` holds frozen inputs |
 | `docs/` | Living docs at the top level; `history/` holds the Phases 0–4 record (raw evidence is at tag `baseline/phase4`) |
@@ -48,10 +48,15 @@ Use the locked flake environment. Check `flake.nix`, `.envrc` and the README fir
 ```sh
 npm ci                                   # once
 npm test                                 # compiler suites
+cargo test --offline --workspace         # Rust crates
+node conformance/run.mjs [case…] [--pixels] [--no-opt]   # browser vs native
+node conformance/differential.mjs        # interpreter vs generated code
+node conformance/measure.mjs             # release size and first-frame time (Xvfb)
+node compiler/cli.mjs scan <project>     # feature census against the roadmap
 node compiler/cli.mjs build fixtures/counter-svelte --release
 ./artifacts/counter-svelte/runic-app --x11
 prettier --write "compiler/**/*.mjs" "tests/*.mjs"   # formatting (in dev shell)
 cargo fmt
 ```
 
-Native builds share `target/` and serialise through `.cache/build.lock`. Run them one at a time and not from separate worktrees (see WORKING.md). Documentation-only changes need no native rebuild.
+Native builds share one cargo target (`RUNIC_TARGET_DIR`, default `target/`) and serialise through `<target>/.runic-build.lock`; worktrees point `RUNIC_TARGET_DIR` at the main tree's `target/` (see WORKING.md). Builds are `--offline` against the workspace `Cargo.lock`. Documentation-only changes need no native rebuild.

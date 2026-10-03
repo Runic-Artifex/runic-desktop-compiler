@@ -149,7 +149,7 @@ export async function buildApp(app, options = {}) {
 async function main() {
   if (!command || !app) {
     console.log(
-      'runic-compiler analyze|build|discover <app>\nrunic-compiler validate|accept <candidate.json>\nOptions: --out PATH --no-opt --no-mappings --release --probe --replay --codex --model MODEL --constraints FILE --feedback FILE --provider EXEC --port PORT --json',
+      'runic-compiler analyze|build|discover <app>\nrunic-compiler scan <project-dir>\nrunic-compiler validate|accept <candidate.json>\nOptions: --out PATH --no-opt --no-mappings --release --probe --replay --codex --model MODEL --constraints FILE --feedback FILE --provider EXEC --port PORT --json',
     );
     return;
   }
@@ -174,6 +174,12 @@ async function main() {
     console.log(
       JSON.stringify({ executable: path.join(r.out, 'runic-app'), validation: r.ir.validation }),
     );
+    return;
+  }
+  if (command === 'scan') {
+    const { scan, formatScan } = await import('./scan.mjs');
+    const report = await scan(app);
+    console.log(values.json ? JSON.stringify(report, null, 2) : formatScan(report));
     return;
   }
   const graph = await collect(app);

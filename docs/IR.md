@@ -14,7 +14,8 @@ Schema 4 introduces the program, component, cell, handler and template structure
   "capabilities": ["dom", "css", "window", "click", "keyboard", "text-input"],
   "styles": { "css": "…", "assets": [{ "path": "assets/x.woff2", "sha256": "…", "bytes": 1234, "mime": "font/woff2" }] },
   "components": [ Component, … ],
-  "root": 0                          // index of the mounted component
+  "root": 0,                         // index of the mounted component
+  "containerAttrs": { "data-v-app": "" }   // optional: attributes the framework sets on #root at mount
 }
 ```
 
@@ -30,14 +31,14 @@ The types are `"number"` (IEEE-754 double with JavaScript semantics), `"string"`
 {
   "name": "App",
   "cells":    [ { "name": "count", "type": "number", "init": Expr, "domain"?: Domain } ],
-  "handlers": [ { "name"?: "…", "event": "click" | "text-input", "body": [Stmt] } ],
+  "handlers": [ { "name"?: "…", "event": "click" | "input", "body": [Stmt] } ],
   "template": [ Node ]
 }
 ```
 
 - **Cells** are the component's reactive state. `init` may only read cells declared earlier.
 - **Domains** constrain a cell's values. `{ "kind": "text", "maxUtf16": 256 }` marks a single-line editable text cell: no control characters, at most `maxUtf16` code units, enforced on every write.
-- **Handlers** run synchronously when an event reaches a listener. `text-input` handlers receive the control's new value as `payload` (type string).
+- **Handlers** run synchronously when an event reaches a listener. `input` handlers receive the control's new value as `payload` (type string).
 
 ## Statements
 
@@ -55,7 +56,7 @@ Every expression has a statically known type, which the validator infers and che
 |---|---|---|
 | `{ "op": "lit", "value": v }` | type of `v` | Literal |
 | `{ "op": "cell", "cell": i, "read": "current" \| "snapshot" }` | cell type | `current`: latest value, including writes earlier in this handler. `snapshot`: value at handler entry, i.e. the value the last render observed. In templates and initialisers both mean the committed value. |
-| `{ "op": "payload" }` | string | Event payload; only in `text-input` handlers |
+| `{ "op": "payload" }` | string | Event payload; only in `input` handlers |
 | `{ "op": "not" \| "neg" \| "to-string" \| "utf16-length", "arg": e }` | boolean / number / string / number | JS `!`, unary `-`, `String(x)`, `.length` |
 | `{ "op": "add" \| "sub" \| "mul" \| "min" \| "max", "left": a, "right": b }` | number | JS arithmetic. `min`/`max` follow `Math.min`/`Math.max` (NaN propagates; `-0 < +0`). |
 | `{ "op": "concat", "left": a, "right": b }` | string | String concatenation |
@@ -82,7 +83,7 @@ Node =
 - **Tags** come from an allow-list (currently the schema 3 set). M3 adds `each` (keyed lists), `component`, `slot` and `region` nodes.
 - **Element identity:** an element's `id` attribute must be a literal and unique within the program, because probes and conformance address elements by id.
 - **Listeners:** at most one per element and event kind. Activation behaviour (Enter/Space on buttons, click focus, Tab order) and the disabled/readonly checks belong to the runtime's DOM semantics, not to the IR.
-- **Text inputs:** an `input` with a `value` prop must bind a text-domain cell and have a `text-input` listener whose handler sets that cell from `payload`. That keeps the Phase 2 controlled-input contract.
+- **Text inputs:** a `value` prop is a live, controlled property: after every dispatch the runtime re-synchronises the control with the prop's value (equal values are left untouched, preserving selection and composition). A write that leaves a cell's domain is rejected atomically, which resets the control. The JS adapters still enforce the Phase 2 editor contract before migration.
 
 ## Validation limits
 

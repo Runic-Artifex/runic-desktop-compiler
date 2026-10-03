@@ -30,7 +30,7 @@ Rules of thumb:
 
 ## Resource rules for parallel work
 
-- **Cargo builds.** A full Blitz build is slow (`CARGO_BUILD_JOBS=2`) and `target/` is about 4 GB. Worktrees must not create their own `target/`. Until `RUNIC_TARGET_DIR` and the shared build lock land in M1, subagents in worktrees do JS/Nix/docs work only, and native builds run in the main tree, one at a time.
+- **Cargo builds.** A full Blitz build is slow (`CARGO_BUILD_JOBS=2`) and `target/` is about 4 GB. Worktrees must not create their own `target/`: set `RUNIC_TARGET_DIR=/home/viktor/Development/RunicDesktopCompiler/target` (and `CARGO_TARGET_DIR` to the same path for direct cargo commands). Native builds serialise through the lock in that directory, so parallel agents queue rather than duplicate work.
 - **Disk space.** Before browser, native or package matrices, check space with `df -h` on the project filesystem (it shares `/tmp`). Start with conservative concurrency.
 - **Cleanup.** Stop task-owned servers and windows. Remove disposable outputs under `artifacts/` and `.cache/` when their consumers finish. Keep logs that explain failures.
 - **Environment.** Always use the locked environment: `nix develop . -c <cmd>`, or `direnv exec . <cmd>` after the user has allowed `.envrc`.

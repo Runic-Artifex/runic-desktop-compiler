@@ -33,6 +33,7 @@ pub fn live_value(doc: &mut BaseDocument, id: NodeId, text: &str) -> bool {
 }
 
 /// `(selectionStart, selectionEnd)` in UTF-16 code units.
+#[cfg_attr(not(feature = "probe"), allow(dead_code))]
 pub fn selection(doc: &BaseDocument, id: NodeId) -> Option<(usize, usize, bool)> {
     let e = &editor(doc, id)?.editor;
     let text = e.raw_text();

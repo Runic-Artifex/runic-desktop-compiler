@@ -15,8 +15,8 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 | Milestone | Outcome | Driving examples | Main mode | Status |
 |---|---|---|---|---|
 | M0 | Repository restructure and plan | — | Standalone | Done 2026-10-03 |
-| M1 | Rust IR, codegen and runtime library; renderer toggle; automated conformance; startup/size measurement | all 15 existing fixtures | Standalone, 2 spikes | Next |
-| M2 | JS values, statements and functions | 7GUIs Counter, Temperature Converter, Flight Booker | Standalone design, then a workflow for built-ins | Planned |
+| M1 | Rust IR, codegen and runtime library; renderer toggle; automated conformance; startup/size measurement | all 15 existing fixtures | Standalone, 2 spikes | Done 2026-10-03 ([results](../conformance/results/m1.md)) |
+| M2 | JS values, statements and functions | 7GUIs Counter, Temperature Converter, ledger example | Standalone design ([M2-VALUES](design/M2-VALUES.md)), then subagents for built-ins | In progress |
 | M3 | Components, slots and snippets, keyed lists, instance lifetimes | 7GUIs CRUD, TodoMVC (in memory) | Standalone core, then subagents per adapter | Planned |
 | M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone, then a workflow to mine ordering cases | Planned |
 | M5 | Full event model, forms, layout/measurement APIs, host services | 7GUIs Circle Drawer, Cells; a virtualized list | Subagents per service; desktop track standalone | Planned |
@@ -57,7 +57,7 @@ Replace the parts that cannot scale before adding any capability.
    - Move probe and trace modes behind a `probe` feature.
    - Keep the live-control behaviour of `controls.rs` and its probes.
    - **Renderer toggle (D12):** `renderer-cpu`/`renderer-gpu` features selected from `runic.json`, with CPU as the default. GPU gets a smoke test.
-4. **Frontends.** Convert `compiler/` to TypeScript (type-stripped `.ts`, `tsc --noEmit` in `npm test`) and emit IR v4 JSON. Delete `ir.mjs` and `codegen.mjs` once the Rust path passes. Move the mapping validator's oracle to the interpreter and re-prove the mappings.
+4. **Frontends.** *(Revised during M1.)* The existing JS adapters keep emitting schema 3, which the Rust backend migrates. The adapters are rewritten in TypeScript on a new shared language layer in M2 (`frontend/`, see [M2-VALUES](design/M2-VALUES.md)), so converting the old code first would be wasted work. `codegen.mjs` is now a bridge to the Rust backend; `ir.mjs` is removed with the old adapters.
 5. **Conformance harness.** A single harness in `conformance/` replaces the per-phase scripts. It uses a case manifest (app, framework, version, viewport, action trace, observation kinds) and drives:
    - headless Chromium through Playwright from nixpkgs, running the original framework;
    - native apps in headless snapshot mode;
@@ -88,7 +88,7 @@ Replace the parts that cannot scale before adding any capability.
 - **Types and checks:** type inference from the TypeScript checker, with diagnostics for `any` or unknown shapes; range analysis that narrows `f64` to integers where provably safe.
 - **Island boundary:** define the marshalling boundary that M6 islands and the M7 bridge will use.
 
-**Examples:** 7GUIs Counter, Temperature Converter, Flight Booker.
+**Examples:** 7GUIs Counter, Temperature Converter and a ledger example (objects, arrays, strings and Map without list rendering). Flight Booker needs `<select>`, so it moves to M5.
 
 **Work mode:**
 - **Standalone:** the value-model ADR and the language-layer lowering.

@@ -99,6 +99,12 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic) {
 export async function collect(app) {
   const root = await realpath(app);
   const config = JSON.parse(await readFile(path.join(root, 'runic.json'), 'utf8'));
+  if (config.renderer !== undefined && !['cpu', 'gpu'].includes(config.renderer))
+    throw new Diagnostic('E_CONFIG', 'runic.json renderer must be "cpu" or "gpu"', {
+      file: 'runic.json',
+      line: 1,
+      column: 1,
+    });
   const entry = path.resolve(root, config.entry);
   if (!entry.startsWith(root + path.sep))
     throw new Diagnostic('E_ENTRY', 'Entry must be inside the application');

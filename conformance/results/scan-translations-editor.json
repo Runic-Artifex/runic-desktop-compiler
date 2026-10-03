@@ -1,0 +1,1102 @@
+{
+  "schema": 1,
+  "root": "/home/viktor/Development/RunicArtifex/runic-sdk/apps/translations-editor/Frontend",
+  "files": 233,
+  "lines": 14164,
+  "byMilestone": {
+    "M1": {
+      "features": 13,
+      "occurrences": 1974
+    },
+    "M2": {
+      "features": 30,
+      "occurrences": 2767
+    },
+    "M3": {
+      "features": 16,
+      "occurrences": 1935
+    },
+    "M4": {
+      "features": 8,
+      "occurrences": 275
+    },
+    "M5": {
+      "features": 23,
+      "occurrences": 386
+    },
+    "M6": {
+      "features": 5,
+      "occurrences": 178
+    }
+  },
+  "packages": {
+    "@lucide/svelte": 75,
+    "bits-ui": 74,
+    "tailwind-variants": 12,
+    "virtual:runic-translations": 3,
+    "clsx": 1,
+    "tailwind-merge": 1
+  },
+  "features": [
+    {
+      "feature": "svelte:dynamic-attr",
+      "milestone": "M1",
+      "count": 742,
+      "where": [
+        "src/lib/AppDialog.svelte:29",
+        "src/lib/AppDialog.svelte:31",
+        "src/lib/AppDialog.svelte:32",
+        "src/lib/AppDialog.svelte:41",
+        "src/lib/ArtifactPreviewPanel.svelte:41"
+      ]
+    },
+    {
+      "feature": "js:arrow-function",
+      "milestone": "M1",
+      "count": 404,
+      "where": [
+        "src/lib/ArtifactPreviewPanel.svelte:35",
+        "src/lib/CommandPalette.svelte:32",
+        "src/lib/CommandPalette.svelte:41",
+        "src/lib/CommandPalette.svelte:43",
+        "src/lib/CommandPalette.svelte:46"
+      ]
+    },
+    {
+      "feature": "svelte:if",
+      "milestone": "M1",
+      "count": 180,
+      "where": [
+        "src/lib/AppDialog.svelte:39",
+        "src/lib/AppDialog.svelte:44",
+        "src/lib/ArtifactPreviewPanel.svelte:44",
+        "src/lib/ArtifactPreviewPanel.svelte:60",
+        "src/lib/ArtifactPreviewPanel.svelte:62"
+      ]
+    },
+    {
+      "feature": "js:interface-or-type",
+      "milestone": "M1",
+      "count": 142,
+      "where": [
+        "src/lib/EditorModeSwitcher.svelte:2",
+        "src/lib/EditorSidebarHeader.svelte:2",
+        "src/lib/InlineMessageEditor.svelte:24",
+        "src/lib/LocaleSwitcher.svelte:13",
+        "src/lib/MessageComposer.svelte:46"
+      ]
+    },
+    {
+      "feature": "js:ternary",
+      "milestone": "M1",
+      "count": 128,
+      "where": [
+        "src/lib/ArtifactPreviewPanel.svelte:34",
+        "src/lib/EditorSettingsFooter.svelte:47",
+        "src/lib/InlineMessageEditor.svelte:69",
+        "src/lib/InlineMessageEditor.svelte:84",
+        "src/lib/InlineMessageEditor.svelte:91"
+      ]
+    },
+    {
+      "feature": "svelte:event:click",
+      "milestone": "M1",
+      "count": 118,
+      "where": [
+        "src/lib/ArtifactPreviewPanel.svelte:51",
+        "src/lib/CommandPalette.svelte:130",
+        "src/lib/EditorModeSwitcher.svelte:47",
+        "src/lib/EditorSettingsFooter.svelte:110",
+        "src/lib/EditorSidebarHeader.svelte:95"
+      ]
+    },
+    {
+      "feature": "svelte:$state",
+      "milestone": "M1",
+      "count": 111,
+      "where": [
+        "src/lib/CommandPalette.svelte:26",
+        "src/lib/CommandPalette.svelte:27",
+        "src/lib/CommandPalette.svelte:28",
+        "src/lib/CommandPalette.svelte:29",
+        "src/lib/InlineMessageEditor.svelte:49"
+      ]
+    },
+    {
+      "feature": "svelte:$derived",
+      "milestone": "M1",
+      "count": 58,
+      "where": [
+        "src/lib/ArtifactPreviewPanel.svelte:33",
+        "src/lib/CommandPalette.svelte:31",
+        "src/lib/EditorModeSwitcher.svelte:23",
+        "src/lib/EditorSettingsFooter.svelte:45",
+        "src/lib/EditorSettingsFooter.svelte:46"
+      ]
+    },
+    {
+      "feature": "svelte:bind:value",
+      "milestone": "M1",
+      "count": 36,
+      "where": [
+        "src/lib/CommandPalette.svelte:104",
+        "src/lib/InterchangeDialog.svelte:74",
+        "src/lib/InterchangeDialog.svelte:93",
+        "src/lib/InterchangeDialog.svelte:118",
+        "src/lib/InterchangeDialog.svelte:124"
+      ]
+    },
+    {
+      "feature": "api:Math",
+      "milestone": "M1",
+      "count": 21,
+      "where": [
+        "src/lib/CommandPalette.svelte:44",
+        "src/lib/CommandPalette.svelte:78",
+        "src/lib/InlineMessageEditor.svelte:216",
+        "src/lib/InlineMessageEditor.svelte:247",
+        "src/lib/MessageComposer.svelte:193"
+      ]
+    },
+    {
+      "feature": "svelte:event:input",
+      "milestone": "M1",
+      "count": 17,
+      "where": [
+        "src/lib/CommandPalette.svelte:110",
+        "src/lib/InlineMessageEditor.svelte:341",
+        "src/lib/InlineMessageEditor.svelte:404",
+        "src/lib/MessageComposer.svelte:504",
+        "src/lib/MessageComposer.svelte:569"
+      ]
+    },
+    {
+      "feature": "svelte:$derived.by",
+      "milestone": "M1",
+      "count": 16,
+      "where": [
+        "src/lib/CommandPalette.svelte:32",
+        "src/lib/CommandPalette.svelte:41",
+        "src/lib/MessageComposer.svelte:62",
+        "src/lib/MessageComposer.svelte:69",
+        "src/lib/MessageComposer.svelte:77"
+      ]
+    },
+    {
+      "feature": "import:css",
+      "milestone": "M1",
+      "count": 1,
+      "where": [
+        "src/routes/+layout.svelte:2"
+      ]
+    },
+    {
+      "feature": "js:let-mutation",
+      "milestone": "M2",
+      "count": 435,
+      "where": [
+        "src/lib/AppDialog.svelte:6",
+        "src/lib/ArtifactPreviewPanel.svelte:7",
+        "src/lib/CommandPalette.svelte:14",
+        "src/lib/CommandPalette.svelte:26",
+        "src/lib/CommandPalette.svelte:27"
+      ]
+    },
+    {
+      "feature": "js:object-literal",
+      "milestone": "M2",
+      "count": 426,
+      "where": [
+        "src/generated-translation-types.contract.ts:4",
+        "src/generated-translation-types.contract.ts:7",
+        "src/lib/CommandPalette.svelte:36",
+        "src/lib/CommandPalette.svelte:63",
+        "src/lib/EditorModeSwitcher.svelte:24"
+      ]
+    },
+    {
+      "feature": "js:closure",
+      "milestone": "M2",
+      "count": 366,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:84",
+        "src/lib/InlineMessageEditor.svelte:205",
+        "src/lib/InlineMessageEditor.svelte:207",
+        "src/lib/LocaleSwitcher.svelte:41",
+        "src/lib/MessageComposer.svelte:65"
+      ]
+    },
+    {
+      "feature": "js:optional-chaining",
+      "milestone": "M2",
+      "count": 264,
+      "where": [
+        "src/lib/CommandPalette.svelte:41",
+        "src/lib/CommandPalette.svelte:57",
+        "src/lib/CommandPalette.svelte:63",
+        "src/lib/InlineMessageEditor.svelte:97",
+        "src/lib/InlineMessageEditor.svelte:102"
+      ]
+    },
+    {
+      "feature": "js:destructuring",
+      "milestone": "M2",
+      "count": 205,
+      "where": [
+        "src/lib/AppDialog.svelte:6",
+        "src/lib/ArtifactPreviewPanel.svelte:7",
+        "src/lib/CommandPalette.svelte:14",
+        "src/lib/EditorModeSwitcher.svelte:9",
+        "src/lib/EditorSettingsFooter.svelte:17"
+      ]
+    },
+    {
+      "feature": "js:nullish-coalescing",
+      "milestone": "M2",
+      "count": 204,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:97",
+        "src/lib/InlineMessageEditor.svelte:134",
+        "src/lib/InlineMessageEditor.svelte:187",
+        "src/lib/InlineMessageEditor.svelte:197",
+        "src/lib/InlineMessageEditor.svelte:215"
+      ]
+    },
+    {
+      "feature": "js:array-literal",
+      "milestone": "M2",
+      "count": 202,
+      "where": [
+        "src/lib/ArtifactPreviewPanel.svelte:34",
+        "src/lib/CommandPalette.svelte:33",
+        "src/lib/EditorModeSwitcher.svelte:23",
+        "src/lib/InlineMessageEditor.svelte:55",
+        "src/lib/InlineMessageEditor.svelte:60"
+      ]
+    },
+    {
+      "feature": "js:new",
+      "milestone": "M2",
+      "count": 76,
+      "where": [
+        "src/lib/MessageComposer.svelte:63",
+        "src/lib/MessageComposer.svelte:80",
+        "src/lib/MessageComposer.svelte:289",
+        "src/lib/PatternEditor.svelte:51",
+        "src/lib/ValidationPanel.svelte:45"
+      ]
+    },
+    {
+      "feature": "js:spread",
+      "milestone": "M2",
+      "count": 67,
+      "where": [
+        "src/lib/MessageComposer.svelte:65",
+        "src/lib/MessageComposer.svelte:297",
+        "src/lib/command-palette.ts:382",
+        "src/lib/command-palette.ts:419",
+        "src/lib/components/ui/item/item.svelte:51"
+      ]
+    },
+    {
+      "feature": "js:for-loop",
+      "milestone": "M2",
+      "count": 63,
+      "where": [
+        "src/lib/CommandPalette.svelte:35",
+        "src/lib/InlineMessageEditor.svelte:61",
+        "src/lib/InlineMessageEditor.svelte:89",
+        "src/lib/MessageComposer.svelte:64",
+        "src/lib/MessageComposer.svelte:268"
+      ]
+    },
+    {
+      "feature": "js:template-literal",
+      "milestone": "M2",
+      "count": 60,
+      "where": [
+        "src/lib/EditorSettingsFooter.svelte:48",
+        "src/lib/InlineMessageEditor.svelte:84",
+        "src/lib/InlineMessageEditor.svelte:104",
+        "src/lib/InlineMessageEditor.svelte:116",
+        "src/lib/MessageComposer.svelte:72"
+      ]
+    },
+    {
+      "feature": "js:typeof",
+      "milestone": "M2",
+      "count": 58,
+      "where": [
+        "src/lib/MessageComposer.svelte:209",
+        "src/lib/MessageComposer.svelte:262",
+        "src/lib/MessageComposer.svelte:269",
+        "src/lib/MessageComposer.svelte:276",
+        "src/lib/MessageComposer.svelte:307"
+      ]
+    },
+    {
+      "feature": "api:structuredClone",
+      "milestone": "M2",
+      "count": 44,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:188",
+        "src/lib/InlineMessageEditor.svelte:214",
+        "src/lib/InlineMessageEditor.svelte:238",
+        "src/lib/MessageComposer.svelte:86",
+        "src/lib/MessageComposer.svelte:180"
+      ]
+    },
+    {
+      "feature": "js:try-catch",
+      "milestone": "M2",
+      "count": 43,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:132",
+        "src/lib/InlineMessageEditor.svelte:153",
+        "src/lib/MessageComposer.svelte:219",
+        "src/lib/MessageComposer.svelte:288",
+        "src/lib/appearance.ts:27"
+      ]
+    },
+    {
+      "feature": "api:Object",
+      "milestone": "M2",
+      "count": 42,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:57",
+        "src/lib/MessageComposer.svelte:61",
+        "src/lib/MessageComposer.svelte:63",
+        "src/lib/MessageComposer.svelte:65",
+        "src/lib/MessageComposer.svelte:93"
+      ]
+    },
+    {
+      "feature": "api:Set",
+      "milestone": "M2",
+      "count": 36,
+      "where": [
+        "src/lib/MessageComposer.svelte:63",
+        "src/lib/MessageComposer.svelte:80",
+        "src/lib/MessageComposer.svelte:274",
+        "src/lib/components/ui/field/index.ts:8",
+        "src/lib/components/ui/field/index.ts:14"
+      ]
+    },
+    {
+      "feature": "api:JSON",
+      "milestone": "M2",
+      "count": 31,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:115",
+        "src/lib/InlineMessageEditor.svelte:133",
+        "src/lib/InlineMessageEditor.svelte:154",
+        "src/lib/MessageComposer.svelte:213",
+        "src/lib/MessageComposer.svelte:220"
+      ]
+    },
+    {
+      "feature": "api:Map",
+      "milestone": "M2",
+      "count": 27,
+      "where": [
+        "src/lib/ValidationPanel.svelte:45",
+        "src/lib/command-palette.ts:413",
+        "src/lib/editor-bridge.ts:35",
+        "src/lib/local-state.ts:26",
+        "src/lib/local-state.ts:55"
+      ]
+    },
+    {
+      "feature": "js:throw",
+      "milestone": "M2",
+      "count": 21,
+      "where": [
+        "src/lib/PatternEditor.svelte:51",
+        "src/lib/editor-bridge.ts:49",
+        "src/lib/editor-bridge.ts:99",
+        "src/lib/editor-bridge.ts:104",
+        "src/lib/editor-bridge.ts:116"
+      ]
+    },
+    {
+      "feature": "api:Array",
+      "milestone": "M2",
+      "count": 20,
+      "where": [
+        "src/lib/CommandPalette.svelte:33",
+        "src/lib/MessageComposer.svelte:316",
+        "src/lib/command-palette.ts:383",
+        "src/lib/contracts.ts:3",
+        "src/lib/message-composer.ts:16"
+      ]
+    },
+    {
+      "feature": "svelte:$state.raw",
+      "milestone": "M2",
+      "count": 17,
+      "where": [
+        "src/routes/+page.svelte:129",
+        "src/routes/+page.svelte:139",
+        "src/routes/+page.svelte:152",
+        "src/routes/+page.svelte:167",
+        "src/routes/+page.svelte:176"
+      ]
+    },
+    {
+      "feature": "js:regex",
+      "milestone": "M2",
+      "count": 16,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:70",
+        "src/lib/InlineMessageEditor.svelte:190",
+        "src/lib/MessageComposer.svelte:70",
+        "src/lib/message-composer.ts:100",
+        "src/lib/mock-bridge.ts:170"
+      ]
+    },
+    {
+      "feature": "js:delete",
+      "milestone": "M2",
+      "count": 14,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:208",
+        "src/lib/MessageComposer.svelte:108",
+        "src/lib/MessageComposer.svelte:115",
+        "src/lib/MessageComposer.svelte:146",
+        "src/lib/MessageComposer.svelte:151"
+      ]
+    },
+    {
+      "feature": "js:instanceof",
+      "milestone": "M2",
+      "count": 10,
+      "where": [
+        "src/lib/MessageComposer.svelte:225",
+        "src/lib/editor-bridge.ts:66",
+        "src/lib/mock-bridge.ts:352",
+        "src/lib/mock-bridge.ts:376",
+        "src/routes/+page.svelte:451"
+      ]
+    },
+    {
+      "feature": "api:String",
+      "milestone": "M2",
+      "count": 8,
+      "where": [
+        "src/lib/MessageComposer.svelte:225",
+        "src/lib/appearance.ts:63",
+        "src/lib/appearance.ts:64",
+        "src/lib/mock-bridge.ts:376",
+        "src/lib/resource-model.ts:151"
+      ]
+    },
+    {
+      "feature": "svelte:const",
+      "milestone": "M2",
+      "count": 3,
+      "where": [
+        "src/lib/CommandPalette.svelte:120",
+        "src/lib/InlineMessageEditor.svelte:262",
+        "src/lib/components/ui/sidebar/sidebar-menu-button.svelte:68"
+      ]
+    },
+    {
+      "feature": "js:while-loop",
+      "milestone": "M2",
+      "count": 3,
+      "where": [
+        "src/lib/PatternEditor.svelte:91",
+        "src/lib/mock-bridge.ts:105",
+        "src/lib/resource-model.ts:198"
+      ]
+    },
+    {
+      "feature": "js:class",
+      "milestone": "M2",
+      "count": 3,
+      "where": [
+        "src/lib/components/ui/sidebar/context.svelte.ts:23",
+        "src/lib/hooks/is-mobile.svelte.ts:5",
+        "src/lib/ui-text.ts:45"
+      ]
+    },
+    {
+      "feature": "api:Number",
+      "milestone": "M2",
+      "count": 2,
+      "where": [
+        "src/lib/SidebarSectionPanels.svelte:40",
+        "src/lib/SidebarSectionPanels.svelte:41"
+      ]
+    },
+    {
+      "feature": "js:switch",
+      "milestone": "M2",
+      "count": 1,
+      "where": [
+        "src/lib/mock-bridge.ts:690"
+      ]
+    },
+    {
+      "feature": "svelte:component",
+      "milestone": "M3",
+      "count": 852,
+      "where": [
+        "src/lib/AppDialog.svelte:29",
+        "src/lib/AppDialog.svelte:30",
+        "src/lib/AppDialog.svelte:37",
+        "src/lib/AppDialog.svelte:38",
+        "src/lib/AppDialog.svelte:39"
+      ]
+    },
+    {
+      "feature": "import:svelte-component",
+      "milestone": "M3",
+      "count": 195,
+      "where": [
+        "src/lib/ArtifactPreviewPanel.svelte:2",
+        "src/lib/InterchangeDialog.svelte:8",
+        "src/lib/MessageComposer.svelte:9",
+        "src/lib/MessageComposer.svelte:21",
+        "src/lib/MessageComposer.svelte:22"
+      ]
+    },
+    {
+      "feature": "svelte:$props",
+      "milestone": "M3",
+      "count": 181,
+      "where": [
+        "src/lib/AppDialog.svelte:26",
+        "src/lib/ArtifactPreviewPanel.svelte:29",
+        "src/lib/CommandPalette.svelte:22",
+        "src/lib/EditorModeSwitcher.svelte:19",
+        "src/lib/EditorSettingsFooter.svelte:41"
+      ]
+    },
+    {
+      "feature": "svelte:$bindable",
+      "milestone": "M3",
+      "count": 181,
+      "where": [
+        "src/lib/InterchangeDialog.svelte:18",
+        "src/lib/InterchangeDialog.svelte:20",
+        "src/lib/InterchangeDialog.svelte:21",
+        "src/lib/InterchangeDialog.svelte:22",
+        "src/lib/InterchangeDialog.svelte:23"
+      ]
+    },
+    {
+      "feature": "svelte:spread",
+      "milestone": "M3",
+      "count": 180,
+      "where": [
+        "src/lib/EditorSettingsFooter.svelte:57",
+        "src/lib/EditorSidebarHeader.svelte:57",
+        "src/lib/InlineMessageEditor.svelte:267",
+        "src/lib/LocaleSwitcher.svelte:85",
+        "src/lib/MessageComposer.svelte:450"
+      ]
+    },
+    {
+      "feature": "svelte:render",
+      "milestone": "M3",
+      "count": 124,
+      "where": [
+        "src/lib/AppDialog.svelte:42",
+        "src/lib/AppDialog.svelte:46",
+        "src/lib/ArtifactPreviewPanel.svelte:65",
+        "src/lib/ArtifactPreviewPanel.svelte:82",
+        "src/lib/InlineMessageEditor.svelte:322"
+      ]
+    },
+    {
+      "feature": "svelte:bind:this",
+      "milestone": "M3",
+      "count": 83,
+      "where": [
+        "src/lib/CommandPalette.svelte:116",
+        "src/lib/SidebarSectionPanels.svelte:101",
+        "src/lib/components/ui/alert/alert-action.svelte:14",
+        "src/lib/components/ui/alert/alert-description.svelte:14",
+        "src/lib/components/ui/alert/alert-title.svelte:14"
+      ]
+    },
+    {
+      "feature": "svelte:each-keyed",
+      "milestone": "M3",
+      "count": 64,
+      "where": [
+        "src/lib/CommandPalette.svelte:117",
+        "src/lib/CommandPalette.svelte:119",
+        "src/lib/EditorModeSwitcher.svelte:42",
+        "src/lib/EditorSidebarHeader.svelte:94",
+        "src/lib/InlineMessageEditor.svelte:297"
+      ]
+    },
+    {
+      "feature": "svelte:snippet",
+      "milestone": "M3",
+      "count": 34,
+      "where": [
+        "src/lib/ArtifactPreviewPanel.svelte:40",
+        "src/lib/EditorSettingsFooter.svelte:56",
+        "src/lib/EditorSidebarHeader.svelte:55",
+        "src/lib/InlineMessageEditor.svelte:261",
+        "src/lib/InlineMessageEditor.svelte:265"
+      ]
+    },
+    {
+      "feature": "svelte:module-script",
+      "milestone": "M3",
+      "count": 17,
+      "where": [
+        "src/lib/EditorModeSwitcher.svelte:1",
+        "src/lib/EditorSidebarHeader.svelte:1",
+        "src/lib/MessageList.svelte:1",
+        "src/lib/MessageToolbar.svelte:1",
+        "src/lib/components/ui/alert/alert.svelte:1"
+      ]
+    },
+    {
+      "feature": "svelte:style-directive",
+      "milestone": "M3",
+      "count": 6,
+      "where": [
+        "src/lib/MessageList.svelte:167",
+        "src/lib/MessageList.svelte:168",
+        "src/lib/MessageList.svelte:174",
+        "src/lib/MessageList.svelte:183",
+        "src/lib/SidebarSectionPanels.svelte:103"
+      ]
+    },
+    {
+      "feature": "svelte:style-attr",
+      "milestone": "M3",
+      "count": 6,
+      "where": [
+        "src/lib/components/ui/progress/progress.svelte:25",
+        "src/lib/components/ui/sidebar/sidebar-menu-skeleton.svelte:33",
+        "src/lib/components/ui/sidebar/sidebar-provider.svelte:43",
+        "src/lib/components/ui/sidebar/sidebar.svelte:49",
+        "src/lib/components/ui/toggle-group/toggle-group.svelte:69"
+      ]
+    },
+    {
+      "feature": "svelte:context",
+      "milestone": "M3",
+      "count": 5,
+      "where": [
+        "src/lib/components/ui/sidebar/context.svelte.ts:1",
+        "src/lib/components/ui/toggle-group/toggle-group.svelte:2",
+        "src/lib/ui-text.ts:1"
+      ]
+    },
+    {
+      "feature": "host:focus()",
+      "milestone": "M3",
+      "count": 3,
+      "where": [
+        "src/lib/CommandPalette.svelte:57",
+        "src/lib/InlineMessageEditor.svelte:254",
+        "src/routes/+page.svelte:380"
+      ]
+    },
+    {
+      "feature": "svelte:class-directive",
+      "milestone": "M3",
+      "count": 3,
+      "where": [
+        "src/lib/PatternEditor.svelte:119",
+        "src/lib/TranslationEditor.svelte:58",
+        "src/routes/+page.svelte:2282"
+      ]
+    },
+    {
+      "feature": "svelte:element",
+      "milestone": "M3",
+      "count": 1,
+      "where": [
+        "src/lib/components/ui/badge/badge.svelte:40"
+      ]
+    },
+    {
+      "feature": "api:Promise",
+      "milestone": "M4",
+      "count": 115,
+      "where": [
+        "src/lib/CommandPalette.svelte:60",
+        "src/lib/CommandPalette.svelte:66",
+        "src/lib/InlineMessageEditor.svelte:250",
+        "src/lib/appearance.ts:26",
+        "src/lib/editor-bridge.ts:33"
+      ]
+    },
+    {
+      "feature": "js:async-function",
+      "milestone": "M4",
+      "count": 71,
+      "where": [
+        "src/lib/CommandPalette.svelte:60",
+        "src/lib/CommandPalette.svelte:66",
+        "src/lib/InlineMessageEditor.svelte:250",
+        "src/lib/appearance.ts:26",
+        "src/lib/editor-bridge.ts:46"
+      ]
+    },
+    {
+      "feature": "js:await",
+      "milestone": "M4",
+      "count": 69,
+      "where": [
+        "src/lib/CommandPalette.svelte:62",
+        "src/lib/CommandPalette.svelte:69",
+        "src/lib/CommandPalette.svelte:72",
+        "src/lib/CommandPalette.svelte:75",
+        "src/lib/CommandPalette.svelte:78"
+      ]
+    },
+    {
+      "feature": "host:setTimeout",
+      "milestone": "M4",
+      "count": 8,
+      "where": [
+        "src/lib/appearance.ts:25",
+        "src/lib/appearance.ts:32",
+        "src/lib/appearance.ts:35",
+        "src/routes/+page.svelte:125",
+        "src/routes/+page.svelte:126"
+      ]
+    },
+    {
+      "feature": "svelte:lifecycle",
+      "milestone": "M4",
+      "count": 7,
+      "where": [
+        "src/lib/CommandPalette.svelte:2",
+        "src/lib/InlineMessageEditor.svelte:20",
+        "src/lib/LocaleSwitcher.svelte:9",
+        "src/lib/MessageList.svelte:50",
+        "src/lib/SidebarSectionPanels.svelte:2"
+      ]
+    },
+    {
+      "feature": "svelte:$effect",
+      "milestone": "M4",
+      "count": 3,
+      "where": [
+        "src/lib/CommandPalette.svelte:43",
+        "src/lib/CommandPalette.svelte:46",
+        "src/routes/+page.svelte:246"
+      ]
+    },
+    {
+      "feature": "host:AbortController",
+      "milestone": "M4",
+      "count": 1,
+      "where": [
+        "src/lib/appearance.ts:24"
+      ]
+    },
+    {
+      "feature": "host:setInterval",
+      "milestone": "M4",
+      "count": 1,
+      "where": [
+        "src/routes/+page.svelte:455"
+      ]
+    },
+    {
+      "feature": "host:document",
+      "milestone": "M5",
+      "count": 147,
+      "where": [
+        "src/lib/WorkspacePanel.svelte:16",
+        "src/lib/appearance.ts:59",
+        "src/lib/appearance.ts:63",
+        "src/lib/appearance.ts:64",
+        "src/lib/appearance.ts:67"
+      ]
+    },
+    {
+      "feature": "svelte:bind:other",
+      "milestone": "M5",
+      "count": 99,
+      "where": [
+        "src/lib/CommandPalette.svelte:103",
+        "src/lib/LocaleSwitcher.svelte:58",
+        "src/lib/MessageComposer.svelte:472",
+        "src/lib/MessageList.svelte:112",
+        "src/lib/MessageList.svelte:155"
+      ]
+    },
+    {
+      "feature": "svelte:event:other",
+      "milestone": "M5",
+      "count": 61,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:279",
+        "src/lib/InlineMessageEditor.svelte:340",
+        "src/lib/InlineMessageEditor.svelte:348",
+        "src/lib/InterchangeDialog.svelte:64",
+        "src/lib/MessageComposer.svelte:434"
+      ]
+    },
+    {
+      "feature": "svelte:event:pointer",
+      "milestone": "M5",
+      "count": 13,
+      "where": [
+        "src/lib/CommandPalette.svelte:131",
+        "src/lib/InlineMessageEditor.svelte:276",
+        "src/lib/InlineMessageEditor.svelte:277",
+        "src/lib/InlineMessageEditor.svelte:278",
+        "src/lib/InlineMessageEditor.svelte:343"
+      ]
+    },
+    {
+      "feature": "svelte:event:change",
+      "milestone": "M5",
+      "count": 12,
+      "where": [
+        "src/lib/MessageComposer.svelte:433",
+        "src/lib/MessageComposer.svelte:439",
+        "src/lib/PatternEditor.svelte:124",
+        "src/lib/PatternEditor.svelte:143",
+        "src/lib/PatternEditor.svelte:149"
+      ]
+    },
+    {
+      "feature": "host:window",
+      "milestone": "M5",
+      "count": 9,
+      "where": [
+        "src/lib/MessageList.svelte:86",
+        "src/lib/MessageList.svelte:87",
+        "src/routes/+page.svelte:430",
+        "src/routes/+page.svelte:455",
+        "src/routes/+page.svelte:459"
+      ]
+    },
+    {
+      "feature": "api:crypto",
+      "milestone": "M5",
+      "count": 9,
+      "where": [
+        "src/lib/mock-bridge.ts:185",
+        "src/lib/mock-bridge.ts:244",
+        "src/lib/mock-bridge.ts:265",
+        "src/lib/mock-bridge.ts:428",
+        "src/lib/mock-bridge.ts:484"
+      ]
+    },
+    {
+      "feature": "svelte:event:focus",
+      "milestone": "M5",
+      "count": 6,
+      "where": [
+        "src/lib/InlineMessageEditor.svelte:339",
+        "src/lib/InlineMessageEditor.svelte:342",
+        "src/lib/MessageComposer.svelte:404",
+        "src/lib/MessageComposer.svelte:493",
+        "src/lib/MessageComposer.svelte:519"
+      ]
+    },
+    {
+      "feature": "svelte:event:keyboard",
+      "milestone": "M5",
+      "count": 5,
+      "where": [
+        "src/lib/CommandPalette.svelte:97",
+        "src/lib/MessageComposer.svelte:600",
+        "src/lib/SidebarSectionPanels.svelte:127",
+        "src/lib/components/ui/sidebar/sidebar-provider.svelte:38",
+        "src/routes/+page.svelte:1795"
+      ]
+    },
+    {
+      "feature": "host:matchMedia",
+      "milestone": "M5",
+      "count": 4,
+      "where": [
+        "src/lib/appearance.ts:61",
+        "src/lib/appearance.ts:63",
+        "src/lib/appearance.ts:64",
+        "src/routes/+page.svelte:430"
+      ]
+    },
+    {
+      "feature": "svelte:bind:checked",
+      "milestone": "M5",
+      "count": 4,
+      "where": [
+        "src/lib/components/ui/checkbox/checkbox.svelte:23",
+        "src/lib/components/ui/dropdown-menu/dropdown-menu-checkbox-item.svelte:22",
+        "src/routes/+page.svelte:2483",
+        "src/routes/+page.svelte:2555"
+      ]
+    },
+    {
+      "feature": "host:history",
+      "milestone": "M5",
+      "count": 3,
+      "where": [
+        "src/lib/contracts.ts:82",
+        "src/lib/contracts.ts:126",
+        "src/lib/contracts.ts:192"
+      ]
+    },
+    {
+      "feature": "api:Intl",
+      "milestone": "M5",
+      "count": 2,
+      "where": [
+        "src/lib/MessageComposer.svelte:289",
+        "src/routes/+page.svelte:1264"
+      ]
+    },
+    {
+      "feature": "svelte:window",
+      "milestone": "M5",
+      "count": 2,
+      "where": [
+        "src/lib/components/ui/sidebar/sidebar-provider.svelte:38",
+        "src/routes/+page.svelte:1795"
+      ]
+    },
+    {
+      "feature": "host:navigator",
+      "milestone": "M5",
+      "count": 2,
+      "where": [
+        "src/lib/mock-bridge.ts:445",
+        "src/routes/+page.svelte:963"
+      ]
+    },
+    {
+      "feature": "host:scrollTo",
+      "milestone": "M5",
+      "count": 1,
+      "where": [
+        "src/lib/CommandPalette.svelte:63"
+      ]
+    },
+    {
+      "feature": "svelte:event:scroll",
+      "milestone": "M5",
+      "count": 1,
+      "where": [
+        "src/lib/MessageList.svelte:156"
+      ]
+    },
+    {
+      "feature": "host:getBoundingClientRect",
+      "milestone": "M5",
+      "count": 1,
+      "where": [
+        "src/lib/SidebarSectionPanels.svelte:53"
+      ]
+    },
+    {
+      "feature": "host:fetch",
+      "milestone": "M5",
+      "count": 1,
+      "where": [
+        "src/lib/appearance.ts:28"
+      ]
+    },
+    {
+      "feature": "host:location",
+      "milestone": "M5",
+      "count": 1,
+      "where": [
+        "src/lib/contracts.ts:273"
+      ]
+    },
+    {
+      "feature": "host:addEventListener",
+      "milestone": "M5",
+      "count": 1,
+      "where": [
+        "src/routes/+page.svelte:434"
+      ]
+    },
+    {
+      "feature": "host:clipboard",
+      "milestone": "M5",
+      "count": 1,
+      "where": [
+        "src/routes/+page.svelte:963"
+      ]
+    },
+    {
+      "feature": "api:Date",
+      "milestone": "M5",
+      "count": 1,
+      "where": [
+        "src/routes/+page.svelte:1702"
+      ]
+    },
+    {
+      "feature": "import:package",
+      "milestone": "M6",
+      "count": 166,
+      "where": [
+        "src/generated-translation-types.contract.ts:1",
+        "src/lib/EditorSettingsFooter.svelte:2",
+        "src/lib/EditorSettingsFooter.svelte:3",
+        "src/lib/EditorSettingsFooter.svelte:4",
+        "src/lib/EditorSettingsFooter.svelte:5"
+      ]
+    },
+    {
+      "feature": "svelte:scoped-style",
+      "milestone": "M6",
+      "count": 7,
+      "where": [
+        "src/lib/ArtifactPreviewPanel.svelte:93",
+        "src/lib/InlinePreview.svelte:38",
+        "src/lib/InterchangeDialog.svelte:145",
+        "src/lib/MessageComposer.svelte:626",
+        "src/lib/PatternEditor.svelte:191"
+      ]
+    },
+    {
+      "feature": "api:Symbol",
+      "milestone": "M6",
+      "count": 2,
+      "where": [
+        "src/lib/components/ui/sidebar/context.svelte.ts:69",
+        "src/lib/components/ui/sidebar/context.svelte.ts:78"
+      ]
+    },
+    {
+      "feature": "kit:route-file",
+      "milestone": "M6",
+      "count": 2,
+      "where": [
+        "src/routes/+layout.svelte:1",
+        "src/routes/+page.svelte:1"
+      ]
+    },
+    {
+      "feature": "svelte:head",
+      "milestone": "M6",
+      "count": 1,
+      "where": [
+        "src/routes/+page.svelte:1791"
+      ]
+    }
+  ],
+  "generatedExcluded": [
+    "src/generated/editor.ts",
+    "src/generated/editorDiagnostics.ts",
+    "src/generated/editorDocument.ts",
+    "src/generated/editorDocumentTools.ts",
+    "src/generated/editorInterchange.ts",
+    "src/generated/editorLocalState.ts",
+    "src/generated/editorProject.ts",
+    "src/generated/editorReview.ts",
+    "src/generated/editorWorkspace.ts"
+  ],
+  "parseErrors": []
+}

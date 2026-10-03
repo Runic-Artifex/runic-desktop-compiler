@@ -270,7 +270,7 @@ export function validateIR(ir) {
       'capabilities',
       'provenance',
     ],
-    ['validation', 'irHash', 'container'],
+    ['validation', 'irHash', 'container', 'renderer'],
   );
   if (
     ![2, 3].includes(ir.schema) ||

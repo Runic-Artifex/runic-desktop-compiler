@@ -1,5 +1,3 @@
-
-use runic_blitz_probes::controls;
 use blitz_dom::{DocGuard, DocGuardMut, Document, DocumentConfig, EventDriver, EventHandler};
 use blitz_html::HtmlDocument;
 use blitz_traits::{
@@ -7,6 +5,7 @@ use blitz_traits::{
     node_id::NodeId,
 };
 use keyboard_types::{Code, Key, Modifiers};
+use runic_blitz_probes::controls;
 use serde_json::{Value, json};
 
 struct Probe {

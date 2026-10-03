@@ -1,0 +1,121 @@
+{
+  "schema": 1,
+  "date": "2026-10-03T14:24:22.895Z",
+  "host": "Linux 7.2.8 x86_64",
+  "display": "Xvfb 1024x768x24",
+  "renderer": "cpu",
+  "results": [
+    {
+      "fixture": "counter-react",
+      "bytes": 13853568,
+      "mib": 13.21,
+      "processMs": 36.6,
+      "firstFrameMs": 29.8,
+      "runs": 7
+    },
+    {
+      "fixture": "counter-svelte",
+      "bytes": 13853568,
+      "mib": 13.21,
+      "processMs": 33.7,
+      "firstFrameMs": 27.5,
+      "runs": 7
+    },
+    {
+      "fixture": "counter-vue",
+      "bytes": 13853568,
+      "mib": 13.21,
+      "processMs": 32.7,
+      "firstFrameMs": 26.3,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-react",
+      "bytes": 13857664,
+      "mib": 13.22,
+      "processMs": 31.9,
+      "firstFrameMs": 26,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-svelte",
+      "bytes": 13857664,
+      "mib": 13.22,
+      "processMs": 32.4,
+      "firstFrameMs": 25.2,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-vue",
+      "bytes": 13857664,
+      "mib": 13.22,
+      "processMs": 30.7,
+      "firstFrameMs": 24.5,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-react",
+      "bytes": 13853568,
+      "mib": 13.21,
+      "processMs": 41.9,
+      "firstFrameMs": 32.9,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-svelte",
+      "bytes": 13853568,
+      "mib": 13.21,
+      "processMs": 35.4,
+      "firstFrameMs": 28.9,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-vue",
+      "bytes": 13853568,
+      "mib": 13.21,
+      "processMs": 71.2,
+      "firstFrameMs": 60,
+      "runs": 7
+    },
+    {
+      "fixture": "pricing",
+      "bytes": 13861760,
+      "mib": 13.22,
+      "processMs": 31.7,
+      "firstFrameMs": 24.7,
+      "runs": 7
+    },
+    {
+      "fixture": "quantity",
+      "bytes": 13857664,
+      "mib": 13.22,
+      "processMs": 32.9,
+      "firstFrameMs": 25.7,
+      "runs": 7
+    },
+    {
+      "fixture": "settings-wizard",
+      "bytes": 13861760,
+      "mib": 13.22,
+      "processMs": 31.7,
+      "firstFrameMs": 25,
+      "runs": 7
+    },
+    {
+      "fixture": "smoke",
+      "bytes": 13841280,
+      "mib": 13.2,
+      "processMs": 34.4,
+      "firstFrameMs": 26.7,
+      "runs": 7
+    },
+    {
+      "fixture": "thermostat",
+      "bytes": 13853568,
+      "mib": 13.21,
+      "processMs": 30.2,
+      "firstFrameMs": 24.1,
+      "runs": 7
+    }
+  ]
+}

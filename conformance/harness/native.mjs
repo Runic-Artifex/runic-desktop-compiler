@@ -9,10 +9,10 @@ import { buildApp } from '../../compiler/cli.mjs';
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /** Build `fixture` with probes into .cache/conformance/bin/<name>. */
-export async function buildProbe(fixture, { release = false } = {}) {
-  const name = path.basename(path.resolve(fixture));
+export async function buildProbe(fixture, { release = false, noOpt = false } = {}) {
+  const name = path.basename(path.resolve(fixture)) + (noOpt ? '-no-opt' : '');
   const out = path.join(repo, '.cache/conformance/bin', name);
-  const { ir } = await buildApp(fixture, { out, probe: true, release });
+  const { ir } = await buildApp(fixture, { out, probe: true, release, noOpt });
   const build = JSON.parse(await readFile(path.join(out, 'build.json'), 'utf8'));
   return { binary: path.join(out, 'runic-app'), ir, build };
 }
