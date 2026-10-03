@@ -309,6 +309,20 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 t[1], t[0]
             )
         }
+        ("promise", "pending") => format!("<{}>::pending()", rust_type(ty)),
+        ("promise", "fulfil") => format!(
+            "{{ runic_runtime::promises::settle(cx, &{}, Ok({})); }}",
+            t[0], t[1]
+        ),
+        ("promise", "adopt") => format!(
+            "{{ runic_runtime::promises::resolve(cx, &{}, runic_runtime::promises::Settles::Promise({})); }}",
+            t[0], t[1]
+        ),
+        ("promise", "fail") => format!(
+            "{{ runic_runtime::promises::settle(cx, &{}, Err({})); }}",
+            t[0],
+            throw_of(&t[1])
+        ),
         ("promise", "all") => format!(
             "{{ let items = {}.borrow().clone(); runic_runtime::promises::all(cx, &items) }}",
             t[0]

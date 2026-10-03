@@ -2400,6 +2400,19 @@ impl<'p> Machine<'p> {
                 }
                 Val::Promise(derived)
             }
+            "pending" => Val::Promise(Promise::pending()),
+            "fulfil" => {
+                self.settle_promise(&promise_of(&a[0]), Ok(a[1].clone()));
+                Val::Undefined
+            }
+            "adopt" => {
+                self.resolve_promise(&promise_of(&a[0]), a[1].clone());
+                Val::Undefined
+            }
+            "fail" => {
+                self.settle_promise(&promise_of(&a[0]), Err(throw_of(&a[1])));
+                Val::Undefined
+            }
             other => unreachable!("validated promise operation {other}"),
         })
     }

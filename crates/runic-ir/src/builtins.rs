@@ -242,6 +242,33 @@ fn promise_type(method: &str, args: &[Type], declared: &Type, records: &[RecordT
                 )),
             }
         }
+        // The promise of an async function (frontend/async.ts): created
+        // pending, then fulfilled, adopting another promise or rejected.
+        "pending" => {
+            arity(args, 0, 0)?;
+            match declared {
+                Promise(_) => Ok(declared.clone()),
+                _ => Err("a pending promise needs a declared type".into()),
+            }
+        }
+        "fulfil" => {
+            arity(args, 2, 2)?;
+            let t = promise_of(&args[0])?;
+            expect(&args[1], &t, "value").map(|_| Void)
+        }
+        "adopt" => {
+            arity(args, 2, 2)?;
+            promise_of(&args[0])?;
+            expect(&args[1], &args[0], "promise").map(|_| Void)
+        }
+        "fail" => {
+            arity(args, 2, 2)?;
+            promise_of(&args[0])?;
+            if !error_type(&args[1], records) {
+                return Err("promises reject with Error values".into());
+            }
+            Ok(Void)
+        }
         other => Err(format!("unknown promise operation {other}")),
     }
 }
