@@ -113,3 +113,26 @@ Facts checked against Chromium 153 with Playwright before they were encoded (int
 The interpreter has no layout: pointer events target the addressed element itself rather than the element hit at its centre, and carry zero coordinates. Differential tests therefore cover dispatch, not hit testing; browser conformance covers both.
 
 Found on the way, for step 4: a text input placed inline (not as a block or flex item) gets a line box 4 px taller in Blitz than in Chromium.
+
+### React and Vue (step 1)
+
+Both adapters implement the event model; the shared cases `events` and `shortcuts` pass for all three frameworks.
+
+- **React** (19.3.0). The root listener runs all element handlers of one native event in one call; microtasks and the synchronous render follow, then the document and window listeners. This is the IR's checkpoint order.
+  - Enter and leave handlers are synthesized from out/over in the IR's order. One synthetic event serves the whole chain, so handlers that read `target`, cancel or stop propagation are rejected.
+  - Continuous events (move, enter, leave) render in a later scheduler task. Their handlers are accepted only where that timing is unobservable: own state, rendered as text, no callbacks, timers or promises.
+  - `onWheel` is rejected: React's passive root listener lets Chromium scroll before dispatching to the element under the pointer.
+  - Function values are one object per invocation of the enclosing effect or handler (`hoistFunctionValues`), so effects can remove the listener they added.
+  - Controlled values are restored after every event (`schedule.controlledRestore`).
+- **Vue** (3.5.43). Modifiers follow `withModifiers`/`withKeys`; `.once`, `.capture` and `.passive` are rejected. A watcher's flush runs between element and document listeners, as Svelte's does.
+  - Vue ignores a bubbling listener attached at or after the event's timestamp. Under the harness's paused clock (cases with `wait`), listeners attached at mount would be skipped, which no running page shows. Case `events-vue` therefore starts with a 1 ms wait.
+
+## Progress
+
+| Step | State |
+|---|---|
+| 1. Events, window and document listeners | Done for Svelte, React and Vue (cases `events`, `events-vue`, `shortcuts`) |
+| 2. Rest props and spread, `class:`, component refs | Done for Svelte (cases `rest-props`, `class-directives`, `component-refs`). `style:` waits for step 4's CSSOM work (now available). React and Vue: to do |
+| 3. Forms | `textarea` and `label` done (case `forms`); `select` and radio buttons to do (a select needs a runtime-drawn control and popup) |
+| 4. Document element, `matchMedia` | Done (case `theme`, crate `runic-css`); layout reads, scrolling, `ResizeObserver` and media change events to do |
+| 5–7 | To do |
