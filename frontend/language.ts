@@ -93,6 +93,13 @@ export class FnBuilder {
   eventLocal: number | undefined;
   /** The declared result type of a function builder (its returns convert to it). */
   result: Type | undefined;
+  /** A template builder (its expressions are evaluated on every update; no body). */
+  template = false;
+  /**
+   * Function values hoisted into this root builder (`Lowerer.hoistFunctionValues`):
+   * function index → the local holding its one function object for this invocation.
+   */
+  readonly functionValues = new Map<number, number>();
 
   constructor(
     name: string,
@@ -169,6 +176,18 @@ export class Lowerer {
    * scripts run once); otherwise once per render (React).
    */
   stableFunctions = false;
+  /**
+   * With per-render functions (React): a component function used as a value
+   * is one function object per invocation of the outermost function around
+   * the use (an effect, a handler, a component function; their nested
+   * closures share it), so that `addEventListener(f)` and a cleanup's
+   * `removeEventListener(f)` see the same object, as within one React render.
+   * Template expressions still create one object per evaluation.
+   */
+  hoistFunctionValues = false;
+  /** Types of hoisted function-value locals, completed by `settleFunctionValues`. */
+  private readonly hoistedTypes: { fn: number; type: { fn: { params: Type[]; result: Type } } }[] =
+    [];
 
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
@@ -346,6 +365,7 @@ export class Lowerer {
     });
     if (!voidContext && tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
       result = this.returnType(lowered, b);
+    lowered.unshift(...this.hoistedLets(b));
     const body = remapLocals(lowered, i => b.final(i));
     const fn: Fn = {
       name,
@@ -450,7 +470,9 @@ export class Lowerer {
    */
   /** The builder of a component template; its locals are the template locals. */
   template(component: number): FnBuilder {
-    return new FnBuilder('template', undefined, component, new Set(), false);
+    const b = new FnBuilder('template', undefined, component, new Set(), false);
+    b.template = true;
+    return b;
   }
 
   /**
@@ -497,6 +519,7 @@ export class Lowerer {
     // A handler's value is discarded: `() => items.push(x)` runs for its effect.
     if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return')
       body = body[0].value ? [{ op: 'expr', value: body[0].value }] : [];
+    body.unshift(...this.hoistedLets(b));
     if (b.eventLocal !== undefined)
       body.unshift({ op: 'let', local: b.eventLocal, value: { op: 'event' } });
     if (!b.captures.length) return { locals: b.locals, body };
@@ -545,9 +568,58 @@ export class Lowerer {
       params: [],
       locals: b.locals,
       result: this.exprType(e),
-      body: [{ op: 'return', value: v }],
+      body: [...this.hoistedLets(b), { op: 'return', value: v }],
     };
     return { op: 'call', function: index, args: [] };
+  }
+
+  /** The value of function binding `fn` in `b` (see `hoistFunctionValues`). */
+  private functionValue(fn: number, stable: boolean, id: ts.Identifier, b: FnBuilder): Expr {
+    const value: Expr = {
+      op: 'closure',
+      function: fn,
+      captures: [],
+      ...(stable ? { stable } : {}),
+    };
+    if (stable || !this.hoistFunctionValues) return value;
+    let root = b;
+    while (root.parent && !root.parent.template) root = root.parent;
+    if (root.template) return value;
+    let local = root.functionValues.get(fn);
+    if (local === undefined) {
+      // The function may not be lowered yet: its signature's types now, the
+      // lowered ones once every function is (the object is shared by captures).
+      const sig = this.checker.getTypeAtLocation(id).getCallSignatures()[0];
+      const type = {
+        fn: {
+          params: (sig?.parameters ?? []).map(p =>
+            this.types.map(this.checker.getTypeOfSymbolAtLocation(p, id), id),
+          ),
+          result: this.functions[fn]?.result ?? 'void',
+        },
+      };
+      this.hoistedTypes.push({ fn, type });
+      local = root.local(`${id.text}$fn`, type);
+      root.functionValues.set(fn, local);
+    }
+    return { op: 'local', local: b.resolve(root, local) };
+  }
+
+  /** `let` statements creating the function values hoisted into root builder `b`. */
+  private hoistedLets(b: FnBuilder): Stmt[] {
+    return [...b.functionValues].map(([fn, local]) => ({
+      op: 'let',
+      local,
+      value: { op: 'closure', function: fn, captures: [] },
+    }));
+  }
+
+  /** Complete the types of hoisted function values (once every function is lowered). */
+  settleFunctionValues(): void {
+    for (const { fn, type } of this.hoistedTypes) {
+      type.fn.params = this.functions[fn].params.map(p => p.type);
+      type.fn.result = this.functions[fn].result;
+    }
   }
 
   /** A closure expression for an inline function. */
@@ -1405,15 +1477,9 @@ export class Lowerer {
         return { op: 'call', function: binding.fn, args: [] };
       case 'value':
         return binding.expr;
-      case 'function': {
+      case 'function':
         // A function used as a value: wrap it in a closure forwarding its params.
-        return {
-          op: 'closure',
-          function: binding.fn,
-          captures: [],
-          ...(binding.stable ? { stable: true } : {}),
-        };
-      }
+        return this.functionValue(binding.fn, !!binding.stable, id, b);
       case 'props':
         return this.fail(
           id,

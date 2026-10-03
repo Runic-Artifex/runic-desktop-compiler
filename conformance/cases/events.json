@@ -1,6 +1,6 @@
 {
   "description": "Event objects: bubbling and stopPropagation, target and currentTarget, a cancelled checkbox click, keydown cancelling text insertion, keyup and modifier keys, mousedown keeping focus, pointer enter and leave, double clicks, the context menu, wheel deltas, an event read after its dispatch, and Enter activation cancelled by keydown",
-  "fixtures": ["events-svelte"],
+  "fixtures": ["events-svelte", "events-react"],
   "actions": [
     { "kind": "click", "id": "inner" },
     { "kind": "click", "id": "stop" },
