@@ -370,6 +370,9 @@ pub struct Instance<'p> {
     /// The committed state of the last flush (replaced, never mutated, so
     /// closures can keep the snapshot of their render).
     snapshot: Rc<Vec<Val>>,
+    /// The snapshot before the last commit (what cleanups read under
+    /// `cleanupReadsPrevious`).
+    previous: Rc<Vec<Val>>,
     /// The value each prop cell last received from the parent.
     passed: Vec<Option<Val>>,
     /// Two-way binding setters of prop cells.
@@ -377,6 +380,32 @@ pub struct Instance<'p> {
     /// Content the parent provides for each declared slot.
     slots: Vec<Option<Provided<'p>>>,
     alive: bool,
+    /// The instance whose rendered output contains this one (the instance
+    /// rendering a slot for content passed through it).
+    parent: Option<usize>,
+    effects: Vec<EffectState>,
+}
+
+/// The run state of one effect of an instance.
+#[derive(Default)]
+struct EffectState {
+    /// Dependencies are recorded (the effect is mounted).
+    started: bool,
+    cleanup: Option<Val>,
+    /// `values` dependencies of the last check.
+    values: Vec<Val>,
+    /// Reads of the last run (`tracked` dependencies).
+    reads: Vec<Read_>,
+}
+
+/// A cell read recorded while a tracked effect ran.
+struct Read_ {
+    instance: usize,
+    cell: usize,
+    value: Val,
+    /// Heap mutation epochs after the run (deep and proxied cells change
+    /// when the heap is mutated).
+    epochs: (u64, u64),
 }
 
 /// Slot content provided by a parent: its definition, the parent instance it
@@ -482,6 +511,38 @@ pub struct Machine<'p> {
     /// Exceptions thrown by microtasks and default tasks (reported, as a
     /// browser reports uncaught errors, after the task).
     uncaught: Vec<Throw>,
+    /// Cell reads of the running tracked effect.
+    tracking: Option<Vec<Read_>>,
+    /// The effect phase a running flush is in (writes then extend the flush).
+    phase: Option<EffectPhase>,
+    /// A write during the flush asks for another pass.
+    again: bool,
+    /// While a flush renders: which instances updated (pre effects run as
+    /// each instance is rendered, after it received its props).
+    render_updates: Option<Vec<bool>>,
+    /// Function objects of stable closures, by (instance, function).
+    stable_fns: HashMap<(Option<usize>, usize), Val>,
+    /// While a cleanup runs under `cleanupReadsPrevious`.
+    reading_previous: bool,
+}
+
+/// `order` (parent first) with every instance after its children.
+fn post_order(order: &[usize], instances: &[Instance<'_>]) -> Vec<usize> {
+    fn visit(i: usize, order: &[usize], instances: &[Instance<'_>], out: &mut Vec<usize>) {
+        for &c in order {
+            if instances[c].parent == Some(i) {
+                visit(c, order, instances, out);
+            }
+        }
+        out.push(i);
+    }
+    let mut out = vec![];
+    for &r in order {
+        if !instances[r].parent.is_some_and(|p| order.contains(&p)) {
+            visit(r, order, instances, &mut out);
+        }
+    }
+    out
 }
 
 /// Whether any component has a cell with `tracking`.
@@ -525,18 +586,30 @@ impl<'p> Machine<'p> {
             tracks_deep: cells_tracked(program, Tracking::Deep),
             tracks_owned: cells_tracked(program, Tracking::Proxied),
             uncaught: vec![],
+            tracking: None,
+            phase: None,
+            again: false,
+            render_updates: None,
+            stable_fns: HashMap::new(),
+            reading_previous: false,
         };
         for g in &program.globals {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
             m.globals.push(v);
         }
-        m.create(program.root, &[]).map_err(throw_diag)?;
+        m.create(program.root, &[], None).map_err(throw_diag)?;
+        m.mount()?;
         Ok(m)
     }
 
     /// Create an instance of `component` with the props passed by its parent
     /// (`(cell, value, bind)`); returns its id.
-    fn create(&mut self, component: usize, props: &[(usize, Val, Option<Val>)]) -> Res<usize> {
+    fn create(
+        &mut self,
+        component: usize,
+        props: &[(usize, Val, Option<Val>)],
+        parent: Option<usize>,
+    ) -> Res<usize> {
         let comp = &self.program.components[component];
         let id = self.instances.len();
         let n = comp.cells.len();
@@ -544,10 +617,17 @@ impl<'p> Machine<'p> {
             component,
             cells: Vec::with_capacity(n),
             snapshot: Rc::new(vec![]),
+            previous: Rc::new(vec![]),
             passed: vec![None; n],
             binds: vec![None; n],
             slots: vec![None; comp.slots.len()],
             alive: true,
+            parent,
+            effects: comp
+                .effects
+                .iter()
+                .map(|_| EffectState::default())
+                .collect(),
         });
         let saved = std::mem::replace(&mut self.current, id);
         let result = (|| -> Res<()> {
@@ -571,11 +651,19 @@ impl<'p> Machine<'p> {
                 }
                 inst.cells.push(v);
                 inst.snapshot = Rc::new(inst.cells.clone());
+                inst.previous = inst.snapshot.clone();
             }
             Ok(())
         })();
         self.current = saved;
-        result.map(|_| id)
+        result?;
+        // Pre effects run when their instance is created.
+        for e in 0..self.program.components[component].effects.len() {
+            if self.program.components[component].effects[e].phase == EffectPhase::Pre {
+                self.check_effect(id, e);
+            }
+        }
+        Ok(id)
     }
 
     fn inst(&self) -> &Instance<'p> {
@@ -602,7 +690,22 @@ impl<'p> Machine<'p> {
             Cell {
                 cell,
                 read: Read::Current,
-            } => self.inst().cells[*cell].clone(),
+            } => {
+                let v = match &self.reading_previous {
+                    true => self.inst().previous[*cell].clone(),
+                    false => self.inst().cells[*cell].clone(),
+                };
+                let reactive = self.comp().cells[*cell].tracking != Tracking::None;
+                if let (Some(reads), true) = (&mut self.tracking, reactive) {
+                    reads.push(Read_ {
+                        instance: self.current,
+                        cell: *cell,
+                        value: v.clone(),
+                        epochs: (0, 0),
+                    });
+                }
+                v
+            }
             Cell {
                 cell,
                 read: Read::Snapshot,
@@ -744,8 +847,18 @@ impl<'p> Machine<'p> {
                     .collect::<Res<Vec<_>>>()?;
                 self.call_value(&c, values)?
             }
-            Closure { function, captures } => {
+            Closure {
+                function,
+                captures,
+                stable,
+            } => {
                 let target = &self.program.functions[*function];
+                let owner = target.component.map(|_| self.current);
+                if *stable {
+                    if let Some(v) = self.stable_fns.get(&(owner, *function)) {
+                        return Ok(v.clone());
+                    }
+                }
                 let captures = captures
                     .iter()
                     .zip(&target.captures)
@@ -757,12 +870,16 @@ impl<'p> Machine<'p> {
                         }
                     })
                     .collect();
-                Val::Closure(Rc::new(self::Closure {
+                let v = Val::Closure(Rc::new(self::Closure {
                     function: *function,
                     captures,
-                    instance: target.component.map(|_| self.current),
+                    instance: owner,
                     snapshot: target.component.map(|_| self.current_snapshot()),
-                }))
+                }));
+                if *stable {
+                    self.stable_fns.insert((owner, *function), v.clone());
+                }
+                v
             }
             Builtin { name, args, ty } => {
                 let values = args
@@ -1544,6 +1661,13 @@ impl<'p> Machine<'p> {
         out: &mut Vec<VNode>,
         visited: &mut HashSet<usize>,
     ) -> Res<()> {
+        if let Some(updated) = self.render_updates.clone() {
+            // Pre effects of an existing instance run before it renders
+            // (new instances ran theirs when created).
+            if id < updated.len() {
+                self.run_phase_at(id, EffectPhase::Pre, &updated);
+            }
+        }
         let saved = std::mem::replace(&mut self.current, id);
         let comp = self.comp();
         let frame = Frame::new(comp.template_locals.len());
@@ -1717,7 +1841,8 @@ impl<'p> Machine<'p> {
                         id
                     }
                     None => {
-                        let id = self.create(*component, &args)?;
+                        let parent = self.via.last().copied().unwrap_or(self.current);
+                        let id = self.create(*component, &args, Some(parent))?;
                         self.children.insert(key, id);
                         id
                     }
@@ -1884,6 +2009,19 @@ impl<'p> Machine<'p> {
 
     /// Queue the flush job if none is pending.
     fn queue_flush(&mut self) {
+        if let Some(phase) = self.phase {
+            // Writes from effects: another pass of the running flush, or a
+            // later flush where post-effect writes are deferred.
+            if phase == EffectPhase::Post && self.program.schedule.post_writes_deferred {
+                if !self.flush_pending {
+                    self.flush_pending = true;
+                    self.default_tasks.push_back(Micro::Flush);
+                }
+            } else {
+                self.again = true;
+            }
+            return;
+        }
         if self.flush_pending {
             return;
         }
@@ -1931,19 +2069,327 @@ impl<'p> Machine<'p> {
         }
     }
 
-    /// The flush job: commit the state (render snapshots) and update the
-    /// tree, which creates, updates and destroys instances.
+    /// The flush job: passes that commit the state (render snapshots), run
+    /// pre effects, update the tree (creating and destroying instances), and
+    /// run layout and post effects, until effects stop writing.
     fn flush(&mut self) {
         self.flush_pending = false;
-        for i in &mut self.instances {
-            if i.alive {
-                i.snapshot = Rc::new(i.cells.clone());
+        for pass in 0.. {
+            if pass == 1000 {
+                self.uncaught.push(Throw::new(
+                    "Error",
+                    "Maximum update depth exceeded: effects keep writing state",
+                ));
+                break;
+            }
+            self.again = false;
+            self.flush_pass();
+            self.note_mutations_in_flush();
+            if !self.again {
+                break;
             }
         }
-        if let Err(d) = self.render() {
+        self.phase = None;
+        self.epochs = (js::mutation_epoch(), js::owned_epoch());
+    }
+
+    /// Heap mutations made by effects extend the flush like cell writes.
+    fn note_mutations_in_flush(&mut self) {
+        let (deep, owned) = self.epochs;
+        if (self.tracks_deep && js::mutation_epoch() != deep)
+            || (self.tracks_owned && js::owned_epoch() != owned)
+        {
+            self.epochs = (js::mutation_epoch(), js::owned_epoch());
+            self.phase.get_or_insert(EffectPhase::Pre);
+            self.queue_flush();
+        }
+    }
+
+    fn flush_pass(&mut self) {
+        // Instances whose state changed, and (React) everything they render.
+        let (deep, owned) = self.epochs;
+        let mutated = (js::mutation_epoch() != deep, js::owned_epoch() != owned);
+        self.epochs = (js::mutation_epoch(), js::owned_epoch());
+        let before: Vec<usize> = self.tree_order();
+        let mut updated = vec![false; self.instances.len()];
+        for &i in &before {
+            let inst = &self.instances[i];
+            let comp = &self.program.components[inst.component];
+            let changed = inst.cells.iter().enumerate().any(|(c, v)| {
+                !v.same(&inst.snapshot[c])
+                    || match comp.cells[c].tracking {
+                        Tracking::Deep => mutated.0,
+                        Tracking::Proxied => mutated.1,
+                        _ => false,
+                    }
+            });
+            updated[i] = changed || inst.parent.is_some_and(|p| updated[p]);
+        }
+        for i in &mut self.instances {
+            if i.alive {
+                i.previous = std::mem::replace(&mut i.snapshot, Rc::new(i.cells.clone()));
+            }
+        }
+        self.phase = Some(EffectPhase::Pre);
+        let alive_before: Vec<usize> = before.clone();
+        self.render_updates = Some(updated.clone());
+        let rendered = self.render();
+        self.render_updates = None;
+        if let Err(d) = rendered {
             self.uncaught.push(Throw::new("Error", d.message));
         }
+        // Mutations while rendering are not writes.
         self.epochs = (js::mutation_epoch(), js::owned_epoch());
+        let destroyed: Vec<usize> = alive_before
+            .iter()
+            .copied()
+            .filter(|&i| !self.instances[i].alive)
+            .collect();
+        self.teardown(&destroyed, &before);
+        let after = self.tree_order();
+        let mut updated = updated;
+        updated.resize(self.instances.len(), true);
+        let post = post_order(&after, &self.instances);
+        for phase in [EffectPhase::Layout, EffectPhase::Post] {
+            self.phase = Some(phase);
+            if self.program.schedule.cleanups == Cleanups::Batched {
+                let all: Vec<(usize, usize)> = post
+                    .iter()
+                    .flat_map(|&i| self.effects_of(i, phase).into_iter().map(move |e| (i, e)))
+                    .collect();
+                let mut due = vec![];
+                for (i, e) in all {
+                    if self.effect_due(i, e, &updated) {
+                        due.push((i, e));
+                    }
+                }
+                for &(i, e) in &due {
+                    self.run_cleanup(i, e);
+                }
+                for &(i, e) in &due {
+                    self.run_effect(i, e);
+                }
+            } else {
+                for &i in &post {
+                    self.run_phase_at(i, phase, &updated);
+                }
+            }
+        }
+    }
+
+    /// Live instances in tree order (parent first).
+    fn tree_order(&self) -> Vec<usize> {
+        std::iter::once(0)
+            .chain(self.order.iter().copied())
+            .filter(|&i| self.instances[i].alive)
+            .collect()
+    }
+
+    fn effects_of(&self, i: usize, phase: EffectPhase) -> Vec<usize> {
+        let comp = &self.program.components[self.instances[i].component];
+        (0..comp.effects.len())
+            .filter(|&e| comp.effects[e].phase == phase)
+            .collect()
+    }
+
+    /// Run the due effects of `phase` of instance `i`, each checked when
+    /// its turn comes (earlier effects may have written its dependencies).
+    fn run_phase_at(&mut self, i: usize, phase: EffectPhase, updated: &[bool]) {
+        for e in self.effects_of(i, phase) {
+            if self.instances[i].alive && self.effect_due(i, e, updated) {
+                self.run_cleanup(i, e);
+                self.run_effect(i, e);
+            }
+        }
+    }
+
+    /// Check effect `e` of a new instance (pre effects at creation).
+    fn check_effect(&mut self, i: usize, e: usize) {
+        if self.effect_due(i, e, &[]) {
+            self.run_effect(i, e);
+        }
+    }
+
+    /// Whether effect `e` of instance `i` runs now; records `values`.
+    fn effect_due(&mut self, i: usize, e: usize, updated: &[bool]) -> bool {
+        let effect = &self.program.components[self.instances[i].component].effects[e];
+        let started = self.instances[i].effects[e].started;
+        match &effect.deps {
+            EffectDeps::Once => !started,
+            EffectDeps::Always => !started || updated.get(i).copied().unwrap_or(true),
+            EffectDeps::Tracked => {
+                !started || {
+                    let state = &self.instances[i].effects[e];
+                    state.reads.iter().any(|r| {
+                        let inst = &self.instances[r.instance];
+                        let cell = &self.program.components[inst.component].cells[r.cell];
+                        !inst.cells[r.cell].same(&r.value)
+                            || match cell.tracking {
+                                Tracking::Deep => js::mutation_epoch() != r.epochs.0,
+                                Tracking::Proxied => js::owned_epoch() != r.epochs.1,
+                                _ => false,
+                            }
+                    })
+                }
+            }
+            EffectDeps::Values { values, initial } => {
+                let saved = std::mem::replace(&mut self.current, i);
+                let new: Vec<Val> = values
+                    .iter()
+                    .map(|v| self.eval(v, &Frame::new(0)).unwrap_or(Val::Undefined))
+                    .collect();
+                self.current = saved;
+                let state = &mut self.instances[i].effects[e];
+                let changed = !started
+                    || new.len() != state.values.len()
+                    || new.iter().zip(&state.values).any(|(a, b)| !a.same(b));
+                if !started && !initial {
+                    state.values = new;
+                    state.started = true;
+                    return false;
+                }
+                changed
+            }
+        }
+    }
+
+    fn run_cleanup(&mut self, i: usize, e: usize) {
+        if let Some(c) = self.instances[i].effects[e].cleanup.take() {
+            self.reading_previous = self.program.schedule.cleanup_reads_previous;
+            let r = self.call_value(&c, vec![]);
+            self.reading_previous = false;
+            if let Err(t) = r {
+                self.uncaught.push(t);
+            }
+        }
+    }
+
+    /// Run effect `e` of instance `i` (its cleanup already ran).
+    fn run_effect(&mut self, i: usize, e: usize) {
+        let comp = self.instances[i].component;
+        let effect = &self.program.components[comp].effects[e];
+        let func = &self.program.functions[effect.run];
+        let mut args = vec![];
+        if let EffectDeps::Values { values, .. } = &effect.deps {
+            let saved = std::mem::replace(&mut self.current, i);
+            let new: Vec<Val> = values
+                .iter()
+                .map(|v| self.eval(v, &Frame::new(0)).unwrap_or(Val::Undefined))
+                .collect();
+            self.current = saved;
+            if !func.params.is_empty() {
+                let old = &self.instances[i].effects[e].values;
+                let old: Vec<Val> = if self.instances[i].effects[e].started {
+                    old.clone()
+                } else {
+                    vec![Val::Undefined; new.len()]
+                };
+                args = new.iter().cloned().chain(old).collect();
+            }
+            self.instances[i].effects[e].values = new;
+        }
+        let tracked = effect.deps == EffectDeps::Tracked;
+        let outer = if tracked {
+            self.tracking.replace(vec![])
+        } else {
+            self.tracking.take()
+        };
+        let saved = std::mem::replace(&mut self.current, i);
+        let saved_snap = self.snap.take();
+        let result = self.call(effect.run, vec![], args);
+        self.current = saved;
+        self.snap = saved_snap;
+        let reads = std::mem::replace(&mut self.tracking, outer);
+        let state = &mut self.instances[i].effects[e];
+        state.started = true;
+        if tracked {
+            let epochs = (js::mutation_epoch(), js::owned_epoch());
+            state.reads = reads
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| Read_ { epochs, ..r })
+                .collect();
+        }
+        match result {
+            Ok(Val::Closure(c)) => state.cleanup = Some(Val::Closure(c)),
+            Ok(_) => {}
+            Err(t) => self.uncaught.push(t),
+        }
+    }
+
+    /// Run the cleanups of destroyed instances: those before removal, then
+    /// those after, each in its effect's tree order.
+    fn teardown(&mut self, destroyed: &[usize], order: &[usize]) {
+        if destroyed.is_empty() {
+            return;
+        }
+        let set: HashSet<usize> = destroyed.iter().copied().collect();
+        let roots: Vec<usize> = order
+            .iter()
+            .copied()
+            .filter(|i| {
+                set.contains(i) && !self.instances[*i].parent.is_some_and(|p| set.contains(&p))
+            })
+            .collect();
+        for removal in [Removal::Before, Removal::After] {
+            for &r in &roots {
+                self.teardown_at(r, removal, &set, order);
+            }
+        }
+    }
+
+    fn teardown_at(&mut self, i: usize, removal: Removal, set: &HashSet<usize>, order: &[usize]) {
+        let comp = self.instances[i].component;
+        let effects = &self.program.components[comp].effects;
+        let at = |o: TreeOrder| -> Vec<usize> {
+            (0..effects.len())
+                .filter(|&e| effects[e].unmount.removal == removal && effects[e].unmount.order == o)
+                .collect()
+        };
+        let (pre, post) = (at(TreeOrder::Pre), at(TreeOrder::Post));
+        for e in pre {
+            self.run_cleanup(i, e);
+        }
+        let children: Vec<usize> = order
+            .iter()
+            .copied()
+            .filter(|c| set.contains(c) && self.instances[*c].parent == Some(i))
+            .collect();
+        for c in children {
+            self.teardown_at(c, removal, set, order);
+        }
+        for e in post {
+            self.run_cleanup(i, e);
+        }
+    }
+
+    /// The initial mount: render, then the mount flush at the program's timing.
+    fn mount(&mut self) -> Result<()> {
+        self.render()?;
+        for i in &mut self.instances {
+            i.snapshot = Rc::new(i.cells.clone());
+        }
+        match self.program.schedule.mount {
+            MountTiming::Sync => self.flush(),
+            _ if self.flush_pending => {}
+            MountTiming::Microtask => {
+                self.flush_pending = true;
+                self.microtasks.push_back(Micro::Flush);
+            }
+            MountTiming::Task => {
+                self.flush_pending = true;
+                self.default_tasks.push_back(Micro::Flush);
+            }
+        }
+        self.checkpoint();
+        while let Some(job) = self.default_tasks.pop_front() {
+            self.run_micro(job);
+            self.checkpoint();
+        }
+        match std::mem::take(&mut self.uncaught).into_iter().next() {
+            Some(t) => Err(throw_diag(t)),
+            None => Ok(()),
+        }
     }
 
     /// Run handler `h` of instance `instance` with listener arguments (in

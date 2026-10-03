@@ -13,7 +13,8 @@ export type Binding =
   /** A field (path) of a local's record, e.g. a destructured list item. */
   | { kind: 'member'; owner: FnBuilder; local: number; path: number[] }
   | { kind: 'cell'; cell: number }
-  | { kind: 'function'; fn: number }
+  /** `stable`: one function object per instance (script-level functions of Svelte and Vue, module functions). */
+  | { kind: 'function'; fn: number; stable?: boolean }
   /** A function with untyped parameters: specialised per call-site argument types. */
   | {
       kind: 'generic';
@@ -143,6 +144,11 @@ export class Lowerer {
   /** Module constants shared by all components (program globals). */
   readonly globals: Global[] = [];
   readonly bindings = new Map<ts.Symbol, Binding>();
+  /**
+   * Component functions are created once per instance (Svelte and Vue
+   * scripts run once); otherwise once per render (React).
+   */
+  stableFunctions = false;
 
   readonly program: ts.Program;
   readonly checker: ts.TypeChecker;
@@ -1244,7 +1250,12 @@ export class Lowerer {
         return binding.expr;
       case 'function': {
         // A function used as a value: wrap it in a closure forwarding its params.
-        return { op: 'closure', function: binding.fn, captures: [] };
+        return {
+          op: 'closure',
+          function: binding.fn,
+          captures: [],
+          ...(binding.stable ? { stable: true } : {}),
+        };
       }
       case 'props':
         return this.fail(
@@ -1887,7 +1898,8 @@ export class Lowerer {
       return undefined;
     }
     const index = this.reserve();
-    this.bindings.set(sym, { kind: 'function', fn: index });
+    const stable = component === undefined || this.stableFunctions;
+    this.bindings.set(sym, { kind: 'function', fn: index, ...(stable ? { stable } : {}) });
     // Placeholder with the signature's types until the body is lowered.
     const sig = this.checker.getSignatureFromDeclaration(decl);
     const ret = sig?.getReturnType();

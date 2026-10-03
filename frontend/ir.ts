@@ -87,7 +87,7 @@ export type Expr =
   | { op: 'optional'; value: Expr; local: number; then: Expr }
   | { op: 'call'; function: number; args: Expr[] }
   | { op: 'call-value'; callee: Expr; args: Expr[] }
-  | { op: 'closure'; function: number; captures: number[] }
+  | { op: 'closure'; function: number; captures: number[]; stable?: boolean }
   | { op: 'builtin'; name: string; args: Expr[]; type: Type }
   /** Evaluate `value`, bind it to `local`, then evaluate `body` (sequencing with a temporary). */
   | { op: 'with'; local: number; value: Expr; body: Expr }
@@ -222,6 +222,21 @@ export interface Component {
   templateLocals?: Local[];
   /** Slots the template renders, with the types of their arguments. */
   slots?: { name: string; params?: Type[] }[];
+  /** Effects of each instance, in declaration order. */
+  effects?: Effect[];
+}
+
+/**
+ * A component function run around updates when its dependencies changed;
+ * a returned function is its cleanup (docs/design/M4-EFFECTS.md).
+ */
+export interface Effect {
+  run: number;
+  phase: 'pre' | 'layout' | 'post';
+  deps:
+    { kind: 'tracked' | 'once' | 'always' } | { kind: 'values'; values: Expr[]; initial?: boolean };
+  unmount: { removal: 'before' | 'after'; order: 'pre' | 'post' };
+  source?: Source;
 }
 
 /** The framework's update scheduling (docs/design/M4-EFFECTS.md). */
@@ -232,6 +247,14 @@ export interface Schedule {
   checkpoint?: 'dispatch' | 'listener';
   /** A checkbox's `change` listeners run in the `click` dispatch. */
   changeWithClick?: boolean;
+  /** `batched`: all cleanups of a phase run before its effects. */
+  cleanups?: 'interleaved' | 'batched';
+  /** Writes from post effects update in a later default-priority task. */
+  postWritesDeferred?: boolean;
+  /** When the initial mount's effects run (default: a microtask). */
+  mount?: 'sync' | 'microtask' | 'task';
+  /** Cleanups read state as it was before the running flush's writes. */
+  cleanupReadsPrevious?: boolean;
 }
 
 export interface Program {

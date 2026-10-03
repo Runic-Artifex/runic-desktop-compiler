@@ -120,6 +120,49 @@ pub struct Schedule {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub change_with_click: bool,
+    #[serde(default)]
+    pub cleanups: Cleanups,
+    /// Writes from post effects queue the next flush as a default task
+    /// instead of updating in the same flush.
+    #[serde(
+        default,
+        rename = "postWritesDeferred",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub post_writes_deferred: bool,
+    #[serde(default)]
+    pub mount: MountTiming,
+    /// Cleanups read state as it was before the running flush's writes.
+    #[serde(
+        default,
+        rename = "cleanupReadsPrevious",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub cleanup_reads_previous: bool,
+}
+
+/// How cleanups of re-running effects are ordered within a phase.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Cleanups {
+    /// Each cleanup right before its own effect re-runs.
+    #[default]
+    Interleaved,
+    /// All cleanups of the phase first, then all effects.
+    Batched,
+}
+
+/// When the initial mount's flush (its layout and post effects) runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MountTiming {
+    /// During the mount call.
+    Sync,
+    /// In a microtask after the mount call.
+    #[default]
+    Microtask,
+    /// In a default-priority task.
+    Task,
 }
 
 impl Schedule {
@@ -375,6 +418,86 @@ pub struct Component {
     /// types of the arguments it passes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slots: Vec<SlotDecl>,
+    /// Effects of each instance, in declaration order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
+}
+
+/// A function of a component instance that runs around updates when its
+/// dependencies changed (docs/design/M4-EFFECTS.md). Its result, if a
+/// function, is the cleanup run before the next run and at unmount.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Effect {
+    /// A function of the component. It takes no parameters, or with `values`
+    /// dependencies the new values followed by the previous ones (`maybe`,
+    /// undefined before the first run).
+    pub run: usize,
+    pub phase: EffectPhase,
+    pub deps: EffectDeps,
+    pub unmount: Unmount,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+}
+
+/// When an effect runs in a flush.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EffectPhase {
+    /// Before the instance's template updates, parent first; at mount, when
+    /// the instance is created.
+    Pre,
+    /// After the DOM update, children first.
+    Layout,
+    /// After all layout effects, children first.
+    Post,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum EffectDeps {
+    /// The cells (and deep state) the last run read.
+    Tracked,
+    /// At mount only.
+    Once,
+    /// After every update of the instance (its state, or its parent's, changed).
+    Always,
+    /// When a value changed (`Object.is`), evaluated after the instance updated.
+    Values {
+        values: Vec<Expr>,
+        /// Whether the effect also runs at mount.
+        #[serde(default = "yes")]
+        initial: bool,
+    },
+}
+
+fn yes() -> bool {
+    true
+}
+
+/// When an effect's cleanup runs as its instance is destroyed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Unmount {
+    pub removal: Removal,
+    pub order: TreeOrder,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Removal {
+    /// While the instance's DOM is still in the document.
+    Before,
+    After,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TreeOrder {
+    /// Parent before children.
+    Pre,
+    /// Children before parent.
+    Post,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -817,6 +940,10 @@ pub enum Expr {
     Closure {
         function: usize,
         captures: Vec<usize>,
+        /// One function object per instance (per program for functions of
+        /// no component): a script-level function referenced as a value.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        stable: bool,
     },
     Builtin {
         name: String,

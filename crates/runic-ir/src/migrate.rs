@@ -387,6 +387,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
             template,
             template_locals: vec![],
             slots: vec![],
+            effects: vec![],
         }],
         root: 0,
         container_attrs: match v.get("container").and_then(|c| c.get("attrs")) {

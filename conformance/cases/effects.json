@@ -1,0 +1,14 @@
+{
+  "description": "Effect order: mount (pre effects parent first, effects children first), update with cleanups, unmount and remount; logged into a plain array and shown on Dump",
+  "fixtures": ["effects-svelte"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

@@ -426,7 +426,14 @@ impl<'a> Scope<'a> {
                 self.args(&sig.params, args, d, src)?;
                 *sig.result
             }
-            Closure { function, captures } => {
+            Closure {
+                function,
+                captures,
+                stable,
+            } => {
+                if *stable && !captures.is_empty() {
+                    return err("E_IR", "Stable closures capture nothing", src);
+                }
                 let f = self.function(*function, src)?;
                 if f.captures.len() != captures.len() {
                     return err(
@@ -1001,6 +1008,62 @@ fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
             s.check_type(&l.ty, src)?;
         }
         s.block(&h.body).map_err(|d| d.or_source(src))?;
+    }
+    for e in &c.effects {
+        validate_effect(p, ci, e)?;
+    }
+    Ok(())
+}
+
+/// An effect runs a function of its component; with `values` dependencies it
+/// may receive the new and previous values. It returns nothing or a cleanup.
+fn validate_effect(p: &Program, ci: usize, e: &Effect) -> Result<()> {
+    let src = e.source.as_ref();
+    let Some(f) = p.functions.get(e.run) else {
+        return err("E_IR", "Unknown effect function", src);
+    };
+    if f.component != Some(ci) || !f.captures.is_empty() {
+        return err(
+            "E_IR",
+            "An effect runs a function of its own component without captures",
+            src,
+        );
+    }
+    let mut values = vec![];
+    if let EffectDeps::Values { values: exprs, .. } = &e.deps {
+        for v in exprs {
+            values.push(Scope::new(p, Some(ci)).infer(v, 0, src)?);
+        }
+    }
+    let params: Vec<&Type> = f.params.iter().map(|l| &l.ty).collect();
+    let with_values: Vec<Type> = values
+        .iter()
+        .cloned()
+        .chain(values.iter().map(|t| match t {
+            Type::Maybe(_) => t.clone(),
+            _ => Type::Maybe(Box::new(t.clone())),
+        }))
+        .collect();
+    if !params.is_empty() && params != with_values.iter().collect::<Vec<_>>() {
+        return err(
+            "E_IR",
+            "Effect functions take no parameters or the new and previous dependency values",
+            src,
+        );
+    }
+    let cleanup = Type::Fn(FnType {
+        params: vec![],
+        result: Box::new(Type::Void),
+    });
+    let ok = f.result == Type::Void
+        || f.result == cleanup
+        || f.result == Type::Maybe(Box::new(cleanup.clone()));
+    if !ok {
+        return err(
+            "E_IR",
+            "Effect functions return nothing or a cleanup function",
+            src,
+        );
     }
     Ok(())
 }

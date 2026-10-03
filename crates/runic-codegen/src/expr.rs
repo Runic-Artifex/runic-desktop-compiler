@@ -374,7 +374,18 @@ impl<'a> FnCtx<'a> {
                 ));
                 format!("{{ let callee = {f}; {code}{call} }}")
             }
-            Closure { function, captures } => self.closure(*function, captures),
+            Closure {
+                function,
+                captures,
+                stable,
+            } => {
+                let c = self.closure(*function, captures);
+                if *stable {
+                    self.stable_closure(*function, &c)
+                } else {
+                    c
+                }
+            }
             Builtin { name, args, ty } => crate::builtins::emit(self, name, args, ty),
             With { local, value, body } => {
                 let v = self.expr(value);
@@ -417,6 +428,29 @@ impl<'a> FnCtx<'a> {
         } else {
             format!("l{i} = {value};")
         }
+    }
+
+    /// A stable closure: created once per instance (cached in its state) or,
+    /// for functions of no component, once per program.
+    fn stable_closure(&self, function: usize, create: &str) -> String {
+        let f = &self.p.functions[function];
+        let fn_ty = rust_type(&Type::Fn(FnType {
+            params: f.params.iter().map(|p| p.ty.clone()).collect(),
+            result: Box::new(f.result.clone()),
+        }));
+        let cache = if f.component.is_some() {
+            "inst.borrow_mut().stable"
+        } else {
+            "cx.stable"
+        };
+        let read = if f.component.is_some() {
+            "inst.borrow().stable"
+        } else {
+            "cx.stable"
+        };
+        format!(
+            "{{ let known = {read}.get(&{function}).and_then(|v| v.downcast_ref::<{fn_ty}>().cloned()); match known {{ Some(f) => f, None => {{ let f: {fn_ty} = {create}; {cache}.insert({function}, Rc::new(f.clone()) as Rc<dyn std::any::Any>); f }} }} }}"
+        )
     }
 
     fn closure(&mut self, function: usize, captures: &[usize]) -> String {

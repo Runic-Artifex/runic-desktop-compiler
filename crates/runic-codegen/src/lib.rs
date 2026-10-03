@@ -1216,10 +1216,10 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
          /// Template locals of component {name}.\n#[derive(Clone)]\npub struct T{k} {{ {locals}}}\n\
          impl Default for T{k} {{ fn default() -> Self {{ T{k} {{ {local_defaults}}} }} }}\n\
          /// An instance of {name}: current, snapshot and pre-handler cells, dirty bits and props.\n\
-         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], {props}}}\n\
+         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, {props}}}\n\
          pub type I{k} = Rc<RefCell<St{k}>>;\n\
-         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], {prop_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
-         fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); }}",
+         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], stable: std::collections::HashMap::new(), {prop_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
+         fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); let stable = std::mem::take(&mut inst.borrow_mut().stable); drop(stable); }}",
         name = c.name.replace('\n', " "),
     );
     // Initialisation: passed props keep their value; other cells evaluate `init`.
@@ -1284,6 +1284,13 @@ pub fn generate(
     asset_mimes: &[String],
     options: &Options,
 ) -> Result<String> {
+    if let Some(e) = p.components.iter().flat_map(|c| &c.effects).next() {
+        return Err(Diagnostic::new(
+            "E_CODEGEN",
+            "Effects are not generated yet (M4 work in progress)",
+            e.source.as_ref(),
+        ));
+    }
     let reads = function_reads(p);
     let g = Gen {
         p,
@@ -1360,9 +1367,9 @@ pub fn generate(
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, {live}{globals}}}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}), stable: std::collections::HashMap::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );

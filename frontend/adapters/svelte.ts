@@ -6,7 +6,18 @@
 import ts from 'typescript';
 import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
-import type { Cell, Component, Expr, Handler, Listener, Node, Program, Stmt, Type } from '../ir.ts';
+import type {
+  Cell,
+  Component,
+  Expr,
+  Handler,
+  Listener,
+  Node,
+  Program,
+  Stmt,
+  Type,
+  Effect,
+} from '../ir.ts';
 import { FnBuilder, Lowerer, remapLocals, type HandlerEvent, type Hooks } from '../language.ts';
 import { createProgram, RUNES } from '../program.ts';
 import { TypeMapper } from '../types.ts';
@@ -451,6 +462,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     },
   };
   const lower = new Lowerer(program, checker, types, hooks, tsFail, sourceOf);
+  // The script runs once per instance: its functions keep their identity.
+  lower.stableFunctions = true;
   const runeName = (e: ts.Expression | undefined): string | undefined => {
     if (!e || !ts.isCallExpression(e)) return undefined;
     const callee = e.expression;
@@ -478,6 +491,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const pending: (() => void)[] = [];
     /** Snippet props become slots: declaration and the prop's symbol. */
     const slots: { name: string; params?: Type[] }[] = [];
+    const effects: Effect[] = [];
+    /** Local names of the lifecycle functions imported from 'svelte'. */
+    const lifecycle = new Map<string, string>();
     const snippetOf = new Map<ts.Symbol, string>();
     /** Parameter types of a `Snippet<[A, B]>` prop, or undefined for other props. */
     const snippetParams = (node: ts.Node): Type[] | undefined => {
@@ -536,17 +552,108 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       }
     };
 
+    /**
+     * `$effect`, `$effect.pre`, `onMount` and `onDestroy` (docs/design/M4-EFFECTS.md):
+     * effects tracking what they read, or running once; Svelte tears effects
+     * down after removing the DOM, pre effects before the component's children.
+     */
+    const effect = (stmt: ts.ExpressionStatement) => {
+      const call = stmt.expression;
+      const kind = ts.isCallExpression(call)
+        ? (runeName(call) ??
+          (ts.isIdentifier(call.expression) ? lifecycle.get(call.expression.text) : undefined))
+        : undefined;
+      if (!kind || !['$effect', '$effect.pre', 'onMount', 'onDestroy'].includes(kind))
+        return tsFail(
+          stmt,
+          'E_STATEMENT',
+          kind?.startsWith('$effect')
+            ? `${kind} is planned for a later milestone`
+            : 'Top-level statements other than $effect, onMount and onDestroy are unsupported',
+        );
+      const c = call as ts.CallExpression;
+      const fn = c.arguments[0];
+      if (
+        c.arguments.length !== 1 ||
+        !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ||
+        fn.parameters.length ||
+        fn.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)
+      )
+        return tsFail(c, 'E_EFFECT', `${kind} takes one synchronous function without parameters`);
+      const run = lower.reserve();
+      const source = sourceOf(stmt);
+      const post = { removal: 'after', order: 'post' } as const;
+      if (kind === 'onDestroy') {
+        // onDestroy(f) is an effect that runs once and returns f as its cleanup.
+        const f = lower.reserve();
+        pending.push(() => {
+          lower.function(fn as ts.ArrowFunction, 'onDestroy', undefined, COMPONENT, f);
+          lower.functions[run] = {
+            name: 'onDestroy$effect',
+            component: COMPONENT,
+            params: [],
+            locals: [],
+            result: { fn: { params: [], result: 'void' } },
+            body: [{ op: 'return', value: { op: 'closure', function: f, captures: [] } }],
+          };
+        });
+        effects.push({ run, phase: 'post', deps: { kind: 'once' }, unmount: post, source });
+        return;
+      }
+      pending.push(() => {
+        lower.function(fn as ts.ArrowFunction, kind, undefined, COMPONENT, run);
+        const result = lower.functions[run].result;
+        const cleanup = (t: Type) =>
+          typeof t === 'object' && 'fn' in t && !t.fn.params.length && t.fn.result === 'void';
+        if (
+          result !== 'void' &&
+          !cleanup(result) &&
+          !(typeof result === 'object' && 'maybe' in result && cleanup(result.maybe))
+        )
+          tsFail(fn, 'E_EFFECT', `${kind} functions return nothing or a cleanup function`);
+      });
+      effects.push(
+        kind === '$effect.pre'
+          ? {
+              run,
+              phase: 'pre',
+              deps: { kind: 'tracked' },
+              unmount: { removal: 'after', order: 'pre' },
+              source,
+            }
+          : {
+              run,
+              phase: 'post',
+              deps: { kind: kind === 'onMount' ? 'once' : 'tracked' },
+              unmount: post,
+              source,
+            },
+      );
+    };
+
     // Pass 1: register bindings (functions are hoisted; cells get indices).
     for (const stmt of statements) {
       if (ts.isImportDeclaration(stmt)) {
         const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
         if (stmt.importClause?.isTypeOnly) continue;
-        if (spec === 'svelte' || spec.startsWith('svelte/'))
-          tsFail(
-            stmt,
-            'E_CAPABILITY',
-            `${spec} imports (lifecycle, context, stores) are planned for M4`,
-          );
+        if (spec === 'svelte') {
+          const named = stmt.importClause?.namedBindings;
+          if (stmt.importClause?.name || !named || !ts.isNamedImports(named))
+            tsFail(stmt, 'E_CAPABILITY', 'Import onMount and onDestroy from svelte by name');
+          for (const el of (named as ts.NamedImports).elements) {
+            const imported = (el.propertyName ?? el.name).text;
+            if (!['onMount', 'onDestroy'].includes(imported))
+              tsFail(
+                el,
+                'E_CAPABILITY',
+                `svelte's ${imported} is planned for a later milestone (onMount and onDestroy are supported)`,
+              );
+            lifecycle.set(el.name.text, imported);
+          }
+          continue;
+        }
+        if (spec.startsWith('svelte/'))
+          tsFail(stmt, 'E_CAPABILITY', `${spec} imports (stores, reactivity) are planned for M6`);
         if (spec.endsWith('.svelte')) continue;
         if (!spec.startsWith('.'))
           tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
@@ -644,8 +751,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         }
         continue;
       }
-      if (ts.isExpressionStatement(stmt))
-        tsFail(stmt, 'E_STATEMENT', 'Top-level statements ($effect, calls) are planned for M4');
+      if (ts.isExpressionStatement(stmt)) {
+        effect(stmt);
+        continue;
+      }
       if (ts.isClassDeclaration(stmt))
         tsFail(stmt, 'E_TYPE_UNSUPPORTED', 'Classes are planned for later');
       if (!ts.isEmptyStatement(stmt))
@@ -1173,6 +1282,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       template,
       ...(tb.locals.length ? { templateLocals: tb.locals } : {}),
       ...(slots.length ? { slots } : {}),
+      ...(effects.length ? { effects } : {}),
     };
   }
 
@@ -1201,6 +1311,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     globals: lower.globals,
     components,
     root: units.get(rootFile!)!.index,
+    // Delegated listeners and microtask flushes (the defaults); teardowns
+    // read state as it was before the batch that destroys or re-runs them.
+    schedule: { cleanupReadsPrevious: true },
   };
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };

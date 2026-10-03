@@ -990,6 +990,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     },
   };
   const lower = new Lowerer(program, checker, types, hooks, tsFail, sourceOf);
+  // The script runs once per instance: its functions keep their identity.
+  lower.stableFunctions = true;
   // Ordinary local modules initialise first (dependencies first).
   for (const p of lowerModules(graph, program, lower, { skip: f => f === graph.entry })) p();
 
