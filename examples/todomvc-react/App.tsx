@@ -1,18 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TodoItem } from './TodoItem.tsx';
-import { visible, plural, type Todo, type Filter } from './todos.ts';
+import { visible, plural, load, nextId, STORAGE_KEY, type Todo, type Filter } from './todos.ts';
 
 export function App() {
-  const [todos, setTodos] = useState<Todo[]>([
-    { id: 1, title: 'Read the TodoMVC spec', done: true },
-    { id: 2, title: 'Compile it to Rust', done: false },
-  ]);
-  const [next, setNext] = useState(3);
+  const [todos, setTodos] = useState<Todo[]>(load());
+  const [next, setNext] = useState(nextId(load()));
   const [draft, setDraft] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const shown = visible(todos, filter);
   const left = todos.filter(t => !t.done).length;
   const completed = todos.length - left;
+  // Saved after every change.
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  }, [todos]);
 
   function add() {
     const title = draft.trim();

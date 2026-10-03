@@ -1,7 +1,9 @@
 {
   "description": "TodoMVC with localStorage (M4): the saved list loads at start, every change is saved by an effect, and a reload shows the saved state",
   "fixtures": [
-    "examples/todomvc-svelte"
+    "examples/todomvc-svelte",
+    "examples/todomvc-react",
+    "examples/todomvc-vue"
   ],
   "storage": {
     "todos-runic": "[{\"id\":4,\"title\":\"Saved earlier\",\"done\":false},{\"id\":7,\"title\":\"Also saved\",\"done\":true}]"

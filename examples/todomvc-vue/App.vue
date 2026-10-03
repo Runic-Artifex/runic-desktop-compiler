@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watchEffect } from 'vue';
 import TodoItem from './TodoItem.vue';
-import { visible, plural, type Todo, type Filter } from './todos.ts';
+import { visible, plural, load, nextId, STORAGE_KEY, type Todo, type Filter } from './todos.ts';
 
-const todos = ref<Todo[]>([
-  { id: 1, title: 'Read the TodoMVC spec', done: true },
-  { id: 2, title: 'Compile it to Rust', done: false },
-]);
-const next = ref(3);
+const todos = ref<Todo[]>(load());
+const next = ref(nextId(todos.value));
 const draft = ref('');
 const filter = ref<Filter>('all');
 const shown = computed(() => visible(todos.value, filter.value));
 const left = computed(() => todos.value.filter(t => !t.done).length);
 const completed = computed(() => todos.value.length - left.value);
+// Saved after every change.
+watchEffect(() => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(todos.value));
+});
 
 function add() {
   const title = draft.value.trim();
