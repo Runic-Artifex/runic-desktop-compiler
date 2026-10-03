@@ -24,14 +24,17 @@ export type Binding =
     }
   | { kind: 'derived'; fn: number }
   | { kind: 'value'; expr: Expr }
-  /** A Vue ref (`x.value` reads and writes the cell). */
-  | { kind: 'ref'; cell: number }
+  /** A ref object: `x.value` (Vue) or `x.<field>` (React `current`) reads and writes the cell. */
+  | { kind: 'ref'; cell: number; field?: string }
   /** A Vue computed (`x.value` calls the derived function). */
   | { kind: 'computed'; fn: number }
   /** A component's props object (inlined components): member reads are values. */
   | { kind: 'props'; values: Map<string, Expr> }
   /** A handler's event parameter. */
   | { kind: 'event'; handler: FnBuilder };
+
+/** The member of a ref object that holds its value (`value` unless the binding names one). */
+const refField = (b: { field?: string }): string => b.field ?? 'value';
 
 export interface Hooks {
   /** The expression reading `cell` in `ctx` (read mode is framework semantics). */
@@ -906,13 +909,10 @@ export class Lowerer {
       if (binding?.kind === 'cell') return this.hooks.cellType(binding.cell);
       if (binding?.kind === 'local') return b.typeOf(b.resolve(binding.owner, binding.local));
     }
-    if (
-      ts.isPropertyAccessExpression(target) &&
-      ts.isIdentifier(target.expression) &&
-      target.name.text === 'value'
-    ) {
+    if (ts.isPropertyAccessExpression(target) && ts.isIdentifier(target.expression)) {
       const ref = this.binding(target.expression);
-      if (ref?.kind === 'ref') return this.hooks.cellType(ref.cell);
+      if (ref?.kind === 'ref' && target.name.text === refField(ref))
+        return this.hooks.cellType(ref.cell);
     }
     return this.typeAt(target);
   }
@@ -975,14 +975,11 @@ export class Lowerer {
       }
       return this.fail(target, 'E_ASSIGN', `Cannot assign to ${target.text}`);
     }
-    if (
-      ts.isPropertyAccessExpression(target) &&
-      ts.isIdentifier(target.expression) &&
-      target.name.text === 'value'
-    ) {
+    if (ts.isPropertyAccessExpression(target) && ts.isIdentifier(target.expression)) {
       const ref = this.binding(target.expression);
-      if (ref?.kind === 'ref') return this.hooks.writeCell!(ref.cell, value, b, target);
-      if (ref?.kind === 'computed')
+      if (ref?.kind === 'ref' && target.name.text === refField(ref))
+        return this.hooks.writeCell!(ref.cell, value, b, target);
+      if (ref?.kind === 'computed' && target.name.text === 'value')
         return this.fail(target, 'E_ASSIGN', 'Computed values are read-only');
     }
     return [{ op: 'assign', target: this.place(target, b), value, ...this.src(target) }];
@@ -1260,7 +1257,7 @@ export class Lowerer {
         return this.fail(
           id,
           'E_REF',
-          'Refs are supported through .value (passing ref objects is planned for M3)',
+          `Refs are supported through .${binding.kind === 'ref' ? refField(binding) : 'value'} (passing ref objects is planned for a later milestone)`,
         );
       case 'event':
         return this.fail(
@@ -1550,7 +1547,7 @@ export class Lowerer {
       const special = this.binding(e.expression);
       if (special?.kind === 'props')
         return special.values.get(name) ?? this.fail(e, 'E_PROPS', `Prop ${name} is not passed`);
-      if (special?.kind === 'ref' && name === 'value') {
+      if (special?.kind === 'ref' && name === refField(special)) {
         const read = this.hooks.readCell(special.cell, b, e);
         const here = this.types.typeOrUndefined(e);
         const declared = this.hooks.cellType(special.cell);
