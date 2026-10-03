@@ -373,6 +373,9 @@ pub struct Instance<'p> {
     /// The snapshot before the last commit (what cleanups read under
     /// `cleanupReadsPrevious`).
     previous: Rc<Vec<Val>>,
+    /// Per cell: bumped by every write that changes the value (tracked
+    /// effects re-run after any such write, as signals notify).
+    versions: Vec<u64>,
     /// The value each prop cell last received from the parent.
     passed: Vec<Option<Val>>,
     /// Two-way binding setters of prop cells.
@@ -402,7 +405,7 @@ struct EffectState {
 struct Read_ {
     instance: usize,
     cell: usize,
-    value: Val,
+    version: u64,
     /// Heap mutation epochs after the run (deep and proxied cells change
     /// when the heap is mutated).
     epochs: (u64, u64),
@@ -524,6 +527,7 @@ pub struct Machine<'p> {
     stable_fns: HashMap<(Option<usize>, usize), Val>,
     /// While a cleanup runs under `cleanupReadsPrevious`.
     reading_previous: bool,
+    version_clock: u64,
 }
 
 /// `order` (parent first) with every instance after its children.
@@ -592,6 +596,7 @@ impl<'p> Machine<'p> {
             render_updates: None,
             stable_fns: HashMap::new(),
             reading_previous: false,
+            version_clock: 0,
         };
         for g in &program.globals {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
@@ -618,6 +623,7 @@ impl<'p> Machine<'p> {
             cells: Vec::with_capacity(n),
             snapshot: Rc::new(vec![]),
             previous: Rc::new(vec![]),
+            versions: vec![0; n],
             passed: vec![None; n],
             binds: vec![None; n],
             slots: vec![None; comp.slots.len()],
@@ -700,7 +706,7 @@ impl<'p> Machine<'p> {
                     reads.push(Read_ {
                         instance: self.current,
                         cell: *cell,
-                        value: v.clone(),
+                        version: self.instances[self.current].versions[*cell],
                         epochs: (0, 0),
                     });
                 }
@@ -958,6 +964,20 @@ impl<'p> Machine<'p> {
         r
     }
 
+    fn bump(&mut self, instance: usize, cell: usize) {
+        self.version_clock += 1;
+        self.instances[instance].versions[cell] = self.version_clock;
+    }
+
+    /// A ref cell set or cleared while rendering: a write that the running
+    /// flush handles in another pass (outside a flush, the next flush sees it).
+    fn ref_changed(&mut self, instance: usize, cell: usize) {
+        self.bump(instance, cell);
+        if self.phase.is_some() {
+            self.again = true;
+        }
+    }
+
     /// The snapshot `snapshot` reads see in the running code.
     fn current_snapshot(&self) -> Rc<Vec<Val>> {
         self.snap
@@ -1008,6 +1028,9 @@ impl<'p> Machine<'p> {
             Tracking::Proxied => js::Own::own(v),
             _ => v,
         };
+        if !self.instances[current].cells[cell].same(&v) {
+            self.bump(current, cell);
+        }
         self.instances[current].cells[cell] = v.clone();
         self.queue_flush();
         // A bound prop forwards the write to the parent.
@@ -1640,6 +1663,7 @@ impl<'p> Machine<'p> {
                 && matches!(self.instances[inst].cells[cell], Val::Element(e) if e.0 == id)
             {
                 self.instances[inst].cells[cell] = Val::Null;
+                self.ref_changed(inst, cell);
             }
         }
         // Destroy instances that were not rendered.
@@ -1825,18 +1849,19 @@ impl<'p> Machine<'p> {
                     .collect();
                 let id = match self.children.get(&key) {
                     Some(&id) => {
-                        let inst = &mut self.instances[id];
                         for (cell, v, b) in args {
+                            let inst = &mut self.instances[id];
                             let changed = match &inst.passed[cell] {
                                 Some(old) => !old.same(&v),
                                 None => true,
                             };
+                            inst.binds[cell] = b;
                             if changed {
                                 inst.passed[cell] = Some(v.clone());
                                 inst.cells[cell] = v.clone();
                                 Rc::make_mut(&mut inst.snapshot)[cell] = v;
+                                self.bump(id, cell);
                             }
-                            inst.binds[cell] = b;
                         }
                         id
                     }
@@ -1881,7 +1906,11 @@ impl<'p> Machine<'p> {
                     };
                     self.rendered_elements.insert(key);
                     let current = self.current;
-                    self.instances[current].cells[*cell] = Val::Element(js::Element(id));
+                    let element = Val::Element(js::Element(id));
+                    if !self.instances[current].cells[*cell].same(&element) {
+                        self.instances[current].cells[*cell] = element;
+                        self.ref_changed(current, *cell);
+                    }
                     self.refs.insert((current, *cell), id);
                 }
                 let mut map = BTreeMap::new();
@@ -2116,7 +2145,7 @@ impl<'p> Machine<'p> {
             let inst = &self.instances[i];
             let comp = &self.program.components[inst.component];
             let changed = inst.cells.iter().enumerate().any(|(c, v)| {
-                !v.same(&inst.snapshot[c])
+                comp.cells[c].tracking != Tracking::None && !v.same(&inst.snapshot[c])
                     || match comp.cells[c].tracking {
                         Tracking::Deep => mutated.0,
                         Tracking::Proxied => mutated.1,
@@ -2223,7 +2252,7 @@ impl<'p> Machine<'p> {
                     state.reads.iter().any(|r| {
                         let inst = &self.instances[r.instance];
                         let cell = &self.program.components[inst.component].cells[r.cell];
-                        !inst.cells[r.cell].same(&r.value)
+                        inst.versions[r.cell] != r.version
                             || match cell.tracking {
                                 Tracking::Deep => js::mutation_epoch() != r.epochs.0,
                                 Tracking::Proxied => js::owned_epoch() != r.epochs.1,
