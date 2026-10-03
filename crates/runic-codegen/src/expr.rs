@@ -9,7 +9,7 @@
 //! immediately; errors propagate with `?`, or to the innermost `try` through
 //! `tri!` and labelled-block breaks.
 
-use crate::types::{default_value, rust_type};
+use crate::types::{default_value, rust_type, same_expr};
 use runic_ir::validate::infer_in;
 use runic_ir::*;
 use std::fmt::Write as _;
@@ -116,7 +116,26 @@ impl<'a> FnCtx<'a> {
 
     fn cell_read(&self, cell: usize, read: Read) -> String {
         match read {
-            Read::Current => format!("{{ let v = inst.borrow().c.c{cell}.clone(); v }}"),
+            Read::Current => {
+                let c = &self.p.components[self.component.expect("cell in a component")];
+                let read = if self.p.schedule.cleanup_reads_previous {
+                    format!(
+                        "if cx.reading_previous {{ inst.borrow().prev.c{cell}.clone() }} else {{ inst.borrow().c.c{cell}.clone() }}"
+                    )
+                } else {
+                    format!("inst.borrow().c.c{cell}.clone()")
+                };
+                // Reads of reactive cells are dependencies of a running tracked effect.
+                let kind = match c.cells[cell].tracking {
+                    Tracking::None => return format!("{{ let v = {read}; v }}"),
+                    Tracking::Deep if c.cells[cell].ty.is_reference() => 1,
+                    Tracking::Proxied if c.cells[cell].ty.is_reference() => 2,
+                    _ => 0,
+                };
+                format!(
+                    "{{ let v = {read}; if let Some(t) = cx.tracking.as_mut() {{ let version = inst.borrow().ver[{cell}]; t.push(runic_runtime::Dep {{ cells: Rc::clone(inst) as Rc<dyn runic_runtime::Versions>, cell: {cell}, version, kind: {kind}, epochs: (0, 0) }}); }} v }}"
+                )
+            }
             Read::Snapshot if self.snap => format!("snap.c{cell}.clone()"),
             Read::Snapshot => format!("{{ let v = inst.borrow().snap.c{cell}.clone(); v }}"),
         }
@@ -145,6 +164,12 @@ impl<'a> FnCtx<'a> {
             }
             _ => "",
         };
+        // A write that changes the value gives the cell a new version.
+        let ty = &self.p.components[self.component.expect("cell in a component")].cells[cell].ty;
+        let same = same_expr(ty, "(*o)", "v");
+        let own = format!(
+            "{own}{{ let changed = {{ let st = inst.borrow(); let o = &st.c.c{cell}; !{same} }}; if changed {{ let ver = cx.jobs.version(); inst.borrow_mut().ver[{cell}] = ver; }} }} "
+        );
         if prop {
             let call = self.q("b(cx, v)");
             format!(

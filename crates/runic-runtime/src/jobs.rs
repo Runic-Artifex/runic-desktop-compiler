@@ -23,11 +23,36 @@ pub struct Jobs<C> {
     tracks: (bool, bool),
     /// Heap mutation epochs at the end of the last flush.
     epochs: (u64, u64),
+    /// The effect phase of a running flush: writes then ask for another pass.
+    pub phase: Option<Phase>,
+    /// A write during the running flush asks for another pass.
+    pub again: bool,
+    /// Writes from post effects update in a later default task.
+    post_writes_deferred: bool,
+    /// Source of cell versions (bumped by writes that change a cell).
+    clock: u64,
+}
+
+/// The phases of a flush (docs/design/M4-EFFECTS.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Pre,
+    Layout,
+    Post,
 }
 
 impl<C> Jobs<C> {
-    pub fn new(event_microtask: bool, tracks_deep: bool, tracks_owned: bool) -> Self {
+    pub fn new(
+        event_microtask: bool,
+        tracks_deep: bool,
+        tracks_owned: bool,
+        post_writes_deferred: bool,
+    ) -> Self {
         Jobs {
+            phase: None,
+            again: false,
+            post_writes_deferred,
+            clock: 0,
             microtasks: VecDeque::new(),
             defaults: VecDeque::new(),
             flush_pending: false,
@@ -40,6 +65,17 @@ impl<C> Jobs<C> {
 
     /// Queue the flush job unless one is pending (called by state writes).
     pub fn queue_flush(&mut self) {
+        if let Some(phase) = self.phase {
+            if phase == Phase::Post && self.post_writes_deferred {
+                if !self.flush_pending {
+                    self.flush_pending = true;
+                    self.defaults.push_back(Job::Flush);
+                }
+            } else {
+                self.again = true;
+            }
+            return;
+        }
         if self.flush_pending {
             return;
         }
@@ -86,14 +122,50 @@ impl<C> Jobs<C> {
         self.defaults.pop_front()
     }
 
-    /// The flush job starts: later writes queue a new one.
+    /// The flush job starts: later writes extend it or queue a new one.
     pub fn flush_started(&mut self) {
         self.flush_pending = false;
+        self.phase = Some(Phase::Pre);
+    }
+
+    /// Whether the heap was mutated since the last call (or flush), resetting.
+    pub fn take_mutated(&mut self) -> (bool, bool) {
+        let m = self.mutated();
+        self.epochs = (runic_js::mutation_epoch(), runic_js::owned_epoch());
+        m
     }
 
     /// The flush job ended: heap mutations so far are applied.
     pub fn flush_ended(&mut self) {
+        self.phase = None;
         self.epochs = (runic_js::mutation_epoch(), runic_js::owned_epoch());
+    }
+
+    /// A ref cell set or cleared while rendering: another pass of the
+    /// running flush handles it.
+    pub fn ref_written(&mut self) {
+        if self.phase.is_some() {
+            self.again = true;
+        }
+    }
+
+    /// Queue the mount's flush (a microtask or a default task) unless one is pending.
+    pub fn queue_mount(&mut self, task: bool) {
+        if self.flush_pending {
+            return;
+        }
+        self.flush_pending = true;
+        if task {
+            self.defaults.push_back(Job::Flush);
+        } else {
+            self.microtasks.push_back(Job::Flush);
+        }
+    }
+
+    /// A new cell version.
+    pub fn version(&mut self) -> u64 {
+        self.clock += 1;
+        self.clock
     }
 
     /// Drop queued jobs (a task whose writes were rolled back).
@@ -101,5 +173,61 @@ impl<C> Jobs<C> {
         self.microtasks.clear();
         self.defaults.clear();
         self.flush_pending = false;
+    }
+}
+
+/// Cell versions of a component instance (tracked effect dependencies).
+pub trait Versions {
+    fn version(&self, cell: usize) -> u64;
+}
+
+/// Instance state with per-cell versions (implemented by generated code).
+pub trait CellVersions {
+    fn versions(&self) -> &[u64];
+}
+
+impl<T: CellVersions> Versions for std::cell::RefCell<T> {
+    fn version(&self, cell: usize) -> u64 {
+        self.borrow().versions()[cell]
+    }
+}
+
+/// A cell read recorded while a tracked effect ran.
+pub struct Dep {
+    pub cells: std::rc::Rc<dyn Versions>,
+    pub cell: usize,
+    pub version: u64,
+    /// 0: identity, 1: deep (any heap mutation), 2: proxied.
+    pub kind: u8,
+    /// Heap mutation epochs after the effect ran.
+    pub epochs: (u64, u64),
+}
+
+impl Dep {
+    /// Whether the cell was written (or, for deep state, the heap mutated) since.
+    pub fn changed(&self) -> bool {
+        self.cells.version(self.cell) != self.version
+            || match self.kind {
+                1 => runic_js::mutation_epoch() != self.epochs.0,
+                2 => runic_js::owned_epoch() != self.epochs.1,
+                _ => false,
+            }
+    }
+}
+
+/// The run state of one effect of an instance.
+pub struct Fx<C> {
+    pub started: bool,
+    pub cleanup: Option<C>,
+    pub deps: Vec<Dep>,
+}
+
+impl<C> Default for Fx<C> {
+    fn default() -> Self {
+        Fx {
+            started: false,
+            cleanup: None,
+            deps: Vec::new(),
+        }
     }
 }

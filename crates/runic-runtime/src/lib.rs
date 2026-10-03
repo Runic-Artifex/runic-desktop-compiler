@@ -17,7 +17,7 @@ mod timers;
 
 pub use blitz_traits::node_id::NodeId;
 pub use dom::{Dom, Event};
-pub use jobs::{Job, Jobs};
+pub use jobs::{CellVersions, Dep, Fx, Job, Jobs, Phase, Versions};
 pub use serde_json::Value as Json;
 pub use timers::{CLOCK_ORIGIN, CLOCK_START, TimerKind, Timers, clock_origin};
 

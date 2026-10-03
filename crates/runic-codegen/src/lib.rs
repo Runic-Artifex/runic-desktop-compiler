@@ -496,7 +496,7 @@ impl Gen<'_> {
              #[allow(unused_variables, unused_mut)]\nfn sync_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom, inst: &I{k}, t: &Rc<RefCell<T{k}>>) -> JsResult<()> {{\n{prelude}{sync}Ok(())\n}}\n\
              #[allow(unused_variables)]\nfn dispose_s{id}(s: &S{id}, cx: &mut Cx) {{\n{dispose}}}\n\
              #[allow(unused_variables)]\nfn nodes_s{id}(s: &S{id}, out: &mut Vec<NodeId>) {{\n{nodes}}}\n\
-             #[allow(unused_variables)]\nfn instances_s{id}(s: &S{id}, out: &mut Vec<runic_runtime::Json>) {{\n{instances}}}\n\
+             #[allow(unused_variables)]\nfn walk_s{id}(s: &S{id}, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{\n{instances}}}\n\
              fn first_s{id}(s: &S{id}) -> Option<NodeId> {{ {first} }}\n\
              fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ dispose_s{id}(s, cx); let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); for n in ns {{ dom.remove(n); }} }}\n{extra}\n",
             extra = o.extra,
@@ -619,11 +619,11 @@ impl Gen<'_> {
                     o.fields.push((format!("ri{key}"), format!("I{k}")));
                     let _ = writeln!(
                         o.mount,
-                        "let ri{key} = Rc::clone(inst); inst.borrow_mut().c.c{r} = Maybe::Some(js::Element(n{key}.as_u64()));"
+                        "let ri{key} = Rc::clone(inst); {{ let ver = cx.jobs.version(); let mut st = inst.borrow_mut(); st.c.c{r} = Maybe::Some(js::Element(n{key}.as_u64())); st.ver[{r}] = ver; }} cx.jobs.ref_written();"
                     );
                     let _ = writeln!(
                         o.dispose,
-                        "{{ let mut st = s.ri{key}.borrow_mut(); if matches!(&st.c.c{r}, Maybe::Some(e) if e.0 == s.n{key}.as_u64()) {{ st.c.c{r} = Maybe::Null; }} }}"
+                        "{{ let mut st = s.ri{key}.borrow_mut(); if matches!(&st.c.c{r}, Maybe::Some(e) if e.0 == s.n{key}.as_u64()) {{ st.c.c{r} = Maybe::Null; st.ver[{r}] = cx.jobs.version(); cx.jobs.ref_written(); }} }}"
                     );
                 }
                 for (i, a) in attrs.iter().enumerate() {
@@ -768,7 +768,7 @@ impl Gen<'_> {
                 );
                 let _ = writeln!(
                     o.instances,
-                    "if let Some(b) = &s.then{key} {{ instances_s{th}(b, out); }}\nif let Some(b) = &s.else{key} {{ instances_s{el}(b, out); }}"
+                    "if let Some(b) = &s.then{key} {{ walk_s{th}(b, parent, out); }}\nif let Some(b) = &s.else{key} {{ walk_s{el}(b, parent, out); }}"
                 );
             }
             Item::Component {
@@ -781,6 +781,13 @@ impl Gen<'_> {
                 let key = *key;
                 let (c, root) = (*c, *root);
                 let child = &self.p.components[c];
+                let has_pre = child.effects.iter().any(|e| e.phase == EffectPhase::Pre);
+                // Pre effects run when the instance is created.
+                let created = if has_pre {
+                    format!("fx_phase_i{c}(cx, &ci{key}, 0, true);\n")
+                } else {
+                    String::new()
+                };
                 // Slot providers: mount the parent's content in the parent instance.
                 let mut providers = String::new();
                 for (decl, def, body) in slots {
@@ -804,7 +811,7 @@ impl Gen<'_> {
                          fn dispose(&self, cx: &mut Cx) {{ dispose_s{body}(&self.s, cx); }}\n\
                          fn nodes(&self, out: &mut Vec<NodeId>) {{ nodes_s{body}(&self.s, out); }}\n\
                          fn first(&self) -> Option<NodeId> {{ first_s{body}(&self.s) }}\n\
-                         fn instances(&self, out: &mut Vec<runic_runtime::Json>) {{ instances_s{body}(&self.s, out); }}\n\
+                         fn walk(&self, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{ walk_s{body}(&self.s, parent, out); }}\n\
                          }}"
                     );
                 }
@@ -835,7 +842,7 @@ impl Gen<'_> {
                     let guard = self.guard(&[&a.value]);
                     let _ = writeln!(
                         o.update,
-                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; }} }}"
+                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
                     );
                     if let Some(b) = &a.bind {
                         let guard = self.guard(&[b]);
@@ -848,12 +855,20 @@ impl Gen<'_> {
                 }
                 let _ = writeln!(
                     o.mount,
-                    "let ci{key} = new_i{c}(cx);\n{pass}{providers}init_i{c}(cx, &ci{key})?;\nlet ct{key}: Rc<RefCell<T{c}>> = Rc::new(RefCell::new(T{c}::default()));\nlet cs{key} = mount_s{root}(cx, dom, &ci{key}, &ct{key}, {mp}, {mb})?;"
+                    "let ci{key} = new_i{c}(cx);\n{pass}{providers}init_i{c}(cx, &ci{key})?;\n{created}let ct{key}: Rc<RefCell<T{c}>> = Rc::new(RefCell::new(T{c}::default()));\nlet cs{key} = mount_s{root}(cx, dom, &ci{key}, &ct{key}, {mp}, {mb})?;"
                 );
                 let anchor = first_of(following, tail);
+                // Pre effects of the child run before it updates (after its props).
+                let pre = if has_pre {
+                    format!(
+                        "{{ let u = cx.updated.get(&(Rc::as_ptr(&s.ci{key}) as *const u8 as usize)).copied().unwrap_or(true); fx_phase_i{c}(cx, &s.ci{key}, 0, u); }}\n"
+                    )
+                } else {
+                    String::new()
+                };
                 let _ = writeln!(
                     o.update,
-                    "{{ let anchor = {anchor}; update_s{root}(&mut s.cs{key}, cx, dom, &s.ci{key}, &s.ct{key}, false, {up}, anchor)?; }}"
+                    "{pre}{{ let anchor = {anchor}; update_s{root}(&mut s.cs{key}, cx, dom, &s.ci{key}, &s.ct{key}, false, {up}, anchor)?; }}"
                 );
                 let _ = writeln!(
                     o.sync,
@@ -861,12 +876,11 @@ impl Gen<'_> {
                 );
                 let _ = writeln!(
                     o.dispose,
-                    "dispose_s{root}(&s.cs{key}, cx); destroy_i{c}(cx, &s.ci{key});"
+                    "cx.destroyed.push(Rc::new(H{c}(Rc::clone(&s.ci{key})))); dispose_s{root}(&s.cs{key}, cx); destroy_i{c}(cx, &s.ci{key});"
                 );
                 let _ = writeln!(
                     o.instances,
-                    "out.push(runic_runtime::Json::Object([(\"component\".to_string(), runic_runtime::Json::String({}.into())), (\"cells\".to_string(), cells_json_i{c}(&s.ci{key}))].into_iter().collect()));\ninstances_s{root}(&s.cs{key}, out);",
-                    rust_str(&child.name)
+                    "out.push((Rc::new(H{c}(Rc::clone(&s.ci{key}))) as Rc<dyn Inst>, parent));\nwalk_s{root}(&s.cs{key}, Rc::as_ptr(&s.ci{key}) as *const u8 as usize, out);"
                 );
             }
             Item::Slot {
@@ -911,7 +925,7 @@ impl Gen<'_> {
                 );
                 let _ = writeln!(
                     o.instances,
-                    "if let Some(b) = &s.sl{key} {{ b.instances(out); }}\nif let Some(b) = &s.fb{key} {{ instances_s{fb}(b, out); }}"
+                    "if let Some(b) = &s.sl{key} {{ b.walk(parent, out); }}\nif let Some(b) = &s.fb{key} {{ walk_s{fb}(b, parent, out); }}"
                 );
             }
             Item::Each {
@@ -1012,7 +1026,7 @@ impl Gen<'_> {
                 );
                 let _ = writeln!(
                     o.instances,
-                    "for (_, _, b) in &s.e{key} {{ instances_s{bd}(b, out); }}\nif let Some(b) = &s.else{key} {{ instances_s{el}(b, out); }}"
+                    "for (_, _, b) in &s.e{key} {{ walk_s{bd}(b, parent, out); }}\nif let Some(b) = &s.else{key} {{ walk_s{el}(b, parent, out); }}"
                 );
             }
         }
@@ -1209,6 +1223,20 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
             let _ = write!(prop_defaults, "p{i}: None, b{i}: None, ");
         }
     }
+    let m = c.effects.len();
+    let mut fx_values = String::new();
+    let mut fx_value_defaults = String::new();
+    for (e, effect) in c.effects.iter().enumerate() {
+        if let EffectDeps::Values { values, .. } = &effect.deps {
+            let cx = FnCtx::new(p, Some(k), vec![], None, Type::Void);
+            let tys: String = values
+                .iter()
+                .map(|v| format!("{}, ", rust_type(&cx.ty(v))))
+                .collect();
+            let _ = write!(fx_values, "pub fxv{e}: Option<({tys})>, ");
+            let _ = write!(fx_value_defaults, "fxv{e}: None, ");
+        }
+    }
     let _ = writeln!(
         out,
         "/// Cells of component {name}.\n#[derive(Clone)]\npub struct Cells{k} {{ {fields}}}\n\
@@ -1216,9 +1244,9 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
          /// Template locals of component {name}.\n#[derive(Clone)]\npub struct T{k} {{ {locals}}}\n\
          impl Default for T{k} {{ fn default() -> Self {{ T{k} {{ {local_defaults}}} }} }}\n\
          /// An instance of {name}: current, snapshot and pre-handler cells, dirty bits and props.\n\
-         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, {props}}}\n\
+         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub prev: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub changed: bool, pub ver: [u64; {n}], pub fx: Vec<runic_runtime::Fx<Lst>>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, {props}{fx_values}}}\n\
          pub type I{k} = Rc<RefCell<St{k}>>;\n\
-         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], stable: std::collections::HashMap::new(), {prop_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
+         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), prev: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], changed: false, ver: [0; {n}], fx: (0..{m}).map(|_| runic_runtime::Fx::default()).collect(), stable: std::collections::HashMap::new(), {prop_defaults}{fx_value_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
          fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); let stable = std::mem::take(&mut inst.borrow_mut().stable); drop(stable); }}",
         name = c.name.replace('\n', " "),
     );
@@ -1268,10 +1296,150 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
         .collect();
     let _ = writeln!(
         out,
-        "#[allow(unused_variables)]\nfn init_i{k}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n{init}let mut st = inst.borrow_mut(); st.snap = Rc::new(st.c.clone()); st.before = st.c.clone();\nOk(())\n}}\n\
+        "#[allow(unused_variables)]\nfn init_i{k}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n{init}let mut st = inst.borrow_mut(); st.snap = Rc::new(st.c.clone()); st.prev = Rc::clone(&st.snap); st.before = st.c.clone();\nOk(())\n}}\n\
          fn begin_i{k}(st: &mut St{k}) {{ st.before = st.c.clone(); }}\n\
-         #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, owned: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.snap = Rc::new(st.c.clone()); }}\n\
+         #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, owned: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.changed = dirty.iter().any(|d| *d); st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.prev = std::mem::replace(&mut st.snap, Rc::new(st.c.clone())); }}\n\
          #[allow(unused_variables)]\nfn cells_json_i{k}(inst: &I{k}) -> runic_runtime::Json {{ let st = inst.borrow(); runic_runtime::Json::Array(vec![{cells_json}]) }}\n"
+    );
+}
+
+/// Effects of component `k`: the `Inst` view of its instances (tree
+/// walks, dirtiness, effect metadata) and its effects' dependency checks,
+/// runs and cleanups (docs/design/M4-EFFECTS.md).
+fn component_effects(p: &Program, k: usize, out: &mut String) {
+    let c = &p.components[k];
+    let meta: String = c
+        .effects
+        .iter()
+        .map(|e| {
+            let phase = match e.phase {
+                EffectPhase::Pre => 0,
+                EffectPhase::Layout => 1,
+                EffectPhase::Post => 2,
+            };
+            format!(
+                "({phase}, {}, {}), ",
+                e.unmount.removal == Removal::After,
+                e.unmount.order == TreeOrder::Post
+            )
+        })
+        .collect();
+    let mut due = String::new();
+    let mut run = String::new();
+    for (e, effect) in c.effects.iter().enumerate() {
+        let f = &p.functions[effect.run];
+        let mut cx = FnCtx::new(p, Some(k), vec![], None, Type::Void);
+        // Dependency values as a tuple, and their comparison with the last ones.
+        let (tuple, same) = match &effect.deps {
+            EffectDeps::Values { values, .. } => {
+                let vs: String = values.iter().map(|v| format!("{}, ", cx.expr(v))).collect();
+                let same: Vec<String> = values
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| same_expr(&cx.ty(v), &format!("o.{i}"), &format!("new.{i}")))
+                    .collect();
+                (
+                    format!("({vs})"),
+                    if same.is_empty() {
+                        "true".into()
+                    } else {
+                        same.join(" && ")
+                    },
+                )
+            }
+            _ => (String::new(), String::new()),
+        };
+        let check = match &effect.deps {
+            EffectDeps::Once => "!started".to_string(),
+            EffectDeps::Always => "!started || updated".to_string(),
+            EffectDeps::Tracked => {
+                "!started || inst.borrow().fx[e].deps.iter().any(|d| d.changed())".to_string()
+            }
+            EffectDeps::Values { initial, .. } => format!(
+                "{{ let new = {tuple}; let changed = match &inst.borrow().fxv{e} {{ Some(o) => !({same}), None => true }}; if !started && !{initial} {{ let mut st = inst.borrow_mut(); st.fxv{e} = Some(new); st.fx[e].started = true; return false; }} changed }}"
+            ),
+        };
+        let _ = writeln!(due, "{e} => {check},");
+        // Arguments: the new values and the previous ones (undefined at first).
+        let mut prologue = String::new();
+        let mut args = String::new();
+        if let EffectDeps::Values { values, .. } = &effect.deps {
+            let _ = write!(
+                prologue,
+                "let new = {tuple}; let (old, was) = {{ let st = inst.borrow(); (st.fxv{e}.clone(), st.fx[e].started) }}; inst.borrow_mut().fxv{e} = Some(new.clone()); "
+            );
+            if !f.params.is_empty() {
+                for i in 0..values.len() {
+                    let _ = write!(args, ", new.{i}.clone()");
+                }
+                for (i, v) in values.iter().enumerate() {
+                    let wrap = if matches!(cx.ty(v), Type::Maybe(_)) {
+                        format!("o.{i}.clone()")
+                    } else {
+                        format!("Maybe::Some(o.{i}.clone())")
+                    };
+                    let _ = write!(
+                        args,
+                        ", match (&old, was) {{ (Some(o), true) => {wrap}, _ => Maybe::Undefined }}"
+                    );
+                }
+            }
+        }
+        let tracked = effect.deps == EffectDeps::Tracked;
+        let begin = if tracked {
+            "let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new()));"
+        } else {
+            "let outer = cx.tracking.take();"
+        };
+        let end = if tracked {
+            "let deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); let epochs = (js::mutation_epoch(), js::owned_epoch()); inst.borrow_mut().fx[e].deps = deps.into_iter().map(|d| runic_runtime::Dep { epochs, ..d }).collect();"
+        } else {
+            "cx.tracking = outer;"
+        };
+        let cleanup = match &f.result {
+            Type::Void => "Ok(_) => {}".to_string(),
+            Type::Maybe(_) => {
+                "Ok(Maybe::Some(f)) => inst.borrow_mut().fx[e].cleanup = Some(f), Ok(_) => {}"
+                    .into()
+            }
+            _ => "Ok(f) => inst.borrow_mut().fx[e].cleanup = Some(f),".into(),
+        };
+        let _ = writeln!(
+            run,
+            "{e} => {{ {prologue}{begin} let snap = {{ let s = Rc::clone(&inst.borrow().snap); s }}; let r = f{fun}(cx, inst, &snap{args}); {end} inst.borrow_mut().fx[e].started = true; match r {{ {cleanup} Err(err) => eprintln!(\"runic: uncaught exception in an effect: {{err}}\"), }} }}",
+            fun = effect.run
+        );
+    }
+    let previous = if p.schedule.cleanup_reads_previous {
+        (
+            "cx.reading_previous = true; ",
+            "cx.reading_previous = false; ",
+        )
+    } else {
+        ("", "")
+    };
+    let _ = writeln!(
+        out,
+        "impl runic_runtime::CellVersions for St{k} {{ fn versions(&self) -> &[u64] {{ &self.ver }} }}\n\
+         /// An instance of {name} for tree walks and effects.\npub struct H{k}(pub I{k});\n\
+         const FX{k}: &[(u8, bool, bool)] = &[{meta}];\n\
+         impl Inst for H{k} {{\n\
+         fn key(&self) -> usize {{ Rc::as_ptr(&self.0) as *const u8 as usize }}\n\
+         fn json(&self) -> runic_runtime::Json {{ runic_runtime::Json::Object([(\"component\".to_string(), runic_runtime::Json::String({name_str}.into())), (\"cells\".to_string(), cells_json_i{k}(&self.0))].into_iter().collect()) }}\n\
+         fn changed(&self) -> bool {{ self.0.borrow().changed }}\n\
+         fn fx_meta(&self) -> &'static [(u8, bool, bool)] {{ FX{k} }}\n\
+         fn fx_due(&self, cx: &mut Cx, e: usize, updated: bool) -> bool {{ fx_due_i{k}(cx, &self.0, e, updated) }}\n\
+         fn fx_cleanup(&self, cx: &mut Cx, e: usize) {{ let c = self.0.borrow_mut().fx[e].cleanup.take(); if let Some(c) = c {{ {set}let r = c(cx); {unset}if let Err(err) = r {{ eprintln!(\"runic: uncaught exception in a cleanup: {{err}}\"); }} }} }}\n\
+         fn fx_run(&self, cx: &mut Cx, e: usize) {{ fx_run_i{k}(cx, &self.0, e) }}\n\
+         }}\n\
+         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_due_i{k}(cx: &mut Cx, inst: &I{k}, e: usize, updated: bool) -> bool {{\nlet started = inst.borrow().fx.get(e).is_some_and(|f| f.started);\nmatch e {{\n{due}_ => false,\n}}\n}}\n\
+         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_run_i{k}(cx: &mut Cx, inst: &I{k}, e: usize) {{\nmatch e {{\n{run}_ => {{}}\n}}\n}}\n\
+         /// Run the due effects of `phase` of an instance of {name}, each cleanup right before its effect.\n\
+         fn fx_phase_i{k}(cx: &mut Cx, inst: &I{k}, phase: u8, updated: bool) {{ let h = H{k}(Rc::clone(inst)); for (e, m) in FX{k}.iter().enumerate() {{ if m.0 == phase && h.fx_due(cx, e, updated) {{ h.fx_cleanup(cx, e); h.fx_run(cx, e); }} }} }}",
+        name = c.name.replace('\n', " "),
+        name_str = rust_str(&c.name),
+        set = previous.0,
+        unset = previous.1,
     );
 }
 
@@ -1284,13 +1452,6 @@ pub fn generate(
     asset_mimes: &[String],
     options: &Options,
 ) -> Result<String> {
-    if let Some(e) = p.components.iter().flat_map(|c| &c.effects).next() {
-        return Err(Diagnostic::new(
-            "E_CODEGEN",
-            "Effects are not generated yet (M4 work in progress)",
-            e.source.as_ref(),
-        ));
-    }
     let reads = function_reads(p);
     let g = Gen {
         p,
@@ -1309,6 +1470,24 @@ pub fn generate(
             .any(|c| c.cells.iter().any(|cell| cell.tracking == t))
     };
     let (tracks_deep, tracks_owned) = (tracked(Tracking::Deep), tracked(Tracking::Proxied));
+    let post_deferred = p.schedule.post_writes_deferred;
+    let batched = p.schedule.cleanups == Cleanups::Batched;
+    let mount_timing = match p.schedule.mount {
+        MountTiming::Sync => "self.flush(dom);",
+        MountTiming::Microtask => "self.cx.jobs.queue_mount(false);",
+        MountTiming::Task => "self.cx.jobs.queue_mount(true);",
+    };
+    let (root_pre, root_update_pre) = if p.components[p.root].effects.is_empty() {
+        (String::new(), String::new())
+    } else {
+        (
+            format!("fx_phase_i{}(&mut cx, &inst, 0, true);\n", p.root),
+            format!(
+                "{{ let u = self.cx.updated.get(&(Rc::as_ptr(&self.inst) as *const u8 as usize)).copied().unwrap_or(true); fx_phase_i{}(&mut self.cx, &self.inst, 0, u); }}\n",
+                p.root
+            ),
+        )
+    };
     let ri = p.root;
     let mut out = String::new();
     let _ = writeln!(
@@ -1331,11 +1510,41 @@ pub fn generate(
          fn dispose(&self, cx: &mut Cx);\n\
          fn nodes(&self, out: &mut Vec<NodeId>);\n\
          fn first(&self) -> Option<NodeId>;\n\
-         fn instances(&self, out: &mut Vec<runic_runtime::Json>);\n\
+         fn walk(&self, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>);\n\
+         }\n\
+         /// A live component instance, for tree walks and effects.\n\
+         pub trait Inst {\n\
+         fn key(&self) -> usize;\n\
+         fn json(&self) -> runic_runtime::Json;\n\
+         /// Whether a reactive cell changed in this flush pass.\n\
+         fn changed(&self) -> bool;\n\
+         /// Per effect: (phase 0 pre, 1 layout, 2 post; cleanup after DOM removal; children first at unmount).\n\
+         fn fx_meta(&self) -> &'static [(u8, bool, bool)];\n\
+         fn fx_due(&self, cx: &mut Cx, e: usize, updated: bool) -> bool;\n\
+         fn fx_cleanup(&self, cx: &mut Cx, e: usize);\n\
+         fn fx_run(&self, cx: &mut Cx, e: usize);\n\
+         }\n\
+         /// Instances of a tree walk (pre-order, with parent keys) with every instance after its children.\n\
+         fn post_order(tree: &[(Rc<dyn Inst>, usize)]) -> Vec<Rc<dyn Inst>> {\n\
+         fn visit(i: &Rc<dyn Inst>, tree: &[(Rc<dyn Inst>, usize)], out: &mut Vec<Rc<dyn Inst>>) { let k = i.key(); for (c, p) in tree { if *p == k { visit(c, tree, out); } } out.push(Rc::clone(i)); }\n\
+         let keys: std::collections::HashSet<usize> = tree.iter().map(|(i, _)| i.key()).collect();\n\
+         let mut out = Vec::new(); for (i, p) in tree { if !keys.contains(p) { visit(i, tree, &mut out); } } out\n\
+         }\n\
+         /// Cleanups of destroyed instances at unmount: those before DOM removal, then those after, each at its tree position.\n\
+         fn teardown(cx: &mut Cx, tree: &[(Rc<dyn Inst>, usize)]) {\n\
+         let set: std::collections::HashSet<usize> = cx.destroyed.drain(..).map(|i| i.key()).collect();\n\
+         if set.is_empty() { return; }\n\
+         fn at(cx: &mut Cx, i: &Rc<dyn Inst>, after: bool, set: &std::collections::HashSet<usize>, tree: &[(Rc<dyn Inst>, usize)]) {\n\
+         for (e, m) in i.fx_meta().iter().enumerate() { if m.1 == after && !m.2 { i.fx_cleanup(cx, e); } }\n\
+         let k = i.key(); for (c, p) in tree { if *p == k && set.contains(&c.key()) { at(cx, c, after, set, tree); } }\n\
+         for (e, m) in i.fx_meta().iter().enumerate() { if m.1 == after && m.2 { i.fx_cleanup(cx, e); } }\n\
+         }\n\
+         for after in [false, true] { for (i, p) in tree { if set.contains(&i.key()) && !set.contains(p) { at(cx, i, after, &set, tree); } } }\n\
          }\n",
     );
     for k in 0..p.components.len() {
         component_state(p, k, &mut out);
+        component_effects(p, k, &mut out);
     }
     // The context: event payload, listener closures and live instances.
     let live: String = (0..p.components.len())
@@ -1367,9 +1576,9 @@ pub fn generate(
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep>>, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}), stable: std::collections::HashMap::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1482,18 +1691,49 @@ pub fn generate(
          runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} }}\n\
          runic_runtime::Job::Flush => self.flush(dom),\n}}\n}}\n\
          /// The flush job: compute dirty cells since the last flush, commit render snapshots and update the DOM.\n\
+         /// Live instances in tree order with their parents' keys (the root's is 0).\n\
+         fn walk(&self) -> Vec<(Rc<dyn Inst>, usize)> {{ let mut out: Vec<(Rc<dyn Inst>, usize)> = vec![(Rc::new(H{ri}(Rc::clone(&self.inst))), 0)]; if let Some((_, s)) = &self.root {{ walk_s{root}(s, Rc::as_ptr(&self.inst) as *const u8 as usize, &mut out); }} out }}\n\
+         /// The flush job: passes until effects stop writing.\n\
          fn flush(&mut self, dom: &mut Dom) {{\n\
          self.cx.jobs.flush_started();\n\
-         let (deep, owned) = self.cx.jobs.mutated();\n\
+         for pass in 0..=1000usize {{\n\
+         if pass == 1000 {{ eprintln!(\"runic: uncaught exception: Maximum update depth exceeded: effects keep writing state\"); break; }}\n\
+         self.cx.jobs.again = false;\n\
+         self.flush_pass(dom);\n\
+         self.cx.jobs.note_mutations();\n\
+         if !self.cx.jobs.again {{ break; }}\n\
+         }}\n\
+         self.cx.jobs.flush_ended();\n\
+         }}\n\
+         /// One pass: commit the state, update the DOM (pre effects run as each instance updates), tear down destroyed instances, then layout and post effects children first.\n\
+         fn flush_pass(&mut self, dom: &mut Dom) {{\n\
+         self.cx.jobs.phase = Some(runic_runtime::Phase::Pre);\n\
+         let (deep, owned) = self.cx.jobs.take_mutated();\n\
          {end}\
+         {begin}\
+         let tree = self.walk();\n\
+         let mut updated: std::collections::HashMap<usize, bool> = std::collections::HashMap::new();\n\
+         for (i, p) in &tree {{ let u = i.changed() || updated.get(p).copied().unwrap_or(false); updated.insert(i.key(), u); }}\n\
+         self.cx.updated = updated;\n\
+         {root_update_pre}\
          if let Some((parent, s)) = self.root.as_mut() {{\n\
          if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
          if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
+         // Mutations while rendering are not writes.\n\
+         self.cx.jobs.take_mutated();\n\
          {restore}\
          for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          self.free(dom);\n\
-         {begin}\
-         self.cx.jobs.flush_ended();\n\
+         teardown(&mut self.cx, &tree);\n\
+         let post = post_order(&self.walk());\n\
+         for (phase, p) in [(1u8, runic_runtime::Phase::Layout), (2u8, runic_runtime::Phase::Post)] {{\n\
+         self.cx.jobs.phase = Some(p);\n\
+         let mut due = Vec::new();\n\
+         for i in &post {{ let u = self.cx.updated.get(&i.key()).copied().unwrap_or(true); for (e, m) in i.fx_meta().iter().enumerate() {{ if m.0 != phase {{ continue; }} if {batched} {{ if i.fx_due(&mut self.cx, e, u) {{ due.push((Rc::clone(i), e)); }} }} else if i.fx_due(&mut self.cx, e, u) {{ i.fx_cleanup(&mut self.cx, e); i.fx_run(&mut self.cx, e); }} }} }}\n\
+         for (i, e) in &due {{ i.fx_cleanup(&mut self.cx, *e); }}\n\
+         for (i, e) in &due {{ i.fx_run(&mut self.cx, *e); }}\n\
+         }}\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          }}\n\
          }}\n\
          impl runic_runtime::App for App {{\n\
@@ -1502,13 +1742,16 @@ pub fn generate(
          const ASSETS: &'static [(&'static str, &'static [u8])] = &[{assets}];\n\
          const IR_HASH: &'static str = {hash};\n\
          const CHANGE_WITH_CLICK: bool = {change_with_click};\n\
-         fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\nApp {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
+         fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
          {container}match mount_s{root}(&mut self.cx, dom, &self.inst, &self.t, parent, None) {{\n\
          Ok(s) => self.root = Some((parent, s)),\n\
          Err(e) => eprintln!(\"runic: render error: {{e}}\"),\n}}\n\
          self.free(dom);\n\
-         self.cx.jobs.flush_ended();\n}}\n\
+         self.cx.jobs.flush_ended();\n\
+         {mount_timing}\n\
+         self.checkpoint(dom);\n\
+         while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n}}\n\
          fn dispatch(&mut self, dom: &mut Dom, listeners: &[(u32, Option<String>)]) -> Result<(), String> {{\n\
          // Listeners are resolved before any runs (a flush may free and reuse their slots).\n\
          let resolved: Vec<(Lst, Option<JsString>)> = listeners.iter().filter_map(|(l, p)| self.cx.listeners.get(*l as usize).cloned().flatten().map(|f| (f, p.as_deref().map(JsString::from)))).collect();\n\
@@ -1530,7 +1773,7 @@ pub fn generate(
          fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
          fn now(&self) -> f64 {{ self.cx.timers.now }}\n\
          fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\
-         fn instances_json(&self) -> Vec<runic_runtime::Json> {{ let mut out = Vec::new(); if let Some((_, s)) = &self.root {{ instances_s{root}(s, &mut out); }} out }}\n\
+         fn instances_json(&self) -> Vec<runic_runtime::Json> {{ self.walk().iter().skip(1).map(|(i, _)| i.json()).collect() }}\n\
          }}",
         title = rust_str(&p.meta.title),
         css = rust_str(css),
