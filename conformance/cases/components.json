@@ -1,6 +1,6 @@
 {
   "description": "Child instances with own state, callback props, keyed moves and removal, list fallback, two-way prop binding, remount resets child state",
-  "fixtures": ["components-svelte", "components-react"],
+  "fixtures": ["components-svelte", "components-react", "components-vue"],
   "actions": [
     { "kind": "click", "id": "count-2" },
     { "kind": "click", "id": "count-2" },

@@ -300,7 +300,18 @@ test('Vue rejects setup effects, lifecycle hooks, modifiers and lists with locat
     ['const n=ref(1);', "const n=ref(1);console.log('effect');", 'E_STATEMENT'],
     ['{ref,computed}', '{ref,computed,onMounted}', 'E_CAPABILITY'],
     ['@click="toggle"', '@click.prevent="toggle"', 'E_TEMPLATE'],
-    ['<p id="details" v-if="show">Visible</p>', '<p v-for="x in [1]">{{x}}</p>', 'E_TEMPLATE'],
+    [
+      '<p id="details" v-if="show">Visible</p>',
+      '<p v-for="x in [1]" v-if="show">{{x}}</p>',
+      'E_TEMPLATE',
+    ],
+    [
+      '<p id="details" v-if="show">Visible</p>',
+      '<p v-for="(v, k, i) in [1]">{{v}}</p>',
+      'E_TEMPLATE',
+    ],
+    ['<p id="details" v-if="show">Visible</p>', '<p :key="n">Visible</p>', 'E_TEMPLATE'],
+    ['<p id="details" v-if="show">Visible</p>', '<p v-show="show">Visible</p>', 'E_TEMPLATE'],
   ];
   for (const [from, to, code] of cases)
     await assert.rejects(
@@ -310,6 +321,179 @@ test('Vue rejects setup effects, lifecycle hooks, modifiers and lists with locat
   // Booleans interpolate as text in Vue.
   const { ir } = await lower(await edit('counter-vue', null, '{{label}}', '{{show}}'));
   assert.equal(texts(run(ir, []), ['value']).value, 'true');
+});
+
+/** Element ids in document order and the text of each, after the last action. */
+function page(steps) {
+  const dom = flat(steps.at(-1).state.dom).filter(n => n.attrs.id);
+  return dom.map(
+    n => `${n.attrs.id}${n.attrs.disabled === undefined ? '' : '[disabled]'}=${textOf(n)}`,
+  );
+}
+const componentActions = [
+  { kind: 'click', id: 'count-2' },
+  { kind: 'click', id: 'count-2' },
+  { kind: 'click', id: 'count-3' },
+  { kind: 'click', id: 'up-2' },
+  { kind: 'click', id: 'up-3' },
+  { kind: 'click', id: 'reverse' },
+  { kind: 'input', id: 'name', value: 'Delta!' },
+  { kind: 'click', id: 'add' },
+  { kind: 'click', id: 'count-4' },
+  { kind: 'click', id: 'remove-1' },
+  { kind: 'input', id: 'name', value: 'Epsilon' },
+  { kind: 'click', id: 'toggle' },
+  { kind: 'click', id: 'toggle' },
+  { kind: 'click', id: 'remove-2' },
+];
+
+test('Vue components: props, emits, v-model, keyed lists and remounts match Svelte', async () => {
+  const svelte = run((await lower(await graph('components-svelte'))).ir, componentActions);
+  const vue = run((await lower(await graph('components-vue'))).ir, componentActions);
+  for (let i = 0; i < componentActions.length; i++)
+    assert.deepEqual(page(vue.slice(0, i + 1)), page(svelte.slice(0, i + 1)), `step ${i}`);
+  const last = page(vue);
+  assert.ok(last.includes('label-3=Gamma (1)'), last.join());
+  assert.ok(last.includes('summary=2 items, next 5, name Epsilon'), last.join());
+  // The editor remounted: its own state reset, its model reads the parent's value.
+  assert.ok(last.includes('edits=Edits: 0'), last.join());
+  assert.deepEqual(vue.at(-1).state.instances.at(-1), {
+    component: 'Editor',
+    cells: ['Epsilon', 0],
+  });
+  // Removing every row shows the fallback.
+  const empty = run((await lower(await graph('components-vue'))).ir, [
+    { kind: 'click', id: 'remove-1' },
+    { kind: 'click', id: 'remove-2' },
+    { kind: 'click', id: 'remove-3' },
+  ]);
+  assert.equal(texts(empty, ['empty']).empty, 'Nothing left');
+});
+
+test('Vue listener forms, props objects, defaults and boolean casting', async () => {
+  const base = page(run((await lower(await graph('components-vue'))).ir, componentActions));
+  const variants = [
+    ['App.vue', '@remove="remove"', '@remove="remove(item.id)"'],
+    ['App.vue', '@remove="remove"', '@remove="(id: number) => remove(id)"'],
+    ['App.vue', '@up="(id) => up(id)"', '@up="up($event)"'],
+    ['App.vue', '@up="(id) => up(id)"', '@up="() => up(item.id)"'],
+    ['Row.vue', '@click="emit(\'up\', id)"', '@click="$emit(\'up\', id)"'],
+    [
+      'Row.vue',
+      'const { id, label, first } = defineProps<{ id: number; label: string; first: boolean }>();',
+      'interface P { id: number; label: string; first: boolean }\nconst props = defineProps<P>();\nconst { id } = { id: 0 };',
+    ],
+  ];
+  for (const [file, from, to] of variants) {
+    let g = await edit('components-vue', file, from, to);
+    if (to.includes('const props')) {
+      // Script reads through props.x; the template keeps bare prop names.
+      const row = path.join(g.root, 'Row.vue');
+      const m = g.modules.get(row);
+      const code = m.code
+        .replace('const { id } = { id: 0 };', '')
+        .replaceAll("emit('up', id)", "emit('up', props.id)")
+        .replaceAll("emit('remove', id)", "emit('remove', props.id)");
+      g = { ...g, modules: new Map(g.modules).set(row, { ...m, code }), hash: hash(code) };
+    }
+    assert.deepEqual(page(run((await lower(g)).ir, componentActions)), base, to);
+  }
+  // Absent boolean props are false; destructure defaults and withDefaults apply.
+  const g = await edit(
+    'components-vue',
+    'Row.vue',
+    'const { id, label, first } = defineProps<{ id: number; label: string; first: boolean }>();',
+    'const { id, label = "?", first } = defineProps<{ id: number; label?: string; first?: boolean }>();',
+  );
+  const app = path.join(g.root, 'App.vue');
+  const m = g.modules.get(app);
+  const code = m.code.replace(':label="item.label" :first="i === 0"', '');
+  const { ir } = await lower({
+    ...g,
+    modules: new Map(g.modules).set(app, { ...m, code }),
+    hash: hash(code),
+  });
+  const p = page(run(ir, []));
+  assert.ok(p.includes('label-1=? (0)') && p.includes('up-1=Up'), p.join());
+  // withDefaults (factories are called); the template reads bare prop names.
+  const d = await edit(
+    'components-vue',
+    'Row.vue',
+    'const { id, label, first } = defineProps<{ id: number; label: string; first: boolean }>();',
+    'const props = withDefaults(defineProps<{ id: number; label?: string; first: boolean }>(), { label: () => "x" + 1 });\nconst initial = props.label.length;',
+  );
+  const row = path.join(d.root, 'Row.vue');
+  const rm = d.modules.get(row);
+  const rowCode = rm.code
+    .replaceAll("emit('up', id)", "emit('up', props.id)")
+    .replaceAll("emit('remove', id)", "emit('remove', props.id)")
+    .replace('{{ clicks }}', '{{ clicks + initial }}');
+  const appCode = d.modules.get(app).code.replace(':label="item.label"', '');
+  const defaults = await lower({
+    ...d,
+    modules: new Map(d.modules)
+      .set(row, { ...rm, code: rowCode })
+      .set(app, { ...d.modules.get(app), code: appCode }),
+    hash: hash(rowCode + appCode),
+  });
+  const q = page(run(defaults.ir, [{ kind: 'click', id: 'remove-1' }]));
+  assert.ok(q.includes('label-2=x1 (2)') && q.includes('up-2[disabled]=Up'), q.join());
+});
+
+test('Vue rejects uncovered component behaviour with locations', async () => {
+  const cases = [
+    ['Row.vue', '@click="clicks++"', '@click="clicks++; label = \'x\'"', 'E_PROPS'],
+    ['Row.vue', "emit('up', id)", "emit('down', id)", 'E_EMITS'],
+    [
+      'Row.vue',
+      'defineProps<{ id: number; label: string; first: boolean }>()',
+      'defineProps({ id: Number })',
+      'E_PROPS',
+    ],
+    [
+      'Row.vue',
+      'defineEmits<{ remove: [id: number]; up: [id: number] }>()',
+      "defineEmits(['remove', 'up'])",
+      'E_EMITS',
+    ],
+    ['App.vue', ':label="item.label"', '', 'E_PROPS'],
+    ['App.vue', ':first="i === 0"', ':first="i === 0" title="x"', 'E_PROPS'],
+    ['App.vue', '@up="(id) => up(id)"', '@up="(id) => up(id)" @down="add"', 'E_PROPS'],
+    ['App.vue', ':label="item.label"', ':label="item.id"', 'E_PROPS'],
+    [
+      'App.vue',
+      '<Editor v-if="showEditor" v-model="name" />',
+      '<Editor v-if="showEditor" v-model="next" />',
+      'E_MODEL',
+    ],
+    [
+      'App.vue',
+      '<Editor v-if="showEditor" v-model="name" />',
+      '<Editor v-if="showEditor" v-model.trim="name" />',
+      'E_TEMPLATE',
+    ],
+    [
+      'App.vue',
+      '<Editor v-if="showEditor" v-model="name" />',
+      '<Editor v-if="showEditor" v-model="name">x</Editor>',
+      'E_TEMPLATE',
+    ],
+    ['App.vue', '<Editor v-if="showEditor" v-model="name" />', '<Other />', 'E_TEMPLATE'],
+    ['Editor.vue', 'edits++', 'edits = value.length', 'E_MODEL'],
+    ['Editor.vue', ':value="value"', 'v-model="value"', 'E_TEMPLATE'],
+    [
+      'Editor.vue',
+      "defineModel<string>({ default: '' })",
+      'defineModel<string>({ get: (v: string) => v })',
+      'E_MODEL',
+    ],
+  ];
+  for (const [file, from, to, code] of cases)
+    await assert.rejects(
+      lower(await edit('components-vue', file, from, to)),
+      failWith(code, file),
+      `${file}: ${to}`,
+    );
 });
 
 test('React rejects uncovered behaviour with locations', async () => {
