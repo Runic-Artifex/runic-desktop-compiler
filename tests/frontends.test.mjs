@@ -302,7 +302,7 @@ test('Vue rejects setup effects, lifecycle hooks, modifiers and lists with locat
     ['const n=ref(1);', "const n=ref(1);console.log('effect');", 'E_STATEMENT'],
     ['{ref,computed}', '{ref,computed,onUpdated}', 'E_CAPABILITY'],
     ['{ref,computed}', '{ref,computed,watchPostEffect}', 'E_CAPABILITY'],
-    ['@click="toggle"', '@click.prevent="toggle"', 'E_TEMPLATE'],
+    ['@click="toggle"', '@click.once="toggle"', 'E_EVENT'],
     [
       '<p id="details" v-if="show">Visible</p>',
       '<p v-for="x in [1]" v-if="show">{{x}}</p>',
@@ -1101,9 +1101,9 @@ test('Vue key modifiers follow withKeys: hyphenated keys and aliases', async () 
 test('Vue rejects uncovered checkbox, key and slot behaviour with locations', async () => {
   const todo = 'examples/todomvc-vue';
   const cases = [
-    [todo, 'App.vue', '@keydown.esc=', '@keydown.ctrl.esc=', 'E_TEMPLATE'],
-    [todo, 'App.vue', '@keydown.esc=', '@keydown.esc.prevent=', 'E_TEMPLATE'],
-    [todo, 'App.vue', '@click="clearCompleted"', '@click.enter="clearCompleted"', 'E_TEMPLATE'],
+    [todo, 'App.vue', '@keydown.esc=', '@keydown.esc.capture=', 'E_EVENT'],
+    [todo, 'App.vue', '@keydown.esc=', '@keydown.esc.passive=', 'E_EVENT'],
+    [todo, 'App.vue', '@click="clearCompleted"', '@click.once="clearCompleted"', 'E_EVENT'],
     [todo, 'App.vue', '@input="draft = $event.target.value"', '@change="draft = 1"', 'E_EVENT'],
     [
       todo,

@@ -15,8 +15,13 @@
 //   `defineSlots<T>()` or inferred from the outlets); `<template #name>` and
 //   default content → parent-owned slot bodies with destructured slot props;
 // - checkboxes: `:checked` / `v-model` → the live checked property, `@change`
-//   (vModelCheckbox listens first); `@keydown` with withKeys key modifiers;
-//   duplicate listeners of one event run in order;
+//   (vModelCheckbox listens first); listeners of one event on an element
+//   (`@click` and `@click.self`) run in order in one handler;
+// - element listeners take the event object (`$event`, method handlers, arrow
+//   functions); event modifiers follow compiler-dom and runtime-dom
+//   (withModifiers guards, withKeys on keyboard events, `@click.right` →
+//   contextmenu, `@click.middle` → mouseup); listener options are rejected;
+// - templates see setup bindings and Vue's allowed globals only;
 // - template refs: `ref="name"` on an element binds a `ref()`/`shallowRef()`
 //   variable of that name or a `useTemplateRef('name')` to an element cell
 //   (set when the element mounts, null when it unmounts). Vue sets them in the
@@ -38,6 +43,7 @@ import type {
   Stmt,
   Type,
 } from '../ir.ts';
+import { EVENT_KINDS } from '../ir.ts';
 import {
   FnBuilder,
   Lowerer,
@@ -141,7 +147,7 @@ const KEY_NAMES: Record<string, string> = {
   down: 'arrow-down',
   delete: 'backspace',
 };
-/** compiler-dom modifiers that are not key names on keyboard events. */
+/** compiler-dom's runtime guards (withModifiers); `left`/`right` too except on keyboard events. */
 const NON_KEY_MODIFIERS = new Set([
   'stop',
   'prevent',
@@ -152,10 +158,45 @@ const NON_KEY_MODIFIERS = new Set([
   'meta',
   'exact',
   'middle',
-  'passive',
-  'once',
-  'capture',
 ]);
+/** compiler-dom's listener options (addEventListener options, not guards). */
+const OPTION_MODIFIERS = new Set(['passive', 'once', 'capture']);
+const SYSTEM_MODIFIERS = ['ctrl', 'shift', 'alt', 'meta'];
+const KEYBOARD_EVENTS = new Set(['keydown', 'keyup']);
+/** Events whose objects are MouseEvents (they have `button` and the modifier keys). */
+const MOUSE_EVENTS = new Set([
+  'click',
+  'dblclick',
+  'contextmenu',
+  'pointerdown',
+  'pointerup',
+  'pointermove',
+  'pointerenter',
+  'pointerleave',
+  'mousedown',
+  'mouseup',
+  'mousemove',
+  'mouseenter',
+  'mouseleave',
+  'wheel',
+]);
+/** The DOM interface (frontend/dom.d.ts) of an event's object, typing `$event`. */
+const eventInterface = (event: string): string =>
+  KEYBOARD_EVENTS.has(event)
+    ? 'KeyboardEvent'
+    : event === 'wheel'
+      ? 'WheelEvent'
+      : event.startsWith('pointer')
+        ? 'PointerEvent'
+        : MOUSE_EVENTS.has(event)
+          ? 'MouseEvent'
+          : 'Event';
+/** Globals Vue templates can read (@vue/shared GLOBALS_ALLOWED); others resolve on the instance. */
+const TEMPLATE_GLOBALS = new Set(
+  'Infinity,undefined,NaN,isFinite,isNaN,parseFloat,parseInt,decodeURI,decodeURIComponent,encodeURI,encodeURIComponent,Math,Number,Date,Array,Object,Boolean,String,RegExp,Map,Set,JSON,Intl,BigInt,console,Error,Symbol'.split(
+    ',',
+  ),
+);
 // compiler-core node types
 const ELEMENT = 1;
 const TEXT = 2;
@@ -818,8 +859,13 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       } else {
         for (const p of n.props) {
           if (p.type !== DIRECTIVE || !p.exp || p.name === 'for') continue;
-          if (p.name === 'on') handler(p.exp, '$event: any');
-          else inline(p.exp);
+          if (p.name === 'on') {
+            // `$event` and handler parameters are typed by the event's interface.
+            const event = p.arg?.isStatic ? listenedEvent(p.arg.content, modifierNames(p)) : '';
+            s += `__runic_on<${eventInterface(event)}>(`;
+            handler(p.exp, '$event');
+            s += ')';
+          } else inline(p.exp);
           s += ';\n';
         }
         for (const c of n.children ?? []) walk(c);
@@ -882,6 +928,38 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     fail(code, message, sourceOf(n));
   const checker = program.getTypeChecker();
   const types = new TypeMapper(checker, tsFail);
+  // Template expressions see the setup bindings and Vue's allowed globals;
+  // other names resolve on the component instance (`setTimeout` there is
+  // undefined), so host globals are rejected in templates.
+  for (const u of order) {
+    const sf = program.getSourceFile(u.virtual)!;
+    const copied = (pos: number) =>
+      u.segments.some(g => pos >= g.synth && pos < g.synth + g.length);
+    const visit = (n: ts.Node): void => {
+      if (ts.isTypeNode(n)) return;
+      if (
+        ts.isIdentifier(n) &&
+        copied(n.getStart(sf)) &&
+        !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) &&
+        !TEMPLATE_GLOBALS.has(n.text)
+      ) {
+        const sym = checker.getSymbolAtLocation(n);
+        if (
+          sym &&
+          sym.flags & ts.SymbolFlags.Value &&
+          sym.declarations?.length &&
+          sym.declarations.every(d => d.getSourceFile().isDeclarationFile)
+        )
+          tsFail(
+            n,
+            'E_TEMPLATE',
+            `${n.text} is not available in Vue templates (they see setup bindings and a few globals such as Math and JSON); use it in a script function`,
+          );
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
 
   // --- Lowering state (one component at a time) ---
   let cells: Cell[] = [];
@@ -2460,37 +2538,87 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       return undefined;
     };
     const handlerFor = (p: VNode, event: HandlerEvent): Part => {
+      // A listener with modifiers only (`@click.stop`): Vue's `() => {}`.
+      if (!p.exp?.content.trim()) return { body: [], source: loc(p) };
       const e = skipParens(exprNode(p.exp));
       let h: Part;
+      /** Arguments for a function called with the event: none, or the event object. */
+      const eventArgs = (params: Type[]): Expr[] | undefined =>
+        params.length === 0
+          ? []
+          : params.length === 1 && params[0] === 'event'
+            ? [{ op: 'event' }]
+            : undefined;
+      const misfit = 'Event handlers take no parameter or the event object';
       if (ts.isArrowFunction(e) || ts.isFunctionExpression(e))
         h = lower.handler(e, COMPONENT, event, tb);
       else if (ts.isIdentifier(e)) {
         const b = lower.binding(e);
-        if (b?.kind === 'function' || b?.kind === 'generic') {
-          // A method handler receives the event: lower its body with that parameter.
+        if (b?.kind === 'function') {
+          // A method handler is called with the event (Vue passes it to every handler).
+          const args = eventArgs(lower.functions[b.fn]?.params.map(q => q.type) ?? []);
+          if (!args) return tsFail(e, 'E_EVENT', misfit);
+          h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args } }] };
+        } else if (b?.kind === 'generic') {
+          // An untyped method handler: its body is lowered with the event parameter.
           const decl = setupDecl(e.text);
           if (decl && decl.parameters.length) h = lower.handler(decl, COMPONENT, event);
-          else if (b.kind === 'function')
-            h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
           else return tsFail(e, 'E_EVENT', 'Unsupported handler');
         } else if (b?.kind === 'cell') {
-          // A function-valued prop: called with the event, which it may not use.
+          // A function-valued prop or ref: called with the event.
           const t = cells[b.cell].type;
           if (typeof t !== 'object' || !('fn' in t))
             return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
-          if (t.fn.params.length)
-            return tsFail(e, 'E_EVENT', 'Callbacks taking the event object are planned for M5');
+          const args = eventArgs(t.fn.params);
+          if (!args) return tsFail(e, 'E_EVENT', misfit);
           h = {
             body: [
               {
                 op: 'expr',
-                value: { op: 'call-value', callee: { op: 'cell', cell: b.cell }, args: [] },
+                value: { op: 'call-value', callee: { op: 'cell', cell: b.cell }, args },
               },
             ],
           };
         } else return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
       } else return tsFail(e, 'E_EVENT', 'Unsupported event handler');
       return { ...h, source: loc(p) };
+    };
+    /**
+     * Whether a listener may call stopImmediatePropagation: itself, in a
+     * function it calls, or through a function value it passes the event to.
+     */
+    const mayStopImmediately = (part: Part): boolean => {
+      const seen = new Set<number>();
+      let found = false;
+      /** Visit `x` in a function whose local index space has `types`. */
+      const visit = (x: unknown, types: Type[]): void => {
+        if (found || !x || typeof x !== 'object') return;
+        if (Array.isArray(x)) return x.forEach(y => visit(y, types));
+        const o = x as Record<string, unknown>;
+        const isEvent = (a: Expr) =>
+          a.op === 'event' || (a.op === 'local' && types[a.local] === 'event');
+        if (
+          (o.op === 'builtin' && o.name === 'event.stopImmediatePropagation') ||
+          (o.op === 'call-value' && (o.args as Expr[]).some(isEvent))
+        ) {
+          found = true;
+          return;
+        }
+        if ((o.op === 'call' || o.op === 'closure') && typeof o.function === 'number') {
+          const f = lower.functions[o.function];
+          if (f && !seen.has(o.function)) {
+            seen.add(o.function);
+            const space = [...(f.captures ?? []), ...f.params, ...f.locals].map(l => l.type);
+            visit(f.body, space);
+          }
+        }
+        for (const v of Object.values(o)) visit(v, types);
+      };
+      visit(
+        part.body,
+        [...(part.params ?? []), ...(part.locals ?? [])].map(l => l.type),
+      );
+      return found;
     };
     /** Fit a value to a prop type (T → Maybe<T>). */
     const fit = (v: Expr, want: Type, what: string, at: VNode): Expr => {
@@ -2768,7 +2896,13 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         if (p.name === 'slot') continue; // the default slot's props, below
         if (!p.exp) fail('E_TEMPLATE', `v-${p.name} needs an expression`, loc(p));
         if (p.modifiers?.length)
-          fail('E_TEMPLATE', 'Directive modifiers are planned for M5', loc(p));
+          fail(
+            'E_TEMPLATE',
+            p.name === 'on'
+              ? 'Event modifiers on component listeners are planned for a later milestone (Vue applies them to the emitted arguments)'
+              : 'Directive modifiers are planned for M5',
+            loc(p),
+          );
         if (p.arg && !p.arg.isStatic)
           fail('E_TEMPLATE', 'Dynamic arguments are unsupported', loc(p));
         if (p.name === 'bind' && p.arg && p.exp) {
@@ -2949,30 +3083,31 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           continue;
         }
         if (structural(p, listed)) continue;
-        if (!p.exp) fail('E_TEMPLATE', `v-${p.name} needs an expression`, loc(p));
         if (p.name === 'on') {
-          const event = p.arg?.isStatic ? p.arg.content : undefined;
-          if (!['click', 'input', 'change', 'keydown'].includes(event))
-            fail('E_EVENT', `@${event ?? '[dynamic]'} is planned for M5`, loc(p));
-          if (event === 'change' && !checkbox)
-            fail('E_EVENT', '@change is supported on checkboxes (text inputs: @input)', loc(p));
-          const modifiers: string[] = (p.modifiers ?? []).map(
-            (m: VNode) => (typeof m === 'string' ? m : m.content) as string,
-          );
-          if (
-            modifiers.length &&
-            (event !== 'keydown' || modifiers.some(m => NON_KEY_MODIFIERS.has(m)))
-          )
+          const written: string | undefined = p.arg?.isStatic ? p.arg.content : undefined;
+          if (written === undefined)
+            fail('E_EVENT', 'Dynamic event names and v-on objects are unsupported', loc(p));
+          const modifiers = modifierNames(p);
+          if (!p.exp?.content.trim() && !modifiers.length)
+            fail('E_TEMPLATE', `@${written} needs a handler or modifiers`, loc(p));
+          const { keys, guards, options } = resolveModifiers(written!, modifiers);
+          if (options.length)
             fail(
-              'E_TEMPLATE',
-              'Event modifiers are planned for M5 (key names on @keydown are supported)',
+              'E_EVENT',
+              `The listener options .${options.join(', .')} are planned for a later milestone`,
               loc(p),
             );
-          let part = handlerFor(p, event as HandlerEvent);
-          if (modifiers.length) part = keyGuard(part, modifiers);
-          parts.set(event as HandlerEvent, [...(parts.get(event as HandlerEvent) ?? []), part]);
+          // compiler-dom listens to contextmenu for @click.right and mouseup for @click.middle.
+          const event = listenedEvent(written!, modifiers) as HandlerEvent;
+          if (!EVENT_KINDS.includes(event))
+            fail('E_EVENT', `@${event} listeners are planned for a later milestone`, loc(p));
+          if (event === 'change' && !checkbox)
+            fail('E_EVENT', '@change is supported on checkboxes (text inputs: @input)', loc(p));
+          const part = withModifiers(handlerFor(p, event), event, guards, keys);
+          parts.set(event, [...(parts.get(event) ?? []), part]);
           continue;
         }
+        if (!p.exp) fail('E_TEMPLATE', `v-${p.name} needs an expression`, loc(p));
         if (p.modifiers?.length)
           fail('E_TEMPLATE', `Directive modifiers are planned for M5`, loc(p));
         if (p.name === 'bind' && p.arg?.isStatic && checkbox && p.arg.content === 'checked') {
@@ -3060,6 +3195,15 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       // before Vue patches the element's props (and its @change listener).
       if (model) parts.set('change', [model, ...(parts.get('change') ?? [])]);
       for (const [event, list] of parts) {
+        // Vue's invoker skips the rest of an element's listeners for an event
+        // after stopImmediatePropagation(); the merged handler cannot.
+        const stopper = list.slice(0, -1).find(mayStopImmediately);
+        if (stopper)
+          fail(
+            'E_EVENT',
+            `stopImmediatePropagation (or passing the event on) in one of several @${event} listeners of an element is unsupported`,
+            stopper.source ?? loc(n),
+          );
         const { args, source, ...h } = mergeParts(list);
         handlers.push({ event, ...h, source: list.length === 1 ? source : loc(n) });
         listeners.push({ event, handler: handlers.length - 1, ...(args?.length ? { args } : {}) });
@@ -3181,12 +3325,124 @@ export function vueKeyValues(modifiers: string[]): string[] {
   return [...out];
 }
 
-/** Run `part` only for the keys its modifiers name (the event payload is the key). */
-function keyGuard(part: Part, modifiers: string[]): Part {
-  const test = vueKeyValues(modifiers)
-    .map((k): Expr => ({ op: 'eq', left: { op: 'payload' }, right: { op: 'lit', value: k } }))
-    .reduce((a, b) => ({ op: 'or', left: a, right: b }));
-  return { ...part, body: [{ op: 'if', test, then: part.body }] };
+/** The modifiers of a directive as written. */
+function modifierNames(p: VNode): string[] {
+  return (p.modifiers ?? []).map((m: VNode) => (typeof m === 'string' ? m : m.content) as string);
+}
+
+/**
+ * compiler-dom's resolveModifiers for a static element event: key names
+ * (withKeys, applied on keyboard events only), runtime guards (withModifiers)
+ * and listener options. `left`/`right` are arrow keys on keyboard events and
+ * mouse buttons elsewhere; any other unknown modifier is a key name.
+ */
+export function resolveModifiers(
+  event: string,
+  modifiers: string[],
+): { keys: string[]; guards: string[]; options: string[] } {
+  const keys: string[] = [];
+  const guards: string[] = [];
+  const options: string[] = [];
+  for (const m of modifiers) {
+    if (OPTION_MODIFIERS.has(m)) options.push(m);
+    else if (m === 'left' || m === 'right') (KEYBOARD_EVENTS.has(event) ? keys : guards).push(m);
+    else if (NON_KEY_MODIFIERS.has(m)) guards.push(m);
+    else keys.push(m);
+  }
+  return { keys, guards, options };
+}
+
+/** The event compiler-dom listens to: `@click.right` → contextmenu, `@click.middle` → mouseup. */
+export function listenedEvent(event: string, modifiers: string[]): string {
+  const { guards } = resolveModifiers(event, modifiers);
+  let listened = event;
+  if (guards.includes('right') && listened === 'click') listened = 'contextmenu';
+  if (guards.includes('middle') && listened === 'click') listened = 'mouseup';
+  return listened;
+}
+
+/**
+ * Wrap a listener as compiler-dom does: withModifiers(handler, guards) runs
+ * the guards in order (`stop` and `prevent` act and continue; the others end
+ * the listener when they fail), then withKeys(…, keys) checks the key first on
+ * keyboard events. Key modifiers on other events are ignored, as in Vue.
+ * Modifier keys and `button` are undefined on input and change events (a
+ * `.ctrl` guard always fails there; `.exact` and the button guards pass).
+ */
+function withModifiers(part: Part, event: string, guards: string[], keys: string[]): Part {
+  const member = (name: string, type: Type): Expr => ({
+    op: 'builtin',
+    name: `event.${name}`,
+    args: [{ op: 'event' }],
+    type,
+  });
+  const act = (name: string): Stmt => ({ op: 'expr', value: member(name, 'void') });
+  const keyed = KEYBOARD_EVENTS.has(event) || MOUSE_EVENTS.has(event);
+  /** When a guard lets the event through: an expression, always (true) or never (false). */
+  const passes = (m: string): Expr | boolean => {
+    switch (m) {
+      case 'self': // e.target !== e.currentTarget
+        return {
+          op: 'eq',
+          left: { op: 'some', value: member('target', 'element') },
+          right: member('currentTarget', { maybe: 'element' }),
+        };
+      case 'ctrl':
+      case 'shift':
+      case 'alt':
+      case 'meta':
+        return keyed && member(`${m}Key`, 'boolean');
+      case 'exact': {
+        const others = SYSTEM_MODIFIERS.filter(s => !guards.includes(s));
+        if (!keyed || !others.length) return true;
+        return others
+          .map((s): Expr => ({ op: 'not', arg: member(`${s}Key`, 'boolean') }))
+          .reduce((a, b) => ({ op: 'and', left: a, right: b }));
+      }
+      case 'left':
+      case 'middle':
+      case 'right': // 'button' in e && e.button !== n
+        return (
+          !MOUSE_EVENTS.has(event) || {
+            op: 'eq',
+            left: member('button', 'number'),
+            right: { op: 'lit', value: ['left', 'middle', 'right'].indexOf(m) },
+          }
+        );
+      default:
+        return true;
+    }
+  };
+  let body = part.body;
+  for (const m of [...guards].reverse()) {
+    if (m === 'stop') body = [act('stopPropagation'), ...body];
+    else if (m === 'prevent') body = [act('preventDefault'), ...body];
+    else {
+      const test = passes(m);
+      if (test === false) body = [];
+      else if (test !== true) body = [{ op: 'if', test, then: body }];
+    }
+  }
+  if (keys.length && KEYBOARD_EVENTS.has(event)) {
+    // hyphenate(e.key) is one of the modifiers (or its alias).
+    const values = vueKeyValues(keys);
+    body = values.length
+      ? [
+          {
+            op: 'if',
+            test: values
+              .map((k): Expr => ({
+                op: 'eq',
+                left: member('key', 'string'),
+                right: { op: 'lit', value: k },
+              }))
+              .reduce((a, b) => ({ op: 'or', left: a, right: b })),
+            then: body,
+          },
+        ]
+      : [];
+  }
+  return { ...part, body };
 }
 
 const hasReturn = (body: Stmt[]): boolean =>

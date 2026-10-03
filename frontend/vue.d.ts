@@ -78,6 +78,8 @@ declare module '*.vue' {
   const component: unknown;
   export default component;
 }
+/** Template listeners: `$event` and handler parameters have the event's interface. */
+declare function __runic_on<E>(handler: (event: E) => void): void;
 /** Template scope: refs are unwrapped. */
 declare function __runic_unref<T>(value: T): T extends import('vue').Ref<infer U> ? U : T;
 
