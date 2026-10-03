@@ -1,0 +1,28 @@
+{
+  "description": "The events case for Vue, starting 1 ms after mount. Vue's listener invoker stamps an event with Date.now() at the first Vue listener it reaches and skips listeners attached at or after that time (runtime-dom createInvoker, `e._vts <= invoker.attached`). The events case uses the paused fake clock (it has a wait), so without the first wait every event would carry the mount time and Vue would skip the #outer listener when a click bubbles from #inner; with a running clock (any real use) time has passed since mount and both run. The actions are the events case's, with modifiers standing in for the Svelte handlers' checks (.self, .stop, .prevent, .left, .right, .middle, .exact, .shift, key names)",
+  "fixtures": ["events-vue"],
+  "actions": [
+    { "kind": "wait", "ms": 1 },
+    { "kind": "click", "id": "inner" },
+    { "kind": "click", "id": "stop" },
+    { "kind": "click", "id": "inner" },
+    { "kind": "click", "id": "outer" },
+    { "kind": "click", "id": "agree" },
+    { "kind": "click", "id": "lock" },
+    { "kind": "click", "id": "agree" },
+    { "kind": "type", "id": "field", "text": "axb" },
+    { "kind": "press", "key": "Shift+ArrowLeft" },
+    { "kind": "click", "id": "keep" },
+    { "kind": "type", "text": "c" },
+    { "kind": "hover", "id": "box" },
+    { "kind": "hover", "id": "log" },
+    { "kind": "dblclick", "id": "box" },
+    { "kind": "contextmenu", "id": "box" },
+    { "kind": "wheel", "id": "box", "deltaX": 0, "deltaY": 100 },
+    { "kind": "click", "id": "late" },
+    { "kind": "wait", "ms": 10 },
+    { "kind": "focus", "id": "enter" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "press", "key": "Space" }
+  ]
+}
