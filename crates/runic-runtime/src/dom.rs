@@ -437,8 +437,9 @@ impl Dom<'_> {
         };
         if on {
             let focusable = n.flags.is_in_document()
-                && n.element_data()
-                    .is_some_and(|e| matches!(e.name.local.as_ref(), "button" | "input"))
+                && n.element_data().is_some_and(|e| {
+                    matches!(e.name.local.as_ref(), "button" | "input" | "textarea")
+                })
                 && n.attr("disabled".into()).is_none();
             if focusable {
                 self.doc.set_focus_to(node);
@@ -474,6 +475,24 @@ impl Dom<'_> {
     pub fn set_value(&mut self, node: NodeId, value: &str) {
         if crate::controls::has_editor(self.doc, node) {
             crate::controls::live_value(self.doc, node, value);
+        } else if self
+            .doc
+            .get_node(node)
+            .and_then(|n| n.element_data())
+            .is_some_and(|e| &*e.name.local == "textarea")
+        {
+            // A text area's editor starts from its text content.
+            let children: Vec<_> = self
+                .doc
+                .get_node(node)
+                .map(|n| n.children.to_vec())
+                .unwrap_or_default();
+            for c in children {
+                self.doc.mutate().remove_and_drop_node(c);
+            }
+            let text = self.text(value);
+            self.append(node, text);
+            self.listeners.pending_caret.push(node);
         } else {
             self.set_attr(node, "value", value);
             self.listeners.pending_caret.push(node);

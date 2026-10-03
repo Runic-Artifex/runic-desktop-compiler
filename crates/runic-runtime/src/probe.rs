@@ -43,8 +43,8 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
             Value::Object(attrs.into_iter().map(|(k, v)| (k, json!(v))).collect()),
         );
     }
-    let disabled =
-        matches!(tag.as_str(), "button" | "input") && node.attr("disabled".into()).is_some();
+    let disabled = matches!(tag.as_str(), "button" | "input" | "textarea")
+        && node.attr("disabled".into()).is_some();
     if disabled {
         out.insert("disabled".into(), json!(true));
     }
@@ -58,9 +58,13 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
             "checked".into(),
             json!(el.checkbox_input_checked() == Some(true)),
         );
-    } else if tag == "input" {
+    } else if tag == "input" || tag == "textarea" {
         let value = controls::value(doc, id)
-            .or_else(|| node.attr("value".into()).map(str::to_owned))
+            .or_else(|| match tag.as_str() {
+                // Before its editor exists, a text area holds its value as text.
+                "textarea" => Some(node.text_content()),
+                _ => node.attr("value".into()).map(str::to_owned),
+            })
             .unwrap_or_default();
         out.insert("value".into(), json!(value));
         if let Some((start, end, composing)) = controls::selection(doc, id) {
@@ -73,11 +77,15 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
             out.insert("readOnly".into(), json!(true));
         }
     }
-    let children: Vec<Value> = node
-        .children
-        .iter()
-        .filter_map(|&c| snapshot_node(doc, c, focused))
-        .collect();
+    // A text area's text is its value (its children only seed the editor).
+    let children: Vec<Value> = if tag == "textarea" {
+        vec![]
+    } else {
+        node.children
+            .iter()
+            .filter_map(|&c| snapshot_node(doc, c, focused))
+            .collect()
+    };
     if !children.is_empty() {
         out.insert("children".into(), Value::Array(children));
     }

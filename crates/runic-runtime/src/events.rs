@@ -160,7 +160,7 @@ fn is_checkbox(doc: &BaseDocument, id: NodeId) -> bool {
 }
 
 fn is_disabled_control(doc: &BaseDocument, id: NodeId) -> bool {
-    matches!(tag(doc, id), Some("button" | "input"))
+    matches!(tag(doc, id), Some("button" | "input" | "textarea"))
         && doc
             .get_node(id)
             .is_some_and(|n| n.attr("disabled".into()).is_some())
@@ -170,6 +170,37 @@ fn is_disabled_control(doc: &BaseDocument, id: NodeId) -> bool {
 pub(crate) fn focused_element(doc: &BaseDocument) -> Option<NodeId> {
     doc.get_focussed_node_id()
         .filter(|&f| !matches!(tag(doc, f), None | Some("html" | "body")))
+}
+
+fn is_labelable(doc: &BaseDocument, id: NodeId) -> bool {
+    matches!(tag(doc, id), Some("button" | "input" | "textarea"))
+}
+
+/// The control a click on a label activates: none when the click is on
+/// interactive content inside the label (the control itself, a button);
+/// otherwise the label's `for` element if labelable, or else its first
+/// labelable descendant.
+fn labelled_control(doc: &BaseDocument, chain: &[NodeId]) -> Option<NodeId> {
+    let mut label = None;
+    for &n in chain {
+        if is_labelable(doc, n) {
+            return None;
+        }
+        if tag(doc, n) == Some("label") {
+            label = Some(n);
+            break;
+        }
+    }
+    let label = label?;
+    if let Some(id) = doc.get_node(label)?.attr("for".into()) {
+        return doc.get_element_by_id(id).filter(|&c| is_labelable(doc, c));
+    }
+    tree_order(doc)
+        .into_iter()
+        .skip_while(|&n| n != label)
+        .skip(1)
+        .take_while(|&n| chain_of(doc, n).contains(&label))
+        .find(|&n| is_labelable(doc, n))
 }
 
 /// Element ancestors of `id`, starting with `id`.
@@ -186,7 +217,7 @@ fn chain_of(doc: &BaseDocument, id: NodeId) -> Vec<NodeId> {
 }
 
 fn is_focusable(doc: &BaseDocument, id: NodeId) -> bool {
-    matches!(tag(doc, id), Some("button" | "input"))
+    matches!(tag(doc, id), Some("button" | "input" | "textarea"))
         && !is_disabled_control(doc, id)
         && doc
             .get_client_bounding_rect(id)
@@ -634,14 +665,15 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     let control = chain
                         .iter()
                         .copied()
-                        .find(|&n| matches!(tag(doc, n), Some("button" | "input")));
+                        .find(|&n| matches!(tag(doc, n), Some("button" | "input" | "textarea")));
                     match control {
                         // Checkboxes are focused like buttons.
                         Some(c) if is_checkbox(doc, c) && !is_disabled_control(doc, c) => {
                             doc.set_focus_to(c);
                         }
-                        Some(c) if tag(doc, c) == Some("input") && !is_disabled_control(doc, c) => {
-                        }
+                        Some(c)
+                            if matches!(tag(doc, c), Some("input" | "textarea"))
+                                && !is_disabled_control(doc, c) => {}
                         Some(c) if !is_disabled_control(doc, c) => {
                             doc.set_focus_to(c);
                         }
@@ -720,6 +752,28 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     // The button was focused on mousedown; Blitz's default
                     // click action would clear focus again.
                     state.prevent_default();
+                }
+                if e.is_some() && !Self::cancelled(&e) {
+                    if let Some(control) = labelled_control(doc, chain) {
+                        // Label activation is done here, as Chromium does it: a
+                        // simulated click on checkboxes and buttons, then focus.
+                        state.prevent_default();
+                        if !is_disabled_control(doc, control) {
+                            if is_checkbox(doc, control) {
+                                self.activate_checkbox(doc, control, EventData::default());
+                            } else if tag(doc, control) == Some("button") {
+                                let chain = chain_of(doc, control);
+                                self.click(doc, &chain, EventData::default());
+                            }
+                            if doc
+                                .get_node(control)
+                                .is_some_and(|n| n.flags.is_in_document())
+                            {
+                                doc.set_focus_to(control);
+                                *self.nav_start = None;
+                            }
+                        }
+                    }
                 }
                 if count == 2 && !inside_disabled(doc, chain) {
                     self.fire(doc, chain, Event::Dblclick, pointer_data(p));

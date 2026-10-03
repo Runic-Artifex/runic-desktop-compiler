@@ -17,12 +17,13 @@ pub const MAX_EXPRESSIONS: usize = 1 << 20;
 pub const TAGS: &[&str] = &[
     "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button", "input", "main", "article",
     "section", "header", "footer", "nav", "aside", "ul", "ol", "li", "strong", "em", "small", "b",
-    "i", "code", "pre", "br", "hr",
+    "i", "code", "pre", "br", "hr", "textarea", "label",
 ];
 
 pub const CAPABILITIES: &[&str] = &["dom", "css", "window", "click", "keyboard", "text-input"];
 
-const VOID: &[&str] = &["input", "br", "hr"];
+/// Elements without children (a textarea's text is its live value).
+const VOID: &[&str] = &["input", "br", "hr", "textarea"];
 
 fn err<T>(code: &str, message: impl Into<String>, source: Option<&Source>) -> Result<T> {
     Err(Diagnostic::new(code, message, source))
@@ -1426,12 +1427,12 @@ impl<'p> NodeCx<'_, 'p> {
                     });
                 for prop in props {
                     let want = match (prop.name.as_str(), tag, checkbox) {
-                        ("value", "input", false) => Type::String,
+                        ("value", "input", false) | ("value", "textarea", _) => Type::String,
                         ("checked", "input", true) => Type::Boolean,
                         _ => {
                             return err(
                                 "E_IR",
-                                "Live properties are value (text inputs) and checked (checkboxes)",
+                                "Live properties are value (text inputs, text areas) and checked (checkboxes)",
                                 src,
                             );
                         }
@@ -1459,7 +1460,9 @@ impl<'p> NodeCx<'_, 'p> {
                             src,
                         );
                     }
-                    if l.event == EventKind::Input && (tag != "input" || checkbox) {
+                    if l.event == EventKind::Input
+                        && !((tag == "input" && !checkbox) || tag == "textarea")
+                    {
                         return err("E_IR", "Input listeners require a text input", src);
                     }
                     if l.event == EventKind::Change && !checkbox {

@@ -2400,7 +2400,7 @@ impl<'p> Machine<'p> {
                 }
                 // An uncontrolled text input shows what was typed, initially its
                 // `value` attribute.
-                if value.is_none() && checked.is_none() && tag == "input" {
+                if value.is_none() && checked.is_none() && (tag == "input" || tag == "textarea") {
                     value = Some(
                         self.live_values
                             .get(&id)
@@ -3361,7 +3361,7 @@ impl<'p> Machine<'p> {
     fn inside_disabled(&mut self, target: u64) -> Result<bool> {
         let tree = self.render()?;
         Ok(chain_nodes(&tree, target).is_some_and(|nodes| {
-            nodes.iter().any(|n| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input") && attrs.contains_key("disabled")))
+            nodes.iter().any(|n| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea") && attrs.contains_key("disabled")))
         }))
     }
 
@@ -3469,9 +3469,22 @@ impl<'p> Machine<'p> {
             .filter(|_| with_click)
             .map(|d| (EventKind::Change, d));
         let click = self.dispatch(target, EventKind::Click, data, with, s)?;
+        let cancelled = click.as_ref().is_some_and(|e| e.default_prevented());
         if let Some(d) = change.filter(|_| !with_click) {
-            if !click.is_some_and(|e| e.default_prevented()) {
+            if !cancelled {
                 self.dispatch(target, EventKind::Change, d, None, s)?;
+            }
+        }
+        // Label activation: a simulated click on a labelled checkbox or button.
+        if click.is_some() && !cancelled {
+            let tree = self.render()?;
+            if let Some(control) = labelled_control(&tree, target) {
+                let clickable = chain_nodes(&tree, control).and_then(|n| n.last().copied()).is_some_and(
+                    |n| matches!(n, VNode::Element { tag, checked, .. } if tag == "button" || checked.is_some()),
+                );
+                if clickable && !self.inside_disabled(control)? {
+                    self.click(control, s)?;
+                }
             }
         }
         Ok(())
@@ -3756,6 +3769,58 @@ fn payload_of(event: &js::Event) -> Option<Val> {
         "change" => Some(Val::Bool(d.checked)),
         "keydown" => Some(Val::Str(d.key.clone())),
         _ => None,
+    }
+}
+
+fn labelable(n: &VNode) -> bool {
+    matches!(n, VNode::Element { tag, .. } if matches!(tag.as_str(), "button" | "input" | "textarea"))
+}
+
+/// The control a click on `target` activates through a label: none when
+/// the click is on interactive content inside the label; otherwise the
+/// label's `for` element if labelable, or else its first labelable descendant.
+fn labelled_control(tree: &[VNode], target: u64) -> Option<u64> {
+    let chain = chain_nodes(tree, target)?;
+    let mut label = None;
+    for n in chain.iter().rev() {
+        if labelable(n) {
+            return None;
+        }
+        if matches!(n, VNode::Element { tag, .. } if tag == "label") {
+            label = Some(*n);
+            break;
+        }
+    }
+    let VNode::Element {
+        attrs, children, ..
+    } = label?
+    else {
+        return None;
+    };
+    fn first(nodes: &[VNode], f: &dyn Fn(&VNode) -> bool) -> Option<u64> {
+        for n in nodes {
+            if let VNode::Element { id, children, .. } = n {
+                if f(n) {
+                    return Some(*id);
+                }
+                if let Some(found) = first(children, f) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+    match attrs.get("for") {
+        Some(id) => first(
+            tree,
+            &|n| matches!(n, VNode::Element { attrs, .. } if attrs.get("id") == Some(id)),
+        )
+        .filter(|&c| {
+            chain_nodes(tree, c)
+                .and_then(|n| n.last().copied())
+                .is_some_and(labelable)
+        }),
+        None => first(children, &labelable),
     }
 }
 

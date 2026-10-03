@@ -1,0 +1,15 @@
+{
+  "description": "Text areas and labels: a bound textarea (typing with Enter inserting line breaks), a label for= focusing its textarea, a label wrapping a checkbox toggling it, a label wrapping a text input focusing it",
+  "fixtures": ["forms-svelte"],
+  "actions": [
+    { "kind": "type", "id": "notes", "text": "\nthree" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "blur", "id": "notes" },
+    { "kind": "click", "id": "notes-label" },
+    { "kind": "type", "text": "!" },
+    { "kind": "click", "id": "agree-label" },
+    { "kind": "click", "id": "agree-label" },
+    { "kind": "click", "id": "name-label" },
+    { "kind": "type", "text": "Ada" }
+  ]
+}

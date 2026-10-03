@@ -31,6 +31,8 @@ import { arrayElement } from '../irtype.ts';
 type SNode = any;
 
 const TAGS = new Set([
+  'textarea',
+  'label',
   'div',
   'span',
   'p',
@@ -1388,7 +1390,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             const e = exprNode(values[0].expression);
             const v = value(e);
             const t = typeOf(e, v);
-            if (name === 'value' && n.name === 'input' && !checkbox) {
+            if (name === 'value' && (n.name === 'input' || n.name === 'textarea') && !checkbox) {
               props.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
             } else if (name === 'class' && t === 'string') {
               // Svelte 5 resolves class values with clsx and omits an empty class.
@@ -1449,7 +1451,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           reference = (b as { cell: number }).cell;
         } else if (a.type === 'BindDirective') {
           const kind =
-            a.name === 'value' && n.name === 'input' && !checkbox
+            a.name === 'value' && (n.name === 'input' || n.name === 'textarea') && !checkbox
               ? 'string'
               : a.name === 'checked' && checkbox
                 ? 'boolean'

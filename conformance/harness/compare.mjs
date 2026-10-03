@@ -2,7 +2,8 @@
 //
 // Both sides produce the snapshot format of browser.mjs. Canonicalisation
 // merges adjacent text nodes (frameworks split text differently), drops the
-// `value` and `checked` attributes of inputs (the live properties are compared instead)
+// `value` and `checked` attributes of inputs (the live properties of inputs,
+// text areas and selects are compared instead)
 // and ignores selection direction. Tolerances are unchanged from Phases 1-4:
 // geometry 2 px per coordinate, pixels mean absolute error <= 3/255.
 import { spawnSync } from 'node:child_process';
@@ -21,7 +22,7 @@ export function canonical(node) {
   }
   if (Object.keys(attrs).length) out.attributes = Object.fromEntries(Object.entries(attrs).sort());
   for (const k of ['disabled', 'focused', 'readOnly', 'checked']) if (node[k]) out[k] = true;
-  if ('value' in node && node.tag === 'input') out.value = node.value;
+  if ('value' in node && ['input', 'textarea', 'select'].includes(node.tag)) out.value = node.value;
   if (node.selection) out.selection = node.selection.slice(0, 2);
   const children = [];
   for (const c of (node.children ?? []).map(canonical).filter(Boolean)) {

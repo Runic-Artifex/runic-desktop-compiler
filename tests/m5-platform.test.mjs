@@ -144,3 +144,18 @@ test('rejected: spreads other than rest props, rest props reaching declared prop
     'App.svelte',
   );
 });
+
+test('forms: text areas take line breaks; labels activate their checkbox', async () => {
+  const { ir } = await lower(await graph('forms-svelte'));
+  const steps = interpret(ir, [
+    { kind: 'input', id: 'notes', value: 'one\ntwo\nthree' },
+    { kind: 'click', id: 'agree-label' },
+    { kind: 'click', id: 'agree' },
+    { kind: 'click', id: 'agree-label' },
+  ]);
+  assert.equal(text(steps[1], 'lines'), '3 lines');
+  assert.deepEqual(
+    steps.slice(2).map(s => text(s, 'state')),
+    ['true', 'false', 'true'],
+  );
+});

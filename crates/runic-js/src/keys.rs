@@ -83,6 +83,12 @@ pub fn parse_key_spec(spec: &str) -> Option<KeySpec> {
         out.code = name.into();
         return Some(out);
     }
+    // Playwright types line breaks with the Enter key.
+    if matches!(name, "\n" | "\r") {
+        out.key = "Enter".into();
+        out.code = "Enter".into();
+        return Some(out);
+    }
     let name = if name == "Space" { " " } else { name };
     let mut chars = name.chars();
     let (Some(c), None) = (chars.next(), chars.next()) else {
