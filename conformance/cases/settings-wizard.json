@@ -1,0 +1,16 @@
+{
+  "description": "Replacement and updater queues in one handler, conditional sections",
+  "fixtures": ["settings-wizard"],
+  "actions": [
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "back" },
+    { "kind": "click", "id": "choose" },
+    { "kind": "click", "id": "details" },
+    { "kind": "click", "id": "restart" },
+    { "kind": "click", "id": "choose" },
+    { "kind": "click", "id": "details" }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Ordered writes, derived reads, disabled bound, conditional content, keyboard activation",
+  "fixtures": ["counter-react", "counter-svelte", "counter-vue"],
+  "actions": [
+    { "kind": "click", "id": "sequence" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" }
+  ]
+}

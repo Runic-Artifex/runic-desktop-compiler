@@ -67,7 +67,7 @@ test('schema 2 artifacts validate and explicitly migrate without changing transi
   assert.equal(migrated.schema, 3);
   assert.deepEqual(validateIR(migrated).edges, before.edges);
   assert.equal(old.schema, 2);
-  assert.match(generate(old), /pub fn dispatch/);
+  assert.match(generate(old), /fn dispatch\(/);
 });
 test('adapters preserve React snapshots and Vue immediate reads and captures', async () => {
   const r = await analyze('fixtures/counter-react'),
@@ -79,7 +79,7 @@ test('adapters preserve React snapshots and Vue immediate reads and captures', a
   assert.equal(r.ir.schema, v.ir.schema);
   assert.equal(v.ir.frontend.packages.vue, '3.5.43');
   assert.doesNotMatch(
-    generate(v.ir).replace(/^pub const (TITLE|CSS):.*$/gm, ''),
+    generate(v.ir).replace(/^const (TITLE|CSS|IR_HASH):.*$/gm, ''),
     /react|vue|\.value|computed\(/,
   );
 });
@@ -198,7 +198,7 @@ test('Vue boolean interpolation lowers an explicit string operation', async () =
     const { ir } = await collect(root).then(g => lower(g, { registry: false }));
     const value = nodes(render(ir, [1, 0, 0, true])).find(n => n.attrs?.id === 'value');
     assert.equal(value.children[0].text, 'true');
-    assert.match(generate(ir), /s\.s3\)\.to_string/);
+    assert.match(generate(ir), /js::boolean_to_string\(c\.c3\)/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

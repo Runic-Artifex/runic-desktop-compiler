@@ -1,0 +1,21 @@
+[package]
+name = "runic-blitz-probes"
+description = "Standalone probes of Blitz behaviour (focus, controls, editing) used to justify runtime fixes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+blitz-dom.workspace = true
+blitz-html.workspace = true
+blitz-shell.workspace = true
+blitz-traits.workspace = true
+blitz-paint.workspace = true
+anyrender.workspace = true
+anyrender_vello_cpu.workspace = true
+winit.workspace = true
+markup5ever.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+keyboard-types.workspace = true

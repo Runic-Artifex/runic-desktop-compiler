@@ -45,7 +45,7 @@ impl Document for Probe {
 fn main() {
     use base64::Engine;
     let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
-        "../fixtures/quantity/assets/DejaVuSans.woff2"
+        "../../../../fixtures/quantity/assets/DejaVuSans.woff2"
     ));
     let html = format!(
         "<html><head><style>@font-face{{font-family:Fixture;src:url(data:font/woff2;base64,{font}) format('woff2')}}body{{background:#ece6d8;padding:40px;font-size:24px}}button{{padding:20px;font-family:Fixture;font-size:24px}}</style></head><body><button id='value'>Native clicks: 0</button></body></html>"

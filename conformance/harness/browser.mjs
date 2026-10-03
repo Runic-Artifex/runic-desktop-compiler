@@ -132,14 +132,16 @@ async function perform(page, action, timeout) {
       break;
     }
     case 'type': // Trusted key events into the focused element.
-      if (action.id) await target.focus({ timeout });
+      // Plain element.focus(): Playwright's locator.focus() leaves an empty
+      // style attribute behind, which would be a harness-made DOM difference.
+      if (action.id) await target.evaluate(e => e.focus());
       await page.keyboard.type(action.text);
       break;
     case 'press':
       await page.keyboard.press(action.key);
       break;
     case 'focus':
-      await target.focus({ timeout });
+      await target.evaluate(e => e.focus());
       break;
     case 'blur': // An explicit scripted step, never used to settle focus.
       await target.blur({ timeout });
@@ -202,6 +204,9 @@ export async function createBrowserHarness() {
         await page.goto(server.url, { waitUntil: 'load' });
         await page.waitForFunction(() => document.getElementById('root')?.childNodes.length > 0);
         await page.evaluate(() => document.fonts.ready.then(() => undefined));
+        // Hide the caret with a head stylesheet: Playwright's caret:'hide'
+        // leaves an empty style attribute on the focused element.
+        await page.addStyleTag({ content: '* { caret-color: transparent !important; }' });
         await page.evaluate(twoFrames);
         const mountMs = performance.now() - t1;
         const steps = [];
@@ -211,7 +216,7 @@ export async function createBrowserHarness() {
           timing.snapshotMs = performance.now() - t;
           const screenshotPath = path.join(folder, `step-${String(index).padStart(3, '0')}.png`);
           t = performance.now();
-          await page.screenshot({ path: screenshotPath, caret: 'hide' });
+          await page.screenshot({ path: screenshotPath, caret: 'initial' });
           timing.screenshotMs = performance.now() - t;
           steps.push({ action, ...snapshot, screenshotPath, timing });
         };

@@ -1,0 +1,14 @@
+{
+  "description": "Composed components, imported helpers and bounds",
+  "fixtures": ["quantity"],
+  "actions": [
+    { "kind": "click", "id": "minus" },
+    { "kind": "click", "id": "plus" },
+    { "kind": "click", "id": "plus" },
+    { "kind": "click", "id": "pair" },
+    { "kind": "click", "id": "details" },
+    { "kind": "click", "id": "plus" },
+    { "kind": "click", "id": "details" },
+    { "kind": "click", "id": "minus" }
+  ]
+}

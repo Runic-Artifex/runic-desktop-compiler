@@ -8,3 +8,4 @@ fixtures/*/dist/
 !evidence/*.log
 !evidence/**/*.log
 conformance/*/apps/
+.claude/

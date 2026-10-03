@@ -18,6 +18,8 @@ import { localModules } from '../modules.mjs';
 export async function lowerVue(graph, { registry = true, registryRoot } = {}) {
   const { root, tooling } = graph,
     ir = newIR(graph, 'vue');
+  // Vue's app.mount() marks the container (runtime-dom createApp, 3.5).
+  ir.container = { attrs: { 'data-v-app': '' } };
   const accepted = registry ? await loadRegistry(registryRoot) : [];
   const entry = ts.createSourceFile(
     graph.entry,

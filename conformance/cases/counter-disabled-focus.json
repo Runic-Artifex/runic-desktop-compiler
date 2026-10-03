@@ -1,0 +1,10 @@
+{
+  "description": "A focused button that becomes disabled loses focus naturally",
+  "fixtures": ["counter-react", "counter-svelte", "counter-vue"],
+  "actions": [
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "press", "key": "Tab" }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "description": "Bounded temperature with mode toggle",
+  "fixtures": ["thermostat"],
+  "actions": [
+    { "kind": "click", "id": "cool" },
+    { "kind": "click", "id": "cool" },
+    { "kind": "click", "id": "warm" },
+    { "kind": "click", "id": "warm" },
+    { "kind": "click", "id": "warm" },
+    { "kind": "click", "id": "eco" },
+    { "kind": "click", "id": "warm" },
+    { "kind": "click", "id": "eco" }
+  ]
+}

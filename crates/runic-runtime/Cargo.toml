@@ -1,0 +1,32 @@
+[package]
+name = "runic-runtime"
+description = "Native runtime for generated Runic applications: DOM operations, events, controls and window integration on Blitz"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["renderer-cpu"]
+# D12: exactly one window renderer is linked; the project selects it in runic.json.
+renderer-cpu = ["dep:anyrender_vello_cpu"]
+renderer-gpu = ["dep:anyrender_vello"]
+# Scripted input, DOM snapshots and screenshots for conformance runs.
+probe = ["dep:anyrender_vello_cpu", "dep:png"]
+
+[dependencies]
+blitz-dom.workspace = true
+blitz-shell.workspace = true
+blitz-traits.workspace = true
+blitz-paint.workspace = true
+anyrender.workspace = true
+kurbo.workspace = true
+peniko.workspace = true
+anyrender_vello_cpu = { workspace = true, optional = true }
+anyrender_vello = { workspace = true, optional = true }
+winit.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+png = { workspace = true, optional = true }
+keyboard-types.workspace = true
+runic-js.workspace = true

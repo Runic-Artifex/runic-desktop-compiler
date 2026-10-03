@@ -1,0 +1,16 @@
+{
+  "description": "Shared local modules and the pinned bounded-increase mapping",
+  "fixtures": ["modules-react", "modules-svelte", "modules-vue"],
+  "actions": [
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "sequence" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "reset" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" }
+  ]
+}

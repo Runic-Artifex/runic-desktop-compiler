@@ -1,23 +1,40 @@
-[package]
-name = "runic-native"
-version = "0.1.0"
+[workspace]
+resolver = "3"
+members = [
+    "crates/runic-js",
+    "crates/runic-ir",
+    "crates/runic-codegen",
+    "crates/runic-runtime",
+    "crates/runic-blitz-probes",
+]
+
+[workspace.package]
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98"
+license = "MIT"
 
-[dependencies]
+[workspace.dependencies]
 blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false, features = ["woff"] }
 blitz-html = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false }
 blitz-shell = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false, features = ["data-uri"] }
 blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false }
 blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false }
 anyrender = "=0.13.0"
+kurbo = "=0.13.1"
+peniko = "=0.6.1"
 anyrender_vello_cpu = { version = "=0.17.0", features = ["softbuffer_window_renderer"] }
+anyrender_vello = "=0.14.0"
 winit = "=0.31.0-beta.3"
 markup5ever = "=0.40.0"
+serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.149"
 base64 = "=0.22.1"
 png = "=0.18.1"
 keyboard-types = "=0.7.0"
+runic-js = { path = "crates/runic-js" }
+runic-ir = { path = "crates/runic-ir" }
+runic-runtime = { path = "crates/runic-runtime" }
 
 [profile.dev]
 debug = 0
@@ -28,19 +45,3 @@ strip = true
 debug = 0
 codegen-units = 1
 panic = "abort"
-
-[[bin]]
-name = "native-probe"
-path = "native/probe.rs"
-
-[[bin]]
-name = "runic-app"
-path = "native/main.rs"
-
-[[bin]]
-name = "control-probe"
-path = "native/control_probe.rs"
-
-[[bin]]
-name = "editing-probe"
-path = "native/editing_probe.rs"

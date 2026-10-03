@@ -32,7 +32,7 @@ test('Svelte immediate writes, intermediate derived reads and captures reach the
   assert.equal(tree.find(n => n.attrs?.id === 'initial').children[0].text, '1');
   assert.equal(tree.find(n => n.attrs?.id === 'flag').children[0].text, 'false');
   assert.ok(!tree.some(n => n.attrs?.id === 'details'));
-  const rust = generate(ir).replace(/^pub const (TITLE|CSS):.*$/gm, '');
+  const rust = generate(ir).replace(/^const (TITLE|CSS|IR_HASH):.*$/gm, '');
   assert.doesNotMatch(rust, /svelte|\$state|\$derived|virtual.?dom/i);
   const state = ir.states.find(s => s.name === 'n');
   assert.equal(state.source.file, 'App.svelte');

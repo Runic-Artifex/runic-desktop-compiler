@@ -48,7 +48,7 @@ fn main() {
     let html = "<html><head><style>body{padding:32px;background:white;color:black;font-size:24px}select,button{font-size:24px;padding:12px;margin:12px;border:1px solid black}</style></head><body><p>Controlled select capability probe</p><select id='choice'><option value='basic'>Basic</option><option value='pro'>Pro</option></select><button id='after'>After select</button></body></html>";
     use base64::Engine;
     let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
-        "../fixtures/quantity/assets/DejaVuSans.woff2"
+        "../../../../fixtures/quantity/assets/DejaVuSans.woff2"
     ));
     let html=html.replace("<head>",&format!("<head><style>@font-face{{font-family:Probe;src:url(data:font/woff2;base64,{font}) format('woff2')}}body,select,button{{font-family:Probe}}</style>"));
     let mut doc = HtmlDocument::from_html(

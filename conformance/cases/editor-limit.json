@@ -1,0 +1,35 @@
+{
+  "description": "maxlength=256 stops insertion before mutation; the caret stays put",
+  "fixtures": [
+    "editor-react",
+    "editor-svelte",
+    "editor-vue"
+  ],
+  "viewports": [
+    [
+      800,
+      600
+    ]
+  ],
+  "actions": [
+    {
+      "kind": "focus",
+      "id": "editor"
+    },
+    {
+      "kind": "type",
+      "text": "0123456789",
+      "repeat": 26
+    },
+    {
+      "kind": "select",
+      "id": "editor",
+      "start": 3,
+      "end": 3
+    },
+    {
+      "kind": "type",
+      "text": "x"
+    }
+  ]
+}

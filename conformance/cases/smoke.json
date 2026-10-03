@@ -1,0 +1,9 @@
+{
+  "description": "Minimal counter",
+  "fixtures": ["smoke"],
+  "actions": [
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" }
+  ]
+}

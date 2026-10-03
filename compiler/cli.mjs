@@ -5,7 +5,7 @@ import { writeFile, mkdir, copyFile, readFile, rename, mkdtemp, rm, open } from 
 import path from 'node:path';
 import { collect, Diagnostic } from './collect.mjs';
 import { lower } from './frontend.mjs';
-import { emit } from './codegen.mjs';
+import { emit, targetDir } from './codegen.mjs';
 import { discover } from './discovery.mjs';
 import { validateCandidate, accept, repository } from './mappings.mjs';
 
@@ -20,6 +20,7 @@ const { values, positionals } = parseArgs({
     feedback: { type: 'string' },
     'no-opt': { type: 'boolean' },
     'no-mappings': { type: 'boolean' },
+    probe: { type: 'boolean' },
     release: { type: 'boolean' },
     replay: { type: 'boolean' },
     codex: { type: 'boolean' },
@@ -49,8 +50,9 @@ export async function buildApp(app, options = {}) {
   if (!['artifacts', '.cache'].some(p => out.startsWith(path.join(repository, p) + path.sep)))
     throw new Diagnostic('E_OUTPUT', 'Build outputs must be under artifacts/ or .cache/');
   await mkdir(path.dirname(out), { recursive: true });
-  await mkdir(path.join(repository, '.cache'), { recursive: true });
-  const lockPath = path.join(repository, '.cache/build.lock');
+  await mkdir(targetDir, { recursive: true });
+  // One build at a time per cargo target directory (shared across worktrees).
+  const lockPath = path.join(targetDir, '.runic-build.lock');
   let lock;
   try {
     lock = await open(lockPath, 'wx');
@@ -64,30 +66,29 @@ export async function buildApp(app, options = {}) {
   );
   try {
     await lock.writeFile(JSON.stringify({ pid: process.pid }));
-    await emit(ir, stage, !options.noOpt);
+    emit(ir, stage, !options.noOpt);
+    // Offline: the copied workspace lock pins every dependency; cargo only adds
+    // the generated package itself.
     const result = spawnSync(
       'cargo',
       [
         'build',
-        '--locked',
+        '--offline',
         '--manifest-path',
         path.join(stage, 'Cargo.toml'),
         '--bin',
         'runic-app',
         ...(options.release ? ['--release'] : []),
+        ...(options.probe ? ['--features', 'probe'] : []),
       ],
-      {
-        cwd: repository,
-        env: { ...process.env, CARGO_TARGET_DIR: path.join(repository, 'target') },
-        stdio: 'inherit',
-      },
+      { cwd: repository, env: { ...process.env, CARGO_TARGET_DIR: targetDir }, stdio: 'inherit' },
     );
     if (result.status !== 0)
       throw new Diagnostic('E_BUILD', 'Rust build failed; see Cargo diagnostics');
     const binary = path.join(stage, 'runic-app');
     const temporary = path.join(stage, 'runic-app.installing');
     await copyFile(
-      path.join(repository, 'target', options.release ? 'release' : 'debug', 'runic-app'),
+      path.join(targetDir, options.release ? 'release' : 'debug', 'runic-app'),
       temporary,
     );
     const rpath = spawnSync('patchelf', ['--print-rpath', temporary], { encoding: 'utf8' });
@@ -115,6 +116,7 @@ export async function buildApp(app, options = {}) {
           profile: options.release ? 'release' : 'dev',
           lto: process.env.CARGO_PROFILE_RELEASE_LTO ?? 'off',
           codegenUnits: 1,
+          probe: Boolean(options.probe),
           rust: '1.98.1',
           blitz: '89e5e615aea649a1a9630c526956aa3d90a3afa7',
         },
@@ -147,7 +149,7 @@ export async function buildApp(app, options = {}) {
 async function main() {
   if (!command || !app) {
     console.log(
-      'runic-compiler analyze|build|compare|discover <app>\nrunic-compiler validate|accept <candidate.json>\nOptions: --out PATH --no-opt --no-mappings --release --replay --codex --model MODEL --constraints FILE --feedback FILE --provider EXEC --port PORT --json',
+      'runic-compiler analyze|build|discover <app>\nrunic-compiler validate|accept <candidate.json>\nOptions: --out PATH --no-opt --no-mappings --release --probe --replay --codex --model MODEL --constraints FILE --feedback FILE --provider EXEC --port PORT --json',
     );
     return;
   }
@@ -167,6 +169,7 @@ async function main() {
       noOpt: values['no-opt'],
       noMappings: values['no-mappings'],
       release: values.release,
+      probe: values.probe,
     });
     console.log(
       JSON.stringify({ executable: path.join(r.out, 'runic-app'), validation: r.ir.validation }),
@@ -213,11 +216,6 @@ async function main() {
         2,
       ),
     );
-    return;
-  }
-  if (command === 'compare') {
-    const { startComparison } = await import('./compare.mjs');
-    await startComparison(graph, { port: Number(values.port ?? 5173), out: values.out });
     return;
   }
   throw new Diagnostic('E_COMMAND', `Unknown command ${command}`);

@@ -1,0 +1,24 @@
+{
+  "description": "Controlled text editing, selection replacement, locks, clear, conditional editor siblings",
+  "fixtures": ["editor-react", "editor-svelte", "editor-vue"],
+  "actions": [
+    { "kind": "focus", "id": "editor" },
+    { "kind": "type", "text": "Hello" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "select", "id": "editor", "start": 0, "end": 1 },
+    { "kind": "type", "text": "J" },
+    { "kind": "type", "text": " ünï 😀" },
+    { "kind": "click", "id": "readonly" },
+    { "kind": "focus", "id": "editor" },
+    { "kind": "type", "text": "x" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "click", "id": "readonly" },
+    { "kind": "click", "id": "lock" },
+    { "kind": "click", "id": "lock" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" }
+  ]
+}

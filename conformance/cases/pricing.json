@@ -1,0 +1,15 @@
+{
+  "description": "Pure-clamp mapping, finite string enums and derived text",
+  "fixtures": ["pricing"],
+  "actions": [
+    { "kind": "click", "id": "less" },
+    { "kind": "click", "id": "more" },
+    { "kind": "click", "id": "more" },
+    { "kind": "click", "id": "more" },
+    { "kind": "click", "id": "plan" },
+    { "kind": "click", "id": "billing" },
+    { "kind": "click", "id": "plan" },
+    { "kind": "click", "id": "reset" },
+    { "kind": "click", "id": "less" }
+  ]
+}

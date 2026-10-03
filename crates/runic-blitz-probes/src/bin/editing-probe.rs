@@ -1,4 +1,5 @@
-mod controls;
+
+use runic_blitz_probes::controls;
 use blitz_dom::{DocGuard, DocGuardMut, Document, DocumentConfig, EventDriver, EventHandler};
 use blitz_html::HtmlDocument;
 use blitz_traits::{
@@ -61,7 +62,7 @@ impl Document for Probe {
 fn main() {
     use base64::Engine;
     let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
-        "../fixtures/quantity/assets/DejaVuSans.woff2"
+        "../../../../fixtures/quantity/assets/DejaVuSans.woff2"
     ));
     let html = format!(
         "<html><head><style>@font-face{{font-family:Probe;src:url(data:font/woff2;base64,{font}) format('woff2')}}input{{font-family:Probe}}</style></head><body><input id='text' type='text' value='ab'><button id='other'>Other</button></body></html>"

@@ -1,0 +1,12 @@
+[package]
+name = "runic-ir"
+description = "Runic IR: serialized types, validation, schema 3 migration and reference interpreter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+runic-js.workspace = true
