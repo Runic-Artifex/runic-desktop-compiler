@@ -1,6 +1,6 @@
 {
   "description": "7GUIs CRUD: prefix filter, selection filling the fields, create, update, delete, disabled states",
-  "fixtures": ["examples/7guis-crud-svelte", "examples/7guis-crud-react"],
+  "fixtures": ["examples/7guis-crud-svelte", "examples/7guis-crud-react", "examples/7guis-crud-vue"],
   "actions": [
     { "kind": "click", "id": "person-2" },
     { "kind": "focus", "id": "name" },
