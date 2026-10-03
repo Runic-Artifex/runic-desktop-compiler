@@ -9,7 +9,7 @@
 //! Diagnostics are printed as JSON on stderr with exit code 1.
 
 use runic_codegen::{Options, emit};
-use runic_ir::interp::Machine;
+use runic_ir::interp::{Machine, Target};
 use runic_ir::{Diagnostic, EventKind, Node};
 use serde_json::json;
 use std::path::Path;
@@ -91,16 +91,28 @@ fn main() {
             let mut m = Machine::new(&program).unwrap_or_else(|d| fail(d));
             let mut steps = vec![json!({"action": null, "state": m.snapshot()})];
             for action in actions.as_array().cloned().unwrap_or_default() {
-                let id = action["id"].as_str().unwrap_or_default();
-                let result = match action["kind"].as_str() {
-                    Some("click") => m.fire(id, EventKind::Click, None),
-                    Some("input") => m.fire(id, EventKind::Input, action["value"].as_str()),
+                // Targets: an element id, or the n-th element listening for the action's event.
+                let kind = match action["kind"].as_str() {
+                    Some("click") => EventKind::Click,
+                    Some("input") => EventKind::Input,
+                    Some("keydown") => EventKind::Keydown,
                     other => fail(Diagnostic::new(
                         "E_INPUT",
                         format!("unknown action {other:?}"),
                         None,
                     )),
                 };
+                let target = match (action["id"].as_str(), action["nth"].as_u64()) {
+                    (Some(id), _) => Target::Id(id),
+                    (None, Some(n)) => Target::Nth(kind, n as usize),
+                    _ => fail(Diagnostic::new("E_INPUT", "action without target", None)),
+                };
+                let data = match kind {
+                    EventKind::Input => action["value"].as_str(),
+                    EventKind::Keydown => action["key"].as_str(),
+                    _ => None,
+                };
+                let result = m.fire(target, kind, data);
                 let outcome = match result {
                     Ok(true) => json!("handled"),
                     Ok(false) => json!("ignored"),

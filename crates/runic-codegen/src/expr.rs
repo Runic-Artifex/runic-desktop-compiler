@@ -17,7 +17,8 @@ pub struct FnCtx<'a> {
     pub p: &'a Program,
     pub component: Option<usize>,
     pub locals: Vec<Local>,
-    pub payload: bool,
+    /// The event payload type in handlers (string or boolean).
+    pub payload: Option<Type>,
     pub result: Type,
     /// Innermost first: labels that receive errors (`try`/`catch` blocks).
     pub catch: Vec<String>,
@@ -60,7 +61,7 @@ impl<'a> FnCtx<'a> {
         p: &'a Program,
         component: Option<usize>,
         locals: Vec<Local>,
-        payload: bool,
+        payload: Option<Type>,
         result: Type,
     ) -> Self {
         FnCtx {
@@ -83,7 +84,13 @@ impl<'a> FnCtx<'a> {
     }
 
     pub fn ty(&self, e: &Expr) -> Type {
-        infer_in(self.p, self.component, &self.locals, self.payload, e)
+        infer_in(
+            self.p,
+            self.component,
+            &self.locals,
+            self.payload.clone(),
+            e,
+        )
     }
 
     /// Propagate the error of a `JsResult` expression.
@@ -158,7 +165,12 @@ impl<'a> FnCtx<'a> {
             Cell { cell, read } => self.cell_read(*cell, *read),
             Global { global } => format!("cx.g{global}.clone()"),
             Local { local } => self.local_read(*local),
-            Payload => "cx.payload.clone().expect(\"typed payload\")".into(),
+            Payload => match self.payload {
+                Some(Type::Boolean) => {
+                    "cx.payload.as_ref().is_some_and(|p| p.to_rust() == \"true\")".into()
+                }
+                _ => "cx.payload.clone().expect(\"typed payload\")".into(),
+            },
             Not { arg } => format!("(!{})", self.expr(arg)),
             Neg { arg } => format!("(-{})", self.expr(arg)),
             BitNot { arg } => format!("js::bit_not({})", self.expr(arg)),
@@ -682,7 +694,7 @@ pub fn function(p: &Program, index: usize, errors: &mut Vec<String>) -> String {
         .chain(&f.locals)
         .cloned()
         .collect();
-    let mut cx = FnCtx::new(p, f.component, locals.clone(), false, f.result.clone());
+    let mut cx = FnCtx::new(p, f.component, locals.clone(), None, f.result.clone());
     let body = cx.block(&f.body);
     errors.extend(cx.errors.iter().map(|e| format!("{}: {e}", f.name)));
     let mut sig = String::new();

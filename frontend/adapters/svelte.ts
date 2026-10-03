@@ -7,7 +7,7 @@ import ts from 'typescript';
 import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
 import type { Cell, Component, Expr, Handler, Listener, Node, Program, Stmt, Type } from '../ir.ts';
-import { FnBuilder, Lowerer, type Hooks } from '../language.ts';
+import { FnBuilder, Lowerer, remapLocals, type HandlerEvent, type Hooks } from '../language.ts';
 import { createProgram, RUNES } from '../program.ts';
 import { TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
@@ -525,11 +525,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (fallback) {
           const f = fallback;
           pending.push(() => {
-            cells[cell].init = coerceInit(
-              lower.value(f, COMPONENT, `${name}$default`),
-              lower.exprType(f),
-              type,
-            );
+            const v = lower.value(f, COMPONENT, `${name}$default`);
+            cells[cell].init = coerceInit(v, lower.valueType(v), type);
           });
         }
       }
@@ -629,13 +626,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           pending.push(() => {
             let value: ts.Expression | undefined = init;
             if (rune) value = (init as ts.CallExpression).arguments[0];
-            cells[cell].init = value
-              ? coerceInit(
-                  lower.value(value, COMPONENT, `${name}$init`),
-                  lower.exprType(value),
-                  type,
-                )
-              : { op: 'undefined', type };
+            if (!value) {
+              cells[cell].init = { op: 'undefined', type };
+              return;
+            }
+            // The IR type of the lowered value (a bare `null` takes its contextual type).
+            const v = lower.value(value, COMPONENT, `${name}$init`);
+            cells[cell].init = coerceInit(v, lower.valueType(v), type);
           });
         }
         continue;
@@ -697,7 +694,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         }
       return list;
     };
-    const handlerFor = (v: SNode, event: 'click' | 'input', where: SNode): Listener => {
+    const handlerFor = (v: SNode, event: HandlerEvent, where: SNode): Listener => {
       const e = exprNode(v);
       let h: {
         params?: Handler['params'];
@@ -706,7 +703,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         args?: Expr[];
       };
       if (ts.isArrowFunction(e) || ts.isFunctionExpression(e))
-        h = lower.handler(e, COMPONENT, event === 'input', tb);
+        h = lower.handler(e, COMPONENT, event, tb);
       else if (ts.isIdentifier(e)) {
         const b = lower.binding(e);
         if (b?.kind === 'function') {
@@ -941,23 +938,49 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];
-      let bound: number | undefined;
+      const checkbox =
+        n.name === 'input' &&
+        n.attributes.some(
+          (a: SNode) =>
+            a.type === 'Attribute' &&
+            a.name === 'type' &&
+            Array.isArray(a.value) &&
+            a.value.length === 1 &&
+            a.value[0].type === 'Text' &&
+            a.value[0].data === 'checkbox',
+        );
+      let bound: { event: HandlerEvent; handler: ReturnType<Lowerer['bindHandler']> } | undefined;
       for (const a of n.attributes) {
         if (a.type === 'Attribute') {
           const name: string = a.name;
           if (/^on[a-z]+$/.test(name)) {
             const event = name.slice(2);
-            if (event !== 'click' && event !== 'input')
+            if (!['click', 'input', 'change', 'keydown'].includes(event))
               fail('E_EVENT', `on${event} handlers are planned for M5`, loc(a));
+            if (event === 'change' && !checkbox)
+              fail('E_EVENT', 'onchange is supported on checkboxes (text inputs: oninput)', loc(a));
             if (a.value === true || Array.isArray(a.value))
               fail('E_EVENT', 'Event attributes need a handler expression', loc(a));
-            listeners.push(handlerFor(a.value.expression, event as 'click' | 'input', a));
+            listeners.push(handlerFor(a.value.expression, event as HandlerEvent, a));
             continue;
           }
           if (name.toLowerCase() !== name)
             fail('E_TEMPLATE', `Attribute ${name} must be lowercase`, loc(a));
           const values: SNode[] =
             a.value === true ? [] : Array.isArray(a.value) ? a.value : [a.value];
+          if (checkbox && name === 'checked') {
+            // Svelte sets the checked property.
+            let v: Expr = { op: 'lit', value: true };
+            if (a.value !== true) {
+              if (values.length !== 1 || values[0].type !== 'ExpressionTag')
+                fail('E_TEMPLATE', 'checked takes an expression', loc(a));
+              const e = exprNode(values[0].expression);
+              v = value(e);
+              if (typeOf(e, v) !== 'boolean') v = { op: 'to-boolean', arg: v };
+            }
+            props.push({ name: 'checked', value: v });
+            continue;
+          }
           if (a.value === true) {
             attrs.push({
               name,
@@ -971,9 +994,33 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             const e = exprNode(values[0].expression);
             const v = value(e);
             const t = typeOf(e, v);
-            if (name === 'value' && n.name === 'input') {
+            if (name === 'value' && n.name === 'input' && !checkbox) {
               props.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
-            } else if (BOOLEAN_ATTRS.has(name))
+            } else if (name === 'class' && t === 'string') {
+              // Svelte 5 resolves class values with clsx and omits an empty class.
+              const temp = tb.local('$class', 'string');
+              const read: Expr = { op: 'local', local: temp };
+              attrs.push({
+                name,
+                value: {
+                  op: 'with',
+                  local: temp,
+                  value: v,
+                  body: {
+                    op: 'cond',
+                    test: { op: 'eq', left: read, right: { op: 'lit', value: '' } },
+                    then: { op: 'undefined', type: { maybe: 'string' } },
+                    else: { op: 'some', value: read },
+                  },
+                },
+              });
+            } else if (name === 'class')
+              fail(
+                'E_TEMPLATE',
+                'class values other than strings (clsx objects and arrays) are planned for M6',
+                loc(a),
+              );
+            else if (BOOLEAN_ATTRS.has(name))
               attrs.push({ name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } });
             else if (typeof t === 'object' && 'maybe' in t)
               attrs.push({
@@ -998,25 +1045,52 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           }
           attrs.push({ name, value: joined ?? { op: 'lit', value: '' } });
         } else if (a.type === 'BindDirective') {
-          if (a.name !== 'value' || n.name !== 'input')
-            fail('E_TEMPLATE', `bind:${a.name} is planned for M5`, loc(a));
+          const kind =
+            a.name === 'value' && n.name === 'input' && !checkbox
+              ? 'string'
+              : a.name === 'checked' && checkbox
+                ? 'boolean'
+                : undefined;
+          if (!kind) fail('E_TEMPLATE', `bind:${a.name} is planned for M5`, loc(a));
           const target = exprNode(a.expression);
-          const b = ts.isIdentifier(target) ? lower.binding(target) : undefined;
-          if (b?.kind !== 'cell' || types.of(target) !== 'string')
-            fail('E_TEMPLATE', 'bind:value needs a string $state variable', loc(a));
-          bound = (b as { cell: number }).cell;
-          props.push({ name: 'value', value: { op: 'cell', cell: bound } });
+          const functions =
+            ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.CommaToken;
+          if (functions)
+            fail(
+              'E_TEMPLATE',
+              `Function bindings (bind:${a.name}={get, set}) are planned for a later milestone`,
+              loc(a),
+            );
+          if (ts.isArrowFunction(target) || ts.isFunctionExpression(target))
+            fail('E_TEMPLATE', `bind:${a.name} needs an assignable ${kind} value`, loc(a));
+          const read = value(target);
+          if (JSON.stringify(typeOf(target, read)) !== JSON.stringify(kind))
+            fail('E_TEMPLATE', `bind:${a.name} needs an assignable ${kind} value`, loc(a));
+          props.push({ name: a.name, value: read });
+          const event: HandlerEvent = kind === 'string' ? 'input' : 'change';
+          bound = { event, handler: lower.bindHandler(target, COMPONENT, event, tb) };
         } else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
       }
-      if (bound !== undefined) {
-        // bind:value listens on the element itself, before the delegated
-        // oninput handler, so the bound state is written first.
-        const write: Stmt = { op: 'set', cell: bound, value: { op: 'payload' } };
-        const own = listeners.find(l => l.event === 'input');
-        if (own) handlers[own.handler].body.unshift(write);
-        else {
-          handlers.push({ event: 'input', body: [write], source: loc(n) });
-          listeners.push({ event: 'input', handler: handlers.length - 1 });
+      if (bound) {
+        // A binding listens on the element itself, before the delegated
+        // handler for the same event, so the bound state is written first.
+        const own = listeners.find(l => l.event === bound.event);
+        const { args, ...h } = bound.handler;
+        if (!own) {
+          handlers.push({ event: bound.event, ...h, source: loc(n) });
+          listeners.push({
+            event: bound.event,
+            handler: handlers.length - 1,
+            ...(args?.length ? { args } : {}),
+          });
+        } else {
+          const merged = mergeHandlers(
+            { ...h, args },
+            { ...handlers[own.handler], args: own.args },
+          );
+          handlers[own.handler] = { event: bound.event, ...merged.handler, source: loc(n) };
+          own.args = merged.args;
+          if (!own.args?.length) delete own.args;
         }
       }
       return {
@@ -1068,6 +1142,32 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   };
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
+}
+
+/**
+ * One handler running `a` then `b`: params are a's then b's, locals a's then
+ * b's (each body renumbered into the combined index space).
+ */
+function mergeHandlers(
+  a: { params?: Handler['params']; locals?: Handler['locals']; body: Stmt[]; args?: Expr[] },
+  b: { params?: Handler['params']; locals?: Handler['locals']; body: Stmt[]; args?: Expr[] },
+): { handler: Omit<Handler, 'event'>; args?: Expr[] } {
+  const aP = a.params?.length ?? 0;
+  const bP = b.params?.length ?? 0;
+  const aL = a.locals?.length ?? 0;
+  const bodyA = remapLocals(a.body, i => (i < aP ? i : i + bP));
+  const bodyB = remapLocals(b.body, i => (i < bP ? i + aP : i + aP + aL));
+  const params = [...(a.params ?? []), ...(b.params ?? [])];
+  const locals = [...(a.locals ?? []), ...(b.locals ?? [])];
+  const args = [...(a.args ?? []), ...(b.args ?? [])];
+  return {
+    handler: {
+      ...(params.length ? { params } : {}),
+      ...(locals.length ? { locals } : {}),
+      body: [...bodyA, ...bodyB],
+    },
+    ...(args.length ? { args } : {}),
+  };
 }
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */

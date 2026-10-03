@@ -17,7 +17,16 @@ pub(crate) type Renderer = anyrender_vello_cpu::VelloCpuWindowRenderer;
 #[cfg(all(feature = "renderer-gpu", not(feature = "renderer-cpu")))]
 pub(crate) type Renderer = anyrender_vello::VelloWindowRenderer;
 
-const UA_PARITY: &str = "input, textarea, select, button { font-size: 13.333333px; }";
+/// Chromium's form-control defaults where Blitz's UA stylesheet differs: the
+/// control font size, and checkbox colours (Blitz paints checkboxes in the
+/// element's `color`; Chromium uses a grey border and its blue accent fill).
+const UA_PARITY: &str = "input, textarea, select, button { font-size: 13.333333px; }\n\
+input[type=checkbox] { color: #767676; }\n\
+input[type=checkbox]:checked { color: #0075ff; }";
+
+/// Probe screenshots hide the caret, as the browser harness does.
+#[cfg(feature = "probe")]
+const PROBE_UA: &str = "* { caret-color: transparent !important; }";
 
 /// The application stylesheet with `runic-asset:N` resolved to data URLs.
 fn stylesheet<A: App>() -> String {
@@ -56,6 +65,8 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     // Chromium user-agent defaults that Blitz's stylesheet lacks at the pinned
     // revision (form controls use `font: -webkit-small-control`).
     doc.add_user_agent_stylesheet(UA_PARITY);
+    #[cfg(feature = "probe")]
+    doc.add_user_agent_stylesheet(PROBE_UA);
     let root = doc.root_node().id;
     let html = element(&mut doc, "html", &[]);
     let head = element(&mut doc, "head", &[]);

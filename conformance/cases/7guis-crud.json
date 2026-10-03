@@ -1,0 +1,24 @@
+{
+  "description": "7GUIs CRUD: prefix filter, selection filling the fields, create, update, delete, disabled states",
+  "fixtures": ["examples/7guis-crud-svelte"],
+  "actions": [
+    { "kind": "click", "id": "person-2" },
+    { "kind": "focus", "id": "name" },
+    { "kind": "type", "text": "imilian" },
+    { "kind": "click", "id": "update" },
+    { "kind": "focus", "id": "prefix" },
+    { "kind": "type", "text": "m" },
+    { "kind": "click", "id": "person-2" },
+    { "kind": "click", "id": "delete" },
+    { "kind": "focus", "id": "prefix" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "focus", "id": "name" },
+    { "kind": "type", "text": "Ada" },
+    { "kind": "focus", "id": "surname" },
+    { "kind": "type", "text": "Lovelace" },
+    { "kind": "click", "id": "create" },
+    { "kind": "click", "id": "person-1" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" }
+  ]
+}

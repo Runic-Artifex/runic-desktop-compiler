@@ -39,18 +39,18 @@ function rng(seed) {
 
 const TEXTS = ['', 'a', 'Hello', 'ünï 😀', 'x'.repeat(256), 'x'.repeat(257), 'line\nbreak', ' ', 'Jell', '100', '-40', '1e3', ' 0x10 ', '3.25', 'NaN', '  milk'];
 
-function targets(nodes, out = { click: new Set(), input: new Set() }) {
-  for (const n of nodes) {
-    if (n.kind === 'element') {
-      const id = n.attrs?.find(a => a.name === 'id')?.value?.value;
-      for (const l of n.listeners ?? []) if (id) out[l.event === 'input' ? 'input' : 'click'].add(id);
-      targets(n.children ?? [], out);
-    } else if (n.kind === 'if') {
-      targets(n.then ?? [], out);
-      targets(n.else ?? [], out);
+/** Event kinds that some listener in the program handles (any component). */
+function eventKinds(ir) {
+  const kinds = new Set();
+  const walk = nodes => {
+    for (const n of nodes ?? []) {
+      for (const l of n.listeners ?? []) kinds.add(l.event === 'change' ? 'click' : l.event);
+      for (const k of ['children', 'then', 'else', 'body', 'fallback']) walk(n[k]);
+      for (const s of n.slots ?? []) walk(s.body);
     }
-  }
-  return out;
+  };
+  for (const c of ir.components) walk(c.template);
+  return kinds;
 }
 
 /** Interpreter VNode JSON → the canonical shape used for native snapshots. */
@@ -58,6 +58,7 @@ function fromInterp(node) {
   if (typeof node === 'string') return { text: node };
   const out = { tag: node.tag };
   if (Object.keys(node.attrs).length) out.attributes = Object.fromEntries(Object.entries(node.attrs).sort());
+  if (node.checked) out.checked = true;
   if (node.value !== undefined) out.value = node.value;
   const children = node.children.map(fromInterp);
   if (children.length) out.children = children;
@@ -67,7 +68,7 @@ function fromInterp(node) {
 /** Strip runtime-only state (focus, selection, disabled flag) from canonical native nodes. */
 function semantic(node) {
   if ('text' in node) return node;
-  const { focused, selection, disabled, readOnly, checked, composing, ...rest } = node;
+  const { focused, selection, disabled, readOnly, composing, ...rest } = node;
   if (rest.children) rest.children = rest.children.map(semantic);
   return rest;
 }
@@ -84,27 +85,39 @@ let steps = 0;
 for (const fixture of fixtures) {
   const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
   const { ir } = await lower(await collect(dir));
-  const v4 = migrate(ir);
-  const ids = targets(v4.components[v4.root].template);
+  const kinds = eventKinds(migrate(ir));
   const out = path.join(repo, '.cache/conformance/diff-bin', path.basename(fixture) + (values['no-opt'] ? '-no-opt' : ''));
   await buildApp(dir, { out, probe: true, noOpt: values['no-opt'] });
   const binary = path.join(out, 'runic-app');
-  const click = [...ids.click];
-  const input = [...ids.input];
+  // Targets are chosen from the live DOM: the n-th element listening for the
+  // event, resolved identically by the interpreter and the probe.
+  const weights = [['click', 0.6], ['input', 0.3], ['keydown', 0.1]].filter(([k]) => kinds.has(k));
+  const total = weights.reduce((a, [, w]) => a + w, 0);
   let fixtureFailures = 0;
   for (let t = 0; t < Number(values.traces); t++) {
     const actions = [];
-    for (let i = 0; i < Number(values.length); i++) {
-      if (input.length && (!click.length || random() < 0.3))
-        actions.push({ kind: 'input', id: input[Math.floor(random() * input.length)], value: TEXTS[Math.floor(random() * TEXTS.length)] });
-      else actions.push({ kind: 'click', id: click[Math.floor(random() * click.length)] });
+    for (let i = 0; i < Number(values.length) && weights.length; i++) {
+      let r = random() * total;
+      const [kind] = weights.find(([, w]) => (r -= w) < 0) ?? weights.at(-1);
+      const nth = Math.floor(random() * 1000);
+      if (kind === 'input') actions.push({ kind, nth, value: TEXTS[Math.floor(random() * TEXTS.length)] });
+      else if (kind === 'keydown') actions.push({ kind, nth, key: random() < 0.7 ? 'Enter' : 'Escape' });
+      else actions.push({ kind, nth });
     }
     const expected = interpret(ir, actions);
     const actual = runProbe(binary, { actions }).steps;
     for (let i = 0; i < expected.length; i++) {
       steps++;
-      const want = { dom: expected[i].state.dom.map(fromInterp), cells: expected[i].state.cells };
-      const got = { dom: (canonical(actual[i].dom).children ?? []).map(semantic), cells: actual[i].cells };
+      const want = {
+        dom: expected[i].state.dom.map(fromInterp),
+        cells: expected[i].state.cells,
+        instances: expected[i].state.instances ?? [],
+      };
+      const got = {
+        dom: (canonical(actual[i].dom).children ?? []).map(semantic),
+        cells: actual[i].cells,
+        instances: actual[i].instances ?? [],
+      };
       if (JSON.stringify(want) !== JSON.stringify(got)) {
         fixtureFailures++;
         if (fixtureFailures <= 3)

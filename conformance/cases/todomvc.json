@@ -1,0 +1,29 @@
+{
+  "description": "TodoMVC in memory: Enter adds, Escape clears the draft, checkbox toggles (pointer and Space), toggle all, filters, delete, clear completed",
+  "fixtures": ["examples/todomvc-svelte"],
+  "actions": [
+    { "kind": "focus", "id": "new-todo" },
+    { "kind": "type", "text": "Buy milk" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "type", "text": "Walk" },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "type", "text": "  " },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "type", "text": "Ship M3" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "click", "id": "toggle-3" },
+    { "kind": "click", "id": "filter-active" },
+    { "kind": "click", "id": "toggle-2" },
+    { "kind": "click", "id": "filter-completed" },
+    { "kind": "focus", "id": "toggle-1" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "click", "id": "filter-all" },
+    { "kind": "click", "id": "toggle-all" },
+    { "kind": "click", "id": "toggle-all" },
+    { "kind": "click", "id": "toggle-2" },
+    { "kind": "click", "id": "destroy-1" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Space" }
+  ]
+}

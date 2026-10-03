@@ -8,6 +8,10 @@ use std::collections::HashMap;
 pub enum Event {
     Click,
     Input,
+    /// Checkbox toggle (payload "true"/"false").
+    Change,
+    /// Key press (payload: `KeyboardEvent.key`), bubbling from the focused element.
+    Keydown,
 }
 
 /// Listener registrations: element → (event, listener key of the app).
@@ -140,6 +144,30 @@ impl Dom<'_> {
             .entry(node)
             .or_default()
             .push((event, handler));
+    }
+
+    /// Set the live checked state of a checkbox. Before layout has created the
+    /// control, the state is given by the presence of the `checked` attribute,
+    /// which Blitz uses to initialise it.
+    pub fn set_checked(&mut self, node: NodeId, on: bool) {
+        let live = self
+            .doc
+            .get_node(node)
+            .and_then(|n| n.element_data())
+            .and_then(|e| e.checkbox_input_checked());
+        match live {
+            Some(current) if current != on => {
+                self.doc
+                    .snapshot_node_and(node, style_dom::ElementState::CHECKED, |n| {
+                        if let Some(el) = n.element_data_mut() {
+                            el.set_checkbox_input_checked(on);
+                        }
+                        n.mark_ancestors_dirty();
+                    });
+            }
+            Some(_) => {}
+            None => self.set_bool_attr(node, "checked", on),
+        }
     }
 
     /// The live value of a text control, once its editor exists.

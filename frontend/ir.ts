@@ -157,7 +157,7 @@ export interface Global {
 
 export interface Handler {
   name?: string;
-  event: 'click' | 'input';
+  event: 'click' | 'input' | 'change' | 'keydown';
   /** Values passed by the listener; the local index space is params, then locals. */
   params?: Local[];
   locals?: Local[];
@@ -203,7 +203,7 @@ export type Node =
     };
 
 export interface Listener {
-  event: 'click' | 'input';
+  event: 'click' | 'input' | 'change' | 'keydown';
   handler: number;
   args?: Expr[];
 }

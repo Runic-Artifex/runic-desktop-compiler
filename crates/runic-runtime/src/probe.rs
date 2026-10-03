@@ -3,7 +3,8 @@
 //! real Blitz UI events, and prints a trace in the browser harness's snapshot
 //! format (`conformance/harness/browser.mjs`).
 
-use crate::events::Native;
+use crate::dom::Event;
+use crate::events::{Native, tree_order};
 use crate::{App, controls, shell};
 use anyrender::ImageRenderer;
 use blitz_dom::{BaseDocument, Document};
@@ -25,10 +26,13 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
     let tag = el.name.local.to_string();
     let mut out = Map::new();
     out.insert("tag".into(), json!(tag));
+    let checkbox = tag == "input" && el.checkbox_input_checked().is_some();
+    // The live checked state is reported as a property, as in the browser.
     let mut attrs: Vec<(String, String)> = el
         .attrs()
         .iter()
         .map(|a| (a.name.local.to_string(), a.value.to_string()))
+        .filter(|(k, _)| !(checkbox && k == "checked"))
         .collect();
     attrs.sort();
     if let Some((_, v)) = attrs.iter().find(|(k, _)| k == "id") {
@@ -48,7 +52,14 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
     if focused == Some(id) {
         out.insert("focused".into(), json!(true));
     }
-    if tag == "input" {
+    if checkbox {
+        let value = node.attr("value".into()).unwrap_or("on");
+        out.insert("value".into(), json!(value));
+        out.insert(
+            "checked".into(),
+            json!(el.checkbox_input_checked() == Some(true)),
+        );
+    } else if tag == "input" {
         let value = controls::value(doc, id)
             .or_else(|| node.attr("value".into()).map(str::to_owned))
             .unwrap_or_default();
@@ -226,7 +237,36 @@ fn utf16_to_byte(text: &str, units: usize) -> usize {
     text.len()
 }
 
+/// The n-th element (tree order, modulo their number) listening for the
+/// action's event; clicks also select checkboxes listening for `change`
+/// (the interpreter resolves `nth` targets the same way).
+fn nth<A: App>(native: &Native<A>, kind: &str, n: u64) -> Option<NodeId> {
+    let events: &[Event] = match kind {
+        "click" => &[Event::Click, Event::Change],
+        "input" => &[Event::Input],
+        "keydown" => &[Event::Keydown],
+        _ => &[],
+    };
+    let root = native.doc.get_element_by_id("root")?;
+    let order = tree_order(&native.doc);
+    let start = order.iter().position(|&x| x == root)?;
+    let all: Vec<NodeId> = order[start + 1..]
+        .iter()
+        .copied()
+        .filter(|&x| events.iter().any(|&e| native.listeners.get(x, e).is_some()))
+        .collect();
+    (!all.is_empty()).then(|| all[(n as usize) % all.len()])
+}
+
 fn perform<A: App>(native: &mut Native<A>, action: &Value) {
+    if let Some(n) = action["nth"].as_u64() {
+        let kind = action["kind"].as_str().unwrap_or_default();
+        let Some(target) = nth(native, kind, n) else {
+            native.log.push(format!("no {kind} target"));
+            return;
+        };
+        return perform_on(native, action, Some(target));
+    }
     let target = match action["id"].as_str() {
         Some(id) => match native.doc.get_element_by_id(id) {
             Some(n) => Some(n),
@@ -237,6 +277,10 @@ fn perform<A: App>(native: &mut Native<A>, action: &Value) {
         },
         None => None,
     };
+    perform_on(native, action, target);
+}
+
+fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<NodeId>) {
     match action["kind"].as_str().expect("action kind") {
         "click" => {
             let id = target.expect("click target");
@@ -262,6 +306,13 @@ fn perform<A: App>(native: &mut Native<A>, action: &Value) {
             }
         }
         "press" => press(native, action["key"].as_str().expect("key")),
+        "keydown" => {
+            // A key pressed on the target (differential tests): focus, then press.
+            if let Some(id) = target {
+                native.doc.set_focus_to(id);
+            }
+            press(native, action["key"].as_str().expect("key"));
+        }
         "focus" => {
             let id = target.expect("focus target");
             if native

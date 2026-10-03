@@ -1,8 +1,9 @@
 //! Event delivery with browser DOM semantics on top of Blitz's single event
 //! hook: click bubbling with disabled-control suppression, keyboard
-//! activation of buttons (Enter on key down, Space on key up), sequential Tab
-//! focus navigation, button focus on pointer activation, and controlled text
-//! inputs.
+//! activation of buttons (Enter on key down, Space on key up) and checkboxes
+//! (Space), keydown listeners that bubble from the focused element before any
+//! default action, sequential Tab focus navigation, button focus on pointer
+//! activation, and controlled text inputs and checkboxes.
 
 use crate::dom::{Dom, Event, Listeners};
 use crate::{App, controls};
@@ -72,6 +73,14 @@ fn tag(doc: &BaseDocument, id: NodeId) -> Option<&str> {
     Some(&doc.get_node(id)?.element_data()?.name.local)
 }
 
+fn is_checkbox(doc: &BaseDocument, id: NodeId) -> bool {
+    tag(doc, id) == Some("input")
+        && doc
+            .get_node(id)
+            .and_then(|n| n.attr("type".into()))
+            .is_some_and(|t| t.eq_ignore_ascii_case("checkbox"))
+}
+
 fn is_disabled_control(doc: &BaseDocument, id: NodeId) -> bool {
     matches!(tag(doc, id), Some("button" | "input"))
         && doc
@@ -107,7 +116,7 @@ fn is_focusable(doc: &BaseDocument, id: NodeId) -> bool {
 }
 
 /// All nodes in tree order.
-fn tree_order(doc: &BaseDocument) -> Vec<NodeId> {
+pub(crate) fn tree_order(doc: &BaseDocument) -> Vec<NodeId> {
     let mut out = vec![];
     let mut stack = vec![doc.root_node().id];
     while let Some(id) = stack.pop() {
@@ -168,6 +177,32 @@ impl<A: App> Handler<'_, A> {
         button
     }
 
+    /// Keyboard activation of a checkbox: click listeners, then the toggle and
+    /// its `change` event (pointer clicks toggle through Blitz's default action).
+    fn activate_checkbox(&mut self, doc: &mut BaseDocument, id: NodeId) {
+        let chain = chain_of(doc, id);
+        if chain.iter().any(|&n| is_disabled_control(doc, n)) {
+            return;
+        }
+        self.click(doc, &chain);
+        let Some(now) = doc
+            .get_node(id)
+            .and_then(|n| n.element_data())
+            .and_then(|e| e.checkbox_input_checked())
+            .map(|c| !c)
+        else {
+            return;
+        };
+        Dom {
+            doc,
+            listeners: self.listeners,
+        }
+        .set_checked(id, now);
+        if let Some(h) = self.listeners.get(id, Event::Change) {
+            self.dispatch(doc, h, Some(if now { "true" } else { "false" }));
+        }
+    }
+
     /// A focused element that became disabled loses focus (browser focus
     /// fixup); it stays the sequential navigation starting point.
     fn fix_focus(&mut self, doc: &mut BaseDocument) {
@@ -190,6 +225,17 @@ impl<A: App> EventHandler for Handler<'_, A> {
     ) {
         let mut guard = document.inner_mut();
         let doc: &mut BaseDocument = &mut guard;
+        // Keydown listeners (target first, bubbling) run before default actions.
+        if let DomEventData::KeyDown(k) = &event.data {
+            let key = k.key.to_string();
+            let handlers: Vec<u32> = chain
+                .iter()
+                .filter_map(|&n| self.listeners.get(n, Event::Keydown))
+                .collect();
+            for h in handlers {
+                self.dispatch(doc, h, Some(&key));
+            }
+        }
         if controls::blocks_edit(doc, &event.data) || controls::exceeds_maxlength(doc, &event.data)
         {
             state.prevent_default();
@@ -197,6 +243,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
         }
         let focused = focused_element(doc);
         let focused_button = focused.filter(|&f| tag(doc, f) == Some("button"));
+        let focused_checkbox = focused.filter(|&f| is_checkbox(doc, f));
         match &event.data {
             DomEventData::MouseDown(_) => {
                 // Focus moves on mousedown: to the clicked button, nowhere for
@@ -208,6 +255,11 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     .copied()
                     .find(|&n| matches!(tag(doc, n), Some("button" | "input")));
                 match control {
+                    // Checkboxes are focused like buttons; text inputs keep
+                    // Blitz's default (focus and caret placement).
+                    Some(c) if is_checkbox(doc, c) && !is_disabled_control(doc, c) => {
+                        doc.set_focus_to(c);
+                    }
                     Some(c) if tag(doc, c) == Some("input") && !is_disabled_control(doc, c) => {}
                     Some(c) if !is_disabled_control(doc, c) => {
                         doc.set_focus_to(c);
@@ -216,11 +268,23 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 }
             }
             DomEventData::Input(input) => {
+                // Blitz reports checkbox toggles as input events with "true"/"false".
                 let target = chain.first().copied();
-                if let Some(h) = target.and_then(|t| self.listeners.get(t, Event::Input)) {
+                let kind = match target {
+                    Some(t) if is_checkbox(doc, t) => Event::Change,
+                    _ => Event::Input,
+                };
+                if let Some(h) = target.and_then(|t| self.listeners.get(t, kind)) {
                     let value = input.value.clone();
                     self.dispatch(doc, h, Some(&value));
                 }
+            }
+            DomEventData::Click(_) if chain.first().is_some_and(|&t| is_checkbox(doc, t)) => {
+                // Checkbox activation is handled here rather than by Blitz's
+                // default action, which would touch the checkbox after a
+                // `change` handler may have removed it.
+                state.prevent_default();
+                self.activate_checkbox(doc, chain[0]);
             }
             DomEventData::Click(_) => {
                 if self.click(doc, chain).is_some() {
@@ -253,22 +317,31 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 self.click(doc, &chain);
             }
             DomEventData::KeyDown(k)
-                if focused_button.is_some() && k.key == Key::Character(" ".into()) =>
+                if focused_button.or(focused_checkbox).is_some()
+                    && k.key == Key::Character(" ".into()) =>
             {
                 state.prevent_default();
                 if !k.is_auto_repeating {
-                    *self.space_target = focused_button;
+                    *self.space_target = focused_button.or(focused_checkbox);
                 }
             }
             DomEventData::KeyUp(k)
-                if focused_button.is_some() && k.key == Key::Character(" ".into()) =>
+                if focused_button.or(focused_checkbox).is_some()
+                    && k.key == Key::Character(" ".into()) =>
             {
                 state.prevent_default();
-                if self.space_target.take() == focused_button {
-                    let chain = chain_of(doc, focused_button.unwrap());
-                    self.click(doc, &chain);
+                let target = focused_button.or(focused_checkbox);
+                if self.space_target.take() == target {
+                    let target = target.unwrap();
+                    if is_checkbox(doc, target) {
+                        self.activate_checkbox(doc, target);
+                    } else {
+                        let chain = chain_of(doc, target);
+                        self.click(doc, &chain);
+                    }
                 }
             }
+            DomEventData::KeyDown(_) => {}
             _ => return,
         }
         self.fix_focus(doc);

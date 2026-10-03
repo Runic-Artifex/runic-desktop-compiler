@@ -2390,6 +2390,7 @@ dependencies = [
  "png",
  "runic-js",
  "serde_json",
+ "stylo_dom",
  "winit",
 ]
 

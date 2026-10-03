@@ -396,6 +396,21 @@ pub enum EventKind {
     Click,
     /// Text control value change; the handler receives the new value as payload.
     Input,
+    /// Checkbox toggle; the handler receives the new checked state as payload.
+    Change,
+    /// Key press on the focused element (bubbles); the payload is `event.key`.
+    Keydown,
+}
+
+impl EventKind {
+    /// The type of the `payload` expression in handlers of this event.
+    pub fn payload(self) -> Option<Type> {
+        match self {
+            EventKind::Click => None,
+            EventKind::Input | EventKind::Keydown => Some(Type::String),
+            EventKind::Change => Some(Type::Boolean),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

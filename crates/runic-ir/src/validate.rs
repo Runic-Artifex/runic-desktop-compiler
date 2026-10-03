@@ -35,7 +35,8 @@ struct Scope<'a> {
     /// Cells readable here (initialisers see only earlier cells).
     visible: usize,
     locals: Vec<Local>,
-    payload: bool,
+    /// The event payload type in handlers.
+    payload: Option<Type>,
     result: Option<Type>,
     labels: Vec<Option<String>>,
     count: usize,
@@ -52,7 +53,7 @@ impl<'a> Scope<'a> {
             component,
             visible: component.map_or(0, |c| program.components[c].cells.len()),
             locals: vec![],
-            payload: false,
+            payload: None,
             result: None,
             labels: vec![],
             count: 0,
@@ -169,10 +170,14 @@ impl<'a> Scope<'a> {
             }
             Local { local } => self.local(*local, src)?.ty.clone(),
             Payload => {
-                if !self.payload {
-                    return err("E_IR", "Event payload outside an input handler", src);
-                }
-                Type::String
+                let Some(t) = self.payload.clone() else {
+                    return err(
+                        "E_IR",
+                        "Event payload outside a handler with a payload",
+                        src,
+                    );
+                };
+                t
             }
             Not { arg } => {
                 self.expect(arg, Type::Boolean, d, src)?;
@@ -705,7 +710,7 @@ pub fn infer_in(
     program: &Program,
     component: Option<usize>,
     locals: &[Local],
-    payload: bool,
+    payload: Option<Type>,
     e: &Expr,
 ) -> Type {
     let mut s = Scope::new(program, component);
@@ -990,7 +995,7 @@ fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
         }
         let mut s = Scope::new(p, Some(ci));
         s.locals = h.params.iter().chain(&h.locals).cloned().collect();
-        s.payload = h.event == EventKind::Input;
+        s.payload = h.event.payload();
         s.result = Some(Type::Void);
         for l in &s.locals {
             s.check_type(&l.ty, src)?;
@@ -1254,17 +1259,35 @@ impl<'p> NodeCx<'_, 'p> {
                         }
                     }
                 }
+                // Checkboxes have a live `checked` property and `change`
+                // events; other inputs a live `value` and `input` events.
+                let checkbox = tag == "input"
+                    && attrs.iter().any(|a| {
+                        a.name == "type"
+                            && matches!(&a.value, Expr::Lit { value: Value::String(t) } if t == "checkbox")
+                    });
                 for prop in props {
-                    if prop.name != "value" || tag != "input" {
+                    let want = match (prop.name.as_str(), tag, checkbox) {
+                        ("value", "input", false) => Type::String,
+                        ("checked", "input", true) => Type::Boolean,
+                        _ => {
+                            return err(
+                                "E_IR",
+                                "Live properties are value (text inputs) and checked (checkboxes)",
+                                src,
+                            );
+                        }
+                    };
+                    if s.infer(&prop.value, 0, src)? != want {
                         return err(
                             "E_IR",
-                            "Only the live value property of inputs is supported",
+                            format!("The {} property must be {}", prop.name, want.name()),
                             src,
                         );
                     }
-                    if s.infer(&prop.value, 0, src)? != Type::String {
-                        return err("E_IR", "The value property must be a string", src);
-                    }
+                }
+                if checkbox && !props.iter().any(|p| p.name == "checked") {
+                    return err("E_IR", "Checkboxes need a live checked property", src);
                 }
                 let mut kinds = HashSet::new();
                 for l in listeners {
@@ -1278,8 +1301,11 @@ impl<'p> NodeCx<'_, 'p> {
                             src,
                         );
                     }
-                    if l.event == EventKind::Input && tag != "input" {
-                        return err("E_IR", "Input listeners require an input element", src);
+                    if l.event == EventKind::Input && (tag != "input" || checkbox) {
+                        return err("E_IR", "Input listeners require a text input", src);
+                    }
+                    if l.event == EventKind::Change && !checkbox {
+                        return err("E_IR", "Change listeners require a checkbox", src);
                     }
                     if l.args.len() != h.params.len() {
                         return err(

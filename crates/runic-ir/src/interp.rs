@@ -278,6 +278,8 @@ pub enum VNode {
         tag: String,
         attrs: BTreeMap<String, String>,
         value: Option<String>,
+        /// Live checked state of checkboxes.
+        checked: Option<bool>,
         listeners: Vec<(EventKind, usize)>,
         children: Vec<VNode>,
     },
@@ -292,12 +294,16 @@ impl VNode {
                 tag,
                 attrs,
                 value,
+                checked,
                 children,
                 ..
             } => {
                 let mut o = Map::new();
                 o.insert("tag".into(), json!(tag));
                 o.insert("attrs".into(), json!(attrs));
+                if let Some(c) = checked {
+                    o.insert("checked".into(), json!(c));
+                }
                 if let Some(v) = value {
                     o.insert("value".into(), json!(v));
                 }
@@ -379,7 +385,7 @@ pub struct Machine<'p> {
     via: Vec<usize>,
     /// The instance whose cells expressions read and write.
     current: usize,
-    payload: Option<JsString>,
+    payload: Option<Val>,
     children: HashMap<InstKey, usize>,
     /// Listeners of the last render, indexed by `VNode` listener ids.
     listeners: Vec<ListenerRef>,
@@ -483,7 +489,7 @@ impl<'p> Machine<'p> {
             } => self.inst().snapshot[*cell].clone(),
             Global { global } => self.globals[*global].clone(),
             Local { local } => f.get(*local),
-            Payload => Val::Str(self.payload.clone().expect("payload context")),
+            Payload => self.payload.clone().expect("payload context"),
             Not { arg } => Val::Bool(!self.eval(arg, f)?.boolean()),
             Neg { arg } => Val::Num(-self.eval(arg, f)?.num()),
             BitNot { arg } => Val::Num(js::bit_not(self.eval(arg, f)?.num())),
@@ -1547,9 +1553,16 @@ impl<'p> Machine<'p> {
                     }
                 }
                 let mut value = None;
+                let mut checked = None;
                 for p in props {
-                    if p.name == "value" {
-                        value = Some(self.eval(&p.value, frame)?.string().to_rust());
+                    match p.name.as_str() {
+                        "value" => value = Some(self.eval(&p.value, frame)?.string().to_rust()),
+                        "checked" => {
+                            checked = Some(self.eval(&p.value, frame)?.boolean());
+                            // A checkbox's value property defaults to "on".
+                            value = Some(map.get("value").cloned().unwrap_or_else(|| "on".into()));
+                        }
+                        _ => {}
                     }
                 }
                 let mut refs = vec![];
@@ -1574,6 +1587,7 @@ impl<'p> Machine<'p> {
                     tag: tag.clone(),
                     attrs: map,
                     value,
+                    checked,
                     listeners: refs,
                     children: normalize(kids),
                 });
@@ -1616,7 +1630,7 @@ impl<'p> Machine<'p> {
         instance: usize,
         h: usize,
         args: Vec<Val>,
-        payload: Option<&str>,
+        payload: Option<Val>,
     ) -> Result<()> {
         let component = self.instances[instance].component;
         let handler = &self.program.components[component].handlers[h];
@@ -1624,7 +1638,7 @@ impl<'p> Machine<'p> {
         for i in &mut self.instances {
             i.snapshot = i.cells.clone();
         }
-        self.payload = payload.map(JsString::from);
+        self.payload = payload;
         let frame = Frame::new(handler.params.len() + handler.locals.len());
         for (i, a) in args.into_iter().enumerate() {
             frame.set(i, a);
@@ -1658,44 +1672,207 @@ impl<'p> Machine<'p> {
         }
     }
 
-    /// Fire `event` at the element with `id` (the first in tree order).
-    /// Returns `Ok(false)` when the DOM rules or a missing listener mean no
-    /// handler runs.
-    pub fn fire(&mut self, id: &str, event: EventKind, payload: Option<&str>) -> Result<bool> {
+    /// Fire `event` at `target` with the DOM rules of the native runtime:
+    /// clicks and key presses bubble from the target through its ancestors
+    /// (listeners are taken from the tree before the first handler runs);
+    /// nothing is dispatched inside disabled controls; a checkbox click then
+    /// sends `change` with the new state; Enter on a button and Space on a
+    /// button or checkbox activate it after the keydown listeners.
+    /// Returns `Ok(false)` when no handler runs.
+    pub fn fire(
+        &mut self,
+        target: Target<'_>,
+        event: EventKind,
+        data: Option<&str>,
+    ) -> Result<bool> {
         let tree = self.render()?;
-        let Some(VNode::Element {
-            attrs, listeners, ..
-        }) = find(&tree, id)
-        else {
-            return Err(Diagnostic::new(
-                "E_TARGET",
-                format!("No element #{id} is rendered"),
-                None,
-            ));
+        let Some(path) = locate(&tree, &target) else {
+            return match target {
+                Target::Id(id) => Err(Diagnostic::new(
+                    "E_TARGET",
+                    format!("No element #{id} is rendered"),
+                    None,
+                )),
+                Target::Nth(..) | Target::Path(_) => Ok(false),
+            };
         };
-        if attrs.contains_key("disabled")
-            || (event == EventKind::Input && attrs.contains_key("readonly"))
-        {
+        let nodes = path_nodes(&tree, &path);
+        let target_node = *nodes.last().expect("element path");
+        let VNode::Element {
+            tag,
+            attrs,
+            checked,
+            ..
+        } = target_node
+        else {
+            unreachable!("paths end at elements")
+        };
+        let control = |n: &VNode| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input") && attrs.contains_key("disabled"));
+        let blocked = match event {
+            EventKind::Click => nodes.iter().any(|n| control(n)),
+            EventKind::Input => attrs.contains_key("disabled") || attrs.contains_key("readonly"),
+            EventKind::Change | EventKind::Keydown => attrs.contains_key("disabled"),
+        };
+        if blocked {
             return Ok(false);
         }
-        let Some(&(_, l)) = listeners.iter().find(|(k, _)| *k == event) else {
-            return Ok(false);
+        let listeners_of = |n: &VNode, kind: EventKind| -> Option<usize> {
+            match n {
+                VNode::Element { listeners, .. } => {
+                    listeners.iter().find(|(k, _)| *k == kind).map(|(_, l)| *l)
+                }
+                VNode::Text(_) => None,
+            }
         };
-        let ListenerRef {
-            instance,
-            handler,
-            args,
-        } = std::mem::replace(
-            &mut self.listeners[l],
-            ListenerRef {
-                instance: 0,
-                handler: 0,
-                args: vec![],
-            },
-        );
-        self.run(instance, handler, args, payload)?;
-        Ok(true)
+        // (listener, payload) in dispatch order.
+        let mut queue: Vec<(usize, Option<Val>)> = vec![];
+        match event {
+            EventKind::Click => {
+                for n in nodes.iter().rev() {
+                    if let Some(l) = listeners_of(n, EventKind::Click) {
+                        queue.push((l, None));
+                    }
+                }
+                if let Some(c) = checked {
+                    if let Some(l) = listeners_of(target_node, EventKind::Change) {
+                        queue.push((l, Some(Val::Bool(!c))));
+                    }
+                }
+            }
+            EventKind::Input | EventKind::Change => {
+                if let Some(l) = listeners_of(target_node, event) {
+                    let payload = match event {
+                        EventKind::Input => Val::Str(JsString::from(data.unwrap_or_default())),
+                        _ => Val::Bool(data == Some("true")),
+                    };
+                    queue.push((l, Some(payload)));
+                }
+            }
+            EventKind::Keydown => {
+                for n in nodes.iter().rev() {
+                    if let Some(l) = listeners_of(n, EventKind::Keydown) {
+                        queue.push((l, Some(Val::Str(JsString::from(data.unwrap_or_default())))));
+                    }
+                }
+            }
+        }
+        let activate = event == EventKind::Keydown
+            && match (tag.as_str(), data) {
+                ("button", Some("Enter" | " ")) => true,
+                ("input", Some(" ")) => checked.is_some(),
+                _ => false,
+            };
+        let id = attrs.get("id").cloned();
+        let ran = !queue.is_empty();
+        let refs: Vec<(ListenerRef, Option<Val>)> = queue
+            .into_iter()
+            .map(|(l, p)| {
+                let r = std::mem::replace(
+                    &mut self.listeners[l],
+                    ListenerRef {
+                        instance: 0,
+                        handler: 0,
+                        args: vec![],
+                    },
+                );
+                (r, p)
+            })
+            .collect();
+        for (r, payload) in refs {
+            self.run(r.instance, r.handler, r.args, payload)?;
+        }
+        if activate {
+            // The activated element is found again after the keydown handlers.
+            let again = match &id {
+                Some(id) => Target::Id(id),
+                None => Target::Path(&path),
+            };
+            if locate(&self.render()?, &again).is_some() {
+                return Ok(self.fire(again, EventKind::Click, None)? || ran);
+            }
+        }
+        Ok(ran)
     }
+}
+
+/// An event target: an element id (the first in tree order), the n-th
+/// element (in tree order, modulo their number) listening for an event kind
+/// (clicks also select checkboxes listening for `change`), or a child-index path.
+#[derive(Clone, Copy, Debug)]
+pub enum Target<'a> {
+    Id(&'a str),
+    Nth(EventKind, usize),
+    Path(&'a [usize]),
+}
+
+/// Child-index path of the target element.
+fn locate(tree: &[VNode], target: &Target<'_>) -> Option<Vec<usize>> {
+    fn walk(
+        nodes: &[VNode],
+        path: &mut Vec<usize>,
+        visit: &mut dyn FnMut(&VNode, &[usize]) -> bool,
+    ) -> bool {
+        for (i, n) in nodes.iter().enumerate() {
+            path.push(i);
+            if let VNode::Element { children, .. } = n {
+                if visit(n, path) || walk(children, path, visit) {
+                    return true;
+                }
+            }
+            path.pop();
+        }
+        false
+    }
+    let mut path = vec![];
+    match target {
+        Target::Path(p) => {
+            let nodes = path_nodes_checked(tree, p)?;
+            matches!(nodes.last(), Some(VNode::Element { .. })).then(|| p.to_vec())
+        }
+        Target::Id(id) => walk(tree, &mut path, &mut |n, _| {
+            matches!(n, VNode::Element { attrs, .. } if attrs.get("id").map(String::as_str) == Some(*id))
+        })
+        .then_some(path),
+        Target::Nth(kind, k) => {
+            let listens = |n: &VNode| match n {
+                VNode::Element { listeners, .. } => listeners.iter().any(|(e, _)| {
+                    *e == *kind || (*kind == EventKind::Click && *e == EventKind::Change)
+                }),
+                VNode::Text(_) => false,
+            };
+            let mut all = vec![];
+            walk(tree, &mut path, &mut |n, p| {
+                if listens(n) {
+                    all.push(p.to_vec());
+                }
+                false
+            });
+            if all.is_empty() {
+                None
+            } else {
+                let i = k % all.len();
+                Some(all.swap_remove(i))
+            }
+        }
+    }
+}
+
+fn path_nodes_checked<'t>(tree: &'t [VNode], path: &[usize]) -> Option<Vec<&'t VNode>> {
+    let mut out = vec![];
+    let mut level = tree;
+    for &i in path {
+        let n = level.get(i)?;
+        out.push(n);
+        level = match n {
+            VNode::Element { children, .. } => children,
+            VNode::Text(_) => &[],
+        };
+    }
+    Some(out)
+}
+
+fn path_nodes<'t>(tree: &'t [VNode], path: &[usize]) -> Vec<&'t VNode> {
+    path_nodes_checked(tree, path).expect("valid path")
 }
 
 /// JSON view of a cell value (non-finite numbers as strings), matching the

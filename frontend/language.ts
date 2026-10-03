@@ -42,6 +42,8 @@ export interface Hooks {
 }
 
 /** Builds one IR function (or handler body) and its local index space. */
+export type HandlerEvent = 'click' | 'input' | 'change' | 'keydown';
+
 export class FnBuilder {
   readonly captures: Local[] = [];
   readonly params: Local[] = [];
@@ -58,20 +60,21 @@ export class FnBuilder {
   readonly component: number | undefined;
   /** Symbols captured and mutated somewhere: their locals are boxed. */
   readonly boxed: Set<ts.Symbol>;
-  readonly eventPayload: boolean;
+  /** The event of a handler builder (its payload: input value, checked state, key). */
+  readonly event: HandlerEvent | undefined;
 
   constructor(
     name: string,
     parent: FnBuilder | undefined,
     component: number | undefined,
     boxed: Set<ts.Symbol>,
-    eventPayload: boolean,
+    event: boolean | HandlerEvent,
   ) {
     this.name = name;
     this.parent = parent;
     this.component = component;
     this.boxed = boxed;
-    this.eventPayload = eventPayload;
+    this.event = event === true ? 'input' : event === false ? undefined : event;
   }
 
   // Provisional local indices: params and locals count from 0; captures,
@@ -365,7 +368,8 @@ export class Lowerer {
   handler(
     decl: ts.FunctionLikeDeclaration,
     component: number,
-    input: boolean,
+    /** The handler's event (`true` means input, `false` click). */
+    input: boolean | HandlerEvent,
     parent?: FnBuilder,
   ): { params?: Local[]; locals: Local[]; body: Stmt[]; args?: Expr[] } {
     const boxed = this.analyseCaptures(decl);
@@ -379,6 +383,28 @@ export class Lowerer {
     if (decl.parameters.length > 1)
       this.fail(decl.parameters[1], 'E_EVENT', 'Event handlers take at most one parameter');
     const body = this.functionBody(decl, b);
+    if (!b.captures.length) return { locals: b.locals, body };
+    return {
+      params: b.captures,
+      locals: b.locals,
+      body: remapLocals(body, i => b.final(i)),
+      args: b.captureSources.map(c => ({ op: 'local', local: c.local }) as Expr),
+    };
+  }
+
+  /**
+   * The handler of a two-way binding (`bind:value`, `v-model`): assigns the
+   * event payload to `target`. Inside a template scope, captured list items
+   * become handler params passed by the listener as `args`.
+   */
+  bindHandler(
+    target: ts.Expression,
+    component: number,
+    event: HandlerEvent,
+    parent: FnBuilder,
+  ): { params?: Local[]; locals: Local[]; body: Stmt[]; args?: Expr[] } {
+    const b = new FnBuilder('bind', parent, component, new Set(), event);
+    const body = this.writeTo(target, { op: 'payload' }, b);
     if (!b.captures.length) return { locals: b.locals, body };
     return {
       params: b.captures,
@@ -910,6 +936,15 @@ export class Lowerer {
         target,
       );
     else return this.fail(target, 'E_ASSIGN', 'Unsupported assignment operator');
+    return this.writeTo(target, value, b);
+  }
+
+  /** Statements assigning `value` to an assignable expression (variable, state, field, element). */
+  writeTo(target: ts.Expression, value: Expr, b: FnBuilder): Stmt[] {
+    // T is widened into a nullable target (Maybe<T>).
+    const want = this.targetType(target, b);
+    const have = this.irType(value, b);
+    if (maybeInner(want) && !maybeInner(have) && have !== 'void') value = { op: 'some', value };
     if (ts.isIdentifier(target)) {
       const binding = this.binding(target);
       if (binding?.kind === 'local')
@@ -1447,8 +1482,11 @@ export class Lowerer {
     const global = this.globalName(e.expression);
     if (global === 'Math' || global === 'Number')
       return { op: 'builtin', name: `${global}.${name}`, args: [], type: NUMBER };
+    const EVENTS =
+      'Event objects are supported as e.target.value (input), e.target.checked (change) and e.key (keydown), also through currentTarget';
     if (ts.isIdentifier(e.expression) && this.binding(e.expression)?.kind === 'event') {
-      return this.fail(e, 'E_EVENT', 'Use e.target.value or e.currentTarget.value');
+      if (name === 'key' && b.event === 'keydown') return { op: 'payload' };
+      return this.fail(e, 'E_EVENT', EVENTS);
     }
     if (
       ts.isPropertyAccessExpression(e.expression) &&
@@ -1457,15 +1495,10 @@ export class Lowerer {
     ) {
       if (
         ['target', 'currentTarget'].includes(e.expression.name.text) &&
-        name === 'value' &&
-        b.eventPayload
+        ((name === 'value' && b.event === 'input') || (name === 'checked' && b.event === 'change'))
       )
         return { op: 'payload' };
-      return this.fail(
-        e,
-        'E_EVENT',
-        'Event objects are supported only as e.target.value / e.currentTarget.value in input handlers',
-      );
+      return this.fail(e, 'E_EVENT', EVENTS);
     }
     const object = this.expr(e.expression, b);
     const t = this.irType(object, b);
@@ -1915,7 +1948,8 @@ export function skipParens(e: ts.Expression): ts.Expression {
 }
 
 /** Rewrite provisional local indices in a function body (not nested functions). */
-function remapLocals<T>(node: T, map: (i: number) => number): T {
+/** Renumber the local indices in an IR fragment. */
+export function remapLocals<T>(node: T, map: (i: number) => number): T {
   const visit = (n: unknown): unknown => {
     if (Array.isArray(n)) return n.map(visit);
     if (!n || typeof n !== 'object') return n;
