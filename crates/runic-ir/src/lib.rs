@@ -1315,6 +1315,13 @@ pub enum Node {
         /// (a string, absent meaning empty) is composed as docs/IR.md describes.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         classes: Vec<Attr>,
+        /// A style value (`maybe<string>`) and style properties (values
+        /// `maybe<string>`, absent removing): the inline style is managed as
+        /// docs/IR.md describes, through the CSSOM. Then `attrs` has no `style`.
+        #[serde(rename = "styleText", default, skip_serializing_if = "Option::is_none")]
+        style_text: Option<Expr>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        styles: Vec<Attr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         children: Vec<Node>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

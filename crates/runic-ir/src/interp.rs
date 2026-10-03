@@ -597,6 +597,8 @@ pub struct Machine<'p> {
     /// Class toggle state by element id: the class value, the toggles and
     /// the attribute they produced.
     class_states: HashMap<u64, (JsString, Vec<bool>, Option<JsString>)>,
+    /// Managed inline style state by element id, with the attribute it produced.
+    style_states: HashMap<u64, (runic_css::StyleState, Option<String>)>,
     /// The document element as scripts changed it.
     root: runic_css::Root,
     /// What media queries see (the probe's default viewport and preferences).
@@ -731,6 +733,7 @@ impl<'p> Machine<'p> {
             live_checked: HashMap::new(),
             control_cache: HashMap::new(),
             class_states: HashMap::new(),
+            style_states: HashMap::new(),
             host_listeners: vec![],
             root: runic_css::Root::with_attrs(
                 program
@@ -2331,6 +2334,8 @@ impl<'p> Machine<'p> {
                 reference,
                 spread,
                 classes,
+                style_text,
+                styles,
                 ..
             } => {
                 let key = (
@@ -2411,6 +2416,34 @@ impl<'p> Machine<'p> {
                         }
                     }
                     self.class_states.insert(id, (value, toggles, current));
+                }
+                if style_text.is_some() || !styles.is_empty() {
+                    let text = |v: Val| match v {
+                        Val::Str(s) => Some(s.to_rust()),
+                        _ => None,
+                    };
+                    let value = match style_text {
+                        Some(e) => text(self.eval(e, frame)?),
+                        None => Some(String::new()),
+                    };
+                    let mut properties = vec![];
+                    for p in styles {
+                        properties.push((p.name.as_str(), text(self.eval(&p.value, frame)?)));
+                    }
+                    let (mut state, current) = self.style_states.remove(&id).unwrap_or_default();
+                    let current = match state.apply(current.as_deref(), value, &properties) {
+                        Ok(next) => next,
+                        Err(()) => current,
+                    };
+                    match &current {
+                        Some(c) => {
+                            map.insert("style".into(), c.clone());
+                        }
+                        None => {
+                            map.remove("style");
+                        }
+                    }
+                    self.style_states.insert(id, (state, current));
                 }
                 let mut refs = vec![];
                 if let Some(bag) = spread {

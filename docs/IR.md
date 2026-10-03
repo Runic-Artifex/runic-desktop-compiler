@@ -170,6 +170,8 @@ Node =
 - **Lists:** blocks are matched by `key` (SameValueZero; duplicates throw `RunicKeyError`) or by index. Reused blocks keep their nodes, instances and state; `reorder` names the framework's keyed diff, which decides which blocks move (a moved focused element is blurred, as in Chromium).
 - **Slots:** a component node's slot definitions run in the parent instance with `params` bound to the child's slot arguments; a child without content for a slot renders its `fallback`.
 - **Spread:** an element's `spread` (an attribute bag) applies after its `attrs`, whose names it never holds (the frontend guarantees this from every call site). Its attributes are set or removed, and its `on<event>` entries are listeners of the element, re-registered when the bag changes. A component's rest props are a prop cell of type `attrs` with `prop: "..."`; the call site passes the bag as the prop `...`.
+- **Class toggles** (`classes`): when the `class` value changes, the attribute is the value with names switched on appended and names switched off removed where they stand as words (Svelte's `to_class`); otherwise each changed toggle applies `classList.toggle`.
+- **Managed inline style** (`styleText`, `styles`): when the style value changes, the value's declarations not given as properties, then the properties, are set through `cssText` (Svelte's `to_style`); otherwise changed properties are set or removed (`setProperty`/`removeProperty`). Serialisation is the CSSOM's (`runic-css`, Stylo).
 - **Refs** hold the element while it is mounted and `null` after removal; `element.focus`/`element.blur` apply in order when the running callback returns (the DOM does not change while it runs).
 
 ## Validation limits

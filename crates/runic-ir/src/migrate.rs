@@ -256,6 +256,8 @@ fn node(v: &Json, handlers: &[Json]) -> Result<Node> {
                 reference: None,
                 spread: None,
                 classes: vec![],
+                style_text: None,
+                styles: vec![],
                 children: children(v)?,
                 source: source(v),
             })

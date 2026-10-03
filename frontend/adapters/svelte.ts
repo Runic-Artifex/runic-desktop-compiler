@@ -437,6 +437,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           a.type === 'ClassDirective'
         )
           expr(a.expression);
+        else if (a.type === 'StyleDirective' && a.value !== true)
+          for (const v of Array.isArray(a.value) ? a.value : [a.value])
+            if (v.type === 'ExpressionTag') expr(v.expression);
     };
     const fragment = (f: SNode) => {
       for (const n of f?.nodes ?? []) {
@@ -1343,6 +1346,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             a.value[0].data === 'checkbox',
         );
       let bound: { event: HandlerEvent; handler: ReturnType<Lowerer['bindHandler']> } | undefined;
+      const styles: { name: string; value: Expr }[] = [];
       const classes: { name: string; value: Expr }[] = [];
       let spread: { at: number; value: Expr } | undefined;
       let reference: number | undefined;
@@ -1474,6 +1478,40 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           props.push({ name: a.name, value: read });
           const event: HandlerEvent = kind === 'string' ? 'input' : 'change';
           bound = { event, handler: lower.bindHandler(target, COMPONENT, event, tb) };
+        } else if (a.type === 'StyleDirective') {
+          if (a.modifiers?.length)
+            fail(
+              'E_TEMPLATE',
+              'Important style directives are planned for a later milestone',
+              loc(a),
+            );
+          if (a.value === true)
+            fail(
+              'E_TEMPLATE',
+              `Write style:${a.name}={${a.name}} (the shorthand is planned for later)`,
+              loc(a),
+            );
+          let v: Expr;
+          const parts = Array.isArray(a.value) ? a.value : [a.value];
+          if (parts.length === 1 && parts[0].type === 'ExpressionTag') {
+            const e = exprNode(parts[0].expression);
+            v = value(e);
+            const t = typeOf(e, v);
+            const text =
+              t === 'string' || (typeof t === 'object' && 'maybe' in t && t.maybe === 'string');
+            if (!text) v = { op: 'to-string', arg: v };
+          } else {
+            let joined: Expr | undefined;
+            for (const part of parts) {
+              const x: Expr =
+                part.type === 'Text'
+                  ? { op: 'lit', value: part.data }
+                  : display(exprNode(part.expression));
+              joined = joined ? { op: 'concat', left: joined, right: x } : x;
+            }
+            v = joined ?? { op: 'lit', value: '' };
+          }
+          styles.push({ name: a.name, value: v });
         } else if (a.type === 'ClassDirective') {
           const e = exprNode(a.expression);
           const v = value(e);
@@ -1485,6 +1523,18 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           if (spread) fail('E_TEMPLATE', 'One spread per element is supported', loc(a));
           spread = { at: n.attributes.indexOf(a), value: value(exprNode(a.expression)) };
         } else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
+      }
+      // A dynamic style, or any style with style: directives, is managed
+      // through the CSSOM as Svelte's set_style does; a static one stays a
+      // literal attribute.
+      let styleText: Expr | undefined;
+      {
+        const i = attrs.findIndex(a => a.name === 'style');
+        const dynamic = i >= 0 && attrs[i].value.op !== 'lit';
+        if (styles.length || dynamic) {
+          styleText = i >= 0 ? attrs[i].value : { op: 'lit', value: '' };
+          if (i >= 0) attrs.splice(i, 1);
+        }
       }
       // With class toggles the class value is a string (absent: empty), as
       // Svelte passes it to set_class.
@@ -1552,6 +1602,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ...(reference !== undefined ? { ref: reference } : {}),
         ...(bag ? { spread: bag } : {}),
         ...(classes.length ? { classes } : {}),
+        ...(styleText ? { styleText } : {}),
+        ...(styles.length ? { styles } : {}),
         ...(n.fragment.nodes.length ? { children: children(n.fragment) } : {}),
         source: loc(n),
       };

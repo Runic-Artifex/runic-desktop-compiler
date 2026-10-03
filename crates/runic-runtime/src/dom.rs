@@ -408,6 +408,25 @@ impl Dom<'_> {
         }
     }
 
+    /// Manage the inline style from a style value and properties (Svelte's
+    /// `set_style`, through the CSSOM).
+    pub fn styles(
+        &mut self,
+        node: NodeId,
+        value: Option<String>,
+        properties: &[(&str, Option<String>)],
+        state: &mut runic_css::StyleState,
+    ) {
+        let current = self
+            .doc
+            .get_node(node)
+            .and_then(|n| n.attr("style".into()))
+            .map(str::to_owned);
+        if let Ok(next) = state.apply(current.as_deref(), value, properties) {
+            self.set_opt_attr(node, "style", next.as_deref());
+        }
+    }
+
     /// Remove one listener registration; its key is released like those of
     /// removed elements.
     pub fn unlisten(&mut self, node: NodeId, key: u32) {

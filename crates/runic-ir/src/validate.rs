@@ -1365,8 +1365,29 @@ impl<'p> NodeCx<'_, 'p> {
                 reference,
                 spread,
                 classes,
+                style_text,
+                styles,
                 ..
             } => {
+                let text = |t: &Type| *t == Type::String || *t == Type::maybe(Type::String);
+                for e in style_text.iter().chain(styles.iter().map(|a| &a.value)) {
+                    if !text(&s.infer(e, 0, src)?) {
+                        return err(
+                            "E_IR",
+                            "Style values must be strings or nullable strings",
+                            src,
+                        );
+                    }
+                }
+                if (style_text.is_some() || !styles.is_empty())
+                    && attrs.iter().any(|a| a.name == "style")
+                {
+                    return err(
+                        "E_IR",
+                        "A managed inline style excludes a style attribute",
+                        src,
+                    );
+                }
                 for t in classes {
                     if s.infer(&t.value, 0, src)? != Type::Boolean {
                         return err(
@@ -1970,10 +1991,20 @@ fn visit_template(
                 children,
                 spread,
                 classes,
+                style_text,
+                styles,
                 ..
             } => {
-                exprs.extend(attrs.iter().chain(props).chain(classes).map(|a| &a.value));
+                exprs.extend(
+                    attrs
+                        .iter()
+                        .chain(props)
+                        .chain(classes)
+                        .chain(styles)
+                        .map(|a| &a.value),
+                );
                 exprs.extend(spread);
+                exprs.extend(style_text);
                 visit_template(p, k, children, src, f);
             }
             Node::Text { parts, .. } => exprs.extend(parts),

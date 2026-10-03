@@ -243,6 +243,9 @@ export type Node =
       spread?: Expr;
       /** Class toggles composed with the (string) class attribute. */
       classes?: Attr[];
+      /** A managed inline style: value and properties (through the CSSOM). */
+      styleText?: Expr;
+      styles?: Attr[];
       children?: Node[];
       source?: Source;
     }

@@ -138,3 +138,59 @@ pub mod media;
 pub use media::{MediaEnv, matches as media_matches};
 pub mod root;
 pub use root::Root;
+pub mod compose;
+
+/// The inline style of an element as Svelte's `set_style` manages it: when
+/// the style value changes, the value composed with the properties is set
+/// through `cssText`; otherwise changed properties are set or removed.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StyleState {
+    value: Option<Option<String>>,
+    properties: Vec<Option<String>>,
+}
+
+impl StyleState {
+    /// The new `style` attribute (`None`: absent) given the current one,
+    /// or `Err(())` when it does not change.
+    pub fn apply(
+        &mut self,
+        current: Option<&str>,
+        value: Option<String>,
+        properties: &[(&str, Option<String>)],
+    ) -> Result<Option<String>, ()> {
+        let values: Vec<Option<String>> = properties.iter().map(|p| p.1.clone()).collect();
+        let result = if self.value.as_ref() != Some(&value) {
+            let pairs: Vec<(&str, Option<&str>)> =
+                properties.iter().map(|(n, v)| (*n, v.as_deref())).collect();
+            let next = compose::compose(value.as_deref(), &pairs).map(|t| css_text(&t));
+            self.value = Some(value);
+            Ok(next)
+        } else {
+            let mut css = current.map(str::to_owned);
+            let mut changed = false;
+            for (i, (name, v)) in properties.iter().enumerate() {
+                if self.properties.get(i) == Some(v) {
+                    continue;
+                }
+                let base = css.as_deref().unwrap_or("");
+                match v.as_deref().filter(|v| !v.is_empty()) {
+                    Some(v) => {
+                        if let Some(next) = set_property(base, name, v, false) {
+                            css = Some(next);
+                            changed = true;
+                        }
+                    }
+                    None => {
+                        if css.is_some() && !get_property(base, name).is_empty() {
+                            css = Some(remove_property(base, name));
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if changed { Ok(css) } else { Err(()) }
+        };
+        self.properties = values;
+        result
+    }
+}

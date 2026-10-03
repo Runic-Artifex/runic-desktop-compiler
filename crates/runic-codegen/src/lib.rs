@@ -609,6 +609,8 @@ impl Gen<'_> {
                     reference,
                     spread,
                     classes,
+                    style_text,
+                    styles,
                     ..
                 } = node
                 else {
@@ -643,6 +645,44 @@ impl Gen<'_> {
                         "{{ let cleared = {{ let mut st = s.ri{key}.borrow_mut(); let mine = matches!(&st.c.c{r}, Maybe::Some(e) if e.0 == s.n{key}.as_u64()); if mine {{ st.c.c{r} = Maybe::Null; st.ver[{r}] = cx.jobs.version(); cx.jobs.ref_written(); }} mine }}; if cleared {{ {} }} }}",
                         forward("s.ri{key}", "Maybe::Null").replace("{key}", &key.to_string())
                     );
+                }
+                if style_text.is_some() || !styles.is_empty() {
+                    // The inline style, managed through the CSSOM.
+                    let mut cx = self.ctx(k);
+                    let opt = |cx: &mut FnCtx, e: &Expr| {
+                        let v = cx.expr(e);
+                        match cx.ty(e) {
+                            Type::String => format!("Some({v}.to_rust())"),
+                            _ => format!(
+                                "(match {v} {{ Maybe::Some(s) => Some(s.to_rust()), _ => None }})"
+                            ),
+                        }
+                    };
+                    let value = style_text
+                        .as_ref()
+                        .map_or("Some(String::new())".to_string(), |e| opt(&mut cx, e));
+                    let props: Vec<String> = styles
+                        .iter()
+                        .map(|p| format!("({}, {})", rust_str(&p.name), opt(&mut cx, &p.value)))
+                        .collect();
+                    let props = props.join(", ");
+                    o.fields
+                        .push((format!("st{key}"), "runic_runtime::css::StyleState".into()));
+                    let _ = writeln!(
+                        o.mount,
+                        "let mut st{key} = runic_runtime::css::StyleState::default(); {{ let v = {value}; dom.styles(n{key}, v, &[{props}], &mut st{key}); }}"
+                    );
+                    let exprs: Vec<&Expr> = style_text
+                        .iter()
+                        .chain(styles.iter().map(|p| &p.value))
+                        .collect();
+                    if !self.is_static(&exprs) {
+                        let guard = self.guard(&exprs);
+                        let _ = writeln!(
+                            o.update,
+                            "if {guard} {{ let v = {value}; dom.styles(s.n{key}, v, &[{props}], &mut s.st{key}); }}"
+                        );
+                    }
                 }
                 if !classes.is_empty() {
                     // The class attribute composed with the class toggles.

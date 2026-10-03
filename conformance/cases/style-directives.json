@@ -1,0 +1,13 @@
+{
+  "description": "Inline styles through the CSSOM: style: directives, dynamic style values (serialised as the browser does), a static value with a directive, a value whose properties a directive overrides, removal through undefined, and a static literal style",
+  "fixtures": ["styles-svelte"],
+  "actions": [
+    { "kind": "click", "id": "color" },
+    { "kind": "click", "id": "wider" },
+    { "kind": "click", "id": "base" },
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "color" },
+    { "kind": "click", "id": "base" },
+    { "kind": "click", "id": "wider" }
+  ]
+}
