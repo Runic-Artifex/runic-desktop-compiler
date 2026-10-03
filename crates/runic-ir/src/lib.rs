@@ -88,6 +88,9 @@ pub struct Program {
         skip_serializing_if = "std::collections::BTreeMap::is_empty"
     )]
     pub container_attrs: std::collections::BTreeMap<String, String>,
+    /// The document element's initial attributes (index.html's `<html>`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub document: std::collections::BTreeMap<String, String>,
     /// After each update, an element that lost focus because a list move
     /// detached it is focused again if it is still in the document (React DOM
     /// restores the focused element around every commit).

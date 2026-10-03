@@ -1644,6 +1644,12 @@ pub fn generate(
     // Scheduling policies (docs/design/M4-EFFECTS.md).
     let event_microtask = p.schedule.flush == Flush::EventMicrotask;
     let per_listener = p.schedule.checkpoint == Checkpoint::Listener;
+    // The document element starts with index.html's <html> attributes.
+    let document_attrs: String = p
+        .document
+        .iter()
+        .map(|(k, v)| format!("({}, {}), ", rust_str(k), rust_str(v)))
+        .collect();
     let change_with_click = p.schedule.change_with_click;
     let tracked = |t: Tracking| {
         p.components
@@ -1776,7 +1782,7 @@ pub fn generate(
          pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: Default::default(), media: runic_runtime::media_env(), host: Vec::new(), listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );

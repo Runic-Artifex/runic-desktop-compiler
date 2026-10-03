@@ -31,6 +31,15 @@ fn token(name: &str) -> Result<(), TokenError> {
 }
 
 impl Root {
+    /// A document element with initial attributes (changed, to be applied).
+    pub fn with_attrs<'a>(attrs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Root {
+        let mut root = Root::default();
+        for (name, value) in attrs {
+            root.set(name, value);
+        }
+        root
+    }
+
     pub fn attrs(&self) -> &BTreeMap<String, String> {
         &self.attrs
     }

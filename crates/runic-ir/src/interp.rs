@@ -732,7 +732,12 @@ impl<'p> Machine<'p> {
             control_cache: HashMap::new(),
             class_states: HashMap::new(),
             host_listeners: vec![],
-            root: runic_css::Root::default(),
+            root: runic_css::Root::with_attrs(
+                program
+                    .document
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str())),
+            ),
             media: runic_css::MediaEnv::default(),
             children: HashMap::new(),
             listeners: vec![],

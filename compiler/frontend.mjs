@@ -5,6 +5,8 @@ import { check } from './codegen.mjs';
 
 export async function lower(graph) {
   const result = await adapter(graph);
+  // The document element starts with index.html's <html> attributes.
+  if (Object.keys(graph.documentAttrs ?? {}).length) result.ir.document = graph.documentAttrs;
   check(result.ir);
   return result;
 }

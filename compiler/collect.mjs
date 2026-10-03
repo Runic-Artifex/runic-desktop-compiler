@@ -128,6 +128,9 @@ export async function collect(app) {
       'E_HTML',
       'index.html must load exactly the configured module entry; inline/extra scripts are unsupported',
     );
+  // The document element's attributes (lang, dir, class, data-*).
+  const htmlElement = htmlNodes.find(n => n.tagName === 'html');
+  const documentAttrs = Object.fromEntries((htmlElement?.attrs ?? []).map(a => [a.name, a.value]));
   const body = htmlNodes.find(n => n.tagName === 'body');
   const content = body.childNodes.filter(n => n.nodeName !== '#text' || n.value.trim());
   if (
@@ -332,6 +335,7 @@ export async function collect(app) {
     tooling,
     css: orderedCSS,
     assets: uniqueAssets,
+    documentAttrs,
     manifest,
     hash: hash({ manifest, assets: uniqueAssets, html: hash(htmlSource), config }),
   };

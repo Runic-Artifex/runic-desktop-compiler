@@ -356,6 +356,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
         .map(str::to_owned)
         .collect();
     Ok(Program {
+        document: Default::default(),
         records: vec![],
         functions: vec![],
         schema: SCHEMA,
