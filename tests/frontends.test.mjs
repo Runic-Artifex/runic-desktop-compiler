@@ -533,12 +533,44 @@ test('React rejects uncovered behaviour with locations', async () => {
       'function C({n,items=[1]}){return <b>{n}</b>;}function App(){return <p><C n={1}/></p>;}',
       'E_PROPS',
     ],
-    ['function C({children}){return <b>a</b>;}function App(){return <p><C/></p>;}', 'E_PROPS'],
     [
       'function C({n}){return <p>{n>0&&<C n={n-1}/>}</p>;}function App(){return <C n={2}/>;}',
       'E_COMPONENT',
     ],
+    // Children and render props: rendered only as JSX children, passed inline, never both
+    // branches of a conditional (React would reconcile their content in place).
     ['function C(){return <b>a</b>;}function App(){return <C>child</C>;}', 'E_COMPONENT'],
+    [
+      'function C({children}){return <b title={children}>a</b>;}function App(){return <C>x</C>;}',
+      'E_PROPS',
+    ],
+    [
+      'function C({children}){const n=children;return <b>a</b>;}function App(){return <C>x</C>;}',
+      'E_PROPS',
+    ],
+    [
+      'function L({row}){return <p>{row(1)}</p>;}function App(){return <p><L row={x=><b>{x}</b>}/><L/></p>;}',
+      'E_PROPS',
+    ],
+    [
+      'function L({row}){return <p>{row(1)}</p>;}function App(){return <L row={x=>{const y=x;return <b>{y}</b>;}}/>;}',
+      'E_PROPS',
+    ],
+    [
+      'function L({row}){return <p>{row}</p>;}function App(){return <L row={x=><b>{x}</b>}/>;}',
+      'E_PROPS',
+    ],
+    [
+      'function C({children,n}){return <p>{n?children:<b>a</b>}</p>;}function App(){return <C n={1}><b>x</b></C>;}',
+      'E_JSX',
+    ],
+    [
+      'function C({children}){return <p>{children}</p>;}function App(){return <C children={<i>a</i>}><b>x</b></C>;}',
+      'E_PROPS',
+    ],
+    // Checkboxes are controlled; keyboard events other than keydown are M5.
+    ['function App(){return <input type="checkbox"/>;}', 'E_JSX'],
+    ['function App(){return <input onKeyUp={()=>1}/>;}', 'E_EVENT'],
     [
       'function App(){const[xs,set]=useState([()=>{}]);return <p>{xs.map(f=><b onClick={f}>a</b>)}</p>;}',
       'E_EVENT',
@@ -732,5 +764,142 @@ test('Svelte {#each} items can be destructured (fields of the item, captured by 
   assert.deepEqual(
     destructured.map(s => s.state),
     plain.map(s => s.state),
+  );
+});
+
+test('React and Svelte examples agree: TodoMVC, CRUD and slots', async () => {
+  const click = id => ({ kind: 'click', id });
+  const input = (id, value) => ({ kind: 'input', id, value });
+  const key = (id, k) => ({ kind: 'keydown', id, key: k });
+  const pairs = [
+    [
+      'examples/todomvc',
+      [
+        input('new-todo', 'Buy milk'),
+        key('new-todo', 'Enter'),
+        input('new-todo', 'Walk'),
+        key('new-todo', 'Escape'),
+        input('new-todo', '  '),
+        key('new-todo', 'Enter'),
+        input('new-todo', 'Ship M3'),
+        key('new-todo', 'Enter'),
+        click('toggle-3'),
+        click('filter-active'),
+        click('toggle-2'),
+        click('filter-completed'),
+        key('toggle-1', ' '),
+        click('filter-all'),
+        click('toggle-all'),
+        click('toggle-all'),
+        click('toggle-2'),
+        click('destroy-1'),
+        click('clear'),
+      ],
+    ],
+    [
+      'examples/7guis-crud',
+      [
+        click('person-2'),
+        input('name', 'Maximilian'),
+        click('update'),
+        input('prefix', 'm'),
+        click('person-2'),
+        click('delete'),
+        input('prefix', ''),
+        input('name', 'Ada'),
+        input('surname', 'Lovelace'),
+        click('create'),
+        click('person-1'),
+      ],
+    ],
+    [
+      'fixtures/slots',
+      ['pick-2', 'tally-3', 'tally-3', 'order', 'tally-1', 'note', 'pick-3', 'order', 'drop'].map(
+        click,
+      ),
+    ],
+  ];
+  for (const [base, actions] of pairs) {
+    const traces = [];
+    for (const f of ['react', 'svelte']) {
+      const { ir } = await lower(await collect(`${base}-${f}`));
+      const steps = run(ir, actions);
+      assert.ok(
+        steps.slice(1).every(s => s.outcome === 'handled'),
+        `${base}-${f}: every action is handled`,
+      );
+      traces.push(steps.map(s => visible(s.state.dom)));
+    }
+    assert.deepEqual(traces[0], traces[1], base);
+  }
+});
+
+test('React children and render props: untyped slots, forwarding and parent state', async () => {
+  await react(
+    `function Box({children, foot}) { return <div id="box">{children}<p id="foot">{foot}</p></div>; }
+     function List({items, row}) { return <ul>{items.map((x, i) => <li key={x}>{row(x, i)}</li>)}</ul>; }
+     function Wrap({children}) { return <Box foot="w">{children}</Box>; }
+     function App() {
+       const [n, setN] = useState(0);
+       const [xs, setXs] = useState(['a', 'b']);
+       return <main>
+         <Box foot={<b id="b">{n}</b>}><button id="inc" onClick={() => setN(n + 1)}>+</button>{n > 1 && <i id="big">big</i>}</Box>
+         <List items={xs} row={(x, i) => <span id={'r-' + x}>{x}{i}{n}</span>} />
+         <Wrap><em id="wrapped">{n}</em></Wrap>
+       </main>;
+     }`,
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const list = ir.components.find(c => c.name === 'List');
+      assert.deepEqual(list.slots, [{ name: 'row', params: ['string', 'number'] }]);
+      const steps = run(ir, [
+        { kind: 'click', id: 'inc' },
+        { kind: 'click', id: 'inc' },
+      ]);
+      assert.deepEqual(texts(steps.slice(0, 1), ['b', 'r-a', 'big', 'wrapped']), {
+        b: '0',
+        'r-a': 'a00',
+        big: undefined,
+        wrapped: '0',
+      });
+      assert.deepEqual(texts(steps, ['b', 'r-a', 'r-b', 'big', 'wrapped']), {
+        b: '2',
+        'r-a': 'a02',
+        'r-b': 'b12',
+        big: 'big',
+        wrapped: '2',
+      });
+      // Forwarded children render inside the inner Box, before its own footer.
+      const boxes = flat(steps.at(-1).state.dom).filter(n => n.attrs.id === 'box');
+      assert.equal(boxes.length, 2);
+      assert.equal(textOf(boxes[1]), '2w');
+    },
+  );
+});
+
+test('React checkboxes and keydown: click then change, bubbling keydown, Space activation', async () => {
+  await react(
+    `function App() {
+       const [on, setOn] = useState(false);
+       const [log, setLog] = useState('');
+       return <main onKeyDown={e => { const k = e.key; setLog(l => l + '<' + k); }}>
+         <input id="c" type="checkbox" checked={on} onClick={() => setLog(l => l + 'click')} onChange={e => setOn(e.target.checked)} />
+         <input id="t" onKeyDown={e => { const k = e.key; setLog(l => l + k); }} />
+         <p id="log">{log}{on ? ' on' : ' off'}</p>
+       </main>;
+     }`,
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const steps = run(ir, [
+        { kind: 'keydown', id: 't', key: 'x' },
+        { kind: 'click', id: 'c' },
+        { kind: 'keydown', id: 'c', key: ' ' },
+      ]);
+      const log = i => texts(steps.slice(0, i + 1), ['log']).log;
+      assert.equal(log(1), 'x<x off');
+      assert.equal(log(2), 'x<xclick on');
+      assert.equal(log(3), 'x<xclick< click off');
+      assert.equal(flat(steps[2].state.dom).find(n => n.attrs.id === 'c').checked, true);
+    },
   );
 });
