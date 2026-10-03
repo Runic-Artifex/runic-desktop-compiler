@@ -79,7 +79,10 @@ export async function frontendTooling(root, config) {
       name,
       version,
       compiler,
-      plugins: [svelte({ configFile: false, compilerOptions: { runes: true } })],
+      // Production output: generated apps implement production semantics,
+      // and development builds add instrumentation that changes timing
+      // (every `await` gains extra microtask hops through track_reactivity_loss).
+      plugins: [svelte({ configFile: false, compilerOptions: { runes: true, dev: false } })],
       packages: { svelte: version, '@sveltejs/vite-plugin-svelte': pluginVersion },
       extensions: ['.svelte'],
       scripts: (code, id) => svelteScripts(compiler, root, code, id),

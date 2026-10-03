@@ -250,3 +250,56 @@ test('promises: reactions, adoption, finally, all and rejections in microtask or
   // node: a1 m b2 e:x f r:r c all1,2,3 adopt11 fv1
   assert.deepEqual(out, ['', '', 'a1 m b2 e:x f r:r c all1,2,3 adopt11 fv1']);
 });
+
+test('async functions: awaits, returned promises, loops, try/catch and rejections in Node order', async () => {
+  const out = await run(
+    `let out = $state('');
+     const log: string[] = [];
+     const tick = (v: number): Promise<number> => Promise.resolve(v);
+     async function add(a: number, b: number): Promise<number> {
+       const x = await tick(a);
+       log.push('x' + x);
+       const y = await b;
+       log.push('y' + y);
+       return x + y;
+     }
+     async function chain(): Promise<number> { return tick(5); }
+     async function loop(n: number): Promise<number> {
+       let total = 0;
+       for (let i = 0; i < n; i++) {
+         total += await tick(i);
+         if (i === 2) continue;
+         log.push('i' + i);
+       }
+       let k = 0;
+       while (k < 2) { k = await tick(k + 1); }
+       for (const v of [10, 20]) { total += await v; }
+       return total + k;
+     }
+     async function guarded(): Promise<string> {
+       try { await Promise.reject(new Error('boom')); log.push('unreached'); }
+       catch (e) { log.push('caught ' + e.message); }
+       return 'done';
+     }
+     async function fails(): Promise<void> { await tick(1); throw new Error('late'); }
+     function go() {
+       add(1, 2).then(v => log.push('add' + v));
+       chain().then(v => log.push('chain' + v));
+       loop(4).then(v => log.push('loop' + v));
+       guarded().then(v => log.push('g ' + v));
+       fails().catch(e => log.push('fails ' + e.message));
+       log.push('sync');
+       setTimeout(() => { out = log.join(' '); }, 0);
+     }`,
+    [
+      { kind: 'click', id: 'go' },
+      { kind: 'wait', ms: 10 },
+    ],
+  );
+  // node: sync x1 i0 caught boom y2 i1 g done fails late add3 chain5 i3 loop38
+  assert.deepEqual(out, [
+    '',
+    '',
+    'sync x1 i0 caught boom y2 i1 g done fails late add3 chain5 i3 loop38',
+  ]);
+});

@@ -7,6 +7,7 @@ import type { Expr, Fn, Global, Local, Place, Stmt, Type } from './ir.ts';
 import { sameType, TypeMapper, type Fail } from './types.ts';
 import { builtinType, irType, maybeInner } from './irtype.ts';
 import { DOM } from './program.ts';
+import { asyncBody, isAsync } from './async.ts';
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -61,7 +62,14 @@ export class FnBuilder {
   readonly captureOf = new Map<string, number>();
   readonly captureSources: { owner: FnBuilder; local: number }[] = [];
   /** Labels of enclosing loops: [label, isRealLoop]. */
-  readonly loops: { label: string; real: boolean }[] = [];
+  readonly loops: {
+    label: string;
+    real: boolean;
+    /** A loop of an async state machine: `break`/`continue` jump to states. */
+    jump?: { break: Stmt[]; continue: Stmt[] };
+  }[] = [];
+  /** In an async state machine: `return` settles the function's promise. */
+  asyncReturn?: (e: ts.Expression | undefined, node: ts.Node) => Stmt[];
   private labelCounter = 0;
 
   readonly name: string;
@@ -237,6 +245,13 @@ export class Lowerer {
   ): { index: number; builder: FnBuilder } {
     const boxed = this.analyseCaptures(decl);
     for (const s of parent?.boxed ?? []) boxed.add(s);
+    // An async function's state machine shares its parameters across steps.
+    const async = isAsync(decl);
+    if (async)
+      for (const p of decl.parameters) {
+        const sym = ts.isIdentifier(p.name) && this.checker.getSymbolAtLocation(p.name);
+        if (sym) boxed.add(sym);
+      }
     const b = new FnBuilder(name, parent, component, boxed, false);
     const index = reserved ?? this.reserve();
     // Captures are discovered while lowering the body; params are added first
@@ -295,7 +310,12 @@ export class Lowerer {
         : this.types.map(tsResult, decl);
     // Body lowering may add captures; params/locals are appended after, so we
     // lower into a staging builder and rebase indices at the end.
-    const lowered = this.withParams(b, pending, () => this.functionBody(decl, b));
+    const lowered = this.withParams(b, pending, () => {
+      if (!async) return this.functionBody(decl, b);
+      if (!(typeof result === 'object' && 'promise' in result))
+        return this.fail(decl, 'E_ASYNC', 'An async function needs a Promise result type');
+      return asyncBody(this, decl, b, result.promise);
+    });
     if (tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
       result = this.returnType(lowered, b);
     const body = remapLocals(lowered, i => b.final(i));
@@ -428,7 +448,22 @@ export class Lowerer {
     }
     if (decl.parameters.length > 1)
       this.fail(decl.parameters[1], 'E_EVENT', 'Event handlers take at most one parameter');
-    let body = this.functionBody(decl, b);
+    let body: Stmt[];
+    if (isAsync(decl)) {
+      for (const p of decl.parameters) {
+        const sym = ts.isIdentifier(p.name) && this.checker.getSymbolAtLocation(p.name);
+        if (sym) b.boxed.add(sym);
+      }
+      const ret = this.checker.getSignatureFromDeclaration(decl)?.getReturnType();
+      const t = ret ? this.types.map(ret, decl) : undefined;
+      body = asyncBody(
+        this,
+        decl,
+        b,
+        typeof t === 'object' && 'promise' in t ? t.promise : 'void',
+        true,
+      );
+    } else body = this.functionBody(decl, b);
     // A handler's value is discarded: `() => items.push(x)` runs for its effect.
     if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return')
       body = body[0].value ? [{ op: 'expr', value: body[0].value }] : [];
@@ -524,6 +559,7 @@ export class Lowerer {
         },
       ];
     }
+    if (ts.isReturnStatement(s) && b.asyncReturn) return b.asyncReturn(s.expression, s);
     if (ts.isReturnStatement(s))
       return [
         {
@@ -629,13 +665,17 @@ export class Lowerer {
     if (ts.isBreakStatement(s) || ts.isContinueStatement(s)) {
       const op = ts.isBreakStatement(s) ? 'break' : 'continue';
       let label = s.label?.text;
+      // Unlabelled continue targets the nearest real loop (not a switch).
+      const target = label
+        ? [...b.loops].reverse().find(l => l.label === label)
+        : op === 'continue'
+          ? [...b.loops].reverse().find(l => l.real)
+          : b.loops.at(-1);
       if (!label) {
-        // Unlabelled continue targets the nearest real loop (not a switch).
-        const target =
-          op === 'continue' ? [...b.loops].reverse().find(l => l.real) : b.loops.at(-1);
         if (!target) this.fail(s, 'E_STATEMENT', `${op} outside a loop`);
         label = target!.label;
       }
+      if (target?.jump) return op === 'break' ? target.jump.break : target.jump.continue;
       return [{ op, label }];
     }
     if (ts.isLabeledStatement(s)) {
@@ -1090,6 +1130,12 @@ export class Lowerer {
   }
 
   expr(e: ts.Expression, b: FnBuilder): Expr {
+    if (ts.isAwaitExpression(e))
+      return this.fail(
+        e,
+        'E_ASYNC',
+        'await is supported in async functions as a statement, an initialiser, an assignment or a return value',
+      );
     const K = ts.SyntaxKind;
     const override = this.overrides.get(e);
     if (override) return override.expr;
@@ -2186,7 +2232,7 @@ const GLOBAL_FUNCTIONS = new Set([
 ]);
 const STATIC_NAMESPACES = new Set(['Math', 'Number', 'String', 'Array', 'Object', 'JSON']);
 
-const COMPOUND: Record<number, ts.SyntaxKind> = {
+export const COMPOUND: Record<number, ts.SyntaxKind> = {
   [ts.SyntaxKind.PlusEqualsToken]: ts.SyntaxKind.PlusToken,
   [ts.SyntaxKind.MinusEqualsToken]: ts.SyntaxKind.MinusToken,
   [ts.SyntaxKind.AsteriskEqualsToken]: ts.SyntaxKind.AsteriskToken,

@@ -1,13 +1,60 @@
 {
-  "description": "Promises: reactions, adoption, finally, all and rejections in microtask order; a promise resolved by a timer",
-  "fixtures": ["promises-svelte"],
+  "description": "Promises and async functions: reactions, adoption, finally, all and rejections in microtask order; awaits in loops and try/catch; a promise resolved by a timer; an async event handler",
+  "fixtures": [
+    "promises-svelte"
+  ],
   "actions": [
-    { "kind": "click", "id": "chains" },
-    { "kind": "wait", "ms": 10 },
-    { "kind": "click", "id": "later" },
-    { "kind": "wait", "ms": 30 },
-    { "kind": "wait", "ms": 30 },
-    { "kind": "click", "id": "later" },
-    { "kind": "wait", "ms": 60 }
+    {
+      "kind": "click",
+      "id": "chains"
+    },
+    {
+      "kind": "wait",
+      "ms": 10
+    },
+    {
+      "kind": "click",
+      "id": "later"
+    },
+    {
+      "kind": "wait",
+      "ms": 30
+    },
+    {
+      "kind": "wait",
+      "ms": 30
+    },
+    {
+      "kind": "click",
+      "id": "later"
+    },
+    {
+      "kind": "wait",
+      "ms": 60
+    },
+    {
+      "kind": "click",
+      "id": "asyncs"
+    },
+    {
+      "kind": "wait",
+      "ms": 10
+    },
+    {
+      "kind": "click",
+      "id": "slow"
+    },
+    {
+      "kind": "click",
+      "id": "slow"
+    },
+    {
+      "kind": "wait",
+      "ms": 20
+    },
+    {
+      "kind": "wait",
+      "ms": 40
+    }
   ]
 }

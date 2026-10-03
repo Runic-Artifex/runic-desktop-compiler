@@ -9,7 +9,7 @@ use runic_ir::{Expr, Program, Type};
 /// An IR function `f` of type `fty` as a promise handler: it receives the
 /// value (or, for rejections, the Error record of the exception) and its
 /// result settles the derived promise (a returned promise is adopted).
-fn promise_handler(fty: &Type, f: &str, error: Option<usize>) -> String {
+fn promise_handler(fty: &Type, f: &str, error: Option<usize>, settles: Option<&Type>) -> String {
     let Type::Fn(sig) = fty else {
         unreachable!("validated handler")
     };
@@ -17,11 +17,19 @@ fn promise_handler(fty: &Type, f: &str, error: Option<usize>) -> String {
         Some(e) => format!("JsRef::new(R{e} {{ f0: v.name.clone(), f1: v.message.clone() }})"),
         None => "v".into(),
     };
-    let call = if sig.params.is_empty() {
+    let mut call = if sig.params.is_empty() {
         "{ let _ = v; f(cx)? }".to_string()
     } else {
         format!("f(cx, {arg})?")
     };
+    // A value settling a promise of `U | undefined`.
+    if let Some(Type::Promise(x)) = settles {
+        if matches!(**x, Type::Maybe(_))
+            && !matches!(*sig.result, Type::Maybe(_) | Type::Promise(_))
+        {
+            call = format!("Maybe::Some({call})");
+        }
+    }
     let wrap = match &*sig.result {
         Type::Promise(_) => "Promise",
         _ => "Value",
@@ -274,26 +282,27 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             let on_rejected = match (args.get(2), types.get(2)) {
                 (Some(_), Some(rt)) => format!(
                     "Some({})",
-                    promise_handler(rt, &t[2], Some(cx.error_record()))
+                    promise_handler(rt, &t[2], Some(cx.error_record()), None)
                 ),
                 _ => "None".into(),
             };
             format!(
                 "runic_runtime::promises::then(cx, &{}, {}, {on_rejected})",
                 t[0],
-                promise_handler(&types[1], &t[1], None)
+                promise_handler(&types[1], &t[1], None, None)
             )
         }
         ("promise", "catch") => {
             // A promise that never fulfils (Promise<void> from Promise.reject) may settle to another type.
             let map = match (&types[0], ty) {
                 (a, b) if a == b => "|v| v",
+                (_, Type::Promise(x)) if matches!(**x, Type::Maybe(_)) => "|_| Maybe::Undefined",
                 _ => "|_| unreachable!(\"a promise that never fulfils\")",
             };
             format!(
                 "runic_runtime::promises::catch(cx, &{}, {map}, {})",
                 t[0],
-                promise_handler(&types[1], &t[1], Some(cx.error_record()))
+                promise_handler(&types[1], &t[1], Some(cx.error_record()), Some(ty))
             )
         }
         ("promise", "finally") => {

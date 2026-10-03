@@ -215,10 +215,17 @@ fn promise_type(method: &str, args: &[Type], declared: &Type, records: &[RecordT
             arity(args, 2, 2)?;
             let t = promise_of(&args[0])?;
             let u = handler(&args[1], Some(&error), "rejection")?;
-            if u != t && t != Void {
-                return Err("a catch handler settles to the promise's type".into());
+            if u == t {
+                return Ok(args[0].clone());
             }
-            Ok(Promise(Box::new(u)))
+            // Promise<void>: a fulfilment passes on as undefined (Maybe<U>), or
+            // never happens (Promise.reject, U).
+            match declared {
+                Promise(x) if t == Void && (**x == u || **x == Maybe(Box::new(u.clone()))) => {
+                    Ok(declared.clone())
+                }
+                _ => Err("a catch handler settles to the promise's type".into()),
+            }
         }
         "finally" => {
             arity(args, 2, 2)?;
