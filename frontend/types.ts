@@ -114,6 +114,8 @@ export class TypeMapper {
   }
 
   private object(t: ts.ObjectType, at: ts.Node): Type {
+    // DOM elements (frontend/dom.d.ts) are opaque handles.
+    if (t.getProperty('__runicElement')) return 'element';
     const name = t.symbol?.name ?? t.aliasSymbol?.name;
     const args = (t as ts.TypeReference).target
       ? this.checker.getTypeArguments(t as ts.TypeReference)

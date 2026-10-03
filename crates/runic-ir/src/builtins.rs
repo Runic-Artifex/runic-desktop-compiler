@@ -130,6 +130,10 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
     let (ns, method) = name.split_once('.').unwrap_or(("", name));
     match (ns, method) {
         ("Math", m) if MATH_CONSTANTS.contains(&m) => arity(args, 0, 0).map(|_| n),
+        ("element", "focus" | "blur") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Void)
+        }
         ("Math", m) if MATH_UNARY.contains(&m) => {
             arity(args, 1, 1)?;
             all(args, &n).map(|_| n)

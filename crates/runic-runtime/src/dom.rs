@@ -185,6 +185,26 @@ impl Dom<'_> {
         }
     }
 
+    /// `element.focus()` / `element.blur()` requested by a handler (applied
+    /// after the update). Focus only moves to an enabled control in the
+    /// document; blurring only affects the focused element.
+    pub fn focus_element(&mut self, node: NodeId, on: bool) {
+        let Some(n) = self.doc.get_node(node) else {
+            return;
+        };
+        if on {
+            let focusable = n.flags.is_in_document()
+                && n.element_data()
+                    .is_some_and(|e| matches!(e.name.local.as_ref(), "button" | "input"))
+                && n.attr("disabled".into()).is_none();
+            if focusable {
+                self.doc.set_focus_to(node);
+            }
+        } else if self.doc.get_focussed_node_id() == Some(node) {
+            self.doc.clear_focus();
+        }
+    }
+
     /// Focus again an element that a list move blurred, if it is still in the
     /// document (frameworks that restore focus around their DOM updates).
     pub fn restore_focus(&mut self) {

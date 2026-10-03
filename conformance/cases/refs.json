@@ -1,0 +1,20 @@
+{
+  "description": "Element refs: focus() from a handler, typing into the focused input, blur() on Escape, refs set to null when their element is removed",
+  "fixtures": ["refs-svelte"],
+  "actions": [
+    { "kind": "click", "id": "focus" },
+    { "kind": "type", "text": "abc" },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "type", "text": "x" },
+    { "kind": "click", "id": "check" },
+    { "kind": "click", "id": "focus-details" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "check" },
+    { "kind": "click", "id": "focus-details" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "check" },
+    { "kind": "click", "id": "focus" },
+    { "kind": "type", "text": "!" }
+  ]
+}

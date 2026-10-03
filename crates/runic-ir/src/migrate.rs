@@ -253,6 +253,7 @@ fn node(v: &Json, handlers: &[Json]) -> Result<Node> {
                 attrs,
                 props,
                 listeners,
+                reference: None,
                 children: children(v)?,
                 source: source(v),
             })

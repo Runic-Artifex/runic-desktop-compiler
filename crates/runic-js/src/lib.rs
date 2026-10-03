@@ -3,6 +3,7 @@
 //! ECMAScript for its documented domain; tests compare against Node.
 
 mod collections;
+mod element;
 mod error;
 mod heap;
 mod number;
@@ -15,6 +16,7 @@ pub mod string_ops;
 
 pub use array_ops::join_elements;
 pub use collections::*;
+pub use element::Element;
 pub use error::*;
 pub use heap::*;
 pub use number::*;

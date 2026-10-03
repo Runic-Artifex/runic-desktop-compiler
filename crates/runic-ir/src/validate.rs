@@ -1223,8 +1223,22 @@ impl<'p> NodeCx<'_, 'p> {
                 props,
                 listeners,
                 children,
+                reference,
                 ..
             } => {
+                if let Some(r) = reference {
+                    let want = Type::maybe(Type::Element);
+                    match c.cells.get(*r) {
+                        Some(cell) if cell.ty == want => {}
+                        _ => {
+                            return err(
+                                "E_IR",
+                                "An element ref needs a cell of type element | null | undefined",
+                                src,
+                            );
+                        }
+                    }
+                }
                 let Some(&tag) = TAGS.iter().find(|t| **t == tag) else {
                     return err(
                         "E_IR",

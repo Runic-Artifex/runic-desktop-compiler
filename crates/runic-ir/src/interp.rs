@@ -44,6 +44,7 @@ pub enum Val {
     Map(JsMap<Val, Val>),
     Set(JsSet<Val>),
     Closure(Rc<Closure>),
+    Element(js::Element),
 }
 
 impl Val {
@@ -120,6 +121,7 @@ impl js::StrictEq for Val {
             (Val::Map(a), Val::Map(b)) => JsRef::ptr_eq(a, b),
             (Val::Set(a), Val::Set(b)) => JsRef::ptr_eq(a, b),
             (Val::Closure(a), Val::Closure(b)) => Rc::ptr_eq(a, b),
+            (Val::Element(a), Val::Element(b)) => a == b,
             _ => false,
         }
     }
@@ -156,6 +158,7 @@ impl js::ToJsString for Val {
             Val::Map(_) => JsString::from("[object Map]"),
             Val::Set(_) => JsString::from("[object Set]"),
             Val::Closure(_) => JsString::from("function"),
+            Val::Element(e) => e.to_js_string(),
         }
     }
 }
@@ -208,6 +211,7 @@ impl ToMapKey for Val {
             Val::Map(m) => m.map_key(),
             Val::Set(s) => s.map_key(),
             Val::Closure(c) => MapKey::Ref(Rc::as_ptr(c) as *const u8 as usize),
+            Val::Element(e) => e.map_key(),
         }
     }
 }
@@ -391,6 +395,10 @@ pub struct Machine<'p> {
     listeners: Vec<ListenerRef>,
     /// Child instances in tree order (last render).
     order: Vec<usize>,
+    /// Stable ids of rendered elements with refs, by identity.
+    element_ids: HashMap<(InstKey, usize), u64>,
+    /// Ref cells set by the last render: (instance, cell) → element id.
+    refs: HashMap<(usize, usize), u64>,
 }
 
 fn throw_diag(t: Throw) -> Diagnostic {
@@ -404,6 +412,8 @@ impl<'p> Machine<'p> {
             globals: vec![],
             instances: vec![],
             via: vec![],
+            element_ids: HashMap::new(),
+            refs: HashMap::new(),
             current: 0,
             payload: None,
             children: HashMap::new(),
@@ -1172,6 +1182,8 @@ impl<'p> Machine<'p> {
                     other => unreachable!("validated set method {other}"),
                 }
             }
+            // Focus has no interpreter observable (the snapshot has no focus).
+            ("element", "focus" | "blur") => Val::Undefined,
             ("maybe", "is-null") => Val::Bool(matches!(a[0], Val::Null)),
             ("maybe", "is-undefined") => Val::Bool(matches!(a[0], Val::Undefined)),
             ("maybe", "is-nullish") => Val::Bool(matches!(a[0], Val::Undefined | Val::Null)),
@@ -1216,7 +1228,7 @@ impl<'p> Machine<'p> {
     fn to_json(&self, v: &Val) -> Option<js::json::Json> {
         use js::json::Json as J;
         Some(match v {
-            Val::Undefined | Val::Closure(_) => return None,
+            Val::Undefined | Val::Closure(_) | Val::Element(_) => return None,
             Val::Null => J::Null,
             Val::Bool(b) => J::Bool(*b),
             Val::Num(n) => {
@@ -1328,7 +1340,16 @@ impl<'p> Machine<'p> {
         self.order.clear();
         let mut visited = HashSet::new();
         let mut out = vec![];
+        let previous = std::mem::take(&mut self.refs);
         let result = self.render_instance(0, &mut out, &mut visited);
+        // Refs of elements that are no longer rendered become null.
+        for ((inst, cell), id) in previous {
+            if !self.refs.contains_key(&(inst, cell))
+                && matches!(self.instances[inst].cells[cell], Val::Element(e) if e.0 == id)
+            {
+                self.instances[inst].cells[cell] = Val::Null;
+            }
+        }
         // Destroy instances that were not rendered.
         let instances = &mut self.instances;
         self.children.retain(|_, id| {
@@ -1537,8 +1558,25 @@ impl<'p> Machine<'p> {
                 props,
                 listeners,
                 children,
+                reference,
                 ..
             } => {
+                if let Some(cell) = reference {
+                    let key = (
+                        InstKey {
+                            parent: self.current,
+                            node: n as *const Node as usize,
+                            path: path.clone(),
+                            via: self.via.clone(),
+                        },
+                        0,
+                    );
+                    let next = self.element_ids.len() as u64 + 1;
+                    let id = *self.element_ids.entry(key).or_insert(next);
+                    let current = self.current;
+                    self.instances[current].cells[*cell] = Val::Element(js::Element(id));
+                    self.refs.insert((current, *cell), id);
+                }
                 let mut map = BTreeMap::new();
                 for a in attrs {
                     match self.eval(&a.value, frame)? {
@@ -1896,6 +1934,8 @@ pub fn cell_json(v: &Val) -> Json {
         ),
         Val::Set(s) => Json::Array(s.borrow().entries.values().map(cell_json).collect()),
         Val::Closure(_) => json!("function"),
+        // Element ids differ between the interpreter and the native app.
+        Val::Element(_) => json!("element"),
     }
 }
 

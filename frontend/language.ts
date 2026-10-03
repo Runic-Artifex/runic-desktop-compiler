@@ -1433,6 +1433,7 @@ export class Lowerer {
     if (t === 'string') return 'string';
     if (t === 'number') return 'number';
     if (t === 'boolean') return 'boolean';
+    if (t === 'element') return 'element';
     if (typeof t === 'object') {
       if ('array' in t) return 'array';
       if ('map' in t) return 'map';
@@ -1611,6 +1612,22 @@ export class Lowerer {
       alreadyMaybe = nested || (typeof thenType === 'object' && 'maybe' in thenType);
     } finally {
       this.overrides.delete(base);
+    }
+    if (this.irType(then, b) === 'void') {
+      // `x?.f()` for a void call: run it when x is not nullish (no Maybe<void>).
+      const whole = b.local('$optional?', bt);
+      const read: Expr = { op: 'local', local: whole };
+      return {
+        op: 'with',
+        local: whole,
+        value: bv,
+        body: {
+          op: 'cond',
+          test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: 'boolean' },
+          then: { op: 'undefined', type: 'void' },
+          else: { op: 'with', local: tmp, value: { op: 'unwrap', value: read }, body: then },
+        },
+      };
     }
     if (!alreadyMaybe) then = { op: 'some', value: then };
     return { op: 'optional', value: bv, local: tmp, then };

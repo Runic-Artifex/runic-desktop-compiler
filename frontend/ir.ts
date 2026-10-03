@@ -20,6 +20,8 @@ export type Type =
   | { map: [Type, Type] }
   | { set: Type }
   | { fn: { params: Type[]; result: Type } }
+  /** An element handle (DOM ref). */
+  | 'element'
   | 'void';
 
 export type Literal = boolean | number | string;
@@ -177,6 +179,8 @@ export type Node =
       attrs?: Attr[];
       props?: Attr[];
       listeners?: Listener[];
+      /** A cell holding this element while mounted (null after removal). */
+      ref?: number;
       children?: Node[];
       source?: Source;
     }

@@ -606,6 +606,7 @@ impl Gen<'_> {
                     attrs,
                     props,
                     listeners,
+                    reference,
                     ..
                 } = node
                 else {
@@ -613,6 +614,18 @@ impl Gen<'_> {
                 };
                 o.fields.push((format!("n{key}"), "NodeId".into()));
                 let _ = writeln!(o.mount, "let n{key} = dom.element({});", rust_str(tag));
+                if let Some(r) = reference {
+                    // The ref holds the element while mounted and null afterwards.
+                    o.fields.push((format!("ri{key}"), format!("I{k}")));
+                    let _ = writeln!(
+                        o.mount,
+                        "let ri{key} = Rc::clone(inst); inst.borrow_mut().c.c{r} = Maybe::Some(js::Element(n{key}.as_u64()));"
+                    );
+                    let _ = writeln!(
+                        o.dispose,
+                        "{{ let mut st = s.ri{key}.borrow_mut(); if matches!(&st.c.c{r}, Maybe::Some(e) if e.0 == s.n{key}.as_u64()) {{ st.c.c{r} = Maybe::Null; }} }}"
+                    );
+                }
                 for (i, a) in attrs.iter().enumerate() {
                     let mut cx = self.ctx(k);
                     let ty = cx.ty(&a.value);
@@ -1127,6 +1140,10 @@ fn probe_json(t: &Type, v: &str) -> String {
         Type::Fn(_) => {
             format!("{{ let _ = &{v}; runic_runtime::Json::String(\"function\".into()) }}")
         }
+        // Element ids differ between the interpreter and the native app.
+        Type::Element => {
+            format!("{{ let _ = &{v}; runic_runtime::Json::String(\"element\".into()) }}")
+        }
     }
 }
 
@@ -1320,9 +1337,9 @@ pub fn generate(
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Option<(u64, bool)>, {live}{globals}}}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: None, {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1442,6 +1459,7 @@ pub fn generate(
          if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
          if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
          {restore}\
+         if let Some((node, on)) = self.cx.focus.take() {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          self.free(dom);\n\
          result.map_err(|e| e.to_string())\n}}\n\
          fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\

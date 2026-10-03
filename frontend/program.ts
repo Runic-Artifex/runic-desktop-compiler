@@ -7,6 +7,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export const RUNES = path.join(here, 'svelte-runes.d.ts');
 export const REACT = path.join(here, 'react.d.ts');
 export const VUE = path.join(here, 'vue.d.ts');
+/** DOM element interfaces for refs (always part of the program). */
+export const DOM = path.join(here, 'dom.d.ts');
 
 export const OPTIONS: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2023,
@@ -37,7 +39,11 @@ export function createProgram(files: Map<string, string>, extraRoots: string[] =
   host.fileExists = name => files.has(name) || exists(name);
   const readFile = host.readFile.bind(host);
   host.readFile = name => files.get(name) ?? readFile(name);
-  return ts.createProgram({ rootNames: [...files.keys(), ...extraRoots], options: OPTIONS, host });
+  return ts.createProgram({
+    rootNames: [...files.keys(), ...extraRoots, DOM],
+    options: OPTIONS,
+    host,
+  });
 }
 
 function scriptKind(name: string): ts.ScriptKind {

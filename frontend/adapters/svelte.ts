@@ -612,7 +612,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               `${rune} is planned for a later milestone (see docs/ROADMAP.md)`,
             );
           const cell = cells.length;
-          const type = types.of(d.name) as Type;
+          let type = types.of(d.name) as Type;
+          // An element (bind:this) is undefined until mounted and null after removal.
+          if (type === 'element') type = { maybe: 'element' };
           const tracking =
             rune === '$state'
               ? 'deep'
@@ -952,6 +954,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             a.value[0].data === 'checkbox',
         );
       let bound: { event: HandlerEvent; handler: ReturnType<Lowerer['bindHandler']> } | undefined;
+      let reference: number | undefined;
       for (const a of n.attributes) {
         if (a.type === 'Attribute') {
           const name: string = a.name;
@@ -1046,6 +1049,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             joined = joined ? { op: 'concat', left: joined, right: part } : part;
           }
           attrs.push({ name, value: joined ?? { op: 'lit', value: '' } });
+        } else if (a.type === 'BindDirective' && a.name === 'this') {
+          const target = exprNode(a.expression);
+          const b = ts.isIdentifier(target) ? lower.binding(target) : undefined;
+          if (
+            b?.kind !== 'cell' ||
+            JSON.stringify(cells[b.cell].type) !== JSON.stringify({ maybe: 'element' })
+          )
+            fail('E_TEMPLATE', 'bind:this needs a component variable of an element type', loc(a));
+          reference = (b as { cell: number }).cell;
         } else if (a.type === 'BindDirective') {
           const kind =
             a.name === 'value' && n.name === 'input' && !checkbox
@@ -1101,6 +1113,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ...(attrs.length ? { attrs } : {}),
         ...(props.length ? { props } : {}),
         ...(listeners.length ? { listeners } : {}),
+        ...(reference !== undefined ? { ref: reference } : {}),
         ...(n.fragment.nodes.length ? { children: children(n.fragment) } : {}),
         source: loc(n),
       };

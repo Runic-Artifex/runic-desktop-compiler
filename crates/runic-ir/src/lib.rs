@@ -162,6 +162,8 @@ pub enum Type {
     Map(Box<Type>, Box<Type>),
     Set(Box<Type>),
     Fn(FnType),
+    /// An element handle (DOM ref), compared by identity.
+    Element,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -183,6 +185,7 @@ impl Type {
             Type::Record(r) => format!("record#{r}"),
             Type::Map(k, v) => format!("Map<{}, {}>", k.name(), v.name()),
             Type::Set(t) => format!("Set<{}>", t.name()),
+            Type::Element => "element".into(),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params
@@ -948,6 +951,11 @@ pub enum Node {
         props: Vec<Attr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         listeners: Vec<Listener>,
+        /// A cell of type `element | null | undefined` that holds this
+        /// element while it is mounted and `null` after removal (bind:this,
+        /// React refs, Vue template refs).
+        #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+        reference: Option<usize>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         children: Vec<Node>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

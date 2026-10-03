@@ -182,6 +182,9 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "values" | "keys" => format!("js::array_ops::set_values(&{})", t[0]),
             other => unreachable!("validated set method {other}"),
         },
+        // Focus requests are applied by the runtime after the update.
+        ("element", "focus") => format!("{{ cx.focus = Some(({}.0, true)); }}", t[0]),
+        ("element", "blur") => format!("{{ cx.focus = Some(({}.0, false)); }}", t[0]),
         ("maybe", m) => {
             let is_maybe = matches!(types[0], Type::Maybe(_));
             match (m, is_maybe) {
