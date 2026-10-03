@@ -1360,9 +1360,9 @@ pub fn generate(
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Option<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, {live}{globals}}}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: None, timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1461,17 +1461,18 @@ pub fn generate(
          fn task(&mut self, dom: &mut Dom, event: bool, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
          self.cx.jobs.in_event = event;\n\
          let result = f(&mut self.cx);\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          self.cx.payload = None;\n\
          if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{\n{rollback}self.cx.jobs.clear();\nself.cx.jobs.in_event = false;\n// Re-synchronise controlled inputs.\nself.flush(dom);\nreturn result;\n}} }}\n\
          self.checkpoint(dom);\n\
          self.cx.jobs.in_event = false;\n\
          while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
-         if let Some((node, on)) = self.cx.focus.take() {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          result\n}}\n\
          fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} }}\n\
          fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
          match job {{\n\
-         runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n\
+         runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} }}\n\
          runic_runtime::Job::Flush => self.flush(dom),\n}}\n}}\n\
          /// The flush job: compute dirty cells since the last flush, commit render snapshots and update the DOM.\n\
          fn flush(&mut self, dom: &mut Dom) {{\n\
@@ -1482,7 +1483,7 @@ pub fn generate(
          if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
          if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
          {restore}\
-         if let Some((node, on)) = self.cx.focus.take() {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          self.free(dom);\n\
          {begin}\
          self.cx.jobs.flush_ended();\n\

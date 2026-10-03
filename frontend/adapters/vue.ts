@@ -16,7 +16,11 @@
 //   default content → parent-owned slot bodies with destructured slot props;
 // - checkboxes: `:checked` / `v-model` → the live checked property, `@change`
 //   (vModelCheckbox listens first); `@keydown` with withKeys key modifiers;
-//   duplicate listeners of one event run in order.
+//   duplicate listeners of one event run in order;
+// - template refs: `ref="name"` on an element binds a `ref()`/`shallowRef()`
+//   variable of that name or a `useTemplateRef('name')` to an element cell
+//   (set when the element mounts, null when it unmounts). Vue sets them in the
+//   post flush and re-renders readers, so they may be read in handlers only.
 import ts from 'typescript';
 import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
@@ -24,6 +28,7 @@ import type {
   Cell,
   Component,
   Expr,
+  Fn,
   Handler,
   Listener,
   Local,
@@ -859,6 +864,14 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   let emitSymbols = new Set<ts.Symbol>();
   /** Emit prop cells by handler key (`onRemove`). */
   let emitCells = new Map<string, number>();
+  /** Cells bound to an element by `ref="name"` (Vue writes them; code only reads). */
+  let templateRefCells = new Set<number>();
+  /** Reads of template refs (lowering order) of the current component. */
+  let refReadSites: { cell: number; node: ts.Node }[] = [];
+  /** Template-ref cells of each component and their reads. */
+  const templateRefsOf: { cells: Set<number>; reads: { cell: number; node: ts.Node }[] }[] = [];
+  /** The source node of each template-ref read (function bodies are copied when finished). */
+  const refReads = new WeakMap<object, ts.Node>();
   const vueCall = (e: ts.Expression | undefined): string | undefined => {
     if (!e || !ts.isCallExpression(e) || !ts.isIdentifier(e.expression)) return undefined;
     const s = checker.getSymbolAtLocation(e.expression);
@@ -882,7 +895,12 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           'E_MODEL',
           'Reading a model after writing it in the same function: Vue returns the old value until the parent re-renders; keep the written value in a local instead',
         );
-      return { op: 'cell', cell, read: 'current' };
+      const read: Expr = { op: 'cell', cell, read: 'current' };
+      if (templateRefCells.has(cell)) {
+        refReads.set(read, node);
+        refReadSites.push({ cell, node });
+      }
+      return read;
     },
     cellType: cell => cells[cell].type,
     writeCell(cell, value, ctx, node) {
@@ -892,6 +910,12 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           node,
           'E_PROPS',
           `Props are read-only in Vue (${c.prop}); emit an event or use defineModel`,
+        );
+      if (templateRefCells.has(cell))
+        tsFail(
+          node,
+          'E_REF',
+          `${c.name} is a template ref: Vue sets it when its element mounts and unmounts, so it is read-only here`,
         );
       if (modelCells.has(cell)) {
         if (!written.has(ctx)) written.set(ctx, new Set());
@@ -926,6 +950,12 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       }
       if (MACROS.has(callee.text) && vueCall(node))
         return tsFail(node, 'E_MACRO', `${callee.text} is a top-level <script setup> declaration`);
+      if (vueCall(node) === 'useTemplateRef')
+        return tsFail(
+          node,
+          'E_REF',
+          'useTemplateRef is supported as a top-level const declaration of <script setup>',
+        );
       return undefined;
     },
     statement(node, _ctx, lower) {
@@ -939,6 +969,23 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             : undefined;
       if (target && isPropsMember(target, lower))
         tsFail(target, 'E_PROPS', 'Props are read-only in Vue; emit an event or use defineModel');
+      // Template refs: rejected before the assigned value is lowered.
+      const t = target && skipParens(target);
+      const b =
+        t && ts.isIdentifier(t)
+          ? lower.binding(t)
+          : t &&
+              ts.isPropertyAccessExpression(t) &&
+              t.name.text === 'value' &&
+              ts.isIdentifier(t.expression)
+            ? lower.binding(t.expression)
+            : undefined;
+      if (b && (b.kind === 'cell' || b.kind === 'ref') && templateRefCells.has(b.cell))
+        tsFail(
+          t!,
+          'E_REF',
+          `${cells[b.cell].name} is a template ref: Vue sets it when its element mounts and unmounts, so it is read-only here`,
+        );
       return undefined;
     },
   };
@@ -950,6 +997,74 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   /** Slot prop names of each component, in the order of the slot's IR params. */
   const slotProps: Map<string, string[]>[] = [];
   for (const u of order) components[u.index] = lowerComponent(u);
+  rejectRenderRefReads();
+
+  /**
+   * Vue sets a template ref in the post flush (null synchronously on unmount)
+   * and re-renders what read it; the IR sets it while rendering, without a
+   * second render. So no code that runs while rendering may read one: template
+   * expressions, the functions and computeds they call and, when rendering
+   * calls function values, every closure.
+   */
+  function rejectRenderRefReads() {
+    if (!templateRefsOf.some(r => r?.cells.size)) return;
+    type Visit = (e: { op: string; [k: string]: unknown }) => void;
+    const visit = (x: unknown, f: Visit) => {
+      if (Array.isArray(x)) for (const y of x) visit(y, f);
+      else if (x && typeof x === 'object') {
+        if (typeof (x as { op?: unknown }).op === 'string') f(x as Parameters<Visit>[0]);
+        for (const y of Object.values(x)) visit(y, f);
+      }
+    };
+    const reached = new Set<number>();
+    const queue: number[] = [];
+    let dynamic = false;
+    const before = (a: Source, b: Source) =>
+      a.file === b.file && (a.line < b.line || (a.line === b.line && a.column <= b.column));
+    const scan = (root: unknown, component: number | undefined, fn?: Fn) =>
+      visit(root, e => {
+        if (e.op === 'call' && !reached.has(e.function as number)) {
+          reached.add(e.function as number);
+          queue.push(e.function as number);
+        } else if (e.op === 'call-value') dynamic = true;
+        else if (
+          e.op === 'cell' &&
+          component !== undefined &&
+          templateRefsOf[component]?.cells.has(e.cell as number)
+        ) {
+          const c = components[component].cells[e.cell as number];
+          // The read itself, or (in a copied function body) the first read of
+          // this ref after the start of the function.
+          const at =
+            refReads.get(e) ??
+            templateRefsOf[component].reads
+              .filter(r => r.cell === e.cell && fn?.source && before(fn.source, sourceOf(r.node)))
+              .map(r => r.node)
+              .sort((a, b) => (before(sourceOf(a), sourceOf(b)) ? -1 : 1))[0];
+          fail(
+            'E_REF',
+            `Template ref ${c.name} is read while rendering (in the template or a function or computed it calls): Vue sets template refs after rendering and renders again; read it in event handlers`,
+            at ? sourceOf(at) : (fn?.source ?? c.source),
+          );
+        }
+      });
+    const drain = () => {
+      while (queue.length) {
+        const f = lower.functions[queue.shift()!];
+        scan(f.body, f.component, f);
+      }
+    };
+    components.forEach((c, i) => scan(c.template, i));
+    drain();
+    if (!dynamic) return;
+    visit([components, lower.functions, lower.globals], e => {
+      if (e.op === 'closure' && !reached.has(e.function as number)) {
+        reached.add(e.function as number);
+        queue.push(e.function as number);
+      }
+    });
+    drain();
+  }
 
   function lowerComponent(u: Unit): Component {
     cells = [];
@@ -957,12 +1072,58 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     written = new Map();
     emitSymbols = new Set();
     emitCells = new Map();
+    templateRefCells = new Set();
+    refReadSites = [];
     const COMPONENT = u.index;
     const sf = program.getSourceFile(u.virtual)!;
     const loc = (n: VNode) => locate(u.original, n.loc?.start.offset ?? 0, u.rel);
     const statements = [...sf.statements].filter(s => s.getStart(sf) < u.scriptLength);
     const pending: (() => void)[] = [];
     const setupBindings = new Map<string, ts.Symbol>();
+
+    // Template refs (`ref="name"`), found before setup so writes can be rejected.
+    const refAttrs: { element: VNode; attr: VNode }[] = [];
+    const scanRefs = (list: VNode[], listed: boolean, slotted: boolean) => {
+      for (const n of list) {
+        if (n.type !== ELEMENT) continue;
+        const inList = listed || !!dir(n, 'for');
+        for (const p of n.props) {
+          if (p.type === DIRECTIVE && p.name === 'bind' && p.arg?.content === 'ref')
+            fail(
+              'E_REF',
+              'Function and dynamic template refs (:ref) are planned for a later milestone; use ref="name"',
+              loc(p),
+            );
+          if (p.type !== ATTRIBUTE || p.name !== 'ref') continue;
+          if (n.tagType === COMPONENT_TAG)
+            fail('E_REF', 'Component instance refs are planned for a later milestone', loc(p));
+          if (n.tagType !== PLAIN || n.tag === 'template')
+            fail('E_REF', `ref on <${n.tag}> is unsupported (refs bind elements)`, loc(p));
+          if (inList)
+            fail(
+              'E_REF',
+              'Template refs inside v-for collect arrays in Vue (ref_for); planned for a later milestone',
+              loc(p),
+            );
+          if (slotted)
+            fail(
+              'E_REF',
+              'Template refs in slot content are planned for a later milestone (the child may render the content more than once)',
+              loc(p),
+            );
+          if (!p.value?.content) fail('E_REF', 'ref needs a name', loc(p));
+          refAttrs.push({ element: n, attr: p });
+        }
+        const slotContent = n.tagType === COMPONENT_TAG && !!childName(u, n.tag);
+        scanRefs(n.children ?? [], inList, slotted || slotContent);
+      }
+    };
+    scanRefs(u.descriptor.template.ast.children, false, false);
+    /** Cells of ref()/shallowRef()/useTemplateRef() variables, and useTemplateRef keys. */
+    const refVars = new Map<ts.Symbol, number>();
+    const refKeys = new Map<string, number>();
+    /** The cell each element with `ref="name"` binds. */
+    const refOf = new Map<VNode, number>();
 
     /** A prop default: `withDefaults`/`default:` factories are called for non-function props. */
     const defaultValue = (e: ts.Expression, type: Type, name: string, factory: boolean): Expr => {
@@ -1152,7 +1313,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           if (named && ts.isNamedImports(named))
             for (const el of named.elements) {
               const n = (el.propertyName ?? el.name).text;
-              if (!['ref', 'computed', 'shallowRef'].includes(n))
+              if (!['ref', 'computed', 'shallowRef', 'useTemplateRef'].includes(n))
                 tsFail(el, 'E_CAPABILITY', `vue:${n} is planned for M3/M4`);
             }
           continue;
@@ -1228,6 +1389,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               source: sourceOf(d),
             });
             lower.bindings.set(sym, { kind: 'ref', cell });
+            refVars.set(sym, cell);
             pending.push(() => {
               const arg = call.arguments[0];
               if (!arg) return;
@@ -1235,6 +1397,40 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               const v = lower.value(arg, COMPONENT, `${name}$init`);
               cells[cell].init = coerceInit(v, lower.valueType(v), type);
             });
+            continue;
+          }
+          if (kind === 'useTemplateRef') {
+            // A shallowRef(null) that Vue writes through `refs[key]`.
+            const [key, extra] = (init as ts.CallExpression).arguments;
+            if (!key || extra || !ts.isStringLiteralLike(key))
+              tsFail(
+                init!,
+                'E_REF',
+                'useTemplateRef takes a literal key: useTemplateRef<T>("name")',
+              );
+            const k = (key as ts.StringLiteralLike).text;
+            if (refKeys.has(k))
+              tsFail(key, 'E_REF', `useTemplateRef("${k}") is declared twice (Vue throws)`);
+            const typeArg = (init as ts.CallExpression).typeArguments?.[0];
+            const type: Type = { maybe: 'element' };
+            // DOM element interfaces (frontend/dom.d.ts) carry `__runicElement`.
+            if (!typeArg || !checker.getTypeFromTypeNode(typeArg).getProperty('__runicElement'))
+              tsFail(
+                init!,
+                'E_REF',
+                `useTemplateRef needs an element type argument: useTemplateRef<HTMLInputElement>("${k}")`,
+              );
+            const cell = cells.length;
+            cells.push({
+              name,
+              type,
+              init: { op: 'null', type },
+              tracking: 'identity',
+              source: sourceOf(d),
+            });
+            lower.bindings.set(sym, { kind: 'ref', cell });
+            refVars.set(sym, cell);
+            refKeys.set(k, cell);
             continue;
           }
           if (kind === 'computed') {
@@ -1274,6 +1470,49 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         'Setup supports const declarations, functions and imports from vue (watchers/lifecycle are M4)',
       );
     }
+    // `ref="name"` binds the setup ref `name` (compiled to ref_key) and the
+    // useTemplateRef with key `name` (through `refs[name]`).
+    for (const { element, attr } of refAttrs) {
+      const name: string = attr.value.content;
+      const own = setupBindings.get(name);
+      const byName = own && refVars.get(own);
+      const byKey = refKeys.get(name);
+      if (own && byName === undefined)
+        fail(
+          'E_REF',
+          `${name} is not a ref: template refs bind ref()/shallowRef()/useTemplateRef() declarations`,
+          loc(attr),
+        );
+      if (byName !== undefined && byKey !== undefined && byName !== byKey)
+        fail(
+          'E_REF',
+          `ref="${name}" names a ref and the key of another useTemplateRef (Vue versions bind it differently)`,
+          loc(attr),
+        );
+      const cell =
+        byName ??
+        byKey ??
+        fail(
+          'E_REF',
+          `No ref() or useTemplateRef("${name}") declares the template ref ${name}`,
+          loc(attr),
+        );
+      if (!sameType(cells[cell].type, { maybe: 'element' }))
+        fail(
+          'E_REF',
+          `Template ref ${name} needs an element type: ref<HTMLInputElement | null>(null) or useTemplateRef<HTMLInputElement>("${name}")`,
+          loc(attr),
+        );
+      if (templateRefCells.has(cell))
+        fail(
+          'E_REF',
+          `${cells[cell].name} is bound by two elements (Vue keeps the last mounted one); one element per template ref is supported`,
+          loc(attr),
+        );
+      templateRefCells.add(cell);
+      refOf.set(element, cell);
+    }
+    templateRefsOf[COMPONENT] = { cells: templateRefCells, reads: refReadSites };
     for (const p of pending) p();
 
     // Template-scope bindings: unwrapped setup bindings, props, $emit.
@@ -1912,6 +2151,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       };
       for (const p of n.props) {
         if (p.type === ATTRIBUTE) {
+          if (p.name === 'ref') continue; // a reserved prop: the template ref (refOf)
           if (checkbox && p.name === 'checked') {
             // Vue sets checked as a DOM property ('' → true), not an attribute.
             checked({ op: 'lit', value: true }, p);
@@ -2047,6 +2287,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         ...(attrs.length ? { attrs } : {}),
         ...(props.length ? { props } : {}),
         ...(listeners.length ? { listeners } : {}),
+        ...(refOf.has(n) ? { ref: refOf.get(n)! } : {}),
         ...(n.children.length ? { children: children(n.children) } : {}),
         source: loc(n),
       };

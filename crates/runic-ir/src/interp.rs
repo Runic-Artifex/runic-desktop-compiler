@@ -459,6 +459,10 @@ pub struct Machine<'p> {
     order: Vec<usize>,
     /// Stable ids of rendered elements with refs, by identity.
     element_ids: HashMap<(InstKey, usize), u64>,
+    /// Elements with refs rendered by the running render (an element that
+    /// is not rendered loses its id: a remounted element is a new node).
+    rendered_elements: HashSet<(InstKey, usize)>,
+    next_element: u64,
     /// Ref cells set by the last render: (instance, cell) → element id.
     refs: HashMap<(usize, usize), u64>,
     /// The snapshot `snapshot` reads use while a closure runs (otherwise the
@@ -504,6 +508,8 @@ impl<'p> Machine<'p> {
             instances: vec![],
             via: vec![],
             element_ids: HashMap::new(),
+            rendered_elements: HashSet::new(),
+            next_element: 0,
             refs: HashMap::new(),
             current: 0,
             payload: None,
@@ -1507,7 +1513,10 @@ impl<'p> Machine<'p> {
         let mut visited = HashSet::new();
         let mut out = vec![];
         let previous = std::mem::take(&mut self.refs);
+        self.rendered_elements.clear();
         let result = self.render_instance(0, &mut out, &mut visited);
+        let rendered = std::mem::take(&mut self.rendered_elements);
+        self.element_ids.retain(|k, _| rendered.contains(k));
         // Refs of elements that are no longer rendered become null.
         for ((inst, cell), id) in previous {
             if !self.refs.contains_key(&(inst, cell))
@@ -1737,8 +1746,15 @@ impl<'p> Machine<'p> {
                         },
                         0,
                     );
-                    let next = self.element_ids.len() as u64 + 1;
-                    let id = *self.element_ids.entry(key).or_insert(next);
+                    let id = match self.element_ids.get(&key) {
+                        Some(&id) => id,
+                        None => {
+                            self.next_element += 1;
+                            self.element_ids.insert(key.clone(), self.next_element);
+                            self.next_element
+                        }
+                    };
+                    self.rendered_elements.insert(key);
                     let current = self.current;
                     self.instances[current].cells[*cell] = Val::Element(js::Element(id));
                     self.refs.insert((current, *cell), id);

@@ -44,6 +44,15 @@ export function App() {
         >
           Focus details
         </button>
+        <button
+          id="hide-focus"
+          onClick={() => {
+            setShow(false);
+            details.current?.focus();
+          }}
+        >
+          Hide and focus
+        </button>
       </div>
       {show && (
         <p>
