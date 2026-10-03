@@ -522,6 +522,10 @@ export class Lowerer {
           if (!ts.isIdentifier(v.name))
             this.fail(v, 'E_STATEMENT', 'Destructured catch bindings are planned for later');
           local = b.local((v.name as ts.Identifier).text, { record: this.errorRecord() });
+          // `unknown` in TypeScript; our thrown values are Error records.
+          this.types.override(this.checker.getSymbolAtLocation(v.name)!, {
+            record: this.errorRecord(),
+          });
           this.bindings.set(this.checker.getSymbolAtLocation(v.name)!, {
             kind: 'local',
             owner: b,
@@ -630,7 +634,11 @@ export class Lowerer {
         // Pass 2: no case matched → start at default and fall through the rest.
         const start = clauses.findIndex(ts.isDefaultClause);
         const rest = clauses.slice(start).flatMap(c => this.block(c.statements, b));
-        body.push(...rest);
+        body.push({
+          op: 'if',
+          test: { op: 'not', arg: { op: 'local', local: matched } },
+          then: rest,
+        });
       }
       body.push({ op: 'break', label });
       return [
@@ -683,6 +691,22 @@ export class Lowerer {
         out.push({ op: 'let', local, value });
       } else out.push(...this.destructure(name, value, t, b));
     };
+    if (
+      ts.isObjectBindingPattern(pattern) &&
+      (type === 'string' || (typeof type === 'object' && 'array' in type))
+    ) {
+      for (const el of pattern.elements) {
+        const key = (el.propertyName ?? el.name) as ts.Identifier;
+        if (!ts.isIdentifier(key) || key.text !== 'length' || el.dotDotDotToken)
+          this.fail(el, 'E_DESTRUCTURE', 'Only length can be destructured from strings and arrays');
+        const length: Expr =
+          type === 'string'
+            ? { op: 'utf16-length', arg: source }
+            : { op: 'builtin', name: 'array.length', args: [source], type: NUMBER };
+        bind(el.name, length, NUMBER, el.initializer);
+      }
+      return out;
+    }
     if (ts.isObjectBindingPattern(pattern)) {
       if (typeof type !== 'object' || !('record' in type))
         this.fail(pattern, 'E_DESTRUCTURE', 'Object destructuring requires a record value');
@@ -715,17 +739,18 @@ export class Lowerer {
           );
           return;
         }
-        bind(
-          el.name,
-          {
-            op: 'builtin',
-            name: 'array.get',
-            args: [source, { op: 'lit', value: i }],
-            type: { maybe: element },
-          },
-          element,
-          el.initializer,
-        );
+        const declared = this.types.typeOrUndefined(el.name);
+        const maybe = typeof declared === 'object' && 'maybe' in declared;
+        const read: Expr =
+          el.initializer || maybe
+            ? {
+                op: 'builtin',
+                name: 'array.get',
+                args: [source, { op: 'lit', value: i }],
+                type: { maybe: element },
+              }
+            : { op: 'index', array: source, index: { op: 'lit', value: i } };
+        bind(el.name, read, element, el.initializer);
       });
     }
     return out;
@@ -803,7 +828,7 @@ export class Lowerer {
 
   private place(target: ts.Expression, b: FnBuilder): Place {
     if (ts.isPropertyAccessExpression(target)) {
-      const type = this.types.of(target.expression);
+      const type = this.typeAt(target.expression);
       if (typeof type === 'object' && 'record' in type)
         return {
           place: 'field',
@@ -812,7 +837,7 @@ export class Lowerer {
         };
     }
     if (ts.isElementAccessExpression(target)) {
-      const type = this.types.of(target.expression);
+      const type = this.typeAt(target.expression);
       if (typeof type === 'object' && 'array' in type)
         return {
           place: 'index',
@@ -856,6 +881,12 @@ export class Lowerer {
 
   expr(e: ts.Expression, b: FnBuilder): Expr {
     const K = ts.SyntaxKind;
+    const override = this.overrides.get(e);
+    if (override) return override.expr;
+    if (ts.isOptionalChain(e)) {
+      const link = this.pendingLink(e);
+      if (link) return this.optionalChain(e, link, b);
+    }
     switch (e.kind) {
       case K.ParenthesizedExpression:
       case K.AsExpression:
@@ -946,7 +977,8 @@ export class Lowerer {
     const inner = skipParens(e);
     if (ts.isArrayLiteralExpression(inner) || ts.isObjectLiteralExpression(inner)) {
       const ctx = this.checker.getContextualType(inner);
-      if (ctx) return this.types.map(ctx, inner);
+      // The literal itself is never nullish, even where the context allows it.
+      if (ctx) return this.types.map(this.checker.getNonNullableType(ctx), inner);
     }
     return this.types.of(e);
   }
@@ -980,15 +1012,23 @@ export class Lowerer {
   private identifier(id: ts.Identifier, b: FnBuilder): Expr {
     if (id.text === 'undefined' && !this.binding(id))
       return { op: 'undefined', type: this.contextual(id) };
-    if (id.text === 'NaN' && !this.binding(id)) return { op: 'lit', value: Number.NaN };
+    // NaN cannot be a JSON literal.
+    if (id.text === 'NaN' && !this.binding(id))
+      return { op: 'builtin', name: 'Number.NaN', args: [], type: NUMBER };
     if (id.text === 'Infinity' && !this.binding(id))
       return { op: 'builtin', name: 'Number.POSITIVE_INFINITY', args: [], type: NUMBER };
     const binding = this.binding(id);
     if (!binding)
       return this.fail(id, 'E_UNRESOLVED', `${id.text} is not a supported binding here`);
+    return this.bindingExpr(binding, id, b);
+  }
+
+  /** The expression reading `binding` at `id` (narrowed to the type TypeScript sees there). */
+  bindingExpr(binding: Binding, id: ts.Identifier, b: FnBuilder, here?: Type): Expr {
     // TypeScript narrows `T | undefined` to `T` after checks; unwrap there.
     const narrow = (e: Expr, declared: Type): Expr => {
-      const here = this.types.of(id);
+      here ??= this.types.typeOrUndefined(id);
+      if (here === undefined) return e;
       return typeof declared === 'object' &&
         'maybe' in declared &&
         !(typeof here === 'object' && 'maybe' in here) &&
@@ -1208,7 +1248,6 @@ export class Lowerer {
   }
 
   private property(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
-    if (e.questionDotToken) return this.optional(e, b);
     const name = e.name.text;
     const global = this.globalName(e.expression);
     if (global === 'Math' || global === 'Number')
@@ -1233,7 +1272,7 @@ export class Lowerer {
         'Event objects are supported only as e.target.value / e.currentTarget.value in input handlers',
       );
     }
-    const t = this.types.of(e.expression);
+    const t = this.typeAt(e.expression);
     const object = this.expr(e.expression, b);
     const kind = this.receiverKind(t);
     if (kind === 'record')
@@ -1248,13 +1287,109 @@ export class Lowerer {
     return this.fail(e, 'E_MEMBER', `Unsupported property ${name} on ${kind ?? 'this value'}`);
   }
 
-  /** a?.b and a?.b(...): planned within M2 (needs chain-aware typing). */
-  private optional(e: ts.Expression, _b: FnBuilder): Expr {
-    return this.fail(e, 'E_OPTIONAL', 'Optional chaining is not lowered yet');
+  // Optional chaining ---------------------------------------------------------
+  //
+  // The innermost pending `?.` link is lowered first: its base is evaluated,
+  // bound to a temporary and substituted (`overrides`) while the rest of the
+  // chain is lowered; outer `?.` links resolve recursively. Chain members are
+  // typed with their own declared types (without the chain's short-circuit
+  // `undefined`).
+
+  private readonly overrides = new Map<ts.Node, { expr: Expr; type: Type }>();
+
+  /** The IR type of a node, honouring chain substitutions and link types. */
+  typeAt(n: ts.Expression): Type {
+    const o = this.overrides.get(n);
+    if (o) return o.type;
+    return ts.isOptionalChain(n) ? this.nodeType(n) : this.types.of(n);
+  }
+
+  /** The type of a chain link as if its base were present. */
+  nodeType(n: ts.Expression): Type {
+    if (!ts.isOptionalChain(n)) return this.types.of(n);
+    if (ts.isCallExpression(n)) {
+      // The resolved signature of an optional call has `undefined` added;
+      // use the callee member's declared signature instead.
+      if (ts.isPropertyAccessExpression(n.expression)) {
+        const sym = this.checker.getSymbolAtLocation(n.expression.name);
+        const sigs =
+          sym && this.checker.getTypeOfSymbolAtLocation(sym, n.expression).getCallSignatures();
+        if (sigs?.length === 1) return this.types.map(sigs[0].getReturnType(), n);
+      }
+      const sig = this.checker.getResolvedSignature(n);
+      if (sig) return this.types.map(sig.getReturnType(), n);
+    }
+    if (ts.isPropertyAccessExpression(n)) {
+      const sym = this.checker.getSymbolAtLocation(n.name);
+      if (sym) {
+        let t = this.checker.getTypeOfSymbolAtLocation(sym, n);
+        if (sym.flags & ts.SymbolFlags.Optional)
+          t = this.checker.getNullableType(t, ts.TypeFlags.Undefined);
+        return this.types.map(t, n);
+      }
+    }
+    if (ts.isElementAccessExpression(n)) {
+      const base = this.typeAt(n.expression);
+      if (typeof base === 'object' && 'array' in base) return base.array;
+    }
+    if (ts.isNonNullExpression(n)) {
+      const inner = this.typeAt(n.expression);
+      return typeof inner === 'object' && 'maybe' in inner ? inner.maybe : inner;
+    }
+    return this.types.of(n);
+  }
+
+  /** The innermost `?.` link of the chain ending at `e` whose base is not yet substituted. */
+  private pendingLink(e: ts.Expression): ts.Expression | undefined {
+    let found: ts.Expression | undefined;
+    let cur: ts.Expression = e;
+    while (
+      ts.isPropertyAccessExpression(cur) ||
+      ts.isElementAccessExpression(cur) ||
+      ts.isCallExpression(cur) ||
+      ts.isNonNullExpression(cur)
+    ) {
+      if (this.overrides.has(cur)) break;
+      if ('questionDotToken' in cur && cur.questionDotToken && !this.overrides.has(cur.expression))
+        found = cur;
+      if (!ts.isOptionalChain(cur)) break;
+      cur = cur.expression;
+    }
+    return found;
+  }
+
+  private optionalChain(e: ts.Expression, link: ts.Expression, b: FnBuilder): Expr {
+    const base = (link as ts.PropertyAccessExpression).expression;
+    const bt = this.typeAt(base);
+    const bv = this.expr(base, b);
+    if (!(typeof bt === 'object' && 'maybe' in bt)) {
+      // `?.` on a value that cannot be nullish behaves like `.`.
+      this.overrides.set(base, { expr: bv, type: bt });
+      try {
+        return this.expr(e, b);
+      } finally {
+        this.overrides.delete(base);
+      }
+    }
+    const tmp = b.local('$optional', bt.maybe);
+    this.overrides.set(base, { expr: { op: 'local', local: tmp }, type: bt.maybe });
+    let then: Expr;
+    let alreadyMaybe: boolean;
+    try {
+      // A further `?.` in the chain makes the rest a Maybe already.
+      const nested = this.pendingLink(e) !== undefined;
+      then = this.expr(e, b);
+      const thenType = this.typeAt(e);
+      alreadyMaybe = nested || (typeof thenType === 'object' && 'maybe' in thenType);
+    } finally {
+      this.overrides.delete(base);
+    }
+    if (!alreadyMaybe) then = { op: 'some', value: then };
+    return { op: 'optional', value: bv, local: tmp, then };
   }
 
   private element(e: ts.ElementAccessExpression, b: FnBuilder): Expr {
-    const t = this.types.of(e.expression);
+    const t = this.typeAt(e.expression);
     const kind = this.receiverKind(t);
     const object = this.expr(e.expression, b);
     if (kind === 'array')
@@ -1282,12 +1417,11 @@ export class Lowerer {
   private call(e: ts.CallExpression, b: FnBuilder): Expr {
     const custom = this.hooks.call?.(e, b, this);
     if (custom) return custom;
-    if (
-      e.questionDotToken ||
-      (ts.isPropertyAccessExpression(e.expression) && e.expression.questionDotToken)
-    )
-      return this.optional(e, b);
-    const result = this.types.of(e);
+    const isJsonParse =
+      ts.isPropertyAccessExpression(e.expression) &&
+      e.expression.name.text === 'parse' &&
+      this.globalName(e.expression.expression) === 'JSON';
+    const result = isJsonParse ? 'void' : this.nodeType(e);
     const args = () => e.arguments.map(a => this.expr(a, b));
     const callee = e.expression;
     if (ts.isIdentifier(callee)) {
@@ -1304,9 +1438,19 @@ export class Lowerer {
     if (ts.isPropertyAccessExpression(callee)) {
       const method = callee.name.text;
       const global = this.globalName(callee.expression);
+      if (global === 'JSON' && method === 'parse') {
+        const ctx = this.checker.getContextualType(e);
+        if (!ctx)
+          this.fail(
+            e,
+            'E_TYPE_UNSUPPORTED',
+            'JSON.parse needs a declared result type (e.g. const v: Item = JSON.parse(text))',
+          );
+        return { op: 'builtin', name: 'JSON.parse', args: args(), type: this.types.map(ctx!, e) };
+      }
       if (global && STATIC_NAMESPACES.has(global))
         return { op: 'builtin', name: `${global}.${method}`, args: args(), type: result };
-      const t = this.types.of(callee.expression);
+      const t = this.typeAt(callee.expression);
       const kind = this.receiverKind(t);
       if (kind === 'record') {
         // A function-valued field.
@@ -1338,9 +1482,8 @@ export class Lowerer {
   private newExpression(e: ts.NewExpression, b: FnBuilder): Expr {
     const global = this.globalName(e.expression);
     const args = (e.arguments ?? []).map(a => this.expr(a, b));
-    const type = this.types.of(e);
     if (global === 'Map' || global === 'Set')
-      return { op: 'builtin', name: `${global}.new`, args, type };
+      return { op: 'builtin', name: `${global}.new`, args, type: this.exprType(e) };
     if (global && ['Error', 'TypeError', 'RangeError', 'SyntaxError'].includes(global))
       return {
         op: 'record',
@@ -1391,7 +1534,7 @@ export class Lowerer {
         const sym = this.checker.getShorthandAssignmentValueSymbol(p);
         const binding = sym && this.bindings.get(sym);
         value = binding
-          ? this.identifier(p.name, b)
+          ? this.bindingExpr(binding, p.name, b, this.types.of(p.name))
           : this.fail(p, 'E_UNRESOLVED', `${name} is not a supported binding`);
         const vt = this.types.of(p.name);
         if (

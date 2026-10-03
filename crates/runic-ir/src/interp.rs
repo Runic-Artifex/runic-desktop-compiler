@@ -220,23 +220,34 @@ enum Flow {
 
 type Res<T> = std::result::Result<T, Throw>;
 
+/// Function locals. Each slot holds a binding; closures share boxed bindings
+/// and copy the values of unboxed ones (which are never reassigned).
 struct Frame {
-    locals: Vec<Rc<RefCell<Val>>>,
+    locals: RefCell<Vec<Rc<RefCell<Val>>>>,
 }
 
 impl Frame {
     fn new(n: usize) -> Self {
         Frame {
-            locals: (0..n)
-                .map(|_| Rc::new(RefCell::new(Val::Undefined)))
-                .collect(),
+            locals: RefCell::new(
+                (0..n)
+                    .map(|_| Rc::new(RefCell::new(Val::Undefined)))
+                    .collect(),
+            ),
         }
     }
     fn get(&self, i: usize) -> Val {
-        self.locals[i].borrow().clone()
+        self.locals.borrow()[i].borrow().clone()
     }
     fn set(&self, i: usize, v: Val) {
-        *self.locals[i].borrow_mut() = v;
+        *self.locals.borrow()[i].borrow_mut() = v;
+    }
+    /// A fresh binding (`let` executed again, loop iteration).
+    fn rebind(&self, i: usize, v: Val) {
+        self.locals.borrow_mut()[i] = Rc::new(RefCell::new(v));
+    }
+    fn binding(&self, i: usize) -> Rc<RefCell<Val>> {
+        Rc::clone(&self.locals.borrow()[i])
     }
 }
 
@@ -499,10 +510,24 @@ impl<'p> Machine<'p> {
                     .collect::<Res<Vec<_>>>()?;
                 self.call_value(&c, values)?
             }
-            Closure { function, captures } => Val::Closure(Rc::new(self::Closure {
-                function: *function,
-                captures: captures.iter().map(|&c| Rc::clone(&f.locals[c])).collect(),
-            })),
+            Closure { function, captures } => {
+                let target = &self.program.functions[*function];
+                let captures = captures
+                    .iter()
+                    .zip(&target.captures)
+                    .map(|(&c, l)| {
+                        if l.boxed {
+                            f.binding(c)
+                        } else {
+                            Rc::new(RefCell::new(f.get(c)))
+                        }
+                    })
+                    .collect();
+                Val::Closure(Rc::new(self::Closure {
+                    function: *function,
+                    captures,
+                }))
+            }
             Builtin { name, args, ty } => {
                 let values = args
                     .iter()
@@ -546,9 +571,8 @@ impl<'p> Machine<'p> {
     fn call(&mut self, index: usize, captures: Vec<Rc<RefCell<Val>>>, args: Vec<Val>) -> Res<Val> {
         let func = &self.program.functions[index];
         let frame = Frame::new(func.local_count());
-        let mut frame = frame;
         for (i, c) in captures.into_iter().enumerate() {
-            frame.locals[i] = c;
+            frame.locals.borrow_mut()[i] = c;
         }
         for (i, a) in args.into_iter().enumerate() {
             frame.set(func.captures.len() + i, a);
@@ -621,8 +645,7 @@ impl<'p> Machine<'p> {
                     None => Val::Undefined,
                 };
                 // A fresh binding per execution (closures capture the binding).
-                let _ = &f.locals[*local];
-                f.set(*local, v);
+                f.rebind(*local, v);
             }
             Stmt::Assign { target, value, .. } => {
                 let v = self.eval(value, f)?;
@@ -680,7 +703,7 @@ impl<'p> Machine<'p> {
                     other => panic!("validated iterable, found {other:?}"),
                 };
                 for item in items {
-                    f.set(*local, item);
+                    f.rebind(*local, item);
                     match self.exec_block(body, f)? {
                         Flow::Break(l) if l.is_none() || l == *label => break,
                         Flow::Continue(l) if l.is_none() || l == *label => {}

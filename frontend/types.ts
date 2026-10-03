@@ -18,8 +18,42 @@ export class TypeMapper {
   }
 
   /** The IR type of the value of `node`. */
+  private overrides = new Map<ts.Symbol, Type>();
+
+  /** Give a symbol an IR type that TypeScript does not know (e.g. catch bindings). */
+  override(symbol: ts.Symbol, type: Type) {
+    this.overrides.set(symbol, type);
+  }
+
   of(node: ts.Node): Type {
+    const o = this.overridden(node);
+    if (o) return o;
     return this.map(this.checker.getTypeAtLocation(node), node);
+  }
+
+  /** Like `of`, but undefined instead of failing on any/unknown. */
+  typeOrUndefined(node: ts.Node): Type | undefined {
+    const o = this.overridden(node);
+    if (o) return o;
+    const t = this.checker.getTypeAtLocation(node);
+    if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+    return this.map(t, node);
+  }
+
+  private overridden(node: ts.Node): Type | undefined {
+    if (ts.isIdentifier(node)) {
+      const s = this.checker.getSymbolAtLocation(node);
+      return s && this.overrides.get(s);
+    }
+    // `e.message` on an overridden record.
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+      const base = this.overridden(node.expression);
+      if (typeof base === 'object' && 'record' in base) {
+        const field = this.records[base.record].fields.find(f => f.name === node.name.text);
+        if (field) return field.type;
+      }
+    }
+    return undefined;
   }
 
   map(t: ts.Type, at: ts.Node): Type {
