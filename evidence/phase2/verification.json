@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "status": "incomplete",
+  "checks": [
+    {
+      "name": "compiler-tests",
+      "status": "passed",
+      "tests": 29
+    },
+    {
+      "name": "mapping-registry",
+      "status": "passed",
+      "rules": [
+        {
+          "id": "bounded-increase",
+          "version": 1,
+          "sha256": "1b7a9380d96bf1c0c0163e5e971b9f83cfa9cc2f1187be085fee321a134b85f6"
+        },
+        {
+          "id": "pure-clamp",
+          "version": 2,
+          "sha256": "0b532b5482d008c584903a2cef37ac57276c63e17c69b610efafe87f9fa8884d"
+        }
+      ]
+    },
+    {
+      "name": "native-regression",
+      "status": "passed",
+      "cases": 9228,
+      "builds": 16
+    },
+    {
+      "name": "editor-optimization-parity",
+      "status": "passed",
+      "tracePairs": 30,
+      "pixelIdentical": true
+    },
+    {
+      "name": "additional-framework-version",
+      "status": "passed",
+      "versions": [
+        "3.5.43",
+        "3.5.24"
+      ],
+      "apps": 2,
+      "sharedRustBehavior": true
+    },
+    {
+      "name": "browser-conformance",
+      "status": "passed",
+      "finiteCases": 948,
+      "editingScenarios": 39,
+      "editingSteps": 264,
+      "geometryTolerancePx": 2,
+      "route": "Original framework execution with programmatic browser actions versus native internal events"
+    },
+    {
+      "name": "native-editing-probe",
+      "status": "passed",
+      "checks": 14,
+      "route": "internal EventDriver; no OS input"
+    },
+    {
+      "name": "browser-keyboard-boundary",
+      "status": "passed",
+      "apps": 2,
+      "route": "T3 browser preview_press keyboard actions on original framework apps; native OS keyboard is a separate incomplete gate"
+    },
+    {
+      "name": "engine-dependency-scan",
+      "status": "passed"
+    },
+    {
+      "name": "pixel-comparison",
+      "status": "passed",
+      "pairs": 24,
+      "tolerance8Bit": 3,
+      "archivedBrowserReferences": 16
+    },
+    {
+      "name": "fresh-install",
+      "status": "passed",
+      "apps": 4,
+      "engineFree": true
+    },
+    {
+      "name": "phase0-archives",
+      "status": "passed",
+      "unchanged": true
+    },
+    {
+      "name": "os-keyboard-platform-ime-wayland-resize",
+      "status": "incomplete",
+      "evidence": "evidence/phase2/native/os-input.json"
+    }
+  ]
+}

@@ -1,0 +1,509 @@
+[
+  {
+    "elements": {
+      "clear": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 42,
+          "width": 71,
+          "x": 32,
+          "y": 192
+        },
+        "text": "Clear"
+      },
+      "count": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 152
+        },
+        "text": "0"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 250
+        },
+        "text": "Stable editor identity"
+      },
+      "editor": {
+        "class": "",
+        "composing": false,
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 42,
+          "width": 260,
+          "x": 32,
+          "y": 94
+        },
+        "selectionEnd": 0,
+        "selectionStart": 0,
+        "text": "",
+        "value": ""
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30,
+          "width": 736,
+          "x": 32,
+          "y": 40
+        },
+        "text": "Native text editor"
+      },
+      "lock": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 42,
+          "width": 66,
+          "x": 103,
+          "y": 192
+        },
+        "text": "Lock"
+      },
+      "preview": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(12v1)",
+        "rect": {
+          "height": 0,
+          "width": 736,
+          "x": 32,
+          "y": 152
+        },
+        "text": ""
+      },
+      "readonly": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42,
+          "width": 104,
+          "x": 169,
+          "y": 192
+        },
+        "text": "Read only"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42,
+          "width": 131,
+          "x": 273,
+          "y": 192
+        },
+        "text": "Toggle details"
+      }
+    },
+    "focused": null,
+    "irHash": "44a96b0c1bd92cae799030da00adcb02a95f930d74568ad634f397a13d1f8993",
+    "state": [
+      "",
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "action": {
+      "kind": "focus"
+    },
+    "elements": {
+      "clear": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 42,
+          "width": 71,
+          "x": 32,
+          "y": 192
+        },
+        "text": "Clear"
+      },
+      "count": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 152
+        },
+        "text": "0"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 250
+        },
+        "text": "Stable editor identity"
+      },
+      "editor": {
+        "class": "",
+        "composing": false,
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 42,
+          "width": 260,
+          "x": 32,
+          "y": 94
+        },
+        "selectionEnd": 0,
+        "selectionStart": 0,
+        "text": "",
+        "value": ""
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30,
+          "width": 736,
+          "x": 32,
+          "y": 40
+        },
+        "text": "Native text editor"
+      },
+      "lock": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 42,
+          "width": 66,
+          "x": 103,
+          "y": 192
+        },
+        "text": "Lock"
+      },
+      "preview": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(12v1)",
+        "rect": {
+          "height": 0,
+          "width": 736,
+          "x": 32,
+          "y": 152
+        },
+        "text": ""
+      },
+      "readonly": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42,
+          "width": 104,
+          "x": 169,
+          "y": 192
+        },
+        "text": "Read only"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42,
+          "width": 131,
+          "x": 273,
+          "y": 192
+        },
+        "text": "Toggle details"
+      }
+    },
+    "focused": "editor",
+    "irHash": "44a96b0c1bd92cae799030da00adcb02a95f930d74568ad634f397a13d1f8993",
+    "state": [
+      "",
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "action": {
+      "kind": "payload",
+      "value": "é😀"
+    },
+    "elements": {
+      "clear": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 42,
+          "width": 71,
+          "x": 32,
+          "y": 232
+        },
+        "text": "Clear"
+      },
+      "count": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 192
+        },
+        "text": "3"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 290
+        },
+        "text": "Stable editor identity"
+      },
+      "editor": {
+        "class": "",
+        "composing": false,
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 42,
+          "width": 260,
+          "x": 32,
+          "y": 94
+        },
+        "selectionEnd": 3,
+        "selectionStart": 3,
+        "text": "",
+        "value": "é😀"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30,
+          "width": 736,
+          "x": 32,
+          "y": 40
+        },
+        "text": "Native text editor"
+      },
+      "lock": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 42,
+          "width": 66,
+          "x": 103,
+          "y": 232
+        },
+        "text": "Lock"
+      },
+      "preview": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(12v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 152
+        },
+        "text": "é😀"
+      },
+      "readonly": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42,
+          "width": 104,
+          "x": 169,
+          "y": 232
+        },
+        "text": "Read only"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42,
+          "width": 131,
+          "x": 273,
+          "y": 232
+        },
+        "text": "Toggle details"
+      }
+    },
+    "focused": "editor",
+    "irHash": "44a96b0c1bd92cae799030da00adcb02a95f930d74568ad634f397a13d1f8993",
+    "state": [
+      "é😀",
+      false,
+      false,
+      true
+    ]
+  },
+  {
+    "action": {
+      "id": "clear",
+      "kind": "click"
+    },
+    "elements": {
+      "clear": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 42,
+          "width": 71,
+          "x": 32,
+          "y": 192
+        },
+        "text": "Clear"
+      },
+      "count": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 152
+        },
+        "text": "0"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24,
+          "width": 736,
+          "x": 32,
+          "y": 250
+        },
+        "text": "Stable editor identity"
+      },
+      "editor": {
+        "class": "",
+        "composing": false,
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 42,
+          "width": 260,
+          "x": 32,
+          "y": 94
+        },
+        "selectionEnd": 0,
+        "selectionStart": 0,
+        "text": "",
+        "value": ""
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30,
+          "width": 736,
+          "x": 32,
+          "y": 40
+        },
+        "text": "Native text editor"
+      },
+      "lock": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 42,
+          "width": 66,
+          "x": 103,
+          "y": 192
+        },
+        "text": "Lock"
+      },
+      "preview": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(12v1)",
+        "rect": {
+          "height": 0,
+          "width": 736,
+          "x": 32,
+          "y": 152
+        },
+        "text": ""
+      },
+      "readonly": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42,
+          "width": 104,
+          "x": 169,
+          "y": 192
+        },
+        "text": "Read only"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42,
+          "width": 131,
+          "x": 273,
+          "y": 192
+        },
+        "text": "Toggle details"
+      }
+    },
+    "focused": null,
+    "irHash": "44a96b0c1bd92cae799030da00adcb02a95f930d74568ad634f397a13d1f8993",
+    "state": [
+      "",
+      false,
+      false,
+      true
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "code": "E_MAPPING_PRECONDITION",
+  "message": "Clamp lower bound must not exceed upper bound",
+  "source": {
+    "file": "main.jsx",
+    "line": 4,
+    "column": 29
+  }
+}

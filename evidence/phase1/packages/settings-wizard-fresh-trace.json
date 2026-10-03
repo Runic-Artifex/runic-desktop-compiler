@@ -1,0 +1,609 @@
+[
+  {
+    "elements": {
+      "back": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 38,
+          "width": 64,
+          "x": 29,
+          "y": 219.59375
+        },
+        "text": "Back"
+      },
+      "card": {
+        "class": "card",
+        "disabled": false,
+        "nodeIdentity": "NodeId(7v1)",
+        "rect": {
+          "height": 324.59375,
+          "width": 396,
+          "x": 12,
+          "y": 12
+        },
+        "text": "RUNIC / SETTINGSSetup assistantStep 1 of 4Profile: homeBackNextSwitch profileRestartShow details"
+      },
+      "choose": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 38,
+          "width": 125,
+          "x": 172,
+          "y": 219.59375
+        },
+        "text": "Switch profile"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 38,
+          "width": 119,
+          "x": 29,
+          "y": 281.59375
+        },
+        "text": "Show details"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 28,
+          "width": 362,
+          "x": 29,
+          "y": 79
+        },
+        "text": "Setup assistant"
+      },
+      "next": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 38,
+          "width": 63,
+          "x": 101,
+          "y": 219.59375
+        },
+        "text": "Next"
+      },
+      "profile": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 171.59375
+        },
+        "text": "Profile: home"
+      },
+      "restart": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 38,
+          "width": 81,
+          "x": 305,
+          "y": 219.59375
+        },
+        "text": "Restart"
+      },
+      "step": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 131
+        },
+        "text": "Step 1 of 4"
+      }
+    },
+    "focused": null,
+    "irHash": "f04cb23a2e5713be02eba55a902b92b01be03c5945e5c5efec36d9df830eaaae",
+    "state": [
+      0,
+      "home",
+      false
+    ]
+  },
+  {
+    "elements": {
+      "back": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 38,
+          "width": 64,
+          "x": 29,
+          "y": 219.59375
+        },
+        "text": "Back"
+      },
+      "card": {
+        "class": "card",
+        "disabled": false,
+        "nodeIdentity": "NodeId(7v1)",
+        "rect": {
+          "height": 324.59375,
+          "width": 396,
+          "x": 12,
+          "y": 12
+        },
+        "text": "RUNIC / SETTINGSSetup assistantStep 1 of 4Profile: homeBackNextSwitch profileRestartShow details"
+      },
+      "choose": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 38,
+          "width": 125,
+          "x": 172,
+          "y": 219.59375
+        },
+        "text": "Switch profile"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 38,
+          "width": 119,
+          "x": 29,
+          "y": 281.59375
+        },
+        "text": "Show details"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 28,
+          "width": 362,
+          "x": 29,
+          "y": 79
+        },
+        "text": "Setup assistant"
+      },
+      "next": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 38,
+          "width": 63,
+          "x": 101,
+          "y": 219.59375
+        },
+        "text": "Next"
+      },
+      "profile": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 171.59375
+        },
+        "text": "Profile: home"
+      },
+      "restart": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 38,
+          "width": 81,
+          "x": 305,
+          "y": 219.59375
+        },
+        "text": "Restart"
+      },
+      "step": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 131
+        },
+        "text": "Step 1 of 4"
+      }
+    },
+    "event": 0,
+    "focused": null,
+    "irHash": "f04cb23a2e5713be02eba55a902b92b01be03c5945e5c5efec36d9df830eaaae",
+    "state": [
+      0,
+      "home",
+      false
+    ],
+    "update_us": 27.781,
+    "writes": 0
+  },
+  {
+    "elements": {
+      "back": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 38,
+          "width": 64,
+          "x": 29,
+          "y": 219.59375
+        },
+        "text": "Back"
+      },
+      "card": {
+        "class": "card",
+        "disabled": false,
+        "nodeIdentity": "NodeId(7v1)",
+        "rect": {
+          "height": 324.59375,
+          "width": 396,
+          "x": 12,
+          "y": 12
+        },
+        "text": "RUNIC / SETTINGSSetup assistantStep 2 of 4Profile: homeBackNextSwitch profileRestartShow details"
+      },
+      "choose": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 38,
+          "width": 125,
+          "x": 172,
+          "y": 219.59375
+        },
+        "text": "Switch profile"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 38,
+          "width": 119,
+          "x": 29,
+          "y": 281.59375
+        },
+        "text": "Show details"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 28,
+          "width": 362,
+          "x": 29,
+          "y": 79
+        },
+        "text": "Setup assistant"
+      },
+      "next": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 38,
+          "width": 63,
+          "x": 101,
+          "y": 219.59375
+        },
+        "text": "Next"
+      },
+      "profile": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 171.59375
+        },
+        "text": "Profile: home"
+      },
+      "restart": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 38,
+          "width": 81,
+          "x": 305,
+          "y": 219.59375
+        },
+        "text": "Restart"
+      },
+      "step": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 131
+        },
+        "text": "Step 2 of 4"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "f04cb23a2e5713be02eba55a902b92b01be03c5945e5c5efec36d9df830eaaae",
+    "state": [
+      1,
+      "home",
+      false
+    ],
+    "update_us": 135.535,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "back": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 38,
+          "width": 64,
+          "x": 29,
+          "y": 219.59375
+        },
+        "text": "Back"
+      },
+      "card": {
+        "class": "card",
+        "disabled": false,
+        "nodeIdentity": "NodeId(7v1)",
+        "rect": {
+          "height": 324.59375,
+          "width": 396,
+          "x": 12,
+          "y": 12
+        },
+        "text": "RUNIC / SETTINGSSetup assistantStep 2 of 4Profile: officeBackNextSwitch profileRestartShow details"
+      },
+      "choose": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 38,
+          "width": 125,
+          "x": 172,
+          "y": 219.59375
+        },
+        "text": "Switch profile"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 38,
+          "width": 119,
+          "x": 29,
+          "y": 281.59375
+        },
+        "text": "Show details"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 28,
+          "width": 362,
+          "x": 29,
+          "y": 79
+        },
+        "text": "Setup assistant"
+      },
+      "next": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 38,
+          "width": 63,
+          "x": 101,
+          "y": 219.59375
+        },
+        "text": "Next"
+      },
+      "profile": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 171.59375
+        },
+        "text": "Profile: office"
+      },
+      "restart": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 38,
+          "width": 81,
+          "x": 305,
+          "y": 219.59375
+        },
+        "text": "Restart"
+      },
+      "step": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 131
+        },
+        "text": "Step 2 of 4"
+      }
+    },
+    "event": 2,
+    "focused": null,
+    "irHash": "f04cb23a2e5713be02eba55a902b92b01be03c5945e5c5efec36d9df830eaaae",
+    "state": [
+      1,
+      "office",
+      false
+    ],
+    "update_us": 66.628,
+    "writes": 1
+  },
+  {
+    "elements": {
+      "back": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 38,
+          "width": 64,
+          "x": 29,
+          "y": 219.59375
+        },
+        "text": "Back"
+      },
+      "card": {
+        "class": "card",
+        "disabled": false,
+        "nodeIdentity": "NodeId(7v1)",
+        "rect": {
+          "height": 324.59375,
+          "width": 396,
+          "x": 12,
+          "y": 12
+        },
+        "text": "RUNIC / SETTINGSSetup assistantStep 1 of 4Profile: officeBackNextSwitch profileRestartShow details"
+      },
+      "choose": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 38,
+          "width": 125,
+          "x": 172,
+          "y": 219.59375
+        },
+        "text": "Switch profile"
+      },
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 38,
+          "width": 119,
+          "x": 29,
+          "y": 281.59375
+        },
+        "text": "Show details"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 28,
+          "width": 362,
+          "x": 29,
+          "y": 79
+        },
+        "text": "Setup assistant"
+      },
+      "next": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 38,
+          "width": 63,
+          "x": 101,
+          "y": 219.59375
+        },
+        "text": "Next"
+      },
+      "profile": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 171.59375
+        },
+        "text": "Profile: office"
+      },
+      "restart": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 38,
+          "width": 81,
+          "x": 305,
+          "y": 219.59375
+        },
+        "text": "Restart"
+      },
+      "step": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24,
+          "width": 362,
+          "x": 29,
+          "y": 131
+        },
+        "text": "Step 1 of 4"
+      }
+    },
+    "event": 3,
+    "focused": null,
+    "irHash": "f04cb23a2e5713be02eba55a902b92b01be03c5945e5c5efec36d9df830eaaae",
+    "state": [
+      0,
+      "office",
+      false
+    ],
+    "update_us": 116.764,
+    "writes": 2
+  }
+]

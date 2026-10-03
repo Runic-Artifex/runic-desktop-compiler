@@ -1,0 +1,92 @@
+{
+  "schema": 2,
+  "id": "pure-clamp",
+  "version": 2,
+  "matcher": {
+    "kind": "pure-function",
+    "parameters": 3,
+    "body": {
+      "op": "min",
+      "args": [
+        {
+          "op": "max",
+          "args": [
+            {
+              "op": "param",
+              "index": 0
+            },
+            {
+              "op": "param",
+              "index": 1
+            }
+          ]
+        },
+        {
+          "op": "param",
+          "index": 2
+        }
+      ]
+    }
+  },
+  "preconditions": {
+    "domain": "finite-integer",
+    "maxAbs": 1000000,
+    "constantParameters": [
+      1,
+      2
+    ],
+    "predicates": [
+      {
+        "op": "le",
+        "args": [
+          {
+            "op": "param",
+            "index": 1
+          },
+          {
+            "op": "param",
+            "index": 2
+          }
+        ]
+      }
+    ],
+    "evaluation": "pure-left-to-right"
+  },
+  "lowering": {
+    "op": "min",
+    "args": [
+      {
+        "op": "max",
+        "args": [
+          {
+            "op": "param",
+            "index": 0
+          },
+          {
+            "op": "param",
+            "index": 1
+          }
+        ]
+      },
+      {
+        "op": "param",
+        "index": 2
+      }
+    ]
+  },
+  "capabilities": [
+    "integer-max",
+    "integer-min"
+  ],
+  "provenance": {
+    "mode": "migration",
+    "provider": "compiler-owned-schema-migration",
+    "model": null,
+    "liveDiscovery": false
+  },
+  "tests": {
+    "positive": [],
+    "negative": [],
+    "boundary": []
+  }
+}

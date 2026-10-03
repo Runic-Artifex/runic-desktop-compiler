@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "status": "incomplete",
+  "checks": [
+    {
+      "name": "compiler-tests",
+      "status": "passed",
+      "tests": 45
+    },
+    {
+      "name": "existing-pinned-mappings",
+      "status": "passed",
+      "rules": [
+        {
+          "id": "bounded-increase",
+          "version": 1,
+          "sha256": "1b7a9380d96bf1c0c0163e5e971b9f83cfa9cc2f1187be085fee321a134b85f6"
+        },
+        {
+          "id": "pure-clamp",
+          "version": 2,
+          "sha256": "0b532b5482d008c584903a2cef37ac57276c63e17c69b610efafe87f9fa8884d"
+        }
+      ]
+    },
+    {
+      "name": "native-transitions",
+      "status": "passed",
+      "cases": 13988,
+      "artifacts": 28
+    },
+    {
+      "name": "native-binding-mode-parity",
+      "status": "passed",
+      "tracePairs": 18,
+      "framebuffersIdentical": true,
+      "timingAndWriteCounts": "Recorded in traces, excluded from semantic equality"
+    },
+    {
+      "name": "additional-framework-versions",
+      "status": "passed",
+      "vue": [
+        "3.5.43",
+        "3.5.24"
+      ],
+      "svelte": [
+        "5.57.1",
+        "5.49.2"
+      ]
+    },
+    {
+      "name": "fresh-original-runtime-conformance",
+      "status": "passed",
+      "cases": 512,
+      "frameworkRuntimes": 5,
+      "geometryTolerancePx": 2,
+      "route": "Programmatic browser clicks versus native internal events"
+    },
+    {
+      "name": "historical-source-and-native-identities",
+      "status": "passed",
+      "retainedArtifacts": 20,
+      "irValidatorRustGeneratorNativeBindingsAndLocksUnchanged": true
+    },
+    {
+      "name": "phase0-archives",
+      "status": "passed",
+      "unchanged": true
+    },
+    {
+      "name": "inherited-native-os-keyboard-platform-ime-wayland-resize",
+      "status": "incomplete",
+      "evidence": "evidence/phase2/native/os-input.json",
+      "scope": "Phase 4 changes source lowering only and adds no OS certification"
+    }
+  ]
+}

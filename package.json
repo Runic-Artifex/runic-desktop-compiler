@@ -1,0 +1,28 @@
+{
+  "name": "runic-desktop-compiler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "runic-compiler": "./compiler/cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "verify": "node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@vitejs/plugin-vue": "6.0.9",
+    "@vue/compiler-sfc": "3.5.43",
+    "entities": "8.1.0",
+    "parse5": "8.0.1",
+    "postcss": "8.5.6",
+    "postcss-value-parser": "4.2.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "svelte": "5.57.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.2",
+    "vue": "3.5.43"
+  }
+}

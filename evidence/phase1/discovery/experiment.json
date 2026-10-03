@@ -1,0 +1,77 @@
+{
+  "schema": 2,
+  "status": "passed",
+  "sourceSchemaCorpusStillFrozen": true,
+  "acceptedCandidateBytesUnchanged": true,
+  "heldOutSourceIncluded": false,
+  "provider": "OpenAI Codex CLI",
+  "attempts": [
+    {
+      "attempt": 1,
+      "threadId": "01a0fd71-1aee-7523-8b04-0bb8e5929949",
+      "requestedModel": "gpt-6-sol",
+      "exitCode": 0,
+      "toolItems": [],
+      "usage": {
+        "input_tokens": 15793,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1160,
+        "reasoning_output_tokens": 510
+      }
+    },
+    {
+      "attempt": 2,
+      "threadId": "01a0fd72-e8eb-7d33-bf0a-612b27a6e709",
+      "requestedModel": "gpt-6-sol",
+      "exitCode": 0,
+      "toolItems": [],
+      "usage": {
+        "input_tokens": 15901,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 858,
+        "reasoning_output_tokens": 199
+      }
+    }
+  ],
+  "acceptedCandidateHash": "1b7a9380d96bf1c0c0163e5e971b9f83cfa9cc2f1187be085fee321a134b85f6",
+  "applications": [
+    {
+      "app": "pricing",
+      "sourceHash": "aa05c15f7d438fe89633e4eb12c95b5f3c4b140c9770e5c7c7c80d715970f6ba",
+      "irHash": "42191d39c2fb08ffbd4b374f14c2dba0762fa334e0e09ada4eb0c10c84f6fd9f",
+      "pinnedCandidateHash": "1b7a9380d96bf1c0c0163e5e971b9f83cfa9cc2f1187be085fee321a134b85f6"
+    },
+    {
+      "app": "settings-wizard",
+      "sourceHash": "cce35fd5d65a67b9139fca813e4a504d1c656c88309c7eac5af6959d8355740c",
+      "irHash": "f04cb23a2e5713be02eba55a902b92b01be03c5945e5c5efec36d9df830eaaae",
+      "pinnedCandidateHash": "1b7a9380d96bf1c0c0163e5e971b9f83cfa9cc2f1187be085fee321a134b85f6"
+    }
+  ],
+  "independentProof": "evidence/phase1/mappings/bounded-increase-v1-1b7a9380d96b.json",
+  "proof": {
+    "schema": 2,
+    "accepted": true,
+    "candidateHash": "1b7a9380d96bf1c0c0163e5e971b9f83cfa9cc2f1187be085fee321a134b85f6",
+    "validator": "runic-independent-v2",
+    "validatorHash": "8bf0ae2ed4bdda3c9c627ee29bf605ec09232da701da44cd56c908b3cf8ee6e3",
+    "corpusHash": "729e4038439b92f64c1aae1de2aacbc4aad9041fcf553a9bc83f855e919830b4",
+    "oracle": "JavaScript execution of compiler-owned source generated from the structurally checked matcher; independent IR lowering evaluation",
+    "exhaustive": {
+      "range": [
+        -16,
+        32
+      ],
+      "parameters": 3,
+      "cases": 51744
+    },
+    "cases": 51880,
+    "excludedOutsideContract": 50,
+    "negativeNumericCases": 10,
+    "structuralCases": 11,
+    "scope": "Bounded pure numeric matcher; independent differential corpus plus exact reachable application closure. Not general JavaScript equivalence."
+  },
+  "scope": "Bounded live model proposal followed by independent compiler-owned validation and unchanged frozen held-out reuse. Normal compilation does not call a model."
+}

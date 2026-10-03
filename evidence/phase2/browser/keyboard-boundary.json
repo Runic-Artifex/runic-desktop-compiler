@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "route": "T3 browser preview_press keyboard actions on original framework apps; native OS keyboard is a separate incomplete gate",
+  "results": [
+    {
+      "app": "editor-vue",
+      "status": "passed",
+      "rejected": {
+        "count": "256",
+        "end": 100,
+        "length": 256,
+        "start": 100,
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "replaced": {
+        "count": "256",
+        "end": 101,
+        "length": 256,
+        "start": 101,
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "sourceHash": "f06d8e78a6597c0e4a4b5ea65d92d8c43d945549b9064e2465de8478c5c7db26",
+      "frontend": {
+        "vue": "3.5.43",
+        "@vue/compiler-sfc": "3.5.43"
+      }
+    },
+    {
+      "app": "editor-react",
+      "status": "passed",
+      "rejected": {
+        "count": "256",
+        "end": 100,
+        "length": 256,
+        "start": 100,
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "replaced": {
+        "count": "256",
+        "end": 101,
+        "length": 256,
+        "start": 101,
+        "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "sourceHash": "8ee131ab81a0e8c5a0329793c47df2eb26b6f77ee4abee9b0d8d862d0dd079cb",
+      "frontend": {
+        "react": "19.3.0",
+        "react-dom": "19.3.0"
+      }
+    }
+  ]
+}

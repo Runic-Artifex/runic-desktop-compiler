@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "instruction": "Propose a restricted reusable mapping. Inspect the helper implementation. No application names, paths, executable extensions, or certifications. Return mapping JSON only.",
+  "inputHash": "6645c05de0553341d9a57ae08ff11180e25a5c4f645a54263efc0f67a3fb1919",
+  "diagnostic": {
+    "code": "E_MAPPING",
+    "message": "No accepted mapping for this helper implementation; run discover explicitly",
+    "source": {
+      "file": "src/Quantity.jsx",
+      "line": 20,
+      "column": 84
+    }
+  },
+  "helper": "export function constrain(value, lower, upper) {\n  return Math.min(Math.max(value, lower), upper);\n}",
+  "source": {
+    "file": "src/bounds.js",
+    "line": 1,
+    "column": 1
+  },
+  "resolvedDependencies": [
+    "typescript:lib.es5.Math.min",
+    "typescript:lib.es5.Math.max"
+  ],
+  "context": {
+    "argumentSyntax": [
+      "n - 1",
+      "1",
+      "8"
+    ],
+    "states": [
+      {
+        "type": "number",
+        "initial": 2
+      },
+      {
+        "type": "boolean",
+        "initial": false
+      }
+    ]
+  },
+  "mappingSchema": {
+    "schema": 1,
+    "description": "Restricted mapping interface v1. Candidate is inert JSON; never executable code.",
+    "required": [
+      "schema",
+      "id",
+      "version",
+      "matcher",
+      "preconditions",
+      "lowering",
+      "capabilities",
+      "tests",
+      "provenance"
+    ],
+    "matcher": {
+      "kind": "pure-function",
+      "parameters": 3,
+      "body": "Tree of min/max calls to resolved standard-library Math; leaf param indices. Function is a single return without effects, defaults, rest, async, types or generators."
+    },
+    "preconditions": {
+      "domain": "finite-integer",
+      "maxAbs": 1000000,
+      "constantBounds": true,
+      "orderedBounds": true,
+      "evaluation": "pure-left-to-right"
+    },
+    "lowering": {
+      "operations": [
+        "param",
+        "min",
+        "max"
+      ],
+      "maxNodes": 15
+    },
+    "capabilities": [
+      "integer-min",
+      "integer-max"
+    ],
+    "validation": "Compiler-owned structural and numeric corpus; independently run validate and accept. Proposal tests are supplemental."
+  }
+}

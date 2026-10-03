@@ -1,0 +1,87 @@
+{
+  "tabId": "tab_3",
+  "visible": false,
+  "route": "Original framework, fonts ready and two painted animation frames, raw T3 screenshot",
+  "captures": [
+    {
+      "app": "counter-react",
+      "stage": "initial",
+      "file": "evidence/phase2/pixels/counter-react-initial-800x600-browser.png",
+      "dpr": 1,
+      "height": 600,
+      "painted": true,
+      "text": "Counter\n\n1\n\n0\n\n0\n\nSequenceIncrementToggle\n\nVisible",
+      "width": 800
+    },
+    {
+      "app": "counter-react",
+      "stage": "interaction",
+      "file": "evidence/phase2/pixels/counter-react-interaction-800x600-browser.png",
+      "dpr": 1,
+      "height": 600,
+      "painted": true,
+      "text": "Counter\n\n3\n\n1\n\n1\n\nSequenceIncrementToggle\n\nVisible",
+      "width": 800
+    },
+    {
+      "app": "counter-vue",
+      "stage": "initial",
+      "file": "evidence/phase2/pixels/counter-vue-initial-800x600-browser.png",
+      "dpr": 1,
+      "height": 600,
+      "painted": true,
+      "text": "Counter\n\n1\n\n0\n\n0\n\ntrue\n\nSequenceIncrementToggle\n\nVisible",
+      "width": 800
+    },
+    {
+      "app": "counter-vue",
+      "stage": "interaction",
+      "file": "evidence/phase2/pixels/counter-vue-interaction-800x600-browser.png",
+      "dpr": 1,
+      "height": 600,
+      "painted": true,
+      "text": "Counter\n\n3\n\n1\n\n3\n\ntrue\n\nSequenceIncrementToggle\n\nVisible",
+      "width": 800
+    },
+    {
+      "app": "editor-react",
+      "stage": "initial",
+      "file": "evidence/phase2/pixels/editor-react-initial-800x600-browser.png",
+      "dpr": 1,
+      "height": 600,
+      "painted": true,
+      "text": "Native text editor\n\n0\n\nClearLockRead onlyToggle details\n\nStable editor identity",
+      "width": 800
+    },
+    {
+      "app": "editor-react",
+      "stage": "interaction",
+      "file": "evidence/phase2/pixels/editor-react-interaction-800x600-browser.png",
+      "dpr": 1,
+      "height": 600,
+      "painted": true,
+      "text": "Native text editor\n\nNative é😀\n\n10\n\nClearLockRead onlyToggle details\n\nStable editor identity",
+      "width": 800
+    },
+    {
+      "app": "editor-vue",
+      "stage": "initial",
+      "file": "evidence/phase2/pixels/editor-vue-initial-800x600-browser.png",
+      "dpr": 1,
+      "height": 600,
+      "painted": true,
+      "text": "Native text editor\n\n0\n\nClearLockRead onlyToggle details\n\nStable editor identity",
+      "width": 800
+    },
+    {
+      "app": "editor-vue",
+      "stage": "interaction",
+      "file": "evidence/phase2/pixels/editor-vue-interaction-800x600-browser.png",
+      "dpr": 1,
+      "height": 600,
+      "painted": true,
+      "text": "Native text editor\n\nNative é😀\n\n10\n\nClearLockRead onlyToggle details\n\nStable editor identity",
+      "width": 800
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+@font-face { font-family: RunicFixture; src: url('../assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; font-family: RunicFixture; font-size: 16px; background: #dce5ed; color: #22374a; }
+body { padding: 40px; }
+.panel { max-width: 500px; margin: 0 auto; padding: 28px; background: #f6f9fb; border: 2px solid #8cabbc; border-radius: 16px; }
+.eco { border-color: #368065; }
+.brand { color: #52738b; font-size: 13px; }
+h1 { font-size: 28px; font-weight: 400; margin: 28px 0 16px; }
+p { line-height: 1.5; }
+.readout { font-size: 42px; margin: 16px 0; }
+.controls { display: flex; gap: 12px; margin: 24px 0; }
+button { font-family: RunicFixture; font-size: 14px; color: #22374a; background: #e0ecf1; padding: 12px 16px; border: 1px solid #52738b; border-radius: 8px; }
+button:disabled { color: #85919b; border-color: #bbc8cf; background: #e9eef1; }
+.note { background: #e0eee7; padding: 12px; font-size: 14px; }
+@media (max-width: 480px) { body { padding: 16px; } .panel { padding: 20px; } }

@@ -1,0 +1,14 @@
+{
+  "schema":2,
+  "status":"passed",
+  "dpr":1,
+  "viewport":[420,600],
+  "pattern":"60 DOM columns of width 7px, rows of height 11px; alternating exact rgb(13,209,113) and rgb(241,41,19), covering viewport",
+  "inlineTab":{"tabId":"tab_1","visible":true,"meanAbsoluteError8Bit":18.805026,"image":"capture-dom-calibration.png"},
+  "backgroundTab":{"tabId":"tab_2","visible":false,"documentVisibility":"visible","meanAbsoluteError8Bit":0,"image":"capture-dom-background-tab-second.png"},
+  "expected":"capture-dom-expected.ppm",
+  "canvasTests":"Both canvas patterns captured exactly in the inline tab; canvas calibration alone missed the DOM capture discrepancy.",
+  "interventionsRejected":"Promoting the inline DOM calibration to a composited layer did not change its error. The first background-tab screenshot preceded the overlay's next paint, so it was retained separately and excluded from calibration.",
+  "capturePolicy":"Use a fresh T3 preview_open with open:false and reuseExistingTab:false, then explicit viewport, original source, document.fonts.ready and two requestAnimationFrame callbacks before snapshot. No CSS modifications or image postprocessing for the corrected application captures.",
+  "references":"Original Phase0 and initial Phase1 captures remain unchanged. Corrected 16 image pairs are in verification/run-1/corrected. Same 3/255 comparator."
+}

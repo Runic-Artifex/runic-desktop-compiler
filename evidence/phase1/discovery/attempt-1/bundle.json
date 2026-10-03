@@ -1,0 +1,142 @@
+{
+  "schema": 2,
+  "instruction": "Propose a restricted reusable mapping. Inspect the helper implementation. No application names, paths, executable extensions, or certifications. Return mapping JSON only. Use schema 2. For this bounded increase family require parameters 1 and 2 constant, amount > 0, maximum >= 0. Preserve the exact matcher implementation. Use provenance mode live, provider OpenAI Codex CLI, model gpt-6-sol, liveDiscovery true. An identical expression lowering is valid.",
+  "inputHash": "aa05c15f7d438fe89633e4eb12c95b5f3c4b140c9770e5c7c7c80d715970f6ba",
+  "diagnostic": {
+    "code": "E_MAPPING",
+    "message": "No accepted mapping for this helper implementation; run discover explicitly",
+    "source": {
+      "file": "src/main.jsx",
+      "line": 20,
+      "column": 83
+    }
+  },
+  "helper": "export function limitIncrease(current, amount, maximum) {\n  return Math.min(current + amount, maximum);\n}",
+  "pattern": {
+    "op": "min",
+    "args": [
+      {
+        "op": "add",
+        "args": [
+          {
+            "op": "param",
+            "index": 0
+          },
+          {
+            "op": "param",
+            "index": 1
+          }
+        ]
+      },
+      {
+        "op": "param",
+        "index": 2
+      }
+    ]
+  },
+  "parameters": 3,
+  "source": {
+    "file": "src/advance.js",
+    "line": 1,
+    "column": 1
+  },
+  "resolvedDependencies": [
+    "typescript:lib.es5.Math"
+  ],
+  "context": {
+    "argumentSyntax": [
+      "v",
+      "1",
+      "6"
+    ],
+    "states": [
+      {
+        "type": "number",
+        "initial": 1
+      },
+      {
+        "type": "string",
+        "initial": "basic"
+      },
+      {
+        "type": "boolean",
+        "initial": false
+      }
+    ]
+  },
+  "mappingSchema": {
+    "schema": 2,
+    "description": "Inert reusable pure numeric function mapping. Exact required root fields below; no executable extensions.",
+    "required": [
+      "schema",
+      "id",
+      "version",
+      "matcher",
+      "preconditions",
+      "lowering",
+      "capabilities",
+      "tests",
+      "provenance"
+    ],
+    "matcher": {
+      "kind": "pure-function",
+      "parameters": "integer 1..4",
+      "body": "Expression tree. A function has one return or expression arrow, numeric parameters, no effects, captures, defaults, rest, types or async."
+    },
+    "expression": {
+      "leaves": [
+        {
+          "op": "param",
+          "index": "0..parameters-1"
+        },
+        {
+          "op": "literal",
+          "value": "exact integer abs<=1000000 (no -0), or boolean"
+        }
+      ],
+      "operations": {
+        "neg": 1,
+        "not": 1,
+        "min": 2,
+        "max": 2,
+        "add": 2,
+        "sub": 2,
+        "mul": 2,
+        "eq": 2,
+        "ne": 2,
+        "lt": 2,
+        "le": 2,
+        "gt": 2,
+        "ge": 2,
+        "and": 2,
+        "or": 2,
+        "select": 3
+      },
+      "node": "{op: operation, args: [expression,...]}",
+      "maxNodes": 63,
+      "maxDepth": 16,
+      "types": "arithmetic and comparisons take numbers; boolean operations take booleans; select takes boolean then equal-typed alternatives"
+    },
+    "preconditions": {
+      "domain": "finite-integer",
+      "maxAbs": 1000000,
+      "constantParameters": "array of unique parameter indices required to be compile-time constants",
+      "predicates": "array of boolean expression trees over parameters",
+      "evaluation": "pure-left-to-right"
+    },
+    "lowering": "An expression tree of the same result type as matcher.body. Identical lowering is permitted; validation establishes exact bounded semantics.",
+    "capabilities": "Exactly the sorted distinct operation names used in lowering, prefixed integer- for numeric results and boolean- for boolean results, e.g. integer-add and integer-min. Leaves have no capability.",
+    "provenance": {
+      "mode": "live|replay|migration|handwritten",
+      "provider": "string",
+      "model": "string or null",
+      "liveDiscovery": "boolean (a claim, independently recorded invocation required)"
+    },
+    "tests": {
+      "positive": "array of {args:[numbers],expected:optional value}",
+      "negative": "array of {args:[values],reason:optional string} violating numeric domain or predicates",
+      "boundary": "array of {args:[numbers],expected:optional value}"
+    },
+    "validation": "Compiler-owned JavaScript oracle, structural/numeric corpus, exact reachable application closure. Proposal tests supplemental. Candidate <=64KiB. Max64 tests in each list. No naming/path assumptions."
+  }
+}

@@ -1,0 +1,230 @@
+{
+  "caseIndex": 35,
+  "events": [
+    1,
+    1,
+    2,
+    2
+  ],
+  "width": 800,
+  "height": 600,
+  "semanticErrors": [],
+  "geometryErrors": [],
+  "browser": {
+    "heading": {
+      "text": "Counter",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 32,
+        "y": 40,
+        "width": 736,
+        "height": 30
+      }
+    },
+    "value": {
+      "text": "3",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 32,
+        "y": 94,
+        "width": 736,
+        "height": 24
+      }
+    },
+    "seen": {
+      "text": "0",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 32,
+        "y": 134,
+        "width": 736,
+        "height": 24
+      }
+    },
+    "observed": {
+      "text": "0",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 32,
+        "y": 174,
+        "width": 736,
+        "height": 24
+      }
+    },
+    "flag": {
+      "text": "true",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 32,
+        "y": 214,
+        "width": 736,
+        "height": 24
+      }
+    },
+    "sequence": {
+      "text": "Sequence",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 32,
+        "y": 254,
+        "width": 103.0625,
+        "height": 42
+      }
+    },
+    "increment": {
+      "text": "Increment",
+      "class": "",
+      "disabled": true,
+      "rect": {
+        "x": 135.0625,
+        "y": 254,
+        "width": 105.375,
+        "height": 42
+      }
+    },
+    "toggle": {
+      "text": "Toggle",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 240.4375,
+        "y": 254,
+        "width": 79.015625,
+        "height": 42
+      }
+    },
+    "details": {
+      "text": "Visible",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 32,
+        "y": 312,
+        "width": 736,
+        "height": 24
+      }
+    }
+  },
+  "native": {
+    "details": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(34v3)",
+      "rect": {
+        "height": 24,
+        "width": 736,
+        "x": 32,
+        "y": 312
+      },
+      "text": "Visible"
+    },
+    "flag": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(20v1)",
+      "rect": {
+        "height": 24,
+        "width": 736,
+        "x": 32,
+        "y": 214
+      },
+      "text": "true"
+    },
+    "heading": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(8v1)",
+      "rect": {
+        "height": 30,
+        "width": 736,
+        "x": 32,
+        "y": 40
+      },
+      "text": "Counter"
+    },
+    "increment": {
+      "class": "",
+      "disabled": true,
+      "nodeIdentity": "NodeId(26v1)",
+      "rect": {
+        "height": 42,
+        "width": 106,
+        "x": 136,
+        "y": 254
+      },
+      "text": "Increment"
+    },
+    "observed": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(17v1)",
+      "rect": {
+        "height": 24,
+        "width": 736,
+        "x": 32,
+        "y": 174
+      },
+      "text": "0"
+    },
+    "seen": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(14v1)",
+      "rect": {
+        "height": 24,
+        "width": 736,
+        "x": 32,
+        "y": 134
+      },
+      "text": "0"
+    },
+    "sequence": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(23v1)",
+      "rect": {
+        "height": 42,
+        "width": 104,
+        "x": 32,
+        "y": 254
+      },
+      "text": "Sequence"
+    },
+    "toggle": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(29v1)",
+      "rect": {
+        "height": 42,
+        "width": 80,
+        "x": 242,
+        "y": 254
+      },
+      "text": "Toggle"
+    },
+    "value": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(11v1)",
+      "rect": {
+        "height": 24,
+        "width": 736,
+        "x": 32,
+        "y": 94
+      },
+      "text": "3"
+    }
+  },
+  "state": [
+    3,
+    0,
+    0,
+    true
+  ]
+}

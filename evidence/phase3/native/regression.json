@@ -1,0 +1,332 @@
+{
+  "schema": 1,
+  "status": "passed",
+  "results": [
+    {
+      "name": "quantity",
+      "optimize": true,
+      "sourceHash": "fffdcd3b810a6ea12bea5c234c6448b7f9a2a469682678ec4c9014bd6a6fbef0",
+      "irHash": "957a1c8510ab4903c32937077a032e43dbf324c0084cc68e16ccd9251c24229c",
+      "binaryHash": "1b54b6fab9899a8c7d2fea150ef90af7eb494c93664962fe9df68da72b2f42fe",
+      "validation": {
+        "reachableStates": 16,
+        "transitions": 64,
+        "transitionHash": "28d769cbe722ae11da6df3384a29cf7d486643a4ca14ae8248c481af7443d133",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 64,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "quantity",
+      "optimize": false,
+      "sourceHash": "fffdcd3b810a6ea12bea5c234c6448b7f9a2a469682678ec4c9014bd6a6fbef0",
+      "irHash": "957a1c8510ab4903c32937077a032e43dbf324c0084cc68e16ccd9251c24229c",
+      "binaryHash": "96af49a87aa318793866fab0ec6e5f2303d189f32708dd2b51650595d16ff4e7",
+      "validation": {
+        "reachableStates": 16,
+        "transitions": 64,
+        "transitionHash": "28d769cbe722ae11da6df3384a29cf7d486643a4ca14ae8248c481af7443d133",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 64,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "thermostat",
+      "optimize": true,
+      "sourceHash": "8ae9b6afff1f5e4171c7a5075fcf124c0f3deda4046a060ef862d8382095ed50",
+      "irHash": "48013f14f091b27b7802f20bcd223a7f879bc976b79148b2022681908adf71dd",
+      "binaryHash": "6f53797375a93c9c0f83116bfcb1a4a5594ba6911b775a4a9e0f4926b7570efb",
+      "validation": {
+        "reachableStates": 14,
+        "transitions": 42,
+        "transitionHash": "3d69d2f5b6617cb65f1c6da13076656fd1d2a002bddb84cb20c10ebe712c1e99",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 42,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "thermostat",
+      "optimize": false,
+      "sourceHash": "8ae9b6afff1f5e4171c7a5075fcf124c0f3deda4046a060ef862d8382095ed50",
+      "irHash": "48013f14f091b27b7802f20bcd223a7f879bc976b79148b2022681908adf71dd",
+      "binaryHash": "7f18f7051b24870211cf73d88abc397bc60063674715a70ca86a3ecb3da434d0",
+      "validation": {
+        "reachableStates": 14,
+        "transitions": 42,
+        "transitionHash": "3d69d2f5b6617cb65f1c6da13076656fd1d2a002bddb84cb20c10ebe712c1e99",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 42,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "pricing",
+      "optimize": true,
+      "sourceHash": "aa05c15f7d438fe89633e4eb12c95b5f3c4b140c9770e5c7c7c80d715970f6ba",
+      "irHash": "544d2376bdbea9754d1e534c4877c5879cc83f729737adf0d29a7846f688ef4c",
+      "binaryHash": "5ce04212b39cd333ef0330855770d7d0724554853455de6e8393ed782f3cf405",
+      "validation": {
+        "reachableStates": 36,
+        "transitions": 180,
+        "transitionHash": "3cc0a0f167d0ea6b187c6aaaf68fc4beb2673f35c8bc733876d47821f42e0e41",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 180,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "pricing",
+      "optimize": false,
+      "sourceHash": "aa05c15f7d438fe89633e4eb12c95b5f3c4b140c9770e5c7c7c80d715970f6ba",
+      "irHash": "544d2376bdbea9754d1e534c4877c5879cc83f729737adf0d29a7846f688ef4c",
+      "binaryHash": "d78c76eca98642aee9f73f76ea18248fbb6524ef4ed4f934766bdca1d149f3f5",
+      "validation": {
+        "reachableStates": 36,
+        "transitions": 180,
+        "transitionHash": "3cc0a0f167d0ea6b187c6aaaf68fc4beb2673f35c8bc733876d47821f42e0e41",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 180,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "settings-wizard",
+      "optimize": true,
+      "sourceHash": "cce35fd5d65a67b9139fca813e4a504d1c656c88309c7eac5af6959d8355740c",
+      "irHash": "a98387d4bc9d3c347be1da0ed7e41456b5f7cd6e51e5fdfe5dc729829d650883",
+      "binaryHash": "3a6b6c39921831825ed17ae6aaa058d4e65ca42bb50bd989e26af8330bff0904",
+      "validation": {
+        "reachableStates": 16,
+        "transitions": 80,
+        "transitionHash": "502d82a7370d77d1de33af16b093248178add913a949158332bb8711e4a6cfe2",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 80,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "settings-wizard",
+      "optimize": false,
+      "sourceHash": "cce35fd5d65a67b9139fca813e4a504d1c656c88309c7eac5af6959d8355740c",
+      "irHash": "a98387d4bc9d3c347be1da0ed7e41456b5f7cd6e51e5fdfe5dc729829d650883",
+      "binaryHash": "c32fba234c8182e5b0c3e97e1c9f61522ed08c14ce21612fac14725b62204add",
+      "validation": {
+        "reachableStates": 16,
+        "transitions": 80,
+        "transitionHash": "502d82a7370d77d1de33af16b093248178add913a949158332bb8711e4a6cfe2",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 80,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "counter-react",
+      "optimize": true,
+      "sourceHash": "7b60fce25bb88e47c5629ffb1d6748c7f386fc62aa80fa98c1b80b8280757acd",
+      "irHash": "ecc1575ead4ac42f2c97c70ac8cd1715f8e4f2712808a51739144f559bb404ef",
+      "binaryHash": "4a5de0b7d7fdae65e6076578b158f432f30eea67cf5cfb020af40fddef63f865",
+      "validation": {
+        "reachableStates": 12,
+        "transitions": 36,
+        "transitionHash": "49b9a3a98600a24fb5fde2e3acee49dc094e9b180292e2f3f5ef36c364393c51",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 36,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "counter-react",
+      "optimize": false,
+      "sourceHash": "7b60fce25bb88e47c5629ffb1d6748c7f386fc62aa80fa98c1b80b8280757acd",
+      "irHash": "ecc1575ead4ac42f2c97c70ac8cd1715f8e4f2712808a51739144f559bb404ef",
+      "binaryHash": "13a82be1cf478beadae72fcf92cb4e122b4a8c4538d8a90dae1cb2e53b0a6bc9",
+      "validation": {
+        "reachableStates": 12,
+        "transitions": 36,
+        "transitionHash": "49b9a3a98600a24fb5fde2e3acee49dc094e9b180292e2f3f5ef36c364393c51",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 36,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "counter-vue",
+      "optimize": true,
+      "sourceHash": "46c8f7b02de1b428c79c1e7047ea9edb4710b6f30ee57298d47007c4b167fcec",
+      "irHash": "f9ffa464c3921dcc3ab155997aec210c6c7fd36df61704e641a5f8639245a975",
+      "binaryHash": "377ea0d45a52612fb5b6e7cd0c9b44b1a25bc2824b4df11c3e87d377b2daf860",
+      "validation": {
+        "reachableStates": 12,
+        "transitions": 36,
+        "transitionHash": "b3de3273ee9b92453b4628cf71ccfe096cb7220034ae53c9251cdd2cd32911df",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 36,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "counter-vue",
+      "optimize": false,
+      "sourceHash": "46c8f7b02de1b428c79c1e7047ea9edb4710b6f30ee57298d47007c4b167fcec",
+      "irHash": "f9ffa464c3921dcc3ab155997aec210c6c7fd36df61704e641a5f8639245a975",
+      "binaryHash": "4be30189a3ea1ab8a3aebd6ad4bcd1e8e4b357e1cd695b504173d73718a1b97a",
+      "validation": {
+        "reachableStates": 12,
+        "transitions": 36,
+        "transitionHash": "b3de3273ee9b92453b4628cf71ccfe096cb7220034ae53c9251cdd2cd32911df",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 36,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "editor-react",
+      "optimize": true,
+      "sourceHash": "8ee131ab81a0e8c5a0329793c47df2eb26b6f77ee4abee9b0d8d862d0dd079cb",
+      "irHash": "44a96b0c1bd92cae799030da00adcb02a95f930d74568ad634f397a13d1f8993",
+      "binaryHash": "6d4e90e1f34601698047119e416749c80d3a87fc6624f43306217235f5f62b98",
+      "validation": {
+        "reachableStates": 2056,
+        "transitions": 536616,
+        "transitionHash": "0bb33a7d5e944489f9bc1810e6d69c3605c12af8e15bef3b8d131b1195fc99b6",
+        "domain": "length-quotient-v1: one scalar single-line text <= 256 UTF-16 units; copy/reset, empty equality, UTF-16 length; exact finite control closure"
+      },
+      "nativeCases": 2088,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "editor-react",
+      "optimize": false,
+      "sourceHash": "8ee131ab81a0e8c5a0329793c47df2eb26b6f77ee4abee9b0d8d862d0dd079cb",
+      "irHash": "44a96b0c1bd92cae799030da00adcb02a95f930d74568ad634f397a13d1f8993",
+      "binaryHash": "5208c7d4d020824f250f6e9a0041989e6b71958f9712a872dfd892b5048cf0bc",
+      "validation": {
+        "reachableStates": 2056,
+        "transitions": 536616,
+        "transitionHash": "0bb33a7d5e944489f9bc1810e6d69c3605c12af8e15bef3b8d131b1195fc99b6",
+        "domain": "length-quotient-v1: one scalar single-line text <= 256 UTF-16 units; copy/reset, empty equality, UTF-16 length; exact finite control closure"
+      },
+      "nativeCases": 2088,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "editor-vue",
+      "optimize": true,
+      "sourceHash": "f06d8e78a6597c0e4a4b5ea65d92d8c43d945549b9064e2465de8478c5c7db26",
+      "irHash": "462ebdbd83c3dacb9c3bc9af5581cd8052e95947a5249ec99b9c0ea1605045c3",
+      "binaryHash": "72f44078deea3dfe59f003478b7ae21465557084775f3a25656d663db000b0bb",
+      "validation": {
+        "reachableStates": 2056,
+        "transitions": 536616,
+        "transitionHash": "0bb33a7d5e944489f9bc1810e6d69c3605c12af8e15bef3b8d131b1195fc99b6",
+        "domain": "length-quotient-v1: one scalar single-line text <= 256 UTF-16 units; copy/reset, empty equality, UTF-16 length; exact finite control closure"
+      },
+      "nativeCases": 2088,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "editor-vue",
+      "optimize": false,
+      "sourceHash": "f06d8e78a6597c0e4a4b5ea65d92d8c43d945549b9064e2465de8478c5c7db26",
+      "irHash": "462ebdbd83c3dacb9c3bc9af5581cd8052e95947a5249ec99b9c0ea1605045c3",
+      "binaryHash": "a82201d2038155c2bf9a151363c242bbfd3b431a6607a8120c6ae596c8f15f45",
+      "validation": {
+        "reachableStates": 2056,
+        "transitions": 536616,
+        "transitionHash": "0bb33a7d5e944489f9bc1810e6d69c3605c12af8e15bef3b8d131b1195fc99b6",
+        "domain": "length-quotient-v1: one scalar single-line text <= 256 UTF-16 units; copy/reset, empty equality, UTF-16 length; exact finite control closure"
+      },
+      "nativeCases": 2088,
+      "status": "passed",
+      "build": "Unchanged native inputs verified before reuse"
+    },
+    {
+      "name": "counter-svelte",
+      "optimize": true,
+      "sourceHash": "5059ba70e5b37a932db85fc206ae7ca9b7831e84d6ffbbfefc8b329f4ba2860c",
+      "irHash": "e1b532f0e79d008584d84d3730cc44990298b8a143025c5482c8613778bde4a3",
+      "binaryHash": "b9ba3b26a2595c8305fe42af568a722c13a1d0f3d2123e0bff4f26ab778d0667",
+      "validation": {
+        "reachableStates": 12,
+        "transitions": 36,
+        "transitionHash": "48bce50a2be23b784d64598d9654704061b506623b0e5baffe33bd68ccd4721c",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 36,
+      "status": "passed",
+      "build": "Phase 3"
+    },
+    {
+      "name": "counter-svelte",
+      "optimize": false,
+      "sourceHash": "5059ba70e5b37a932db85fc206ae7ca9b7831e84d6ffbbfefc8b329f4ba2860c",
+      "irHash": "e1b532f0e79d008584d84d3730cc44990298b8a143025c5482c8613778bde4a3",
+      "binaryHash": "154cd921c22e930371860b9f89bf7453833a46f8d74ff72094d6fbf7dbef7857",
+      "validation": {
+        "reachableStates": 12,
+        "transitions": 36,
+        "transitionHash": "48bce50a2be23b784d64598d9654704061b506623b0e5baffe33bd68ccd4721c",
+        "domain": "exact integers |x| <= 1000000; state |x| <= 64; finite string enums <= 32 alternatives"
+      },
+      "nativeCases": 36,
+      "status": "passed",
+      "build": "Phase 3"
+    },
+    {
+      "name": "editor-svelte",
+      "optimize": true,
+      "sourceHash": "a771e81f6d93acfb35fa0e73f545e1c2184f7e2d6cc65fe97c47fef71845810c",
+      "irHash": "14f621e95ad620e9df9b55d5a8ca89480ca762b1ccacc41a37dd8797c3c90111",
+      "binaryHash": "24b5ad41d16c13f414ab5c8de4b88690757cb2856e6d7a1b05aeda1288c0d19c",
+      "validation": {
+        "reachableStates": 2056,
+        "transitions": 536616,
+        "transitionHash": "0bb33a7d5e944489f9bc1810e6d69c3605c12af8e15bef3b8d131b1195fc99b6",
+        "domain": "length-quotient-v1: one scalar single-line text <= 256 UTF-16 units; copy/reset, empty equality, UTF-16 length; exact finite control closure"
+      },
+      "nativeCases": 2088,
+      "status": "passed",
+      "build": "Phase 3",
+      "editingScenarios": 13,
+      "composition": "Internal EventDriver commit; OS/platform IME remains separate",
+      "invalidPayload": "Rejected and live control restored"
+    },
+    {
+      "name": "editor-svelte",
+      "optimize": false,
+      "sourceHash": "a771e81f6d93acfb35fa0e73f545e1c2184f7e2d6cc65fe97c47fef71845810c",
+      "irHash": "14f621e95ad620e9df9b55d5a8ca89480ca762b1ccacc41a37dd8797c3c90111",
+      "binaryHash": "d0b2863b65eccd287685cbc455b173bbf2c005c3c8ba36b601fd4391bf7ad42b",
+      "validation": {
+        "reachableStates": 2056,
+        "transitions": 536616,
+        "transitionHash": "0bb33a7d5e944489f9bc1810e6d69c3605c12af8e15bef3b8d131b1195fc99b6",
+        "domain": "length-quotient-v1: one scalar single-line text <= 256 UTF-16 units; copy/reset, empty equality, UTF-16 length; exact finite control closure"
+      },
+      "nativeCases": 2088,
+      "status": "passed",
+      "build": "Phase 3",
+      "editingScenarios": 13,
+      "composition": "Internal EventDriver commit; OS/platform IME remains separate",
+      "invalidPayload": "Rejected and live control restored"
+    }
+  ]
+}

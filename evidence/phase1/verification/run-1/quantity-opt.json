@@ -1,0 +1,812 @@
+[
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 123.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Show details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "2 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 14 EUR"
+      }
+    },
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      2,
+      false
+    ]
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 123.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Show details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "1 item"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 7 EUR"
+      }
+    },
+    "event": 0,
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      1,
+      false
+    ],
+    "update_us": 165.305,
+    "writes": 3
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 123.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Show details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "2 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 14 EUR"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      2,
+      false
+    ],
+    "update_us": 111.563,
+    "writes": 3
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 123.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Show details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "4 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 28 EUR"
+      }
+    },
+    "event": 2,
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      4,
+      false
+    ],
+    "update_us": 64.739,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 118.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Hide details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(43v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 414.0
+        },
+        "text": "Each item costs 7 EUR. Maximum 8 items."
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "4 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 28 EUR"
+      }
+    },
+    "event": 3,
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      4,
+      true
+    ],
+    "update_us": 99.053,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 118.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Hide details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(43v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 414.0
+        },
+        "text": "Each item costs 7 EUR. Maximum 8 items."
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "3 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 21 EUR"
+      }
+    },
+    "event": 0,
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      3,
+      true
+    ],
+    "update_us": 63.25699999999999,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 118.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Hide details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(43v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 414.0
+        },
+        "text": "Each item costs 7 EUR. Maximum 8 items."
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "4 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 28 EUR"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      4,
+      true
+    ],
+    "update_us": 57.274,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 118.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Hide details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(43v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 414.0
+        },
+        "text": "Each item costs 7 EUR. Maximum 8 items."
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "6 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 42 EUR"
+      }
+    },
+    "event": 2,
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      6,
+      true
+    ],
+    "update_us": 56.264,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 123.0,
+          "x": 153.0,
+          "y": 358.0
+        },
+        "text": "Show details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 153.0,
+          "y": 260.0
+        },
+        "text": "Remove"
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 322.0,
+          "y": 260.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 252.0,
+          "y": 260.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 192.0
+        },
+        "text": "6 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 494.0,
+          "x": 153.0,
+          "y": 318.0
+        },
+        "text": "Total: 42 EUR"
+      }
+    },
+    "event": 3,
+    "focused": null,
+    "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+    "state": [
+      6,
+      false
+    ],
+    "update_us": 59.004,
+    "writes": 2
+  }
+]

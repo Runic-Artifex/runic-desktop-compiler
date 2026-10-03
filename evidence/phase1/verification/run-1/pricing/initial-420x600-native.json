@@ -1,0 +1,121 @@
+[
+  {
+    "elements": {
+      "billing": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 38.0,
+          "width": 122.0,
+          "x": 29.0,
+          "y": 265.0
+        },
+        "text": "Toggle billing"
+      },
+      "card": {
+        "class": "card",
+        "disabled": false,
+        "nodeIdentity": "NodeId(7v1)",
+        "rect": {
+          "height": 332.0,
+          "width": 396.0,
+          "x": 12.0,
+          "y": 12.0
+        },
+        "text": "RUNIC / PRICINGConfigure your plan1 seats, monthly billingbasic: EUR 10 per monthLessMoreChange planToggle billingReset to two"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 28.0,
+          "width": 362.0,
+          "x": 29.0,
+          "y": 79.0
+        },
+        "text": "Configure your plan"
+      },
+      "less": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 38.0,
+          "width": 61.0,
+          "x": 29.0,
+          "y": 219.0
+        },
+        "text": "Less"
+      },
+      "more": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 38.0,
+          "width": 65.0,
+          "x": 98.0,
+          "y": 219.0
+        },
+        "text": "More"
+      },
+      "plan": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 38.0,
+          "width": 119.0,
+          "x": 171.0,
+          "y": 219.0
+        },
+        "text": "Change plan"
+      },
+      "reset": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 38.0,
+          "width": 118.0,
+          "x": 159.0,
+          "y": 265.0
+        },
+        "text": "Reset to two"
+      },
+      "selection": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 362.0,
+          "x": 29.0,
+          "y": 131.0
+        },
+        "text": "1 seats, monthly billing"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 362.0,
+          "x": 29.0,
+          "y": 171.0
+        },
+        "text": "basic: EUR 10 per month"
+      }
+    },
+    "focused": null,
+    "irHash": "42191d39c2fb08ffbd4b374f14c2dba0762fa334e0e09ada4eb0c10c84f6fd9f",
+    "state": [
+      1,
+      "basic",
+      false
+    ]
+  }
+]

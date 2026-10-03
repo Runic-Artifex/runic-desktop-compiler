@@ -1,0 +1,725 @@
+runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/quantity)
+├── anyrender v0.13.0
+│   ├── kurbo v0.13.1
+│   │   ├── arrayvec v0.7.8
+│   │   ├── polycool v0.4.0
+│   │   │   └── arrayvec v0.7.8
+│   │   └── smallvec v1.16.2
+│   ├── peniko v0.6.1
+│   │   ├── bytemuck v1.25.2
+│   │   │   └── bytemuck_derive v1.12.1 (proc-macro)
+│   │   │       ├── proc-macro2 v1.0.107
+│   │   │       │   └── unicode-ident v1.0.26
+│   │   │       ├── quote v1.0.47
+│   │   │       │   └── proc-macro2 v1.0.107 (*)
+│   │   │       └── syn v3.0.6
+│   │   │           ├── proc-macro2 v1.0.107 (*)
+│   │   │           ├── quote v1.0.47 (*)
+│   │   │           └── unicode-ident v1.0.26
+│   │   ├── color v0.3.3
+│   │   │   └── bytemuck v1.25.2 (*)
+│   │   ├── kurbo v0.13.1 (*)
+│   │   ├── linebender_resource_handle v0.1.1
+│   │   └── smallvec v1.16.2
+│   ├── raw-window-handle v0.6.2
+│   └── smallvec v1.16.2
+├── anyrender_vello_cpu v0.17.0
+│   ├── anyrender v0.13.0 (*)
+│   ├── bytemuck v1.25.2 (*)
+│   ├── color v0.3.3 (*)
+│   ├── debug_timer v0.1.3
+│   ├── glifo v0.2.0
+│   │   ├── bytemuck v1.25.2 (*)
+│   │   ├── foldhash v0.2.0
+│   │   ├── hashbrown v0.17.1
+│   │   │   └── foldhash v0.2.0
+│   │   ├── log v0.4.34
+│   │   ├── peniko v0.6.1 (*)
+│   │   ├── skrifa v0.44.0
+│   │   │   ├── bytemuck v1.25.2 (*)
+│   │   │   └── read-fonts v0.41.0
+│   │   │       ├── bytemuck v1.25.2 (*)
+│   │   │       ├── font-types v0.12.5
+│   │   │       │   └── bytemuck v1.25.2 (*)
+│   │   │       └── once_cell v1.21.4
+│   │   ├── smallvec v1.16.2
+│   │   └── vello_common v0.1.0
+│   │       ├── bytemuck v1.25.2 (*)
+│   │       ├── fearless_simd v0.4.1
+│   │       ├── guillotiere v0.7.0
+│   │       │   └── euclid v0.22.14
+│   │       │       ├── num-traits v0.2.19
+│   │       │       └── serde v1.0.229
+│   │       │           ├── serde_core v1.0.229
+│   │       │           └── serde_derive v1.0.229 (proc-macro)
+│   │       │               ├── proc-macro2 v1.0.107 (*)
+│   │       │               ├── quote v1.0.47 (*)
+│   │       │               └── syn v3.0.6 (*)
+│   │       ├── log v0.4.34
+│   │       ├── peniko v0.6.1 (*)
+│   │       ├── png v0.18.1
+│   │       │   ├── bitflags v2.13.2
+│   │       │   │   └── serde_core v1.0.229
+│   │       │   ├── crc32fast v1.5.2
+│   │       │   │   └── cfg-if v1.0.5
+│   │       │   ├── fdeflate v0.3.7
+│   │       │   │   └── simd-adler32 v0.3.10
+│   │       │   ├── flate2 v1.1.10
+│   │       │   │   ├── crc32fast v1.5.2 (*)
+│   │       │   │   └── miniz_oxide v0.9.1
+│   │       │   │       ├── adler2 v2.0.1
+│   │       │   │       └── simd-adler32 v0.3.10
+│   │       │   └── miniz_oxide v0.8.9
+│   │       │       ├── adler2 v2.0.1
+│   │       │       └── simd-adler32 v0.3.10
+│   │       ├── smallvec v1.16.2
+│   │       └── thiserror v2.0.21
+│   │           └── thiserror-impl v2.0.21 (proc-macro)
+│   │               ├── proc-macro2 v1.0.107 (*)
+│   │               ├── quote v1.0.47 (*)
+│   │               └── syn v3.0.6 (*)
+│   ├── kurbo v0.13.1 (*)
+│   ├── peniko v0.6.1 (*)
+│   ├── softbuffer_window_renderer v0.8.0
+│   │   ├── anyrender v0.13.0 (*)
+│   │   ├── debug_timer v0.1.3
+│   │   ├── kurbo v0.13.1 (*)
+│   │   ├── peniko v0.6.1 (*)
+│   │   └── softbuffer v0.4.8
+│   │       ├── as-raw-xcb-connection v1.0.1
+│   │       ├── bytemuck v1.25.2 (*)
+│   │       ├── drm v0.14.1
+│   │       │   ├── bitflags v2.13.2 (*)
+│   │       │   ├── bytemuck v1.25.2 (*)
+│   │       │   ├── drm-ffi v0.9.1
+│   │       │   │   ├── drm-sys v0.8.1
+│   │       │   │   │   └── linux-raw-sys v0.9.4
+│   │       │   │   └── rustix v1.1.5
+│   │       │   │       ├── bitflags v2.13.2 (*)
+│   │       │   │       └── linux-raw-sys v0.12.1
+│   │       │   ├── drm-fourcc v2.2.0
+│   │       │   └── rustix v0.38.44
+│   │       │       ├── bitflags v2.13.2 (*)
+│   │       │       └── linux-raw-sys v0.4.15
+│   │       ├── fastrand v2.5.0
+│   │       ├── memmap2 v0.9.11
+│   │       │   └── libc v0.2.189
+│   │       ├── raw-window-handle v0.6.2
+│   │       ├── rustix v1.1.5 (*)
+│   │       ├── tiny-xlib v0.2.5
+│   │       │   ├── as-raw-xcb-connection v1.0.1
+│   │       │   ├── ctor v0.10.1
+│   │       │   ├── libloading v0.8.9
+│   │       │   │   └── cfg-if v1.0.5
+│   │       │   └── tracing v0.1.44
+│   │       │       ├── log v0.4.34
+│   │       │       ├── pin-project-lite v0.2.17
+│   │       │       └── tracing-core v0.1.36
+│   │       ├── tracing v0.1.44 (*)
+│   │       ├── wayland-backend v0.3.17
+│   │       │   ├── downcast-rs v1.2.1
+│   │       │   ├── rustix v1.1.5 (*)
+│   │       │   ├── scoped-tls v1.0.1
+│   │       │   ├── smallvec v1.16.2
+│   │       │   └── wayland-sys v0.31.11
+│   │       │       ├── dlib v0.5.3
+│   │       │       │   └── libloading v0.8.9 (*)
+│   │       │       ├── log v0.4.34
+│   │       │       └── once_cell v1.21.4
+│   │       ├── wayland-client v0.31.15
+│   │       │   ├── bitflags v2.13.2 (*)
+│   │       │   ├── rustix v1.1.5 (*)
+│   │       │   ├── wayland-backend v0.3.17 (*)
+│   │       │   └── wayland-scanner v0.31.11 (proc-macro)
+│   │       │       ├── proc-macro2 v1.0.107 (*)
+│   │       │       ├── quick-xml v0.41.0
+│   │       │       │   └── memchr v2.8.3
+│   │       │       └── quote v1.0.47 (*)
+│   │       ├── wayland-sys v0.31.11 (*)
+│   │       └── x11rb v0.13.2
+│   │           ├── as-raw-xcb-connection v1.0.1
+│   │           ├── gethostname v1.1.0
+│   │           │   └── rustix v1.1.5 (*)
+│   │           ├── libc v0.2.189
+│   │           ├── libloading v0.8.9 (*)
+│   │           ├── once_cell v1.21.4
+│   │           ├── rustix v1.1.5 (*)
+│   │           ├── x11rb-protocol v0.13.2
+│   │           └── xcursor v0.3.11
+│   ├── vello_common v0.1.0 (*)
+│   └── vello_cpu v0.1.0
+│       ├── bytemuck v1.25.2 (*)
+│       ├── glifo v0.2.0 (*)
+│       ├── hashbrown v0.17.1 (*)
+│       └── vello_common v0.1.0 (*)
+├── base64 v0.22.1
+├── blitz-dom v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615)
+│   ├── app_units v0.7.8
+│   │   ├── num-traits v0.2.19
+│   │   └── serde v1.0.229 (*)
+│   ├── atomic_refcell v0.1.14
+│   ├── bitflags v2.13.2 (*)
+│   ├── blitz-traits v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615)
+│   │   ├── atomic_refcell v0.1.14
+│   │   ├── bitflags v2.13.2 (*)
+│   │   ├── bytes v1.12.1
+│   │   ├── cursor-icon v1.2.0
+│   │   ├── http v1.5.0
+│   │   │   ├── bytes v1.12.1
+│   │   │   └── itoa v1.0.18
+│   │   ├── keyboard-types v0.7.0
+│   │   │   ├── bitflags v2.13.2 (*)
+│   │   │   ├── serde v1.0.229 (*)
+│   │   │   └── unicode-segmentation v1.13.3
+│   │   ├── serde v1.0.229 (*)
+│   │   ├── smol_str v0.3.6
+│   │   └── url v2.5.8
+│   │       ├── form_urlencoded v1.2.2
+│   │       │   └── percent-encoding v2.3.2
+│   │       ├── idna v1.1.0
+│   │       │   ├── idna_adapter v1.2.2
+│   │       │   │   ├── icu_normalizer v2.3.0
+│   │       │   │   │   ├── icu_collections v2.3.0
+│   │       │   │   │   │   ├── displaydoc v0.2.7 (proc-macro)
+│   │       │   │   │   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │       │   │   │   │   │   ├── quote v1.0.47 (*)
+│   │       │   │   │   │   │   └── syn v3.0.6 (*)
+│   │       │   │   │   │   ├── potential_utf v0.1.6
+│   │       │   │   │   │   │   ├── writeable v0.6.4
+│   │       │   │   │   │   │   └── zerovec v0.11.8
+│   │       │   │   │   │   │       ├── yoke v0.8.3
+│   │       │   │   │   │   │       │   ├── stable_deref_trait v1.2.1
+│   │       │   │   │   │   │       │   ├── yoke-derive v0.8.4 (proc-macro)
+│   │       │   │   │   │   │       │   │   ├── proc-macro2 v1.0.107 (*)
+│   │       │   │   │   │   │       │   │   ├── quote v1.0.47 (*)
+│   │       │   │   │   │   │       │   │   ├── syn v3.0.6 (*)
+│   │       │   │   │   │   │       │   │   └── synstructure v0.14.0
+│   │       │   │   │   │   │       │   │       ├── proc-macro2 v1.0.107 (*)
+│   │       │   │   │   │   │       │   │       ├── quote v1.0.47 (*)
+│   │       │   │   │   │   │       │   │       └── syn v3.0.6 (*)
+│   │       │   │   │   │   │       │   └── zerofrom v0.1.8
+│   │       │   │   │   │   │       │       └── zerofrom-derive v0.1.8 (proc-macro)
+│   │       │   │   │   │   │       │           ├── proc-macro2 v1.0.107 (*)
+│   │       │   │   │   │   │       │           ├── quote v1.0.47 (*)
+│   │       │   │   │   │   │       │           ├── syn v3.0.6 (*)
+│   │       │   │   │   │   │       │           └── synstructure v0.14.0 (*)
+│   │       │   │   │   │   │       ├── zerofrom v0.1.8 (*)
+│   │       │   │   │   │   │       └── zerovec-derive v0.11.6 (proc-macro)
+│   │       │   │   │   │   │           ├── proc-macro2 v1.0.107 (*)
+│   │       │   │   │   │   │           ├── quote v1.0.47 (*)
+│   │       │   │   │   │   │           └── syn v3.0.6 (*)
+│   │       │   │   │   │   ├── utf8_iter v1.0.4
+│   │       │   │   │   │   ├── yoke v0.8.3 (*)
+│   │       │   │   │   │   ├── zerofrom v0.1.8 (*)
+│   │       │   │   │   │   └── zerovec v0.11.8 (*)
+│   │       │   │   │   ├── icu_normalizer_data v2.3.0
+│   │       │   │   │   ├── icu_provider v2.3.1
+│   │       │   │   │   │   ├── displaydoc v0.2.7 (proc-macro) (*)
+│   │       │   │   │   │   ├── icu_locale_core v2.3.0
+│   │       │   │   │   │   │   ├── displaydoc v0.2.7 (proc-macro) (*)
+│   │       │   │   │   │   │   ├── litemap v0.8.3
+│   │       │   │   │   │   │   ├── tinystr v0.8.4
+│   │       │   │   │   │   │   │   ├── displaydoc v0.2.7 (proc-macro) (*)
+│   │       │   │   │   │   │   │   └── zerovec v0.11.8 (*)
+│   │       │   │   │   │   │   ├── writeable v0.6.4
+│   │       │   │   │   │   │   └── zerovec v0.11.8 (*)
+│   │       │   │   │   │   ├── stable_deref_trait v1.2.1
+│   │       │   │   │   │   ├── writeable v0.6.4
+│   │       │   │   │   │   ├── yoke v0.8.3 (*)
+│   │       │   │   │   │   ├── zerofrom v0.1.8 (*)
+│   │       │   │   │   │   ├── zerotrie v0.2.5
+│   │       │   │   │   │   │   ├── displaydoc v0.2.7 (proc-macro) (*)
+│   │       │   │   │   │   │   ├── yoke v0.8.3 (*)
+│   │       │   │   │   │   │   └── zerofrom v0.1.8 (*)
+│   │       │   │   │   │   └── zerovec v0.11.8 (*)
+│   │       │   │   │   ├── smallvec v1.16.2
+│   │       │   │   │   └── zerovec v0.11.8 (*)
+│   │       │   │   └── icu_properties v2.3.0
+│   │       │   │       ├── displaydoc v0.2.7 (proc-macro) (*)
+│   │       │   │       ├── icu_collections v2.3.0 (*)
+│   │       │   │       ├── icu_locale_core v2.3.0 (*)
+│   │       │   │       ├── icu_properties_data v2.3.0
+│   │       │   │       ├── icu_provider v2.3.1 (*)
+│   │       │   │       ├── zerotrie v0.2.5 (*)
+│   │       │   │       └── zerovec v0.11.8 (*)
+│   │       │   ├── smallvec v1.16.2
+│   │       │   └── utf8_iter v1.0.4
+│   │       ├── percent-encoding v2.3.2
+│   │       ├── serde v1.0.229 (*)
+│   │       └── serde_derive v1.0.229 (proc-macro) (*)
+│   ├── color v0.3.3 (*)
+│   ├── cssparser v0.38.0
+│   │   ├── cssparser-macros v0.7.1 (proc-macro)
+│   │   │   ├── quote v1.0.47 (*)
+│   │   │   └── syn v3.0.6 (*)
+│   │   ├── dtoa-short v0.3.5
+│   │   │   └── dtoa v1.0.11
+│   │   ├── itoa v1.0.18
+│   │   ├── phf v0.14.0
+│   │   │   ├── phf_macros v0.14.0 (proc-macro)
+│   │   │   │   ├── phf_generator v0.14.0
+│   │   │   │   │   ├── fastrand v2.5.0
+│   │   │   │   │   └── phf_shared v0.14.0
+│   │   │   │   │       └── siphasher v1.0.4
+│   │   │   │   ├── phf_shared v0.14.0 (*)
+│   │   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │   │   │   ├── quote v1.0.47 (*)
+│   │   │   │   └── syn v2.0.119
+│   │   │   │       ├── proc-macro2 v1.0.107 (*)
+│   │   │   │       ├── quote v1.0.47 (*)
+│   │   │   │       └── unicode-ident v1.0.26
+│   │   │   └── phf_shared v0.14.0 (*)
+│   │   ├── serde v1.0.229 (*)
+│   │   └── smallvec v1.16.2
+│   ├── cursor-icon v1.2.0
+│   ├── debug_timer v0.1.3 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615)
+│   ├── euclid v0.22.14 (*)
+│   ├── html-escape v0.2.15
+│   ├── image v0.25.10
+│   │   ├── bytemuck v1.25.2 (*)
+│   │   ├── byteorder-lite v0.1.0
+│   │   ├── moxcms v0.8.1
+│   │   │   ├── num-traits v0.2.19
+│   │   │   └── pxfm v0.1.30
+│   │   └── num-traits v0.2.19
+│   ├── keyboard-types v0.7.0 (*)
+│   ├── kurbo v0.13.1 (*)
+│   ├── linebender_resource_handle v0.1.1
+│   ├── markup5ever v0.40.0
+│   │   ├── log v0.4.34
+│   │   ├── tendril v0.5.1
+│   │   │   └── new_debug_unreachable v1.0.6
+│   │   └── web_atoms v0.3.0
+│   │       ├── phf v0.14.0 (*)
+│   │       └── string_cache v0.11.0
+│   │           ├── new_debug_unreachable v1.0.6
+│   │           ├── parking_lot v0.12.5
+│   │           │   ├── lock_api v0.4.14
+│   │           │   │   └── scopeguard v1.2.0
+│   │           │   └── parking_lot_core v0.9.12
+│   │           │       ├── cfg-if v1.0.5
+│   │           │       ├── libc v0.2.189
+│   │           │       └── smallvec v1.16.2
+│   │           ├── phf_shared v0.14.0 (*)
+│   │           ├── precomputed-hash v0.1.1
+│   │           └── serde v1.0.229 (*)
+│   ├── parley v0.11.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72)
+│   │   ├── fontique v0.11.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72)
+│   │   │   ├── hashbrown v0.17.1 (*)
+│   │   │   ├── linebender_resource_handle v0.1.1
+│   │   │   ├── memmap2 v0.9.11 (*)
+│   │   │   ├── parlance v0.1.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72)
+│   │   │   │   └── bytemuck v1.25.2 (*)
+│   │   │   ├── read-fonts v0.41.0 (*)
+│   │   │   └── smallvec v1.16.2
+│   │   ├── hashbrown v0.17.1 (*)
+│   │   ├── linebender_resource_handle v0.1.1
+│   │   ├── parlance v0.1.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72) (*)
+│   │   ├── parley_engine v0.11.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72)
+│   │   │   ├── fontique v0.11.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72) (*)
+│   │   │   ├── harfrust v0.12.0
+│   │   │   │   ├── bitflags v2.13.2 (*)
+│   │   │   │   ├── bytemuck v1.25.2 (*)
+│   │   │   │   ├── read-fonts v0.41.0 (*)
+│   │   │   │   └── smallvec v1.16.2
+│   │   │   ├── hashbrown v0.17.1 (*)
+│   │   │   ├── icu_locale_core v2.3.0 (*)
+│   │   │   ├── icu_normalizer v2.3.0 (*)
+│   │   │   ├── icu_properties v2.3.0 (*)
+│   │   │   ├── icu_segmenter v2.3.0
+│   │   │   │   ├── core_maths v0.1.1
+│   │   │   │   │   └── libm v0.2.16
+│   │   │   │   ├── icu_collections v2.3.0 (*)
+│   │   │   │   ├── icu_locale_fallback v2.3.0
+│   │   │   │   │   ├── icu_locale_core v2.3.0 (*)
+│   │   │   │   │   ├── icu_locale_fallback_data v2.3.0
+│   │   │   │   │   ├── icu_provider v2.3.1 (*)
+│   │   │   │   │   ├── potential_utf v0.1.6 (*)
+│   │   │   │   │   ├── tinystr v0.8.4 (*)
+│   │   │   │   │   └── zerovec v0.11.8 (*)
+│   │   │   │   ├── icu_provider v2.3.1 (*)
+│   │   │   │   ├── icu_segmenter_data v2.3.0
+│   │   │   │   ├── potential_utf v0.1.6 (*)
+│   │   │   │   ├── smallvec v1.16.2
+│   │   │   │   ├── utf8_iter v1.0.4
+│   │   │   │   └── zerovec v0.11.8 (*)
+│   │   │   ├── linebender_resource_handle v0.1.1
+│   │   │   ├── parlance v0.1.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72) (*)
+│   │   │   ├── parley_data v0.11.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72)
+│   │   │   │   ├── icu_collections v2.3.0 (*)
+│   │   │   │   └── icu_properties v2.3.0 (*)
+│   │   │   ├── parley_emoji v0.11.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72)
+│   │   │   └── skrifa v0.44.0 (*)
+│   │   └── smallvec v1.16.2
+│   ├── percent-encoding v2.3.2
+│   ├── rayon v1.12.0
+│   │   ├── either v1.18.0
+│   │   └── rayon-core v1.13.0
+│   │       ├── crossbeam-deque v0.8.8
+│   │       │   ├── crossbeam-epoch v0.9.21
+│   │       │   │   └── crossbeam-utils v0.8.23
+│   │       │   └── crossbeam-utils v0.8.23
+│   │       └── crossbeam-utils v0.8.23
+│   ├── selectors v0.41.0
+│   │   ├── bitflags v2.13.2 (*)
+│   │   ├── cssparser v0.38.0 (*)
+│   │   ├── derive_more v2.1.1
+│   │   │   └── derive_more-impl v2.1.1 (proc-macro)
+│   │   │       ├── proc-macro2 v1.0.107 (*)
+│   │   │       ├── quote v1.0.47 (*)
+│   │   │       └── syn v2.0.119 (*)
+│   │   ├── log v0.4.34
+│   │   ├── new_debug_unreachable v1.0.6
+│   │   ├── precomputed-hash v0.1.1
+│   │   ├── rustc-hash v2.1.3
+│   │   ├── servo_arc v0.5.0
+│   │   │   ├── serde v1.0.229 (*)
+│   │   │   └── stable_deref_trait v1.2.1
+│   │   ├── smallvec v1.16.2
+│   │   ├── to_shmem v0.6.0
+│   │   │   ├── cssparser v0.38.0 (*)
+│   │   │   ├── servo_arc v0.5.0 (*)
+│   │   │   ├── smallbitvec v2.6.1
+│   │   │   ├── smallvec v1.16.2
+│   │   │   ├── string_cache v0.11.0 (*)
+│   │   │   └── thin-vec v0.2.20
+│   │   └── to_shmem_derive v0.2.0 (proc-macro)
+│   │       ├── darling v0.20.11
+│   │       │   ├── darling_core v0.20.11
+│   │       │   │   ├── fnv v1.0.7
+│   │       │   │   ├── ident_case v1.0.1
+│   │       │   │   ├── proc-macro2 v1.0.107 (*)
+│   │       │   │   ├── quote v1.0.47 (*)
+│   │       │   │   └── syn v2.0.119 (*)
+│   │       │   └── darling_macro v0.20.11 (proc-macro)
+│   │       │       ├── darling_core v0.20.11 (*)
+│   │       │       ├── quote v1.0.47 (*)
+│   │       │       └── syn v2.0.119 (*)
+│   │       ├── proc-macro2 v1.0.107 (*)
+│   │       ├── quote v1.0.47 (*)
+│   │       ├── syn v2.0.119 (*)
+│   │       └── synstructure v0.13.2
+│   │           ├── proc-macro2 v1.0.107 (*)
+│   │           ├── quote v1.0.47 (*)
+│   │           └── syn v2.0.119 (*)
+│   ├── skrifa v0.44.0 (*)
+│   ├── slotmap v1.1.1
+│   ├── smallvec v1.16.2
+│   ├── stylo v0.22.0
+│   │   ├── app_units v0.7.8 (*)
+│   │   ├── arrayvec v0.7.8
+│   │   ├── atomic_refcell v0.1.14
+│   │   ├── bitflags v2.13.2 (*)
+│   │   ├── byteorder v1.5.0
+│   │   ├── cssparser v0.38.0 (*)
+│   │   ├── derive_more v2.1.1 (*)
+│   │   ├── encoding_rs v0.8.42
+│   │   │   ├── cfg-if v1.0.5
+│   │   │   ├── core_detect v1.0.0
+│   │   │   ├── multiversion_no_op v1.0.0 (proc-macro)
+│   │   │   ├── scopeguard v1.2.0
+│   │   │   └── simdutf8 v0.1.5
+│   │   ├── euclid v0.22.14 (*)
+│   │   ├── icu_segmenter v2.3.0 (*)
+│   │   ├── indexmap v2.14.2
+│   │   │   ├── equivalent v1.0.2
+│   │   │   └── hashbrown v0.17.1 (*)
+│   │   ├── itertools v0.14.0
+│   │   │   └── either v1.18.0
+│   │   ├── itoa v1.0.18
+│   │   ├── log v0.4.34
+│   │   ├── malloc_size_of_derive v0.1.3 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │   │   ├── syn v2.0.119 (*)
+│   │   │   └── synstructure v0.13.2 (*)
+│   │   ├── mime v0.3.17
+│   │   ├── new_debug_unreachable v1.0.6
+│   │   ├── num-derive v0.4.2 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │   │   ├── quote v1.0.47 (*)
+│   │   │   └── syn v2.0.119 (*)
+│   │   ├── num-integer v0.1.47
+│   │   │   └── num-traits v0.2.19
+│   │   ├── num-traits v0.2.19
+│   │   ├── num_cpus v1.17.0
+│   │   │   └── libc v0.2.189
+│   │   ├── parking_lot v0.12.5 (*)
+│   │   ├── precomputed-hash v0.1.1
+│   │   ├── rayon v1.12.0 (*)
+│   │   ├── rayon-core v1.13.0 (*)
+│   │   ├── rustc-hash v2.1.3
+│   │   ├── selectors v0.41.0 (*)
+│   │   ├── serde v1.0.229 (*)
+│   │   ├── servo_arc v0.5.0 (*)
+│   │   ├── smallbitvec v2.6.1
+│   │   ├── smallvec v1.16.2
+│   │   ├── static_assertions v1.1.0
+│   │   ├── string_cache v0.11.0 (*)
+│   │   ├── strum v0.28.0
+│   │   ├── strum_macros v0.28.0 (proc-macro)
+│   │   │   ├── heck v0.5.0
+│   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │   │   ├── quote v1.0.47 (*)
+│   │   │   └── syn v2.0.119 (*)
+│   │   ├── stylo_atoms v0.22.0
+│   │   │   └── string_cache v0.11.0 (*)
+│   │   ├── stylo_derive v0.22.0 (proc-macro)
+│   │   │   ├── darling v0.20.11 (*)
+│   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │   │   ├── quote v1.0.47 (*)
+│   │   │   ├── syn v2.0.119 (*)
+│   │   │   └── synstructure v0.13.2 (*)
+│   │   ├── stylo_dom v0.22.0
+│   │   │   ├── bitflags v2.13.2 (*)
+│   │   │   └── stylo_malloc_size_of v0.22.0
+│   │   │       ├── app_units v0.7.8 (*)
+│   │   │       ├── cssparser v0.38.0 (*)
+│   │   │       ├── euclid v0.22.14 (*)
+│   │   │       ├── parking_lot v0.12.5 (*)
+│   │   │       ├── selectors v0.41.0 (*)
+│   │   │       ├── servo_arc v0.5.0 (*)
+│   │   │       ├── smallbitvec v2.6.1
+│   │   │       ├── smallvec v1.16.2
+│   │   │       ├── string_cache v0.11.0 (*)
+│   │   │       ├── thin-vec v0.2.20
+│   │   │       └── void v1.0.2
+│   │   ├── stylo_malloc_size_of v0.22.0 (*)
+│   │   ├── stylo_static_prefs v0.22.0
+│   │   ├── stylo_traits v0.22.0
+│   │   │   ├── app_units v0.7.8 (*)
+│   │   │   ├── bitflags v2.13.2 (*)
+│   │   │   ├── cssparser v0.38.0 (*)
+│   │   │   ├── euclid v0.22.14 (*)
+│   │   │   ├── malloc_size_of_derive v0.1.3 (proc-macro) (*)
+│   │   │   ├── selectors v0.41.0 (*)
+│   │   │   ├── serde v1.0.229 (*)
+│   │   │   ├── servo_arc v0.5.0 (*)
+│   │   │   ├── stylo_atoms v0.22.0 (*)
+│   │   │   ├── stylo_malloc_size_of v0.22.0 (*)
+│   │   │   ├── thin-vec v0.2.20
+│   │   │   ├── to_shmem v0.6.0 (*)
+│   │   │   ├── to_shmem_derive v0.2.0 (proc-macro) (*)
+│   │   │   └── url v2.5.8 (*)
+│   │   ├── thin-vec v0.2.20
+│   │   ├── to_shmem v0.6.0 (*)
+│   │   ├── to_shmem_derive v0.2.0 (proc-macro) (*)
+│   │   ├── uluru v3.1.0
+│   │   │   └── arrayvec v0.7.8
+│   │   ├── url v2.5.8 (*)
+│   │   ├── void v1.0.2
+│   │   └── web_atoms v0.3.0 (*)
+│   ├── stylo_dom v0.22.0 (*)
+│   ├── stylo_static_prefs v0.22.0
+│   ├── stylo_taffy v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615)
+│   │   ├── bitflags v2.13.2 (*)
+│   │   ├── stylo v0.22.0 (*)
+│   │   ├── stylo_atoms v0.22.0 (*)
+│   │   └── taffy v0.14.0 (https://github.com/DioxusLabs/taffy?rev=fb461a7826e49f488f31220744bf12227ffb580e#fb461a78)
+│   │       └── smallvec v1.16.2
+│   ├── stylo_traits v0.22.0 (*)
+│   ├── taffy v0.14.0 (https://github.com/DioxusLabs/taffy?rev=fb461a7826e49f488f31220744bf12227ffb580e#fb461a78) (*)
+│   ├── thin-vec v0.2.20
+│   ├── thread_local v1.1.10
+│   │   └── cfg-if v1.0.5
+│   ├── url v2.5.8 (*)
+│   ├── web-time v1.1.0
+│   └── wuff v0.2.9
+│       ├── brotli-decompressor v5.0.3
+│       │   └── alloc-no-stdlib v2.0.4
+│       ├── bytes v1.12.1
+│       └── flate2 v1.1.10 (*)
+├── blitz-html v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615)
+│   ├── blitz-dom v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615) (*)
+│   ├── blitz-traits v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615) (*)
+│   ├── html5ever v0.40.1
+│   │   ├── log v0.4.34
+│   │   ├── markup5ever v0.40.0 (*)
+│   │   └── memchr v2.8.3
+│   └── xml5ever v0.40.0
+│       ├── log v0.4.34
+│       └── markup5ever v0.40.0 (*)
+├── blitz-paint v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615)
+│   ├── anyrender v0.13.0 (*)
+│   ├── blitz-dom v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615) (*)
+│   ├── blitz-traits v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615) (*)
+│   ├── bytemuck v1.25.2 (*)
+│   ├── color v0.3.3 (*)
+│   ├── euclid v0.22.14 (*)
+│   ├── kurbo v0.13.1 (*)
+│   ├── parley v0.11.0 (https://github.com/linebender/parley?rev=718dcb721941fd8e72128833122d31f5a4e80504#718dcb72) (*)
+│   ├── peniko v0.6.1 (*)
+│   ├── skrifa v0.44.0 (*)
+│   ├── smallvec v1.16.2
+│   ├── stylo v0.22.0 (*)
+│   └── taffy v0.14.0 (https://github.com/DioxusLabs/taffy?rev=fb461a7826e49f488f31220744bf12227ffb580e#fb461a78) (*)
+├── blitz-shell v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615)
+│   ├── anyrender v0.13.0 (*)
+│   ├── atomic_refcell v0.1.14
+│   ├── blitz-dom v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615) (*)
+│   ├── blitz-paint v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615) (*)
+│   ├── blitz-traits v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615) (*)
+│   ├── data-url v0.3.2
+│   ├── futures-util v0.3.34
+│   │   ├── futures-core v0.3.34
+│   │   ├── futures-macro v0.3.34 (proc-macro)
+│   │   │   ├── proc-macro2 v1.0.107 (*)
+│   │   │   ├── quote v1.0.47 (*)
+│   │   │   └── syn v3.0.6 (*)
+│   │   ├── futures-task v0.3.34
+│   │   ├── pin-project-lite v0.2.17
+│   │   └── slab v0.4.12
+│   ├── keyboard-types v0.7.0 (*)
+│   ├── web-time v1.1.0
+│   └── winit v0.31.0-beta.3
+│       ├── bitflags v2.13.2 (*)
+│       ├── cursor-icon v1.2.0
+│       ├── dpi v0.1.2
+│       ├── libc v0.2.189
+│       ├── raw-window-handle v0.6.2
+│       ├── rustix v1.1.5 (*)
+│       ├── smol_str v0.3.6
+│       ├── tracing v0.1.44 (*)
+│       ├── winit-common v0.31.0-beta.3
+│       │   ├── memmap2 v0.9.11 (*)
+│       │   ├── smol_str v0.3.6
+│       │   ├── tracing v0.1.44 (*)
+│       │   ├── winit-core v0.31.0-beta.3
+│       │   │   ├── bitflags v2.13.2 (*)
+│       │   │   ├── cursor-icon v1.2.0
+│       │   │   ├── dpi v0.1.2
+│       │   │   ├── keyboard-types v0.8.3
+│       │   │   │   └── bitflags v2.13.2 (*)
+│       │   │   ├── raw-window-handle v0.6.2
+│       │   │   ├── smol_str v0.3.6
+│       │   │   └── url v2.5.8 (*)
+│       │   ├── x11-dl v2.21.0
+│       │   │   ├── libc v0.2.189
+│       │   │   └── once_cell v1.21.4
+│       │   └── xkbcommon-dl v0.4.2
+│       │       ├── bitflags v2.13.2 (*)
+│       │       ├── dlib v0.5.3 (*)
+│       │       ├── log v0.4.34
+│       │       ├── once_cell v1.21.4
+│       │       └── xkeysym v0.2.1
+│       ├── winit-core v0.31.0-beta.3 (*)
+│       ├── winit-wayland v0.31.0-beta.3
+│       │   ├── bitflags v2.13.2 (*)
+│       │   ├── calloop v0.14.5
+│       │   │   ├── bitflags v2.13.2 (*)
+│       │   │   ├── polling v3.11.0
+│       │   │   │   ├── cfg-if v1.0.5
+│       │   │   │   └── rustix v1.1.5 (*)
+│       │   │   ├── rustix v1.1.5 (*)
+│       │   │   └── tracing v0.1.44 (*)
+│       │   ├── cursor-icon v1.2.0
+│       │   ├── dpi v0.1.2
+│       │   ├── foldhash v0.2.0
+│       │   ├── libc v0.2.189
+│       │   ├── memmap2 v0.9.11 (*)
+│       │   ├── percent-encoding v2.3.2
+│       │   ├── raw-window-handle v0.6.2
+│       │   ├── rustix v1.1.5 (*)
+│       │   ├── sctk-adwaita v0.12.0
+│       │   │   ├── ab_glyph v0.2.32
+│       │   │   │   ├── ab_glyph_rasterizer v0.1.10
+│       │   │   │   └── owned_ttf_parser v0.25.1
+│       │   │   │       └── ttf-parser v0.25.1
+│       │   │   ├── log v0.4.34
+│       │   │   ├── memmap2 v0.9.11 (*)
+│       │   │   ├── smithay-client-toolkit v0.21.1
+│       │   │   │   ├── bitflags v2.13.2 (*)
+│       │   │   │   ├── calloop v0.14.5 (*)
+│       │   │   │   ├── calloop-wayland-source v0.4.1
+│       │   │   │   │   ├── calloop v0.14.5 (*)
+│       │   │   │   │   ├── rustix v1.1.5 (*)
+│       │   │   │   │   ├── wayland-backend v0.3.17 (*)
+│       │   │   │   │   └── wayland-client v0.31.15 (*)
+│       │   │   │   ├── cursor-icon v1.2.0
+│       │   │   │   ├── log v0.4.34
+│       │   │   │   ├── memmap2 v0.9.11 (*)
+│       │   │   │   ├── rustix v1.1.5 (*)
+│       │   │   │   ├── thiserror v2.0.21 (*)
+│       │   │   │   ├── wayland-client v0.31.15 (*)
+│       │   │   │   ├── wayland-csd-frame v0.3.0
+│       │   │   │   │   ├── bitflags v2.13.2 (*)
+│       │   │   │   │   ├── cursor-icon v1.2.0
+│       │   │   │   │   └── wayland-backend v0.3.17 (*)
+│       │   │   │   ├── wayland-cursor v0.31.14
+│       │   │   │   │   ├── rustix v1.1.5 (*)
+│       │   │   │   │   ├── wayland-client v0.31.15 (*)
+│       │   │   │   │   └── xcursor v0.3.11
+│       │   │   │   ├── wayland-protocols v0.32.13
+│       │   │   │   │   ├── bitflags v2.13.2 (*)
+│       │   │   │   │   ├── wayland-backend v0.3.17 (*)
+│       │   │   │   │   ├── wayland-client v0.31.15 (*)
+│       │   │   │   │   └── wayland-scanner v0.31.11 (proc-macro) (*)
+│       │   │   │   ├── wayland-protocols-experimental v20251230.0.3
+│       │   │   │   │   ├── bitflags v2.13.2 (*)
+│       │   │   │   │   ├── wayland-backend v0.3.17 (*)
+│       │   │   │   │   ├── wayland-client v0.31.15 (*)
+│       │   │   │   │   ├── wayland-protocols v0.32.13 (*)
+│       │   │   │   │   └── wayland-scanner v0.31.11 (proc-macro) (*)
+│       │   │   │   ├── wayland-protocols-misc v0.3.12
+│       │   │   │   │   ├── bitflags v2.13.2 (*)
+│       │   │   │   │   ├── wayland-backend v0.3.17 (*)
+│       │   │   │   │   ├── wayland-client v0.31.15 (*)
+│       │   │   │   │   ├── wayland-protocols v0.32.13 (*)
+│       │   │   │   │   └── wayland-scanner v0.31.11 (proc-macro) (*)
+│       │   │   │   ├── wayland-protocols-wlr v0.3.12
+│       │   │   │   │   ├── bitflags v2.13.2 (*)
+│       │   │   │   │   ├── wayland-backend v0.3.17 (*)
+│       │   │   │   │   ├── wayland-client v0.31.15 (*)
+│       │   │   │   │   ├── wayland-protocols v0.32.13 (*)
+│       │   │   │   │   └── wayland-scanner v0.31.11 (proc-macro) (*)
+│       │   │   │   ├── wayland-scanner v0.31.11 (proc-macro) (*)
+│       │   │   │   └── xkeysym v0.2.1
+│       │   │   └── tiny-skia v0.12.0
+│       │   │       ├── arrayref v0.3.9
+│       │   │       ├── arrayvec v0.7.8
+│       │   │       ├── bytemuck v1.25.2 (*)
+│       │   │       ├── cfg-if v1.0.5
+│       │   │       ├── log v0.4.34
+│       │   │       └── tiny-skia-path v0.12.0
+│       │   │           ├── arrayref v0.3.9
+│       │   │           ├── bytemuck v1.25.2 (*)
+│       │   │           └── strict-num v0.1.1
+│       │   ├── smithay-client-toolkit v0.21.1 (*)
+│       │   ├── smol_str v0.3.6
+│       │   ├── tracing v0.1.44 (*)
+│       │   ├── wayland-backend v0.3.17 (*)
+│       │   ├── wayland-client v0.31.15 (*)
+│       │   ├── wayland-protocols v0.32.13 (*)
+│       │   ├── wayland-protocols-plasma v0.3.12
+│       │   │   ├── bitflags v2.13.2 (*)
+│       │   │   ├── wayland-backend v0.3.17 (*)
+│       │   │   ├── wayland-client v0.31.15 (*)
+│       │   │   ├── wayland-protocols v0.32.13 (*)
+│       │   │   └── wayland-scanner v0.31.11 (proc-macro) (*)
+│       │   ├── winit-common v0.31.0-beta.3 (*)
+│       │   └── winit-core v0.31.0-beta.3 (*)
+│       └── winit-x11 v0.31.0-beta.3
+│           ├── bitflags v2.13.2 (*)
+│           ├── bytemuck v1.25.2 (*)
+│           ├── calloop v0.14.5 (*)
+│           ├── cursor-icon v1.2.0
+│           ├── dpi v0.1.2
+│           ├── libc v0.2.189
+│           ├── percent-encoding v2.3.2
+│           ├── raw-window-handle v0.6.2
+│           ├── rustix v1.1.5 (*)
+│           ├── smol_str v0.3.6
+│           ├── tracing v0.1.44 (*)
+│           ├── winit-common v0.31.0-beta.3 (*)
+│           ├── winit-core v0.31.0-beta.3 (*)
+│           ├── x11-dl v2.21.0 (*)
+│           ├── x11rb v0.13.2 (*)
+│           └── xkbcommon-dl v0.4.2 (*)
+├── blitz-traits v0.3.0-beta.2 (https://github.com/DioxusLabs/blitz?rev=89e5e615aea649a1a9630c526956aa3d90a3afa7#89e5e615) (*)
+├── markup5ever v0.40.0 (*)
+├── png v0.18.1 (*)
+├── serde_json v1.0.149
+│   ├── itoa v1.0.18
+│   ├── memchr v2.8.3
+│   ├── serde_core v1.0.229
+│   └── zmij v1.0.23
+└── winit v0.31.0-beta.3 (*)

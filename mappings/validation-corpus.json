@@ -1,0 +1,9 @@
+{
+  "schema": 2,
+  "owner": "compiler",
+  "exhaustive": [-16, 32],
+  "fourParameterValues": [-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8],
+  "boundaries": [-1000000, -999999, -64, -1, 0, 1, 64, 999999, 1000000],
+  "invalidValues": [null, "1", 1.5, 1000001, -1000001, true],
+  "limits": {"parameters": 4, "expressionNodes": 63, "expressionDepth": 16, "predicates": 16, "candidateBytes": 65536}
+}

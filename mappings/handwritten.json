@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "version": 1,
+  "rules": [
+    { "id": "react-use-state", "matcher": "resolved react:useState import", "preconditions": "unconditional component declaration; literal numeric/boolean initial value; exhaustive closure", "lowering": "state slot + ordered functional transition", "capabilities": ["finite-state"], "versions": {"react":"19.3.0"}, "evidence": "tests/compiler.test.mjs" },
+    { "id": "static-jsx", "matcher": "TypeScript JSX AST and resolved local component symbols", "preconditions": "allowed tags and bindings; conditional subtrees stateless", "lowering": "IR nodes + text/attribute/conditional bindings", "capabilities": ["dom","css"], "evidence": "tests/compiler.test.mjs" },
+    { "id": "integer-compute", "matcher": "typed AST operators and standard library Math symbol", "preconditions": "pure homogeneous operands; exact integer intermediates; no signed zero", "lowering": "Rust integer/boolean operations", "capabilities": ["integer-min","integer-max"], "evidence": "tests/compiler.test.mjs" }
+  ]
+}

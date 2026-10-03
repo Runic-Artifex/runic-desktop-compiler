@@ -1,0 +1,22 @@
+{
+  "schema": 2,
+  "accepted": true,
+  "candidateHash": "0b532b5482d008c584903a2cef37ac57276c63e17c69b610efafe87f9fa8884d",
+  "validator": "runic-independent-v2",
+  "validatorHash": "8bf0ae2ed4bdda3c9c627ee29bf605ec09232da701da44cd56c908b3cf8ee6e3",
+  "corpusHash": "729e4038439b92f64c1aae1de2aacbc4aad9041fcf553a9bc83f855e919830b4",
+  "oracle": "JavaScript execution of compiler-owned source generated from the structurally checked matcher; independent IR lowering evaluation",
+  "exhaustive": {
+    "range": [
+      -16,
+      32
+    ],
+    "parameters": 3,
+    "cases": 60025
+  },
+  "cases": 60430,
+  "excludedOutsideContract": 0,
+  "negativeNumericCases": 10,
+  "structuralCases": 11,
+  "scope": "Bounded pure numeric matcher; independent differential corpus plus exact reachable application closure. Not general JavaScript equivalence."
+}

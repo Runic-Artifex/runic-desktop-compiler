@@ -1,0 +1,37 @@
+✔ ordinary fixtures use identical accepted mapping with independent finite state spaces (812.54834ms)
+✔ mapping is unavailable without the pinned registry (195.782541ms)
+✔ updates use pending previous values and captured render snapshot across slots (176.173566ms)
+✔ state bounds require reachable closure, not a type annotation or hopeful range (685.505843ms)
+✔ unknown effect, dependency and unexecuted module side effect never disappear (651.550245ms)
+✔ conditional stateful components and nonliteral state payloads are rejected (320.983896ms)
+✔ resolved identities reject familiar names with incompatible behavior (470.122485ms)
+✔ IR validator rejects corrupted typed operations (161.611939ms)
+✔ independent mapping validator accepts replay and rejects a wrong rewrite (1190.584143ms)
+✔ discovery provider boundary retains hashes and labels a test candidate truthfully (1351.43735ms)
+✔ JSX entities lower to text, while unsafe string values are diagnosed (461.108605ms)
+✔ HTML effects are rejected and CSS preserves entry import order (100.6955ms)
+✔ mixed replacement/updater queues retain captured values and produce one commit (396.402506ms)
+✔ arrow composition and imported renamed helpers preserve all transitions (763.866148ms)
+✔ enum states, controls, effects and resource boundaries fail explicitly (697.596764ms)
+✔ malformed serialized IR never escapes as an implementation exception (190.088836ms)
+✔ mapping arguments removed by lowering still prove original evaluation domain (0.287461ms)
+✔ frozen discovery and held-out source hashes survive unchanged rule reuse (663.28594ms)
+✔ multi-rule acceptance is immutable and a failed rewrite preserves registry bytes (3570.845077ms)
+✔ failed native build preserves an existing usable output directory (629.878268ms)
+✔ overlapping validated but different lowerings diagnose ambiguity deterministically (2169.359092ms)
+✔ resource and cyclic metadata failures retain diagnostics (201.753201ms)
+✔ a framework-free IR uses the same validator and Rust backend (2.332635ms)
+✔ schema 2 artifacts validate and explicitly migrate without changing transitions (365.975391ms)
+✔ adapters preserve React snapshots and Vue immediate reads and captures (564.04733ms)
+✔ typed editors validate all UTF16 length classes and preserve arbitrary allowed content (10366.814377ms)
+✔ text proof rejects content-dependent predicates and malformed payload uses (1.791013ms)
+✔ Vue unsupported effects, lifecycle, directives and shadowed globals produce diagnostics (789.263959ms)
+✔ Vue boolean interpolation lowers an explicit string operation (203.943354ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12617.726471

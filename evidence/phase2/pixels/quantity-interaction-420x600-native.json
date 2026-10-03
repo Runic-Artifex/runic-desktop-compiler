@@ -1,0 +1,278 @@
+[
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 123.0,
+          "x": 37.0,
+          "y": 330.0
+        },
+        "text": "Show details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 37.0,
+          "y": 232.0
+        },
+        "text": "Remove"
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 206.0,
+          "y": 232.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 136.0,
+          "y": 232.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 346.0,
+          "x": 37.0,
+          "y": 164.0
+        },
+        "text": "2 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 346.0,
+          "x": 37.0,
+          "y": 290.0
+        },
+        "text": "Total: 14 EUR"
+      }
+    },
+    "focused": null,
+    "irHash": "957a1c8510ab4903c32937077a032e43dbf324c0084cc68e16ccd9251c24229c",
+    "state": [
+      2,
+      false
+    ]
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 118.0,
+          "x": 37.0,
+          "y": 330.0
+        },
+        "text": "Hide details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 37.0,
+          "y": 232.0
+        },
+        "text": "Remove"
+      },
+      "note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(43v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 346.0,
+          "x": 37.0,
+          "y": 386.0
+        },
+        "text": "Each item costs 7 EUR. Maximum 8 items."
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 206.0,
+          "y": 232.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 136.0,
+          "y": 232.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 346.0,
+          "x": 37.0,
+          "y": 164.0
+        },
+        "text": "2 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 346.0,
+          "x": 37.0,
+          "y": 290.0
+        },
+        "text": "Total: 14 EUR"
+      }
+    },
+    "event": 3,
+    "focused": null,
+    "irHash": "957a1c8510ab4903c32937077a032e43dbf324c0084cc68e16ccd9251c24229c",
+    "state": [
+      2,
+      true
+    ],
+    "update_us": 137.872,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 118.0,
+          "x": 37.0,
+          "y": 330.0
+        },
+        "text": "Hide details"
+      },
+      "minus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 91.0,
+          "x": 37.0,
+          "y": 232.0
+        },
+        "text": "Remove"
+      },
+      "note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(43v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 346.0,
+          "x": 37.0,
+          "y": 386.0
+        },
+        "text": "Each item costs 7 EUR. Maximum 8 items."
+      },
+      "pair": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 92.0,
+          "x": 206.0,
+          "y": 232.0
+        },
+        "text": "Add two"
+      },
+      "plus": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 62.0,
+          "x": 136.0,
+          "y": 232.0
+        },
+        "text": "Add"
+      },
+      "readout": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 48.0,
+          "width": 346.0,
+          "x": 37.0,
+          "y": 164.0
+        },
+        "text": "4 items"
+      },
+      "total": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(30v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 346.0,
+          "x": 37.0,
+          "y": 290.0
+        },
+        "text": "Total: 28 EUR"
+      }
+    },
+    "event": 2,
+    "focused": null,
+    "irHash": "957a1c8510ab4903c32937077a032e43dbf324c0084cc68e16ccd9251c24229c",
+    "state": [
+      4,
+      true
+    ],
+    "update_us": 69.45400000000001,
+    "writes": 2
+  }
+]

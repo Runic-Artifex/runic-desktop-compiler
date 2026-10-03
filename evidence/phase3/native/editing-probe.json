@@ -1,0 +1,87 @@
+{
+  "blitz": "89e5e615aea649a1a9630c526956aa3d90a3afa7",
+  "checks": [
+    {
+      "name": "typing",
+      "passed": true
+    },
+    {
+      "name": "deletion",
+      "passed": true
+    },
+    {
+      "name": "unicode selection replacement",
+      "passed": true
+    },
+    {
+      "name": "UTF16 offsets",
+      "passed": true
+    },
+    {
+      "name": "echo preserves selection",
+      "passed": true
+    },
+    {
+      "name": "live clear",
+      "passed": true
+    },
+    {
+      "name": "identity and focus",
+      "passed": true
+    },
+    {
+      "name": "composition commit",
+      "passed": true
+    },
+    {
+      "name": "binding read-only guard",
+      "passed": true
+    },
+    {
+      "name": "read-only composition guard",
+      "passed": true
+    },
+    {
+      "name": "read-only remains selectable",
+      "passed": true
+    },
+    {
+      "name": "length limit preserves caret",
+      "passed": true
+    },
+    {
+      "name": "disabled guard",
+      "passed": true
+    },
+    {
+      "name": "blur",
+      "passed": true
+    }
+  ],
+  "inputEvents": [
+    {
+      "value": "abc"
+    },
+    {
+      "value": "ab"
+    },
+    {
+      "value": "😀é"
+    },
+    {
+      "value": "あ"
+    },
+    {
+      "value": "あx"
+    }
+  ],
+  "rawReadonlyValue": "あx",
+  "route": "internal EventDriver; no OS input",
+  "inputs": {
+    "native/editing_probe.rs": "364e42b5ee040caac63e795b63998d925fdb20f1f6c1fc90a3d053f3d01f5de9",
+    "native/controls.rs": "0aa85c59127fe8fb262b9fbae1e05c62cbfe1b7a3d2245fb8a9d6da82aabed2a",
+    "Cargo.toml": "7b3b622261dd10d2837623d06be3a7b323804da7206bda103ece2d2559b91233",
+    "Cargo.lock": "e02be8c31beedeb3e0ed50eab554244bf1bf5e9806ea5eec1ef85b8f02ab9623"
+  },
+  "binaryHash": "63b3986a3a1aeb17c7fa85fa6ebfdff20559dcba9a05fdd779e819693125d2c2"
+}

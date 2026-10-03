@@ -1,0 +1,252 @@
+{
+  "caseIndex": null,
+  "events": [
+    2,
+    2,
+    1,
+    3
+  ],
+  "width": 800,
+  "height": 600,
+  "semanticErrors": [],
+  "geometryErrors": [],
+  "browser": {
+    "card": {
+      "text": "RUNIC / PRICINGConfigure your plan2 seats, annual billingteam: EUR 56 per monthLessMoreChange planToggle billingReset to twoTeam includes shared workspaces.",
+      "class": "card",
+      "disabled": false,
+      "rect": {
+        "x": 100,
+        "y": 24,
+        "width": 600,
+        "height": 363
+      }
+    },
+    "heading": {
+      "text": "Configure your plan",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 125,
+        "y": 99,
+        "width": 550,
+        "height": 28
+      }
+    },
+    "selection": {
+      "text": "2 seats, annual billing",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 125,
+        "y": 151,
+        "width": 550,
+        "height": 24
+      }
+    },
+    "total": {
+      "text": "team: EUR 56 per month",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 125,
+        "y": 191,
+        "width": 550,
+        "height": 24
+      }
+    },
+    "less": {
+      "text": "Less",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 125,
+        "y": 239,
+        "width": 60.765625,
+        "height": 38
+      }
+    },
+    "more": {
+      "text": "More",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 193.765625,
+        "y": 239,
+        "width": 64.71875,
+        "height": 38
+      }
+    },
+    "plan": {
+      "text": "Change plan",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 266.484375,
+        "y": 239,
+        "width": 118.28125,
+        "height": 38
+      }
+    },
+    "billing": {
+      "text": "Toggle billing",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 392.765625,
+        "y": 239,
+        "width": 121.671875,
+        "height": 38
+      }
+    },
+    "reset": {
+      "text": "Reset to two",
+      "class": "",
+      "disabled": false,
+      "rect": {
+        "x": 522.4375,
+        "y": 239,
+        "width": 117.578125,
+        "height": 38
+      }
+    },
+    "team-note": {
+      "text": "Team includes shared workspaces.",
+      "class": "note",
+      "disabled": false,
+      "rect": {
+        "x": 125,
+        "y": 301,
+        "width": 550,
+        "height": 45
+      }
+    }
+  },
+  "native": {
+    "billing": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(30v1)",
+      "rect": {
+        "height": 38,
+        "width": 122,
+        "x": 394,
+        "y": 239
+      },
+      "text": "Toggle billing"
+    },
+    "card": {
+      "class": "card",
+      "disabled": false,
+      "nodeIdentity": "NodeId(7v1)",
+      "rect": {
+        "height": 363,
+        "width": 600,
+        "x": 100,
+        "y": 24
+      },
+      "text": "RUNIC / PRICINGConfigure your plan2 seats, annual billingteam: EUR 56 per monthLessMoreChange planToggle billingReset to twoTeam includes shared workspaces."
+    },
+    "heading": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(11v1)",
+      "rect": {
+        "height": 28,
+        "width": 550,
+        "x": 125,
+        "y": 99
+      },
+      "text": "Configure your plan"
+    },
+    "less": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(21v1)",
+      "rect": {
+        "height": 38,
+        "width": 61,
+        "x": 125,
+        "y": 239
+      },
+      "text": "Less"
+    },
+    "more": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(24v1)",
+      "rect": {
+        "height": 38,
+        "width": 65,
+        "x": 194,
+        "y": 239
+      },
+      "text": "More"
+    },
+    "plan": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(27v1)",
+      "rect": {
+        "height": 38,
+        "width": 119,
+        "x": 267,
+        "y": 239
+      },
+      "text": "Change plan"
+    },
+    "reset": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(33v1)",
+      "rect": {
+        "height": 38,
+        "width": 118,
+        "x": 524,
+        "y": 239
+      },
+      "text": "Reset to two"
+    },
+    "selection": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(14v1)",
+      "rect": {
+        "height": 24,
+        "width": 550,
+        "x": 125,
+        "y": 151
+      },
+      "text": "2 seats, annual billing"
+    },
+    "team-note": {
+      "class": "note",
+      "disabled": false,
+      "nodeIdentity": "NodeId(43v1)",
+      "rect": {
+        "height": 45,
+        "width": 550,
+        "x": 125,
+        "y": 301
+      },
+      "text": "Team includes shared workspaces."
+    },
+    "total": {
+      "class": "",
+      "disabled": false,
+      "nodeIdentity": "NodeId(17v1)",
+      "rect": {
+        "height": 24,
+        "width": 550,
+        "x": 125,
+        "y": 191
+      },
+      "text": "team: EUR 56 per month"
+    }
+  },
+  "state": [
+    2,
+    "team",
+    true
+  ]
+}

@@ -1,0 +1,24 @@
+
+> runic-desktop-compiler@0.1.0 test
+> node --test tests/*.test.mjs
+
+✔ ordinary fixtures use identical accepted mapping with independent finite state spaces (623.741125ms)
+✔ mapping is unavailable without the pinned registry (142.779706ms)
+✔ updates use pending previous values and captured render snapshot across slots (139.239985ms)
+✔ state bounds require reachable closure, not a type annotation or hopeful range (542.549606ms)
+✔ unknown effect, dependency and unexecuted module side effect never disappear (533.125703ms)
+✔ conditional stateful components and unsupported setters are rejected (258.847957ms)
+✔ resolved identities reject familiar names with incompatible behavior (383.62441ms)
+✔ IR validator rejects corrupted typed operations (138.969086ms)
+✔ independent mapping validator accepts replay and rejects a wrong rewrite (747.704152ms)
+✔ discovery provider boundary retains hashes and labels a test candidate truthfully (910.538613ms)
+✔ JSX entities lower to text, while unsafe string values are diagnosed (387.547473ms)
+✔ HTML effects and unpreserved stylesheet ordering are rejected (47.821089ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5138.256092

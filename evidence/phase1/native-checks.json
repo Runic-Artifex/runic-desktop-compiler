@@ -1,0 +1,71 @@
+{
+  "schema": 2,
+  "irHash": "5ce5b68205d0d75bbcae81877a0baf275e8b1db3cbf99508c819b637c0a4ada6",
+  "keyboard": {
+    "status": "incomplete",
+    "internal": {
+      "status": "passed",
+      "events": 15,
+      "file": "evidence/phase1/probes/quantity-internal-keys-final.json"
+    },
+    "os": {
+      "status": "incomplete",
+      "verifiedKeys": [
+        "Tab"
+      ],
+      "reason": "A native Tab event is retained in the application log, but CUA keyboard requests time out and subsequent key delivery could not be established. Enter/Space/Shift+Tab are verified only through the separate internal UiEvent layer.",
+      "file": "evidence/phase1/probes/quantity-native-os-input.log"
+    },
+    "visibleFocus": {
+      "status": "passed",
+      "method": "CUA screenshot after real pointer click showed focused Add border changed to current text color; initial screenshot showed normal border",
+      "scope": "Focused button feedback, not a completed native keyboard matrix"
+    }
+  },
+  "resize": {
+    "status": "passed",
+    "route": "X11/XWayland",
+    "frames": 3,
+    "sizes": [
+      [
+        800,
+        600
+      ],
+      [
+        420,
+        600
+      ],
+      [
+        800,
+        600
+      ]
+    ],
+    "evidence": "evidence/phase1/probes/quantity-x11-resize-final.log"
+  },
+  "wayland": {
+    "status": "incomplete",
+    "reason": "Genuine Wayland mouse input and presentation verified on pricing; keyboard and resize remain incomplete. X11 mouse/resize and internal keyboard dispatch are separately verified.",
+    "mouse": {
+      "status": "passed",
+      "actions": [
+        "More",
+        "Change plan"
+      ],
+      "observedStates": [
+        [
+          2,
+          "basic",
+          false
+        ],
+        [
+          2,
+          "pro",
+          false
+        ]
+      ],
+      "observedTotal": "pro: EUR 40 per month",
+      "log": "pricing-wayland-mouse.log"
+    }
+  },
+  "osObservations": "evidence/phase1/probes/os-observations.json"
+}

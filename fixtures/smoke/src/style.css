@@ -1,0 +1,3 @@
+@font-face { font-family: RunicFixture; src: url('../assets/DejaVuSans.woff2') format('woff2'); }
+body { font-family: RunicFixture; padding: 32px; }
+button { font-family: RunicFixture; padding: 12px; }

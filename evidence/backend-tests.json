@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "reports": [
+    {
+      "app": "quantity",
+      "sourceHash": "6645c05de0553341d9a57ae08ff11180e25a5c4f645a54263efc0f67a3fb1919",
+      "irHash": "aa16bb9e14f4e18e9ef469f204d65d82d89f97be04a71d578b18333ebbf76da5",
+      "states": 16,
+      "exhaustiveRustTransitions": 64
+    },
+    {
+      "app": "thermostat",
+      "sourceHash": "9f600c8594ac17473b4925d1d230cdddf9de2b3e7af10e648cf970886d0dd80b",
+      "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3",
+      "states": 14,
+      "exhaustiveRustTransitions": 42
+    }
+  ],
+  "optimizationPreservesDOMIdentity": true,
+  "optimizationPixelIdentical": true,
+  "engineDependencyScan": true
+}

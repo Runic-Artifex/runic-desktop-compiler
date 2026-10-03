@@ -1,0 +1,155 @@
+{
+  "schema": 1,
+  "route": "T3 raw frame capture followed by acknowledgement of naturally released disabled focus. No app mutation or forced blur. Cases otherwise run original framework microtasks and timer settling.",
+  "results": [
+    {
+      "app": "editor-svelte",
+      "case": "?case=1",
+      "before": {
+        "focused": ""
+      },
+      "capture": "evidence/phase3/probes/editor-svelte-paint-0.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-svelte",
+      "case": "?case=7",
+      "before": {
+        "disabled": true,
+        "focused": "clear"
+      },
+      "capture": "evidence/phase3/probes/editor-svelte-paint-1.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-svelte",
+      "case": "?case=8",
+      "before": {
+        "disabled": true,
+        "focused": "clear"
+      },
+      "capture": "evidence/phase3/probes/editor-svelte-paint-2.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-svelte-5.49.2",
+      "case": "?case=1",
+      "before": {
+        "focused": ""
+      },
+      "capture": "evidence/phase3/probes/editor-svelte-5.49.2-paint-3.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-svelte-5.49.2",
+      "case": "?case=10",
+      "before": {
+        "disabled": true,
+        "focused": "clear"
+      },
+      "capture": "evidence/phase3/probes/editor-svelte-5.49.2-paint-4.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-react",
+      "case": "?case=1",
+      "before": {
+        "focused": ""
+      },
+      "capture": "evidence/phase3/probes/editor-react-paint-5.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-react",
+      "case": "?case=9",
+      "before": {
+        "focused": ""
+      },
+      "capture": "evidence/phase3/probes/editor-react-paint-6.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-react",
+      "case": "?case=10",
+      "before": {
+        "focused": ""
+      },
+      "capture": "evidence/phase3/probes/editor-react-paint-7.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-react",
+      "case": "?case=11",
+      "before": {
+        "focused": ""
+      },
+      "capture": "evidence/phase3/probes/editor-react-paint-8.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-vue",
+      "case": "?case=1",
+      "before": {
+        "focused": ""
+      },
+      "capture": "evidence/phase3/probes/editor-vue-paint-9.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-vue",
+      "case": "?case=7",
+      "before": {
+        "disabled": true,
+        "focused": "clear"
+      },
+      "capture": "evidence/phase3/probes/editor-vue-paint-10.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-vue",
+      "case": "?case=10",
+      "before": {
+        "disabled": true,
+        "focused": "clear"
+      },
+      "capture": "evidence/phase3/probes/editor-vue-paint-11.png",
+      "after": {
+        "settled": true
+      }
+    },
+    {
+      "app": "editor-vue",
+      "case": "?case=11",
+      "before": {
+        "disabled": true,
+        "focused": "clear"
+      },
+      "capture": "evidence/phase3/probes/editor-vue-paint-12.png",
+      "after": {
+        "settled": true
+      }
+    }
+  ]
+}

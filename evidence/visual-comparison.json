@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "comparison": "Real browser screenshot from T3 collaborative preview vs native CPU renderer framebuffer at scale 1; initial state, same fixed font and source. Geometry/text/disabled/classes also checked after every reachable event pair. Native framebuffer images are not OS window screenshots. Native OS input verified separately.",
+  "pixelMetric": "ImageMagick normalized mean absolute channel error converted to 8-bit units; tolerance 3/255. This permits rasterizer/antialiasing differences, not geometry drift. No reference image rewriting.",
+  "reports": [
+    {
+      "app": "quantity",
+      "width": 420,
+      "height": 600,
+      "cases": 64,
+      "semanticsPassed": true,
+      "geometryTolerancePx": 2,
+      "maximumObservedGeometryDeltaPx": 1.0625,
+      "pixelMeanAbsoluteError8Bit": 2.845341,
+      "pixelToleranceMeanAbsolute8Bit": 3,
+      "pixelPassed": true,
+      "browser": "quantity-browser-420x600.png",
+      "native": "quantity-native-420x600.png",
+      "sourceHash": "6645c05de0553341d9a57ae08ff11180e25a5c4f645a54263efc0f67a3fb1919",
+      "irHash": "aa16bb9e14f4e18e9ef469f204d65d82d89f97be04a71d578b18333ebbf76da5"
+    },
+    {
+      "app": "quantity",
+      "width": 800,
+      "height": 600,
+      "cases": 64,
+      "semanticsPassed": true,
+      "geometryTolerancePx": 2,
+      "maximumObservedGeometryDeltaPx": 1.0625,
+      "pixelMeanAbsoluteError8Bit": 1.8496986,
+      "pixelToleranceMeanAbsolute8Bit": 3,
+      "pixelPassed": true,
+      "browser": "quantity-browser-800x600.png",
+      "native": "quantity-native-800x600.png",
+      "sourceHash": "6645c05de0553341d9a57ae08ff11180e25a5c4f645a54263efc0f67a3fb1919",
+      "irHash": "aa16bb9e14f4e18e9ef469f204d65d82d89f97be04a71d578b18333ebbf76da5"
+    },
+    {
+      "app": "thermostat",
+      "width": 420,
+      "height": 600,
+      "cases": 42,
+      "semanticsPassed": true,
+      "geometryTolerancePx": 2,
+      "maximumObservedGeometryDeltaPx": 0.984375,
+      "pixelMeanAbsoluteError8Bit": 3.255891,
+      "pixelToleranceMeanAbsolute8Bit": 3,
+      "pixelPassed": false,
+      "browser": "thermostat-browser-420x600.png",
+      "native": "thermostat-native-420x600.png",
+      "sourceHash": "9f600c8594ac17473b4925d1d230cdddf9de2b3e7af10e648cf970886d0dd80b",
+      "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3"
+    },
+    {
+      "app": "thermostat",
+      "width": 800,
+      "height": 600,
+      "cases": 42,
+      "semanticsPassed": true,
+      "geometryTolerancePx": 2,
+      "maximumObservedGeometryDeltaPx": 0.984375,
+      "pixelMeanAbsoluteError8Bit": 2.09968275,
+      "pixelToleranceMeanAbsolute8Bit": 3,
+      "pixelPassed": true,
+      "browser": "thermostat-browser-800x600.png",
+      "native": "thermostat-native-800x600.png",
+      "sourceHash": "9f600c8594ac17473b4925d1d230cdddf9de2b3e7af10e648cf970886d0dd80b",
+      "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3"
+    }
+  ]
+}

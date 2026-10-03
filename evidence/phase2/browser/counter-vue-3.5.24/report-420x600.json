@@ -1,0 +1,7846 @@
+{
+  "schema": 2,
+  "sourceHash": "46c8f7b02de1b428c79c1e7047ea9edb4710b6f30ee57298d47007c4b167fcec",
+  "irHash": "862ef9d856fb5c064f3d9b07f2d40b0b365c4f19571fa38c27f39821a1e7da62",
+  "binaryHash": "2f5e0d685a82768d2a868829e010ec41bc8a77afae322deef92d70a405ebecfb",
+  "nativeInputs": {
+    "app.rs": "f160f3cd8f79e021b967059e1e3488ad0928577ff35b7b7531e9ef82119d086d",
+    "controls.rs": "0aa85c59127fe8fb262b9fbae1e05c62cbfe1b7a3d2245fb8a9d6da82aabed2a",
+    "runtime.rs": "da2801ab23086f1e13f36d711da9df0161ee7f06fd78213fe6dda0d89b333146",
+    "Cargo.lock": "e02be8c31beedeb3e0ed50eab554244bf1bf5e9806ea5eec1ef85b8f02ab9623",
+    "Cargo.toml": "a47028231e47b391fed0f4b82ec03c6917e5092c7a5f027c8f7d5360a74abcdc",
+    "main.rs": "3f9f14e070b5188b14f688a282eda9982c0396b01987939738c62bf2b85d944d"
+  },
+  "expectedCases": 36,
+  "cases": 36,
+  "complete": true,
+  "semanticsPassed": true,
+  "geometryTolerancePx": 2,
+  "geometryPassed": true,
+  "results": [
+    {
+      "caseIndex": 0,
+      "events": [
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "1",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "1"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        1,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 1,
+      "events": [
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "2"
+        }
+      },
+      "state": [
+        2,
+        0,
+        0,
+        true
+      ]
+    },
+    {
+      "caseIndex": 2,
+      "events": [
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "1",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "1"
+        }
+      },
+      "state": [
+        1,
+        0,
+        0,
+        false
+      ]
+    },
+    {
+      "caseIndex": 3,
+      "events": [
+        0,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 4,
+      "events": [
+        0,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "1",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "1"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        1,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 5,
+      "events": [
+        0,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "1",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "1"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        1,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 6,
+      "events": [
+        1,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "2"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        2,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 7,
+      "events": [
+        1,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        0,
+        0,
+        true
+      ]
+    },
+    {
+      "caseIndex": 8,
+      "events": [
+        1,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "2"
+        }
+      },
+      "state": [
+        2,
+        0,
+        0,
+        false
+      ]
+    },
+    {
+      "caseIndex": 9,
+      "events": [
+        2,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "1",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "1"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        1,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 10,
+      "events": [
+        2,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "2"
+        }
+      },
+      "state": [
+        2,
+        0,
+        0,
+        false
+      ]
+    },
+    {
+      "caseIndex": 11,
+      "events": [
+        2,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "1",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(34v3)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "1"
+        }
+      },
+      "state": [
+        1,
+        0,
+        0,
+        true
+      ]
+    },
+    {
+      "caseIndex": 12,
+      "events": [
+        0,
+        0,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 13,
+      "events": [
+        0,
+        0,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 14,
+      "events": [
+        0,
+        0,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 15,
+      "events": [
+        0,
+        2,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 16,
+      "events": [
+        0,
+        2,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "1",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "1"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        1,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 17,
+      "events": [
+        0,
+        2,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "1",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(34v3)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "1"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        1,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 18,
+      "events": [
+        1,
+        0,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 19,
+      "events": [
+        1,
+        0,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "2"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        2,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 20,
+      "events": [
+        1,
+        0,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "2"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        2,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 21,
+      "events": [
+        1,
+        1,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 22,
+      "events": [
+        1,
+        1,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(33v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        0,
+        0,
+        true
+      ]
+    },
+    {
+      "caseIndex": 23,
+      "events": [
+        1,
+        1,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        0,
+        0,
+        false
+      ]
+    },
+    {
+      "caseIndex": 24,
+      "events": [
+        1,
+        2,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "2"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        2,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 25,
+      "events": [
+        1,
+        2,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        0,
+        0,
+        false
+      ]
+    },
+    {
+      "caseIndex": 26,
+      "events": [
+        1,
+        2,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(34v3)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "2"
+        }
+      },
+      "state": [
+        2,
+        0,
+        0,
+        true
+      ]
+    },
+    {
+      "caseIndex": 27,
+      "events": [
+        0,
+        0,
+        2,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 28,
+      "events": [
+        0,
+        0,
+        2,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 29,
+      "events": [
+        0,
+        0,
+        2,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(34v3)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 30,
+      "events": [
+        1,
+        0,
+        2,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 31,
+      "events": [
+        1,
+        0,
+        2,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "2"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        2,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 32,
+      "events": [
+        1,
+        0,
+        2,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "2",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(34v3)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "2"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        2,
+        3,
+        true
+      ]
+    },
+    {
+      "caseIndex": 33,
+      "events": [
+        1,
+        1,
+        2,
+        0
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "3"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "3"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        3,
+        3,
+        false
+      ]
+    },
+    {
+      "caseIndex": 34,
+      "events": [
+        1,
+        1,
+        2,
+        1
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "false",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        }
+      },
+      "native": {
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "false"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        0,
+        0,
+        false
+      ]
+    },
+    {
+      "caseIndex": 35,
+      "events": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "width": 420,
+      "height": 600,
+      "semanticErrors": [],
+      "geometryErrors": [],
+      "browser": {
+        "heading": {
+          "text": "Counter",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 24,
+            "width": 388,
+            "height": 30
+          }
+        },
+        "value": {
+          "text": "3",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 78,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "seen": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 118,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "observed": {
+          "text": "0",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 158,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "flag": {
+          "text": "true",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 198,
+            "width": 388,
+            "height": 24
+          }
+        },
+        "sequence": {
+          "text": "Sequence",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 238,
+            "width": 103.0625,
+            "height": 42
+          }
+        },
+        "increment": {
+          "text": "Increment",
+          "class": "",
+          "disabled": true,
+          "rect": {
+            "x": 119.0625,
+            "y": 238,
+            "width": 105.375,
+            "height": 42
+          }
+        },
+        "toggle": {
+          "text": "Toggle",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 224.4375,
+            "y": 238,
+            "width": 79.015625,
+            "height": 42
+          }
+        },
+        "details": {
+          "text": "Visible",
+          "class": "",
+          "disabled": false,
+          "rect": {
+            "x": 16,
+            "y": 296,
+            "width": 388,
+            "height": 24
+          }
+        }
+      },
+      "native": {
+        "details": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(34v3)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 296
+          },
+          "text": "Visible"
+        },
+        "flag": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(20v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 198
+          },
+          "text": "true"
+        },
+        "heading": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(8v1)",
+          "rect": {
+            "height": 30,
+            "width": 388,
+            "x": 16,
+            "y": 24
+          },
+          "text": "Counter"
+        },
+        "increment": {
+          "class": "",
+          "disabled": true,
+          "nodeIdentity": "NodeId(26v1)",
+          "rect": {
+            "height": 42,
+            "width": 106,
+            "x": 120,
+            "y": 238
+          },
+          "text": "Increment"
+        },
+        "observed": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(17v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 158
+          },
+          "text": "0"
+        },
+        "seen": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(14v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 118
+          },
+          "text": "0"
+        },
+        "sequence": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(23v1)",
+          "rect": {
+            "height": 42,
+            "width": 104,
+            "x": 16,
+            "y": 238
+          },
+          "text": "Sequence"
+        },
+        "toggle": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(29v1)",
+          "rect": {
+            "height": 42,
+            "width": 80,
+            "x": 226,
+            "y": 238
+          },
+          "text": "Toggle"
+        },
+        "value": {
+          "class": "",
+          "disabled": false,
+          "nodeIdentity": "NodeId(11v1)",
+          "rect": {
+            "height": 24,
+            "width": 388,
+            "x": 16,
+            "y": 78
+          },
+          "text": "3"
+        }
+      },
+      "state": [
+        3,
+        0,
+        0,
+        true
+      ]
+    }
+  ]
+}

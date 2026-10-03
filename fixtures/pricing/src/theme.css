@@ -1,0 +1,2 @@
+/* Same specificity as base: import order determines this color. */
+.brand { color: #78552d; }

@@ -1,0 +1,602 @@
+[
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 296.0
+        },
+        "text": "Visible"
+      },
+      "flag": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 198.0
+        },
+        "text": "true"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 24.0
+        },
+        "text": "Counter"
+      },
+      "increment": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 106.0,
+          "x": 120.0,
+          "y": 238.0
+        },
+        "text": "Increment"
+      },
+      "observed": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 158.0
+        },
+        "text": "0"
+      },
+      "seen": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 118.0
+        },
+        "text": "0"
+      },
+      "sequence": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 104.0,
+          "x": 16.0,
+          "y": 238.0
+        },
+        "text": "Sequence"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(29v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 226.0,
+          "y": 238.0
+        },
+        "text": "Toggle"
+      },
+      "value": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 78.0
+        },
+        "text": "1"
+      }
+    },
+    "focused": null,
+    "irHash": "862ef9d856fb5c064f3d9b07f2d40b0b365c4f19571fa38c27f39821a1e7da62",
+    "state": [
+      1,
+      0,
+      0,
+      true
+    ]
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 296.0
+        },
+        "text": "Visible"
+      },
+      "flag": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 198.0
+        },
+        "text": "true"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 24.0
+        },
+        "text": "Counter"
+      },
+      "increment": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 106.0,
+          "x": 120.0,
+          "y": 238.0
+        },
+        "text": "Increment"
+      },
+      "observed": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 158.0
+        },
+        "text": "0"
+      },
+      "seen": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 118.0
+        },
+        "text": "0"
+      },
+      "sequence": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 104.0,
+          "x": 16.0,
+          "y": 238.0
+        },
+        "text": "Sequence"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(29v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 226.0,
+          "y": 238.0
+        },
+        "text": "Toggle"
+      },
+      "value": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 78.0
+        },
+        "text": "2"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "862ef9d856fb5c064f3d9b07f2d40b0b365c4f19571fa38c27f39821a1e7da62",
+    "state": [
+      2,
+      0,
+      0,
+      true
+    ],
+    "update_us": 75.944,
+    "writes": 1
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(33v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 296.0
+        },
+        "text": "Visible"
+      },
+      "flag": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 198.0
+        },
+        "text": "true"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 24.0
+        },
+        "text": "Counter"
+      },
+      "increment": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 106.0,
+          "x": 120.0,
+          "y": 238.0
+        },
+        "text": "Increment"
+      },
+      "observed": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 158.0
+        },
+        "text": "0"
+      },
+      "seen": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 118.0
+        },
+        "text": "0"
+      },
+      "sequence": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 104.0,
+          "x": 16.0,
+          "y": 238.0
+        },
+        "text": "Sequence"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(29v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 226.0,
+          "y": 238.0
+        },
+        "text": "Toggle"
+      },
+      "value": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 78.0
+        },
+        "text": "3"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "862ef9d856fb5c064f3d9b07f2d40b0b365c4f19571fa38c27f39821a1e7da62",
+    "state": [
+      3,
+      0,
+      0,
+      true
+    ],
+    "update_us": 125.974,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "flag": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 198.0
+        },
+        "text": "false"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 24.0
+        },
+        "text": "Counter"
+      },
+      "increment": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 106.0,
+          "x": 120.0,
+          "y": 238.0
+        },
+        "text": "Increment"
+      },
+      "observed": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 158.0
+        },
+        "text": "0"
+      },
+      "seen": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 118.0
+        },
+        "text": "0"
+      },
+      "sequence": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 104.0,
+          "x": 16.0,
+          "y": 238.0
+        },
+        "text": "Sequence"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(29v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 226.0,
+          "y": 238.0
+        },
+        "text": "Toggle"
+      },
+      "value": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 78.0
+        },
+        "text": "3"
+      }
+    },
+    "event": 2,
+    "focused": null,
+    "irHash": "862ef9d856fb5c064f3d9b07f2d40b0b365c4f19571fa38c27f39821a1e7da62",
+    "state": [
+      3,
+      0,
+      0,
+      false
+    ],
+    "update_us": 59.643,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "details": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(34v3)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 296.0
+        },
+        "text": "Visible"
+      },
+      "flag": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(20v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 198.0
+        },
+        "text": "true"
+      },
+      "heading": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(8v1)",
+        "rect": {
+          "height": 30.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 24.0
+        },
+        "text": "Counter"
+      },
+      "increment": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(26v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 106.0,
+          "x": 120.0,
+          "y": 238.0
+        },
+        "text": "Increment"
+      },
+      "observed": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 158.0
+        },
+        "text": "0"
+      },
+      "seen": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 118.0
+        },
+        "text": "0"
+      },
+      "sequence": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(23v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 104.0,
+          "x": 16.0,
+          "y": 238.0
+        },
+        "text": "Sequence"
+      },
+      "toggle": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(29v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 226.0,
+          "y": 238.0
+        },
+        "text": "Toggle"
+      },
+      "value": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(11v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 388.0,
+          "x": 16.0,
+          "y": 78.0
+        },
+        "text": "3"
+      }
+    },
+    "event": 2,
+    "focused": null,
+    "irHash": "862ef9d856fb5c064f3d9b07f2d40b0b365c4f19571fa38c27f39821a1e7da62",
+    "state": [
+      3,
+      0,
+      0,
+      true
+    ],
+    "update_us": 77.193,
+    "writes": 2
+  }
+]

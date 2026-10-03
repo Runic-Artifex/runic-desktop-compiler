@@ -1,0 +1,582 @@
+[
+  {
+    "elements": {
+      "comfort": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 241.0
+        },
+        "text": "Comfortable"
+      },
+      "cool": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 180.0,
+          "y": 289.0
+        },
+        "text": "Cooler"
+      },
+      "eco": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 116.0,
+          "x": 180.0,
+          "y": 355.0
+        },
+        "text": "Disable eco"
+      },
+      "eco-note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(31v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 411.0
+        },
+        "text": "Eco mode is enabled."
+      },
+      "temperature": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 63.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 162.0
+        },
+        "text": "20 C"
+      },
+      "warm": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 90.0,
+          "x": 272.0,
+          "y": 289.0
+        },
+        "text": "Warmer"
+      }
+    },
+    "focused": null,
+    "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3",
+    "state": [
+      20,
+      true
+    ]
+  },
+  {
+    "elements": {
+      "comfort": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 241.0
+        },
+        "text": "Comfortable"
+      },
+      "cool": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 180.0,
+          "y": 289.0
+        },
+        "text": "Cooler"
+      },
+      "eco": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 116.0,
+          "x": 180.0,
+          "y": 355.0
+        },
+        "text": "Disable eco"
+      },
+      "eco-note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(31v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 411.0
+        },
+        "text": "Eco mode is enabled."
+      },
+      "temperature": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 63.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 162.0
+        },
+        "text": "22 C"
+      },
+      "warm": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 90.0,
+          "x": 272.0,
+          "y": 289.0
+        },
+        "text": "Warmer"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3",
+    "state": [
+      22,
+      true
+    ],
+    "update_us": 96.34100000000001,
+    "writes": 1
+  },
+  {
+    "elements": {
+      "comfort": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 241.0
+        },
+        "text": "Comfortable"
+      },
+      "cool": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 180.0,
+          "y": 289.0
+        },
+        "text": "Cooler"
+      },
+      "eco": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 116.0,
+          "x": 180.0,
+          "y": 355.0
+        },
+        "text": "Disable eco"
+      },
+      "eco-note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(31v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 411.0
+        },
+        "text": "Eco mode is enabled."
+      },
+      "temperature": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 63.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 162.0
+        },
+        "text": "24 C"
+      },
+      "warm": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 90.0,
+          "x": 272.0,
+          "y": 289.0
+        },
+        "text": "Warmer"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3",
+    "state": [
+      24,
+      true
+    ],
+    "update_us": 46.403999999999996,
+    "writes": 1
+  },
+  {
+    "elements": {
+      "comfort": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 241.0
+        },
+        "text": "Warm"
+      },
+      "cool": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 180.0,
+          "y": 289.0
+        },
+        "text": "Cooler"
+      },
+      "eco": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 116.0,
+          "x": 180.0,
+          "y": 355.0
+        },
+        "text": "Disable eco"
+      },
+      "eco-note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(31v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 411.0
+        },
+        "text": "Eco mode is enabled."
+      },
+      "temperature": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 63.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 162.0
+        },
+        "text": "26 C"
+      },
+      "warm": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 90.0,
+          "x": 272.0,
+          "y": 289.0
+        },
+        "text": "Warmer"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3",
+    "state": [
+      26,
+      true
+    ],
+    "update_us": 52.255,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "comfort": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 241.0
+        },
+        "text": "Warm"
+      },
+      "cool": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 180.0,
+          "y": 289.0
+        },
+        "text": "Cooler"
+      },
+      "eco": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 116.0,
+          "x": 180.0,
+          "y": 355.0
+        },
+        "text": "Disable eco"
+      },
+      "eco-note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(31v1)",
+        "rect": {
+          "height": 45.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 411.0
+        },
+        "text": "Eco mode is enabled."
+      },
+      "temperature": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 63.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 162.0
+        },
+        "text": "28 C"
+      },
+      "warm": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 90.0,
+          "x": 272.0,
+          "y": 289.0
+        },
+        "text": "Warmer"
+      }
+    },
+    "event": 1,
+    "focused": null,
+    "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3",
+    "state": [
+      28,
+      true
+    ],
+    "update_us": 95.328,
+    "writes": 2
+  },
+  {
+    "elements": {
+      "comfort": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 241.0
+        },
+        "text": "Warm"
+      },
+      "cool": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 180.0,
+          "y": 289.0
+        },
+        "text": "Cooler"
+      },
+      "eco": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 112.0,
+          "x": 180.0,
+          "y": 355.0
+        },
+        "text": "Enable eco"
+      },
+      "temperature": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 63.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 162.0
+        },
+        "text": "28 C"
+      },
+      "warm": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 90.0,
+          "x": 272.0,
+          "y": 289.0
+        },
+        "text": "Warmer"
+      }
+    },
+    "event": 2,
+    "focused": null,
+    "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3",
+    "state": [
+      28,
+      false
+    ],
+    "update_us": 110.317,
+    "writes": 3
+  },
+  {
+    "elements": {
+      "comfort": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(17v1)",
+        "rect": {
+          "height": 24.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 241.0
+        },
+        "text": "Warm"
+      },
+      "cool": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(21v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 80.0,
+          "x": 180.0,
+          "y": 289.0
+        },
+        "text": "Cooler"
+      },
+      "eco": {
+        "class": "",
+        "disabled": false,
+        "nodeIdentity": "NodeId(27v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 116.0,
+          "x": 180.0,
+          "y": 355.0
+        },
+        "text": "Disable eco"
+      },
+      "eco-note": {
+        "class": "note",
+        "disabled": false,
+        "nodeIdentity": "NodeId(32v3)",
+        "rect": {
+          "height": 45.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 411.0
+        },
+        "text": "Eco mode is enabled."
+      },
+      "temperature": {
+        "class": "readout",
+        "disabled": false,
+        "nodeIdentity": "NodeId(14v1)",
+        "rect": {
+          "height": 63.0,
+          "width": 440.0,
+          "x": 180.0,
+          "y": 162.0
+        },
+        "text": "28 C"
+      },
+      "warm": {
+        "class": "",
+        "disabled": true,
+        "nodeIdentity": "NodeId(24v1)",
+        "rect": {
+          "height": 42.0,
+          "width": 90.0,
+          "x": 272.0,
+          "y": 289.0
+        },
+        "text": "Warmer"
+      }
+    },
+    "event": 2,
+    "focused": null,
+    "irHash": "9a2cd3005af562c31d1e400b1ee1c8816c794eeb388257be05263097e949e8e3",
+    "state": [
+      28,
+      true
+    ],
+    "update_us": 128.10999999999999,
+    "writes": 3
+  }
+]

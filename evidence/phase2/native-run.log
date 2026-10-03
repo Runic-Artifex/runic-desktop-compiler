@@ -1,0 +1,192 @@
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.quantity-building-NRGEoe)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.74s
+quantity: 64 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.quantity-no-opt-building-slblxh)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.64s
+quantity-no-opt: 64 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.thermostat-building-nUcOPy)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.57s
+thermostat: 42 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.thermostat-no-opt-building-5P1Xe4)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.61s
+thermostat-no-opt: 42 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.pricing-building-CHpdGo)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.67s
+pricing: 180 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.pricing-no-opt-building-F6Up6h)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.66s
+pricing-no-opt: 180 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.settings-wizard-building-nHDEFA)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.67s
+settings-wizard: 80 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.settings-wizard-no-opt-building-YmNYOv)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.67s
+settings-wizard-no-opt: 80 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.counter-react-building-gArhli)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.58s
+counter-react: 36 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.counter-react-no-opt-building-uT2d1n)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.59s
+counter-react-no-opt: 36 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.counter-vue-building-KN3N64)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.63s
+counter-vue: 36 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.counter-vue-no-opt-building-Jour7G)
+warning: variant `LiveValue` is never constructed
+  --> runtime.rs:32:5
+   |
+30 | pub enum Kind {
+   |          ---- variant in this enum
+31 |     Text,
+32 |     LiveValue,
+   |     ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `runic-native` (bin "runic-app") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 5.64s
+counter-vue-no-opt: 36 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.editor-react-building-vzMAO3)
+    Finished `release` profile [optimized] target(s) in 5.63s
+editor-react: 2088 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.editor-react-no-opt-building-GD2VoA)
+    Finished `release` profile [optimized] target(s) in 5.62s
+editor-react-no-opt: 2088 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.editor-vue-building-Aunj5b)
+    Finished `release` profile [optimized] target(s) in 5.63s
+editor-vue: 2088 native transitions passed
+   Compiling runic-native v0.1.0 (/home/viktor/Development/RunicDesktopCompiler/artifacts/.editor-vue-no-opt-building-9eMj1r)
+    Finished `release` profile [optimized] target(s) in 5.60s
+editor-vue-no-opt: 2088 native transitions passed

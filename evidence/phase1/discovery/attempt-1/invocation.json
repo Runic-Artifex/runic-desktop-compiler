@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "mode": "live",
+  "provider": "OpenAI Codex CLI",
+  "model": "gpt-6-sol",
+  "modelSelection": "Explicitly selected existing user-configured model",
+  "started": "2026-10-02T16:27:23.115Z",
+  "ended": "2026-10-02T16:27:55.194Z",
+  "exitCode": 0,
+  "signal": null,
+  "threadId": "01a0fd71-1aee-7523-8b04-0bb8e5929949",
+  "usage": {
+    "input_tokens": 15793,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 1160,
+    "reasoning_output_tokens": 510
+  },
+  "eventTypes": [
+    "thread.started",
+    "turn.started",
+    "item.completed",
+    "turn.completed"
+  ],
+  "toolItems": [],
+  "inputHash": "5b17f990c64b23c709cdd6f96953c5455eea83e3c73e34033b9c77f3c6afd382",
+  "isolatedWorkingDirectory": true,
+  "shellToolDisabled": true,
+  "userConfigIgnored": true
+}

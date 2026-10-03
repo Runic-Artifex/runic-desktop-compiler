@@ -1,0 +1,37 @@
+{
+  "schema": 2,
+  "status": "passed",
+  "installation": "Fresh root-backed local Nix store, populated only through exported runtime closures and the explicit POSIX-shell host prerequisite; each compressed app archive unpacked into an empty directory. Bubblewrap namespaces expose imported store, app, /proc, /dev and the existing X11 display/auth sockets. Empty environment and PATH=/app; no home directory, compiler, Node, browser, shared font directory or host store is exposed.",
+  "hostBoundary": "Same existing Linux kernel and XWayland/KDE compositor; this is an isolated fresh installation, not another machine or cold page-cache experiment.",
+  "hostShellClosure": [
+    "/nix/store/g60m3aky9f59wgy1gi0y06xwmbw19d6m-xgcc-16.2.0-libgcc",
+    "/nix/store/jp8ql2fnd61xhvb4vsfp0bqwrzf16qrp-libunistring-1.4.2",
+    "/nix/store/q0lbdx5yv93a3md74kjhm0v2kljjii89-libidn2-2.3.8",
+    "/nix/store/h4wfwic161kxrr74jlzla5lsm28hgary-glibc-2.44-25",
+    "/nix/store/hzqwc6pv8sb9qrwivc4h42cr811gs1mk-ncurses-6.6",
+    "/nix/store/xnam05aa3vc7aqbbdixpwcdb8dpv71xn-readline-8.3p3",
+    "/nix/store/1mv3qz005gkbalxfghk4y3s8ayv4d2dl-bash-interactive-5.3p15"
+  ],
+  "results": [
+    {
+      "app": "counter-svelte",
+      "status": "passed",
+      "appArchiveHash": "8b737a97208ae48e72c791ad5aab0cb5d01283e7f3cbf1749a5001bf4902404e",
+      "closureArchiveHash": "384ce47b2d0b192d7d2bbec5bdbaae3384e3983088a400be7138ad55b5fec42e",
+      "binaryHash": "b9ba3b26a2595c8305fe42af568a722c13a1d0f3d2123e0bff4f26ab778d0667",
+      "irHash": "e1b532f0e79d008584d84d3730cc44990298b8a143025c5482c8613778bde4a3",
+      "firstPresentUs": 22179.422000000002,
+      "headlessSnapshots": 4
+    },
+    {
+      "app": "editor-svelte",
+      "status": "passed",
+      "appArchiveHash": "813e9688499f99de1b5b6a07413ad64c893b9d799bfdaa881fac408b6e94200b",
+      "closureArchiveHash": "384ce47b2d0b192d7d2bbec5bdbaae3384e3983088a400be7138ad55b5fec42e",
+      "binaryHash": "24b5ad41d16c13f414ab5c8de4b88690757cb2856e6d7a1b05aeda1288c0d19c",
+      "irHash": "14f621e95ad620e9df9b55d5a8ca89480ca762b1ccacc41a37dd8797c3c90111",
+      "firstPresentUs": 28063.51,
+      "headlessSnapshots": 4
+    }
+  ]
+}
