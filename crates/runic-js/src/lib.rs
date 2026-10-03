@@ -7,6 +7,7 @@ mod element;
 mod error;
 mod heap;
 mod number;
+mod promise;
 mod string;
 mod value;
 
@@ -20,5 +21,6 @@ pub use element::Element;
 pub use error::*;
 pub use heap::*;
 pub use number::*;
+pub use promise::{JsPromise, Reaction};
 pub use string::JsString;
 pub use value::*;

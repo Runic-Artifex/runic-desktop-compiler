@@ -233,50 +233,44 @@ impl<A: App> Handler<'_, A> {
         button
     }
 
-    /// Keyboard activation of a checkbox: click listeners, then the toggle and
+    /// Keyboard activation of a checkbox: the toggle, click listeners, then
     /// its `change` event (pointer clicks toggle through Blitz's default action).
     fn activate_checkbox(&mut self, doc: &mut BaseDocument, id: NodeId) {
         let chain = chain_of(doc, id);
         if chain.iter().any(|&n| is_disabled_control(doc, n)) {
             return;
         }
-        let toggled = |doc: &BaseDocument| {
-            doc.get_node(id)
-                .and_then(|n| n.element_data())
-                .and_then(|e| e.checkbox_input_checked())
-                .map(|c| !c)
-        };
-        let change = |listeners: &Listeners, now: bool| {
-            listeners
-                .get(id, Event::Change)
-                .map(|h| (h, Some(if now { "true" } else { "false" }.to_owned())))
-        };
-        if A::CHANGE_WITH_CLICK {
-            // One dispatch: the click listeners, then `change`; the toggle
-            // precedes the click, as in the browser.
-            let Some(now) = toggled(doc) else { return };
-            Dom {
-                doc,
-                listeners: self.listeners,
-            }
-            .set_checked(id, now);
-            let mut handlers: Vec<(u32, Option<String>)> = chain
-                .iter()
-                .filter_map(|&n| self.listeners.get(n, Event::Click))
-                .map(|h| (h, None))
-                .collect();
-            handlers.extend(change(self.listeners, now));
-            self.dispatch(doc, &handlers);
+        // The toggle precedes the click listeners, as in the browser.
+        let Some(now) = doc
+            .get_node(id)
+            .and_then(|n| n.element_data())
+            .and_then(|e| e.checkbox_input_checked())
+            .map(|c| !c)
+        else {
             return;
-        }
-        self.click(doc, &chain);
-        let Some(now) = toggled(doc) else { return };
+        };
         Dom {
             doc,
             listeners: self.listeners,
         }
         .set_checked(id, now);
-        if let Some(c) = change(self.listeners, now) {
+        let change = self
+            .listeners
+            .get(id, Event::Change)
+            .map(|h| (h, Some(if now { "true" } else { "false" }.to_owned())));
+        if A::CHANGE_WITH_CLICK {
+            // One dispatch: the click listeners, then `change`.
+            let mut handlers: Vec<(u32, Option<String>)> = chain
+                .iter()
+                .filter_map(|&n| self.listeners.get(n, Event::Click))
+                .map(|h| (h, None))
+                .collect();
+            handlers.extend(change);
+            self.dispatch(doc, &handlers);
+            return;
+        }
+        self.click(doc, &chain);
+        if let Some(c) = change {
             self.dispatch(doc, &[c]);
         }
     }

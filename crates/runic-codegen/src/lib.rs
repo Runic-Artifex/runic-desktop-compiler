@@ -987,10 +987,13 @@ impl Gen<'_> {
                      let after_list = {anchor};\n\
                      if {guard} {{\n\
                      let items = {items_rs}; let values: Vec<_> = items.borrow().clone(); let mut seen = std::collections::HashSet::new();\n\
+                     // Keys first: a throwing key or a duplicate leaves the blocks as they are.\n\
+                     let mut fresh = Vec::with_capacity(values.len());\n\
+                     for (i, x) in values.into_iter().enumerate() {{\n{block}\nfresh.push((bk, t2));\n}}\n\
                      let old_len = s.e{key}.len();\n\
                      let mut old: std::collections::HashMap<js::MapKey, (usize, Rc<RefCell<T{k}>>, Box<S{bd}>)> = s.e{key}.drain(..).enumerate().map(|(i, (k, t, b))| (k, (i, t, b))).collect();\n\
                      let mut next: Vec<(js::MapKey, Rc<RefCell<T{k}>>, Option<Box<S{bd}>>, Option<usize>)> = Vec::new();\n\
-                     for (i, x) in values.into_iter().enumerate() {{\n{block}\n\
+                     for (bk, t2) in fresh {{\n\
                      match old.remove(&bk) {{ Some((oi, ot, ob)) => {{ let v = t2.borrow().clone(); *ot.borrow_mut() = v; next.push((bk, ot, Some(ob), Some(oi))); }} None => next.push((bk, t2, None, None)) }}\n\
                      }}\n\
                      let mut gone: Vec<_> = old.into_values().collect(); gone.sort_by_key(|g| g.0);\n\
@@ -998,15 +1001,17 @@ impl Gen<'_> {
                      let keep = runic_runtime::reorder::keep(runic_runtime::reorder::Reorder::{reorder:?}, &next.iter().map(|e| e.3).collect::<Vec<_>>(), old_len);\n\
                      let mut anchor = after_list;\n\
                      let mut out = Vec::with_capacity(next.len());\n\
+                     // Every block is placed even if one throws (no block is lost with its DOM); the first error is returned after.\n\
+                     let mut err = None;\n\
                      for (j, (bk, tt, b, _)) in next.into_iter().enumerate().rev() {{\n\
                      let b = match b {{\n\
-                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); dom.insert_all({up}, &ns, anchor); }} update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor)?; b }}\n\
-                     None => mount_s{bd}(cx, dom, inst, &tt, {up}, anchor)?,\n\
+                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); dom.insert_all({up}, &ns, anchor); }} if let Err(e) = update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor) {{ err.get_or_insert(e); }} Some(b) }}\n\
+                     None => match mount_s{bd}(cx, dom, inst, &tt, {up}, anchor) {{ Ok(b) => Some(b), Err(e) => {{ err.get_or_insert(e); None }} }},\n\
                      }};\n\
-                     if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }}\n\
-                     out.push((bk, tt, b));\n\
+                     if let Some(b) = b {{ if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }} out.push((bk, tt, b)); }}\n\
                      }}\n\
                      out.reverse(); s.e{key} = out;\n\
+                     if let Some(e) = err {{ return Err(e); }}\n\
                      }} else {{\n\
                      let mut anchor = after_list;\n\
                      for (_, tt, b) in s.e{key}.iter_mut().rev() {{ update_s{bd}(b, cx, dom, inst, tt, tl, {up}, anchor)?; if let Some(f) = first_s{bd}(b) {{ anchor = Some(f); }} }}\n\
@@ -1119,7 +1124,7 @@ fn records(p: &Program) -> String {
             .collect();
         let _ = writeln!(
             out,
-            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let b = v.borrow(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
+            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let Some(_v) = v.visit() else {{ return runic_runtime::Json::String(\"[Circular]\".into()); }}; let b = v.borrow(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
              #[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n"
         );
     }
@@ -1142,17 +1147,17 @@ fn probe_json(t: &Type, v: &str) -> String {
             probe_json(i, "(*x)")
         ),
         Type::Array(i) => format!(
-            "runic_runtime::Json::Array({v}.borrow().iter().map(|x| {}).collect())",
+            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().iter().map(|x| {}).collect()) }})",
             probe_json(i, "(*x)")
         ),
         Type::Record(r) => format!("probe_r{r}(&{v})"),
         Type::Map(k, x) => format!(
-            "runic_runtime::Json::Array({v}.borrow().entries.values().map(|(k, x)| runic_runtime::Json::Array(vec![{}, {}])).collect())",
+            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().entries.values().map(|(k, x)| runic_runtime::Json::Array(vec![{}, {}])).collect()) }})",
             probe_json(k, "(*k)"),
             probe_json(x, "(*x)")
         ),
         Type::Set(i) => format!(
-            "runic_runtime::Json::Array({v}.borrow().entries.values().map(|x| {}).collect())",
+            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().entries.values().map(|x| {}).collect()) }})",
             probe_json(i, "(*x)")
         ),
         Type::Fn(_) => {
@@ -1576,9 +1581,9 @@ pub fn generate(
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep>>, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );

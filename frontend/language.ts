@@ -424,7 +424,10 @@ export class Lowerer {
     }
     if (decl.parameters.length > 1)
       this.fail(decl.parameters[1], 'E_EVENT', 'Event handlers take at most one parameter');
-    const body = this.functionBody(decl, b);
+    let body = this.functionBody(decl, b);
+    // A handler's value is discarded: `() => items.push(x)` runs for its effect.
+    if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return')
+      body = body[0].value ? [{ op: 'expr', value: body[0].value }] : [];
     if (b.payloadLocal !== undefined)
       body.unshift({ op: 'let', local: b.payloadLocal, value: { op: 'payload' } });
     if (!b.captures.length) return { locals: b.locals, body };
@@ -1848,6 +1851,18 @@ export class Lowerer {
         return { op: 'builtin', name: 'clock.date', args: [], type: NUMBER };
       if (this.hostName(callee.expression) === 'performance' && method === 'now')
         return { op: 'builtin', name: 'clock.now', args: [], type: NUMBER };
+      if (this.hostName(callee.expression) === 'localStorage') {
+        const name = { getItem: 'get', setItem: 'set', removeItem: 'remove', clear: 'clear' }[
+          method
+        ];
+        if (!name) return this.fail(e, 'E_MEMBER', `localStorage.${method} is unsupported`);
+        return {
+          op: 'builtin',
+          name: `storage.${name}`,
+          args: args(),
+          type: name === 'get' ? { maybe: STRING } : 'void',
+        };
+      }
       if (global && STATIC_NAMESPACES.has(global))
         return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
       if (ts.isIdentifier(callee.expression)) {

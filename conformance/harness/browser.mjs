@@ -143,6 +143,9 @@ async function perform(page, action, timeout) {
     case 'press':
       await page.keyboard.press(action.key);
       break;
+    case 'reload': // The app starts again on the same localStorage.
+      await page.reload({ waitUntil: 'load' });
+      break;
     case 'wait': // Virtual time (the fake clock is installed for such cases).
       await page.clock.runFor(action.ms);
       break;
@@ -187,7 +190,7 @@ export async function createBrowserHarness() {
      * Returns { steps: [{ action, dom, focused, geometry, screenshotPath, ms }] }
      * where step 0 is the initial state after mount.
      */
-    async run(fixture, { viewport = { width: 800, height: 600 }, actions = [], out, timeout = 5000 } = {}) {
+    async run(fixture, { viewport = { width: 800, height: 600 }, actions = [], out, timeout = 5000, storage } = {}) {
       const name = path.basename(path.resolve(fixture));
       const folder = path.resolve(
         out ?? path.join(repo, 'artifacts/harness', name, `${viewport.width}x${viewport.height}`),
@@ -203,6 +206,14 @@ export async function createBrowserHarness() {
         // so real 404s still surface as console errors.
         await context.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
         const page = await context.newPage();
+        // localStorage items the case starts with.
+        if (storage)
+          await page.addInitScript(items => {
+            // Once per tab: a reload keeps what the app stored.
+            if (sessionStorage.getItem('runic-seeded')) return;
+            sessionStorage.setItem('runic-seeded', '1');
+            for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v);
+          }, storage);
         // Cases with `wait` actions run on Playwright's fake clock, paused at
         // the shared origin and advanced to 1000 ms before the page loads (the
         // native probe and the interpreter start their virtual clocks there).

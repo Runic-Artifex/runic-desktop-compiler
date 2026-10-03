@@ -1,0 +1,12 @@
+{
+  "description": "Effects that write state: effects declared after the writer run in the same pass, those before it in the next; microtasks queued before the first write run before the flush, those after it after the flush",
+  "fixtures": ["effect-order-svelte"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

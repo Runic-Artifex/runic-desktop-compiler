@@ -528,6 +528,8 @@ pub struct Machine<'p> {
     /// While a cleanup runs under `cleanupReadsPrevious`.
     reading_previous: bool,
     version_clock: u64,
+    /// localStorage items in insertion order.
+    storage: Vec<(JsString, JsString)>,
 }
 
 /// `order` (parent first) with every instance after its children.
@@ -563,6 +565,16 @@ fn throw_diag(t: Throw) -> Diagnostic {
 
 impl<'p> Machine<'p> {
     pub fn new(program: &'p Program) -> Result<Self> {
+        Self::with_storage(program, vec![])
+    }
+
+    /// localStorage items, in insertion order.
+    pub fn storage(&self) -> Vec<(JsString, JsString)> {
+        self.storage.clone()
+    }
+
+    /// A machine whose localStorage starts with `storage`.
+    pub fn with_storage(program: &'p Program, storage: Vec<(JsString, JsString)>) -> Result<Self> {
         let mut m = Machine {
             program,
             now: CLOCK_START,
@@ -597,6 +609,7 @@ impl<'p> Machine<'p> {
             stable_fns: HashMap::new(),
             reading_previous: false,
             version_clock: 0,
+            storage,
         };
         for g in &program.globals {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
@@ -1486,6 +1499,27 @@ impl<'p> Machine<'p> {
             ("timer", "clear") => {
                 let id = a[0].num();
                 self.timers.retain(|t| t.id as f64 != id);
+                Val::Undefined
+            }
+            ("storage", "get") => match self.storage.iter().find(|(k, _)| *k == a[0].string()) {
+                Some((_, v)) => Val::Str(v.clone()),
+                None => Val::Null,
+            },
+            ("storage", "set") => {
+                let (k, v) = (a[0].string(), a[1].string());
+                match self.storage.iter_mut().find(|(x, _)| *x == k) {
+                    Some((_, old)) => *old = v,
+                    None => self.storage.push((k, v)),
+                }
+                Val::Undefined
+            }
+            ("storage", "remove") => {
+                let k = a[0].string();
+                self.storage.retain(|(x, _)| *x != k);
+                Val::Undefined
+            }
+            ("storage", "clear") => {
+                self.storage.clear();
                 Val::Undefined
             }
             ("microtask", "queue") => {
@@ -2767,16 +2801,29 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Num(n) if n.is_finite() => json!(n),
         Val::Num(n) => json!(runic_js::number_to_string(*n)),
         Val::Str(s) => json!(s.to_rust()),
-        Val::Array(a) => Json::Array(a.borrow().iter().map(cell_json).collect()),
-        Val::Record(r) => Json::Array(r.borrow().fields.iter().map(cell_json).collect()),
-        Val::Map(m) => Json::Array(
-            m.borrow()
-                .entries
-                .values()
-                .map(|(k, x)| json!([cell_json(k), cell_json(x)]))
-                .collect(),
-        ),
-        Val::Set(s) => Json::Array(s.borrow().entries.values().map(cell_json).collect()),
+        // A value that contains itself shows as "[Circular]".
+        Val::Array(a) => match a.visit() {
+            None => json!("[Circular]"),
+            Some(_v) => Json::Array(a.borrow().iter().map(cell_json).collect()),
+        },
+        Val::Record(r) => match r.visit() {
+            None => json!("[Circular]"),
+            Some(_v) => Json::Array(r.borrow().fields.iter().map(cell_json).collect()),
+        },
+        Val::Map(m) => match m.visit() {
+            None => json!("[Circular]"),
+            Some(_v) => Json::Array(
+                m.borrow()
+                    .entries
+                    .values()
+                    .map(|(k, x)| json!([cell_json(k), cell_json(x)]))
+                    .collect(),
+            ),
+        },
+        Val::Set(s) => match s.visit() {
+            None => json!("[Circular]"),
+            Some(_v) => Json::Array(s.borrow().entries.values().map(cell_json).collect()),
+        },
         Val::Closure(_) => json!("function"),
         // Element ids differ between the interpreter and the native app.
         Val::Element(_) => json!("element"),
