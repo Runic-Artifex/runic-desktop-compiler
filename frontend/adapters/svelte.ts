@@ -794,14 +794,40 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (!itemType) return fail('E_TEMPLATE', '{#each} requires an array', loc(n));
       let pattern = nodeAt(n.context);
       if (ts.isVariableDeclaration(pattern)) pattern = pattern.name;
-      if (!ts.isIdentifier(pattern))
-        fail('E_TEMPLATE', 'Destructured {#each} items are planned for a later M3 step', loc(n));
-      const item = tb.local((pattern as ts.Identifier).text, itemType);
-      lower.bindings.set(checker.getSymbolAtLocation(pattern)!, {
-        kind: 'local',
-        owner: tb,
-        local: item,
-      });
+      const item = tb.local(ts.isIdentifier(pattern) ? pattern.text : '$item', itemType);
+      if (ts.isIdentifier(pattern))
+        lower.bindings.set(checker.getSymbolAtLocation(pattern)!, {
+          kind: 'local',
+          owner: tb,
+          local: item,
+        });
+      else {
+        // `{#each items as { id, name: label, inner: { x } }}`: fields of the item.
+        const destructure = (p: ts.BindingName, type: Type, path: number[]) => {
+          if (!ts.isObjectBindingPattern(p) || typeof type !== 'object' || !('record' in type))
+            return fail('E_TEMPLATE', '{#each} items destructure into object fields', loc(n));
+          for (const el of p.elements) {
+            if (el.dotDotDotToken || el.initializer)
+              fail(
+                'E_TEMPLATE',
+                'Rest and default values in {#each} patterns are planned for later',
+                loc(n),
+              );
+            const key = ((el.propertyName ?? el.name) as ts.Identifier).text;
+            const field = types.fieldIndex(type.record, key, el);
+            const fieldType = types.records[type.record].fields[field].type;
+            if (ts.isIdentifier(el.name))
+              lower.bindings.set(checker.getSymbolAtLocation(el.name)!, {
+                kind: 'member',
+                owner: tb,
+                local: item,
+                path: [...path, field],
+              });
+            else destructure(el.name, fieldType, [...path, field]);
+          }
+        };
+        destructure(pattern as ts.BindingName, itemType, []);
+      }
       let index: number | undefined;
       if (n.index) {
         index = tb.local(n.index, 'number');

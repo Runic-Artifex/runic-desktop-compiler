@@ -8,6 +8,8 @@ import { builtinType, irType, maybeInner } from './irtype.ts';
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
+  /** A field (path) of a local's record, e.g. a destructured list item. */
+  | { kind: 'member'; owner: FnBuilder; local: number; path: number[] }
   | { kind: 'cell'; cell: number }
   | { kind: 'function'; fn: number }
   /** A function with untyped parameters: specialised per call-site argument types. */
@@ -1220,6 +1222,12 @@ export class Lowerer {
       case 'local': {
         const local = b.resolve(binding.owner, binding.local);
         return narrow({ op: 'local', local }, b.typeOf(local));
+      }
+      case 'member': {
+        const local = b.resolve(binding.owner, binding.local);
+        let e: Expr = { op: 'local', local };
+        for (const field of binding.path) e = { op: 'get', object: e, field };
+        return narrow(e, this.irType(e, b));
       }
       case 'cell':
         return narrow(this.hooks.readCell(binding.cell, b, id), this.hooks.cellType(binding.cell));

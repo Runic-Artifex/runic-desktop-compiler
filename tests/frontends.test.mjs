@@ -706,3 +706,31 @@ test('JSX entities decode; strings count UTF-16 units; lone surrogate literals a
     assert.rejects(collect(root).then(lower), failWith('E_STRING', 'main.jsx')),
   );
 });
+
+test('Svelte {#each} items can be destructured (fields of the item, captured by handlers)', async () => {
+  const actions = [
+    { kind: 'click', nth: 4 },
+    { kind: 'click', nth: 7 },
+    { kind: 'click', nth: 2 },
+    { kind: 'click', id: 'reverse' },
+    { kind: 'click', nth: 5 },
+  ];
+  const plain = run((await lower(await graph('components-svelte'))).ir, actions);
+  const destructured = run(
+    (
+      await lower(
+        await edit(
+          'components-svelte',
+          null,
+          '{#each items as item, i (item.id)}<Row id={item.id} label={item.label}',
+          '{#each items as { id, label }, i (id)}<Row id={id} label={label}',
+        ),
+      )
+    ).ir,
+    actions,
+  );
+  assert.deepEqual(
+    destructured.map(s => s.state),
+    plain.map(s => s.state),
+  );
+});
