@@ -1,0 +1,23 @@
+{
+  "description": "Virtual time: intervals, timeouts (ordering, zero delay inside a timer, cancellation), animation frames on the 16 ms grid, Date.now and performance.now",
+  "fixtures": ["timers-svelte"],
+  "actions": [
+    { "kind": "click", "id": "clocks" },
+    { "kind": "click", "id": "start" },
+    { "kind": "wait", "ms": 350 },
+    { "kind": "click", "id": "stop" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "click", "id": "start" },
+    { "kind": "wait", "ms": 1000 },
+    { "kind": "click", "id": "longer" },
+    { "kind": "click", "id": "reset" },
+    { "kind": "click", "id": "animate" },
+    { "kind": "wait", "ms": 40 },
+    { "kind": "wait", "ms": 40 },
+    { "kind": "click", "id": "later" },
+    { "kind": "wait", "ms": 0 },
+    { "kind": "wait", "ms": 120 },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "clocks" }
+  ]
+}

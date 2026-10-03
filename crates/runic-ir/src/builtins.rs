@@ -130,6 +130,36 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
     let (ns, method) = name.split_once('.').unwrap_or(("", name));
     match (ns, method) {
         ("Math", m) if MATH_CONSTANTS.contains(&m) => arity(args, 0, 0).map(|_| n),
+        // Timers and clocks (M4): callbacks are function values; ids are numbers.
+        // Callback results are ignored; frame callbacks may omit the time.
+        ("timer", "timeout" | "interval") => {
+            arity(args, 2, 2)?;
+            match &args[0] {
+                Fn(f) if f.params.is_empty() => {}
+                other => {
+                    return Err(format!(
+                        "callback must take no arguments, found {}",
+                        other.name()
+                    ));
+                }
+            }
+            expect(&args[1], &n, "delay").map(|_| n)
+        }
+        ("timer", "frame") => {
+            arity(args, 1, 1)?;
+            match &args[0] {
+                Fn(f) if f.params.is_empty() || f.params == [Number] => Ok(n),
+                other => Err(format!(
+                    "callback must take the frame time, found {}",
+                    other.name()
+                )),
+            }
+        }
+        ("timer", "clear") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &n, "id").map(|_| Void)
+        }
+        ("clock", "now" | "date") => arity(args, 0, 0).map(|_| n),
         ("element", "focus" | "blur") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| Void)

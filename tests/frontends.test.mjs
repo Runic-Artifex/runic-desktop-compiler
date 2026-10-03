@@ -216,7 +216,7 @@ test('modules reject mutable state, effects and unsupported import/export forms'
     ['export const starting=0;', 'class A {}\nexport const starting=0;', 'E_TYPE_UNSUPPORTED'],
     ["export {advance} from './advance.js';", "export * from './advance.js';", 'E_IMPORT'],
     ['import {LIMIT as maximum}', 'import * as maximum', 'E_IMPORT'],
-    ['export const starting=0;', 'export const starting=Date.now();', 'E_UNRESOLVED'],
+    ['export const starting=0;', 'export const starting=new Date().getTime();', 'E_NEW'],
   ];
   for (const f of ['react', 'vue', 'svelte'])
     for (const [from, to, code] of cases)
@@ -499,7 +499,7 @@ test('Vue rejects uncovered component behaviour with locations', async () => {
 test('React rejects uncovered behaviour with locations', async () => {
   const cases = [
     ['function App(){console.log("render");return <p>Hi</p>;}', 'E_COMPONENT'],
-    ['const discarded=Date.now();function App(){return <p>Hi</p>;}', 'E_UNRESOLVED'],
+    ['const discarded=new Date().getTime();function App(){return <p>Hi</p>;}', 'E_NEW'],
     ['import {useEffect} from "react";function App(){return <p>Hi</p>;}', 'E_CAPABILITY'],
     ['const App=()=> <select><option>one</option></select>;', 'E_JSX'],
     // Lists need an inline callback returning JSX, with plain parameters and value keys.

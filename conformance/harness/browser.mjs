@@ -111,6 +111,9 @@ function pageSnapshot() {
   };
 }
 
+/** `Date.now()` at clock time 0 (shared with the probe and the interpreter). */
+const CLOCK_ORIGIN = 1_767_225_600_000;
+
 const twoFrames = () =>
   new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
@@ -139,6 +142,9 @@ async function perform(page, action, timeout) {
       break;
     case 'press':
       await page.keyboard.press(action.key);
+      break;
+    case 'wait': // Virtual time (the fake clock is installed for such cases).
+      await page.clock.runFor(action.ms);
       break;
     case 'focus':
       await target.evaluate(e => e.focus());
@@ -197,6 +203,22 @@ export async function createBrowserHarness() {
         // so real 404s still surface as console errors.
         await context.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
         const page = await context.newPage();
+        // Cases with `wait` actions run on Playwright's fake clock, paused at
+        // the shared origin and advanced to 1000 ms before the page loads (the
+        // native probe and the interpreter start their virtual clocks there).
+        // Time then only advances through `wait`.
+        const clock = actions.some(a => a.kind === 'wait');
+        if (clock) {
+          // pauseAt first: the clock starts paused at tick 0 (an install call
+          // before it would let real time leak into the ticks when Playwright
+          // replays its log in the page), then 1000 ms of virtual time.
+          await page.clock.pauseAt(CLOCK_ORIGIN);
+          await page.clock.runFor(1000);
+        }
+        // With the fake clock, animation frames only run in virtual time, so
+        // settling waits for real rendering instead.
+        const settle = () =>
+          clock ? new Promise(r => setTimeout(r, 50)) : page.evaluate(twoFrames);
         page.setDefaultTimeout(timeout);
         page.on('pageerror', e => errors.push({ kind: 'pageerror', message: e.message }));
         page.on('console', m => m.type() === 'error' && errors.push({ kind: 'console', message: m.text() }));
@@ -207,7 +229,7 @@ export async function createBrowserHarness() {
         // Hide the caret with a head stylesheet: Playwright's caret:'hide'
         // leaves an empty style attribute on the focused element.
         await page.addStyleTag({ content: '* { caret-color: transparent !important; }' });
-        await page.evaluate(twoFrames);
+        await settle();
         const mountMs = performance.now() - t1;
         const steps = [];
         const observe = async (action, index, timing) => {
@@ -226,7 +248,7 @@ export async function createBrowserHarness() {
           await perform(page, action, timeout);
           const actionMs = performance.now() - t;
           t = performance.now();
-          await page.evaluate(twoFrames);
+          await settle();
           await observe(action, i + 1, { actionMs, settleMs: performance.now() - t });
         }
         return {

@@ -1348,9 +1348,11 @@ pub fn generate(
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Option<(u64, bool)>, {live}{globals}}}\n\
+         /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
+         #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Option<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, {live}{globals}}}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: None, {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: None, timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1444,6 +1446,24 @@ pub fn generate(
         "pub struct App {{ cx: Cx, inst: I{ri}, t: Rc<RefCell<T{ri}>>, root: Option<(NodeId, Box<S{root}>)> }}\n\
          impl App {{\n\
          fn free(&mut self, dom: &mut Dom) {{ for k in dom.take_freed() {{ self.cx.listeners[k as usize] = None; self.cx.free.push(k); }} }}\n\
+         /// Run a task (a handler or a timer callback), then update the DOM.\n\
+         fn task(&mut self, dom: &mut Dom, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
+         {begin}\
+         let epoch = js::mutation_epoch();\n\
+         let owned_epoch = js::owned_epoch();\n\
+         let result = f(&mut self.cx);\n\
+         self.cx.payload = None;\n\
+         if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{ {rollback} }} }}\n\
+         let deep = js::mutation_epoch() != epoch;\n\
+         let owned = js::owned_epoch() != owned_epoch;\n\
+         {end}\
+         if let Some((parent, s)) = self.root.as_mut() {{\n\
+         if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
+         if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
+         {restore}\
+         if let Some((node, on)) = self.cx.focus.take() {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         self.free(dom);\n\
+         result\n}}\n\
          }}\n\
          impl runic_runtime::App for App {{\n\
          const TITLE: &'static str = {title};\n\
@@ -1458,23 +1478,19 @@ pub fn generate(
          self.free(dom);\n}}\n\
          fn dispatch(&mut self, dom: &mut Dom, listener: u32, payload: Option<&str>) -> Result<(), String> {{\n\
          let Some(l) = self.cx.listeners.get(listener as usize).cloned().flatten() else {{ return Ok(()); }};\n\
-         {begin}\
          self.cx.payload = payload.map(JsString::from);\n\
-         let epoch = js::mutation_epoch();\n\
-         let owned_epoch = js::owned_epoch();\n\
-         let result = l(&mut self.cx);\n\
-         self.cx.payload = None;\n\
-         if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{ {rollback} }} }}\n\
-         let deep = js::mutation_epoch() != epoch;\n\
-         let owned = js::owned_epoch() != owned_epoch;\n\
-         {end}\
-         if let Some((parent, s)) = self.root.as_mut() {{\n\
-         if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
-         if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
-         {restore}\
-         if let Some((node, on)) = self.cx.focus.take() {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
-         self.free(dom);\n\
-         result.map_err(|e| e.to_string())\n}}\n\
+         self.task(dom, |cx| l(cx)).map_err(|e| e.to_string())\n}}\n\
+         fn advance(&mut self, dom: &mut Dom, to: f64) {{\n\
+         while let Some((_, cb)) = self.cx.timers.take_due(to) {{\n\
+         self.cx.timers.during_tick = true;\n\
+         let result = self.task(dom, |cx| match cb {{ TimerCb::Plain(f) => f(cx), TimerCb::Frame(f) => {{ let t = cx.timers.now; f(cx, t) }} }});\n\
+         self.cx.timers.during_tick = false;\n\
+         if let Err(e) = result {{ eprintln!(\"runic: uncaught exception in a timer: {{e}}\"); }}\n\
+         }}\n\
+         if self.cx.timers.now < to {{ self.cx.timers.now = to; }}\n\
+         }}\n\
+         fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
+         fn now(&self) -> f64 {{ self.cx.timers.now }}\n\
          fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\
          fn instances_json(&self) -> Vec<runic_runtime::Json> {{ let mut out = Vec::new(); if let Some((_, s)) = &self.root {{ instances_s{root}(s, &mut out); }} out }}\n\
          }}",

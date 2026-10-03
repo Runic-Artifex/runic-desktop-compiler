@@ -24,6 +24,10 @@ pub(crate) struct Native<A: App> {
     pub nav_start: Option<NodeId>,
     /// Handler outcomes since the last probe observation.
     pub log: Vec<String>,
+    /// Real-time clock origin of the window (production timers).
+    pub started: std::time::Instant,
+    /// Clock time of the scheduled wake-up for the next timer.
+    pub wake_at: Option<f64>,
 }
 
 impl<A: App> Document for Native<A> {
@@ -33,6 +37,29 @@ impl<A: App> Document for Native<A> {
     fn inner_mut(&mut self) -> DocGuardMut<'_> {
         DocGuardMut::Ref(&mut self.doc)
     }
+    /// Production timers: run what is due by real time, then wake again for
+    /// the next timer.
+    fn poll(&mut self, task_context: Option<std::task::Context>) -> bool {
+        let now = crate::CLOCK_START + self.started.elapsed().as_secs_f64() * 1000.0;
+        let ran = self.app.next_timer().is_some_and(|t| t <= now);
+        if ran {
+            self.advance(now);
+            self.wake_at = None;
+        }
+        if let (Some(due), Some(cx)) = (self.app.next_timer(), task_context) {
+            if self.wake_at.is_none_or(|w| due < w) {
+                self.wake_at = Some(due);
+                let waker = cx.waker().clone();
+                let delay = (due - now).max(0.0);
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs_f64(delay / 1000.0));
+                    waker.wake();
+                });
+            }
+        }
+        ran
+    }
+
     fn handle_ui_event(&mut self, event: UiEvent) {
         self.listeners.settle(&mut self.doc);
         let handler = Handler {
@@ -47,6 +74,27 @@ impl<A: App> Document for Native<A> {
 }
 
 impl<A: App> Native<A> {
+    /// Run the timers due at or before clock time `to`, then apply the focus
+    /// fixups that follow any update.
+    pub(crate) fn advance(&mut self, to: f64) {
+        self.listeners.settle(&mut self.doc);
+        let mut dom = Dom {
+            doc: &mut self.doc,
+            listeners: &mut self.listeners,
+        };
+        self.app.advance(&mut dom, to);
+        if let Some(b) = self.listeners.blurred.take() {
+            self.nav_start = Some(b);
+        }
+        if let Some(f) = focused_element(&self.doc) {
+            if is_disabled_control(&self.doc, f) {
+                self.doc.clear_focus();
+                self.nav_start = Some(f);
+            }
+        }
+        self.doc.shell_provider.request_redraw();
+    }
+
     /// Dispatch a synthetic DOM event (probe-only semantic input).
     #[cfg(feature = "probe")]
     pub(crate) fn dispatch_dom(&mut self, event: DomEvent) {

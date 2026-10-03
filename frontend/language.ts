@@ -2,9 +2,11 @@
 // schema 4 (docs/design/M2-VALUES.md). Framework adapters supply only the
 // semantics of their reactive bindings through `Hooks`.
 import ts from 'typescript';
+import path from 'node:path';
 import type { Expr, Fn, Global, Local, Place, Stmt, Type } from './ir.ts';
 import { sameType, TypeMapper, type Fail } from './types.ts';
 import { builtinType, irType, maybeInner } from './irtype.ts';
+import { DOM } from './program.ts';
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -1468,6 +1470,63 @@ export class Lowerer {
     return file && this.program.isSourceFileDefaultLibrary(file) ? e.text : undefined;
   }
 
+  /** The name of a host global declared in frontend/dom.d.ts (timers, clocks). */
+  private hostName(e: ts.Expression): string | undefined {
+    if (!ts.isIdentifier(e)) return undefined;
+    const s = this.symbol(e);
+    const decl = s?.valueDeclaration ?? s?.declarations?.[0];
+    return decl && path.resolve(decl.getSourceFile().fileName) === DOM ? e.text : undefined;
+  }
+
+  /** Timer and clock host calls. */
+  private hostCall(name: string, e: ts.CallExpression, b: FnBuilder): Expr | undefined {
+    const args = e.arguments.map(a => this.expr(a, b));
+    const number = (i: number): Expr => args[i] ?? { op: 'lit', value: 0 };
+    const builtin = (n: string, a: Expr[], type: Type): Expr => ({
+      op: 'builtin',
+      name: n,
+      args: a,
+      type,
+    });
+    switch (name) {
+      case 'setTimeout':
+      case 'setInterval':
+        if (e.arguments.length > 2)
+          this.fail(e, 'E_CALL', `Extra ${name} arguments are planned for later; use a closure`);
+        return builtin(
+          name === 'setTimeout' ? 'timer.timeout' : 'timer.interval',
+          [args[0], number(1)],
+          NUMBER,
+        );
+      case 'requestAnimationFrame':
+        return builtin('timer.frame', [args[0]], NUMBER);
+      case 'clearTimeout':
+      case 'clearInterval':
+      case 'cancelAnimationFrame': {
+        // clearTimeout(undefined) does nothing.
+        const id = args[0];
+        const t = this.irType(id, b);
+        if (typeof t === 'object' && 'maybe' in t) {
+          const local = b.local('$timer', t);
+          const read: Expr = { op: 'local', local };
+          return {
+            op: 'with',
+            local,
+            value: id,
+            body: {
+              op: 'cond',
+              test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: BOOLEAN },
+              then: { op: 'undefined', type: 'void' },
+              else: builtin('timer.clear', [{ op: 'unwrap', value: read }], 'void'),
+            },
+          };
+        }
+        return builtin('timer.clear', [id], 'void');
+      }
+    }
+    return undefined;
+  }
+
   private property(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
     const name = e.name.text;
     if (ts.isIdentifier(e.expression)) {
@@ -1705,6 +1764,9 @@ export class Lowerer {
     const callee = e.expression;
     const args = () => e.arguments.map(a => this.expr(a, b));
     if (ts.isIdentifier(callee)) {
+      const host = this.hostName(callee);
+      const hosted = host && this.hostCall(host, e, b);
+      if (hosted) return hosted;
       const global = this.globalName(callee);
       if (global && GLOBAL_FUNCTIONS.has(global))
         return this.builtinCall(global, args(), b, this.tsCallType(e), e);
@@ -1729,6 +1791,10 @@ export class Lowerer {
           );
         return { op: 'builtin', name: 'JSON.parse', args: args(), type: this.types.map(ctx!, e) };
       }
+      if (global === 'Date' && method === 'now' && !e.arguments.length)
+        return { op: 'builtin', name: 'clock.date', args: [], type: NUMBER };
+      if (this.hostName(callee.expression) === 'performance' && method === 'now')
+        return { op: 'builtin', name: 'clock.now', args: [], type: NUMBER };
       if (global && STATIC_NAMESPACES.has(global))
         return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
       if (ts.isIdentifier(callee.expression)) {

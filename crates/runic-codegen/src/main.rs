@@ -96,6 +96,17 @@ fn main() {
                     Some("click") => EventKind::Click,
                     Some("input") => EventKind::Input,
                     Some("keydown") => EventKind::Keydown,
+                    Some("wait") => {
+                        let result = m.advance(action["ms"].as_f64().unwrap_or(0.0));
+                        let outcome = match result {
+                            Ok(()) => json!("waited"),
+                            Err(d) => json!({"rejected": d}),
+                        };
+                        steps.push(
+                            json!({"action": action, "outcome": outcome, "state": m.snapshot()}),
+                        );
+                        continue;
+                    }
                     other => fail(Diagnostic::new(
                         "E_INPUT",
                         format!("unknown action {other:?}"),

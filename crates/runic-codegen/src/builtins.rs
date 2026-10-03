@@ -182,6 +182,30 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "values" | "keys" => format!("js::array_ops::set_values(&{})", t[0]),
             other => unreachable!("validated set method {other}"),
         },
+        ("timer", "timeout" | "interval") => {
+            let kind = if method == "timeout" {
+                "Timeout"
+            } else {
+                "Interval"
+            };
+            format!(
+                "{{ let f = {}; let g: Rc<dyn Fn(&mut Cx) -> JsResult<()>> = Rc::new(move |cx: &mut Cx| {{ let _ = f(cx)?; Ok(()) }}); cx.timers.add(runic_runtime::TimerKind::{kind}, TimerCb::Plain(g), {}) }}",
+                t[0], t[1]
+            )
+        }
+        ("timer", "frame") => {
+            let call = match &types[0] {
+                Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                _ => "f(cx, time)",
+            };
+            format!(
+                "{{ let f = {}; let g: Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>> = Rc::new(move |cx: &mut Cx, time: f64| {{ let _ = {call}?; Ok(()) }}); cx.timers.frame(TimerCb::Frame(g)) }}",
+                t[0]
+            )
+        }
+        ("timer", "clear") => format!("{{ cx.timers.clear({}); }}", t[0]),
+        ("clock", "now") => "cx.timers.now".into(),
+        ("clock", "date") => "(cx.timers.origin + cx.timers.now)".into(),
         // Focus requests are applied by the runtime after the update.
         ("element", "focus") => format!("{{ cx.focus = Some(({}.0, true)); }}", t[0]),
         ("element", "blur") => format!("{{ cx.focus = Some(({}.0, false)); }}", t[0]),

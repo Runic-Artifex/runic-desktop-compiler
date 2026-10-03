@@ -12,10 +12,12 @@ mod events;
 mod probe;
 pub mod reorder;
 mod shell;
+mod timers;
 
 pub use blitz_traits::node_id::NodeId;
 pub use dom::{Dom, Event};
 pub use serde_json::Value as Json;
+pub use timers::{CLOCK_ORIGIN, CLOCK_START, TimerKind, Timers, clock_origin};
 
 /// JavaScript value semantics shared with the reference interpreter.
 pub mod js {
@@ -74,6 +76,20 @@ pub trait App: 'static {
     /// `{ "component": name, "cells": [...] }`.
     fn instances_json(&self) -> Vec<Json> {
         Vec::new()
+    }
+    /// Run every timer and animation frame due at or before clock time `to`
+    /// (milliseconds), each as a task followed by a DOM update; the clock then
+    /// stands at `to`.
+    fn advance(&mut self, dom: &mut Dom, to: f64) {
+        let _ = (dom, to);
+    }
+    /// Clock time of the next timer.
+    fn next_timer(&self) -> Option<f64> {
+        None
+    }
+    /// The current clock time (milliseconds).
+    fn now(&self) -> f64 {
+        0.0
     }
 }
 

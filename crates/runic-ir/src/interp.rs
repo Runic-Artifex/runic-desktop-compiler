@@ -401,8 +401,38 @@ struct ListenerRef {
     args: Vec<Val>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TimerKind {
+    Timeout,
+    Interval,
+    Frame,
+}
+
+struct Timer {
+    id: u64,
+    kind: TimerKind,
+    callback: Val,
+    delay: f64,
+    call_at: f64,
+    created_at: f64,
+}
+
+/// `Date.now()` at virtual time 0 (2026-01-01T00:00:00Z), shared with the
+/// probe and the browser harness's fake clock.
+pub const CLOCK_ORIGIN: f64 = 1_767_225_600_000.0;
+
+/// Virtual clock time when the program starts (as in the probe and the
+/// browser harness, which pauses Playwright's clock 1000 ms after the origin).
+pub const CLOCK_START: f64 = 1000.0;
+
 pub struct Machine<'p> {
     pub program: &'p Program,
+    /// Virtual time in milliseconds (`performance.now()`).
+    now: f64,
+    timers: Vec<Timer>,
+    next_timer: u64,
+    /// While a timer callback runs (zero delays then mean one tick).
+    during_tick: bool,
     globals: Vec<Val>,
     instances: Vec<Instance<'p>>,
     /// Instances whose slot content is being rendered (innermost last).
@@ -429,6 +459,10 @@ impl<'p> Machine<'p> {
     pub fn new(program: &'p Program) -> Result<Self> {
         let mut m = Machine {
             program,
+            now: CLOCK_START,
+            timers: vec![],
+            next_timer: 1_000_000_000_000,
+            during_tick: false,
             globals: vec![],
             instances: vec![],
             via: vec![],
@@ -1236,6 +1270,19 @@ impl<'p> Machine<'p> {
                     other => unreachable!("validated set method {other}"),
                 }
             }
+            ("timer", "timeout") => self.add_timer(TimerKind::Timeout, a[0].clone(), a[1].num()),
+            ("timer", "interval") => self.add_timer(TimerKind::Interval, a[0].clone(), a[1].num()),
+            ("timer", "frame") => {
+                let delay = 16.0 - self.now % 16.0;
+                self.add_timer(TimerKind::Frame, a[0].clone(), delay)
+            }
+            ("timer", "clear") => {
+                let id = a[0].num();
+                self.timers.retain(|t| t.id as f64 != id);
+                Val::Undefined
+            }
+            ("clock", "now") => Val::Num(self.now),
+            ("clock", "date") => Val::Num(CLOCK_ORIGIN + self.now),
             // Focus has no interpreter observable (the snapshot has no focus).
             ("element", "focus" | "blur") => Val::Undefined,
             ("maybe", "is-null") => Val::Bool(matches!(a[0], Val::Null)),
@@ -1714,30 +1761,19 @@ impl<'p> Machine<'p> {
         state
     }
 
-    /// Run handler `h` of instance `instance` with listener arguments. Writes
-    /// made before an exception persist (as in JavaScript); text-domain
-    /// violations reject the whole handler.
-    fn run(
+    /// Run a task (an event handler or a timer callback). Writes made before
+    /// an exception persist (as in JavaScript); text-domain violations reject
+    /// the whole task.
+    fn task(
         &mut self,
-        instance: usize,
-        h: usize,
-        args: Vec<Val>,
-        payload: Option<Val>,
+        source: Option<&Source>,
+        body: impl FnOnce(&mut Self) -> Res<()>,
     ) -> Result<()> {
-        let component = self.instances[instance].component;
-        let handler = &self.program.components[component].handlers[h];
         let before: Vec<Vec<Val>> = self.instances.iter().map(|i| i.cells.clone()).collect();
         for i in &mut self.instances {
             i.snapshot = i.cells.clone();
         }
-        self.payload = payload;
-        let frame = Frame::new(handler.params.len() + handler.locals.len());
-        for (i, a) in args.into_iter().enumerate() {
-            frame.set(i, a);
-        }
-        let saved = std::mem::replace(&mut self.current, instance);
-        let result = self.exec_block(&handler.body, &frame);
-        self.current = saved;
+        let result = body(self);
         self.payload = None;
         if let Err(t) = &result {
             if t.name.to_rust() == "RunicDomainError" {
@@ -1750,27 +1786,116 @@ impl<'p> Machine<'p> {
                 return Err(Diagnostic::new("E_TEXT_PAYLOAD", t.message.to_rust(), None));
             }
         }
-        // Outside handlers the snapshot is the committed state (React render reads).
+        // Outside tasks the snapshot is the committed state (React render reads).
         for i in &mut self.instances {
             i.snapshot = i.cells.clone();
         }
-        match result {
-            Ok(_) => Ok(()),
-            Err(t) => Err(Diagnostic::new(
-                "E_THROW",
-                t.to_string(),
-                handler.source.as_ref(),
-            )),
-        }
+        result.map_err(|t| Diagnostic::new("E_THROW", t.to_string(), source))
     }
 
-    /// Fire `event` at `target` with the DOM rules of the native runtime:
-    /// clicks and key presses bubble from the target through its ancestors
-    /// (listeners are taken from the tree before the first handler runs);
-    /// nothing is dispatched inside disabled controls; a checkbox click then
-    /// sends `change` with the new state; Enter on a button and Space on a
-    /// button or checkbox activate it after the keydown listeners.
-    /// Returns `Ok(false)` when no handler runs.
+    /// Run handler `h` of instance `instance` with listener arguments.
+    fn run(
+        &mut self,
+        instance: usize,
+        h: usize,
+        args: Vec<Val>,
+        payload: Option<Val>,
+    ) -> Result<()> {
+        let component = self.instances[instance].component;
+        let handler = &self.program.components[component].handlers[h];
+        self.task(handler.source.as_ref(), |m| {
+            m.payload = payload;
+            let frame = Frame::new(handler.params.len() + handler.locals.len());
+            for (i, a) in args.into_iter().enumerate() {
+                frame.set(i, a);
+            }
+            let saved = std::mem::replace(&mut m.current, instance);
+            let r = m.exec_block(&handler.body, &frame);
+            m.current = saved;
+            r.map(|_| ())
+        })
+    }
+
+    // Time ------------------------------------------------------------------------
+
+    /// Advance the virtual clock by `ms`, running every timer and animation
+    /// frame that becomes due, in order (Playwright's fake clock semantics).
+    pub fn advance(&mut self, ms: f64) -> Result<()> {
+        let to = (self.now + ms.max(0.0)).ceil();
+        let mut fired = 0u32;
+        loop {
+            let Some(i) = self.first_timer(to) else { break };
+            fired += 1;
+            if fired > 100_000 {
+                return Err(Diagnostic::new(
+                    "E_TIMERS",
+                    "Timers keep firing without time advancing",
+                    None,
+                ));
+            }
+            let t = &mut self.timers[i];
+            self.now = self.now.max(t.call_at);
+            let (callback, kind) = (t.callback.clone(), t.kind);
+            match kind {
+                TimerKind::Interval => t.call_at += t.delay,
+                _ => {
+                    self.timers.remove(i);
+                }
+            }
+            let args = match kind {
+                TimerKind::Frame => vec![Val::Num(self.now)],
+                _ => vec![],
+            };
+            self.during_tick = true;
+            let r = self.task(None, |m| m.call_value(&callback, args).map(|_| ()));
+            self.during_tick = false;
+            r?;
+        }
+        self.now = self.now.max(to);
+        Ok(())
+    }
+
+    /// Index of the first timer due at or before `to`.
+    fn first_timer(&self, to: f64) -> Option<usize> {
+        self.timers
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.call_at <= to)
+            .min_by(|(_, a), (_, b)| {
+                a.call_at
+                    .total_cmp(&b.call_at)
+                    .then(a.created_at.total_cmp(&b.created_at))
+                    .then(a.id.cmp(&b.id))
+            })
+            .map(|(i, _)| i)
+    }
+
+    fn add_timer(&mut self, kind: TimerKind, callback: Val, delay: f64) -> Val {
+        let mut delay = if delay.is_finite() { delay } else { 0.0 };
+        if delay > 2_147_483_647.0 {
+            delay = 1.0;
+        }
+        let delay = delay.max(0.0);
+        let id = self.next_timer;
+        self.next_timer += 1;
+        let after = if delay != 0.0 {
+            delay
+        } else if self.during_tick {
+            1.0
+        } else {
+            0.0
+        };
+        self.timers.push(Timer {
+            id,
+            kind,
+            callback,
+            delay,
+            call_at: self.now + after,
+            created_at: self.now,
+        });
+        Val::Num(id as f64)
+    }
+
     pub fn fire(
         &mut self,
         target: Target<'_>,

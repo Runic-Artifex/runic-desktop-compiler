@@ -306,6 +306,11 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
             }
         }
         "press" => press(native, action["key"].as_str().expect("key")),
+        "wait" => {
+            // Virtual time: run every timer and frame due within the wait.
+            let to = native.app.now() + action["ms"].as_f64().expect("ms");
+            native.advance(to);
+        }
         "keydown" => {
             // A key pressed on the target (differential tests): focus, then press.
             if let Some(id) = target {
@@ -377,7 +382,15 @@ fn screenshot(doc: &mut BaseDocument, width: u32, height: u32, file: &std::path:
         .unwrap();
 }
 
+static ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether this process runs as a probe (virtual time, fixed date origin).
+pub(crate) fn active() -> bool {
+    ACTIVE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub(crate) fn run<A: App>() {
+    ACTIVE.store(true, std::sync::atomic::Ordering::Relaxed);
     let start = Instant::now();
     let args: Vec<String> = std::env::args().skip(2).collect();
     let flag = |name: &str| args.windows(2).find(|w| w[0] == name).map(|w| w[1].clone());
