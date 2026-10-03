@@ -1,5 +1,5 @@
 {
-  description = "React subset to native Blitz compiler research prototype";
+  description = "Runic Desktop Compiler: JavaScript framework applications to native Rust + Blitz";
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   outputs = { self, nixpkgs }: let
     system = "x86_64-linux";
@@ -7,7 +7,7 @@
     runtime = with pkgs; [ wayland libxkbcommon libx11 libxcursor libxi libxrandr libxcb ];
   in {
     devShells.${system}.default = pkgs.mkShell {
-      packages = with pkgs; [ nodejs_24 cargo rustc rustfmt clippy pkg-config python3 clang lld git patchelf xdotool imagemagick ] ++ runtime;
+      packages = with pkgs; [ nodejs_24 cargo rustc rustfmt clippy pkg-config python3 clang lld git patchelf xdotool imagemagick prettier ] ++ runtime;
       LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
       LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath runtime;
       RUST_BACKTRACE = "1";

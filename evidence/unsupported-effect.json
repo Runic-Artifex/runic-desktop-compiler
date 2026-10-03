@@ -1,9 +1,0 @@
-{
-  "code": "E_CAPABILITY",
-  "message": "Missing capability for react:useEffect",
-  "source": {
-    "file": "main.jsx",
-    "line": 1,
-    "column": 16
-  }
-}

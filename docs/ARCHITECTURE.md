@@ -1,118 +1,68 @@
-# Compiler architecture and decisions
+# Architecture
 
-Recorded on 2026-10-02 after Phase 1 and the review of the cancelled Blitz and Blazor initiative, and updated through Phase 4. This document captures the agreed project direction and the boundaries future work should preserve. [Contract v5](CONTRACT.md) describes implemented support; [Phase 4](PHASE4.md) records the shared module scope; [its results](PHASE4-EVIDENCE.md) describe delivered work and remaining gates.
+Target architecture and the decisions that constrain it. Rewritten on 2026-10-03 when the project was restructured after Phase 4. The previous version is [history/ARCHITECTURE-PHASE4.md](history/ARCHITECTURE-PHASE4.md); its decisions still apply unless a decision below replaces them. [CONTRACT.md](CONTRACT.md) describes what is implemented today. [ROADMAP.md](ROADMAP.md) describes how we get from there to here.
 
-[Phases 5–8](PHASES5-8.md), planned on 2026-10-03, sequence current conformance, reusable components, finite child-state lifetimes and local application delivery. They are proposed extensions under these decisions, not implemented compatibility.
+## Goal
 
-## Objective
+Compile ordinary JavaScript/TypeScript applications written for React, Vue, Svelte and later other frameworks into native Rust desktop applications rendered by Blitz. No Chromium, no WebView, and by default no JavaScript engine. Behaviour the compiler cannot cover is reported with a source-located diagnostic and is never silently changed.
 
-Compile supported behavior from ordinary JavaScript and TypeScript applications into native Rust applications rendered with Blitz. React, Angular, Svelte, Vue, Solid and other frameworks are potential source frontends. React is the first implementation, and support for the others will grow incrementally.
-
-Framework coverage depends on the application's required capabilities and on validated frontend adapters. Supporting a framework does not imply supporting every program or dependency written for it. Unsupported behavior must produce useful diagnostics rather than being dropped or silently changed.
-
-The generated application should contain the native implementations needed for its accepted behavior, with no JavaScript engine required for fully covered applications. Analysis and model-assisted discovery occur during compilation. The native application does not need the build tools or a running model provider.
-
-## Agreed decisions
-
-| Area | Decision |
-|---|---|
-| Application authoring | Keep JavaScript and TypeScript authoring and framework syntax; developers do not need to rewrite applications in Rust |
-| Generated application | Generate Rust for application state, transitions, computations and UI updates |
-| Native binding layer | Use Rust to integrate generated code directly with Blitz and native desktop services |
-| Compiler architecture | Share semantic analysis, validated IR, optimization and code generation across frontend adapters |
-| Framework support | Introduce additional frameworks through adapters and reusable mappings; the compiler core must not become a React runtime |
-| Version upgrades | Maintain versioned adapters and conformance tests so upgrades reuse unaffected compiler/backend machinery |
-| Discovery | Models propose bounded mappings; compiler-owned validation establishes acceptance; normal builds use pinned rules deterministically |
-| Existing initiatives | Keep this project independent of the Runic SDK and treat the cancelled initiative as a reference for selected native behavior and tests |
-
-A future compiler implemented predominantly in Rust is an intended option, not an immediate rewrite commitment. Rust for the generated application and native bindings is already the chosen direction.
-
-## Compiler boundaries
+## Pipeline
 
 ```mermaid
 flowchart TD
-    R["React"] --> F["Framework and version adapters"]
-    V["Vue and Svelte"] --> F
-    A["Angular Solid and other frontends"] --> F
-    G["Resolved source graph CSS and assets"] --> F
-    F <--> J["Shared JavaScript and TypeScript semantic analysis"]
-    F --> I["Validated semantic IR"]
-    I --> O["Common analysis and optimization"]
-    O --> C["Rust code generation"]
-    C --> N["Generated application and Rust native bindings"]
-    N --> B["Blitz and desktop services"]
+    S["App source, npm deps, CSS, assets"] --> C["Collector (Vite)"]
+    C --> A["Framework adapters (TypeScript): React, Vue, Svelte, later Solid, Angular"]
+    A <--> L["Shared language layer (TypeScript checker): types, modules, functions, values"]
+    A --> IR["Runic IR v4 (JSON, schema owned by crates/runic-ir)"]
+    IR --> V["runic-ir: validate, reference interpreter"]
+    V --> O["Analysis and optimisation (Rust)"]
+    O --> G["runic-codegen: Rust code generation"]
+    G --> APP["Generated app crate"]
+    APP --> RT["runic-runtime: reactive core, scheduler, DOM ops, events"]
+    APP --> JS["runic-js: JS value semantics (Number, String, Array, Math, JSON...)"]
+    APP --> H["runic-host: timers, storage, fetch, clipboard, history"]
+    APP -. "opt-in crutch" .-> Q["runic-quickjs: JS islands"]
+    RT --> B["Blitz + winit"]
 ```
 
-This is a target organization, not a claim that all these interfaces or frontends already exist. The native application boundary starts at generated Rust and its native dependencies; frontend tooling remains on the compilation side.
+**Today:** everything up to and including code generation is JavaScript in `compiler/`. The runtime is a single `native/runtime.rs` file that is copied into each generated crate. Milestone 1 moves the IR, validation and code generation into Rust crates and turns the runtime into a library.
 
-### Source collection and frontend adapters
+## Decisions
 
-Collection records reproducible source graphs, resolved dependency identities, CSS ordering, assets and source locations. Vite is the initial collector, but its outputs should reach the compiler through an interface that another build tool can implement.
+| # | Decision | Rationale |
+|---|---|---|
+| D1 | **The IR is the product boundary.** Its schema is defined once, as Rust types in `crates/runic-ir`, with a JSON Schema exported for the frontends. | Every frontend and every backend change meets at one versioned and validated interface. Hand-written shape checks in two languages would drift apart. |
+| D2 | **IR validation, analysis, optimisation and code generation are written in Rust, starting in Milestone 1.** | IR v4 requires rewriting the IR and code generator anyway, so doing it in Rust avoids writing that code twice. This is the deliberate, scoped form of the "future Rust compiler" option. |
+| D3 | **Frontend adapters and the language layer stay in TypeScript**, as `.ts` files run directly by Node 24 (type stripping) and checked with `tsc --noEmit`. | Official framework parsers and compilers and the TypeScript checker are JavaScript. Types make the adapter code reviewable. Porting to Rust (oxc and friends) remains a later option (M10). |
+| D4 | **The reactive graph is the common semantic core.** IR state is expressed as cells, derived values and effects, plus explicit *scheduling policy* (when writes become visible, when the DOM flushes, effect timing). Adapters choose the policy; the runtime implements the policies generically. | Solid, Svelte 5 runes, Vue refs/Vapor and Angular signals all reduce to this. React's batched re-render model is one scheduling policy combined with *regions* (D5), not a special case in the core. |
+| D5 | **Templates are static blocks with dynamic holes.** Holes are text, attribute, property, listener, conditional, keyed list, component instance, slot and *region* (recompute a subtree and reconcile it by key). The runtime constructs Blitz nodes directly and keeps `NodeId` handles. | Fine-grained updates where analysis permits, keyed reconciliation where it does not. There is no HTML re-parsing and no selector lookup on the update path. |
+| D6 | **Values are typed natively where types are known.** TypeScript types and inference map to `f64` (with JS semantics), JS strings, `bool`, structs for object shapes, `Vec` for arrays and enums for unions. `runic-js` supplies exact JS semantics: number formatting, UTF-16 string indexing, `Math`, `JSON`, `Array` methods and so on. | Small, fast binaries. Correctness is measured against test262 and against differential runs in Node. |
+| D7 | **QuickJS is an opt-in crutch, never the goal.** `--allow-js-islands` lets functions or modules that cannot be lowered run in an embedded QuickJS. Islands compute values and call host capabilities explicitly; they never touch the DOM. Every build reports each island (source location, reason) and the native-coverage percentage. Default builds never include QuickJS. The roadmap tracks island counts towards zero. | It unblocks real applications without letting a JS engine become the de facto architecture. |
+| D8 | **Correctness is established for the compiler, not by enumerating each app's state space.** Each IR operation has a reference semantics in the `runic-ir` interpreter. Generated code is differentially tested against that interpreter on generated event traces, and the interpreter and native app are tested against the original framework running in headless Chromium. Exhaustive per-app exploration remains an optional bounded check for small finite apps. | The current approach (enumerate at most 4,096 reachable states) cannot scale past toy apps. |
+| D9 | **Mapping packs generalise to library APIs.** A pack matches a resolved `package@version` export (or a pure helper shape), supplies a native implementation and is accepted only after differential validation against the real library in Node. Model-assisted discovery proposes packs; it never accepts them. Normal builds use pinned packs deterministically. | This keeps the Phase 1 acceptance discipline while covering the dependencies that real apps actually use. |
+| D10 | **Framework and version knowledge lives only in adapters and packs.** The Rust backend never branches on framework names. Version upgrades run the conformance suite against the original runtime and change only the affected adapters. | This is unchanged from the original architecture. |
+| D11 | **The Blitz revision is pinned. Fixes go upstream first.** Local patches live in a documented patch set and are re-evaluated whenever the pin moves. | The archived Blitz/Blazor initiative carried 137 patches. Use [the review](reference/BLITZ-BLAZOR-REVIEW.md) to find relevant fixes rather than re-discovering them. |
 
-An adapter understands its framework's templates or JSX, component construction, state APIs, bindings, scheduling and supported lifecycle behavior. It uses shared language analysis for ordinary expressions and module behavior, then lowers the supported semantics into IR. A new adapter should not duplicate the Rust renderer, native controls or general arithmetic analysis.
+## Runtime model (target)
 
-Use official parsers, compiler APIs and source information where they preserve the needed semantics. For example, [Svelte exposes parsing and compilation APIs](https://svelte.dev/docs/svelte/svelte-compiler), and [Vue describes compiler-generated dynamic binding information](https://vuejs.org/guide/extras/rendering-mechanism.html). Generated helper patterns and framework-specific internals, when needed, belong behind versioned adapters. Their shape should not become a compiler-wide assumption.
+- **Instances.** Each component lowers to a generated Rust struct holding its cells, derived values, effect handles and DOM handles. Static children are inlined. Instances under conditionals and lists are created and dropped at runtime, which gives them explicit lifetimes and cleanup.
+- **Scheduler.** There is a single native event loop on winit. Event dispatch, microtasks, timers, effects and DOM flush run in the order required by each adapter's declared policy. Async/await lowers to Rust futures driven by this loop.
+- **DOM.** `runic-runtime` owns typed operations on Blitz (create, insert, move, remove, set text/attribute/property, listen) and live control state (value, selection, composition, focus). Probe and trace hooks used by conformance live behind a cargo feature and are absent from release apps.
+- **Host services.** These are explicit capabilities declared in the IR (`timers`, `storage`, `fetch`, `clipboard`, `history`, ...). An app that declares none links none.
 
-Phase 3 implements that boundary for Svelte 5: its adapter supplies original script extraction and lowers the official modern AST, while the official compiler/runtime supplies the browser reference. Pure scalar derived reads and immediate writes become explicit common expressions; setup captures stay fixed. Schema 3, the validator, Rust generator and native controls remain unchanged. The IR tree plans construction and bindings; native updates already target live nodes, so adding Svelte requires no virtual DOM runtime. Two actual Svelte pins exercise the same source and backend. Effects, object proxies and scoped styles remain separate capabilities rather than being approximated.
+## Verification layers
 
-### Shared semantic analysis and IR
+| Layer | Oracle | Automation |
+|---|---|---|
+| IR validity | `runic-ir` validator | unit tests, malformed-IR fuzzing |
+| Codegen correctness | `runic-ir` reference interpreter | differential traces, every build in CI |
+| JS value semantics | test262 subset, Node | `runic-js` test suite |
+| Framework semantics | original framework in headless Chromium | conformance harness (`conformance/`) |
+| Rendering | browser DOM/geometry snapshot, then pixels with the existing calibrated tolerance | conformance harness |
+| Desktop input (OS keyboard, IME, Wayland) | real compositor sessions | separate platform track. An incomplete check never counts as a pass. |
 
-Shared machinery handles the supported JavaScript and TypeScript computations, types, effects, dependencies and validation. Numeric, string and evaluation-order semantics must remain explicit when lowering to Rust. Preserve the existing exact-integer guarantees until a separately justified domain supports more behavior.
+The honesty rules from Phases 1–4 still apply: a missing stage is *incomplete*, not passed; never force blur, drop cases or rewrite reference output to manufacture parity; internal events never close an OS-input gate.
 
-Phase 4 adds `modules.mjs` for ordinary acyclic local modules, consumed by Vue and Svelte. It evaluates immutable scalar initialization from the collected source snapshot, resolves named imports/exports and admits only bounded pure helpers; helper calls reuse existing pinned mappings. Module initialization belongs to the source-language layer, while component setup captures and reactive/handler reads remain adapter semantics. React keeps its existing symbol-based module path and gains explicit named re-exports. Equivalent consumers exercise the same module source across all three frontends. This boundary adds no runtime scheduler or IR operation.
+## Design checklist for new capabilities
 
-The IR describes application behavior and native requirements. As capabilities expand, it must express state reads and writes, captured values, update ordering and commit boundaries, dependency tracking, stable identity, mounting and disposal, typed input payloads and declared effects. It must distinguish behaviors that are observably different across source frameworks. Identical-looking setter APIs are not sufficient evidence of identical scheduling or closure semantics.
-
-Framework concepts are lowered into explicit operations; the shared core does not execute hooks, Vue component objects or another framework's JavaScript runtime. Framework/version identity remains generic provenance and adapter selection metadata, not an instruction for the Rust backend to branch on framework names. New IR primitives should have an independent semantic definition, validation rules and a native implementation.
-
-One shared semantic contract does not require every frontend to emit identical IR, source hashes or binaries. Differences in source behavior may require different valid operations. Each frontend must preserve its own documented observable behavior.
-
-### Rust code generation and native bindings
-
-Generated Rust owns application state, handlers, derived computations and updates. A shared Rust binding layer owns integration with Blitz: typed input delivery, DOM/live control properties, focus, layout, rendering and window lifecycle. Native services can be added through explicit capabilities when an application needs them.
-
-Develop this layer alongside concrete consumers. Live editor values, selection and composition are stateful control behavior; assigning an HTML attribute or rebuilding a subtree is not automatically equivalent to updating a controlled input. The binding interface must preserve the identities and control state required by the source contract.
-
-The backend consumes IR and capability requirements. It should not need separate React, Svelte or Vue implementations of the same native control. Language uniformity removes a cross-language framework seam, but renderer bugs and desktop/input differences still need native fixes and tests.
-
-## Framework and version maintenance
-
-Each adapter records supported dependency versions, capabilities, source assumptions and conformance cases. Reusable mapping packs record dependency/API applicability, semantic preconditions, required capabilities and accepted validation evidence. Rules may be shared across frameworks when their actual semantics agree; applicability cannot depend only on familiar names.
-
-For a framework upgrade:
-
-1. Resolve the new dependency version through the existing graph interface and inspect changes relevant to supported behavior.
-2. Run adapter cases against that version's original browser runtime, including observable ordering and lifecycle cases.
-3. Reuse mappings whose assumptions remain valid; update only affected adapters or rules, and retain diagnostics for uncovered behavior.
-4. Add shared IR/backend work only when the new semantics require a capability that the existing contract cannot express.
-5. Record the supported version and refresh validation/provenance as required by changed inputs.
-
-An upgrade can involve real work, particularly for a semantic change. The architectural requirement is to contain that work and reuse unaffected layers, rather than begin a new compiler for every framework release. Official compiler APIs can reduce parsing work; they do not themselves prove equivalence of our native lowering.
-
-## Validation beyond finite state
-
-Phase 1 validates a small closed state machine by exhaustive exploration, with at most 4,096 reachable states and finite string enums. Editable text cannot fit that approach even when text length is bounded. Increasing the enumeration limit does not establish a sound general model.
-
-Phase 2 combines exact finite exploration with a typed text domain and a sound length projection for its permitted operations; see [typed text validation](TEXT-VALIDATION.md). Extensions must specify event payloads, length/Unicode constraints, state/control boundaries and the guarantees each analysis establishes. Preserve finite-state regressions. Concrete traces and differential tests provide additional evidence, but must not be described as an exhaustive proof of all text inputs.
-
-Cross-framework tests should compare each source implementation with its own runtime oracle. They should deliberately include cases that expose different update semantics. Reusing a Blazor test scenario is useful; importing its expected event ordering into React or another frontend without checking that runtime is not.
-
-## Future compiler language
-
-The prototype uses TypeScript's tooling and Node-hosted compiler code. That is an implementation choice separate from the language of the generated application and native bindings.
-
-After the adapter/IR boundaries are exercised, IR validation, analysis, optimization and code generation are natural candidates for incremental Rust implementation. Framework parsers or build integrations may remain separate build-time tools where that is useful. Preserve source locations, deterministic outputs and the validation suite during migration. Do not let a language migration and new framework support obscure whether a behavioral change is correct.
-
-## Current architectural debt
-
-Phase 2 exercises the boundary with React and Vue: source collection delegates framework tooling, `language.mjs` owns shared expression lowering, adapters own source/scheduling semantics, and schema 3 records generic provenance. The Rust backend shares live controls and explicit semantic operations. Schema 2 finite artifacts retain an explicit migration path.
-
-Phase 3 adds Svelte as a third frontend without changing that IR/backend. Its own runes and parser syntax exercise immediate writes, intermediate derived reads and ordinary setup captures; the original Svelte runtime remains the conformance authority. See [Phase 3 results](PHASE3-EVIDENCE.md).
-
-Phase 4 removes the single-source-file limitation from Vue/Svelte through a shared module analyzer. Both still support one component. Component props, state lifetimes and mounting/disposal need their own validated composition contract. See [Phase 4 results](PHASE4-EVIDENCE.md).
-
-Remaining limits are concrete: Vite is still the only collector; Vue and Svelte each support one component; text supports one length-abstracted slot; clipboard/platform IME behavior and full desktop keyboard delivery are not certified; other frameworks and lifecycle/async behavior need future adapters/capabilities. The compiler remains Node-hosted. These are future extension points, not implemented compatibility claims. Preserve [Phase 1 evidence](PHASE1-EVIDENCE.md) and [Phase 2 results](PHASE2-EVIDENCE.md).
-
-## Design review questions
-
-Before adding a capability or changing an interface, identify which layer owns it, the observable behavior to preserve, its input domain and the evidence needed to support it. Check whether another frontend can use the same operation without inheriting React assumptions. Document version-sensitive assumptions at the adapter boundary. Use an actual consumer to justify a new abstraction, and keep implemented support distinct from proposed scope.
+Before adding a capability, identify the layer that owns it (adapter, language layer, IR, runtime, host), the observable behaviour to preserve, its input domain, and the conformance cases that prove it, run against each framework's own runtime. A new IR construct needs a framework-independent definition, validator rules, interpreter semantics and a runtime implementation. Bump the schema version whenever the serialised form changes.

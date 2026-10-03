@@ -1,6 +1,0 @@
-{
-  "status": "failed-completeness",
-  "cause": "Repeated unconditional copying of byte-identical additional-version fixture files triggered Vite HMR; each completed tab reran case 63 twice, giving 66 observations for 64 expected cases.",
-  "observations": "All individual observations had no semantic or geometry mismatches; aggregate complete/semanticsPassed/geometryPassed correctly failed.",
-  "fix": "Synchronize only changed/missing source files; keep the existing strict 64-case completeness check and rerun both affected suites from case 0."
-}

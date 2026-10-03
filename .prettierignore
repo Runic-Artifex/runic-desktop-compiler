@@ -1,0 +1,8 @@
+fixtures/
+conformance/
+mappings/
+artifacts/
+target/
+.cache/
+docs/
+*.md

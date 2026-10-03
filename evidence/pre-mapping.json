@@ -1,9 +1,0 @@
-{
-  "code": "E_MAPPING",
-  "message": "No accepted mapping for this helper implementation; run discover explicitly",
-  "source": {
-    "file": "src/Quantity.jsx",
-    "line": 20,
-    "column": 84
-  }
-}

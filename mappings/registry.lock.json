@@ -6,14 +6,14 @@
       "version": 1,
       "file": "bounded-increase-v1-1b7a9380d96b.json",
       "sha256": "1b7a9380d96bf1c0c0163e5e971b9f83cfa9cc2f1187be085fee321a134b85f6",
-      "evidence": "evidence/phase2/mappings/bounded-increase.json"
+      "evidence": "mappings/proofs/bounded-increase-v1-1b7a9380d96b.json"
     },
     {
       "id": "pure-clamp",
       "version": 2,
       "file": "pure-clamp-v2-0b532b5482d0.json",
       "sha256": "0b532b5482d008c584903a2cef37ac57276c63e17c69b610efafe87f9fa8884d",
-      "evidence": "evidence/phase2/mappings/pure-clamp.json"
+      "evidence": "mappings/proofs/pure-clamp-v2-0b532b5482d0.json"
     }
   ]
 }
