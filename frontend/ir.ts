@@ -186,8 +186,11 @@ export type Node =
       kind: 'component';
       component: number;
       props?: { name: string; value: Expr; bind?: Expr }[];
+      /** Parent-owned content for the child's slots; params are template locals. */
+      slots?: { name: string; params?: number[]; body: Node[] }[];
       source?: Source;
     }
+  | { kind: 'slot'; name: string; args?: Expr[]; fallback?: Node[]; source?: Source }
   | {
       kind: 'each';
       items: Expr;
@@ -211,6 +214,8 @@ export interface Component {
   handlers: Handler[];
   template: Node[];
   templateLocals?: Local[];
+  /** Slots the template renders, with the types of their arguments. */
+  slots?: { name: string; params?: Type[] }[];
 }
 
 export interface Program {

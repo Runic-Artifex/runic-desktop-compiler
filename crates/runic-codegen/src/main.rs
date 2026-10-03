@@ -37,7 +37,10 @@ fn count(nodes: &[Node]) -> usize {
                 otherwise,
                 ..
             } => 1 + count(then) + count(otherwise),
-            Node::Component { .. } => 1,
+            Node::Component { slots, .. } => {
+                1 + slots.iter().map(|s| count(&s.body)).sum::<usize>()
+            }
+            Node::Slot { fallback, .. } => 1 + count(fallback),
         })
         .sum()
 }

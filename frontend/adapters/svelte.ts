@@ -340,12 +340,41 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               s += ',\n';
             }
           }
-          s += '} as never);\n';
+          // Snippets and children are functions of the props object, so
+          // TypeScript types their parameters from the child's Snippet props.
+          const snippets = n.fragment.nodes.filter((c: SNode) => c.type === 'SnippetBlock');
+          const content = n.fragment.nodes.filter(
+            (c: SNode) => c.type !== 'SnippetBlock' && !(c.type === 'Text' && !c.data.trim()),
+          );
+          for (const sn of snippets) {
+            s += `${JSON.stringify(sn.expression.name)}: (`;
+            if (sn.parameters.length) {
+              const first = sn.parameters[0].start;
+              const base = s.length;
+              copy(first, sn.parameters.at(-1).end);
+              for (const param of sn.parameters) u.starts.set(param, base + (param.start - first));
+            }
+            s += ') => {\n';
+            fragment(sn.body);
+            s += '},\n';
+          }
+          if (content.length) {
+            s += '"children": () => {\n';
+            fragment({ nodes: content });
+            s += '},\n';
+          }
+          s += '});\n';
           for (const a of n.attributes)
             if (a.type === 'Attribute' && Array.isArray(a.value))
               for (const v of a.value) if (v.type === 'ExpressionTag') expr(v.expression);
-          fragment(n.fragment);
-        } else if (n.type === 'RegularElement') {
+        } else if (n.type === 'RenderTag') expr(n.expression);
+        else if (n.type === 'SnippetBlock')
+          fail(
+            'E_TEMPLATE',
+            'Snippets are supported as children of a component tag',
+            locate(u.original, n.start, u.rel),
+          );
+        else if (n.type === 'RegularElement') {
           attrs(n.attributes);
           fragment(n.fragment);
         }
@@ -444,6 +473,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const loc = (n: SNode) => locate(u.original, n.start ?? 0, u.rel);
     const statements = [...sf.statements].filter(s => s.getStart(sf) < u.scriptLength);
     const pending: (() => void)[] = [];
+    /** Snippet props become slots: declaration and the prop's symbol. */
+    const slots: { name: string; params?: Type[] }[] = [];
+    const snippetOf = new Map<ts.Symbol, string>();
+    /** Parameter types of a `Snippet<[A, B]>` prop, or undefined for other props. */
+    const snippetParams = (node: ts.Node): Type[] | undefined => {
+      const t = checker.getNonNullableType(checker.getTypeAtLocation(node));
+      const sym = t.aliasSymbol ?? t.getSymbol();
+      const file = sym?.declarations?.[0]?.getSourceFile().fileName ?? '';
+      if (sym?.name !== 'Snippet' || !/[\\/]svelte[\\/]/.test(file)) return undefined;
+      const [tuple] = checker.getTypeArguments(t as ts.TypeReference);
+      if (!tuple) return [];
+      if (!checker.isTupleType(tuple))
+        return tsFail(node, 'E_PROPS', 'Snippet parameters must be a tuple type');
+      return checker.getTypeArguments(tuple as ts.TypeReference).map(x => types.map(x, node));
+    };
 
     /** `let { a, b = 1, c = $bindable() }: Props = $props()` → prop cells. */
     const props = (d: ts.VariableDeclaration) => {
@@ -457,6 +501,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         const name = (el.name as ts.Identifier).text;
         const key = el.propertyName ? (el.propertyName as ts.Identifier).text : name;
         const sym = checker.getSymbolAtLocation(el.name)!;
+        const params = snippetParams(el.name);
+        if (params) {
+          if (el.initializer) tsFail(el, 'E_PROPS', 'Snippet props cannot have defaults');
+          slots.push({ name: key, ...(params.length ? { params } : {}) });
+          snippetOf.set(sym, key);
+          continue;
+        }
         const type = types.of(el.name) as Type;
         const cell = cells.length;
         cells.push({
@@ -723,8 +774,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'Component') {
           flush();
           out.push(component(n));
-        } else if (n.type === 'KeyBlock' || n.type === 'SnippetBlock' || n.type === 'RenderTag')
-          fail('E_TEMPLATE', `${n.type} is planned for a later M3 step`, loc(n));
+        } else if (n.type === 'RenderTag') {
+          flush();
+          out.push(render(n));
+        } else if (n.type === 'KeyBlock')
+          fail('E_TEMPLATE', '{#key} blocks are planned for a later milestone', loc(n));
         else if (n.type === 'AwaitBlock')
           fail('E_TEMPLATE', 'Await blocks are planned for M4', loc(n));
         else fail('E_TEMPLATE', `Unsupported template node ${n.type}`, loc(n));
@@ -768,6 +822,24 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ...(n.fallback ? { else: children(n.fallback) } : {}),
         source: loc(n),
       };
+    };
+    /** `{@render name(args)}` / `{@render name?.(args)}` of a snippet prop → a slot. */
+    const render = (n: SNode): Node => {
+      let call = exprNode(n.expression);
+      while (ts.isParenthesizedExpression(call)) call = call.expression;
+      const callee = ts.isCallExpression(call) ? call.expression : undefined;
+      const name =
+        callee && ts.isIdentifier(callee)
+          ? snippetOf.get(checker.getSymbolAtLocation(callee)!)
+          : undefined;
+      if (!name)
+        return fail('E_TEMPLATE', '{@render} supports snippet props of this component', loc(n));
+      const decl = slots.find(d => d.name === name)!;
+      const args = (call as ts.CallExpression).arguments.map((a, i) => {
+        const v = value(a);
+        return coerceInit(v, typeOf(a, v), decl.params![i]);
+      });
+      return { kind: 'slot', name, ...(args.length ? { args } : {}), source: loc(n) };
     };
     const component = (n: SNode): Node => {
       const child = units.get(u.children.get(n.name)!)!;
@@ -825,16 +897,41 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       for (const c of target.cells)
         if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
           fail('E_PROPS', `${n.name} requires the prop ${c.prop}`, loc(n));
-      if (n.fragment.nodes.some((c: SNode) => c.type !== 'Text' || c.data.trim()))
-        fail(
-          'E_TEMPLATE',
-          'Component children and snippets are planned for a later M3 step',
-          loc(n),
-        );
+      // Snippets and children: parent-owned content for the child's slots.
+      const defs: { name: string; params?: number[]; body: Node[] }[] = [];
+      const declOf = (name: string, at: SNode) =>
+        target.slots?.find(d => d.name === name) ??
+        fail('E_PROPS', `${n.name} has no snippet prop ${name}`, loc(at));
+      for (const sn of n.fragment.nodes.filter((c: SNode) => c.type === 'SnippetBlock')) {
+        const name: string = sn.expression.name;
+        const decl = declOf(name, sn);
+        if (sn.parameters.length !== (decl.params?.length ?? 0))
+          fail(
+            'E_TEMPLATE',
+            `Snippet ${name} takes ${decl.params?.length ?? 0} parameters`,
+            loc(sn),
+          );
+        const params = sn.parameters.map((param: SNode, i: number) => {
+          let id = nodeAt(param);
+          if (ts.isParameter(id)) id = id.name;
+          if (!ts.isIdentifier(id))
+            fail('E_TEMPLATE', 'Destructured snippet parameters are planned for later', loc(param));
+          const local = tb.local((id as ts.Identifier).text, decl.params![i]);
+          lower.bindings.set(checker.getSymbolAtLocation(id)!, { kind: 'local', owner: tb, local });
+          return local;
+        });
+        defs.push({ name, ...(params.length ? { params } : {}), body: children(sn.body) });
+      }
+      const content = n.fragment.nodes.filter((c: SNode) => c.type !== 'SnippetBlock');
+      if (content.some((c: SNode) => c.type !== 'Text' || c.data.trim())) {
+        declOf('children', n);
+        defs.push({ name: 'children', body: children({ nodes: content }) });
+      }
       return {
         kind: 'component',
         component: child.index,
         ...(passed.length ? { props: passed } : {}),
+        ...(defs.length ? { slots: defs } : {}),
         source: loc(n),
       };
     };
@@ -939,6 +1036,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       handlers,
       template,
       ...(tb.locals.length ? { templateLocals: tb.locals } : {}),
+      ...(slots.length ? { slots } : {}),
     };
   }
 

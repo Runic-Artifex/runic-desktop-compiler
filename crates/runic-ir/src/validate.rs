@@ -821,8 +821,16 @@ fn unconditional_cycles(p: &Program) -> Result<()> {
         for n in nodes {
             match n {
                 Node::Component {
-                    component, source, ..
-                } => out.push((*component, source.clone())),
+                    component,
+                    source,
+                    slots,
+                    ..
+                } => {
+                    out.push((*component, source.clone()));
+                    for s in slots {
+                        children(&s.body, out);
+                    }
+                }
                 Node::Element { children: c, .. } => children(c, out),
                 _ => {}
             }
@@ -882,6 +890,15 @@ fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
             None,
         );
     }
+    let mut slot_names = HashSet::new();
+    for d in &c.slots {
+        if !slot_names.insert(d.name.as_str()) {
+            return err("E_IR", format!("Duplicate slot {}", d.name), None);
+        }
+        for t in &d.params {
+            Scope::new(p, None).check_type(t, None)?;
+        }
+    }
     let mut props = HashSet::new();
     for l in &c.template_locals {
         Scope::new(p, None).check_type(&l.ty, None)?;
@@ -939,7 +956,14 @@ fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
                     each_locals(otherwise, out);
                 }
                 Node::Element { children, .. } => each_locals(children, out),
-                Node::Text { .. } | Node::Component { .. } => {}
+                Node::Component { slots, .. } => {
+                    for s in slots {
+                        out.extend(s.params.iter().copied());
+                        each_locals(&s.body, out);
+                    }
+                }
+                Node::Slot { fallback, .. } => each_locals(fallback, out),
+                Node::Text { .. } => {}
             }
         }
     }
@@ -1028,6 +1052,22 @@ impl<'p> NodeCx<'_, 'p> {
         r
     }
 
+    /// Bind several template locals with the given types for the duration of `f`.
+    fn bind_all(
+        &mut self,
+        locals: &[usize],
+        types: &[Type],
+        src: Option<&Source>,
+        f: impl FnOnce(&mut Self) -> Result<()>,
+    ) -> Result<()> {
+        match (locals.split_first(), types.split_first()) {
+            (Some((l, ls)), Some((t, ts))) => {
+                self.bind(*l, t, src, |cx| cx.bind_all(ls, ts, src, f))
+            }
+            _ => f(self),
+        }
+    }
+
     fn node(&mut self, node: &Node, parent: Option<&Source>, depth: usize) -> Result<()> {
         let p = self.p;
         let c = &p.components[self.ci];
@@ -1065,6 +1105,28 @@ impl<'p> NodeCx<'_, 'p> {
                 self.nodes(then, src, depth)?;
                 self.nodes(otherwise, src, depth)?;
             }
+            Node::Slot {
+                name,
+                args,
+                fallback,
+                ..
+            } => {
+                let Some(decl) = c.slot(name) else {
+                    return err("E_IR", format!("{} declares no slot {name}", c.name), src);
+                };
+                let types = &c.slots[decl].params;
+                if args.len() != types.len() {
+                    return err(
+                        "E_IR",
+                        format!("Slot {name} takes {} arguments", types.len()),
+                        src,
+                    );
+                }
+                for (a, t) in args.iter().zip(types) {
+                    s.expect(a, t.clone(), 0, src)?;
+                }
+                self.nodes(fallback, src, depth)?;
+            }
             Node::Each {
                 items,
                 item,
@@ -1097,9 +1159,36 @@ impl<'p> NodeCx<'_, 'p> {
                 })?;
             }
             Node::Component {
-                component, props, ..
+                component,
+                props,
+                slots,
+                ..
             } => {
                 let child = &p.components[*component];
+                let mut given = HashSet::new();
+                for def in slots {
+                    let Some(decl) = child.slot(&def.name) else {
+                        return err(
+                            "E_IR",
+                            format!("{} has no slot {}", child.name, def.name),
+                            src,
+                        );
+                    };
+                    if !given.insert(def.name.as_str()) {
+                        return err("E_IR", format!("Slot {} is given twice", def.name), src);
+                    }
+                    let types = &child.slots[decl].params;
+                    if types.len() != def.params.len() {
+                        return err(
+                            "E_IR",
+                            format!("Slot {} takes {} parameters", def.name, types.len()),
+                            src,
+                        );
+                    }
+                    self.bind_all(&def.params, types, src, |cx| {
+                        cx.nodes(&def.body, src, depth)
+                    })?;
+                }
                 let mut names = HashSet::new();
                 for a in props {
                     let Some(cell) = child.prop(&a.name) else {

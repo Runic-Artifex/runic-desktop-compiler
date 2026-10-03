@@ -306,9 +306,37 @@ pub struct Component {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub template_locals: Vec<Local>,
+    /// Slots the template renders (children, snippets, render props), with the
+    /// types of the arguments it passes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slots: Vec<SlotDecl>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlotDecl {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<Type>,
+}
+
+/// Parent-owned content for a child's slot. It runs in the parent instance;
+/// `params` are parent template locals receiving the child's arguments.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SlotDef {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<usize>,
+    pub body: Vec<Node>,
 }
 
 impl Component {
+    /// Index of the slot named `name`.
+    pub fn slot(&self, name: &str) -> Option<usize> {
+        self.slots.iter().position(|s| s.name == name)
+    }
+
     /// Index of the prop cell named `name`.
     pub fn prop(&self, name: &str) -> Option<usize> {
         self.cells
@@ -902,6 +930,18 @@ pub enum Node {
         component: usize,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         props: Vec<PropArg>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        slots: Vec<SlotDef>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    /// Render the parent's content for slot `name` (or `fallback` without one).
+    Slot {
+        name: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        args: Vec<Expr>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        fallback: Vec<Node>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source: Option<Source>,
     },
@@ -931,6 +971,7 @@ impl Node {
             | Node::Text { source, .. }
             | Node::If { source, .. }
             | Node::Component { source, .. }
+            | Node::Slot { source, .. }
             | Node::Each { source, .. } => source.as_ref(),
         }
     }

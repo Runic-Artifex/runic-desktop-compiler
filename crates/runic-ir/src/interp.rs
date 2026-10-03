@@ -331,7 +331,7 @@ pub fn normalize(nodes: Vec<VNode>) -> Vec<VNode> {
 /// destroyed instance stays reachable from closures that captured it (as a
 /// JavaScript closure keeps its component's state alive), but is no longer
 /// rendered.
-pub struct Instance {
+pub struct Instance<'p> {
     pub component: usize,
     pub cells: Vec<Val>,
     snapshot: Vec<Val>,
@@ -339,7 +339,18 @@ pub struct Instance {
     passed: Vec<Option<Val>>,
     /// Two-way binding setters of prop cells.
     binds: Vec<Option<Val>>,
+    /// Content the parent provides for each declared slot.
+    slots: Vec<Option<Provided<'p>>>,
     alive: bool,
+}
+
+/// Slot content provided by a parent: its definition, the parent instance it
+/// runs in and the parent's template locals where the child was rendered.
+#[derive(Clone)]
+struct Provided<'p> {
+    parent: usize,
+    def: &'p SlotDef,
+    values: Vec<Val>,
 }
 
 /// Identity of a child instance: its parent instance, its `component` node and
@@ -349,6 +360,8 @@ struct InstKey {
     parent: usize,
     node: usize,
     path: Vec<MapKey>,
+    /// Instances rendering the slots that contain the node.
+    via: Vec<usize>,
 }
 
 /// A rendered listener: the handler with its instance and argument values.
@@ -361,7 +374,9 @@ struct ListenerRef {
 pub struct Machine<'p> {
     pub program: &'p Program,
     globals: Vec<Val>,
-    instances: Vec<Instance>,
+    instances: Vec<Instance<'p>>,
+    /// Instances whose slot content is being rendered (innermost last).
+    via: Vec<usize>,
     /// The instance whose cells expressions read and write.
     current: usize,
     payload: Option<JsString>,
@@ -382,6 +397,7 @@ impl<'p> Machine<'p> {
             program,
             globals: vec![],
             instances: vec![],
+            via: vec![],
             current: 0,
             payload: None,
             children: HashMap::new(),
@@ -408,6 +424,7 @@ impl<'p> Machine<'p> {
             snapshot: vec![],
             passed: vec![None; n],
             binds: vec![None; n],
+            slots: vec![None; comp.slots.len()],
             alive: true,
         });
         let saved = std::mem::replace(&mut self.current, id);
@@ -435,7 +452,7 @@ impl<'p> Machine<'p> {
         result.map(|_| id)
     }
 
-    fn inst(&self) -> &Instance {
+    fn inst(&self) -> &Instance<'p> {
         &self.instances[self.current]
     }
 
@@ -1404,8 +1421,51 @@ impl<'p> Machine<'p> {
                     path.pop();
                 }
             }
+            Node::Slot {
+                name,
+                args,
+                fallback,
+                ..
+            } => {
+                let decl = self.comp().slot(name).expect("validated slot");
+                let provided = self.inst().slots[decl].clone();
+                match provided {
+                    None => {
+                        for c in fallback {
+                            self.render_node(c, frame, path, out, visited)?;
+                        }
+                    }
+                    Some(pv) => {
+                        let values = args
+                            .iter()
+                            .map(|a| self.eval(a, frame))
+                            .collect::<Res<Vec<_>>>()?;
+                        let owner = &self.program.components[self.instances[pv.parent].component];
+                        let inner = Frame::new(owner.template_locals.len());
+                        for (i, v) in pv.values.into_iter().enumerate() {
+                            inner.set(i, v);
+                        }
+                        for (&l, v) in pv.def.params.iter().zip(values) {
+                            inner.set(l, v);
+                        }
+                        let child = self.current;
+                        self.via.push(child);
+                        let saved = std::mem::replace(&mut self.current, pv.parent);
+                        let mut inner_path = path.clone();
+                        let r = pv.def.body.iter().try_for_each(|n| {
+                            self.render_node(n, &inner, &mut inner_path, out, visited)
+                        });
+                        self.current = saved;
+                        self.via.pop();
+                        r?;
+                    }
+                }
+            }
             Node::Component {
-                component, props, ..
+                component,
+                props,
+                slots,
+                ..
             } => {
                 let child = &self.program.components[*component];
                 let mut args = vec![];
@@ -1421,7 +1481,22 @@ impl<'p> Machine<'p> {
                     parent: self.current,
                     node: n as *const Node as usize,
                     path: path.clone(),
+                    via: self.via.clone(),
                 };
+                let values: Vec<Val> = (0..self.comp().template_locals.len())
+                    .map(|i| frame.get(i))
+                    .collect();
+                let provided: Vec<Option<Provided<'p>>> = child
+                    .slots
+                    .iter()
+                    .map(|d| {
+                        slots.iter().find(|s| s.name == d.name).map(|def| Provided {
+                            parent: self.current,
+                            def,
+                            values: values.clone(),
+                        })
+                    })
+                    .collect();
                 let id = match self.children.get(&key) {
                     Some(&id) => {
                         let inst = &mut self.instances[id];
@@ -1445,6 +1520,7 @@ impl<'p> Machine<'p> {
                         id
                     }
                 };
+                self.instances[id].slots = provided;
                 visited.insert(id);
                 self.order.push(id);
                 self.render_instance(id, out, visited)?;

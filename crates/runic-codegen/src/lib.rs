@@ -194,6 +194,14 @@ enum Item<'a> {
         component: usize,
         props: &'a [PropArg],
         root: usize,
+        /// (slot declaration of the child, definition, body scope)
+        slots: Vec<(usize, &'a SlotDef, usize)>,
+    },
+    Slot {
+        key: usize,
+        decl: usize,
+        args: &'a [Expr],
+        fallback: usize,
     },
     Each {
         key: usize,
@@ -274,12 +282,36 @@ impl<'a> Planner<'a> {
             Node::Component {
                 component: c,
                 props,
+                slots,
                 ..
-            } => Item::Component {
+            } => {
+                let defs = slots
+                    .iter()
+                    .map(|d| {
+                        let decl = self.p.components[*c].slot(&d.name).expect("validated slot");
+                        (decl, d, self.scope(&d.body, component))
+                    })
+                    .collect();
+                Item::Component {
+                    key,
+                    component: *c,
+                    props,
+                    root: self.root(*c),
+                    slots: defs,
+                }
+            }
+            Node::Slot {
+                name,
+                args,
+                fallback,
+                ..
+            } => Item::Slot {
                 key,
-                component: *c,
-                props,
-                root: self.root(*c),
+                decl: self.p.components[component]
+                    .slot(name)
+                    .expect("validated slot"),
+                args,
+                fallback: self.scope(fallback, component),
             },
             Node::Each {
                 body, otherwise, ..
@@ -312,6 +344,9 @@ fn first_of(items: &[Item], tail: &str) -> String {
                 "s.then{key}.as_deref().and_then(first_s{then}).or_else(|| s.else{key}.as_deref().and_then(first_s{otherwise}))"
             ),
             Item::Component { key, root, .. } => format!("first_s{root}(&s.cs{key})"),
+            Item::Slot { key, fallback, .. } => format!(
+                "s.sl{key}.as_ref().and_then(|b| b.first()).or_else(|| s.fb{key}.as_deref().and_then(first_s{fallback}))"
+            ),
             Item::Each {
                 key,
                 body,
@@ -356,6 +391,8 @@ struct Out {
     dispose: String,
     nodes: String,
     instances: String,
+    /// Type definitions emitted after the scope (slot blocks).
+    extra: String,
 }
 
 /// Whether an expression reads template locals (directly or by capture).
@@ -461,7 +498,8 @@ impl Gen<'_> {
              #[allow(unused_variables)]\nfn nodes_s{id}(s: &S{id}, out: &mut Vec<NodeId>) {{\n{nodes}}}\n\
              #[allow(unused_variables)]\nfn instances_s{id}(s: &S{id}, out: &mut Vec<runic_runtime::Json>) {{\n{instances}}}\n\
              fn first_s{id}(s: &S{id}) -> Option<NodeId> {{ {first} }}\n\
-             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ dispose_s{id}(s, cx); let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); for n in ns {{ dom.remove(n); }} }}\n\n",
+             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ dispose_s{id}(s, cx); let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); for n in ns {{ dom.remove(n); }} }}\n{extra}\n",
+            extra = o.extra,
             mount = o.mount,
             update = o.update,
             sync = o.sync,
@@ -490,6 +528,12 @@ impl Gen<'_> {
             }
             Item::Component { key, root, .. } => {
                 let _ = writeln!(out, "nodes_s{root}(&s.cs{key}, out);");
+            }
+            Item::Slot { key, fallback, .. } => {
+                let _ = writeln!(
+                    out,
+                    "if let Some(b) = &s.sl{key} {{ b.nodes(out); }}\nif let Some(b) = &s.fb{key} {{ nodes_s{fallback}(b, out); }}"
+                );
             }
             Item::Each {
                 key,
@@ -711,10 +755,38 @@ impl Gen<'_> {
                 component: c,
                 props,
                 root,
+                slots,
             } => {
                 let key = *key;
                 let (c, root) = (*c, *root);
                 let child = &self.p.components[c];
+                // Slot providers: mount the parent's content in the parent instance.
+                let mut providers = String::new();
+                for (decl, def, body) in slots {
+                    let (decl, body) = (*decl, *body);
+                    let params: String = def
+                        .params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, l)| format!("v.l{l} = a.a{i}.clone(); "))
+                        .collect();
+                    let _ = writeln!(
+                        providers,
+                        "{{ let inst = Rc::clone(inst); let t = Rc::clone(t); let p: P{c}_{decl} = Rc::new(move |cx: &mut Cx, dom: &mut Dom, a: A{c}_{decl}, parent: NodeId, before: Option<NodeId>| -> JsResult<Box<dyn Block<A{c}_{decl}>>> {{ let t2: Rc<RefCell<T{k}>> = Rc::new(RefCell::new({{ let mut v = t.borrow().clone(); {params}v }})); let s = mount_s{body}(cx, dom, &inst, &t2, parent, before)?; Ok(Box::new(SB{body} {{ inst: Rc::clone(&inst), outer: Rc::clone(&t), t: t2, s }})) }}); ci{key}.borrow_mut().s{decl} = Some(p); }}"
+                    );
+                    let _ = writeln!(
+                        o.extra,
+                        "pub struct SB{body} {{ inst: I{k}, outer: Rc<RefCell<T{k}>>, t: Rc<RefCell<T{k}>>, s: Box<S{body}> }}\n\
+                         impl Block<A{c}_{decl}> for SB{body} {{\n\
+                         fn update(&mut self, cx: &mut Cx, dom: &mut Dom, a: A{c}_{decl}, parent: NodeId, after: Option<NodeId>) -> JsResult<()> {{ {{ let mut v = self.outer.borrow().clone(); {params}*self.t.borrow_mut() = v; }} update_s{body}(&mut self.s, cx, dom, &self.inst, &self.t, true, parent, after) }}\n\
+                         fn sync(&self, cx: &mut Cx, dom: &mut Dom) -> JsResult<()> {{ sync_s{body}(&self.s, cx, dom, &self.inst, &self.t) }}\n\
+                         fn dispose(&self, cx: &mut Cx) {{ dispose_s{body}(&self.s, cx); }}\n\
+                         fn nodes(&self, out: &mut Vec<NodeId>) {{ nodes_s{body}(&self.s, out); }}\n\
+                         fn first(&self) -> Option<NodeId> {{ first_s{body}(&self.s) }}\n\
+                         fn instances(&self, out: &mut Vec<runic_runtime::Json>) {{ instances_s{body}(&self.s, out); }}\n\
+                         }}"
+                    );
+                }
                 o.fields.push((format!("ci{key}"), format!("I{c}")));
                 o.fields
                     .push((format!("ct{key}"), format!("Rc<RefCell<T{c}>>")));
@@ -755,7 +827,7 @@ impl Gen<'_> {
                 }
                 let _ = writeln!(
                     o.mount,
-                    "let ci{key} = new_i{c}(cx);\n{pass}init_i{c}(cx, &ci{key})?;\nlet ct{key}: Rc<RefCell<T{c}>> = Rc::new(RefCell::new(T{c}::default()));\nlet cs{key} = mount_s{root}(cx, dom, &ci{key}, &ct{key}, {mp}, {mb})?;"
+                    "let ci{key} = new_i{c}(cx);\n{pass}{providers}init_i{c}(cx, &ci{key})?;\nlet ct{key}: Rc<RefCell<T{c}>> = Rc::new(RefCell::new(T{c}::default()));\nlet cs{key} = mount_s{root}(cx, dom, &ci{key}, &ct{key}, {mp}, {mb})?;"
                 );
                 let anchor = first_of(following, tail);
                 let _ = writeln!(
@@ -774,6 +846,51 @@ impl Gen<'_> {
                     o.instances,
                     "out.push(runic_runtime::Json::Object([(\"component\".to_string(), runic_runtime::Json::String({}.into())), (\"cells\".to_string(), cells_json_i{c}(&s.ci{key}))].into_iter().collect()));\ninstances_s{root}(&s.cs{key}, out);",
                     rust_str(&child.name)
+                );
+            }
+            Item::Slot {
+                key,
+                decl,
+                args,
+                fallback,
+            } => {
+                let (key, decl, fb) = (*key, *decl, *fallback);
+                o.fields.push((
+                    format!("sl{key}"),
+                    format!("Option<Box<dyn Block<A{k}_{decl}>>>"),
+                ));
+                o.fields
+                    .push((format!("fb{key}"), format!("Option<Box<S{fb}>>")));
+                let mut cx = self.ctx(k);
+                let fields: String = args
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| format!("a{i}: {}, ", cx.expr(a)))
+                    .collect();
+                let make = format!("A{k}_{decl} {{ {fields}}}");
+                let _ = writeln!(
+                    o.mount,
+                    "let p = {{ let p = inst.borrow().s{decl}.clone(); p }};\n\
+                     let (sl{key}, fb{key}): (Option<Box<dyn Block<A{k}_{decl}>>>, Option<Box<S{fb}>>) = match p {{ Some(p) => {{ let a = {make}; (Some(p(cx, dom, a, {mp}, {mb})?), None) }} None => (None, Some(mount_s{fb}(cx, dom, inst, t, {mp}, {mb})?)) }};"
+                );
+                let anchor = first_of(following, tail);
+                let _ = writeln!(
+                    o.update,
+                    "{{ let anchor = {anchor};\n\
+                     if let Some(b) = s.sl{key}.as_mut() {{ let a = {make}; b.update(cx, dom, a, {up}, anchor)?; }}\n\
+                     if let Some(b) = s.fb{key}.as_mut() {{ update_s{fb}(b, cx, dom, inst, t, tl, {up}, anchor)?; }} }}"
+                );
+                let _ = writeln!(
+                    o.sync,
+                    "if let Some(b) = &s.sl{key} {{ b.sync(cx, dom)?; }}\nif let Some(b) = &s.fb{key} {{ sync_s{fb}(b, cx, dom, inst, t)?; }}"
+                );
+                let _ = writeln!(
+                    o.dispose,
+                    "if let Some(b) = &s.sl{key} {{ b.dispose(cx); }}\nif let Some(b) = &s.fb{key} {{ dispose_s{fb}(b, cx); }}"
+                );
+                let _ = writeln!(
+                    o.instances,
+                    "if let Some(b) = &s.sl{key} {{ b.instances(out); }}\nif let Some(b) = &s.fb{key} {{ instances_s{fb}(b, out); }}"
                 );
             }
             Item::Each {
@@ -1033,6 +1150,23 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
         .collect();
     let mut props = String::new();
     let mut prop_defaults = String::new();
+    for (j, d) in c.slots.iter().enumerate() {
+        let fields: String = d
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, t)| format!("pub a{i}: {}, ", rust_type(t)))
+            .collect();
+        let _ = writeln!(
+            out,
+            "/// Arguments of slot {name} of {comp}.\n#[derive(Clone)]\npub struct A{k}_{j} {{ {fields}}}\n\
+             pub type P{k}_{j} = Rc<dyn Fn(&mut Cx, &mut Dom, A{k}_{j}, NodeId, Option<NodeId>) -> JsResult<Box<dyn Block<A{k}_{j}>>>>;",
+            name = d.name.replace('\n', " "),
+            comp = c.name.replace('\n', " "),
+        );
+        let _ = write!(props, "pub s{j}: Option<P{k}_{j}>, ");
+        let _ = write!(prop_defaults, "s{j}: None, ");
+    }
     for (i, cell) in c.cells.iter().enumerate() {
         if cell.prop.is_some() {
             let t = rust_type(&cell.ty);
@@ -1134,6 +1268,17 @@ pub fn generate(
          macro_rules! tri {{ ($e:expr, $l:lifetime) => {{ match $e {{ Ok(v) => v, Err(e) => break $l Err(e) }} }}; }}\n"
     );
     out.push_str(&records(p));
+    out.push_str(
+        "/// Parent-owned slot content mounted inside a child.\n\
+         pub trait Block<A> {\n\
+         fn update(&mut self, cx: &mut Cx, dom: &mut Dom, args: A, parent: NodeId, after: Option<NodeId>) -> JsResult<()>;\n\
+         fn sync(&self, cx: &mut Cx, dom: &mut Dom) -> JsResult<()>;\n\
+         fn dispose(&self, cx: &mut Cx);\n\
+         fn nodes(&self, out: &mut Vec<NodeId>);\n\
+         fn first(&self) -> Option<NodeId>;\n\
+         fn instances(&self, out: &mut Vec<runic_runtime::Json>);\n\
+         }\n",
+    );
     for k in 0..p.components.len() {
         component_state(p, k, &mut out);
     }

@@ -1,0 +1,18 @@
+{
+  "description": "Children and snippets: parent-owned content with parent state and handlers, snippet arguments changed by child state, stateful components inside slot content, optional snippets",
+  "fixtures": ["slots-svelte"],
+  "actions": [
+    { "kind": "click", "id": "pick-2" },
+    { "kind": "click", "id": "tally-3" },
+    { "kind": "click", "id": "tally-3" },
+    { "kind": "click", "id": "order" },
+    { "kind": "click", "id": "tally-1" },
+    { "kind": "click", "id": "note" },
+    { "kind": "click", "id": "pick-3" },
+    { "kind": "click", "id": "order" },
+    { "kind": "click", "id": "drop" },
+    { "kind": "click", "id": "tally-2" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" }
+  ]
+}

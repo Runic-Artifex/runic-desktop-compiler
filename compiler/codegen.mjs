@@ -16,9 +16,16 @@ export const targetDir = path.resolve(
 );
 
 let built = false;
+// runic-codegen does not depend on Blitz, so each working tree builds it into
+// its own small target: worktrees sharing `targetDir` cannot overwrite each
+// other's backend between its build and its use.
+const codegenTarget = path.resolve(
+  process.env.RUNIC_CODEGEN_TARGET_DIR ?? path.join(repository, '.cache/codegen-target'),
+);
+
 /** Build (incrementally) and return the path of the `runic-codegen` binary. */
 export function codegenBinary() {
-  const binary = path.join(targetDir, 'debug', 'runic-codegen');
+  const binary = path.join(codegenTarget, 'debug', 'runic-codegen');
   if (!built) {
     const r = spawnSync(
       'cargo',
@@ -31,7 +38,7 @@ export function codegenBinary() {
         '--manifest-path',
         path.join(repository, 'Cargo.toml'),
       ],
-      { env: { ...process.env, CARGO_TARGET_DIR: targetDir }, encoding: 'utf8' },
+      { env: { ...process.env, CARGO_TARGET_DIR: codegenTarget }, encoding: 'utf8' },
     );
     if (r.status !== 0)
       throw new Diagnostic('E_BUILD', 'Cannot build runic-codegen:\n' + (r.stderr || r.error));
