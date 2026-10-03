@@ -15,3 +15,35 @@ declare module '*.vue' {
 }
 /** Template scope: refs are unwrapped. */
 declare function __runic_unref<T>(value: T): T extends import('vue').Ref<infer U> ? U : T;
+
+// <script setup> compiler macros (type-based declarations only).
+declare function defineProps<T>(): T;
+declare function withDefaults<T, D extends { [K in keyof T]?: unknown }>(
+  props: T,
+  defaults: D,
+): Omit<T, keyof D> & { [K in keyof D & keyof T]-?: Exclude<T[K], undefined> };
+type __RunicEmitFn<T> = T extends (...args: never[]) => unknown
+  ? T
+  : <K extends keyof T & string>(event: K, ...args: T[K] extends unknown[] ? T[K] : never) => void;
+declare function defineEmits<T>(): __RunicEmitFn<T>;
+declare function defineModel<T>(options: {
+  required: true;
+  default?: T | (() => T);
+}): import('vue').Ref<T>;
+declare function defineModel<T>(options: {
+  default: T | (() => T);
+  required?: boolean;
+}): import('vue').Ref<T>;
+declare function defineModel<T>(options?: { required?: false }): import('vue').Ref<T | undefined>;
+declare function defineModel<T>(
+  name: string,
+  options: { required: true; default?: T | (() => T) },
+): import('vue').Ref<T>;
+declare function defineModel<T>(
+  name: string,
+  options: { default: T | (() => T); required?: boolean },
+): import('vue').Ref<T>;
+declare function defineModel<T>(
+  name: string,
+  options?: { required?: false },
+): import('vue').Ref<T | undefined>;
