@@ -251,7 +251,7 @@ test('Vue rejects uncovered event behaviour with locations', async () => {
     ['<button id="b" @click.once="add(\'x\')">B</button>', 'E_EVENT'],
     ['<button id="b" @click.capture="add(\'x\')">B</button>', 'E_EVENT'],
     ['<div id="b" @wheel.passive="add(\'x\')">B</div>', 'E_EVENT'],
-    ['<button id="b" @focus="add(\'x\')">B</button>', 'E_EVENT'],
+    ['<button id="b" @scroll="add(\'x\')">B</button>', 'E_EVENT'],
     ['<button id="b" @[log[0]]="add(\'x\')">B</button>', 'E_EVENT'],
     ['<button id="b" v-on="{ click: stopAll }">B</button>', 'E_EVENT'],
     ['<button id="b" @click="count">B</button>', 'E_EVENT'],

@@ -123,6 +123,23 @@ impl<A: App> Native<A> {
         self.doc.shell_provider.request_redraw();
     }
 
+    /// Move focus as a user action would (probe focus actions), with the
+    /// focus events.
+    #[cfg(feature = "probe")]
+    pub(crate) fn focus_to(&mut self, next: Option<NodeId>) {
+        self.listeners.settle(&mut self.doc);
+        let mut handler = Handler {
+            app: &mut self.app,
+            listeners: &mut self.listeners,
+            space_target: &mut self.space_target,
+            nav_start: &mut self.nav_start,
+            log: &mut self.log,
+            pointer: &mut self.pointer,
+        };
+        handler.move_focus(&mut self.doc, next);
+        self.doc.shell_provider.request_redraw();
+    }
+
     /// Dispatch a synthetic DOM event (probe-only semantic input).
     #[cfg(feature = "probe")]
     pub(crate) fn dispatch_dom(&mut self, event: DomEvent) {
@@ -203,6 +220,14 @@ fn labelled_control(doc: &BaseDocument, chain: &[NodeId]) -> Option<NodeId> {
         .find(|&n| is_labelable(doc, n))
 }
 
+/// The element and its element ancestors, starting with it.
+pub(crate) fn element_chain(doc: &BaseDocument, id: NodeId) -> Vec<NodeId> {
+    chain_of(doc, id)
+        .into_iter()
+        .filter(|&n| is_element(doc, n))
+        .collect()
+}
+
 /// Element ancestors of `id`, starting with `id`.
 fn chain_of(doc: &BaseDocument, id: NodeId) -> Vec<NodeId> {
     let mut out = vec![];
@@ -216,12 +241,41 @@ fn chain_of(doc: &BaseDocument, id: NodeId) -> Vec<NodeId> {
     out
 }
 
-fn is_focusable(doc: &BaseDocument, id: NodeId) -> bool {
+/// The parsed `tabindex` attribute.
+fn tab_index(doc: &BaseDocument, id: NodeId) -> Option<i32> {
+    doc.get_node(id)?
+        .attr("tabindex".into())?
+        .trim()
+        .parse()
+        .ok()
+}
+
+fn is_control(doc: &BaseDocument, id: NodeId) -> bool {
     matches!(tag(doc, id), Some("button" | "input" | "textarea"))
-        && !is_disabled_control(doc, id)
-        && doc
+}
+
+/// Focusable by the mouse and by script: an enabled control or an element
+/// with a `tabindex`.
+pub(crate) fn is_focusable_element(doc: &BaseDocument, id: NodeId) -> bool {
+    (is_control(doc, id) || tab_index(doc, id).is_some()) && !is_disabled_control(doc, id)
+}
+
+/// The element's place in the sequential focus navigation order: positive
+/// `tabindex` values first, then 0 (and controls without one); none for
+/// negative values, disabled controls and elements without a box.
+fn tab_order(doc: &BaseDocument, id: NodeId) -> Option<i32> {
+    if !is_focusable_element(doc, id)
+        || !doc
             .get_client_bounding_rect(id)
             .is_some_and(|r| r.width > 0.0 && r.height > 0.0)
+    {
+        return None;
+    }
+    match tab_index(doc, id) {
+        Some(t) if t < 0 => None,
+        Some(t) => Some(t),
+        None => Some(0),
+    }
 }
 
 /// All nodes in tree order.
@@ -238,18 +292,42 @@ pub(crate) fn tree_order(doc: &BaseDocument) -> Vec<NodeId> {
     out
 }
 
-/// The next focusable element after (or before) `from` in tree order; from
-/// the document edge when `from` is None or no longer in the document.
+/// The next element in sequential focus navigation order after (or before)
+/// `from`: positive `tabindex` values ascending, then the rest in tree
+/// order. From an element outside the order, the next (previous) one of the
+/// tree-order part after (before) it; from the document edge when `from` is
+/// None or no longer in the document. None past the end.
 fn sequential(doc: &BaseDocument, from: Option<NodeId>, backwards: bool) -> Option<NodeId> {
-    let order = tree_order(doc);
-    let start = from.and_then(|f| order.iter().position(|n| *n == f));
-    let candidates: Box<dyn Iterator<Item = &NodeId>> = match (start, backwards) {
-        (Some(i), false) => Box::new(order[i + 1..].iter()),
-        (Some(i), true) => Box::new(order[..i].iter().rev()),
-        (None, false) => Box::new(order.iter()),
-        (None, true) => Box::new(order.iter().rev()),
-    };
-    candidates.copied().find(|&n| is_focusable(doc, n))
+    let tree = tree_order(doc);
+    let mut order: Vec<(i32, usize, NodeId)> = tree
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &n)| tab_order(doc, n).map(|t| (if t == 0 { i32::MAX } else { t }, i, n)))
+        .collect();
+    order.sort();
+    let list: Vec<NodeId> = order.iter().map(|o| o.2).collect();
+    let tree_pos = |n: NodeId| tree.iter().position(|&x| x == n);
+    match from.and_then(|f| tree_pos(f).map(|p| (f, p))) {
+        None => {
+            if backwards {
+                list.last().copied()
+            } else {
+                list.first().copied()
+            }
+        }
+        Some((f, p)) => match list.iter().position(|&n| n == f) {
+            Some(i) if backwards => i.checked_sub(1).map(|j| list[j]),
+            Some(i) => list.get(i + 1).copied(),
+            None => {
+                let zero = order.iter().filter(|o| o.0 == i32::MAX);
+                if backwards {
+                    zero.filter(|o| o.1 < p).last().map(|o| o.2)
+                } else {
+                    zero.clone().find(|o| o.1 > p).map(|o| o.2)
+                }
+            }
+        },
+    }
 }
 
 fn is_element(doc: &BaseDocument, id: NodeId) -> bool {
@@ -388,6 +466,39 @@ impl<A: App> Handler<'_, A> {
             *self.nav_start = Some(b);
         }
         self.log.push(outcome);
+    }
+
+    /// Move focus and dispatch the focus events in Chromium's order: `blur`
+    /// and `focusout` on the element losing focus, then `focus` and
+    /// `focusin` on the one gaining it, each naming the other as
+    /// `relatedTarget`.
+    pub(crate) fn move_focus(&mut self, doc: &mut BaseDocument, next: Option<NodeId>) {
+        let old = focused_element(doc);
+        if old == next {
+            return;
+        }
+        match next {
+            Some(n) => {
+                doc.set_focus_to(n);
+            }
+            None => doc.clear_focus(),
+        }
+        let related = |n: Option<NodeId>| EventData {
+            related: n.map(|n| Element(n.as_u64())),
+            ..Default::default()
+        };
+        if let Some(o) = old.filter(|&o| doc.get_node(o).is_some_and(|n| n.flags.is_in_document()))
+        {
+            self.fire(doc, &[o], Event::Blur, related(next));
+            let chain = chain_of(doc, o);
+            self.fire(doc, &chain, Event::Focusout, related(next));
+        }
+        if let Some(n) = next.filter(|&n| doc.get_node(n).is_some_and(|n| n.flags.is_in_document()))
+        {
+            self.fire(doc, &[n], Event::Focus, related(old));
+            let chain = chain_of(doc, n);
+            self.fire(doc, &chain, Event::Focusin, related(old));
+        }
     }
 
     /// Whether `event` was cancelled.
@@ -662,23 +773,13 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     // controls). Text inputs keep Blitz's default (focus and
                     // caret placement).
                     *self.nav_start = chain.first().copied();
-                    let control = chain
+                    let candidate = chain
                         .iter()
                         .copied()
-                        .find(|&n| matches!(tag(doc, n), Some("button" | "input" | "textarea")));
-                    match control {
-                        // Checkboxes are focused like buttons.
-                        Some(c) if is_checkbox(doc, c) && !is_disabled_control(doc, c) => {
-                            doc.set_focus_to(c);
-                        }
-                        Some(c)
-                            if matches!(tag(doc, c), Some("input" | "textarea"))
-                                && !is_disabled_control(doc, c) => {}
-                        Some(c) if !is_disabled_control(doc, c) => {
-                            doc.set_focus_to(c);
-                        }
-                        _ => doc.clear_focus(),
-                    }
+                        .find(|&n| is_control(doc, n) || tab_index(doc, n).is_some());
+                    let next = candidate.filter(|&c| !is_disabled_control(doc, c));
+                    // Text controls then get Blitz's caret placement.
+                    self.move_focus(doc, next);
                 }
                 if CONTEXT_MENU_ON_PRESS && p.button == MouseEventButton::Secondary && !blocked {
                     self.fire(doc, chain, Event::Contextmenu, pointer_data(p));
@@ -743,16 +844,12 @@ impl<A: App> EventHandler for Handler<'_, A> {
             }
             DomEventData::Click(p) => {
                 let count = self.pointer.clicks;
-                let button = chain
-                    .iter()
-                    .copied()
-                    .find(|&n| tag(doc, n) == Some("button"));
                 let e = self.click(doc, chain, pointer_data(p));
-                if button.is_some() || Self::cancelled(&e) {
-                    // The button was focused on mousedown; Blitz's default
-                    // click action would clear focus again.
-                    state.prevent_default();
-                }
+                // Focus moved on mousedown; Blitz's default click action would
+                // clear it again without focus events. The click's default
+                // actions of the supported elements are done here (checkboxes
+                // and labels).
+                state.prevent_default();
                 if e.is_some() && !Self::cancelled(&e) {
                     if let Some(control) = labelled_control(doc, chain) {
                         // Label activation is done here, as Chromium does it: a
@@ -769,7 +866,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                                 .get_node(control)
                                 .is_some_and(|n| n.flags.is_in_document())
                             {
-                                doc.set_focus_to(control);
+                                self.move_focus(doc, Some(control));
                                 *self.nav_start = None;
                             }
                         }
@@ -785,15 +882,10 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 let backwards = k.modifiers.contains(Modifiers::SHIFT);
                 let next = sequential(doc, focused.or(*self.nav_start), backwards);
                 *self.nav_start = None;
-                match next {
-                    Some(n) => {
-                        doc.set_focus_to(n);
-                        // Keyboard focus selects the content of text fields (Chromium).
-                        if controls::has_editor(doc, n) {
-                            doc.with_text_input(n, |mut editor| editor.select_all());
-                        }
-                    }
-                    None => doc.clear_focus(),
+                self.move_focus(doc, next);
+                // Keyboard focus selects the content of text fields (Chromium).
+                if let Some(n) = next.filter(|&n| controls::has_editor(doc, n)) {
+                    doc.with_text_input(n, |mut editor| editor.select_all());
                 }
             }
             DomEventData::KeyDown(k) if focused_button.is_some() && k.key == Key::Enter => {

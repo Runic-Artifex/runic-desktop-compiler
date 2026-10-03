@@ -273,7 +273,12 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
     ['counter-svelte', '</script>', '</script><style>p { color:red; }</style>', 'E_TEMPLATE'],
     ['counter-svelte', 'onclick={toggle}', 'on:click={toggle}', 'E_TEMPLATE'],
     ['counter-svelte', '<main>', '<main use:action>', 'E_TEMPLATE'],
-    ['counter-svelte', '<main>', '<main style:color|important={show ? "red" : "blue"}>', 'E_TEMPLATE'],
+    [
+      'counter-svelte',
+      '<main>',
+      '<main style:color|important={show ? "red" : "blue"}>',
+      'E_TEMPLATE',
+    ],
     [
       'counter-svelte',
       '{#if show}<p id="details">Visible</p>{/if}',

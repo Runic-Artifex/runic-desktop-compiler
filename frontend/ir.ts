@@ -53,7 +53,11 @@ export type EventKind =
   | 'mousemove'
   | 'mouseenter'
   | 'mouseleave'
-  | 'wheel';
+  | 'wheel'
+  | 'focus'
+  | 'blur'
+  | 'focusin'
+  | 'focusout';
 
 export const EVENT_KINDS: readonly EventKind[] = [
   'click',
@@ -74,6 +78,10 @@ export const EVENT_KINDS: readonly EventKind[] = [
   'mouseenter',
   'mouseleave',
   'wheel',
+  'focus',
+  'blur',
+  'focusin',
+  'focusout',
 ];
 
 export type Read = 'current' | 'snapshot';

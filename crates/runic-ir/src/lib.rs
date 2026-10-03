@@ -639,6 +639,12 @@ pub enum EventKind {
     Mouseenter,
     Mouseleave,
     Wheel,
+    /// Focus moved to / away from the element (not bubbling).
+    Focus,
+    Blur,
+    /// Focus moved into / out of the element or a descendant (bubbling).
+    Focusin,
+    Focusout,
 }
 
 impl EventKind {
@@ -659,6 +665,8 @@ impl EventKind {
                 | EventKind::Pointerleave
                 | EventKind::Mouseenter
                 | EventKind::Mouseleave
+                | EventKind::Focus
+                | EventKind::Blur
         )
     }
 
@@ -672,6 +680,10 @@ impl EventKind {
                 | EventKind::Pointerleave
                 | EventKind::Mouseenter
                 | EventKind::Mouseleave
+                | EventKind::Focus
+                | EventKind::Blur
+                | EventKind::Focusin
+                | EventKind::Focusout
         )
     }
 
@@ -696,10 +708,13 @@ impl EventKind {
             EventKind::Input => "input",
             EventKind::Keydown | EventKind::Keyup => "keydown",
             EventKind::Wheel => "wheel",
+            EventKind::Focus | EventKind::Blur | EventKind::Focusin | EventKind::Focusout => {
+                "focus"
+            }
         }
     }
 
-    pub const ALL: [EventKind; 18] = [
+    pub const ALL: [EventKind; 22] = [
         EventKind::Click,
         EventKind::Input,
         EventKind::Change,
@@ -718,6 +733,10 @@ impl EventKind {
         EventKind::Mouseenter,
         EventKind::Mouseleave,
         EventKind::Wheel,
+        EventKind::Focus,
+        EventKind::Blur,
+        EventKind::Focusin,
+        EventKind::Focusout,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -746,6 +765,10 @@ impl EventKind {
             EventKind::Mouseenter => "mouseenter",
             EventKind::Mouseleave => "mouseleave",
             EventKind::Wheel => "wheel",
+            EventKind::Focus => "focus",
+            EventKind::Blur => "blur",
+            EventKind::Focusin => "focusin",
+            EventKind::Focusout => "focusout",
         }
     }
 }

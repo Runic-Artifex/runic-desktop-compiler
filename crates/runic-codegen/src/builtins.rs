@@ -346,8 +346,13 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("clock", "date") => "(cx.timers.origin + cx.timers.now)".into(),
         // Focus requests are applied in order when the running callback returns,
         // before any update (the DOM does not change while it runs).
-        ("element", "focus") => format!("{{ cx.focus.push(({}.0, true)); }}", t[0]),
-        ("element", "blur") => format!("{{ cx.focus.push(({}.0, false)); }}", t[0]),
+        // focus() and blur() move focus at once; the focus listeners run
+        // nested, before the call returns.
+        ("element", m @ ("focus" | "blur")) => format!(
+            "{{ let events = cx.dom.focus({}.0, {}); run_nested(cx, events); }}",
+            t[0],
+            m == "focus"
+        ),
         // The document element and media queries (runic_css, applied to
         // <html> by the runtime).
         ("root", m) => {
@@ -428,6 +433,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "deltaX" => format!("{e}.data().delta_x"),
                 "deltaY" => format!("{e}.data().delta_y"),
                 "target" => format!("{e}.data().target"),
+                "relatedTarget" => format!("{e}.data().related.map_or(Maybe::Null, Maybe::Some)"),
                 "currentTarget" => {
                     format!("{e}.current_target().map_or(Maybe::Null, Maybe::Some)")
                 }

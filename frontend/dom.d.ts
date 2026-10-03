@@ -51,6 +51,9 @@ interface MouseEvent extends UIEvent {
   readonly metaKey: boolean;
 }
 interface PointerEvent extends MouseEvent {}
+interface FocusEvent extends UIEvent {
+  readonly relatedTarget: HTMLElement | null;
+}
 interface WheelEvent extends MouseEvent {
   readonly deltaX: number;
   readonly deltaY: number;
@@ -80,6 +83,8 @@ interface RunicEventMap extends HostEventMap {
   pointerleave: PointerEvent;
   mouseenter: MouseEvent;
   mouseleave: MouseEvent;
+  focus: FocusEvent;
+  blur: FocusEvent;
 }
 interface HostEventTarget {
   addEventListener<K extends keyof HostEventMap>(

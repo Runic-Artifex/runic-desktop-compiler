@@ -360,7 +360,7 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
         }
         "type" => {
             if let Some(id) = target {
-                native.doc.set_focus_to(id);
+                native.focus_to(Some(id));
             }
             for c in action["text"].as_str().expect("text").chars() {
                 press(native, &c.to_string());
@@ -375,7 +375,7 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
         "keydown" => {
             // A key pressed on the target (differential tests): focus, then press.
             if let Some(id) = target {
-                native.doc.set_focus_to(id);
+                native.focus_to(Some(id));
             }
             press(native, action["key"].as_str().expect("key"));
         }
@@ -386,10 +386,10 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
                 .get_node(id)
                 .is_some_and(|n| n.attr("disabled".into()).is_none())
             {
-                native.doc.set_focus_to(id);
+                native.focus_to(Some(id));
             }
         }
-        "blur" => native.doc.clear_focus(),
+        "blur" => native.focus_to(None),
         "input" => {
             // Semantic value change (differential tests): the control's new
             // value arrives through the normal Input event path, unless the

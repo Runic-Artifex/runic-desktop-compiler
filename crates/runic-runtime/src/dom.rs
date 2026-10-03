@@ -27,10 +27,14 @@ pub enum Event {
     Mouseenter,
     Mouseleave,
     Wheel,
+    Focus,
+    Blur,
+    Focusin,
+    Focusout,
 }
 
 impl Event {
-    pub const ALL: [Event; 18] = [
+    pub const ALL: [Event; 22] = [
         Event::Click,
         Event::Input,
         Event::Change,
@@ -49,6 +53,10 @@ impl Event {
         Event::Mouseenter,
         Event::Mouseleave,
         Event::Wheel,
+        Event::Focus,
+        Event::Blur,
+        Event::Focusin,
+        Event::Focusout,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -77,13 +85,22 @@ impl Event {
             Event::Mouseenter => "mouseenter",
             Event::Mouseleave => "mouseleave",
             Event::Wheel => "wheel",
+            Event::Focus => "focus",
+            Event::Blur => "blur",
+            Event::Focusin => "focusin",
+            Event::Focusout => "focusout",
         }
     }
 
     pub fn bubbles(self) -> bool {
         !matches!(
             self,
-            Event::Pointerenter | Event::Pointerleave | Event::Mouseenter | Event::Mouseleave
+            Event::Pointerenter
+                | Event::Pointerleave
+                | Event::Mouseenter
+                | Event::Mouseleave
+                | Event::Focus
+                | Event::Blur
         )
     }
 
@@ -96,6 +113,10 @@ impl Event {
                 | Event::Pointerleave
                 | Event::Mouseenter
                 | Event::Mouseleave
+                | Event::Focus
+                | Event::Blur
+                | Event::Focusin
+                | Event::Focusout
         )
     }
 
@@ -119,6 +140,7 @@ impl Event {
             Event::Input => "input",
             Event::Keydown | Event::Keyup => "keydown",
             Event::Wheel => "wheel",
+            Event::Focus | Event::Blur | Event::Focusin | Event::Focusout => "focus",
         }
     }
 }
@@ -192,6 +214,113 @@ impl<L> Default for Spread<L> {
             names: Vec::new(),
             listeners: Vec::new(),
         }
+    }
+}
+
+/// The document while app code runs (`cx.dom`), for script operations
+/// that act at once (focus, layout reads). Attached by the generated app
+/// whenever it runs app code; empty otherwise.
+#[derive(Default)]
+pub struct Host {
+    doc: Option<*mut BaseDocument>,
+    listeners: Option<*mut Listeners>,
+}
+
+impl Host {
+    pub fn attach(dom: &mut Dom) -> Host {
+        Host {
+            doc: Some(&mut *dom.doc as *mut BaseDocument),
+            listeners: Some(&mut *dom.listeners as *mut Listeners),
+        }
+    }
+
+    fn dom(&self) -> Option<Dom<'_>> {
+        // SAFETY: attached only while the generated app runs app code inside
+        // a runtime call that holds the document; that call does not use the
+        // document while app code runs.
+        unsafe {
+            Some(Dom {
+                doc: &mut *self.doc?,
+                listeners: &mut *self.listeners?,
+            })
+        }
+    }
+
+    /// `element.focus()` (`on`) or `element.blur()`: move focus at once
+    /// (to an enabled focusable element in the document; away from the
+    /// focused element) and give the focus events to run nested, in order.
+    pub fn focus(
+        &self,
+        node: u64,
+        on: bool,
+    ) -> Vec<(runic_js::Event, Event, Vec<crate::Delivery>)> {
+        let Some(dom) = self.dom() else {
+            return vec![];
+        };
+        let node = NodeId::from_u64(node);
+        let old = crate::events::focused_element(dom.doc);
+        let next = if on {
+            let focusable = dom
+                .doc
+                .get_node(node)
+                .is_some_and(|n| n.flags.is_in_document())
+                && crate::events::is_focusable_element(dom.doc, node);
+            if !focusable {
+                return vec![];
+            }
+            Some(node)
+        } else if old == Some(node) {
+            None
+        } else {
+            return vec![];
+        };
+        if old == next {
+            return vec![];
+        }
+        match next {
+            Some(n) => {
+                dom.doc.set_focus_to(n);
+            }
+            None => dom.doc.clear_focus(),
+        }
+        let mut out = vec![];
+        let mut push = |target: NodeId, kind: Event, related: Option<NodeId>| {
+            let chain = crate::events::element_chain(dom.doc, target);
+            let path = if kind.bubbles() {
+                &chain[..]
+            } else {
+                &chain[..1.min(chain.len())]
+            };
+            let event = runic_js::Event::new(runic_js::EventData {
+                kind: kind.name().into(),
+                target: runic_js::Element(target.as_u64()),
+                related: related.map(|r| runic_js::Element(r.as_u64())),
+                ..Default::default()
+            });
+            let deliveries = path
+                .iter()
+                .flat_map(|&n| {
+                    let event = &event;
+                    dom.listeners
+                        .all(n, kind)
+                        .map(move |listener| crate::Delivery {
+                            listener,
+                            event: event.clone(),
+                            current: n.as_u64(),
+                        })
+                })
+                .collect();
+            out.push((event, kind, deliveries));
+        };
+        if let Some(o) = old {
+            push(o, Event::Blur, next);
+            push(o, Event::Focusout, next);
+        }
+        if let Some(n) = next {
+            push(n, Event::Focus, old);
+            push(n, Event::Focusin, old);
+        }
+        out
     }
 }
 
@@ -465,27 +594,6 @@ impl Dom<'_> {
             }
             Some(_) => {}
             None => self.set_bool_attr(node, "checked", on),
-        }
-    }
-
-    /// `element.focus()` / `element.blur()` requested by a handler (applied
-    /// after the update). Focus only moves to an enabled control in the
-    /// document; blurring only affects the focused element.
-    pub fn focus_element(&mut self, node: NodeId, on: bool) {
-        let Some(n) = self.doc.get_node(node) else {
-            return;
-        };
-        if on {
-            let focusable = n.flags.is_in_document()
-                && n.element_data().is_some_and(|e| {
-                    matches!(e.name.local.as_ref(), "button" | "input" | "textarea")
-                })
-                && n.attr("disabled".into()).is_none();
-            if focusable {
-                self.doc.set_focus_to(node);
-            }
-        } else if self.doc.get_focussed_node_id() == Some(node) {
-            self.doc.clear_focus();
         }
     }
 

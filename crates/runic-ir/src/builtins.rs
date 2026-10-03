@@ -394,6 +394,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 | "defaultPrevented" => Ok(b),
                 "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" => Ok(n),
                 "target" => Ok(Element),
+                "relatedTarget" => Ok(Maybe(Box::new(Element))),
                 // Null once the dispatch is over.
                 "currentTarget" => Ok(Maybe(Box::new(Element))),
                 "preventDefault" | "stopPropagation" | "stopImmediatePropagation" => Ok(Void),

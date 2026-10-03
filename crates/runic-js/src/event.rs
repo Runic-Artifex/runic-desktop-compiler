@@ -31,6 +31,8 @@ pub struct EventData {
     pub value: JsString,
     pub checked: bool,
     pub target: Element,
+    /// `relatedTarget` (focus events: the element focus moved from or to).
+    pub related: Option<Element>,
     /// Whether the event is cancelable (`preventDefault` has an effect).
     pub cancelable: bool,
 }

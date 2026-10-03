@@ -588,6 +588,10 @@ pub struct Machine<'p> {
     event: Option<js::Event>,
     /// Element ids from the root to the element under the pointer.
     hovered: Vec<u64>,
+    /// The focused element.
+    focused: Option<u64>,
+    /// The tree of the last render (what script sees between renders).
+    last_tree: Vec<VNode>,
     /// Live values of uncontrolled text inputs (no `value` prop), by element id.
     live_values: HashMap<u64, String>,
     /// Live checked state of checkboxes, by element id.
@@ -729,6 +733,8 @@ impl<'p> Machine<'p> {
             payload: None,
             event: None,
             hovered: vec![],
+            focused: None,
+            last_tree: vec![],
             live_values: HashMap::new(),
             live_checked: HashMap::new(),
             control_cache: HashMap::new(),
@@ -1836,7 +1842,22 @@ impl<'p> Machine<'p> {
             ("clock", "now") => Val::Num(self.now),
             ("clock", "date") => Val::Num(CLOCK_ORIGIN + self.now),
             // Focus has no interpreter observable (the snapshot has no focus).
-            ("element", "focus" | "blur") => Val::Undefined,
+            // focus() and blur() move focus at once; the focus listeners run
+            // nested, before the call returns.
+            ("element", m @ ("focus" | "blur")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let tree = self.last_tree.clone();
+                let focusable =
+                    chain_nodes(&tree, e.0).is_some_and(|n| focus_target(&n) == Some(e.0));
+                if m == "focus" && focusable {
+                    self.move_focus_nested(Some(e.0));
+                } else if m == "blur" && self.focused == Some(e.0) {
+                    self.move_focus_nested(None);
+                }
+                Val::Undefined
+            }
             ("root", m) => {
                 let arg = |i: usize| a[i].string().to_rust();
                 let dom_error =
@@ -1919,6 +1940,7 @@ impl<'p> Machine<'p> {
                     "deltaX" => Val::Num(d.delta_x),
                     "deltaY" => Val::Num(d.delta_y),
                     "target" => Val::Element(d.target),
+                    "relatedTarget" => d.related.map_or(Val::Null, Val::Element),
                     "currentTarget" => e.current_target().map_or(Val::Null, Val::Element),
                     "preventDefault" => {
                         e.prevent_default();
@@ -2124,7 +2146,17 @@ impl<'p> Machine<'p> {
             keep
         });
         result.map_err(throw_diag)?;
-        Ok(normalize(out))
+        let tree = normalize(out);
+        // Focus is lost with its element (Chromium's blur events on removal
+        // are not modelled: a declared gap).
+        if self
+            .focused
+            .is_some_and(|f| chain_nodes(&tree, f).is_none())
+        {
+            self.focused = None;
+        }
+        self.last_tree = tree.clone();
+        Ok(tree)
     }
 
     fn render_instance(
@@ -3295,8 +3327,11 @@ impl<'p> Machine<'p> {
     ) -> Res<()> {
         let component = self.instances[instance].component;
         let handler = &self.program.components[component].handlers[h];
-        self.payload = event.as_ref().and_then(payload_of);
-        self.event = event;
+        // A handler may run nested in another (focus events from focus()).
+        let outer = (
+            std::mem::replace(&mut self.payload, event.as_ref().and_then(payload_of)),
+            std::mem::replace(&mut self.event, event),
+        );
         let frame = Frame::new(handler.params.len() + handler.locals.len());
         for (i, a) in args.into_iter().enumerate() {
             frame.set(i, a);
@@ -3306,8 +3341,7 @@ impl<'p> Machine<'p> {
         let r = self.exec_block(&handler.body, &frame);
         self.current = saved;
         self.snap = saved_snap;
-        self.payload = None;
-        self.event = None;
+        (self.payload, self.event) = outer;
         r.map(|_| ())
     }
 
@@ -3530,8 +3564,17 @@ impl<'p> Machine<'p> {
         let disabled = self.inside_disabled(target)?;
         let down = self.dispatch(target, EventKind::Pointerdown, pressed.clone(), None, s)?;
         let compat = !disabled && !down.is_some_and(|e| e.default_prevented());
-        if compat {
-            self.dispatch(target, EventKind::Mousedown, pressed.clone(), None, s)?;
+        let mousedown = if compat {
+            self.dispatch(target, EventKind::Mousedown, pressed.clone(), None, s)?
+        } else {
+            None
+        };
+        // Focus moves on mousedown unless it was cancelled: to the focusable
+        // element pressed, nowhere for anything else (disabled controls too).
+        if !mousedown.is_some_and(|e| e.default_prevented()) {
+            let tree = self.render()?;
+            let next = chain_nodes(&tree, target).and_then(|n| focus_target(&n));
+            self.move_focus(next, s)?;
         }
         if button == 2.0 && !disabled {
             self.dispatch(target, EventKind::Contextmenu, pressed, None, s)?;
@@ -3595,8 +3638,11 @@ impl<'p> Machine<'p> {
                 let clickable = chain_nodes(&tree, control).and_then(|n| n.last().copied()).is_some_and(
                     |n| matches!(n, VNode::Element { tag, checked, .. } if tag == "button" || checked.is_some()),
                 );
-                if clickable && !self.inside_disabled(control)? {
-                    self.click(control, s)?;
+                if !self.inside_disabled(control)? {
+                    if clickable {
+                        self.click(control, s)?;
+                    }
+                    self.move_focus(Some(control), s)?;
                 }
             }
         }
@@ -3618,6 +3664,8 @@ impl<'p> Machine<'p> {
         if self.inside_disabled(target)? {
             return Ok(());
         }
+        // The key goes to the target, focused first (as the probe does).
+        self.move_focus(Some(target), s)?;
         let mods = k.modifiers.clone();
         let mut held = js::KeySpec::default();
         let data = |key: &str, code: &str, held: &js::KeySpec| js::EventData {
@@ -3676,6 +3724,123 @@ impl<'p> Machine<'p> {
             self.dispatch(target, EventKind::Keyup, data(m, code, &held), None, s)?;
         }
         Ok(())
+    }
+
+    /// Move focus: the focus events in Chromium's order (`blur`, `focusout`,
+    /// `focus`, `focusin`, naming the other element as `relatedTarget`).
+    fn focus_events(&mut self, next: Option<u64>) -> Vec<(u64, EventKind, js::EventData)> {
+        let old = self.focused;
+        if old == next {
+            return vec![];
+        }
+        self.focused = next;
+        let related = |n: Option<u64>| js::EventData {
+            related: n.map(js::Element),
+            ..Default::default()
+        };
+        let mut events = vec![];
+        if let Some(o) = old {
+            events.push((o, EventKind::Blur, related(next)));
+            events.push((o, EventKind::Focusout, related(next)));
+        }
+        if let Some(n) = next {
+            events.push((n, EventKind::Focus, related(old)));
+            events.push((n, EventKind::Focusin, related(old)));
+        }
+        events
+    }
+
+    /// A user action moves focus: each focus event is dispatched on its own.
+    fn move_focus(&mut self, next: Option<u64>, s: &mut Run) -> Result<()> {
+        for (target, kind, data) in self.focus_events(next) {
+            self.dispatch(target, kind, data, None, s)?;
+        }
+        Ok(())
+    }
+
+    /// focus()/blur() move focus: the listeners run nested in the script.
+    fn move_focus_nested(&mut self, next: Option<u64>) {
+        for (target, kind, data) in self.focus_events(next) {
+            self.dispatch_nested(target, kind, data);
+        }
+    }
+
+    /// Dispatch an event nested in the running script, on the tree as last
+    /// rendered: its listeners run at once, without a task or microtask
+    /// checkpoint; their exceptions are reported, not propagated.
+    fn dispatch_nested(&mut self, target: u64, kind: EventKind, mut data: js::EventData) {
+        let tree = std::mem::take(&mut self.last_tree);
+        let Some(nodes) = chain_nodes(&tree, target) else {
+            self.last_tree = tree;
+            return;
+        };
+        data.kind = JsString::from(kind.name());
+        data.target = js::Element(target);
+        data.cancelable = kind.cancelable();
+        let event = js::Event::new(data);
+        let path: Vec<&VNode> = if kind.bubbles() {
+            nodes.iter().rev().copied().collect()
+        } else {
+            vec![*nodes.last().expect("element chain")]
+        };
+        let mut calls: Vec<(usize, u64)> = vec![];
+        for n in path {
+            if let VNode::Element { id, listeners, .. } = n {
+                for &(k, l) in listeners {
+                    if k == kind {
+                        calls.push((l, *id));
+                    }
+                }
+            }
+        }
+        self.last_tree = tree;
+        for (l, current) in calls {
+            let r = std::mem::replace(
+                &mut self.listeners[l],
+                ListenerRef {
+                    instance: 0,
+                    handler: 0,
+                    args: vec![],
+                    closure: None,
+                },
+            );
+            if !event.enter(js::Element(current)) {
+                continue;
+            }
+            let result = match &r.closure {
+                Some(f) => self
+                    .call_value(f, vec![Val::Event(event.clone())])
+                    .map(|_| ()),
+                None => self.run(r.instance, r.handler, r.args, Some(event.clone())),
+            };
+            if let Err(t) = result {
+                self.uncaught.push(t);
+            }
+        }
+        if kind.bubbles() {
+            for window in [false, true] {
+                let current = if window {
+                    js::Element::WINDOW
+                } else {
+                    js::Element::DOCUMENT
+                };
+                let listeners: Vec<Val> = self
+                    .host_listeners
+                    .iter()
+                    .filter(|g| g.0 == window && g.1 == kind)
+                    .map(|g| g.2.clone())
+                    .collect();
+                for f in listeners {
+                    if !event.enter(current) {
+                        continue;
+                    }
+                    if let Err(t) = self.call_value(&f, vec![Val::Event(event.clone())]) {
+                        self.uncaught.push(t);
+                    }
+                }
+            }
+        }
+        event.finish();
     }
 
     /// Dispatch one event at the element `target` if it is rendered: the
@@ -3873,6 +4038,23 @@ fn payload_of(event: &js::Event) -> Option<Val> {
         "change" => Some(Val::Bool(d.checked)),
         "keydown" => Some(Val::Str(d.key.clone())),
         _ => None,
+    }
+}
+
+/// The element a press on the chain `nodes` (root first) focuses: the
+/// innermost control or element with a `tabindex`; none when that is a
+/// disabled control or there is none.
+fn focus_target(nodes: &[&VNode]) -> Option<u64> {
+    let found = nodes.iter().rev().find(|n| {
+        matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea") || attrs.contains_key("tabindex"))
+    })?;
+    match found {
+        VNode::Element { tag, attrs, id, .. } => {
+            let disabled = matches!(tag.as_str(), "button" | "input" | "textarea")
+                && attrs.contains_key("disabled");
+            (!disabled).then_some(*id)
+        }
+        VNode::Text(_) => None,
     }
 }
 

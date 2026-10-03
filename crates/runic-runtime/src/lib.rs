@@ -18,7 +18,7 @@ mod storage;
 mod timers;
 
 pub use blitz_traits::node_id::NodeId;
-pub use dom::{ClassState, Dom, Event, Spread};
+pub use dom::{ClassState, Dom, Event, Host, Spread};
 /// CSSOM inline styles, media queries and the document element.
 pub use runic_css as css;
 

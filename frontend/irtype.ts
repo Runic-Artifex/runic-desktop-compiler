@@ -136,6 +136,7 @@ export const EVENT_MEMBERS: Record<string, Type> = {
   deltaY: N,
   defaultPrevented: B,
   target: 'element',
+  relatedTarget: { maybe: 'element' },
   currentTarget: { maybe: 'element' },
   value: S,
   checked: B,
