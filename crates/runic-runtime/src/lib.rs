@@ -10,6 +10,7 @@ mod dom;
 mod events;
 #[cfg(feature = "probe")]
 mod probe;
+pub mod reorder;
 mod shell;
 
 pub use blitz_traits::node_id::NodeId;
@@ -74,35 +75,6 @@ pub trait App: 'static {
     fn instances_json(&self) -> Vec<Json> {
         Vec::new()
     }
-}
-
-/// Which list blocks can stay in place during a keyed update: `old[j]` is the
-/// previous position of new block `j` (`None` for new blocks). Blocks on a
-/// longest increasing subsequence of previous positions keep their DOM
-/// position; the others move.
-pub fn lis_keep(old: &[Option<usize>]) -> Vec<bool> {
-    // Patience sorting over the reused blocks.
-    let mut tails: Vec<usize> = vec![]; // indices into `old`
-    let mut prev: Vec<Option<usize>> = vec![None; old.len()];
-    for (j, o) in old.iter().enumerate() {
-        let Some(v) = *o else { continue };
-        let pos = tails.partition_point(|&t| old[t].unwrap() < v);
-        if pos > 0 {
-            prev[j] = Some(tails[pos - 1]);
-        }
-        if pos == tails.len() {
-            tails.push(j);
-        } else {
-            tails[pos] = j;
-        }
-    }
-    let mut keep = vec![false; old.len()];
-    let mut cur = tails.last().copied();
-    while let Some(j) = cur {
-        keep[j] = true;
-        cur = prev[j];
-    }
-    keep
 }
 
 /// Entry point of a generated application binary.

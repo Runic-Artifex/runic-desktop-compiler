@@ -88,6 +88,15 @@ pub struct Program {
         skip_serializing_if = "std::collections::BTreeMap::is_empty"
     )]
     pub container_attrs: std::collections::BTreeMap<String, String>,
+    /// After each update, an element that lost focus because a list move
+    /// detached it is focused again if it is still in the document (React DOM
+    /// restores the focused element around every commit).
+    #[serde(
+        rename = "restoreFocus",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub restore_focus: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -900,6 +909,23 @@ pub struct Listener {
     pub args: Vec<Expr>,
 }
 
+/// Keyed reorder strategy of an `each` node (see runic-runtime's `reorder`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Reorder {
+    /// Prefix/suffix sync, then a longest increasing subsequence stays.
+    #[default]
+    Lis,
+    /// Blocks whose previous position is below the highest placed one move.
+    Forward,
+    /// Stashed and matched runs; the shorter run moves.
+    Stash,
+}
+
+fn is_lis(r: &Reorder) -> bool {
+    *r == Reorder::Lis
+}
+
 /// A prop passed to a component instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -971,6 +997,10 @@ pub enum Node {
         /// Block identity; blocks are matched by index without a key.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<Expr>,
+        /// Which reused blocks a keyed update moves (observable through
+        /// focus loss of moved nodes); the framework's keyed diff.
+        #[serde(default, skip_serializing_if = "is_lis")]
+        reorder: Reorder,
         body: Vec<Node>,
         #[serde(rename = "else", default, skip_serializing_if = "Vec::is_empty")]
         otherwise: Vec<Node>,

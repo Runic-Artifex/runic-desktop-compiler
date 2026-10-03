@@ -847,6 +847,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     }
     return {
       kind: 'each',
+      // React's reconcileChildrenArray (which blocks move is observable through focus).
+      reorder: 'forward',
       items,
       item,
       ...(index !== undefined ? { index } : {}),
@@ -880,6 +882,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     return [
       {
         kind: 'each',
+        // React's reconcileChildrenArray (which blocks move is observable through focus).
+        reorder: 'forward',
         items: { op: 'array', type: { array: type }, items: [value] },
         item: local,
         key: { op: 'local', local },
@@ -1040,6 +1044,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     },
     ...(graph.config.renderer ? { renderer: graph.config.renderer } : {}),
     capabilities,
+    // React DOM restores the focused element after each commit.
+    restoreFocus: true,
     styles: { css: graph.css, assets: graph.assets },
     records: types.records,
     functions: lower.functions,

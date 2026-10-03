@@ -153,6 +153,10 @@ impl<A: App> Handler<'_, A> {
             Ok(()) => format!("handler {handler}"),
             Err(reason) => format!("handler {handler} rejected: {reason}"),
         };
+        // A focused element detached by a list move stays the navigation start.
+        if let Some(b) = self.listeners.blurred.take() {
+            *self.nav_start = Some(b);
+        }
         self.log.push(outcome);
     }
 

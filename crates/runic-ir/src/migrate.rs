@@ -377,6 +377,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
                 .or_else(|_| bad("assets"))?,
         },
         globals: vec![],
+        restore_focus: false,
         components: vec![Component {
             name: "App".into(),
             cells,

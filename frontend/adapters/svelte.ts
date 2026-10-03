@@ -811,6 +811,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const key = n.key ? value(exprNode(n.key)) : undefined;
       return {
         kind: 'each',
+        // Svelte 5's keyed reconcile (which blocks move is observable through focus).
+        reorder: 'stash',
         items,
         item,
         ...(index !== undefined ? { index } : {}),

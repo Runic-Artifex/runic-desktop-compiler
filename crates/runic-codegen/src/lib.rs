@@ -914,6 +914,7 @@ impl Gen<'_> {
                     item,
                     index,
                     key: list_key,
+                    reorder,
                     ..
                 } = node
                 else {
@@ -959,6 +960,7 @@ impl Gen<'_> {
                      let after_list = {anchor};\n\
                      if {guard} {{\n\
                      let items = {items_rs}; let values: Vec<_> = items.borrow().clone(); let mut seen = std::collections::HashSet::new();\n\
+                     let old_len = s.e{key}.len();\n\
                      let mut old: std::collections::HashMap<js::MapKey, (usize, Rc<RefCell<T{k}>>, Box<S{bd}>)> = s.e{key}.drain(..).enumerate().map(|(i, (k, t, b))| (k, (i, t, b))).collect();\n\
                      let mut next: Vec<(js::MapKey, Rc<RefCell<T{k}>>, Option<Box<S{bd}>>, Option<usize>)> = Vec::new();\n\
                      for (i, x) in values.into_iter().enumerate() {{\n{block}\n\
@@ -966,7 +968,7 @@ impl Gen<'_> {
                      }}\n\
                      let mut gone: Vec<_> = old.into_values().collect(); gone.sort_by_key(|g| g.0);\n\
                      for (_, _, ob) in gone {{ remove_s{bd}(&ob, cx, dom); }}\n\
-                     let keep = runic_runtime::lis_keep(&next.iter().map(|e| e.3).collect::<Vec<_>>());\n\
+                     let keep = runic_runtime::reorder::keep(runic_runtime::reorder::Reorder::{reorder:?}, &next.iter().map(|e| e.3).collect::<Vec<_>>(), old_len);\n\
                      let mut anchor = after_list;\n\
                      let mut out = Vec::with_capacity(next.len());\n\
                      for (j, (bk, tt, b, _)) in next.into_iter().enumerate().rev() {{\n\
@@ -1439,6 +1441,7 @@ pub fn generate(
          if let Some((parent, s)) = self.root.as_mut() {{\n\
          if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
          if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
+         {restore}\
          self.free(dom);\n\
          result.map_err(|e| e.to_string())\n}}\n\
          fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\
@@ -1447,6 +1450,11 @@ pub fn generate(
         title = rust_str(&p.meta.title),
         css = rust_str(css),
         hash = rust_str(ir_hash),
+        restore = if p.restore_focus {
+            "dom.restore_focus();\n"
+        } else {
+            ""
+        },
     );
     Ok(out)
 }

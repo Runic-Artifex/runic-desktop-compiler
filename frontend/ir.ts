@@ -197,6 +197,8 @@ export type Node =
       item: number;
       index?: number;
       key?: Expr;
+      /** Which reused blocks a keyed update moves (the framework's keyed diff). */
+      reorder?: 'lis' | 'forward' | 'stash';
       body: Node[];
       else?: Node[];
       source?: Source;
@@ -236,6 +238,8 @@ export interface Program {
   components: Component[];
   root: number;
   containerAttrs?: Record<string, string>;
+  /** Refocus an element blurred by a list move after each update (React DOM). */
+  restoreFocus?: boolean;
 }
 
 export const lit = (value: Literal): Expr => ({ op: 'lit', value });

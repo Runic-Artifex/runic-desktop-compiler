@@ -1,0 +1,314 @@
+{
+  "description": "Keyed reorders with the activated item focused: which items each framework moves (a moved focused element loses focus in Chromium; React DOM restores it)",
+  "fixtures": [
+    "reorder-svelte",
+    "reorder-react",
+    "reorder-vue"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "mode-reverse"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-reverse"
+    },
+    {
+      "kind": "focus",
+      "id": "item-4"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-reverse"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-rotate-left"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-rotate-left"
+    },
+    {
+      "kind": "focus",
+      "id": "item-4"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-rotate-left"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-rotate-right"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-rotate-right"
+    },
+    {
+      "kind": "focus",
+      "id": "item-4"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-rotate-right"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-swap-ends"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-swap-ends"
+    },
+    {
+      "kind": "focus",
+      "id": "item-4"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-swap-ends"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-to-front"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-to-front"
+    },
+    {
+      "kind": "focus",
+      "id": "item-4"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-to-front"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-to-end"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-to-end"
+    },
+    {
+      "kind": "focus",
+      "id": "item-4"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-to-end"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-odd-first"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-odd-first"
+    },
+    {
+      "kind": "focus",
+      "id": "item-4"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-odd-first"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-interleave"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-interleave"
+    },
+    {
+      "kind": "focus",
+      "id": "item-4"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-interleave"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-to-end"
+    },
+    {
+      "kind": "focus",
+      "id": "item-2"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "Shift+Tab"
+    }
+  ]
+}

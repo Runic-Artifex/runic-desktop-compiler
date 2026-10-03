@@ -20,6 +20,8 @@ pub(crate) struct Listeners {
     map: HashMap<NodeId, Vec<(Event, u32)>>,
     /// Keys of listeners whose elements were removed (the app frees them).
     freed: Vec<u32>,
+    /// An element that lost focus because a list move detached it.
+    pub(crate) blurred: Option<NodeId>,
     /// Inputs whose value was set by script before their editor existed: the
     /// caret moves to the end once the editor is created (as `input.value = v`).
     pending_caret: Vec<NodeId>,
@@ -127,9 +129,22 @@ impl Dom<'_> {
     }
 
     /// Move (or insert) `nodes` into `parent` before `before`, or append them.
+    /// As in Chromium, moving detaches the nodes first, so a focused element
+    /// inside them loses focus.
     pub fn insert_all(&mut self, parent: NodeId, nodes: &[NodeId], before: Option<NodeId>) {
         if nodes.is_empty() {
             return;
+        }
+        if let Some(focused) = self.doc.get_focussed_node_id() {
+            let mut cur = Some(focused);
+            while let Some(c) = cur {
+                if nodes.contains(&c) {
+                    self.doc.clear_focus();
+                    self.listeners.blurred = Some(focused);
+                    break;
+                }
+                cur = self.doc.get_node(c).and_then(|n| n.parent);
+            }
         }
         let mut m = self.doc.mutate();
         match before {
@@ -167,6 +182,20 @@ impl Dom<'_> {
             }
             Some(_) => {}
             None => self.set_bool_attr(node, "checked", on),
+        }
+    }
+
+    /// Focus again an element that a list move blurred, if it is still in the
+    /// document (frameworks that restore focus around their DOM updates).
+    pub fn restore_focus(&mut self) {
+        if let Some(node) = self.listeners.blurred.take() {
+            if self
+                .doc
+                .get_node(node)
+                .is_some_and(|n| n.flags.is_in_document())
+            {
+                self.doc.set_focus_to(node);
+            }
         }
     }
 

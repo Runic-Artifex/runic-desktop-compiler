@@ -1,0 +1,44 @@
+{
+  "description": "Sequential navigation right after a list move blurred the focused element: Chromium continues from where the element was detached (a live range), which depends on each framework's exact sequence of DOM moves. Planned with the M5 focus model.",
+  "fixtures": [
+    "reorder-svelte",
+    "reorder-vue"
+  ],
+  "knownGaps": {
+    "semantics": "After a move-induced blur, the native runtime continues navigation after the moved element instead of Chromium's collapsed detach position (M5)"
+  },
+  "actions": [
+    {
+      "kind": "click",
+      "id": "mode-swap-ends"
+    },
+    {
+      "kind": "focus",
+      "id": "item-6"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "click",
+      "id": "mode-to-end"
+    },
+    {
+      "kind": "focus",
+      "id": "item-1"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    }
+  ]
+}

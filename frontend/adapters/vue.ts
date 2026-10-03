@@ -1409,6 +1409,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       const key = k?.exp ? value(exprNode(k.exp)) : undefined;
       return {
         kind: 'each',
+        // Vue 3's patchKeyedChildren (which blocks move is observable through focus).
+        reorder: 'lis',
         items,
         item,
         ...(index !== undefined ? { index } : {}),
