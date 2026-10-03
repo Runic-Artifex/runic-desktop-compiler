@@ -1350,9 +1350,9 @@ pub fn generate(
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Option<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, {live}{globals}}}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: None, timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1452,6 +1452,7 @@ pub fn generate(
          let epoch = js::mutation_epoch();\n\
          let owned_epoch = js::owned_epoch();\n\
          let result = f(&mut self.cx);\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          self.cx.payload = None;\n\
          if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{ {rollback} }} }}\n\
          let deep = js::mutation_epoch() != epoch;\n\
@@ -1461,7 +1462,7 @@ pub fn generate(
          if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
          if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
          {restore}\
-         if let Some((node, on)) = self.cx.focus.take() {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          self.free(dom);\n\
          result\n}}\n\
          }}\n\

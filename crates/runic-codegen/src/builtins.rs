@@ -206,9 +206,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("timer", "clear") => format!("{{ cx.timers.clear({}); }}", t[0]),
         ("clock", "now") => "cx.timers.now".into(),
         ("clock", "date") => "(cx.timers.origin + cx.timers.now)".into(),
-        // Focus requests are applied by the runtime after the update.
-        ("element", "focus") => format!("{{ cx.focus = Some(({}.0, true)); }}", t[0]),
-        ("element", "blur") => format!("{{ cx.focus = Some(({}.0, false)); }}", t[0]),
+        // Focus requests are applied in order when the running callback returns,
+        // before any update (the DOM does not change while it runs).
+        ("element", "focus") => format!("{{ cx.focus.push(({}.0, true)); }}", t[0]),
+        ("element", "blur") => format!("{{ cx.focus.push(({}.0, false)); }}", t[0]),
         ("maybe", m) => {
             let is_maybe = matches!(types[0], Type::Maybe(_));
             match (m, is_maybe) {

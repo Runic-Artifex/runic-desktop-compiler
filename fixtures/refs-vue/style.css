@@ -9,7 +9,7 @@ li { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
 li span { flex: 1; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 button, input { font-family: RunicFixture; font-size: 14px; padding: 6px 10px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
-input { width: 220px; display: block; }
+input { width: 220px; display: block; line-height: 16px; }
 button:disabled { background: #e5e5e0; color: #787b76; border-color: #b7b7a9; }
 p { margin: 8px 0; }
 input:focus { outline: none; border-color: #101010; }
