@@ -300,7 +300,8 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
 test('Vue rejects setup effects, lifecycle hooks, modifiers and lists with locations', async () => {
   const cases = [
     ['const n=ref(1);', "const n=ref(1);console.log('effect');", 'E_STATEMENT'],
-    ['{ref,computed}', '{ref,computed,onMounted}', 'E_CAPABILITY'],
+    ['{ref,computed}', '{ref,computed,onUpdated}', 'E_CAPABILITY'],
+    ['{ref,computed}', '{ref,computed,watchPostEffect}', 'E_CAPABILITY'],
     ['@click="toggle"', '@click.prevent="toggle"', 'E_TEMPLATE'],
     [
       '<p id="details" v-if="show">Visible</p>',
@@ -1524,4 +1525,148 @@ export function App() {
       root => assert.rejects(collect(root).then(lower), failWith(code, 'App.tsx'), source),
       { 'App.tsx': app(source) },
     );
+});
+
+const effectActions = [
+  { kind: 'click', id: 'dump' },
+  { kind: 'click', id: 'inc' },
+  { kind: 'click', id: 'dump' },
+  { kind: 'click', id: 'toggle' },
+  { kind: 'click', id: 'dump' },
+  { kind: 'click', id: 'inc' },
+  { kind: 'click', id: 'toggle' },
+  { kind: 'click', id: 'dump' },
+];
+/** The #log text after each Dump click. */
+const dumps = steps =>
+  steps.flatMap(s => (s.action?.id === 'dump' ? [texts([s], ['log']).log] : []));
+
+test('Vue watchers and lifecycle hooks run in Vue order at mount, update and unmount', async () => {
+  // Recorded from Vue 3.5 in Chromium (conformance/cases/effects.json).
+  const steps = run((await lower(await graph('effects-vue'))).ir, effectActions);
+  assert.deepEqual(dumps(steps), [
+    'App pre 0 | App before mount 0 | A pre 0 | A watch 0 undefined | B pre 0 | B watch 0 undefined | A mount | B mount | App mount',
+    'App pre cleanup 1 | App pre 1 | App watch 1 0 | App shown true 1 true | A pre cleanup | A pre 1 | A watch cleanup 0 | A watch 2 0 | B pre cleanup | B pre 1 | B watch cleanup 0 | B watch 2 0',
+    'App shown false 1 true | A before unmount | A pre cleanup | A watch cleanup 2 | B before unmount | B pre cleanup | B watch cleanup 2 | A unmount | B unmount',
+    'App pre cleanup 2 | App pre 2 | App watch 2 1 | App shown false 2 false | App shown true 2 false | A pre 2 | A watch 4 undefined | B pre 2 | B watch 4 undefined | A mount | B mount',
+  ]);
+  // An immediate array watch gets no old values on its first run (Vue passes []).
+  const immediate = await edit(
+    'effects-vue',
+    'App.vue',
+    'note(`App shown ${visible} ${c} ${wasVisible}`);\n});',
+    'note(`App shown ${visible} ${c} ${wasVisible}`);\n}, { immediate: true });',
+  );
+  assert.match(
+    dumps(run((await lower(immediate)).ir, effectActions))[0],
+    /^App pre 0 \| App shown true 0 undefined \| App before mount 0 \| A pre 0/,
+  );
+  // Several cleanups run in registration order; hook results are ignored.
+  const child = await edits('effects-vue', 'Child.vue', [
+    [
+      'onWatcherCleanup(() => props.note(`${props.name} pre cleanup`));',
+      'onWatcherCleanup(() => props.note(`${props.name} pre cleanup`));onWatcherCleanup(() => props.note(`${props.name} second`));',
+    ],
+    [
+      'onMounted(() => props.note(`${props.name} mount`));',
+      'onMounted(() => () => props.note(`${props.name} ignored`));',
+    ],
+  ]);
+  const [, update, unmount] = dumps(run((await lower(child)).ir, effectActions));
+  assert.match(update, /A pre cleanup \| A second \| A pre 1/);
+  assert.match(unmount, /A before unmount \| A pre cleanup \| A second \| A watch cleanup 2/);
+  assert.doesNotMatch(unmount, /ignored/);
+});
+
+test('A Vue watcher writing state updates its dependants in the same flush', async () => {
+  // Recorded from Vue 3.5 in Chromium (conformance/cases/effect-writes-state.json).
+  const actions = [
+    { kind: 'click', id: 'bump' },
+    { kind: 'click', id: 'dump' },
+  ];
+  const steps = run((await lower(await graph('effect-writes-state-vue'))).ir, actions);
+  assert.deepEqual(dumps(steps), [
+    'App a 0 | handler micro | App a 1 | write b 10 | child b 10 0 | effect micro b 10',
+  ]);
+  assert.deepEqual(texts(steps, ['a', 'b', 'child']), {
+    a: 'a: 1',
+    b: 'b: 10',
+    child: 'child: 10',
+  });
+});
+
+test('Vue rejects watcher forms and orders Runic does not model, with locations', async () => {
+  const after = "onMounted(() => note('App mount'));";
+  const app = [
+    'watch(count, () => {}, { deep: true });',
+    "watch(count, () => {}, { flush: 'post' });",
+    'watch(count, () => {}, { once: true });',
+    "watchEffect(() => {}, { flush: 'sync' });",
+    'const stop = watch(count, () => {});',
+    // Declared after the first watcher (Vue runs watchers where they are declared).
+    'const later = ref(0);',
+    'watch(log, () => {});',
+    'watch(() => log.length, () => {});',
+    'watch(() => dump(), () => {});',
+    'watchEffect(onCleanup => { const f = onCleanup; f(() => {}); });',
+    'watchEffect(() => { setTimeout(() => onWatcherCleanup(() => {}), 0); });',
+    'onMounted(() => onWatcherCleanup(() => {}));',
+    'watchEffect(async () => {});',
+    'function later() { watch(count, () => {}); }',
+    // Writes to state another watcher (or the watcher itself) depends on.
+    'watch(count, value => { show.value = value > 1; });',
+    'watchEffect(() => { count.value = count.value + 1; });',
+  ];
+  for (const extra of app)
+    await assert.rejects(
+      lower(
+        await edits('effects-vue', 'App.vue', [
+          ['  onUnmounted,\n', '  onUnmounted,\n  onWatcherCleanup,\n'],
+          [after, after + extra],
+        ]),
+      ),
+      failWith('E_EFFECT', 'App.vue'),
+      extra,
+    );
+  await assert.rejects(
+    lower(
+      await edits('effects-vue', 'App.vue', [
+        ['  ref,\n', '  ref,\n  shallowRef,\n'],
+        ["const shown = ref('');", "const shown = ref('');const s = shallowRef(0);"],
+        [after, after + 'watch(s, () => {});'],
+      ]),
+    ),
+    failWith('E_EFFECT', 'App.vue'),
+  );
+  // Vue re-runs a watchEffect only when a computed it reads changes value.
+  await assert.rejects(
+    lower(
+      await edits('effects-vue', 'App.vue', [
+        ['  ref,\n', '  ref,\n  computed,\n'],
+        [
+          "const shown = ref('');",
+          "const shown = ref('');const odd = computed(() => count.value % 2);",
+        ],
+        [after, after + 'watchEffect(() => note(`odd ${odd.value}`));'],
+      ]),
+    ),
+    failWith('E_EFFECT', 'App.vue'),
+  );
+  // Vue unmounts a removed branch before it creates or updates later components.
+  const panel = '<Panel v-if="show" :count="count" :note="note" />';
+  for (const to of [
+    panel + '<Panel v-else :count="count" :note="note" />',
+    panel + '<Panel :count="count" :note="note" />',
+  ])
+    await assert.rejects(
+      lower(await edit('effects-vue', 'App.vue', panel, to)),
+      failWith('E_EFFECT', 'App.vue'),
+      to,
+    );
+  await assert.rejects(
+    lower(
+      await edit('effects-vue', 'Child.vue', 'onMounted(', 'watch(props, () => {});onMounted('),
+    ),
+    failWith('E_EFFECT', 'Child.vue'),
+  );
 });

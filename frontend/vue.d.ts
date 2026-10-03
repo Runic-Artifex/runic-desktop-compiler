@@ -10,6 +10,66 @@ declare module 'vue' {
   /** A template ref (3.5): set by Vue to the element with `ref="key"` while it is mounted. */
   export function useTemplateRef<T = unknown>(key: string): Readonly<Ref<T | null>>;
   export function createApp(component: unknown): { mount(selector: string): void };
+
+  // Watchers and lifecycle hooks (docs/design/M4-EFFECTS.md).
+  export type OnCleanup = (cleanupFn: () => void) => void;
+  export type WatchSource<T = unknown> = Ref<T> | Readonly<Ref<T>> | (() => T);
+  export interface WatchOptions<Immediate = boolean> {
+    immediate?: Immediate;
+    deep?: boolean | number;
+    once?: boolean;
+    flush?: 'pre' | 'post' | 'sync';
+    onTrack?: (event: unknown) => void;
+    onTrigger?: (event: unknown) => void;
+  }
+  export interface WatchHandle {
+    (): void;
+    stop(): void;
+    pause(): void;
+    resume(): void;
+  }
+  type MapSources<T, Immediate> = {
+    [K in keyof T]: T[K] extends WatchSource<infer V>
+      ? Immediate extends true
+        ? V | undefined
+        : V
+      : never;
+  };
+  export function watch<T, Immediate extends Readonly<boolean> = false>(
+    source: WatchSource<T>,
+    cb: (
+      value: T,
+      oldValue: Immediate extends true ? T | undefined : T,
+      onCleanup: OnCleanup,
+    ) => unknown,
+    options?: WatchOptions<Immediate>,
+  ): WatchHandle;
+  export function watch<
+    T extends Readonly<WatchSource<unknown>[]>,
+    Immediate extends Readonly<boolean> = false,
+  >(
+    sources: readonly [...T] | T,
+    cb: (
+      value: MapSources<T, false>,
+      oldValue: MapSources<T, Immediate>,
+      onCleanup: OnCleanup,
+    ) => unknown,
+    options?: WatchOptions<Immediate>,
+  ): WatchHandle;
+  export function watchEffect(
+    effect: (onCleanup: OnCleanup) => void,
+    options?: { flush?: 'pre' | 'post' | 'sync' },
+  ): WatchHandle;
+  export function watchPostEffect(effect: (onCleanup: OnCleanup) => void): WatchHandle;
+  export function watchSyncEffect(effect: (onCleanup: OnCleanup) => void): WatchHandle;
+  export function onWatcherCleanup(cleanupFn: () => void): void;
+  export function onBeforeMount(hook: () => unknown): void;
+  export function onMounted(hook: () => unknown): void;
+  export function onBeforeUpdate(hook: () => unknown): void;
+  export function onUpdated(hook: () => unknown): void;
+  export function onBeforeUnmount(hook: () => unknown): void;
+  export function onUnmounted(hook: () => unknown): void;
+  export function nextTick(fn?: () => void): unknown;
 }
 declare module '*.vue' {
   const component: unknown;

@@ -1,0 +1,12 @@
+{
+  "description": "An effect writes state another effect and a child depend on: one update with the final state, effects ordered by the framework's rules; logged into a plain array and shown on Dump",
+  "fixtures": ["effect-writes-state-vue"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

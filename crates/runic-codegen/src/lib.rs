@@ -1347,7 +1347,10 @@ fn component_effects(p: &Program, k: usize, out: &mut String) {
                     .map(|(i, v)| same_expr(&cx.ty(v), &format!("o.{i}"), &format!("new.{i}")))
                     .collect();
                 (
-                    format!("({vs})"),
+                    // A throwing dependency is an uncaught exception; the effect does not run.
+                    format!(
+                        "match (|| -> JsResult<_> {{ Ok(({vs})) }})() {{ Ok(v) => v, Err(err) => {{ eprintln!(\"runic: uncaught exception in an effect: {{err}}\"); return Default::default(); }} }}"
+                    ),
                     if same.is_empty() {
                         "true".into()
                     } else {

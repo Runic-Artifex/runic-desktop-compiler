@@ -232,6 +232,8 @@ export class Lowerer {
     component: number | undefined,
     reserved?: number,
     paramTypes?: Type[],
+    /** Array-pattern parameters of tuple type take one parameter per element (callers pass them separately). */
+    options?: { tupleParams?: boolean },
   ): { index: number; builder: FnBuilder } {
     const boxed = this.analyseCaptures(decl);
     for (const s of parent?.boxed ?? []) boxed.add(s);
@@ -246,10 +248,31 @@ export class Lowerer {
       symbol?: ts.Symbol;
       type: Type;
       name: string;
-      node: ts.ParameterDeclaration;
+      initializer?: ts.Expression;
     }[] = [];
     for (const p of paramDecls) {
       if (p.dotDotDotToken) this.fail(p, 'E_FUNCTION', 'Rest parameters are planned for later');
+      if (options?.tupleParams && ts.isArrayBindingPattern(p.name)) {
+        const pattern = p.name;
+        const tuple = this.checker.getTypeAtLocation(p);
+        if (!this.checker.isTupleType(tuple))
+          this.fail(p, 'E_FUNCTION', 'Array parameter patterns destructure tuples here');
+        const elements = this.checker.getTypeArguments(tuple as ts.TypeReference);
+        if (pattern.elements.length > elements.length)
+          this.fail(p, 'E_FUNCTION', 'More names than tuple elements');
+        elements.forEach((t, i) => {
+          const el = pattern.elements[i];
+          const named = el && !ts.isOmittedExpression(el) ? el : undefined;
+          if (named && (named.dotDotDotToken || named.initializer || !ts.isIdentifier(named.name)))
+            this.fail(named, 'E_FUNCTION', 'Tuple parameters destructure into plain names');
+          pending.push({
+            symbol: named && this.checker.getSymbolAtLocation(named.name),
+            type: this.types.map(t, named ?? p),
+            name: named ? (named.name as ts.Identifier).text : `$${i}`,
+          });
+        });
+        continue;
+      }
       const type =
         paramTypes?.[pending.length] ?? this.types.map(this.checker.getTypeAtLocation(p), p);
       if (!ts.isIdentifier(p.name))
@@ -262,7 +285,7 @@ export class Lowerer {
         symbol: this.checker.getSymbolAtLocation(p.name),
         type,
         name: p.name.text,
-        node: p,
+        initializer: p.initializer,
       });
     }
     const tsResult = sig!.getReturnType();
@@ -312,7 +335,7 @@ export class Lowerer {
   /** Params are registered as locals of the builder before the body is lowered. */
   private withParams(
     b: FnBuilder,
-    pending: { symbol?: ts.Symbol; type: Type; name: string; node: ts.ParameterDeclaration }[],
+    pending: { symbol?: ts.Symbol; type: Type; name: string; initializer?: ts.Expression }[],
     lower: () => Stmt[],
   ): Stmt[] {
     // Lower once to discover captures without registering anything else.
@@ -324,7 +347,7 @@ export class Lowerer {
     }
     const body: Stmt[] = [];
     for (const { index, p } of params) {
-      if (p.node.initializer) {
+      if (p.initializer) {
         // Default parameter: if (param === undefined) param = default.
         body.push({
           op: 'if',
@@ -338,7 +361,7 @@ export class Lowerer {
             {
               op: 'assign',
               target: { place: 'local', local: index },
-              value: this.expr(p.node.initializer, b),
+              value: this.expr(p.initializer, b),
             },
           ],
         });

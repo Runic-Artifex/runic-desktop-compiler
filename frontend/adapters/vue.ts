@@ -26,6 +26,7 @@ import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
 import type {
   Cell,
+  Effect,
   Component,
   Expr,
   Fn,
@@ -102,6 +103,35 @@ const MACROS = new Set([
   'defineModel',
   'defineSlots',
 ]);
+/** Watchers and lifecycle hooks lowered to effects (docs/design/M4-EFFECTS.md). */
+const LIFECYCLE = new Set([
+  'watch',
+  'watchEffect',
+  'onBeforeMount',
+  'onMounted',
+  'onBeforeUnmount',
+  'onUnmounted',
+]);
+/** Vue exports with no lowering yet, and why. */
+const UNSUPPORTED_VUE: Record<string, string> = {
+  onBeforeUpdate:
+    'onBeforeUpdate is planned for a later milestone (it runs per component render, which Runic does not model yet)',
+  onUpdated:
+    'onUpdated is planned for a later milestone (post-flush hooks run in insertion order, which Runic does not model yet)',
+  watchPostEffect:
+    "watchPostEffect (flush: 'post') is planned for a later milestone (post watchers run in insertion order)",
+  watchSyncEffect:
+    "watchSyncEffect (flush: 'sync') is planned for a later milestone (it runs inside every write)",
+  onErrorCaptured: 'onErrorCaptured is planned for a later milestone',
+  onActivated: 'onActivated is planned with KeepAlive',
+  onDeactivated: 'onDeactivated is planned with KeepAlive',
+  onRenderTracked: 'onRenderTracked is a development hook and unsupported',
+  onRenderTriggered: 'onRenderTriggered is a development hook and unsupported',
+  onServerPrefetch: 'onServerPrefetch is server-side only',
+  nextTick: 'nextTick is planned with promises (M4)',
+};
+const CLEANUP: Type = { fn: { params: [], result: 'void' } };
+const L = (i: number): Expr => ({ op: 'local', local: i });
 /** runtime-dom withKeys aliases (`.esc` → `escape`, …). */
 const KEY_NAMES: Record<string, string> = {
   esc: 'escape',
@@ -872,6 +902,21 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   const templateRefsOf: { cells: Set<number>; reads: { cell: number; node: ts.Node }[] }[] = [];
   /** The source node of each template-ref read (function bodies are copied when finished). */
   const refReads = new WeakMap<object, ts.Node>();
+  /** Watcher and lifecycle functions by builder name: the local collecting registered cleanups. */
+  const effectRoots = new Map<string, { watcher: boolean; cleanup?: number }>();
+  /** Getter functions of computeds. */
+  const computedFns = new Set<number>();
+  /** `onCleanup` parameters of watcher functions. */
+  const cleanupParams = new Set<ts.Symbol>();
+  /** Calls `onCleanup(f)` / `onWatcherCleanup(f)` registering a watcher cleanup. */
+  const isCleanupCall = (node: ts.Expression): node is ts.CallExpression => {
+    if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return false;
+    const s = checker.getSymbolAtLocation(node.expression);
+    return (s !== undefined && cleanupParams.has(s)) || vueCall(node) === 'onWatcherCleanup';
+  };
+  /** Shared helpers: run two cleanups in order; call a function as a cleanup. */
+  let bothCleanups: number | undefined;
+  const asCleanup = new Map<string, number>();
   const vueCall = (e: ts.Expression | undefined): string | undefined => {
     if (!e || !ts.isCallExpression(e) || !ts.isIdentifier(e.expression)) return undefined;
     const s = checker.getSymbolAtLocation(e.expression);
@@ -956,9 +1001,23 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           'E_REF',
           'useTemplateRef is supported as a top-level const declaration of <script setup>',
         );
+      if (isCleanupCall(node))
+        return tsFail(
+          node,
+          'E_EFFECT',
+          `${callee.text}(fn) is supported as a statement of the watcher function itself`,
+        );
+      const v = vueCall(node);
+      if (v && LIFECYCLE.has(v))
+        return tsFail(
+          node,
+          'E_EFFECT',
+          `${v} is supported as a top-level statement of <script setup> (Vue binds it to the component while setup runs)`,
+        );
       return undefined;
     },
-    statement(node, _ctx, lower) {
+    statement(node, ctx, lower) {
+      if (isCleanupCall(node)) return registerCleanup(node, ctx, lower);
       const K = ts.SyntaxKind;
       const target =
         ts.isBinaryExpression(node) && isAssignmentOperator(node.operatorToken.kind)
@@ -992,6 +1051,151 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   const lower = new Lowerer(program, checker, types, hooks, tsFail, sourceOf);
   // The script runs once per instance: its functions keep their identity.
   lower.stableFunctions = true;
+
+  /**
+   * `onCleanup(f)` / `onWatcherCleanup(f)` in a watcher function: Vue runs the
+   * registered cleanups in order before the watcher's next run and when it
+   * stops. The watcher function collects them in a local it returns (see
+   * `finishEffect`), which is the effect's cleanup.
+   */
+  function registerCleanup(node: ts.CallExpression, ctx: FnBuilder, lower: Lowerer): Stmt[] {
+    const root = ctx.parent ? undefined : effectRoots.get(ctx.name);
+    if (!root?.watcher)
+      return tsFail(
+        node,
+        'E_EFFECT',
+        'Register watcher cleanups directly in the function of watch or watchEffect (not in nested functions or other hooks)',
+      );
+    if (node.arguments.length !== 1)
+      return tsFail(node, 'E_EFFECT', 'Cleanup registration takes one function');
+    const value = lower.expr(node.arguments[0], ctx);
+    const type = lower.irType(value, ctx);
+    if (typeof type !== 'object' || !('fn' in type) || type.fn.params.length)
+      return tsFail(node.arguments[0], 'E_EFFECT', 'Cleanups are functions without parameters');
+    const out: Stmt[] = [];
+    let f = ctx.local('$cleanupFn', type);
+    out.push({ op: 'let', local: f, value });
+    if (!sameType(type, CLEANUP)) {
+      // A cleanup's result is ignored.
+      const key = JSON.stringify(type);
+      if (!asCleanup.has(key)) {
+        const index = lower.reserve();
+        lower.functions[index] = {
+          name: 'cleanup$call',
+          captures: [{ name: 'f', type }],
+          params: [],
+          locals: [],
+          result: 'void',
+          body: [{ op: 'expr', value: { op: 'call-value', callee: L(0), args: [] } }],
+        };
+        asCleanup.set(key, index);
+      }
+      const wrapped = ctx.local('$cleanupFn', CLEANUP);
+      out.push({
+        op: 'let',
+        local: wrapped,
+        value: { op: 'closure', function: asCleanup.get(key)!, captures: [f] },
+      });
+      f = wrapped;
+    }
+    root.cleanup ??= ctx.local('$cleanup', { maybe: CLEANUP });
+    const c = root.cleanup;
+    if (bothCleanups === undefined) {
+      bothCleanups = lower.reserve();
+      lower.functions[bothCleanups] = {
+        name: 'cleanup$both',
+        captures: [
+          { name: 'first', type: CLEANUP },
+          { name: 'second', type: CLEANUP },
+        ],
+        params: [],
+        locals: [],
+        result: 'void',
+        body: [
+          { op: 'expr', value: { op: 'call-value', callee: L(0), args: [] } },
+          { op: 'expr', value: { op: 'call-value', callee: L(1), args: [] } },
+        ],
+      };
+    }
+    const previous = ctx.local('$cleanupPrev', CLEANUP);
+    out.push({
+      op: 'if',
+      test: { op: 'builtin', name: 'maybe.is-nullish', args: [L(c)], type: 'boolean' },
+      then: [
+        { op: 'assign', target: { place: 'local', local: c }, value: { op: 'some', value: L(f) } },
+      ],
+      else: [
+        { op: 'let', local: previous, value: { op: 'unwrap', value: L(c) } },
+        {
+          op: 'assign',
+          target: { place: 'local', local: c },
+          value: {
+            op: 'some',
+            value: { op: 'closure', function: bothCleanups, captures: [previous, f] },
+          },
+        },
+      ],
+      ...(sourceOf(node) ? { source: sourceOf(node) } : {}),
+    });
+    return out;
+  }
+
+  /**
+   * Finish a lowered watcher or hook function: its own return values are
+   * ignored (Vue discards them); it returns the registered cleanups, if any.
+   * `drop` removes a parameter that is only used to register cleanups.
+   */
+  function finishEffect(index: number, b: FnBuilder, drop?: number) {
+    const fn = lower.functions[index];
+    const root = effectRoots.get(b.name);
+    const c = root?.cleanup !== undefined ? b.final(root.cleanup) : undefined;
+    const ret = (): Stmt => (c === undefined ? { op: 'return' } : { op: 'return', value: L(c) });
+    const rewrite = (stmts: Stmt[]): Stmt[] =>
+      stmts.flatMap((s): Stmt[] => {
+        switch (s.op) {
+          case 'return':
+            return s.value ? [{ op: 'expr', value: s.value }, ret()] : [ret()];
+          case 'if':
+            return [{ ...s, then: rewrite(s.then), ...(s.else ? { else: rewrite(s.else) } : {}) }];
+          case 'while':
+            return [
+              { ...s, body: rewrite(s.body), ...(s.update ? { update: rewrite(s.update) } : {}) },
+            ];
+          case 'for-of':
+            return [{ ...s, body: rewrite(s.body) }];
+          case 'try':
+            return [
+              {
+                ...s,
+                body: rewrite(s.body),
+                ...(s.catch ? { catch: { ...s.catch, body: rewrite(s.catch.body) } } : {}),
+                ...(s.finally ? { finally: rewrite(s.finally) } : {}),
+              },
+            ];
+          default:
+            return [s];
+        }
+      });
+    let body = rewrite(fn.body);
+    if (c !== undefined)
+      body = [
+        { op: 'let', local: c, value: { op: 'undefined', type: { maybe: CLEANUP } } },
+        ...body,
+        ret(),
+      ];
+    let params = fn.params;
+    if (drop !== undefined && drop < params.length) {
+      const at = drop + (fn.captures?.length ?? 0);
+      body = remapLocals(body, i => (i > at ? i - 1 : i));
+      params = params.filter((_, i) => i !== drop);
+    }
+    lower.functions[index] = {
+      ...fn,
+      params,
+      result: c === undefined ? 'void' : { maybe: CLEANUP },
+      body,
+    };
+  }
   // Ordinary local modules initialise first (dependencies first).
   for (const p of lowerModules(graph, program, lower, { skip: f => f === graph.entry })) p();
 
@@ -1000,6 +1204,195 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   const slotProps: Map<string, string[]>[] = [];
   for (const u of order) components[u.index] = lowerComponent(u);
   rejectRenderRefReads();
+  components.forEach(rejectWatcherWrites);
+  rejectUnmountOrder();
+
+  /**
+   * What a function can do to the state of its component: the cells it reads
+   * and writes, heap mutations, and calls of function values that may write
+   * anything (statically, through the functions and closures it reaches).
+   * Calls of function props run the parent's code and are not counted.
+   */
+  function access(roots: unknown[]) {
+    const reads = new Set<number>();
+    const writes = new Set<number>();
+    let heap = false;
+    let unknown = false;
+    const seen = new Set<number>();
+    const queue: unknown[] = [...roots];
+    const MUTATORS =
+      /^(array\.(push|pop|shift|unshift|splice|sort|reverse|fill|copyWithin|set)|map\.(set|delete|clear)|set\.(add|delete|clear))$/;
+    const visit = (x: unknown) => {
+      if (Array.isArray(x)) return x.forEach(visit);
+      if (!x || typeof x !== 'object') return;
+      const o = x as Record<string, unknown>;
+      switch (o.op) {
+        case 'cell':
+          reads.add(o.cell as number);
+          break;
+        case 'set':
+          writes.add(o.cell as number);
+          break;
+        case 'assign': {
+          const t = o.target as { place: string; cell?: number };
+          if (t.place === 'cell') writes.add(t.cell!);
+          else if (t.place !== 'local') heap = true;
+          break;
+        }
+        case 'builtin':
+          if (MUTATORS.test(o.name as string)) heap = true;
+          // Callbacks of other built-ins (forEach, map, …) run during the
+          // call; timer and microtask callbacks run later.
+          if (!/^(timer|microtask)\./.test(o.name as string))
+            for (const a of o.args as { op: string; function?: number }[])
+              if (a.op === 'closure') reach(a.function!);
+          break;
+        case 'call':
+          reach(o.function as number);
+          break;
+        case 'closure':
+          // Created, not run (calling it is a call-value).
+          return;
+        case 'call-value': {
+          const callee = o.callee as { op: string; cell?: number };
+          if (callee.op !== 'cell') unknown = true;
+          break;
+        }
+      }
+      for (const v of Object.values(o)) if (v && typeof v === 'object') visit(v);
+    };
+    const reach = (f: number) => {
+      if (!seen.has(f)) {
+        seen.add(f);
+        queue.push(lower.functions[f]?.body);
+      }
+    };
+    while (queue.length) visit(queue.shift());
+    return { reads, writes, heap, unknown, calls: seen };
+  }
+
+  /**
+   * Vue runs the watchers a watcher triggers after the watchers already
+   * queued for the component (and never re-runs a watchEffect for its own
+   * writes); Runic checks each watcher once per pass in declaration order.
+   * Watchers writing state that a watcher of the same component reads are
+   * rejected until the IR can express Vue's queue.
+   */
+  function rejectWatcherWrites(c: Component) {
+    const watchers = (c.effects ?? []).filter(e => e.phase === 'pre' && e.deps.kind !== 'once');
+    const info = watchers.map(e => {
+      const run = access([lower.functions[e.run].body]);
+      const deps = e.deps.kind === 'values' ? access(e.deps.values).reads : run.reads;
+      // Vue re-runs a watchEffect only when a computed it read changed value;
+      // Runic tracks the cells the computed read.
+      if (e.deps.kind === 'tracked' && [...run.calls].some(f => computedFns.has(f)))
+        fail(
+          'E_EFFECT',
+          'A watchEffect reading a computed is planned for a later milestone (Vue re-runs it only when the computed value changes); watch the computed instead',
+          e.source,
+        );
+      return { e, run, deps };
+    });
+    for (const w of info)
+      for (const r of info) {
+        const own = c.cells.filter((_, i) => r.deps.has(i));
+        const hit =
+          [...w.run.writes].find(cell => r.deps.has(cell) && c.cells[cell].tracking !== 'none') ??
+          (w.run.heap ? [...r.deps].find(cell => c.cells[cell].tracking === 'deep') : undefined);
+        if (hit === undefined && !(w.run.unknown && own.some(x => x.tracking !== 'none'))) continue;
+        const name = hit !== undefined ? c.cells[hit].name : 'component state';
+        fail(
+          'E_EFFECT',
+          w === r
+            ? `This watcher writes ${name}, which it depends on: Vue does not re-run a watchEffect for its own writes and repeats a watch callback until the value settles; planned for a later milestone`
+            : `This watcher writes ${name}, which another watcher of ${c.name} depends on (line ${r.e.source?.line}): Vue runs the triggered watcher after the watchers already queued, which Runic does not model yet`,
+          w.e.source,
+        );
+      }
+  }
+
+  /**
+   * Vue unmounts a removed component (onBeforeUnmount, watcher cleanups) where
+   * the patch removes it, before it patches or creates the components after
+   * it (their watchers, onBeforeMount); Runic creates and updates instances
+   * while rendering and unmounts after the render. Trees where a removable
+   * component with such unmount work comes before (in document order, or in
+   * another branch of the same v-if chain, or in the same list) a component
+   * with watchers or onBeforeMount are rejected.
+   */
+  function rejectUnmountOrder() {
+    type Flag = 'before' | 'create' | 'pre';
+    const memo = new Map<string, boolean>();
+    const has = (nodes: Node[] | undefined, flag: Flag): boolean =>
+      (nodes ?? []).some(n => {
+        switch (n.kind) {
+          case 'element':
+            return has(n.children, flag);
+          case 'if':
+            return has(n.then, flag) || has(n.else, flag);
+          case 'each':
+            return has(n.body, flag) || has(n.else, flag);
+          case 'component':
+            return n.slots?.some(s => has(s.body, flag)) || componentHas(n.component, flag);
+          default:
+            return false;
+        }
+      });
+    const componentHas = (k: number, flag: Flag): boolean => {
+      const key = `${k}:${flag}`;
+      if (memo.has(key)) return memo.get(key)!;
+      memo.set(key, false);
+      const own = (components[k].effects ?? []).some(e =>
+        flag === 'before'
+          ? // onBeforeUnmount, or a watcher that registers cleanups
+            e.unmount.removal === 'before' &&
+            (e.phase === 'post' || lower.functions[e.run].result !== 'void')
+          : flag === 'create'
+            ? e.phase === 'pre' && !(e.deps.kind === 'values' && e.deps.initial === false)
+            : e.phase === 'pre',
+      );
+      const result = own || has(components[k].template, flag);
+      memo.set(key, result);
+      return result;
+    };
+    const message =
+      'Vue unmounts a removed component (onBeforeUnmount, watcher cleanups) before it updates or creates the components after it (their watchers, onBeforeMount), which Runic does not model yet';
+    /** The first removable region with unmount work seen so far (document order). */
+    let removal: Source | undefined;
+    const walk = (nodes: Node[] | undefined) => {
+      for (const n of nodes ?? []) {
+        if (n.kind === 'element') walk(n.children);
+        else if (n.kind === 'component') {
+          if (removal && componentHas(n.component, 'pre'))
+            fail(
+              'E_EFFECT',
+              `${message}: this conditional or list comes before ${components[n.component].name} (line ${n.source?.line})`,
+              removal,
+            );
+          n.slots?.forEach(s => walk(s.body));
+          walk(components[n.component].template);
+        } else if (n.kind === 'if') {
+          const [a, b] = [n.then, n.else ?? []];
+          if ((has(a, 'before') && has(b, 'create')) || (has(b, 'before') && has(a, 'create')))
+            fail(
+              'E_EFFECT',
+              `${message}: one branch of this v-if chain replaces the other`,
+              n.source,
+            );
+          walk(n.then);
+          walk(n.else);
+          if (has(a, 'before') || has(b, 'before')) removal ??= n.source;
+        } else if (n.kind === 'each') {
+          if (has(n.body, 'before') && has(n.body, 'pre'))
+            fail('E_EFFECT', `${message}: items of this list`, n.source);
+          walk(n.body);
+          walk(n.else);
+          if (has(n.body, 'before') || has(n.else, 'before')) removal ??= n.source;
+        }
+      }
+    };
+    walk(components[units.get(rootFile!)!.index].template);
+  }
 
   /**
    * Vue sets a template ref in the post flush (null synchronously on unmount)
@@ -1305,6 +1698,345 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       setupBindings.set(name, sym);
     };
 
+    // --- Watchers and lifecycle hooks (docs/design/M4-EFFECTS.md) ---
+    /** Effects with their position: onBeforeUnmount first, onBeforeMount last (see `lifecycle`). */
+    const effects: { effect: Effect; group: number }[] = [];
+    /** Cells of shallowRef() variables and of plain setup constants. */
+    const shallowCells = new Set<number>();
+    const plainCells = new Set<number>();
+    /** The first watcher: Vue runs it where it is declared, Runic after the setup state. */
+    let firstWatcher: ts.Node | undefined;
+    let effectCount = 0;
+    const fnArg = (
+      arg: ts.Expression | undefined,
+      call: ts.Node,
+      kind: string,
+      maxParams: number,
+    ) => {
+      const fn = arg && skipParens(arg);
+      if (
+        !fn ||
+        !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ||
+        fn.parameters.length > maxParams ||
+        fn.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword) ||
+        fn.asteriskToken
+      )
+        return tsFail(
+          call,
+          'E_EFFECT',
+          maxParams
+            ? `${kind} takes an inline synchronous function`
+            : `${kind} takes an inline synchronous function without parameters`,
+        );
+      return fn;
+    };
+    /** `onCleanup` may only be called as a statement (it is not a value in Runic). */
+    const cleanupParam = (p: ts.ParameterDeclaration | undefined, fn: ts.Node) => {
+      if (!p) return;
+      if (!ts.isIdentifier(p.name) || p.initializer)
+        tsFail(p, 'E_EFFECT', 'The onCleanup parameter is a plain name');
+      const sym = checker.getSymbolAtLocation(p.name)!;
+      cleanupParams.add(sym);
+      const visit = (n: ts.Node): void => {
+        if (ts.isIdentifier(n) && n !== p.name && checker.getSymbolAtLocation(n) === sym) {
+          const call = n.parent;
+          if (
+            !ts.isCallExpression(call) ||
+            call.expression !== n ||
+            !(
+              ts.isExpressionStatement(call.parent) ||
+              (ts.isArrowFunction(call.parent) && call.parent.body === call)
+            )
+          )
+            tsFail(n, 'E_EFFECT', `${n.text} is supported as a call statement: ${n.text}(() => …)`);
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(fn);
+    };
+    /** A watcher or hook function, lowered with its cleanups collected. */
+    const effectFn = (
+      fn: ts.ArrowFunction | ts.FunctionExpression,
+      kind: string,
+      reserved: number,
+      drop?: number,
+    ) => {
+      const name = `${kind}$${COMPONENT}$${effectCount++}`;
+      effectRoots.set(name, { watcher: kind === 'watch' || kind === 'watchEffect' });
+      const { builder } = lower.function(fn, name, undefined, COMPONENT, reserved, undefined, {
+        tupleParams: true,
+      });
+      finishEffect(reserved, builder, drop);
+    };
+    /** A watch source as a value expression of the component. */
+    const watchSource = (e: ts.Expression, multi: boolean): Expr => {
+      e = skipParens(e);
+      if (ts.isIdentifier(e)) {
+        const b = lower.binding(e);
+        if (b?.kind === 'ref') {
+          if (templateRefCells.has(b.cell))
+            tsFail(
+              e,
+              'E_EFFECT',
+              'Watching a template ref is planned for a later milestone (Vue sets it in the post flush)',
+            );
+          if (shallowCells.has(b.cell))
+            tsFail(
+              e,
+              'E_EFFECT',
+              `Watch a shallowRef through a getter: () => ${e.text}.value (Vue calls the callback of a shallowRef source on every trigger${multi ? ', and of every source in its array' : ''}, even when the value is unchanged)`,
+            );
+          return { op: 'cell', cell: b.cell, read: 'current' };
+        }
+        if (b?.kind === 'computed') return { op: 'call', function: b.fn, args: [] };
+        return tsFail(
+          e,
+          'E_EFFECT',
+          `${e.text} is not a ref or computed: watch a getter (() => …) instead${b?.kind === 'props' ? ' (reactive objects are watched deeply; planned for a later milestone)' : ''}`,
+        );
+      }
+      if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) {
+        if (e.parameters.length || e.modifiers?.length)
+          tsFail(e, 'E_EFFECT', 'Watch getters are synchronous functions without parameters');
+        // Runic evaluates the getter whenever its component updates, Vue only
+        // when a reactive dependency changed: getters must be pure reads of
+        // reactive state.
+        const visit = (n: ts.Node): void => {
+          if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
+            const callee = n.expression;
+            const sym = ts.isIdentifier(callee) ? lower.symbol(callee) : undefined;
+            const file = sym?.declarations?.[0]?.getSourceFile();
+            if (ts.isIdentifier(callee) && !(file && program.isSourceFileDefaultLibrary(file)))
+              tsFail(
+                n,
+                'E_EFFECT',
+                'Watch getters read reactive state without calling functions (Runic re-evaluates them at every update of the component, Vue only when a dependency changed)',
+              );
+          }
+          if (ts.isIdentifier(n)) {
+            const b = lower.binding(n);
+            const plain =
+              (b?.kind === 'cell' && plainCells.has(b.cell)) ||
+              (b?.kind === 'value' && b.expr.op === 'global');
+            if (plain)
+              tsFail(
+                n,
+                'E_EFFECT',
+                `${n.text} is not reactive: Vue does not re-run the getter when it changes`,
+              );
+          }
+          ts.forEachChild(n, visit);
+        };
+        visit(e.body);
+        const index = lower.reserve();
+        lower.function(e, `watch$source`, undefined, COMPONENT, index);
+        return { op: 'call', function: index, args: [] };
+      }
+      return tsFail(
+        e,
+        'E_EFFECT',
+        'Watch sources are refs, computeds, getters (() => …) or arrays of these (reactive objects are planned for a later milestone)',
+      );
+    };
+    /** Coerce a value between T and Maybe<T>. */
+    const coerceTo = (v: Expr, from: Type, to: Type, at: ts.Node): Expr => {
+      if (sameType(from, to)) return v;
+      if (maybeInner(to) && sameType(maybeInner(to)!, from)) return { op: 'some', value: v };
+      if (maybeInner(from) && sameType(maybeInner(from)!, to)) return { op: 'unwrap', value: v };
+      return tsFail(at, 'E_EFFECT', 'The callback parameter types do not match the watch sources');
+    };
+    const watch = (call: ts.CallExpression, source: Source): Effect => {
+      const [src, cb, options] = call.arguments;
+      if (!src || !cb || call.arguments.length > 3)
+        tsFail(call, 'E_EFFECT', 'watch takes a source, a callback and options');
+      let immediate = false;
+      if (options) {
+        const o = skipParens(options);
+        if (!ts.isObjectLiteralExpression(o))
+          return tsFail(options, 'E_EFFECT', 'watch options are an object literal');
+        for (const p of o.properties) {
+          const key =
+            ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))
+              ? p.name.text
+              : tsFail(p, 'E_EFFECT', 'watch options are `name: value` entries');
+          const v = skipParens((p as ts.PropertyAssignment).initializer);
+          const K = ts.SyntaxKind;
+          if (key === 'immediate' && (v.kind === K.TrueKeyword || v.kind === K.FalseKeyword))
+            immediate = v.kind === K.TrueKeyword;
+          else if (key === 'flush' && ts.isStringLiteral(v) && v.text === 'pre') {
+            // The default.
+          } else if (key === 'flush')
+            tsFail(
+              p,
+              'E_EFFECT',
+              "flush: 'post' and 'sync' watchers are planned for a later milestone (post watchers run in insertion order, sync watchers inside every write)",
+            );
+          else if (key === 'deep')
+            tsFail(p, 'E_EFFECT', 'Deep watchers are planned for a later milestone');
+          else if (key === 'once')
+            tsFail(p, 'E_EFFECT', 'once watchers are planned for a later milestone');
+          else if (key === 'immediate')
+            tsFail(p, 'E_EFFECT', 'immediate is a literal true or false');
+          else tsFail(p, 'E_EFFECT', `watch option ${key} is unsupported`);
+        }
+      }
+      const fn = fnArg(cb, call, 'watch', 3);
+      const s = skipParens(src);
+      const multi = ts.isArrayLiteralExpression(s);
+      if (multi && s.elements.some(el => ts.isSpreadElement(el)))
+        tsFail(s, 'E_EFFECT', 'Spread watch sources are unsupported');
+      const sources = multi ? [...s.elements] : [s];
+      if (multi)
+        for (const p of fn.parameters.slice(0, 2))
+          if (!ts.isArrayBindingPattern(p.name))
+            tsFail(
+              p,
+              'E_EFFECT',
+              'Destructure the values of an array of watch sources: ([a, b], [oldA, oldB]) => …',
+            );
+      cleanupParam(fn.parameters[2], fn);
+      const run = lower.reserve();
+      const values: Expr[] = [];
+      pending.push(() => {
+        values.push(...sources.map(e => watchSource(e, multi)));
+        const types = values.map(v => lower.valueType(v));
+        const inner = fn.parameters.length ? lower.reserve() : run;
+        // The callback's own parameters: values, old values (flattened for arrays), onCleanup.
+        const width = multi ? sources.length : 1;
+        const given = Math.min(fn.parameters.length, 2) * width;
+        effectFn(fn, 'watch', inner, fn.parameters.length === 3 ? given : undefined);
+        if (inner === run) return;
+        const f = lower.functions[inner];
+        const n = types.length;
+        const params: Local[] = [
+          ...types.map((t, i) => ({ name: `value${i}`, type: t })),
+          ...types.map((t, i) => ({ name: `old${i}`, type: maybeInner(t) ? t : { maybe: t } })),
+        ];
+        // Values, then old values (the callback may take fewer).
+        const args = f.params.map((p, i) =>
+          coerceTo(L(i), params[i].type, p.type, fn.parameters[i < n ? 0 : 1]),
+        );
+        const callInner: Expr = { op: 'call', function: inner, args };
+        lower.functions[run] = {
+          name: 'watch',
+          component: COMPONENT,
+          params,
+          locals: [],
+          result: f.result,
+          body: [
+            f.result === 'void'
+              ? { op: 'expr', value: callInner }
+              : { op: 'return', value: callInner },
+          ],
+          ...(f.source ? { source: f.source } : {}),
+        };
+      });
+      return {
+        run,
+        phase: 'pre',
+        deps: { kind: 'values', values, initial: immediate },
+        unmount: { removal: 'before', order: 'pre' },
+        source,
+      };
+    };
+    /**
+     * A top-level watcher or lifecycle hook. Vue unmounts a component by
+     * calling its onBeforeUnmount hooks, stopping its watchers (their
+     * cleanups) and unmounting its children, then runs onUnmounted after the
+     * DOM is removed, children first. onBeforeMount runs after setup (and so
+     * after the first runs of watchers), before the first render.
+     */
+    const lifecycle = (stmt: ts.Statement, call: ts.CallExpression, kind: string) => {
+      const source = sourceOf(stmt);
+      if (kind === 'watch' || kind === 'watchEffect') firstWatcher ??= stmt;
+      if (kind === 'watch') {
+        effects.push({ effect: watch(call, source), group: 1 });
+        return;
+      }
+      if (kind === 'watchEffect') {
+        if (call.arguments.length > 2)
+          tsFail(call, 'E_EFFECT', 'watchEffect takes a function and options');
+        const options = call.arguments[1] && skipParens(call.arguments[1]);
+        if (options) {
+          const ok =
+            ts.isObjectLiteralExpression(options) &&
+            options.properties.every(
+              p =>
+                ts.isPropertyAssignment(p) &&
+                ts.isIdentifier(p.name) &&
+                p.name.text === 'flush' &&
+                ts.isStringLiteral(p.initializer) &&
+                p.initializer.text === 'pre',
+            );
+          if (!ok)
+            tsFail(
+              options,
+              'E_EFFECT',
+              "watchEffect options other than flush: 'pre' are planned for a later milestone (post watchers run in insertion order, sync watchers inside every write)",
+            );
+        }
+        const fn = fnArg(call.arguments[0], call, kind, 1);
+        cleanupParam(fn.parameters[0], fn);
+        const run = lower.reserve();
+        pending.push(() => effectFn(fn, kind, run, fn.parameters.length ? 0 : undefined));
+        effects.push({
+          effect: {
+            run,
+            phase: 'pre',
+            deps: { kind: 'tracked' },
+            unmount: { removal: 'before', order: 'pre' },
+            source,
+          },
+          group: 1,
+        });
+        return;
+      }
+      if (call.arguments.length !== 1)
+        tsFail(call, 'E_EFFECT', `${kind} takes one function (lifecycle targets are unsupported)`);
+      const fn = fnArg(call.arguments[0], call, kind, 0);
+      const run = lower.reserve();
+      if (kind === 'onBeforeUnmount' || kind === 'onUnmounted') {
+        // A hook run at unmount: an effect that runs once and returns it as its cleanup.
+        const f = lower.reserve();
+        pending.push(() => {
+          effectFn(fn, kind, f);
+          lower.functions[run] = {
+            name: `${kind}$effect`,
+            component: COMPONENT,
+            params: [],
+            locals: [],
+            result: CLEANUP,
+            body: [{ op: 'return', value: { op: 'closure', function: f, captures: [] } }],
+          };
+        });
+        effects.push({
+          effect: {
+            run,
+            phase: 'post',
+            deps: { kind: 'once' },
+            unmount:
+              kind === 'onBeforeUnmount'
+                ? { removal: 'before', order: 'pre' }
+                : { removal: 'after', order: 'post' },
+            source,
+          },
+          group: kind === 'onBeforeUnmount' ? 0 : 1,
+        });
+        return;
+      }
+      pending.push(() => effectFn(fn, kind, run));
+      effects.push({
+        effect: {
+          run,
+          phase: kind === 'onBeforeMount' ? 'pre' : 'post',
+          deps: { kind: 'once' },
+          unmount: { removal: 'after', order: 'post' },
+          source,
+        },
+        group: kind === 'onBeforeMount' ? 2 : 1,
+      });
+    };
+
     // --- Setup bindings ---
     for (const stmt of statements) {
       if (ts.isImportDeclaration(stmt)) {
@@ -1315,8 +2047,14 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           if (named && ts.isNamedImports(named))
             for (const el of named.elements) {
               const n = (el.propertyName ?? el.name).text;
-              if (!['ref', 'computed', 'shallowRef', 'useTemplateRef'].includes(n))
-                tsFail(el, 'E_CAPABILITY', `vue:${n} is planned for M3/M4`);
+              if (UNSUPPORTED_VUE[n]) tsFail(el, 'E_CAPABILITY', UNSUPPORTED_VUE[n]);
+              if (
+                !['ref', 'computed', 'shallowRef', 'useTemplateRef', 'onWatcherCleanup'].includes(
+                  n,
+                ) &&
+                !LIFECYCLE.has(n)
+              )
+                tsFail(el, 'E_CAPABILITY', `vue:${n} is planned for a later milestone`);
             }
           continue;
         }
@@ -1340,11 +2078,12 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         else if (kind === 'defineEmits') emits(e as ts.CallExpression);
         else if (kind === 'defineSlots') {
           // Types only (read through __RunicSlots).
-        } else
+        } else if (kind && LIFECYCLE.has(kind)) lifecycle(stmt, e as ts.CallExpression, kind);
+        else
           tsFail(
             stmt,
             'E_STATEMENT',
-            'Setup supports const declarations, functions and imports from vue (watchers/lifecycle are M4)',
+            'Setup supports const declarations, functions, watchers, lifecycle hooks and imports from vue',
           );
         continue;
       }
@@ -1360,6 +2099,20 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             emits(init as ts.CallExpression, d);
             continue;
           }
+          if (kind && LIFECYCLE.has(kind))
+            tsFail(
+              init!,
+              'E_EFFECT',
+              kind.startsWith('watch')
+                ? 'Watch handles (stop, pause, resume) are planned for a later milestone; call watch as a statement'
+                : `${kind} is a statement`,
+            );
+          if (firstWatcher)
+            tsFail(
+              d,
+              'E_EFFECT',
+              `Declare setup state and functions before the first watcher (line ${sourceOf(firstWatcher).line}): Vue runs a watcher where it is declared, Runic after the component's setup state`,
+            );
           if (kind === 'defineModel') {
             model(init as ts.CallExpression, d);
             continue;
@@ -1387,9 +2140,11 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               name,
               type,
               init: { op: 'undefined', type },
-              tracking: kind === 'ref' ? 'deep' : 'identity',
+              // A primitive changes only through `.value`, so identity is exact.
+              tracking: kind === 'ref' && isReference(type) ? 'deep' : 'identity',
               source: sourceOf(d),
             });
+            if (kind === 'shallowRef') shallowCells.add(cell);
             lower.bindings.set(sym, { kind: 'ref', cell });
             refVars.set(sym, cell);
             pending.push(() => {
@@ -1441,6 +2196,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               tsFail(init!, 'E_COMPUTED', 'computed takes a getter function');
             const index = lower.reserve();
             lower.bindings.set(sym, { kind: 'computed', fn: index });
+            computedFns.add(index);
             pending.push(() =>
               lower.function(getter as ts.ArrowFunction, name, undefined, COMPONENT, index),
             );
@@ -1462,6 +2218,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             source: sourceOf(d),
           });
           lower.bindings.set(sym, { kind: 'cell', cell });
+          plainCells.add(cell);
           pending.push(() => (cells[cell].init = lower.value(init!, COMPONENT, `${name}$init`)));
         }
         continue;
@@ -1469,7 +2226,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       tsFail(
         stmt,
         'E_STATEMENT',
-        'Setup supports const declarations, functions and imports from vue (watchers/lifecycle are M4)',
+        'Setup supports const declarations, functions, watchers, lifecycle hooks and imports from vue',
       );
     }
     // `ref="name"` binds the setup ref `name` (compiled to ref_key) and the
@@ -2309,6 +3066,9 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             })),
           }
         : {}),
+      ...(effects.length
+        ? { effects: [...effects].sort((a, b) => a.group - b.group).map(e => e.effect) }
+        : {}),
     };
   }
 
@@ -2339,8 +3099,11 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     root: units.get(rootFile!)!.index,
     // Vue's app.mount() marks the container.
     containerAttrs: { 'data-v-app': '' },
-    // Listeners are attached to the elements themselves.
-    schedule: { checkpoint: 'listener' },
+    // Listeners are attached to the elements themselves (a microtask
+    // checkpoint after each); app.mount() runs onMounted before it returns;
+    // watcher cleanups run right before their own watcher re-runs (the
+    // default `interleaved`) and read live state.
+    schedule: { checkpoint: 'listener', mount: 'sync' },
   };
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
