@@ -262,9 +262,11 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
     [
       'counter-svelte',
       'const initial=n;',
-      '$effect(() => console.log(n)); const initial=n;',
+      '$effect.root(() => {}); const initial=n;',
       'E_STATEMENT',
     ],
+    ['counter-svelte', 'const initial=n;', '$effect(async () => {}); const initial=n;', 'E_EFFECT'],
+    ['counter-svelte', 'const initial=n;', 'n; const initial=n;', 'E_STATEMENT'],
     ['counter-svelte', 'n=2;', 'doubled=2;', 'E_ASSIGN'],
     ['counter-svelte', '()=>n*2', '() => { console.log(n); return n*2; }', 'E_UNRESOLVED'],
     ['counter-svelte', '<script>', '<script context="module">', 'E_TEMPLATE'],
