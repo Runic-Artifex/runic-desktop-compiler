@@ -2096,6 +2096,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     root: units.get(rootFile!)!.index,
     // Vue's app.mount() marks the container.
     containerAttrs: { 'data-v-app': '' },
+    // Listeners are attached to the elements themselves.
+    schedule: { checkpoint: 'listener' },
   };
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };

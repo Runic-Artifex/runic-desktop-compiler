@@ -204,6 +204,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             )
         }
         ("timer", "clear") => format!("{{ cx.timers.clear({}); }}", t[0]),
+        ("microtask", "queue") => format!(
+            "{{ let f = {}; let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = f(cx)?; Ok(()) }}); cx.jobs.queue(g); }}",
+            t[0]
+        ),
         ("clock", "now") => "cx.timers.now".into(),
         ("clock", "date") => "(cx.timers.origin + cx.timers.now)".into(),
         // Focus requests are applied by the runtime after the update.

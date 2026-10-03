@@ -192,14 +192,19 @@ fn sequential(doc: &BaseDocument, from: Option<NodeId>, backwards: bool) -> Opti
 }
 
 impl<A: App> Handler<'_, A> {
-    fn dispatch(&mut self, doc: &mut BaseDocument, handler: u32, payload: Option<&str>) {
+    /// Dispatch one event to `listeners` (`(listener, payload)` in order).
+    fn dispatch(&mut self, doc: &mut BaseDocument, listeners: &[(u32, Option<String>)]) {
+        if listeners.is_empty() {
+            return;
+        }
         let mut dom = Dom {
             doc,
             listeners: self.listeners,
         };
-        let outcome = match self.app.dispatch(&mut dom, handler, payload) {
-            Ok(()) => format!("handler {handler}"),
-            Err(reason) => format!("handler {handler} rejected: {reason}"),
+        let ids: Vec<String> = listeners.iter().map(|(h, _)| h.to_string()).collect();
+        let outcome = match self.app.dispatch(&mut dom, listeners) {
+            Ok(()) => format!("handler {}", ids.join(",")),
+            Err(reason) => format!("handler {} rejected: {reason}", ids.join(",")),
         };
         // A focused element detached by a list move stays the navigation start.
         if let Some(b) = self.listeners.blurred.take() {
@@ -219,13 +224,12 @@ impl<A: App> Handler<'_, A> {
             .iter()
             .copied()
             .find(|&n| tag(doc, n) == Some("button"));
-        let handlers: Vec<u32> = chain
+        let handlers: Vec<(u32, Option<String>)> = chain
             .iter()
             .filter_map(|&n| self.listeners.get(n, Event::Click))
+            .map(|h| (h, None))
             .collect();
-        for h in handlers {
-            self.dispatch(doc, h, None);
-        }
+        self.dispatch(doc, &handlers);
         button
     }
 
@@ -236,22 +240,44 @@ impl<A: App> Handler<'_, A> {
         if chain.iter().any(|&n| is_disabled_control(doc, n)) {
             return;
         }
-        self.click(doc, &chain);
-        let Some(now) = doc
-            .get_node(id)
-            .and_then(|n| n.element_data())
-            .and_then(|e| e.checkbox_input_checked())
-            .map(|c| !c)
-        else {
-            return;
+        let toggled = |doc: &BaseDocument| {
+            doc.get_node(id)
+                .and_then(|n| n.element_data())
+                .and_then(|e| e.checkbox_input_checked())
+                .map(|c| !c)
         };
+        let change = |listeners: &Listeners, now: bool| {
+            listeners
+                .get(id, Event::Change)
+                .map(|h| (h, Some(if now { "true" } else { "false" }.to_owned())))
+        };
+        if A::CHANGE_WITH_CLICK {
+            // One dispatch: the click listeners, then `change`; the toggle
+            // precedes the click, as in the browser.
+            let Some(now) = toggled(doc) else { return };
+            Dom {
+                doc,
+                listeners: self.listeners,
+            }
+            .set_checked(id, now);
+            let mut handlers: Vec<(u32, Option<String>)> = chain
+                .iter()
+                .filter_map(|&n| self.listeners.get(n, Event::Click))
+                .map(|h| (h, None))
+                .collect();
+            handlers.extend(change(self.listeners, now));
+            self.dispatch(doc, &handlers);
+            return;
+        }
+        self.click(doc, &chain);
+        let Some(now) = toggled(doc) else { return };
         Dom {
             doc,
             listeners: self.listeners,
         }
         .set_checked(id, now);
-        if let Some(h) = self.listeners.get(id, Event::Change) {
-            self.dispatch(doc, h, Some(if now { "true" } else { "false" }));
+        if let Some(c) = change(self.listeners, now) {
+            self.dispatch(doc, &[c]);
         }
     }
 
@@ -280,13 +306,12 @@ impl<A: App> EventHandler for Handler<'_, A> {
         // Keydown listeners (target first, bubbling) run before default actions.
         if let DomEventData::KeyDown(k) = &event.data {
             let key = k.key.to_string();
-            let handlers: Vec<u32> = chain
+            let handlers: Vec<(u32, Option<String>)> = chain
                 .iter()
                 .filter_map(|&n| self.listeners.get(n, Event::Keydown))
+                .map(|h| (h, Some(key.clone())))
                 .collect();
-            for h in handlers {
-                self.dispatch(doc, h, Some(&key));
-            }
+            self.dispatch(doc, &handlers);
         }
         if controls::blocks_edit(doc, &event.data) || controls::exceeds_maxlength(doc, &event.data)
         {
@@ -327,8 +352,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     _ => Event::Input,
                 };
                 if let Some(h) = target.and_then(|t| self.listeners.get(t, kind)) {
-                    let value = input.value.clone();
-                    self.dispatch(doc, h, Some(&value));
+                    self.dispatch(doc, &[(h, Some(input.value.clone()))]);
                 }
             }
             DomEventData::Click(_) if chain.first().is_some_and(|&t| is_checkbox(doc, t)) => {

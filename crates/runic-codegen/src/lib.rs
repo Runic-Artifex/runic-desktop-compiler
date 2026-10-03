@@ -835,7 +835,7 @@ impl Gen<'_> {
                     let guard = self.guard(&[&a.value]);
                     let _ = writeln!(
                         o.update,
-                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); st.snap.c{cell} = v; st.dirty[{cell}] = true; }} }}"
+                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; }} }}"
                     );
                     if let Some(b) = &a.bind {
                         let guard = self.guard(&[b]);
@@ -1216,9 +1216,9 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
          /// Template locals of component {name}.\n#[derive(Clone)]\npub struct T{k} {{ {locals}}}\n\
          impl Default for T{k} {{ fn default() -> Self {{ T{k} {{ {local_defaults}}} }} }}\n\
          /// An instance of {name}: current, snapshot and pre-handler cells, dirty bits and props.\n\
-         pub struct St{k} {{ pub c: Cells{k}, pub snap: Cells{k}, pub before: Cells{k}, pub dirty: [bool; {n}], {props}}}\n\
+         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], {props}}}\n\
          pub type I{k} = Rc<RefCell<St{k}>>;\n\
-         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Cells{k}::default(), before: Cells{k}::default(), dirty: [false; {n}], {prop_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
+         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], {prop_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
          fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); }}",
         name = c.name.replace('\n', " "),
     );
@@ -1268,9 +1268,9 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
         .collect();
     let _ = writeln!(
         out,
-        "#[allow(unused_variables)]\nfn init_i{k}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n{init}let mut st = inst.borrow_mut(); st.snap = st.c.clone(); st.before = st.c.clone();\nOk(())\n}}\n\
-         fn begin_i{k}(st: &mut St{k}) {{ st.before = st.c.clone(); st.snap = st.c.clone(); }}\n\
-         #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, owned: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.snap = st.c.clone(); }}\n\
+        "#[allow(unused_variables)]\nfn init_i{k}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n{init}let mut st = inst.borrow_mut(); st.snap = Rc::new(st.c.clone()); st.before = st.c.clone();\nOk(())\n}}\n\
+         fn begin_i{k}(st: &mut St{k}) {{ st.before = st.c.clone(); }}\n\
+         #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, owned: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.snap = Rc::new(st.c.clone()); }}\n\
          #[allow(unused_variables)]\nfn cells_json_i{k}(inst: &I{k}) -> runic_runtime::Json {{ let st = inst.borrow(); runic_runtime::Json::Array(vec![{cells_json}]) }}\n"
     );
 }
@@ -1292,6 +1292,16 @@ pub fn generate(
     };
     let mut planner = Planner::new(p);
     let root = planner.root(p.root);
+    // Scheduling policies (docs/design/M4-EFFECTS.md).
+    let event_microtask = p.schedule.flush == Flush::EventMicrotask;
+    let per_listener = p.schedule.checkpoint == Checkpoint::Listener;
+    let change_with_click = p.schedule.change_with_click;
+    let tracked = |t: Tracking| {
+        p.components
+            .iter()
+            .any(|c| c.cells.iter().any(|cell| cell.tracking == t))
+    };
+    let (tracks_deep, tracks_owned) = (tracked(Tracking::Deep), tracked(Tracking::Proxied));
     let ri = p.root;
     let mut out = String::new();
     let _ = writeln!(
@@ -1350,9 +1360,9 @@ pub fn generate(
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Option<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Option<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, {live}{globals}}}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: None, timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: None, timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1371,6 +1381,7 @@ pub fn generate(
                 .cloned()
                 .collect();
             let mut cx = FnCtx::new(p, Some(k), all.clone(), handler.event.payload(), Type::Void);
+            cx.snap = true;
             let body = cx.block(&handler.body);
             errors.extend(
                 cx.errors
@@ -1404,7 +1415,7 @@ pub fn generate(
             }
             let _ = writeln!(
                 out,
-                "#[allow(unused_mut, unused_variables, unused_assignments, unreachable_code, unused_labels)]\nfn handler_{k}_{h}(cx: &mut Cx, inst: &I{k}{sig}) -> JsResult<()> {{\n{locals}{body}Ok(())\n}}\n"
+                "#[allow(unused_mut, unused_variables, unused_assignments, unreachable_code, unused_labels)]\nfn handler_{k}_{h}(cx: &mut Cx, inst: &I{k}{sig}) -> JsResult<()> {{\nlet snap = &{{ let s = Rc::clone(&inst.borrow().snap); s }};\n{locals}{body}Ok(())\n}}\n"
             );
         }
     }
@@ -1446,16 +1457,26 @@ pub fn generate(
         "pub struct App {{ cx: Cx, inst: I{ri}, t: Rc<RefCell<T{ri}>>, root: Option<(NodeId, Box<S{root}>)> }}\n\
          impl App {{\n\
          fn free(&mut self, dom: &mut Dom) {{ for k in dom.take_freed() {{ self.cx.listeners[k as usize] = None; self.cx.free.push(k); }} }}\n\
-         /// Run a task (a handler or a timer callback), then update the DOM.\n\
-         fn task(&mut self, dom: &mut Dom, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
-         {begin}\
-         let epoch = js::mutation_epoch();\n\
-         let owned_epoch = js::owned_epoch();\n\
+         /// Run a task (event listeners or a timer callback), its microtask checkpoint and the default tasks it queued.\n\
+         fn task(&mut self, dom: &mut Dom, event: bool, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
+         self.cx.jobs.in_event = event;\n\
          let result = f(&mut self.cx);\n\
          self.cx.payload = None;\n\
-         if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{ {rollback} }} }}\n\
-         let deep = js::mutation_epoch() != epoch;\n\
-         let owned = js::owned_epoch() != owned_epoch;\n\
+         if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{\n{rollback}self.cx.jobs.clear();\nself.cx.jobs.in_event = false;\n// Re-synchronise controlled inputs.\nself.flush(dom);\nreturn result;\n}} }}\n\
+         self.checkpoint(dom);\n\
+         self.cx.jobs.in_event = false;\n\
+         while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
+         if let Some((node, on)) = self.cx.focus.take() {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         result\n}}\n\
+         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} }}\n\
+         fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
+         match job {{\n\
+         runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n\
+         runic_runtime::Job::Flush => self.flush(dom),\n}}\n}}\n\
+         /// The flush job: compute dirty cells since the last flush, commit render snapshots and update the DOM.\n\
+         fn flush(&mut self, dom: &mut Dom) {{\n\
+         self.cx.jobs.flush_started();\n\
+         let (deep, owned) = self.cx.jobs.mutated();\n\
          {end}\
          if let Some((parent, s)) = self.root.as_mut() {{\n\
          if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
@@ -1463,27 +1484,36 @@ pub fn generate(
          {restore}\
          if let Some((node, on)) = self.cx.focus.take() {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          self.free(dom);\n\
-         result\n}}\n\
+         {begin}\
+         self.cx.jobs.flush_ended();\n\
+         }}\n\
          }}\n\
          impl runic_runtime::App for App {{\n\
          const TITLE: &'static str = {title};\n\
          const CSS: &'static str = {css};\n\
          const ASSETS: &'static [(&'static str, &'static [u8])] = &[{assets}];\n\
          const IR_HASH: &'static str = {hash};\n\
+         const CHANGE_WITH_CLICK: bool = {change_with_click};\n\
          fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\nApp {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
          {container}match mount_s{root}(&mut self.cx, dom, &self.inst, &self.t, parent, None) {{\n\
          Ok(s) => self.root = Some((parent, s)),\n\
          Err(e) => eprintln!(\"runic: render error: {{e}}\"),\n}}\n\
-         self.free(dom);\n}}\n\
-         fn dispatch(&mut self, dom: &mut Dom, listener: u32, payload: Option<&str>) -> Result<(), String> {{\n\
-         let Some(l) = self.cx.listeners.get(listener as usize).cloned().flatten() else {{ return Ok(()); }};\n\
-         self.cx.payload = payload.map(JsString::from);\n\
-         self.task(dom, |cx| l(cx)).map_err(|e| e.to_string())\n}}\n\
+         self.free(dom);\n\
+         self.cx.jobs.flush_ended();\n}}\n\
+         fn dispatch(&mut self, dom: &mut Dom, listeners: &[(u32, Option<String>)]) -> Result<(), String> {{\n\
+         // Listeners are resolved before any runs (a flush may free and reuse their slots).\n\
+         let resolved: Vec<(Lst, Option<JsString>)> = listeners.iter().filter_map(|(l, p)| self.cx.listeners.get(*l as usize).cloned().flatten().map(|f| (f, p.as_deref().map(JsString::from)))).collect();\n\
+         let groups: Vec<Vec<(Lst, Option<JsString>)>> = if {per_listener} {{ resolved.into_iter().map(|l| vec![l]).collect() }} else {{ vec![resolved] }};\n\
+         let mut first: Option<String> = None;\n\
+         for group in groups {{\n\
+         let r = self.task(dom, true, |cx| {{ let mut err = None; for (f, p) in group {{ cx.payload = p; if let Err(e) = f(cx) {{ if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }} err.get_or_insert(e); }} }} cx.payload = None; err.map_or(Ok(()), Err) }});\n\
+         if let Err(e) = r {{ first.get_or_insert(e.to_string()); }}\n}}\n\
+         first.map_or(Ok(()), Err)\n}}\n\
          fn advance(&mut self, dom: &mut Dom, to: f64) {{\n\
          while let Some((_, cb)) = self.cx.timers.take_due(to) {{\n\
          self.cx.timers.during_tick = true;\n\
-         let result = self.task(dom, |cx| match cb {{ TimerCb::Plain(f) => f(cx), TimerCb::Frame(f) => {{ let t = cx.timers.now; f(cx, t) }} }});\n\
+         let result = self.task(dom, false, |cx| match cb {{ TimerCb::Plain(f) => f(cx), TimerCb::Frame(f) => {{ let t = cx.timers.now; f(cx, t) }} }});\n\
          self.cx.timers.during_tick = false;\n\
          if let Err(e) = result {{ eprintln!(\"runic: uncaught exception in a timer: {{e}}\"); }}\n\
          }}\n\

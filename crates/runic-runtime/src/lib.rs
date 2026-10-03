@@ -8,6 +8,7 @@
 mod controls;
 mod dom;
 mod events;
+mod jobs;
 #[cfg(feature = "probe")]
 mod probe;
 pub mod reorder;
@@ -16,6 +17,7 @@ mod timers;
 
 pub use blitz_traits::node_id::NodeId;
 pub use dom::{Dom, Event};
+pub use jobs::{Job, Jobs};
 pub use serde_json::Value as Json;
 pub use timers::{CLOCK_ORIGIN, CLOCK_START, TimerKind, Timers, clock_origin};
 
@@ -63,13 +65,16 @@ pub trait App: 'static {
     fn new() -> Self;
     /// Build the initial DOM under `parent` and register listeners.
     fn mount(&mut self, dom: &mut Dom, parent: NodeId);
-    /// Run handler `handler` and update the DOM. On error the cells are
-    /// unchanged and controlled inputs are re-synchronised.
+    /// A checkbox's `change` listener runs in the `click` dispatch.
+    const CHANGE_WITH_CLICK: bool = false;
+    /// Dispatch one event: run its listeners `(listener, payload)` in order
+    /// with the framework's microtask checkpoints, then the jobs they queued
+    /// (which update the DOM). On a text-domain error the task's writes are
+    /// rolled back and controlled inputs are re-synchronised.
     fn dispatch(
         &mut self,
         dom: &mut Dom,
-        handler: u32,
-        payload: Option<&str>,
+        listeners: &[(u32, Option<String>)],
     ) -> Result<(), String>;
     fn cells_json(&self) -> Json;
     /// Cells of every other live component instance in tree order, as

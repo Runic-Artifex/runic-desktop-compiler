@@ -224,6 +224,16 @@ export interface Component {
   slots?: { name: string; params?: Type[] }[];
 }
 
+/** The framework's update scheduling (docs/design/M4-EFFECTS.md). */
+export interface Schedule {
+  /** `event-microtask`: a microtask during input events, otherwise a default-priority task. */
+  flush?: 'microtask' | 'event-microtask';
+  /** `listener`: a microtask checkpoint after each listener instead of after each event. */
+  checkpoint?: 'dispatch' | 'listener';
+  /** A checkbox's `change` listeners run in the `click` dispatch. */
+  changeWithClick?: boolean;
+}
+
 export interface Program {
   schema: 4;
   meta: {
@@ -244,6 +254,8 @@ export interface Program {
   containerAttrs?: Record<string, string>;
   /** Refocus an element blurred by a list move after each update (React DOM). */
   restoreFocus?: boolean;
+  /** When updates run relative to tasks and microtasks (default: microtask flush, one checkpoint per event). */
+  schedule?: Schedule;
 }
 
 export const lit = (value: Literal): Expr => ({ op: 'lit', value });

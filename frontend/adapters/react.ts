@@ -1538,6 +1538,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     capabilities,
     // React DOM restores the focused element after each commit.
     restoreFocus: true,
+    // One delegated root listener; discrete events render in a microtask,
+    // other updates in a scheduler task; onChange of checkboxes comes from the click.
+    schedule: { flush: 'event-microtask', changeWithClick: true },
     styles: { css: graph.css, assets: graph.assets },
     records: types.records,
     functions: lower.functions,

@@ -1493,7 +1493,7 @@ export class Lowerer {
     return decl && path.resolve(decl.getSourceFile().fileName) === DOM ? e.text : undefined;
   }
 
-  /** Timer and clock host calls. */
+  /** Timer, microtask and clock host calls. */
   private hostCall(name: string, e: ts.CallExpression, b: FnBuilder): Expr | undefined {
     const args = e.arguments.map(a => this.expr(a, b));
     const number = (i: number): Expr => args[i] ?? { op: 'lit', value: 0 };
@@ -1515,6 +1515,8 @@ export class Lowerer {
         );
       case 'requestAnimationFrame':
         return builtin('timer.frame', [args[0]], NUMBER);
+      case 'queueMicrotask':
+        return builtin('microtask.queue', [args[0]], 'void');
       case 'clearTimeout':
       case 'clearInterval':
       case 'cancelAnimationFrame': {

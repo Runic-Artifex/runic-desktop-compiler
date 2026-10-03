@@ -3,7 +3,8 @@
 //!
 //! Conventions: values are owned; every function receives `cx: &mut Cx`, and
 //! functions of a component also `inst: &I{k}` (the instance whose cells they
-//! use); arguments of calls are evaluated into temporaries first (JS
+//! use) and `snap: &Rc<Cells{k}>` (the render snapshot their `snapshot` reads
+//! see, captured by closures); arguments of calls are evaluated into temporaries first (JS
 //! evaluation order, no overlapping borrows); cell reads release their borrow
 //! immediately; errors propagate with `?`, or to the innermost `try` through
 //! `tri!` and labelled-block breaks.
@@ -28,6 +29,9 @@ pub struct FnCtx<'a> {
     /// Whether `finally` forbids control-flow exits (set inside try with finally).
     pub no_exits: usize,
     pub errors: Vec<String>,
+    /// Whether a `snap` variable holds the render snapshot (functions and
+    /// handlers); elsewhere it is the instance's current snapshot.
+    pub snap: bool,
 }
 
 pub fn rust_str(s: &str) -> String {
@@ -75,6 +79,7 @@ impl<'a> FnCtx<'a> {
             counter: 0,
             no_exits: 0,
             errors: vec![],
+            snap: false,
         }
     }
 
@@ -110,11 +115,20 @@ impl<'a> FnCtx<'a> {
     }
 
     fn cell_read(&self, cell: usize, read: Read) -> String {
-        let part = match read {
-            Read::Current => "c",
-            Read::Snapshot => "snap",
-        };
-        format!("{{ let v = inst.borrow().{part}.c{cell}.clone(); v }}")
+        match read {
+            Read::Current => format!("{{ let v = inst.borrow().c.c{cell}.clone(); v }}"),
+            Read::Snapshot if self.snap => format!("snap.c{cell}.clone()"),
+            Read::Snapshot => format!("{{ let v = inst.borrow().snap.c{cell}.clone(); v }}"),
+        }
+    }
+
+    /// The render snapshot passed to component functions.
+    fn snap_ref(&self) -> &'static str {
+        if self.snap {
+            "snap"
+        } else {
+            "&{ let s = Rc::clone(&inst.borrow().snap); s }"
+        }
     }
 
     /// Write cell `cell` of the current instance from the Rust variable `v`;
@@ -134,10 +148,10 @@ impl<'a> FnCtx<'a> {
         if prop {
             let call = self.q("b(cx, v)");
             format!(
-                "{check}{own}inst.borrow_mut().c.c{cell} = v.clone(); let b = {{ let b = inst.borrow().b{cell}.clone(); b }}; if let Some(b) = b {{ {call}; }} "
+                "{check}{own}inst.borrow_mut().c.c{cell} = v.clone(); cx.jobs.queue_flush(); let b = {{ let b = inst.borrow().b{cell}.clone(); b }}; if let Some(b) = b {{ {call}; }} "
             )
         } else {
-            format!("{check}{own}inst.borrow_mut().c.c{cell} = v; ")
+            format!("{check}{own}inst.borrow_mut().c.c{cell} = v; cx.jobs.queue_flush(); ")
         }
     }
 
@@ -341,9 +355,9 @@ impl<'a> FnCtx<'a> {
             Call { function, args } => {
                 let (code, names) = self.temps(args);
                 let inst = if self.p.functions[*function].component.is_some() {
-                    ", inst"
+                    format!(", inst, {}", self.snap_ref())
                 } else {
-                    ""
+                    String::new()
                 };
                 let call = self.q(&format!(
                     "f{function}(cx{inst}{})",
@@ -409,8 +423,12 @@ impl<'a> FnCtx<'a> {
         let f = &self.p.functions[function];
         let mut code = String::from("{ ");
         let inst = if f.component.is_some() {
-            code.push_str("let ki = Rc::clone(inst); ");
-            ", &ki"
+            let _ = write!(
+                code,
+                "let ki = Rc::clone(inst); let ks = Rc::clone({}); ",
+                self.snap_ref()
+            );
+            ", &ki, &ks"
         } else {
             ""
         };
@@ -705,6 +723,7 @@ pub fn function(p: &Program, index: usize, errors: &mut Vec<String>) -> String {
         .cloned()
         .collect();
     let mut cx = FnCtx::new(p, f.component, locals.clone(), None, f.result.clone());
+    cx.snap = f.component.is_some();
     let body = cx.block(&f.body);
     errors.extend(cx.errors.iter().map(|e| format!("{}: {e}", f.name)));
     let mut sig = String::new();
@@ -742,7 +761,7 @@ pub fn function(p: &Program, index: usize, errors: &mut Vec<String>) -> String {
         "/// {}\n#[allow(unused_mut, unused_variables, unused_assignments, unreachable_code, unused_labels, clippy::all)]\nfn f{index}(cx: &mut Cx{}{sig}) -> JsResult<{}> {{\n{prologue}{body}#[allow(unreachable_code)]\nOk({})\n}}\n",
         f.name.replace('\n', " "),
         f.component
-            .map(|k| format!(", inst: &I{k}"))
+            .map(|k| format!(", inst: &I{k}, snap: &Rc<Cells{k}>"))
             .unwrap_or_default(),
         rust_type(&f.result),
         default_value(&f.result, p),

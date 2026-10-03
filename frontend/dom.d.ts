@@ -24,3 +24,4 @@ declare function clearInterval(id: number | undefined): void;
 declare function requestAnimationFrame(callback: (time: number) => void): number;
 declare function cancelAnimationFrame(id: number): void;
 declare const performance: { now(): number };
+declare function queueMicrotask(callback: () => void): void;

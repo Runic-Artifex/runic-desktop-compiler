@@ -97,6 +97,59 @@ pub struct Program {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub restore_focus: bool,
+    /// When updates run relative to tasks and microtasks.
+    #[serde(default, skip_serializing_if = "Schedule::is_default")]
+    pub schedule: Schedule,
+}
+
+/// The framework's update scheduling, described as behaviour
+/// (docs/design/M4-EFFECTS.md). The first state write after an update queues
+/// one flush job, which applies the writes and updates the tree.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Schedule {
+    #[serde(default)]
+    pub flush: Flush,
+    #[serde(default)]
+    pub checkpoint: Checkpoint,
+    /// A checkbox's `change` listeners run in the `click` dispatch, after
+    /// the click listeners (React derives `onChange` from the click).
+    #[serde(
+        default,
+        rename = "changeWithClick",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub change_with_click: bool,
+}
+
+impl Schedule {
+    fn is_default(&self) -> bool {
+        *self == Schedule::default()
+    }
+}
+
+/// Where the flush job is queued.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Flush {
+    /// Always a microtask.
+    #[default]
+    Microtask,
+    /// A microtask while an input event is dispatched (including its
+    /// microtask checkpoint); otherwise a default-priority task that runs
+    /// after the current microtasks.
+    EventMicrotask,
+}
+
+/// Where microtask checkpoints fall while an event is dispatched.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Checkpoint {
+    /// After all listeners of the event (one delegated root listener).
+    #[default]
+    Dispatch,
+    /// After each listener (listeners on the elements themselves).
+    Listener,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -160,6 +160,16 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &n, "id").map(|_| Void)
         }
         ("clock", "now" | "date") => arity(args, 0, 0).map(|_| n),
+        ("microtask", "queue") => {
+            arity(args, 1, 1)?;
+            match &args[0] {
+                Fn(f) if f.params.is_empty() => Ok(Void),
+                other => Err(format!(
+                    "callback must take no arguments, found {}",
+                    other.name()
+                )),
+            }
+        }
         ("element", "focus" | "blur") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| Void)

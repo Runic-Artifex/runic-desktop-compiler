@@ -13,7 +13,7 @@ use runic_js::{
 };
 use serde_json::{Map, Value as Json, json};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 /// Field values of a record, with its record type index.
@@ -29,6 +29,9 @@ pub struct Closure {
     pub captures: Vec<Rc<RefCell<Val>>>,
     /// The component instance a component function runs in.
     pub instance: Option<usize>,
+    /// The instance's render snapshot when the closure was created: its
+    /// `snapshot` reads see that render (React closures).
+    pub snapshot: Option<Rc<Vec<Val>>>,
 }
 
 /// A dynamic value.
@@ -364,7 +367,9 @@ pub fn normalize(nodes: Vec<VNode>) -> Vec<VNode> {
 pub struct Instance<'p> {
     pub component: usize,
     pub cells: Vec<Val>,
-    snapshot: Vec<Val>,
+    /// The committed state of the last flush (replaced, never mutated, so
+    /// closures can keep the snapshot of their render).
+    snapshot: Rc<Vec<Val>>,
     /// The value each prop cell last received from the parent.
     passed: Vec<Option<Val>>,
     /// Two-way binding setters of prop cells.
@@ -408,6 +413,13 @@ enum TimerKind {
     Frame,
 }
 
+/// A queued microtask.
+enum Micro {
+    Call(Val),
+    /// The flush job (see [`Schedule`]).
+    Flush,
+}
+
 struct Timer {
     id: u64,
     kind: TimerKind,
@@ -449,6 +461,31 @@ pub struct Machine<'p> {
     element_ids: HashMap<(InstKey, usize), u64>,
     /// Ref cells set by the last render: (instance, cell) → element id.
     refs: HashMap<(usize, usize), u64>,
+    /// The snapshot `snapshot` reads use while a closure runs (otherwise the
+    /// current instance's).
+    snap: Option<Rc<Vec<Val>>>,
+    microtasks: VecDeque<Micro>,
+    /// Default-priority tasks (flush jobs queued outside events).
+    default_tasks: VecDeque<Micro>,
+    flush_pending: bool,
+    /// While an input event is dispatched, including its microtask checkpoint.
+    in_event: bool,
+    /// Heap mutation epochs at the last flush; mutations of tracked heap
+    /// values queue a flush like cell writes.
+    epochs: (u64, u64),
+    tracks_deep: bool,
+    tracks_owned: bool,
+    /// Exceptions thrown by microtasks and default tasks (reported, as a
+    /// browser reports uncaught errors, after the task).
+    uncaught: Vec<Throw>,
+}
+
+/// Whether any component has a cell with `tracking`.
+fn cells_tracked(program: &Program, tracking: Tracking) -> bool {
+    program
+        .components
+        .iter()
+        .any(|c| c.cells.iter().any(|cell| cell.tracking == tracking))
 }
 
 fn throw_diag(t: Throw) -> Diagnostic {
@@ -473,6 +510,15 @@ impl<'p> Machine<'p> {
             children: HashMap::new(),
             listeners: vec![],
             order: vec![],
+            snap: None,
+            microtasks: VecDeque::new(),
+            default_tasks: VecDeque::new(),
+            flush_pending: false,
+            in_event: false,
+            epochs: (js::mutation_epoch(), js::owned_epoch()),
+            tracks_deep: cells_tracked(program, Tracking::Deep),
+            tracks_owned: cells_tracked(program, Tracking::Proxied),
+            uncaught: vec![],
         };
         for g in &program.globals {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
@@ -491,7 +537,7 @@ impl<'p> Machine<'p> {
         self.instances.push(Instance {
             component,
             cells: Vec::with_capacity(n),
-            snapshot: vec![],
+            snapshot: Rc::new(vec![]),
             passed: vec![None; n],
             binds: vec![None; n],
             slots: vec![None; comp.slots.len()],
@@ -518,7 +564,7 @@ impl<'p> Machine<'p> {
                     inst.binds[i] = b.clone();
                 }
                 inst.cells.push(v);
-                inst.snapshot = inst.cells.clone();
+                inst.snapshot = Rc::new(inst.cells.clone());
             }
             Ok(())
         })();
@@ -554,7 +600,10 @@ impl<'p> Machine<'p> {
             Cell {
                 cell,
                 read: Read::Snapshot,
-            } => self.inst().snapshot[*cell].clone(),
+            } => match &self.snap {
+                Some(snap) => snap[*cell].clone(),
+                None => self.inst().snapshot[*cell].clone(),
+            },
             Global { global } => self.globals[*global].clone(),
             Local { local } => f.get(*local),
             Payload => self.payload.clone().expect("payload context"),
@@ -706,6 +755,7 @@ impl<'p> Machine<'p> {
                     function: *function,
                     captures,
                     instance: target.component.map(|_| self.current),
+                    snapshot: target.component.map(|_| self.current_snapshot()),
                 }))
             }
             Builtin { name, args, ty } => {
@@ -774,12 +824,22 @@ impl<'p> Machine<'p> {
             args.push(Val::Undefined);
         }
         let saved = self.current;
+        let saved_snap = self.snap.clone();
         if let Some(i) = c.instance {
             self.current = i;
+            self.snap = c.snapshot.clone();
         }
         let r = self.call(c.function, c.captures.clone(), args);
         self.current = saved;
+        self.snap = saved_snap;
         r
+    }
+
+    /// The snapshot `snapshot` reads see in the running code.
+    fn current_snapshot(&self) -> Rc<Vec<Val>> {
+        self.snap
+            .clone()
+            .unwrap_or_else(|| self.inst().snapshot.clone())
     }
 
     // Statements ----------------------------------------------------------------
@@ -826,6 +886,7 @@ impl<'p> Machine<'p> {
             _ => v,
         };
         self.instances[current].cells[cell] = v.clone();
+        self.queue_flush();
         // A bound prop forwards the write to the parent.
         if let Some(bind) = self.instances[current].binds[cell].clone() {
             self.call_value(&bind, vec![v])?;
@@ -1281,6 +1342,10 @@ impl<'p> Machine<'p> {
                 self.timers.retain(|t| t.id as f64 != id);
                 Val::Undefined
             }
+            ("microtask", "queue") => {
+                self.queue_micro(a[0].clone());
+                Val::Undefined
+            }
             ("clock", "now") => Val::Num(self.now),
             ("clock", "date") => Val::Num(CLOCK_ORIGIN + self.now),
             // Focus has no interpreter observable (the snapshot has no focus).
@@ -1636,7 +1701,7 @@ impl<'p> Machine<'p> {
                             if changed {
                                 inst.passed[cell] = Some(v.clone());
                                 inst.cells[cell] = v.clone();
-                                inst.snapshot[cell] = v;
+                                Rc::make_mut(&mut inst.snapshot)[cell] = v;
                             }
                             inst.binds[cell] = b;
                         }
@@ -1761,18 +1826,18 @@ impl<'p> Machine<'p> {
         state
     }
 
-    /// Run a task (an event handler or a timer callback). Writes made before
-    /// an exception persist (as in JavaScript); text-domain violations reject
-    /// the whole task.
+    /// Run a task (event listeners or a timer callback), then its microtask
+    /// checkpoint and the default tasks it queued. Writes made before an
+    /// exception persist (as in JavaScript); text-domain violations reject the
+    /// whole task.
     fn task(
         &mut self,
         source: Option<&Source>,
+        event: bool,
         body: impl FnOnce(&mut Self) -> Res<()>,
     ) -> Result<()> {
         let before: Vec<Vec<Val>> = self.instances.iter().map(|i| i.cells.clone()).collect();
-        for i in &mut self.instances {
-            i.snapshot = i.cells.clone();
-        }
+        self.in_event = event;
         let result = body(self);
         self.payload = None;
         if let Err(t) = &result {
@@ -1780,40 +1845,108 @@ impl<'p> Machine<'p> {
                 for (i, cells) in self.instances.iter_mut().zip(before) {
                     i.cells = cells;
                 }
-                for i in &mut self.instances {
-                    i.snapshot = i.cells.clone();
-                }
+                self.microtasks.clear();
+                self.flush_pending = false;
+                self.in_event = false;
                 return Err(Diagnostic::new("E_TEXT_PAYLOAD", t.message.to_rust(), None));
             }
         }
-        // Outside tasks the snapshot is the committed state (React render reads).
-        for i in &mut self.instances {
-            i.snapshot = i.cells.clone();
+        self.checkpoint();
+        self.in_event = false;
+        while let Some(job) = self.default_tasks.pop_front() {
+            self.run_micro(job);
+            self.checkpoint();
         }
-        result.map_err(|t| Diagnostic::new("E_THROW", t.to_string(), source))
+        let uncaught = std::mem::take(&mut self.uncaught);
+        match (result, uncaught.into_iter().next()) {
+            (Err(t), _) | (Ok(()), Some(t)) => {
+                Err(Diagnostic::new("E_THROW", t.to_string(), source))
+            }
+            (Ok(()), None) => Ok(()),
+        }
     }
 
-    /// Run handler `h` of instance `instance` with listener arguments.
-    fn run(
-        &mut self,
-        instance: usize,
-        h: usize,
-        args: Vec<Val>,
-        payload: Option<Val>,
-    ) -> Result<()> {
+    /// Queue the flush job if none is pending.
+    fn queue_flush(&mut self) {
+        if self.flush_pending {
+            return;
+        }
+        self.flush_pending = true;
+        match self.program.schedule.flush {
+            Flush::EventMicrotask if !self.in_event => self.default_tasks.push_back(Micro::Flush),
+            _ => self.microtasks.push_back(Micro::Flush),
+        }
+    }
+
+    /// Queue the flush job if tracked heap values were mutated since the last
+    /// flush. Checked before anything else is queued, which orders the flush
+    /// exactly as if it had been queued at the mutation.
+    fn note_mutations(&mut self) {
+        let (deep, owned) = self.epochs;
+        if (self.tracks_deep && js::mutation_epoch() != deep)
+            || (self.tracks_owned && js::owned_epoch() != owned)
+        {
+            self.queue_flush();
+        }
+    }
+
+    fn queue_micro(&mut self, callback: Val) {
+        self.note_mutations();
+        self.microtasks.push_back(Micro::Call(callback));
+    }
+
+    /// Run microtasks until none are left.
+    fn checkpoint(&mut self) {
+        self.note_mutations();
+        while let Some(job) = self.microtasks.pop_front() {
+            self.run_micro(job);
+            self.note_mutations();
+        }
+    }
+
+    fn run_micro(&mut self, job: Micro) {
+        match job {
+            Micro::Call(f) => {
+                if let Err(t) = self.call_value(&f, vec![]) {
+                    self.uncaught.push(t);
+                }
+            }
+            Micro::Flush => self.flush(),
+        }
+    }
+
+    /// The flush job: commit the state (render snapshots) and update the
+    /// tree, which creates, updates and destroys instances.
+    fn flush(&mut self) {
+        self.flush_pending = false;
+        for i in &mut self.instances {
+            if i.alive {
+                i.snapshot = Rc::new(i.cells.clone());
+            }
+        }
+        if let Err(d) = self.render() {
+            self.uncaught.push(Throw::new("Error", d.message));
+        }
+        self.epochs = (js::mutation_epoch(), js::owned_epoch());
+    }
+
+    /// Run handler `h` of instance `instance` with listener arguments (in
+    /// the running task).
+    fn run(&mut self, instance: usize, h: usize, args: Vec<Val>, payload: Option<Val>) -> Res<()> {
         let component = self.instances[instance].component;
         let handler = &self.program.components[component].handlers[h];
-        self.task(handler.source.as_ref(), |m| {
-            m.payload = payload;
-            let frame = Frame::new(handler.params.len() + handler.locals.len());
-            for (i, a) in args.into_iter().enumerate() {
-                frame.set(i, a);
-            }
-            let saved = std::mem::replace(&mut m.current, instance);
-            let r = m.exec_block(&handler.body, &frame);
-            m.current = saved;
-            r.map(|_| ())
-        })
+        self.payload = payload;
+        let frame = Frame::new(handler.params.len() + handler.locals.len());
+        for (i, a) in args.into_iter().enumerate() {
+            frame.set(i, a);
+        }
+        let saved = std::mem::replace(&mut self.current, instance);
+        let saved_snap = self.snap.take();
+        let r = self.exec_block(&handler.body, &frame);
+        self.current = saved;
+        self.snap = saved_snap;
+        self.payload = None;
+        r.map(|_| ())
     }
 
     // Time ------------------------------------------------------------------------
@@ -1847,7 +1980,7 @@ impl<'p> Machine<'p> {
                 _ => vec![],
             };
             self.during_tick = true;
-            let r = self.task(None, |m| m.call_value(&callback, args).map(|_| ()));
+            let r = self.task(None, false, |m| m.call_value(&callback, args).map(|_| ()));
             self.during_tick = false;
             r?;
         }
@@ -1941,18 +2074,21 @@ impl<'p> Machine<'p> {
                 VNode::Text(_) => None,
             }
         };
-        // (listener, payload) in dispatch order.
-        let mut queue: Vec<(usize, Option<Val>)> = vec![];
+        // (listener, payload, dispatch) in dispatch order: a checkbox's
+        // `change` is a second event after `click` unless the framework
+        // delivers it with the click.
+        let mut queue: Vec<(usize, Option<Val>, usize)> = vec![];
         match event {
             EventKind::Click => {
                 for n in nodes.iter().rev() {
                     if let Some(l) = listeners_of(n, EventKind::Click) {
-                        queue.push((l, None));
+                        queue.push((l, None, 0));
                     }
                 }
                 if let Some(c) = checked {
                     if let Some(l) = listeners_of(target_node, EventKind::Change) {
-                        queue.push((l, Some(Val::Bool(!c))));
+                        let dispatch = usize::from(!self.program.schedule.change_with_click);
+                        queue.push((l, Some(Val::Bool(!c)), dispatch));
                     }
                 }
             }
@@ -1962,13 +2098,14 @@ impl<'p> Machine<'p> {
                         EventKind::Input => Val::Str(JsString::from(data.unwrap_or_default())),
                         _ => Val::Bool(data == Some("true")),
                     };
-                    queue.push((l, Some(payload)));
+                    queue.push((l, Some(payload), 0));
                 }
             }
             EventKind::Keydown => {
                 for n in nodes.iter().rev() {
                     if let Some(l) = listeners_of(n, EventKind::Keydown) {
-                        queue.push((l, Some(Val::Str(JsString::from(data.unwrap_or_default())))));
+                        let key = Val::Str(JsString::from(data.unwrap_or_default()));
+                        queue.push((l, Some(key), 0));
                     }
                 }
             }
@@ -1981,9 +2118,9 @@ impl<'p> Machine<'p> {
             };
         let id = attrs.get("id").cloned();
         let ran = !queue.is_empty();
-        let refs: Vec<(ListenerRef, Option<Val>)> = queue
+        let refs: Vec<(ListenerRef, Option<Val>, usize)> = queue
             .into_iter()
-            .map(|(l, p)| {
+            .map(|(l, p, d)| {
                 let r = std::mem::replace(
                     &mut self.listeners[l],
                     ListenerRef {
@@ -1992,11 +2129,48 @@ impl<'p> Machine<'p> {
                         args: vec![],
                     },
                 );
-                (r, p)
+                (r, p, d)
             })
             .collect();
-        for (r, payload) in refs {
-            self.run(r.instance, r.handler, r.args, payload)?;
+        // One task per event, or per listener where each listener ends with a
+        // microtask checkpoint; an exception does not stop later listeners.
+        let per_listener = self.program.schedule.checkpoint == Checkpoint::Listener;
+        let mut tasks: Vec<Vec<(ListenerRef, Option<Val>)>> = vec![];
+        let mut last = None;
+        for (r, p, d) in refs {
+            if per_listener || last != Some(d) {
+                tasks.push(vec![]);
+            }
+            last = Some(d);
+            tasks.last_mut().expect("task").push((r, p));
+        }
+        let mut first_error = None;
+        for listeners in tasks {
+            let source = {
+                let (r, _) = &listeners[0];
+                let c = self.instances[r.instance].component;
+                self.program.components[c].handlers[r.handler]
+                    .source
+                    .clone()
+            };
+            let result = self.task(source.as_ref(), true, |m| {
+                let mut error = None;
+                for (r, payload) in listeners {
+                    if let Err(t) = m.run(r.instance, r.handler, r.args, payload) {
+                        if t.name.to_rust() == "RunicDomainError" {
+                            return Err(t);
+                        }
+                        error.get_or_insert(t);
+                    }
+                }
+                error.map_or(Ok(()), Err)
+            });
+            if let Err(d) = result {
+                first_error.get_or_insert(d);
+            }
+        }
+        if let Some(d) = first_error {
+            return Err(d);
         }
         if activate {
             // The activated element is found again after the keydown handlers.

@@ -379,6 +379,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
         },
         globals: vec![],
         restore_focus: false,
+        schedule: Default::default(),
         components: vec![Component {
             name: "App".into(),
             cells,
