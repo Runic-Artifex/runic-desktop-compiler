@@ -1067,7 +1067,49 @@ export class Lowerer {
   }
 
   /** Statements assigning `value` to an assignable expression (variable, state, field, element). */
+  /** `document.documentElement`. */
+  private isRoot(e: ts.Expression): boolean {
+    e = skipParens(e);
+    return (
+      ts.isPropertyAccessExpression(e) &&
+      e.name.text === 'documentElement' &&
+      this.hostName(e.expression) === 'document'
+    );
+  }
+
+  /** A document element member: an attribute (`lang`, `dir`, `dataset.x`) or a style property. */
+  private rootMember(e: ts.Expression): { kind: 'attr' | 'style'; name: string } | undefined {
+    e = skipParens(e);
+    if (!ts.isPropertyAccessExpression(e)) return undefined;
+    const n = e.name.text;
+    const kebab = (s: string) => s.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+    if (this.isRoot(e.expression))
+      return ['lang', 'dir'].includes(n) ? { kind: 'attr', name: n } : undefined;
+    const inner = skipParens(e.expression);
+    if (!ts.isPropertyAccessExpression(inner) || !this.isRoot(inner.expression)) return undefined;
+    if (inner.name.text === 'dataset') return { kind: 'attr', name: 'data-' + kebab(n) };
+    if (inner.name.text === 'style') return { kind: 'style', name: kebab(n) };
+    return undefined;
+  }
+
   writeTo(target: ts.Expression, value: Expr, b: FnBuilder): Stmt[] {
+    const root = this.rootMember(target);
+    if (root) {
+      const text: Expr =
+        this.irType(value, b) === 'string' ? value : { op: 'to-string', arg: value };
+      return [
+        {
+          op: 'expr',
+          value: {
+            op: 'builtin',
+            name: root.kind === 'attr' ? 'root.set-attr' : 'root.style-set',
+            args: [{ op: 'lit', value: root.name }, text],
+            type: 'void',
+          },
+          ...this.src(target),
+        },
+      ];
+    }
     // T is widened into a nullable target (Maybe<T>).
     const want = this.targetType(target, b);
     const have = this.irType(value, b);
@@ -1719,6 +1761,52 @@ export class Lowerer {
       if (special?.kind === 'computed' && name === 'value')
         return { op: 'call', function: special.fn, args: [] };
     }
+    // The document element and matchMedia(query).matches.
+    const root = this.rootMember(e);
+    if (root?.kind === 'style')
+      return {
+        op: 'builtin',
+        name: 'root.style-get',
+        args: [{ op: 'lit', value: root.name }],
+        type: 'string',
+      };
+    if (root) {
+      const read: Expr = {
+        op: 'builtin',
+        name: 'root.get-attr',
+        args: [{ op: 'lit', value: root.name }],
+        type: { maybe: 'string' },
+      };
+      // lang/dir read as "" when absent; dataset entries as undefined.
+      if (!root.name.startsWith('data-'))
+        return { op: 'nullish', left: read, right: { op: 'lit', value: '' } };
+      const tmp = b.local('$attr', { maybe: 'string' });
+      const t: Expr = { op: 'local', local: tmp };
+      return {
+        op: 'with',
+        local: tmp,
+        value: read,
+        body: {
+          op: 'cond',
+          test: { op: 'builtin', name: 'maybe.is-null', args: [t], type: 'boolean' },
+          then: { op: 'undefined', type: { maybe: 'string' } },
+          else: t,
+        },
+      };
+    }
+    if (
+      name === 'matches' &&
+      ts.isCallExpression(skipParens(e.expression)) &&
+      this.hostName((skipParens(e.expression) as ts.CallExpression).expression) === 'matchMedia'
+    ) {
+      const call = skipParens(e.expression) as ts.CallExpression;
+      return {
+        op: 'builtin',
+        name: 'media.matches',
+        args: [this.expr(call.arguments[0], b)],
+        type: 'boolean',
+      };
+    }
     const global = this.globalName(e.expression);
     if (global === 'Math' || global === 'Number')
       return { op: 'builtin', name: `${global}.${name}`, args: [], type: NUMBER };
@@ -1991,6 +2079,55 @@ export class Lowerer {
         return { op: 'builtin', name: 'clock.date', args: [], type: NUMBER };
       if (this.hostName(callee.expression) === 'performance' && method === 'now')
         return { op: 'builtin', name: 'clock.now', args: [], type: NUMBER };
+      // Document element methods.
+      const owner = skipParens(callee.expression);
+      const rootPart =
+        ts.isPropertyAccessExpression(owner) && this.isRoot(owner.expression)
+          ? owner.name.text
+          : undefined;
+      if (rootPart === 'classList' || rootPart === 'style' || this.isRoot(callee.expression)) {
+        const a = e.arguments.map(x => this.expr(x, b));
+        const op = (n: string, args: Expr[], type: Type): Expr => ({
+          op: 'builtin',
+          name: `root.${n}`,
+          args,
+          type,
+        });
+        const one = () => {
+          if (a.length !== 1) this.fail(e, 'E_CALL', `${method} takes one token here`);
+          return a;
+        };
+        if (rootPart === 'classList') {
+          if (method === 'toggle') return op('class-toggle', a, 'boolean');
+          if (method === 'add' || method === 'remove') return op(`class-${method}`, one(), 'void');
+          if (method === 'contains') return op('class-contains', one(), 'boolean');
+        } else if (rootPart === 'style') {
+          if (method === 'setProperty') {
+            const priority = e.arguments[2];
+            if (priority && !(ts.isStringLiteralLike(priority) && priority.text === ''))
+              this.fail(
+                priority,
+                'E_CALL',
+                'Important style properties are planned for a later milestone',
+              );
+            if (a[1]?.op === 'null') return op('style-remove', [a[0]], 'string');
+            if (this.irType(a[1], b) !== 'string')
+              this.fail(e.arguments[1], 'E_CALL', 'setProperty takes a string value');
+            return op('style-set', a.slice(0, 2), 'void');
+          }
+          if (method === 'removeProperty') return op('style-remove', a, 'string');
+          if (method === 'getPropertyValue') return op('style-get', a, 'string');
+        } else {
+          if (method === 'setAttribute') return op('set-attr', a, 'void');
+          if (method === 'removeAttribute') return op('remove-attr', a, 'void');
+          if (method === 'getAttribute') return op('get-attr', a, { maybe: 'string' });
+        }
+        return this.fail(
+          e,
+          'E_CALL',
+          `document.documentElement ${rootPart ? rootPart + '.' : ''}${method} is unsupported`,
+        );
+      }
       const host = this.hostName(callee.expression);
       if (
         (host === 'window' || host === 'document') &&

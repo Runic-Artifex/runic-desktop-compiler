@@ -19,6 +19,29 @@ mod timers;
 
 pub use blitz_traits::node_id::NodeId;
 pub use dom::{ClassState, Dom, Event, Spread};
+/// CSSOM inline styles, media queries and the document element.
+pub use runic_css as css;
+
+thread_local! {
+    static MEDIA: std::cell::Cell<css::MediaEnv> = std::cell::Cell::new(css::MediaEnv::default());
+}
+
+/// The viewport media queries see (set by the shell before the app starts).
+pub(crate) fn set_media_viewport(width: f64, height: f64) {
+    MEDIA.with(|m| {
+        m.set(css::MediaEnv {
+            width,
+            height,
+            ..m.get()
+        })
+    });
+}
+
+/// What media queries see: the viewport and the user preferences (light,
+/// no contrast or motion preference, as the probe emulates them).
+pub fn media_env() -> css::MediaEnv {
+    MEDIA.with(|m| m.get())
+}
 pub use jobs::{CellVersions, Dep, Derived, Fx, Job, Jobs, Phase, Versions};
 pub use promises::Microtasks;
 pub use serde_json::Value as Json;

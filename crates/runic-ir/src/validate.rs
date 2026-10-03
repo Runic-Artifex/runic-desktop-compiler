@@ -502,6 +502,23 @@ impl<'a> Scope<'a> {
             }
             Builtin { name, args, ty } => {
                 self.check_type(ty, src)?;
+                if name == "media.matches" {
+                    let supported = match args.first() {
+                        Some(Lit {
+                            value: Value::String(q),
+                        }) => {
+                            runic_css::media_matches(q, &runic_css::MediaEnv::default()).is_some()
+                        }
+                        _ => false,
+                    };
+                    if !supported {
+                        return err(
+                            "E_BUILTIN",
+                            "matchMedia takes a literal query of supported features (prefers-color-scheme, prefers-contrast, prefers-reduced-motion, width, height, orientation)",
+                            src,
+                        );
+                    }
+                }
                 if matches!(
                     name.as_str(),
                     "window.listen" | "window.unlisten" | "document.listen" | "document.unlisten"

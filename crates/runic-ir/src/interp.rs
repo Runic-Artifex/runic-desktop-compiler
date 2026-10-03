@@ -593,6 +593,10 @@ pub struct Machine<'p> {
     /// Class toggle state by element id: the class value, the toggles and
     /// the attribute they produced.
     class_states: HashMap<u64, (JsString, Vec<bool>, Option<JsString>)>,
+    /// The document element as scripts changed it.
+    root: runic_css::Root,
+    /// What media queries see (the probe's default viewport and preferences).
+    media: runic_css::MediaEnv,
     /// Document and window listeners in registration order: (window, kind, listener).
     host_listeners: Vec<(bool, EventKind, Val)>,
     children: HashMap<InstKey, usize>,
@@ -722,6 +726,8 @@ impl<'p> Machine<'p> {
             live_values: HashMap::new(),
             class_states: HashMap::new(),
             host_listeners: vec![],
+            root: runic_css::Root::default(),
+            media: runic_css::MediaEnv::default(),
             children: HashMap::new(),
             listeners: vec![],
             order: vec![],
@@ -1817,6 +1823,46 @@ impl<'p> Machine<'p> {
             ("clock", "date") => Val::Num(CLOCK_ORIGIN + self.now),
             // Focus has no interpreter observable (the snapshot has no focus).
             ("element", "focus" | "blur") => Val::Undefined,
+            ("root", m) => {
+                let arg = |i: usize| a[i].string().to_rust();
+                let dom_error =
+                    |(name, message): runic_css::root::TokenError| Throw::new(name, message);
+                match m {
+                    "get-attr" => match self.root.get(&arg(0)) {
+                        Some(v) => Val::Str(JsString::from(v)),
+                        None => Val::Null,
+                    },
+                    "set-attr" => {
+                        self.root.set(&arg(0), &arg(1));
+                        Val::Undefined
+                    }
+                    "remove-attr" => {
+                        self.root.remove(&arg(0));
+                        Val::Undefined
+                    }
+                    "class-contains" => Val::Bool(self.root.class_contains(&arg(0))),
+                    "class-toggle" => {
+                        let force = a.get(1).map(Val::boolean);
+                        Val::Bool(self.root.class_toggle(&arg(0), force).map_err(dom_error)?)
+                    }
+                    "class-add" | "class-remove" => {
+                        self.root
+                            .class_set(&arg(0), m == "class-add")
+                            .map_err(dom_error)?;
+                        Val::Undefined
+                    }
+                    "style-set" => {
+                        self.root.style_set(&arg(0), &arg(1));
+                        Val::Undefined
+                    }
+                    "style-remove" => Val::Str(JsString::from(self.root.style_remove(&arg(0)))),
+                    "style-get" => Val::Str(JsString::from(self.root.style_get(&arg(0)))),
+                    other => panic!("validated document element operation {other}"),
+                }
+            }
+            ("media", "matches") => Val::Bool(
+                runic_css::media_matches(&a[0].string().to_rust(), &self.media).unwrap_or(false),
+            ),
             (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
                 let window = target == "window";
                 let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
@@ -2450,6 +2496,9 @@ impl<'p> Machine<'p> {
         };
         let cells: Vec<Json> = self.instances[0].cells.iter().map(cell_json).collect();
         let mut state = json!({ "cells": cells, "dom": dom });
+        if !self.root.attrs().is_empty() {
+            state["document"] = json!(self.root.attrs());
+        }
         if !self.order.is_empty() {
             state["instances"] = Json::Array(
                 self.order

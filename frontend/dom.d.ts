@@ -92,7 +92,32 @@ interface HostEventTarget {
   ): void;
 }
 declare const window: HostEventTarget;
-declare const document: HostEventTarget;
+declare const document: HostDocument;
+
+// The document element (theming): attributes, class list, inline style.
+interface HostDocument extends HostEventTarget {
+  readonly documentElement: HostRootElement;
+}
+interface HostRootElement {
+  readonly dataset: { [name: string]: string | undefined };
+  readonly classList: {
+    toggle(token: string, force?: boolean): boolean;
+    add(token: string): void;
+    remove(token: string): void;
+    contains(token: string): boolean;
+  };
+  readonly style: {
+    setProperty(name: string, value: string | null, priority?: string): void;
+    removeProperty(name: string): string;
+    getPropertyValue(name: string): string;
+    colorScheme: string;
+  };
+  lang: string;
+  dir: string;
+  setAttribute(name: string, value: string): void;
+  removeAttribute(name: string): void;
+}
+declare function matchMedia(query: string): { readonly matches: boolean };
 
 declare function setTimeout(handler: () => void, timeout?: number): number;
 declare function setInterval(handler: () => void, timeout?: number): number;

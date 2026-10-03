@@ -10,3 +10,4 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 runic-js.workspace = true
+runic-css.workspace = true

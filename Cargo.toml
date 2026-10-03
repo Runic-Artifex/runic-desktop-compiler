@@ -6,6 +6,7 @@ members = [
     "crates/runic-codegen",
     "crates/runic-runtime",
     "crates/runic-blitz-probes",
+    "crates/runic-css",
 ]
 
 [workspace.package]
@@ -37,6 +38,7 @@ keyboard-types = "=0.7.0"
 runic-js = { path = "crates/runic-js" }
 runic-ir = { path = "crates/runic-ir" }
 runic-runtime = { path = "crates/runic-runtime" }
+runic-css = { path = "crates/runic-css" }
 
 [profile.dev]
 debug = 0

@@ -2356,9 +2356,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "runic-css"
+version = "0.2.0"
+dependencies = [
+ "selectors",
+ "stylo",
+ "stylo_traits",
+ "url",
+]
+
+[[package]]
 name = "runic-ir"
 version = "0.2.0"
 dependencies = [
+ "runic-css",
  "runic-js",
  "serde",
  "serde_json",
@@ -2388,6 +2399,7 @@ dependencies = [
  "kurbo",
  "peniko",
  "png",
+ "runic-css",
  "runic-js",
  "serde_json",
  "stylo_dom",

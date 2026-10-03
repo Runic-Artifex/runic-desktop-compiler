@@ -1,0 +1,14 @@
+[package]
+name = "runic-css"
+description = "CSSOM serialization of inline styles (cssText, setProperty) with Stylo, shared by the runtime and the reference interpreter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The Stylo version Blitz uses (resolved from the workspace Cargo.lock).
+style = { version = "=0.22.0", package = "stylo" }
+style_traits = { version = "=0.22.0", package = "stylo_traits" }
+selectors = "=0.41.0"
+url = "2"

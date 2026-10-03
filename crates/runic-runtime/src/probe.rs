@@ -131,6 +131,20 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
         "geometry": geometry,
         "cells": native.app.cells_json(),
     });
+    // The document element's attributes (sorted).
+    if let Some(html) = doc.try_root_element() {
+        let mut attrs: Vec<(String, String)> = html
+            .attrs()
+            .into_iter()
+            .flatten()
+            .map(|a| (a.name.local.to_string(), a.value.to_string()))
+            .collect();
+        attrs.sort();
+        if !attrs.is_empty() {
+            state["document"] =
+                Value::Object(attrs.into_iter().map(|(k, v)| (k, json!(v))).collect());
+        }
+    }
     let instances = native.app.instances_json();
     if !instances.is_empty() {
         state["instances"] = Value::Array(instances);

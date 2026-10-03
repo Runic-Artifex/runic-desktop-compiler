@@ -85,6 +85,8 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         m.append_children(html, &[head, body]);
         m.append_children(root, &[html]);
     }
+    // Media queries evaluated while the app starts see this viewport.
+    crate::set_media_viewport(width as f64, height as f64);
     let mut app = A::new();
     let mut listeners = Listeners::default();
     app.mount(

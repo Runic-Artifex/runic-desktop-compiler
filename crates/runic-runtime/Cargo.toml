@@ -31,3 +31,4 @@ base64.workspace = true
 png = { workspace = true, optional = true }
 keyboard-types.workspace = true
 runic-js.workspace = true
+runic-css.workspace = true

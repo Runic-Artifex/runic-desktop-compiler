@@ -1750,10 +1750,10 @@ pub fn generate(
          pub type Bag = Rc<dyn Fn(&mut Cx, js::Event) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub event: Option<js::Event>, pub host: Vec<(bool, Event, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, event: None, host: Vec::new(), listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, event: None, root: Default::default(), media: runic_runtime::media_env(), host: Vec::new(), listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1852,18 +1852,18 @@ pub fn generate(
          fn task(&mut self, dom: &mut Dom, event: bool, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
          self.cx.jobs.in_event = event;\n\
          let result = f(&mut self.cx);\n\
-         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.cx.payload = None;\n\
          if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{\n{rollback}self.cx.jobs.clear();\nself.cx.jobs.in_event = false;\n// Re-synchronise controlled inputs.\nself.flush(dom);\nreturn result;\n}} }}\n\
          self.checkpoint(dom);\n\
          self.cx.jobs.in_event = false;\n\
          while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
-         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          result\n}}\n\
-         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} }}\n\
+         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} }}\n\
          fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
          match job {{\n\
-         runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} }}\n\
+         runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} }}\n\
          runic_runtime::Job::Flush => self.flush(dom),\n\
          runic_runtime::Job::FlushThen(f) => {{ if self.cx.jobs.take_flush() {{ self.flush(dom); }} if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n}}\n}}\n\
          /// The flush job: compute dirty cells since the last flush, commit render snapshots and update the DOM.\n\
@@ -1899,7 +1899,7 @@ pub fn generate(
          // Mutations while rendering are not writes.\n\
          self.cx.jobs.take_mutated();\n\
          {restore}\
-         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.free(dom);\n\
          let destroyed: std::collections::HashSet<usize> = self.cx.destroyed.drain(..).map(|i| i.key()).collect();\n\
          teardown(&mut self.cx, &tree, &destroyed, {batched});\n\
@@ -1913,7 +1913,7 @@ pub fn generate(
          if {batched} {{ for (r, p) in &after {{ if !keys.contains(p) {{ batched_cleanups(&mut self.cx, r, phase, &due, &after, &destroyed, &tree); }} }} }}\n\
          for (i, e) in &due {{ i.fx_run(&mut self.cx, *e); }}\n\
          }}\n\
-         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
+         for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          }}\n\
          }}\n\
          impl runic_runtime::App for App {{\n\

@@ -71,6 +71,9 @@ export function compareTraces(browser, native, { pixels = false } = {}) {
       continue;
     }
     diffTree(canonical(b.dom), canonical(nv.dom), '', step.dom);
+    // The document element's attributes (theming: class, data-*, style).
+    if (JSON.stringify(b.document ?? {}) !== JSON.stringify(nv.document ?? {}))
+      step.dom.push({ at: 'document', browser: b.document ?? {}, native: nv.document ?? {} });
     if ((b.focused ?? null) !== (nv.focused ?? null)) step.focus = { browser: b.focused, native: nv.focused };
     for (const [id, rb] of Object.entries(b.geometry ?? {})) {
       const rn = nv.geometry?.[id];

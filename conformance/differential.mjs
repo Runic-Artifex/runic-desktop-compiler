@@ -143,11 +143,13 @@ for (const fixture of fixtures) {
         dom: expected[i].state.dom.map(fromInterp),
         cells: expected[i].state.cells,
         instances: expected[i].state.instances ?? [],
+        document: expected[i].state.document ?? {},
       };
       const got = {
         dom: (canonical(actual[i].dom).children ?? []).map(semantic),
         cells: actual[i].cells,
         instances: actual[i].instances ?? [],
+        document: actual[i].document ?? {},
       };
       if (JSON.stringify(want) !== JSON.stringify(got)) {
         fixtureFailures++;

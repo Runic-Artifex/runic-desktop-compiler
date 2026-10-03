@@ -387,6 +387,27 @@ impl Dom<'_> {
         state.toggles = toggles.iter().map(|t| t.1).collect();
     }
 
+    /// Apply the document element's attributes to `<html>`.
+    pub fn apply_root(&mut self, root: &runic_css::Root) {
+        let Some(html) = self.doc.try_root_element().map(|e| e.id) else {
+            return;
+        };
+        let current: Vec<String> = self
+            .doc
+            .get_node(html)
+            .and_then(|n| n.element_data())
+            .map(|e| e.attrs().iter().map(|a| a.name.local.to_string()).collect())
+            .unwrap_or_default();
+        for name in current {
+            if root.get(&name).is_none() {
+                self.set_opt_attr(html, &name, None);
+            }
+        }
+        for (name, value) in root.attrs() {
+            self.set_attr(html, name, value);
+        }
+    }
+
     /// Remove one listener registration; its key is released like those of
     /// removed elements.
     pub fn unlisten(&mut self, node: NodeId, key: u32) {

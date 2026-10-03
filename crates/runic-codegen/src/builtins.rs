@@ -348,6 +348,37 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         // before any update (the DOM does not change while it runs).
         ("element", "focus") => format!("{{ cx.focus.push(({}.0, true)); }}", t[0]),
         ("element", "blur") => format!("{{ cx.focus.push(({}.0, false)); }}", t[0]),
+        // The document element and media queries (runic_css, applied to
+        // <html> by the runtime).
+        ("root", m) => {
+            let arg = |i: usize| format!("&{}.to_rust()", t[i]);
+            let dom_error = "map_err(|(n, m)| js::Throw::new(n, m))";
+            match m {
+                "get-attr" => format!(
+                    "(match cx.root.get({}) {{ Some(v) => Maybe::Some(JsString::from(v)), None => Maybe::Null }})",
+                    arg(0)
+                ),
+                "set-attr" => format!("{{ cx.root.set({}, {}); }}", arg(0), arg(1)),
+                "remove-attr" => format!("{{ cx.root.remove({}); }}", arg(0)),
+                "class-contains" => format!("cx.root.class_contains({})", arg(0)),
+                "class-toggle" => {
+                    let force = t.get(1).map_or("None".to_string(), |f| format!("Some({f})"));
+                    q(cx, format!("cx.root.class_toggle({}, {force}).{dom_error}", arg(0)))
+                }
+                "class-add" | "class-remove" => {
+                    let on = m == "class-add";
+                    format!("{{ {}; }}", q(cx, format!("cx.root.class_set({}, {on}).{dom_error}", arg(0))))
+                }
+                "style-set" => format!("{{ cx.root.style_set({}, {}); }}", arg(0), arg(1)),
+                "style-remove" => format!("JsString::from(cx.root.style_remove({}))", arg(0)),
+                "style-get" => format!("JsString::from(cx.root.style_get({}))", arg(0)),
+                other => unreachable!("validated document element operation {other}"),
+            }
+        }
+        ("media", "matches") => format!(
+            "runic_runtime::css::media_matches(&{}.to_rust(), &cx.media).unwrap_or(false)",
+            t[0]
+        ),
         // Window and document listeners, identified by their function value.
         (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
             let Some(Expr::Lit {

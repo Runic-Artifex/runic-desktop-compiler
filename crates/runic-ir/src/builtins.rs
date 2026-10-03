@@ -342,6 +342,35 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // pending flush, then fulfils; `after` fulfils when the pending (or
         // running) flush ends, or is fulfilled already.
         ("flush", "tick" | "after") => arity(args, 0, 0).map(|_| Promise(Box::new(Void))),
+        // The document element (docs/design/M5-PLATFORM.md): attributes,
+        // class list and inline style.
+        ("root", m) => {
+            let strings = |k: usize| -> std::result::Result<(), std::string::String> {
+                arity(args, k, k)?;
+                args.iter().try_for_each(|a| expect(a, &s, "argument"))
+            };
+            match m {
+                "get-attr" => strings(1).map(|_| Maybe(Box::new(s))),
+                "set-attr" | "style-set" => strings(2).map(|_| Void),
+                "remove-attr" | "class-add" | "class-remove" => strings(1).map(|_| Void),
+                "class-contains" => strings(1).map(|_| b),
+                "style-remove" | "style-get" => strings(1).map(|_| s),
+                "class-toggle" => {
+                    arity(args, 1, 2)?;
+                    expect(&args[0], &s, "token")?;
+                    if let Some(f) = args.get(1) {
+                        expect(f, &b, "force")?;
+                    }
+                    Ok(b)
+                }
+                other => Err(format!("unknown document element operation {other}")),
+            }
+        }
+        // matchMedia(query).matches (the query is a literal, checked by the validator).
+        ("media", "matches") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "query").map(|_| b)
+        }
         // Window and document listeners: the event kind (a literal, checked by
         // the validator) and a listener taking the event or nothing.
         ("window" | "document", "listen" | "unlisten") => {
