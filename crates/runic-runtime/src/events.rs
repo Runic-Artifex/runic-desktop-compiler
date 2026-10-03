@@ -229,14 +229,14 @@ impl<A: App> Handler<'_, A> {
         button
     }
 
-    /// Keyboard activation of a checkbox: click listeners, then the toggle and
+    /// Keyboard activation of a checkbox: the toggle, click listeners, then
     /// its `change` event (pointer clicks toggle through Blitz's default action).
     fn activate_checkbox(&mut self, doc: &mut BaseDocument, id: NodeId) {
         let chain = chain_of(doc, id);
         if chain.iter().any(|&n| is_disabled_control(doc, n)) {
             return;
         }
-        self.click(doc, &chain);
+        // The toggle precedes the click listeners, as in the browser.
         let Some(now) = doc
             .get_node(id)
             .and_then(|n| n.element_data())
@@ -250,6 +250,7 @@ impl<A: App> Handler<'_, A> {
             listeners: self.listeners,
         }
         .set_checked(id, now);
+        self.click(doc, &chain);
         if let Some(h) = self.listeners.get(id, Event::Change) {
             self.dispatch(doc, h, Some(if now { "true" } else { "false" }));
         }

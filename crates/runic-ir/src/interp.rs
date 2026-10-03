@@ -2118,16 +2118,29 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Num(n) if n.is_finite() => json!(n),
         Val::Num(n) => json!(runic_js::number_to_string(*n)),
         Val::Str(s) => json!(s.to_rust()),
-        Val::Array(a) => Json::Array(a.borrow().iter().map(cell_json).collect()),
-        Val::Record(r) => Json::Array(r.borrow().fields.iter().map(cell_json).collect()),
-        Val::Map(m) => Json::Array(
-            m.borrow()
-                .entries
-                .values()
-                .map(|(k, x)| json!([cell_json(k), cell_json(x)]))
-                .collect(),
-        ),
-        Val::Set(s) => Json::Array(s.borrow().entries.values().map(cell_json).collect()),
+        // A value that contains itself shows as "[Circular]".
+        Val::Array(a) => match a.visit() {
+            None => json!("[Circular]"),
+            Some(_v) => Json::Array(a.borrow().iter().map(cell_json).collect()),
+        },
+        Val::Record(r) => match r.visit() {
+            None => json!("[Circular]"),
+            Some(_v) => Json::Array(r.borrow().fields.iter().map(cell_json).collect()),
+        },
+        Val::Map(m) => match m.visit() {
+            None => json!("[Circular]"),
+            Some(_v) => Json::Array(
+                m.borrow()
+                    .entries
+                    .values()
+                    .map(|(k, x)| json!([cell_json(k), cell_json(x)]))
+                    .collect(),
+            ),
+        },
+        Val::Set(s) => match s.visit() {
+            None => json!("[Circular]"),
+            Some(_v) => Json::Array(s.borrow().entries.values().map(cell_json).collect()),
+        },
         Val::Closure(_) => json!("function"),
         // Element ids differ between the interpreter and the native app.
         Val::Element(_) => json!("element"),

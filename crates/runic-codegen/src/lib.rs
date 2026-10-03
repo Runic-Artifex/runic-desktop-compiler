@@ -1105,7 +1105,7 @@ fn records(p: &Program) -> String {
             .collect();
         let _ = writeln!(
             out,
-            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let b = v.borrow(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
+            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let Some(_v) = v.visit() else {{ return runic_runtime::Json::String(\"[Circular]\".into()); }}; let b = v.borrow(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
              #[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n"
         );
     }
@@ -1128,17 +1128,17 @@ fn probe_json(t: &Type, v: &str) -> String {
             probe_json(i, "(*x)")
         ),
         Type::Array(i) => format!(
-            "runic_runtime::Json::Array({v}.borrow().iter().map(|x| {}).collect())",
+            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().iter().map(|x| {}).collect()) }})",
             probe_json(i, "(*x)")
         ),
         Type::Record(r) => format!("probe_r{r}(&{v})"),
         Type::Map(k, x) => format!(
-            "runic_runtime::Json::Array({v}.borrow().entries.values().map(|(k, x)| runic_runtime::Json::Array(vec![{}, {}])).collect())",
+            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().entries.values().map(|(k, x)| runic_runtime::Json::Array(vec![{}, {}])).collect()) }})",
             probe_json(k, "(*k)"),
             probe_json(x, "(*x)")
         ),
         Type::Set(i) => format!(
-            "runic_runtime::Json::Array({v}.borrow().entries.values().map(|x| {}).collect())",
+            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().entries.values().map(|x| {}).collect()) }})",
             probe_json(i, "(*x)")
         ),
         Type::Fn(_) => {

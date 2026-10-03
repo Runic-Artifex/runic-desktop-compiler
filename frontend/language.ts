@@ -395,7 +395,10 @@ export class Lowerer {
     }
     if (decl.parameters.length > 1)
       this.fail(decl.parameters[1], 'E_EVENT', 'Event handlers take at most one parameter');
-    const body = this.functionBody(decl, b);
+    let body = this.functionBody(decl, b);
+    // A handler's value is discarded: `() => items.push(x)` runs for its effect.
+    if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return')
+      body = body[0].value ? [{ op: 'expr', value: body[0].value }] : [];
     if (b.payloadLocal !== undefined)
       body.unshift({ op: 'let', local: b.payloadLocal, value: { op: 'payload' } });
     if (!b.captures.length) return { locals: b.locals, body };
