@@ -836,13 +836,14 @@ impl Gen<'_> {
                         pass,
                         "{{ let v = {v}; {b}let mut st = ci{key}.borrow_mut(); st.p{cell} = Some(v.clone()); st.c.c{cell} = v; {bind} }}"
                     );
-                    // Update: a changed prop sets the child's cell and dirty bit.
+                    // Update: a changed prop sets the child's cell and dirty bit; it is
+                    // part of this render, not a change the next flush sees (`before`).
                     let ty = &child.cells[cell].ty;
                     let same = same_expr(ty, "(*o)", "v");
                     let guard = self.guard(&[&a.value]);
                     let _ = writeln!(
                         o.update,
-                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
+                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); st.before.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
                     );
                     if let Some(b) = &a.bind {
                         let guard = self.guard(&[b]);
@@ -1513,6 +1514,9 @@ pub fn generate(
          macro_rules! tri {{ ($e:expr, $l:lifetime) => {{ match $e {{ Ok(v) => v, Err(e) => break $l Err(e) }} }}; }}\n"
     );
     out.push_str(&records(p));
+    // `batched_cleanups` mirrors the interpreter's definition, which follows
+    // React's commit walk (react-dom `recursivelyTraverseMutationEffects`,
+    // `recursivelyTraversePassiveUnmountEffects`).
     out.push_str(
         "/// Parent-owned slot content mounted inside a child.\n\
          pub trait Block<A> {\n\
@@ -1541,16 +1545,26 @@ pub fn generate(
          let keys: std::collections::HashSet<usize> = tree.iter().map(|(i, _)| i.key()).collect();\n\
          let mut out = Vec::new(); for (i, p) in tree { if !keys.contains(p) { visit(i, tree, &mut out); } } out\n\
          }\n\
-         /// Cleanups of destroyed instances at unmount: those before DOM removal, then those after, each at its tree position.\n\
-         fn teardown(cx: &mut Cx, tree: &[(Rc<dyn Inst>, usize)]) {\n\
-         let set: std::collections::HashSet<usize> = cx.destroyed.drain(..).map(|i| i.key()).collect();\n\
-         if set.is_empty() { return; }\n\
-         fn at(cx: &mut Cx, i: &Rc<dyn Inst>, after: bool, set: &std::collections::HashSet<usize>, tree: &[(Rc<dyn Inst>, usize)]) {\n\
-         for (e, m) in i.fx_meta().iter().enumerate() { if m.1 == after && !m.2 { i.fx_cleanup(cx, e); } }\n\
-         let k = i.key(); for (c, p) in tree { if *p == k && set.contains(&c.key()) { at(cx, c, after, set, tree); } }\n\
-         for (e, m) in i.fx_meta().iter().enumerate() { if m.1 == after && m.2 { i.fx_cleanup(cx, e); } }\n\
+         /// Cleanups selected by `which` (effect metadata) in the destroyed subtree of `i`, each at its unmount tree position.\n\
+         fn teardown_at(cx: &mut Cx, i: &Rc<dyn Inst>, which: &dyn Fn(&(u8, bool, bool)) -> bool, set: &std::collections::HashSet<usize>, tree: &[(Rc<dyn Inst>, usize)]) {\n\
+         for (e, m) in i.fx_meta().iter().enumerate() { if which(m) && !m.2 { i.fx_cleanup(cx, e); } }\n\
+         let k = i.key(); for (c, p) in tree { if *p == k && set.contains(&c.key()) { teardown_at(cx, c, which, set, tree); } }\n\
+         for (e, m) in i.fx_meta().iter().enumerate() { if which(m) && m.2 { i.fx_cleanup(cx, e); } }\n\
          }\n\
-         for after in [false, true] { for (i, p) in tree { if set.contains(&i.key()) && !set.contains(p) { at(cx, i, after, &set, tree); } } }\n\
+         /// Cleanups of destroyed instances at unmount: those before DOM removal, then those after, each at its tree position.\n\
+         /// Under batched cleanups those of layout and post effects run in their phase's walk instead (`batched_cleanups`).\n\
+         fn teardown(cx: &mut Cx, tree: &[(Rc<dyn Inst>, usize)], set: &std::collections::HashSet<usize>, batched: bool) {\n\
+         if set.is_empty() { return; }\n\
+         for after in [false, true] { for (i, p) in tree { if set.contains(&i.key()) && !set.contains(p) { teardown_at(cx, i, &|m| m.1 == after && !(batched && m.0 != 0), set, tree); } } }\n\
+         }\n\
+         /// The batched cleanups of `phase` in the subtree of live instance `i`: children first, and at each\n\
+         /// instance the instances destroyed under it (`before` tree, each subtree in unmount order) before its live\n\
+         /// children (`after` tree), then its own due cleanups (the interpreter's `batched_cleanups`).\n\
+         fn batched_cleanups(cx: &mut Cx, i: &Rc<dyn Inst>, phase: u8, due: &[(Rc<dyn Inst>, usize)], after: &[(Rc<dyn Inst>, usize)], set: &std::collections::HashSet<usize>, before: &[(Rc<dyn Inst>, usize)]) {\n\
+         let k = i.key();\n\
+         for (d, p) in before { if *p == k && set.contains(&d.key()) { teardown_at(cx, d, &|m| m.0 == phase, set, before); } }\n\
+         for (c, p) in after { if *p == k && c.key() != k { batched_cleanups(cx, c, phase, due, after, set, before); } }\n\
+         for (j, e) in due { if j.key() == k { j.fx_cleanup(cx, *e); } }\n\
          }\n",
     );
     for k in 0..p.components.len() {
@@ -1736,13 +1750,16 @@ pub fn generate(
          {restore}\
          for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\
          self.free(dom);\n\
-         teardown(&mut self.cx, &tree);\n\
-         let post = post_order(&self.walk());\n\
+         let destroyed: std::collections::HashSet<usize> = self.cx.destroyed.drain(..).map(|i| i.key()).collect();\n\
+         teardown(&mut self.cx, &tree, &destroyed, {batched});\n\
+         let after = self.walk();\n\
+         let post = post_order(&after);\n\
+         let keys: std::collections::HashSet<usize> = after.iter().map(|(i, _)| i.key()).collect();\n\
          for (phase, p) in [(1u8, runic_runtime::Phase::Layout), (2u8, runic_runtime::Phase::Post)] {{\n\
          self.cx.jobs.phase = Some(p);\n\
          let mut due = Vec::new();\n\
          for i in &post {{ let u = self.cx.updated.get(&i.key()).copied().unwrap_or(true); for (e, m) in i.fx_meta().iter().enumerate() {{ if m.0 != phase {{ continue; }} if {batched} {{ if i.fx_due(&mut self.cx, e, u) {{ due.push((Rc::clone(i), e)); }} }} else if i.fx_due(&mut self.cx, e, u) {{ i.fx_cleanup(&mut self.cx, e); i.fx_run(&mut self.cx, e); }} }} }}\n\
-         for (i, e) in &due {{ i.fx_cleanup(&mut self.cx, *e); }}\n\
+         if {batched} {{ for (r, p) in &after {{ if !keys.contains(p) {{ batched_cleanups(&mut self.cx, r, phase, &due, &after, &destroyed, &tree); }} }} }}\n\
          for (i, e) in &due {{ i.fx_run(&mut self.cx, *e); }}\n\
          }}\n\
          for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }}\n\

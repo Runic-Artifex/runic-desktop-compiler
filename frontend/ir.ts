@@ -248,7 +248,12 @@ export interface Schedule {
   checkpoint?: 'dispatch' | 'listener';
   /** A checkbox's `change` listeners run in the `click` dispatch. */
   changeWithClick?: boolean;
-  /** `batched`: all cleanups of a phase run before its effects. */
+  /**
+   * `batched`: all cleanups of a phase run before its effects, in one walk
+   * (children first) that includes the layout and post cleanups of
+   * instances destroyed by the update: at each instance the destroyed
+   * subtrees under it, then its live children, then its own cleanups.
+   */
   cleanups?: 'interleaved' | 'batched';
   /** Writes from post effects update in a later default-priority task. */
   postWritesDeferred?: boolean;

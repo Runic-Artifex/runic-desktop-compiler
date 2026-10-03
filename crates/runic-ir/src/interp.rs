@@ -2493,14 +2493,18 @@ impl<'p> Machine<'p> {
             .copied()
             .filter(|&i| !self.instances[i].alive)
             .collect();
-        self.teardown(&destroyed, &before);
+        let batched = self.program.schedule.cleanups == Cleanups::Batched;
+        // Batched cleanups of destroyed instances join their phase's walk
+        // below; the rest run at removal.
+        self.teardown(&destroyed, &before, batched);
         let after = self.tree_order();
         let mut updated = updated;
         updated.resize(self.instances.len(), true);
         let post = post_order(&after, &self.instances);
+        let destroyed: HashSet<usize> = destroyed.into_iter().collect();
         for phase in [EffectPhase::Layout, EffectPhase::Post] {
             self.phase = Some(phase);
-            if self.program.schedule.cleanups == Cleanups::Batched {
+            if batched {
                 let all: Vec<(usize, usize)> = post
                     .iter()
                     .flat_map(|&i| self.effects_of(i, phase).into_iter().map(move |e| (i, e)))
@@ -2511,8 +2515,17 @@ impl<'p> Machine<'p> {
                         due.push((i, e));
                     }
                 }
-                for &(i, e) in &due {
-                    self.run_cleanup(i, e);
+                let roots: Vec<usize> = after
+                    .iter()
+                    .copied()
+                    .filter(|i| {
+                        !self.instances[*i]
+                            .parent
+                            .is_some_and(|p| after.contains(&p))
+                    })
+                    .collect();
+                for r in roots {
+                    self.batched_cleanups(r, phase, &due, &after, &destroyed, &before);
                 }
                 for &(i, e) in &due {
                     self.run_effect(i, e);
@@ -2674,8 +2687,10 @@ impl<'p> Machine<'p> {
     }
 
     /// Run the cleanups of destroyed instances: those before removal, then
-    /// those after, each in its effect's tree order.
-    fn teardown(&mut self, destroyed: &[usize], order: &[usize]) {
+    /// those after, each in its effect's tree order. Under batched cleanups
+    /// those of layout and post effects run in their phase's walk instead
+    /// ([`Self::batched_cleanups`]).
+    fn teardown(&mut self, destroyed: &[usize], order: &[usize], batched: bool) {
         if destroyed.is_empty() {
             return;
         }
@@ -2689,17 +2704,70 @@ impl<'p> Machine<'p> {
             .collect();
         for removal in [Removal::Before, Removal::After] {
             for &r in &roots {
-                self.teardown_at(r, removal, &set, order);
+                self.teardown_at(
+                    r,
+                    &|e: &Effect| {
+                        e.unmount.removal == removal && !(batched && e.phase != EffectPhase::Pre)
+                    },
+                    &set,
+                    order,
+                );
             }
         }
     }
 
-    fn teardown_at(&mut self, i: usize, removal: Removal, set: &HashSet<usize>, order: &[usize]) {
+    /// The batched cleanups of `phase` in the subtree of live instance `i`,
+    /// in React's commit walk (react-dom `recursivelyTraverseMutationEffects`
+    /// for layout, `recursivelyTraversePassiveUnmountEffects` for passive
+    /// effects): children first, and at each instance the instances
+    /// destroyed under it (each subtree in its effects' `unmount.order`)
+    /// before its live children, then its own due cleanups.
+    fn batched_cleanups(
+        &mut self,
+        i: usize,
+        phase: EffectPhase,
+        due: &[(usize, usize)],
+        after: &[usize],
+        destroyed: &HashSet<usize>,
+        before: &[usize],
+    ) {
+        let gone: Vec<usize> = before
+            .iter()
+            .copied()
+            .filter(|d| destroyed.contains(d) && self.instances[*d].parent == Some(i))
+            .collect();
+        for d in gone {
+            self.teardown_at(d, &|e: &Effect| e.phase == phase, destroyed, before);
+        }
+        let live: Vec<usize> = after
+            .iter()
+            .copied()
+            .filter(|c| self.instances[*c].parent == Some(i))
+            .collect();
+        for c in live {
+            self.batched_cleanups(c, phase, due, after, destroyed, before);
+        }
+        for &(j, e) in due {
+            if j == i {
+                self.run_cleanup(i, e);
+            }
+        }
+    }
+
+    /// Cleanups of the effects selected by `which` in the destroyed subtree
+    /// of `i`, each at its `unmount.order` position.
+    fn teardown_at(
+        &mut self,
+        i: usize,
+        which: &dyn Fn(&Effect) -> bool,
+        set: &HashSet<usize>,
+        order: &[usize],
+    ) {
         let comp = self.instances[i].component;
         let effects = &self.program.components[comp].effects;
         let at = |o: TreeOrder| -> Vec<usize> {
             (0..effects.len())
-                .filter(|&e| effects[e].unmount.removal == removal && effects[e].unmount.order == o)
+                .filter(|&e| which(&effects[e]) && effects[e].unmount.order == o)
                 .collect()
         };
         let (pre, post) = (at(TreeOrder::Pre), at(TreeOrder::Post));
@@ -2712,7 +2780,7 @@ impl<'p> Machine<'p> {
             .filter(|c| set.contains(c) && self.instances[*c].parent == Some(i))
             .collect();
         for c in children {
-            self.teardown_at(c, removal, set, order);
+            self.teardown_at(c, which, set, order);
         }
         for e in post {
             self.run_cleanup(i, e);

@@ -1,6 +1,6 @@
 {
   "description": "7GUIs Timer (M4): an interval started by an effect at mount, a gauge and elapsed time on virtual time, duration changes stopping and resuming, reset",
-  "fixtures": ["examples/7guis-timer-svelte", "examples/7guis-timer-vue"],
+  "fixtures": ["examples/7guis-timer-svelte", "examples/7guis-timer-vue", "examples/7guis-timer-react"],
   "actions": [
     { "kind": "wait", "ms": 1000 },
     { "kind": "wait", "ms": 2500 },

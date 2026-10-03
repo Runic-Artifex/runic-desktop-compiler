@@ -14,13 +14,27 @@
 // - `children` and other ReactNode props rendered as `{children}`, and render
 //   props `(x: T) => ReactNode` called as `{row(x)}`, are slots: the parent's
 //   JSX (or inline render function) is slot content evaluated in the parent;
+// - `useEffect`/`useLayoutEffect` → post/layout effects whose functions read
+//   their render's snapshot, with React's commit schedule (batched cleanups,
+//   passive writes in a later task, the first commit in a task);
 // - controlled checkboxes (`checked` + `onChange` → `change`) and `onKeyDown`;
 // - JSX → IR nodes with React's whitespace and child rendering rules.
 import ts from 'typescript';
 import path from 'node:path';
 import { decodeHTMLStrict } from 'entities';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
-import type { Cell, Component, Expr, Handler, Listener, Node, Program, Stmt, Type } from '../ir.ts';
+import type {
+  Cell,
+  Component,
+  Effect,
+  Expr,
+  Handler,
+  Listener,
+  Node,
+  Program,
+  Stmt,
+  Type,
+} from '../ir.ts';
 import { FnBuilder, Lowerer, skipParens, type HandlerEvent, type Hooks } from '../language.ts';
 import { createProgram, REACT } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
@@ -152,6 +166,8 @@ interface Scope {
  * the program is returned: an index into the accessing source nodes.
  */
 const REF_ACCESS = '$reactRefAccess';
+/** The key marking IR nodes rendered inside a Fragment fiber (removed like REF_ACCESS). */
+const FRAGMENT = '$reactFragment';
 
 export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   const { root } = graph;
@@ -196,9 +212,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     return { cell, arg: e.arguments[0] };
   };
   /** Source nodes of ref accesses (`r.current`), indexed by the REF_ACCESS marks. */
-  const refAccesses: ts.Node[] = [];
-  const markRefAccess = <T extends Expr | Stmt>(x: T, node: ts.Node): T => {
-    refAccesses.push(node);
+  const refAccesses: { node: ts.Node; element: boolean }[] = [];
+  const markRefAccess = <T extends Expr | Stmt>(x: T, node: ts.Node, cell: number): T => {
+    refAccesses.push({ node, element: cur.elementRefs.has(cell) });
     return { ...x, [REF_ACCESS]: refAccesses.length - 1 };
   };
   const hooks: Hooks = {
@@ -207,7 +223,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     // (and on writes), so every read sees its latest value.
     readCell: (cell, _ctx, node) =>
       cur.refs.has(cell)
-        ? markRefAccess({ op: 'cell', cell, read: 'current' }, node)
+        ? markRefAccess({ op: 'cell', cell, read: 'current' }, node, cell)
         : { op: 'cell', cell, read: 'snapshot' },
     cellType: cell => cur.cells[cell].type,
     writeCell(cell, value, _ctx, node) {
@@ -220,7 +236,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           `React sets ${cur.cells[cell].name}.current to the element of ref={${cur.cells[cell].name}}; assigning it is unsupported`,
         );
       // A mutable box: the write is immediate and never re-renders.
-      return [markRefAccess({ op: 'set', cell, value, source: sourceOf(node) }, node)];
+      return [markRefAccess({ op: 'set', cell, value, source: sourceOf(node) }, node, cell)];
     },
     statement(e, ctx, lower) {
       const s = setterCall(e);
@@ -253,6 +269,15 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     call(node) {
       if (setterCall(node))
         return fail(node, 'E_STATE', 'State setters are statements; their result is undefined');
+      // Hooks at the top of a component body are lowered there; any other
+      // call (in a condition, a nested function or a custom hook) is not.
+      const hook = reactFunction(node.expression);
+      if (hook)
+        return fail(
+          node,
+          'E_HOOK',
+          `${hook} must be called at the top level of a component body (hooks in conditions, nested functions and custom hooks are unsupported)`,
+        );
       return undefined;
     },
   };
@@ -273,13 +298,14 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     return found;
   };
   /** Whether `callee` is React's hook `name` (also when imported under another name). */
-  const isHook = (callee: ts.Expression, name: 'useState' | 'useRef'): boolean => {
-    if (!ts.isIdentifier(callee)) return false;
+  const isHook = (callee: ts.Expression, name: string): boolean => reactFunction(callee) === name;
+  /** The React function `callee` names (also when imported under another name). */
+  const reactFunction = (callee: ts.Expression): string | undefined => {
+    if (!ts.isIdentifier(callee)) return undefined;
     const decl = symbolOf(callee)?.declarations?.[0];
-    return (
-      decl?.getSourceFile().fileName === REACT &&
-      (decl as ts.FunctionDeclaration).name?.text === name
-    );
+    return decl?.getSourceFile().fileName === REACT && ts.isFunctionDeclaration(decl)
+      ? decl.name?.text
+      : undefined;
   };
   const isJsx = (n: ts.Node): n is Jsx =>
     ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n);
@@ -324,14 +350,20 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           for (const el of named.elements)
             if (
               !el.isTypeOnly &&
-              !['useState', 'useRef', 'RefObject', 'ReactNode', 'ReactElement'].includes(
-                (el.propertyName ?? el.name).text,
-              )
+              ![
+                'useState',
+                'useRef',
+                'useEffect',
+                'useLayoutEffect',
+                'RefObject',
+                'ReactNode',
+                'ReactElement',
+              ].includes((el.propertyName ?? el.name).text)
             )
               fail(
                 el,
                 'E_CAPABILITY',
-                `react:${(el.propertyName ?? el.name).text} is planned for M4`,
+                `react:${(el.propertyName ?? el.name).text} is unsupported (useState, useRef, useEffect and useLayoutEffect are)`,
               );
         return true;
       }
@@ -410,6 +442,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     };
     const { cells, slots } = cur;
     const pending: (() => void)[] = [];
+    const effects: Effect[] = [];
 
     // --- Props: `{ a, b = 1 }: Props` or `props: Props` → prop cells and slots ---
     if (decl.parameters.length > 1)
@@ -560,11 +593,19 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         if (p) pending.push(p);
         continue;
       }
+      if (ts.isExpressionStatement(stmt)) {
+        const call = skipParens(stmt.expression);
+        const hook = ts.isCallExpression(call) ? reactFunction(call.expression) : undefined;
+        if (hook === 'useEffect' || hook === 'useLayoutEffect') {
+          effects.push(lowerEffect(call as ts.CallExpression, hook, COMPONENT, pending));
+          continue;
+        }
+      }
       if (!ts.isVariableStatement(stmt) || !(stmt.declarationList.flags & ts.NodeFlags.Const))
         fail(
           stmt,
           'E_COMPONENT',
-          'Component bodies support const declarations, useState, useRef and nested functions',
+          'Component bodies support const declarations, useState, useRef, useEffect, useLayoutEffect and nested functions',
         );
       for (const d of (stmt as ts.VariableStatement).declarationList.declarations) {
         const init = d.initializer && skipParens(d.initializer);
@@ -675,6 +716,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
             })),
           }
         : {}),
+      ...(effects.length ? { effects } : {}),
     };
   }
 
@@ -777,6 +819,125 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       const v = lower.value(arg, COMPONENT, `${name}$init`);
       cells[cell].init = coerceInit(v, lower.exprType(arg), type);
     });
+  };
+
+  // --- Effects: useEffect and useLayoutEffect ---
+  /**
+   * `useEffect(fn, deps?)` and `useLayoutEffect(fn, deps?)` (docs/design/M4-EFFECTS.md).
+   * `fn` is a component function: its state reads see its render's snapshot,
+   * and a cleanup it returns keeps that snapshot. Layout effects run after
+   * the DOM update, passive effects after all layout effects; at unmount
+   * both clean up parent first, layout cleanups while the DOM is connected.
+   */
+  const lowerEffect = (
+    call: ts.CallExpression,
+    hook: 'useEffect' | 'useLayoutEffect',
+    COMPONENT: number,
+    pending: (() => void)[],
+  ): Effect => {
+    const [arg, depsArg, extra] = call.arguments;
+    if (extra) fail(extra, 'E_EFFECT', `${hook} takes a function and a dependency array`);
+    const fn = arg && skipParens(arg);
+    if (!fn || !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)))
+      return fail(arg ?? call, 'E_EFFECT', `${hook} takes an inline function`);
+    if (fn.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword))
+      fail(
+        fn,
+        'E_EFFECT',
+        `${hook} functions must be synchronous (an async function returns a promise, not a cleanup)`,
+      );
+    if (ts.isFunctionExpression(fn) && fn.asteriskToken)
+      fail(fn, 'E_EFFECT', `${hook} functions must not be generators`);
+    if (fn.parameters.length)
+      fail(fn.parameters[0], 'E_EFFECT', `${hook} functions take no parameters`);
+    let deps: Effect['deps'] = { kind: 'always' };
+    if (depsArg) {
+      const list = skipParens(depsArg);
+      if (!ts.isArrayLiteralExpression(list))
+        return fail(
+          depsArg,
+          'E_EFFECT',
+          `The dependencies of ${hook} must be an array literal ([a, b]) so they can be compared per render`,
+        );
+      for (const el of list.elements)
+        if (ts.isSpreadElement(el) || ts.isOmittedExpression(el))
+          fail(el, 'E_EFFECT', 'Dependency arrays list each dependency (no spreads or holes)');
+      if (!list.elements.length) deps = { kind: 'once' };
+      else {
+        const values: Expr[] = [];
+        deps = { kind: 'values', values };
+        pending.push(() => {
+          for (const el of list.elements) values.push(dependency(el, COMPONENT, hook));
+        });
+      }
+    }
+    const run = lower.reserve();
+    pending.push(() => {
+      lower.function(fn, hook, undefined, COMPONENT, run);
+      const result = lower.functions[run].result;
+      const cleanup = (t: Type) =>
+        typeof t === 'object' && 'fn' in t && !t.fn.params.length && t.fn.result === 'void';
+      if (result !== 'void' && !cleanup(result) && !cleanup(maybeInner(result) ?? 'void'))
+        fail(fn, 'E_EFFECT', `${hook} functions return nothing or a cleanup function`);
+    });
+    const layout = hook === 'useLayoutEffect';
+    if (layout) layoutEffects.push({ run, node: call });
+    return {
+      run,
+      phase: layout ? 'layout' : 'post',
+      deps,
+      unmount: { removal: layout ? 'before' : 'after', order: 'pre' },
+      source: sourceOf(call),
+    };
+  };
+  /** Run functions of layout effects (checked once every function is lowered). */
+  const layoutEffects: { run: number; node: ts.Node }[] = [];
+  /**
+   * One dependency: compared by `Object.is` with its value at the last run.
+   * React evaluates it while rendering; the IR evaluates it after the
+   * instance updated, so it must not depend on anything that changes in
+   * between or on when it is evaluated: no module objects (which effects
+   * may mutate) and no values created per evaluation (objects, functions),
+   * whose identity React renews only on renders.
+   */
+  const dependency = (el: ts.Expression, COMPONENT: number, hook: string): Expr => {
+    const v = lower.value(el, COMPONENT, `${hook}$dep`);
+    const t = lower.exprType(el);
+    const base = maybeInner(t) ?? t;
+    if (typeof base === 'object' && v.op !== 'cell')
+      fail(
+        el,
+        'E_EFFECT',
+        'Object, array and function dependencies must be state or props (values created while rendering get a new identity on every render)',
+      );
+    dependencies.push({ value: v, node: el });
+    return v;
+  };
+  const dependencies: { value: Expr; node: ts.Expression }[] = [];
+  /** Dependencies read no module objects and call no function values (checked once all is lowered). */
+  const checkDependencies = () => {
+    for (const { value, node } of dependencies) {
+      const reached = new Set<number>();
+      const visit = (n: unknown) => {
+        if (Array.isArray(n)) return n.forEach(visit);
+        if (!n || typeof n !== 'object') return;
+        const o = n as Record<string, unknown>;
+        if (o.op === 'global')
+          fail(
+            node,
+            'E_EFFECT',
+            'Dependencies that read module objects are unsupported (effects may change them between rendering and the comparison)',
+          );
+        if (o.op === 'call-value')
+          fail(node, 'E_EFFECT', 'Dependencies that call function values are unsupported');
+        if ((o.op === 'call' || o.op === 'closure') && !reached.has(o.function as number)) {
+          reached.add(o.function as number);
+          visit(lower.functions[o.function as number].body);
+        }
+        for (const x of Object.values(o)) visit(x);
+      };
+      visit(value);
+    }
   };
 
   /** Whether `decl` reads `props.<key>` of its props object `props`. */
@@ -1098,11 +1259,18 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     });
     return { kind: 'slot', name: info.name, ...(args.length ? { args } : {}), source: sourceOf(e) };
   };
-  /** The nodes of one JSX child expression. */
-  const slot = (x: ts.Expression): Node[] => {
+  /** Mark `nodes` as the content of one Fragment fiber (see checkUnmountOrder). */
+  const fragment = (nodes: Node[]): Node[] => {
+    const id = ++fragments;
+    for (const n of nodes) (n as Node & { [FRAGMENT]?: number })[FRAGMENT] = id;
+    return nodes;
+  };
+  let fragments = 0;
+  /** The nodes of one JSX child expression (`multi`: one of several children). */
+  const slot = (x: ts.Expression, multi = false): Node[] => {
     const e = skipParens(x);
-    if (isJsx(e)) return jsx(e);
-    if (isMap(e)) return [list(e)];
+    if (isJsx(e)) return ts.isJsxFragment(e) && multi ? fragment(jsx(e)) : jsx(e);
+    if (isMap(e)) return multi ? fragment([list(e)]) : [list(e)];
     if (isNothing(e)) return [];
     const use = slotUse(e);
     if (use) return [renderSlot(e, use)];
@@ -1124,7 +1292,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         {
           kind: 'if',
           test: lower.truthy(v, t),
-          then: slot(e.right),
+          then: slot(e.right, multi),
           ...(text ? { else: [{ kind: 'text', parts: [text] }] } : {}),
           source: sourceOf(e),
         },
@@ -1137,8 +1305,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         {
           kind: 'if',
           test: lower.truthy(v, typeOf(e.condition, v)),
-          then: slot(e.whenTrue),
-          else: slot(e.whenFalse),
+          then: slot(e.whenTrue, multi),
+          else: slot(e.whenFalse, multi),
           source: sourceOf(e),
         },
       ];
@@ -1214,6 +1382,12 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     );
   };
   const children = (kids: readonly ts.JsxChild[]): Node[] => {
+    // A fragment or array among several children is a Fragment fiber of its
+    // own (as the only child it is unwrapped into its parent).
+    const multi =
+      kids.filter(k =>
+        ts.isJsxText(k) ? !!cleanText(k.text) : !ts.isJsxExpression(k) || !!k.expression,
+      ).length > 1;
     const out: Node[] = [];
     let parts: Expr[] = [];
     const flush = () => {
@@ -1228,14 +1402,14 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         if (!child.expression) continue;
         if (structural(child.expression)) {
           flush();
-          out.push(...slot(child.expression));
+          out.push(...slot(child.expression, multi));
         } else {
           const d = display(skipParens(child.expression));
           if (d) parts.push(d);
         }
       } else if (isJsx(child)) {
         flush();
-        out.push(...jsx(child));
+        out.push(...(ts.isJsxFragment(child) && multi ? fragment(jsx(child)) : jsx(child)));
       } else fail(child, 'E_JSX', 'Unsupported JSX child');
     }
     flush();
@@ -1703,7 +1877,20 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
    * closure, and closures passed to built-ins (`items.filter(…)`) run in place.
    * Then remove the REF_ACCESS marks.
    */
-  const checkRenderRefs = () => {
+  /** The functions of every closure created in `n` (not inside the closures' own bodies). */
+  const closures = (n: unknown, out: Set<number>) => {
+    if (Array.isArray(n)) return n.forEach(x => closures(x, out));
+    if (!n || typeof n !== 'object') return;
+    const o = n as Record<string, unknown>;
+    if (o.op === 'closure') out.add(o.function as number);
+    for (const v of Object.values(o)) closures(v, out);
+  };
+  /**
+   * Visit `roots` (`[ir, called]`: closures created there run in place) and
+   * the bodies of the functions they may call. Closures passed to built-ins
+   * run in place; once a function value is called, any closure may run.
+   */
+  const reachable = (roots: [unknown, boolean][], check: (o: Record<string, unknown>) => void) => {
     const reached = new Set<number>();
     const work: number[] = [];
     const reach = (fn: number) => {
@@ -1717,13 +1904,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       if (Array.isArray(n)) return n.forEach(x => visit(x, called));
       if (!n || typeof n !== 'object') return;
       const o = n as Record<string, unknown>;
-      const mark = o[REF_ACCESS];
-      if (typeof mark === 'number')
-        fail(
-          refAccesses[mark],
-          'E_REF',
-          'This ref access may run while rendering (in JSX, an initialiser, a render-time const or a function they call); React does not re-render for refs and sets element refs after rendering, so use refs in event handlers',
-        );
+      check(o);
       if (o.op === 'call') reach(o.function as number);
       if (o.op === 'call-value') dynamic = true;
       if (o.op === 'closure' && called) reach(o.function as number);
@@ -1731,20 +1912,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         // Listeners run on events (their handlers are not visited).
         if (k !== 'listeners') visit(v, called || (o.op === 'builtin' && k === 'args'));
     };
-    const closures = (n: unknown, out: Set<number>) => {
-      if (Array.isArray(n)) return n.forEach(x => closures(x, out));
-      if (!n || typeof n !== 'object') return;
-      const o = n as Record<string, unknown>;
-      if (o.op === 'closure') out.add(o.function as number);
-      for (const v of Object.values(o)) closures(v, out);
-    };
-    for (const c of components) {
-      visit(c.template, false);
-      visit(
-        c.cells.map(x => x.init),
-        false,
-      );
-    }
+    for (const [n, called] of roots) visit(n, called);
     let all: Set<number> | undefined;
     for (;;) {
       while (work.length) visit(lower.functions[work.pop()!].body, false);
@@ -1753,13 +1921,215 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       closures([lower.functions, components], all);
       for (const f of all) reach(f);
     }
+  };
+  const checkRenderRefs = () => {
+    reachable(
+      components.flatMap(c => [
+        [c.template, false],
+        [c.cells.map(x => x.init), false],
+        // Dependencies are evaluated while rendering.
+        [(c.effects ?? []).map(e => e.deps), false],
+      ]),
+      o => {
+        const mark = o[REF_ACCESS];
+        if (typeof mark === 'number')
+          fail(
+            refAccesses[mark].node,
+            'E_REF',
+            'This ref access may run while rendering (in JSX, an initialiser, a render-time const, an effect dependency or a function they call); React does not re-render for refs and sets element refs after rendering, so use refs in event handlers and effects',
+          );
+      },
+    );
+    for (const { run, node } of layoutEffects) {
+      const made = new Set<number>();
+      closures(lower.functions[run].body, made);
+      // Layout cleanups at unmount run before React detaches element refs;
+      // the IR clears refs when the element is removed.
+      reachable(
+        [...made].map(f => [{ op: 'closure', function: f }, true]),
+        o => {
+          const mark = o[REF_ACCESS];
+          if (typeof mark === 'number' && refAccesses[mark].element)
+            fail(
+              refAccesses[mark].node,
+              'E_REF',
+              'Element refs in layout effect cleanups are unsupported (at unmount React runs them before it clears the ref)',
+            );
+        },
+      );
+      // After a non-event update React runs passive effects in a later task,
+      // so microtasks queued by layout effects run before them; the IR runs
+      // both phases in one flush.
+      reachable([[lower.functions[run].body, true]], o => {
+        if (o.op === 'builtin' && o.name === 'microtask.queue')
+          fail(
+            node,
+            'E_EFFECT',
+            'Microtasks queued by layout effects are unsupported (after non-event updates React runs passive effects in a later task)',
+          );
+      });
+    }
     const strip = (n: unknown) => {
       if (Array.isArray(n)) return n.forEach(strip);
       if (!n || typeof n !== 'object') return;
       delete (n as Record<string, unknown>)[REF_ACCESS];
+      delete (n as Record<string, unknown>)[FRAGMENT];
       for (const v of Object.values(n)) strip(v);
     };
     strip([lower.functions, components]);
+  };
+
+  /**
+   * Batched cleanups visit, at each instance, the instances destroyed under
+   * it before its live children (see the schedule below). React's walk is
+   * over fibers: deletions run where their parent element or fragment
+   * begins. Both orders agree unless a conditional or list that can unmount
+   * components with effect cleanups follows, outside its own parent element
+   * or fragment, another component with cleanups (or another such
+   * conditional). Reject those positions, and such conditionals inside
+   * children/render-prop content (rendered in another component's elements).
+   */
+  const checkUnmountOrder = () => {
+    const holder = components.map(c =>
+      (c.effects ?? []).some(e => lower.functions[e.run].result !== 'void'),
+    );
+    /** Whether some parent passes slot content holding such components. */
+    const filled = components.map(() => false);
+    const holds = (nodes: Node[], k: number): boolean =>
+      nodes.some(n => {
+        switch (n.kind) {
+          case 'component':
+            return holder[n.component] || (n.slots ?? []).some(s => holds(s.body, k));
+          case 'slot':
+            return filled[k] || holds(n.fallback ?? [], k);
+          case 'element':
+            return holds(n.children ?? [], k);
+          case 'if':
+            return holds(n.then, k) || holds(n.else ?? [], k);
+          case 'each':
+            return holds(n.body, k) || holds(n.else ?? [], k);
+          default:
+            return false;
+        }
+      });
+    const eachComponent = (nodes: Node[], f: (n: Node & { kind: 'component' }) => void) => {
+      for (const n of nodes) {
+        if (n.kind === 'component') f(n);
+        const kids = [
+          ...(n.kind === 'element' ? (n.children ?? []) : []),
+          ...(n.kind === 'if' ? [...n.then, ...(n.else ?? [])] : []),
+          ...(n.kind === 'each' ? [...n.body, ...(n.else ?? [])] : []),
+          ...(n.kind === 'slot' ? (n.fallback ?? []) : []),
+          ...(n.kind === 'component' ? (n.slots ?? []).flatMap(s => s.body) : []),
+        ];
+        eachComponent(kids, f);
+      }
+    };
+    for (let changed = true; changed;) {
+      changed = false;
+      components.forEach((c, k) => {
+        if (!holder[k] && holds(c.template, k)) holder[k] = changed = true;
+        eachComponent(c.template, n => {
+          if (!filled[n.component] && (n.slots ?? []).some(s => holds(s.body, k)))
+            filled[n.component] = changed = true;
+        });
+      });
+    }
+    const reject = (n: Node, message: string): never => {
+      throw new Diagnostic('E_EFFECT', message, n.source);
+    };
+    components.forEach((c, k) => {
+      interface Item {
+        deletion: boolean;
+        start: number;
+        end: number;
+        /** Enclosing elements and fragments (outermost first). */
+        within: object[];
+        container: object;
+      }
+      const items: Item[] = [];
+      let clock = 0;
+      const tokens = new Map<number, object>();
+      const walk = (nodes: Node[], within: object[], inSlot: boolean) => {
+        for (const n of nodes) {
+          const mark = (n as Node & { [FRAGMENT]?: number })[FRAGMENT];
+          if (mark !== undefined && !tokens.has(mark)) tokens.set(mark, {});
+          const inner = mark !== undefined ? [...within, tokens.get(mark)!] : within;
+          const start = clock++;
+          const deletion = (n.kind === 'if' || n.kind === 'each') && holds([n], k);
+          if (deletion && inSlot)
+            reject(
+              n,
+              'Conditionals and lists that can unmount components with effect cleanups are unsupported in children and render-prop content (React runs those cleanups at their position in the receiving component)',
+            );
+          if (n.kind === 'element') walk(n.children ?? [], [...inner, n], inSlot);
+          if (n.kind === 'if') walk([...n.then, ...(n.else ?? [])], inner, inSlot);
+          if (n.kind === 'each') walk([...n.body, ...(n.else ?? [])], inner, inSlot);
+          if (n.kind === 'slot') walk(n.fallback ?? [], inner, inSlot);
+          if (n.kind === 'component') for (const s of n.slots ?? []) walk(s.body, inner, true);
+          const end = clock++;
+          if (deletion || ((n.kind === 'component' || n.kind === 'slot') && holds([n], k))) {
+            const item = { deletion, start, end, within: inner, container: inner.at(-1)! };
+            for (const y of items)
+              if (
+                deletion &&
+                y.end < start &&
+                (!y.within.includes(item.container) ||
+                  (y.deletion && y.container !== item.container))
+              )
+                reject(
+                  n,
+                  'This conditional or list can unmount components with effect cleanups, and components with cleanups come before it outside its parent element (or fragment); React runs these unmount cleanups at the position of that element, which is unsupported. Move it into the same element as the components before it, or before them',
+                );
+            items.push(item);
+          }
+        }
+      };
+      walk(c.template, [c], false);
+    });
+  };
+
+  /**
+   * `always` effects run after every update of their instance, and an
+   * instance updates when its rendering parent does. React re-renders an
+   * element only when the component that created it renders: children
+   * content (`{children}`, ReactNode props) is created by the parent passing
+   * it, so it does not re-render when only the receiving component does.
+   * Reject effects without dependencies in components rendered (at any
+   * depth) inside children content; render props create their content on
+   * each call, so they follow the rendering parent as the IR does.
+   */
+  const checkChildrenEffects = () => {
+    const inside = new Set<number>();
+    const add = (k: number) => {
+      if (inside.has(k)) return;
+      inside.add(k);
+      visit(components[k].template, true);
+    };
+    const visit = (nodes: Node[], within: boolean) => {
+      for (const n of nodes) {
+        if (n.kind === 'component') {
+          if (within) add(n.component);
+          for (const s of n.slots ?? []) {
+            const call = slotsOf[n.component].find(x => x.name === s.name)?.call;
+            visit(s.body, within || !call);
+          }
+        }
+        if (n.kind === 'element') visit(n.children ?? [], within);
+        if (n.kind === 'if') visit([...n.then, ...(n.else ?? [])], within);
+        if (n.kind === 'each') visit([...n.body, ...(n.else ?? [])], within);
+        if (n.kind === 'slot') visit(n.fallback ?? [], within);
+      }
+    };
+    components.forEach(c => visit(c.template, false));
+    for (const k of inside)
+      for (const e of components[k].effects ?? [])
+        if (e.deps.kind === 'always')
+          throw new Diagnostic(
+            'E_EFFECT',
+            `${components[k].name} is rendered inside children content, which React does not re-render when only the receiving component renders; effects without dependencies are unsupported there (list the dependencies)`,
+            e.source,
+          );
   };
 
   const rootIndex = instantiate(app!, new Map(), rendered);
@@ -1769,6 +2139,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   for (const s of slotsOf[rootIndex])
     if (s.required)
       fail(rendered, 'E_BOOTSTRAP', `The root component requires the render prop ${s.name}`);
+  checkDependencies();
+  checkUnmountOrder();
+  checkChildrenEffects();
   checkRenderRefs();
   const capabilities = ['dom', 'css', 'window', 'click', 'keyboard'];
   if (components.some(c => c.handlers.some(h => h.event === 'input')))
@@ -1792,8 +2165,19 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     // React DOM restores the focused element after each commit.
     restoreFocus: true,
     // One delegated root listener; discrete events render in a microtask,
-    // other updates in a scheduler task; onChange of checkboxes comes from the click.
-    schedule: { flush: 'event-microtask', changeWithClick: true },
+    // other updates in a scheduler task; onChange of checkboxes comes from
+    // the click (docs/design/M4-ORDERING.md §2). A commit runs all cleanups
+    // of a phase before its effects; state set by passive effects (or their
+    // cleanups) renders in a later scheduler task, state set by layout
+    // effects re-renders synchronously in the same flush; the initial render
+    // commits in a scheduler task. Cleanups close over their own render.
+    schedule: {
+      flush: 'event-microtask',
+      changeWithClick: true,
+      cleanups: 'batched',
+      postWritesDeferred: true,
+      mount: 'task',
+    },
     styles: { css: graph.css, assets: graph.assets },
     records: types.records,
     functions: lower.functions,

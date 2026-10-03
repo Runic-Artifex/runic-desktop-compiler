@@ -1,0 +1,11 @@
+{
+  "description": "One update unmounts a subtree and updates its siblings: cleanups of destroyed components in their phase's walk (React: destroyed subtrees before the live children of their parent), state set by an unmount cleanup rendered later",
+  "fixtures": ["effects-swap-react"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "swap" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "swap" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

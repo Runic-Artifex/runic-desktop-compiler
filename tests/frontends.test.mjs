@@ -503,7 +503,7 @@ test('React rejects uncovered behaviour with locations', async () => {
   const cases = [
     ['function App(){console.log("render");return <p>Hi</p>;}', 'E_COMPONENT'],
     ['const discarded=new Date().getTime();function App(){return <p>Hi</p>;}', 'E_NEW'],
-    ['import {useEffect} from "react";function App(){return <p>Hi</p>;}', 'E_CAPABILITY'],
+    ['import {useMemo} from "react";function App(){return <p>Hi</p>;}', 'E_CAPABILITY'],
     ['const App=()=> <select><option>one</option></select>;', 'E_JSX'],
     // Lists need an inline callback returning JSX, with plain parameters and value keys.
     ['function App(){return <p>{[1,2].map(String)}</p>;}', 'E_JSX'],
@@ -1669,4 +1669,216 @@ test('Vue rejects watcher forms and orders Runic does not model, with locations'
     ),
     failWith('E_EFFECT', 'Child.vue'),
   );
+});
+
+/** The text of #log after each Dump click of `actions` (React effect fixtures). */
+async function effectLogs(fixture, actions) {
+  const { ir } = await lower(await graph(fixture));
+  const steps = run(ir, actions);
+  return actions
+    .map((a, i) => (a.id === 'dump' ? texts(steps.slice(0, i + 2), ['log']).log : undefined))
+    .filter(x => x !== undefined)
+    .map(s => s.split(' | '));
+}
+const click = id => ({ kind: 'click', id });
+
+test('React effects: commit order, render snapshots, batched cleanups and unmounts', async () => {
+  const [mount, update, hide, show] = await effectLogs(
+    'effects-react',
+    ['dump', 'inc', 'dump', 'toggle', 'dump', 'inc', 'toggle', 'dump'].map(click),
+  );
+  // Layout effects children first, then passive effects children first.
+  assert.deepEqual(mount, [
+    ...['A layout 0', 'B layout 0', 'App layout 0'],
+    ...['A effect 0', 'A mount', 'B effect 0', 'B mount', 'App effect 0', 'App mount'],
+  ]);
+  // Dump re-renders App, which re-renders the children: effects without
+  // dependencies run again. All cleanups of a phase precede its effects and
+  // read their own render's values.
+  assert.deepEqual(update, [
+    ...['A layout cleanup 0', 'B layout cleanup 0', 'A layout 0', 'B layout 0'],
+    ...['A layout cleanup 0', 'B layout cleanup 0', 'A layout 1', 'B layout 1', 'App layout 1'],
+    ...['A cleanup 0', 'B cleanup 0', 'App cleanup 0', 'A effect 1', 'B effect 1', 'App effect 1'],
+  ]);
+  // Unmount: layout cleanups parent first, then passive cleanups parent first.
+  assert.deepEqual(hide.slice(4), [
+    ...['A layout cleanup 1', 'B layout cleanup 1'],
+    ...['A cleanup 1', 'A unmount', 'B cleanup 1', 'B unmount'],
+  ]);
+  assert.deepEqual(show, [
+    ...['App layout 2', 'App cleanup 1', 'App effect 2'],
+    ...['A layout 2', 'B layout 2', 'A effect 2', 'A mount', 'B effect 2', 'B mount'],
+  ]);
+});
+
+test('React effects writing state: layout writes re-render at once, passive writes later', async () => {
+  const [, first, second] = await effectLogs(
+    'layout-effect-writes-state-react',
+    ['dump', 'inc', 'dump', 'inc', 'dump'].map(click),
+  );
+  // The passive effects of the first commit run before the synchronous re-render;
+  // everything precedes the handler's microtask.
+  assert.deepEqual(first, [
+    'effect a=0 b=0',
+    ...['layout a=1 b=0', 'effect a=1 b=0', 'layout b=10', 'effect a=1 b=10', 'microtask'],
+  ]);
+  assert.equal(second.at(-1), 'microtask');
+  const passive = await effectLogs(
+    'effect-writes-state-react',
+    ['dump', 'inc', 'dump', 'inc', 'inc', 'dump'].map(click),
+  );
+  assert.deepEqual(passive, [
+    ['b effect 0 (1 runs)'],
+    ['b effect 10 (1 runs)'],
+    ['b effect 20', 'b effect 30 (2 runs)'],
+  ]);
+  // An unmount in the same commit as updates: destroyed subtrees clean up in
+  // their phase's walk, before the live children of their parent; state set
+  // by a passive unmount cleanup renders after the handler's microtask.
+  const [, swap] = await effectLogs('effects-swap-react', ['dump', 'swap', 'dump'].map(click));
+  assert.deepEqual(swap.slice(swap.indexOf('App effect gone=0') + 1), [
+    ...['A layout cleanup 0', 'A.leaf layout cleanup 0', 'C layout cleanup 0'],
+    ...['C layout 1', 'B.leaf layout 1', 'B layout 1'],
+    ...['A cleanup 0', 'A.leaf cleanup 0', 'C cleanup 0'],
+    ...['C effect 1', 'B.leaf effect 1', 'B effect 1', 'App effect gone=0', 'microtask'],
+    ...['C layout cleanup 1', 'B.leaf layout cleanup 1', 'B layout cleanup 1'],
+    ...['C layout 1', 'B.leaf layout 1', 'B layout 1', 'C cleanup 1', 'B.leaf cleanup 1'],
+    ...['B cleanup 1', 'C effect 1', 'B.leaf effect 1', 'B effect 1', 'App effect gone=1'],
+  ]);
+});
+
+test('React rejects uncovered effect behaviour with locations', async () => {
+  const app = body =>
+    `import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';\n${body}`;
+  const fx = 'useEffect(() => { log.push(1); return () => { log.push(2); }; });';
+  const cases = [
+    // The effect function: inline, synchronous, no parameters, returns a cleanup or nothing.
+    ['function f() {}\nexport function App() { useEffect(f); return <p>a</p>; }', 'E_EFFECT'],
+    ['export function App() { useEffect(async () => {}); return <p>a</p>; }', 'E_EFFECT'],
+    ['export function App() { useEffect((x: number) => {}); return <p>a</p>; }', 'E_EFFECT'],
+    [
+      'export function App() { useEffect((() => 1) as unknown as () => void); return <p>a</p>; }',
+      'E_EFFECT',
+    ],
+    // Dependencies: an array literal of primitives, state or props, read while rendering.
+    [
+      'export function App() { const deps = [1]; useEffect(() => {}, deps); return <p>a</p>; }',
+      'E_EFFECT',
+    ],
+    [
+      'export function App() { const [n, setN] = useState(0); useEffect(() => {}, [...[n]]); return <p>a</p>; }',
+      'E_EFFECT',
+    ],
+    [
+      'export function App() { const o = { a: 1 }; useEffect(() => {}, [o]); return <p>a</p>; }',
+      'E_EFFECT',
+    ],
+    [
+      'export function App() { function f() {} useEffect(() => {}, [f]); return <p>a</p>; }',
+      'E_EFFECT',
+    ],
+    [
+      'const log: number[] = [];\nexport function App() { useEffect(() => {}, [log.length]); return <p>a</p>; }',
+      'E_EFFECT',
+    ],
+    [
+      'export function App() { const r = useRef(1); useEffect(() => {}, [r.current]); return <p>a</p>; }',
+      'E_REF',
+    ],
+    // Hooks outside the top level of a component body.
+    [
+      'export function App() { function later() { useEffect(() => {}); } return <p onClick={later}>a</p>; }',
+      'E_HOOK',
+    ],
+    [
+      'function useTicker() { useEffect(() => {}); }\nexport function App() { return <p>a</p>; }',
+      'E_HOOK',
+    ],
+    [
+      'export function App() { const [n, setN] = useState(0); if (n) useEffect(() => {}); return <p>a</p>; }',
+      'E_COMPONENT',
+    ],
+    // Layout effects: element refs in cleanups, microtasks.
+    [
+      `export function App() {
+  const r = useRef<HTMLInputElement | null>(null);
+  useLayoutEffect(() => () => r.current?.focus());
+  return <input ref={r} />;
+}`,
+      'E_REF',
+    ],
+    [
+      'export function App() { useLayoutEffect(() => { queueMicrotask(() => {}); }); return <p>a</p>; }',
+      'E_EFFECT',
+    ],
+    // Unmounts whose cleanups React orders by element position.
+    [
+      `const log: number[] = [];
+function C() { ${fx} return <b>c</b>; }
+export function App() {
+  const [show, setShow] = useState(true);
+  return <main><div><C /></div><div>{show && <C />}</div></main>;
+}`,
+      'E_EFFECT',
+    ],
+    [
+      `const log: number[] = [];
+function C() { ${fx} return <b>c</b>; }
+export function App() {
+  const [items, setItems] = useState([1, 2]);
+  return <main><C /><ul>{items.map(i => <C key={i} />)}</ul></main>;
+}`,
+      'E_EFFECT',
+    ],
+    [
+      `const log: number[] = [];
+function C() { ${fx} return <b>c</b>; }
+export function App() {
+  const [items, setItems] = useState([1, 2]);
+  return <main><C />{items.map(i => <C key={i} />)}</main>;
+}`,
+      'E_EFFECT',
+    ],
+    [
+      `const log: number[] = [];
+function C() { ${fx} return <b>c</b>; }
+function Box({ children }: { children: ReactNode }) { return <div>{children}</div>; }
+export function App() {
+  const [show, setShow] = useState(true);
+  return <Box>{show && <C />}</Box>;
+}`,
+      'E_EFFECT',
+    ],
+    // Children content is not re-rendered with the receiving component.
+    [
+      `const log: number[] = [];
+function C() { ${fx} return <b>c</b>; }
+function Box({ children }: { children: ReactNode }) { const [n, setN] = useState(0); return <div onClick={() => setN(n + 1)}>{children}</div>; }
+export function App() { return <Box><C /></Box>; }`,
+      'E_EFFECT',
+    ],
+  ];
+  for (const [source, code] of cases)
+    await react(
+      `import { App } from './App.tsx';`,
+      root => assert.rejects(collect(root).then(lower), failWith(code, 'App.tsx'), source),
+      { 'App.tsx': app(source) },
+    );
+  // The same unmounts are exact where React's walk agrees: after the
+  // components with cleanups in the same element, or in a list that is the
+  // only child of its element.
+  for (const template of [
+    '<main><C />{show && <C />}</main>',
+    '<main>{show && <C />}<div><C /></div></main>',
+    '<main><ul>{[1, 2].map(i => <C key={i} />)}</ul><C /></main>',
+  ])
+    await react(
+      `import { App } from './App.tsx';`,
+      async root => assert.ok((await lower(await collect(root))).ir, template),
+      {
+        'App.tsx': app(`const log: number[] = [];
+function C() { ${fx} return <b>c</b>; }
+export function App() { const [show, setShow] = useState(true); return ${template}; }`),
+      },
+    );
 });
