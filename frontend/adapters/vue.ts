@@ -904,6 +904,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   const refReads = new WeakMap<object, ts.Node>();
   /** Watcher and lifecycle functions by builder name: the local collecting registered cleanups. */
   const effectRoots = new Map<string, { watcher: boolean; cleanup?: number }>();
+  /** Getter functions of computeds. */
+  const computedFns = new Set<number>();
   /** `onCleanup` parameters of watcher functions. */
   const cleanupParams = new Set<ts.Symbol>();
   /** Calls `onCleanup(f)` / `onWatcherCleanup(f)` registering a watcher cleanup. */
@@ -1266,7 +1268,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       }
     };
     while (queue.length) visit(queue.shift());
-    return { reads, writes, heap, unknown };
+    return { reads, writes, heap, unknown, calls: seen };
   }
 
   /**
@@ -1281,6 +1283,14 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     const info = watchers.map(e => {
       const run = access([lower.functions[e.run].body]);
       const deps = e.deps.kind === 'values' ? access(e.deps.values).reads : run.reads;
+      // Vue re-runs a watchEffect only when a computed it read changed value;
+      // Runic tracks the cells the computed read.
+      if (e.deps.kind === 'tracked' && [...run.calls].some(f => computedFns.has(f)))
+        fail(
+          'E_EFFECT',
+          'A watchEffect reading a computed is planned for a later milestone (Vue re-runs it only when the computed value changes); watch the computed instead',
+          e.source,
+        );
       return { e, run, deps };
     });
     for (const w of info)
@@ -1733,7 +1743,10 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           if (
             !ts.isCallExpression(call) ||
             call.expression !== n ||
-            !ts.isExpressionStatement(call.parent)
+            !(
+              ts.isExpressionStatement(call.parent) ||
+              (ts.isArrowFunction(call.parent) && call.parent.body === call)
+            )
           )
             tsFail(n, 'E_EFFECT', `${n.text} is supported as a call statement: ${n.text}(() => …)`);
         }
@@ -2183,6 +2196,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               tsFail(init!, 'E_COMPUTED', 'computed takes a getter function');
             const index = lower.reserve();
             lower.bindings.set(sym, { kind: 'computed', fn: index });
+            computedFns.add(index);
             pending.push(() =>
               lower.function(getter as ts.ArrowFunction, name, undefined, COMPONENT, index),
             );

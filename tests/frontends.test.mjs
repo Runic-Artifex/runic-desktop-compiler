@@ -1638,6 +1638,20 @@ test('Vue rejects watcher forms and orders Runic does not model, with locations'
     ),
     failWith('E_EFFECT', 'App.vue'),
   );
+  // Vue re-runs a watchEffect only when a computed it reads changes value.
+  await assert.rejects(
+    lower(
+      await edits('effects-vue', 'App.vue', [
+        ['  ref,\n', '  ref,\n  computed,\n'],
+        [
+          "const shown = ref('');",
+          "const shown = ref('');const odd = computed(() => count.value % 2);",
+        ],
+        [after, after + 'watchEffect(() => note(`odd ${odd.value}`));'],
+      ]),
+    ),
+    failWith('E_EFFECT', 'App.vue'),
+  );
   // Vue unmounts a removed branch before it creates or updates later components.
   const panel = '<Panel v-if="show" :count="count" :note="note" />';
   for (const to of [

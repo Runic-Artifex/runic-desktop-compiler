@@ -2297,11 +2297,19 @@ impl<'p> Machine<'p> {
             }
             EffectDeps::Values { values, initial } => {
                 let saved = std::mem::replace(&mut self.current, i);
-                let new: Vec<Val> = values
+                let new: Res<Vec<Val>> = values
                     .iter()
-                    .map(|v| self.eval(v, &Frame::new(0)).unwrap_or(Val::Undefined))
+                    .map(|v| self.eval(v, &Frame::new(0)))
                     .collect();
                 self.current = saved;
+                // A throwing dependency is an uncaught exception; the effect does not run.
+                let new = match new {
+                    Ok(new) => new,
+                    Err(t) => {
+                        self.uncaught.push(t);
+                        return false;
+                    }
+                };
                 let state = &mut self.instances[i].effects[e];
                 let changed = !started
                     || new.len() != state.values.len()
