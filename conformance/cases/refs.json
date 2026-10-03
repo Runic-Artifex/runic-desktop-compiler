@@ -1,6 +1,6 @@
 {
   "description": "Element refs: focus() from a handler, typing into the focused input, blur() on Escape, refs set to null when their element is removed",
-  "fixtures": ["refs-svelte", "refs-react"],
+  "fixtures": ["refs-svelte", "refs-react", "refs-vue"],
   "actions": [
     { "kind": "click", "id": "focus" },
     { "kind": "type", "text": "abc" },

@@ -1181,6 +1181,149 @@ test('Vue rejects uncovered checkbox, key and slot behaviour with locations', as
     );
 });
 
+// The refs case (conformance/cases/refs.json) as interpreter actions: typing
+// into the focused field becomes input events (the snapshot has no focus).
+const refActions = [
+  { kind: 'click', id: 'focus' },
+  { kind: 'input', id: 'field', value: 'abc' },
+  { kind: 'keydown', id: 'field', key: 'Escape' },
+  { kind: 'input', id: 'field', value: 'abcx' },
+  { kind: 'click', id: 'check' },
+  { kind: 'click', id: 'focus-details' },
+  { kind: 'keydown', id: 'details', key: 'Enter' },
+  { kind: 'click', id: 'toggle' },
+  { kind: 'click', id: 'check' },
+  { kind: 'click', id: 'focus-details' },
+  { kind: 'click', id: 'toggle' },
+  { kind: 'click', id: 'check' },
+  { kind: 'click', id: 'focus' },
+  { kind: 'input', id: 'field', value: 'abcx!' },
+];
+
+/** `edit` with several replacements in one file. */
+async function edits(name, file, pairs) {
+  let g = await graph(name);
+  const id = path.join(g.root, file);
+  let code = g.modules.get(id).code;
+  for (const [from, to] of pairs) {
+    assert.ok(code.includes(from), `Replacement must match in ${name}: ${from}`);
+    code = code.replace(from, to);
+  }
+  const modules = new Map(g.modules);
+  modules.set(id, { ...g.modules.get(id), code });
+  return { ...g, modules, hash: hash(code) };
+}
+
+test('Vue template refs match Svelte bind:this: set at mount, null after removal', async () => {
+  const [vue] = await agree('refs-vue', 'refs-svelte', refActions);
+  const status = steps => texts(steps, ['status']).status;
+  assert.equal(status(vue.slice(0, 6)), 'details mounted');
+  assert.equal(status(vue.slice(0, 10)), 'details gone');
+  assert.equal(status(vue), 'details mounted');
+  const refsOf = ir => JSON.stringify(ir.components[ir.root].template).match(/"ref":\d+/g);
+  const { ir } = await lower(await graph('refs-vue'));
+  // The ref attribute is not rendered; both elements bind their cells.
+  assert.deepEqual(refsOf(ir), ['"ref":0', '"ref":1']);
+  assert.ok(!JSON.stringify(ir.components[ir.root].template).includes('"name":"ref"'));
+  // ref="name" also binds a useTemplateRef by its variable name (ref_key),
+  // and `ref<T>()` starts undefined.
+  const variants = [
+    [['ref="field"', 'ref="input"']],
+    [['ref<HTMLButtonElement | null>(null)', 'ref<HTMLButtonElement>()']],
+    [
+      ['ref<HTMLButtonElement | null>(null)', 'shallowRef<HTMLButtonElement | null>(null)'],
+      ['import { ref,', 'import { ref, shallowRef,'],
+    ],
+  ];
+  for (const pairs of variants) {
+    const steps = run((await lower(await edits('refs-vue', 'App.vue', pairs))).ir, refActions);
+    assert.deepEqual(controls(steps), controls(vue), JSON.stringify(pairs));
+  }
+});
+
+test('Vue rejects uncovered template refs with locations', async () => {
+  const r = 'refs-vue';
+  const cases = [
+    [r, [['ref="details"', ':ref="(el) => {}"']]],
+    [r, [['ref="details"', ':ref="\'details\'"']]],
+    [r, [['<p v-if="show">', '<p v-for="i in [1]" :key="i">']]],
+    [r, [['ref="details"', 'ref="other"']]],
+    [r, [['ref="details"', 'ref="check"']]],
+    [r, [['ref="details"', 'ref="status"']]],
+    [r, [['ref="details"', 'ref=""']]],
+    [r, [['<button id="focus"', '<button id="focus" ref="details"']]],
+    [r, [['<p id="echo">', '<p id="echo" ref="field">']]],
+    // ref="details" names the ref `details` and the key of `input`.
+    [
+      r,
+      [
+        [
+          "useTemplateRef<HTMLInputElement>('field')",
+          "useTemplateRef<HTMLInputElement>('details')",
+        ],
+        ['ref="field"', 'ref="input"'],
+      ],
+    ],
+    [r, [["useTemplateRef<HTMLInputElement>('field')", "useTemplateRef('field')"]]],
+    [r, [["useTemplateRef<HTMLInputElement>('field')", "useTemplateRef<string>('field')"]]],
+    [
+      r,
+      [
+        [
+          "useTemplateRef<HTMLInputElement>('field')",
+          'useTemplateRef<HTMLInputElement>(text.value)',
+        ],
+      ],
+    ],
+    [
+      r,
+      [
+        [
+          'const details = ref<HTMLButtonElement | null>(null);',
+          "const details = useTemplateRef<HTMLButtonElement>('field');",
+        ],
+      ],
+    ],
+    [r, [['input.value?.focus();', "useTemplateRef<HTMLInputElement>('x');"]]],
+    // Writes: Vue owns the value.
+    [r, [['input.value?.focus();', 'input.value = null;']]],
+    [r, [['@click="details?.focus()"', '@click="details = null"']]],
+    // Reads while rendering: Vue sets refs after rendering and renders again.
+    [r, [['{{ status }}', "{{ details ? 'mounted' : status }}"]]],
+    [
+      r,
+      [
+        ['{{ status }}', '{{ status }}{{ label() }}'],
+        [
+          'function check() {',
+          'function label() { return input.value ? "a" : ""; }\nfunction check() {',
+        ],
+      ],
+    ],
+    [
+      r,
+      [
+        ['import { ref,', 'import { computed, ref,'],
+        [
+          'const text',
+          'const label = computed(() => (details.value === null ? "gone" : "here"));\nconst text',
+        ],
+        ['{{ status }}', '{{ label }}'],
+      ],
+    ],
+    // Component and slot-content refs.
+    ['slots-vue', [['<Card title="plain">', '<Card title="plain" ref="card">']]],
+    ['slots-vue', [['<p id="plain-body">', '<p id="plain-body" ref="body">']]],
+    ['slots-vue', [['<p id="fancy-body">', '<p id="fancy-body" :ref="note">']]],
+  ];
+  for (const [name, pairs] of cases)
+    await assert.rejects(
+      lower(await edits(name, 'App.vue', pairs)),
+      failWith('E_REF', 'App.vue'),
+      JSON.stringify(pairs),
+    );
+});
+
 test('Event fields inside closures in a handler; spreads keep the source key order', async () => {
   const app = `import { useState } from 'react';
 type Todo = { id: number; done: boolean; title: string };

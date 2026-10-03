@@ -7,6 +7,8 @@ declare module 'vue' {
   export function ref<T = undefined>(): Ref<T | undefined>;
   export function shallowRef<T>(value: T): Ref<T>;
   export function computed<T>(getter: () => T): Readonly<Ref<T>>;
+  /** A template ref (3.5): set by Vue to the element with `ref="key"` while it is mounted. */
+  export function useTemplateRef<T = unknown>(key: string): Readonly<Ref<T | null>>;
   export function createApp(component: unknown): { mount(selector: string): void };
 }
 declare module '*.vue' {
