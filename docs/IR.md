@@ -120,7 +120,7 @@ Every expression has a statically known type, which the validator infers and che
 | `lit {value}`, `undefined {type}`, `null {type}` | value / `type` | Literals; `undefined`/`null` carry their Maybe type |
 | `cell {cell, read: "current" \| "snapshot"}` | cell type | `current`: latest value, including writes earlier in this handler. `snapshot`: the value the last render observed (React state). In templates and initialisers both mean the committed value. |
 | `local {local}`, `payload` | local type / event payload | |
-| `attrs {items}` | attrs | An attribute bag from items in order, each `{name, value}` (value: string, `maybe<string>`, boolean, or for `on<event>` names a function taking the event or nothing) or `{spread}` (a bag); a later entry of a name wins |
+| `attrs {items, merge?}` | attrs | An attribute bag from items in order, each `{name, value}` (value: string, `maybe<string>`, boolean, or for `on<event>` names a function taking the event or nothing) or `{spread}` (a bag); a later entry of a name wins. With `merge: true` (Vue's `mergeProps`), an entry, or each resolved entry of a spread, combines with an earlier one of its name in place: `class` keeps the earlier value when both are equal and otherwise joins the non-empty trimmed values with a space (absent counts as empty); other names take the later value |
 | `event` | event | The event object of the running handler (handlers only; closures read it through a local) |
 | `global {global}` | global type | A module constant |
 | `not`, `neg`, `bit-not`, `to-string`, `to-number`, `to-boolean`, `typeof`, `utf16-length` `{arg}` | | `!`, unary `-`, `~`, `String(x)`, `Number(x)`, `Boolean(x)`, `typeof`, `.length` |

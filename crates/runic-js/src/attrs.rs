@@ -54,6 +54,54 @@ impl<L> Attrs<L> {
     }
 }
 
+/// Two `class` values of a merging bag combined (`None`: absent): the earlier
+/// value when both are equal, otherwise the non-empty trimmed values joined
+/// by a space (Vue's `mergeProps`, whose `normalizeClass` trims each part).
+pub fn class_merge(prev: Option<&JsString>, next: Option<&JsString>) -> Option<JsString> {
+    if prev == next {
+        return prev.cloned();
+    }
+    let mut units: Vec<u16> = vec![];
+    for part in [prev, next].into_iter().flatten() {
+        let t = crate::string_ops::trim(part);
+        if !t.is_empty() {
+            if !units.is_empty() {
+                units.push(u16::from(b' '));
+            }
+            units.extend_from_slice(t.units());
+        }
+    }
+    Some(JsString::from_units(units))
+}
+
+/// Adds an entry to a merging bag (`attrs` with `merge`): a name already
+/// present combines with it in place (`class`: [`class_merge`]; other names:
+/// the later value), a new name is appended.
+pub fn attrs_merge<L>(v: &mut Vec<(JsString, AttrValue<L>)>, name: JsString, value: AttrValue<L>) {
+    let text = |a: &AttrValue<L>| match a {
+        AttrValue::Text(s) => Some(Some(s.clone())),
+        AttrValue::Absent => Some(None),
+        _ => None,
+    };
+    let slot = v.iter().position(|(n, _)| *n == name);
+    // A missing `class` merges like an absent one.
+    let prev = match slot {
+        Some(i) => text(&v[i].1),
+        None => Some(None),
+    };
+    let value = match (name == JsString::from("class"), prev, text(&value)) {
+        (true, Some(a), Some(b)) => match class_merge(a.as_ref(), b.as_ref()) {
+            Some(s) => AttrValue::Text(s),
+            None => AttrValue::Absent,
+        },
+        _ => value,
+    };
+    match slot {
+        Some(i) => v[i].1 = value,
+        None => v.push((name, value)),
+    }
+}
+
 impl<L> StrictEq for Attrs<L> {
     fn strict_eq(&self, other: &Self) -> bool {
         self.0.len() == other.0.len()
@@ -90,3 +138,44 @@ impl<L> ToMapKey for Attrs<L> {
     }
 }
 impl<L> crate::Own for Attrs<L> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(x: &str) -> JsString {
+        JsString::from(x)
+    }
+
+    #[test]
+    fn class_merge_like_vue_merge_props() {
+        // normalizeClass([a, b]) unless a === b.
+        assert_eq!(
+            class_merge(Some(&s("btn x")), Some(&s("wide"))),
+            Some(s("btn x wide"))
+        );
+        assert_eq!(class_merge(Some(&s("a")), Some(&s("a"))), Some(s("a")));
+        assert_eq!(class_merge(None, Some(&s(" w "))), Some(s("w")));
+        assert_eq!(class_merge(Some(&s(" a ")), Some(&s(""))), Some(s("a")));
+        assert_eq!(class_merge(Some(&s("")), None), Some(s("")));
+        assert_eq!(class_merge(None, None), None);
+        assert_eq!(
+            class_merge(Some(&s("a  b")), Some(&s("c"))),
+            Some(s("a  b c"))
+        );
+    }
+
+    #[test]
+    fn merged_entries_combine_in_place() {
+        let mut v: Vec<(JsString, AttrValue<()>)> = vec![];
+        attrs_merge(&mut v, s("class"), AttrValue::Text(s("btn")));
+        attrs_merge(&mut v, s("type"), AttrValue::Text(s("button")));
+        attrs_merge(&mut v, s("class"), AttrValue::Text(s("wide")));
+        attrs_merge(&mut v, s("type"), AttrValue::Text(s("submit")));
+        attrs_merge(&mut v, s("hidden"), AttrValue::Flag(true));
+        let names: Vec<String> = v.iter().map(|(n, _)| n.to_string()).collect();
+        assert_eq!(names, ["class", "type", "hidden"]);
+        assert!(matches!(&v[0].1, AttrValue::Text(t) if *t == s("btn wide")));
+        assert!(matches!(&v[1].1, AttrValue::Text(t) if *t == s("submit")));
+    }
+}

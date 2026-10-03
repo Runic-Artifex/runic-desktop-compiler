@@ -465,8 +465,9 @@ test('Vue rejects uncovered component behaviour with locations', async () => {
       'E_EMITS',
     ],
     ['App.vue', ':label="item.label"', '', 'E_PROPS'],
-    ['App.vue', ':first="i === 0"', ':first="i === 0" title="x"', 'E_PROPS'],
-    ['App.vue', '@up="(id) => up(id)"', '@up="(id) => up(id)" @down="add"', 'E_PROPS'],
+    // Fallthrough attributes Vue would merge or that name no supported event.
+    ['App.vue', ':first="i === 0"', ':first="i === 0" style="color: red"', 'E_ATTRS'],
+    ['App.vue', '@up="(id) => up(id)"', '@up="(id) => up(id)" @down="add"', 'E_EVENT'],
     ['App.vue', ':label="item.label"', ':label="item.id"', 'E_PROPS'],
     [
       'App.vue',
@@ -1277,8 +1278,10 @@ test('Vue rejects uncovered template refs with locations', async () => {
     // Writes: Vue owns the value.
     [r, [['input.value?.focus();', 'input.value = null;']]],
     [r, [['@click="details?.focus()"', '@click="details = null"']]],
-    // Reads while rendering: Vue sets refs after rendering and renders again.
-    [r, [['{{ status }}', "{{ details ? 'mounted' : status }}"]]],
+    // Reads while rendering: Vue sets refs after rendering and renders again
+    // (template text may read them; tests/vue-attrs.test.mjs).
+    [r, [['<p id="status">', `<p id="status" :title="details ? 'mounted' : status">`]]],
+    [r, [['<p id="status">', '<p v-if="details" id="status">']]],
     [
       r,
       [

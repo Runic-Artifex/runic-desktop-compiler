@@ -331,7 +331,7 @@ impl<'a> Scope<'a> {
                 }
                 a
             }
-            Attrs { items } => {
+            Attrs { items, .. } => {
                 for item in items {
                     match item {
                         AttrItem::Spread { spread } => self.expect(spread, Type::Attrs, d, src)?,

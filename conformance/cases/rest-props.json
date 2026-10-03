@@ -1,6 +1,6 @@
 {
   "description": "Rest props forwarded with spread attributes, through two components: listeners, boolean, optional and number attributes from call sites, attribute removal when a value becomes undefined, a disabled forwarded button",
-  "fixtures": ["rest-svelte", "rest-react"],
+  "fixtures": ["rest-svelte", "rest-react", "rest-vue"],
   "actions": [
     { "kind": "click", "id": "inc" },
     { "kind": "click", "id": "inc" },

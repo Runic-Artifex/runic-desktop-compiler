@@ -1084,9 +1084,14 @@ pub enum Expr {
         ty: Type,
         items: Vec<ArrayItem>,
     },
-    /// An attribute bag; a later entry of a name wins.
+    /// An attribute bag; a later entry of a name wins. With `merge`, an entry
+    /// (or a spread bag's resolved entry) combines with an earlier one of its
+    /// name in place: `class` values join (`js::class_merge`), other names
+    /// take the later value.
     Attrs {
         items: Vec<AttrItem>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        merge: bool,
     },
     Get {
         object: Box<Expr>,
@@ -1215,7 +1220,7 @@ impl Expr {
                     ArrayItem::Item(e) => e,
                 })
                 .collect(),
-            Attrs { items } => items
+            Attrs { items, .. } => items
                 .iter()
                 .map(|i| match i {
                     AttrItem::Spread { spread } => spread,

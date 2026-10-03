@@ -25,11 +25,19 @@
 // - template refs: `ref="name"` on an element binds a `ref()`/`shallowRef()`
 //   variable of that name or a `useTemplateRef('name')` to an element cell
 //   (set when the element mounts, null when it unmounts). Vue sets them in the
-//   post flush and re-renders readers, so they may be read in handlers only.
+//   post flush and re-renders readers, so they may be read in handlers and
+//   template text only. On a component, the ref is the instance: a record of
+//   the element template ref the child exposes (`defineExpose({ input })`);
+// - fallthrough attributes: what a parent passes beyond the declared props,
+//   emits and models is the child's attrs (an attribute bag, rest props),
+//   applied to its single root (unless `inheritAttrs: false`) and where it
+//   binds `v-bind="$attrs"` (or the `useAttrs()` object), merged with the
+//   element's own attributes as `mergeProps` does (class values join).
 import ts from 'typescript';
 import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
 import type {
+  AttrItem,
   Cell,
   Effect,
   Component,
@@ -108,7 +116,39 @@ const MACROS = new Set([
   'defineEmits',
   'defineModel',
   'defineSlots',
+  'defineOptions',
+  'defineExpose',
 ]);
+/**
+ * Fallthrough attributes (runtime-dom patchProp): runtime-dom's special
+ * boolean attributes, present when the value is truthy or ''.
+ */
+const SPECIAL_BOOLEAN_ATTRS = new Set([
+  'itemscope',
+  'allowfullscreen',
+  'formnovalidate',
+  'ismap',
+  'nomodule',
+  'novalidate',
+  'readonly',
+]);
+/**
+ * Boolean DOM properties of the supported tags (`'*'`: every element), which
+ * runtime-dom sets as properties (`''` → true); other attributes are set as
+ * text, so `false` becomes "false".
+ */
+const BOOLEAN_PROPS: Record<string, string[]> = {
+  '*': ['hidden', 'autofocus', 'inert'],
+  button: ['disabled'],
+  input: ['disabled', 'required', 'multiple'],
+  ol: ['reversed'],
+};
+/** Lowercase DOM properties whose value is not the attribute text (live state, numbers). */
+const UNREFLECTED_PROPS: Record<string, string[]> = {
+  '*': ['value', 'checked', 'indeterminate', 'nonce'],
+  input: ['size', 'width', 'height'],
+  ol: ['start'],
+};
 /** Watchers and lifecycle hooks lowered to effects (docs/design/M4-EFFECTS.md). */
 const LIFECYCLE = new Set([
   'watch',
@@ -261,6 +301,12 @@ interface Macros {
   models: { prop: string; typeText: string; nullable: boolean }[];
   /** `defineSlots<T>()`: its type argument (without it, slot props are inferred). */
   slots?: { typeText: string };
+  /** `defineOptions({ inheritAttrs: false })`. */
+  inheritAttrs: boolean;
+  /** `const attrs = useAttrs()`: the variable. */
+  attrsVar?: string;
+  /** `defineExpose({ key: ref })`: exposed template refs. */
+  expose?: { key: string; name: string; at: Source }[];
   /** Top-level setup names the template can see (refs unwrapped). */
   topNames: string[];
 }
@@ -433,7 +479,47 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         : undefined;
     };
     const children = new Map<string, string>();
-    const macros: Macros = { models: [], topNames: [] };
+    const macros: Macros = { models: [], topNames: [], inheritAttrs: true };
+    const options = (call: ts.CallExpression) => {
+      const arg = call.arguments[0] && skipParens(call.arguments[0]);
+      if (call.arguments.length !== 1 || !ts.isObjectLiteralExpression(arg))
+        return fail('E_OPTIONS', 'defineOptions takes an object literal', at(call));
+      for (const p of arg.properties) {
+        const key = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
+        const v = ts.isPropertyAssignment(p) ? p.initializer.kind : undefined;
+        if (
+          key !== 'inheritAttrs' ||
+          (v !== ts.SyntaxKind.TrueKeyword && v !== ts.SyntaxKind.FalseKeyword)
+        )
+          fail(
+            'E_OPTIONS',
+            'defineOptions supports inheritAttrs: true or false (other options are planned for later)',
+            at(p),
+          );
+        macros.inheritAttrs = v === ts.SyntaxKind.TrueKeyword;
+      }
+    };
+    const expose = (call: ts.CallExpression) => {
+      if (macros.expose) fail('E_EXPOSE', 'defineExpose may be called once', at(call));
+      const arg = call.arguments[0] && skipParens(call.arguments[0]);
+      if (call.arguments.length !== 1 || !ts.isObjectLiteralExpression(arg))
+        return fail('E_EXPOSE', 'defineExpose takes an object literal', at(call));
+      macros.expose = arg.properties.map(p => {
+        if (ts.isShorthandPropertyAssignment(p))
+          return { key: p.name.text, name: p.name.text, at: at(p) };
+        if (
+          ts.isPropertyAssignment(p) &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
+          ts.isIdentifier(p.initializer)
+        )
+          return { key: p.name.text, name: p.initializer.text, at: at(p) };
+        return fail(
+          'E_EXPOSE',
+          'defineExpose supports template refs by name ({ input } or { el: input })',
+          at(p),
+        );
+      });
+    };
     const props = (call: ts.CallExpression, variable?: ts.BindingName) => {
       if (macros.props) fail('E_PROPS', 'defineProps may be called once', at(call));
       let define = call;
@@ -611,6 +697,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         if (m?.name === 'defineProps' || m?.name === 'withDefaults') props(m.call);
         else if (m?.name === 'defineEmits') emits(m.call);
         else if (m?.name === 'defineSlots') slots(m.call);
+        else if (m?.name === 'defineOptions') options(m.call);
+        else if (m?.name === 'defineExpose') expose(m.call);
         else if (m) fail('E_MODEL', 'Assign defineModel to a variable', at(stmt));
         continue;
       }
@@ -622,6 +710,18 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         else if (m?.name === 'defineEmits') emits(m.call, d.name);
         else if (m?.name === 'defineModel') model(m.call, d.name);
         else if (m?.name === 'defineSlots') slots(m.call);
+        else if (m) fail('E_MACRO', `${m.name} is a statement`, at(d));
+        const init = d.initializer && skipParens(d.initializer);
+        if (
+          init &&
+          ts.isCallExpression(init) &&
+          ts.isIdentifier(init.expression) &&
+          init.expression.text === 'useAttrs'
+        ) {
+          if (macros.attrsVar || !ts.isIdentifier(d.name))
+            fail('E_ATTRS', 'Call useAttrs once, as const attrs = useAttrs()', at(d));
+          macros.attrsVar = (d.name as ts.Identifier).text;
+        }
         if (ts.isIdentifier(d.name)) macros.topNames.push(d.name.text);
         else if (ts.isObjectBindingPattern(d.name) && m)
           for (const el of d.name.elements)
@@ -694,6 +794,166 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     }
     return false;
   };
+
+  // --- Fallthrough attributes (docs/design/M5-PLATFORM.md, rest props) ---
+  // A component's attrs are the props and listeners a parent passes that it
+  // does not declare (props, emits, models). Vue applies them to its single
+  // root element or component (unless inheritAttrs is false) and wherever its
+  // template binds $attrs (or the useAttrs() object) with v-bind. The names a
+  // component's attrs may hold, and the elements they reach, come from every
+  // call site and through forwarding.
+  /** Whether component `c` declares the vnode prop `key` (a prop, model or emit listener). */
+  const declares = (c: Unit, key: string): boolean => {
+    const camel = camelize(key);
+    if ((c.macros.props?.names ?? []).includes(camel)) return true;
+    if (c.macros.models.some(m => m.prop === camel || 'onUpdate:' + m.prop === key)) return true;
+    return /^on[A-Z]/.test(key) && !!c.macros.emits?.events.some(e => e.key === key);
+  };
+  /** `v-bind="$attrs"` or `v-bind="attrs"` (the useAttrs() object). */
+  const isAttrsSpread = (u: Unit, p: VNode): boolean => {
+    if (p.type !== DIRECTIVE || p.name !== 'bind' || p.arg || !p.exp) return false;
+    const code = p.exp.content.trim();
+    return code === '$attrs' || (!!u.macros.attrsVar && code === u.macros.attrsVar);
+  };
+  /** The vnode prop key a component tag passes with `p`, if it passes one. */
+  const passedKey = (p: VNode): string | undefined => {
+    if (p.type === ATTRIBUTE) return ['ref', 'key'].includes(p.name) ? undefined : p.name;
+    if (p.type !== DIRECTIVE || !p.arg?.isStatic) return undefined;
+    if (p.name === 'bind')
+      return ['ref', 'key'].includes(p.arg.content) ? undefined : p.arg.content;
+    if (p.name === 'on') return handlerKey(p.arg.content);
+    return undefined;
+  };
+  /** The IR bag name of a vnode prop key: `onClick` → `onclick`. */
+  const bagName = (key: string) => (/^on[A-Z]/.test(key) ? 'on' + hyphenate(key.slice(2)) : key);
+  interface AttrsPlan {
+    /** IR names the attrs may hold → the vnode prop key. */
+    keys: Map<string, string>;
+    /** Tags of the elements the attrs reach. */
+    tags: Set<string>;
+    /** Root nodes that receive the attrs (inheritAttrs); undefined without a single root. */
+    roots?: VNode[];
+    /** Nodes with v-bind="$attrs". */
+    sites: VNode[];
+    /** Child components the attrs are forwarded to. */
+    forwards: Unit[];
+    /** A call site that passes attributes (diagnostics). */
+    at?: Source;
+  }
+  const plans = new Map<Unit, AttrsPlan>();
+  const eachNode = (list: VNode[], f: (n: VNode) => void) => {
+    for (const n of list ?? [])
+      if (n.type === ELEMENT) {
+        f(n);
+        eachNode(n.children, f);
+      }
+  };
+  for (const u of order) {
+    const loc = (n: VNode) => locate(u.original, n.loc?.start.offset ?? 0, u.rel);
+    const items = u.descriptor.template.ast.children.filter(
+      (c: VNode) => c.type !== COMMENT && !(c.type === TEXT && !c.content.trim()),
+    );
+    const plain = (c: VNode) =>
+      c.type === ELEMENT &&
+      !dir(c, 'for') &&
+      c.tag !== 'template' &&
+      (c.tagType === PLAIN || (c.tagType === COMPONENT_TAG && !!childName(u, c.tag)));
+    // One root node, or one v-if chain of them.
+    const single =
+      items.length > 0 &&
+      items.every(plain) &&
+      (items.length === 1
+        ? !dir(items[0], 'else') && !dir(items[0], 'else-if')
+        : !!dir(items[0], 'if') &&
+          items.slice(1).every((c: VNode) => dir(c, 'else-if') || dir(c, 'else')));
+    const sites: VNode[] = [];
+    eachNode(u.descriptor.template.ast.children, n => {
+      if (n.tagType === SLOT_TAG) return; // slot props (outlet)
+      for (const p of n.props)
+        if (p.type === DIRECTIVE && p.name === 'bind' && !p.arg) {
+          if (!isAttrsSpread(u, p))
+            fail(
+              'E_TEMPLATE',
+              `v-bind with an object is supported for $attrs${u.macros.attrsVar ? ` and ${u.macros.attrsVar}` : ''} (other objects are planned for later)`,
+              loc(p),
+            );
+          if (u.macros.inheritAttrs && single && items.includes(n))
+            fail(
+              'E_ATTRS',
+              'Vue already applies $attrs to the root node; set defineOptions({ inheritAttrs: false }) to bind them here',
+              loc(p),
+            );
+          sites.push(n);
+        }
+    });
+    plans.set(u, {
+      keys: new Map(),
+      tags: new Set(),
+      ...(single ? { roots: items } : {}),
+      sites,
+      forwards: [],
+    });
+  }
+  for (const u of order) {
+    const loc = (n: VNode) => locate(u.original, n.loc?.start.offset ?? 0, u.rel);
+    const plan = plans.get(u)!;
+    const targets = [...(u.macros.inheritAttrs ? (plan.roots ?? []) : []), ...plan.sites];
+    for (const t of targets) {
+      const name = t.tagType === COMPONENT_TAG ? childName(u, t.tag) : undefined;
+      if (name) plan.forwards.push(units.get(u.children.get(name)!)!);
+      else plan.tags.add(t.tag);
+    }
+    eachNode(u.descriptor.template.ast.children, n => {
+      const name = n.tagType === COMPONENT_TAG ? childName(u, n.tag) : undefined;
+      if (!name) return;
+      const child = units.get(u.children.get(name)!)!;
+      const into = plans.get(child)!;
+      for (const p of n.props) {
+        const key = passedKey(p);
+        if (key === undefined || declares(child, key)) continue;
+        if (into.keys.has(bagName(key)) && into.keys.get(bagName(key)) !== key)
+          fail('E_ATTRS', `${key} and ${into.keys.get(bagName(key))} name one attribute`, loc(p));
+        into.keys.set(bagName(key), key);
+        into.at ??= loc(p);
+      }
+    });
+  }
+  // Names flow to the components attrs are forwarded to; element tags flow back.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const plan of plans.values())
+      for (const to of plan.forwards) {
+        const into = plans.get(to)!;
+        for (const [k, key] of plan.keys)
+          if (!into.keys.has(k)) {
+            into.keys.set(k, key);
+            into.at ??= plan.at;
+            changed = true;
+          }
+        for (const tag of into.tags)
+          if (!plan.tags.has(tag)) {
+            plan.tags.add(tag);
+            changed = true;
+          }
+      }
+  }
+  for (const u of order) {
+    const plan = plans.get(u)!;
+    if (plan.keys.size && u.macros.inheritAttrs && !plan.roots)
+      fail(
+        'E_ATTRS',
+        `${path.basename(u.file)} renders no single root element or component (but several nodes, text, a list or a slot), so Vue drops the attributes it does not declare (${[...plan.keys.values()].join(', ')}); declare them as props or bind $attrs with inheritAttrs: false`,
+        plan.at,
+      );
+    for (const to of plan.forwards)
+      for (const [, key] of plan.keys)
+        if (declares(to, key))
+          fail(
+            'E_ATTRS',
+            `The attributes of ${path.basename(u.file)} may hold ${key}, which ${path.basename(to.file)} declares; pass ${key} explicitly`,
+            plan.at,
+          );
+  }
 
   // --- Virtual modules: script, then the template as typed statements ---
   for (const u of order) {
@@ -779,8 +1039,19 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         const child = units.get(u.children.get(name)!)!;
         // Props are checked against the child's props type (typing inline callbacks).
         s += `((__p: __RunicProps_${name}) => 0)({\n`;
+        // Attributes the child does not declare fall through to an element.
+        const fallthrough: VNode[] = [];
         for (const p of n.props) {
           if (p.type !== DIRECTIVE || !p.exp || (p.arg && !p.arg.isStatic)) continue;
+          const key = passedKey(p);
+          if (
+            key !== undefined &&
+            (p.name === 'bind' || p.name === 'on') &&
+            !declares(child, key)
+          ) {
+            fallthrough.push(p);
+            continue;
+          }
           if (p.name === 'bind' && p.arg && p.arg.content !== 'key') {
             s += `${JSON.stringify(camelize(p.arg.content))}: `;
             inline(p.exp);
@@ -812,6 +1083,15 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           }
         }
         s += '});\n';
+        for (const p of fallthrough) {
+          if (p.name === 'on') {
+            // A listener on the element: typed by the event's interface.
+            s += `__runic_on<${eventInterface(hyphenate(handlerKey(p.arg.content).slice(2)))}>(`;
+            handler(p.exp, '$event');
+            s += ')';
+          } else inline(p.exp);
+          s += ';\n';
+        }
         structuralExprs(n);
         // Slot content, in blocks that destructure the child's slot props.
         const block = (slot: string, exp: VNode | undefined, body: VNode[]) => {
@@ -859,6 +1139,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       } else {
         for (const p of n.props) {
           if (p.type !== DIRECTIVE || !p.exp || p.name === 'for') continue;
+          if (p.name === 'bind' && !p.arg) continue; // v-bind="$attrs"
           if (p.name === 'on') {
             // `$event` and handler parameters are typed by the event's interface.
             const event = p.arg?.isStatic ? listenedEvent(p.arg.content, modifierNames(p)) : '';
@@ -890,10 +1171,21 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       })
       .join(' ')} };\n`;
     s += `export type __RunicProps = (${macros.props?.typeText ?? '{}'}) & Partial<__RunicEmits> & Partial<__RunicModels>;\n`;
+    // The component instance a parent's template ref sees: the exposed refs, unwrapped.
+    s += `export type __RunicInstance = { ${(macros.expose ?? [])
+      .map(e => `${JSON.stringify(e.key)}: __RunicUnref<typeof ${e.name}>;`)
+      .join(' ')} };\n`;
     u.synthetic = s;
   }
   const files = new Map<string, string>();
-  for (const u of order) files.set(u.virtual, u.synthetic);
+  for (const u of order) {
+    files.set(u.virtual, u.synthetic);
+    // `import Field from './Field.vue'` resolves here (InstanceType<typeof Field>).
+    files.set(
+      u.file + '.d.ts',
+      `declare const component: new () => import(${JSON.stringify(u.virtual)}).__RunicInstance;\nexport default component;\n`,
+    );
+  }
   for (const [id, m] of graph.modules)
     if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep)) files.set(id, m.code);
   const program = createProgram(files, [VUE]);
@@ -979,6 +1271,12 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   const templateRefsOf: { cells: Set<number>; reads: { cell: number; node: ts.Node }[] }[] = [];
   /** The source node of each template-ref read (function bodies are copied when finished). */
   const refReads = new WeakMap<object, ts.Node>();
+  /** Template-ref reads Vue does not make while rendering (a component ref passed back to its child). */
+  const unrenderedReads = new WeakSet<object>();
+  /** The attrs (rest props) cell of the current component. */
+  let restCell: number | undefined;
+  /** Per component: the exposed template ref (`defineExpose`), its key and prop. */
+  const exposedOf: ({ key: string; prop: string } | undefined)[] = [];
   /** Watcher and lifecycle functions by builder name: the local collecting registered cleanups. */
   const effectRoots = new Map<string, { watcher: boolean; cleanup?: number }>();
   /** Getter functions of computeds. */
@@ -1016,6 +1314,12 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           node,
           'E_MODEL',
           'Reading a model after writing it in the same function: Vue returns the old value until the parent re-renders; keep the written value in a local instead',
+        );
+      if (cell === restCell)
+        tsFail(
+          node,
+          'E_ATTRS',
+          'Reading fallthrough attributes by name is planned for a later milestone; forward them with v-bind',
         );
       const read: Expr = { op: 'cell', cell, read: 'current' };
       if (templateRefCells.has(cell)) {
@@ -1492,10 +1796,17 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
 
   /**
    * Vue sets a template ref in the post flush (null synchronously on unmount)
-   * and re-renders what read it; the IR sets it while rendering, without a
-   * second render. So no code that runs while rendering may read one: template
-   * expressions, the functions and computeds they call and, when rendering
-   * calls function values, every closure.
+   * and re-renders what read it; the IR sets it while rendering and renders
+   * again in the same flush (a ref write extends the flush), after the
+   * pass's post effects, as Vue re-renders after its mounted hooks. The
+   * renders differ in between: the IR's first pass already shows the new
+   * ref to what renders after the element. Only text shows that difference,
+   * and nothing observes text between the passes (no IR operation reads
+   * rendered text or layout; revisit with layout reads), so template text
+   * may read a ref directly. Other code that runs while rendering may not:
+   * attributes (a disabled state changes focus), structure (v-if, lists,
+   * components mount in the first pass), the functions and computeds the
+   * template calls and, when rendering calls function values, every closure.
    */
   function rejectRenderRefReads() {
     if (!templateRefsOf.some(r => r?.cells.size)) return;
@@ -1507,6 +1818,19 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         for (const y of Object.values(x)) visit(y, f);
       }
     };
+    // Reads in template text (direct: called functions are scanned on their own).
+    const textReads = new WeakSet<object>();
+    const texts = (x: unknown): void => {
+      if (Array.isArray(x)) x.forEach(texts);
+      else if (x && typeof x === 'object') {
+        if ((x as { kind?: unknown }).kind === 'text')
+          visit((x as { parts: unknown }).parts, e => {
+            if (e.op === 'cell') textReads.add(e);
+          });
+        else for (const y of Object.values(x)) texts(y);
+      }
+    };
+    components.forEach(c => texts(c.template));
     const reached = new Set<number>();
     const queue: number[] = [];
     let dynamic = false;
@@ -1521,7 +1845,9 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         else if (
           e.op === 'cell' &&
           component !== undefined &&
-          templateRefsOf[component]?.cells.has(e.cell as number)
+          templateRefsOf[component]?.cells.has(e.cell as number) &&
+          !(fn === undefined && textReads.has(e)) &&
+          !unrenderedReads.has(e)
         ) {
           const c = components[component].cells[e.cell as number];
           // The read itself, or (in a copied function body) the first read of
@@ -1534,7 +1860,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               .sort((a, b) => (before(sourceOf(a), sourceOf(b)) ? -1 : 1))[0];
           fail(
             'E_REF',
-            `Template ref ${c.name} is read while rendering (in the template or a function or computed it calls): Vue sets template refs after rendering and renders again; read it in event handlers`,
+            `Template ref ${c.name} is read while rendering (in an attribute, a condition, a list or a function or computed the template calls): Vue sets template refs after rendering and renders again; read it in template text or event handlers`,
             at ? sourceOf(at) : (fn?.source ?? c.source),
           );
         }
@@ -1571,6 +1897,20 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     const statements = [...sf.statements].filter(s => s.getStart(sf) < u.scriptLength);
     const pending: (() => void)[] = [];
     const setupBindings = new Map<string, ts.Symbol>();
+    // The attrs: an attribute bag the parent passes as the rest props.
+    const plan = plans.get(u)!;
+    restCell = undefined;
+    if (plan.keys.size || plan.sites.length || u.macros.attrsVar) {
+      restCell = cells.length;
+      cells.push({
+        name: '$attrs',
+        type: 'attrs',
+        init: { op: 'attrs', items: [] },
+        prop: '...',
+        source: { file: u.rel, line: 1, column: 1 },
+      });
+    }
+    const attrsRead = (): Expr => ({ op: 'cell', cell: restCell!, read: 'current' });
 
     // Template refs (`ref="name"`), found before setup so writes can be rejected.
     const refAttrs: { element: VNode; attr: VNode }[] = [];
@@ -1586,9 +1926,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               loc(p),
             );
           if (p.type !== ATTRIBUTE || p.name !== 'ref') continue;
-          if (n.tagType === COMPONENT_TAG)
-            fail('E_REF', 'Component instance refs are planned for a later milestone', loc(p));
-          if (n.tagType !== PLAIN || n.tag === 'template')
+          const component = n.tagType === COMPONENT_TAG && !!childName(u, n.tag);
+          if ((n.tagType !== PLAIN && !component) || n.tag === 'template')
             fail('E_REF', `ref on <${n.tag}> is unsupported (refs bind elements)`, loc(p));
           if (inList)
             fail(
@@ -1615,6 +1954,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     const refKeys = new Map<string, number>();
     /** The cell each element with `ref="name"` binds. */
     const refOf = new Map<VNode, number>();
+    /** The cell each component tag with `ref="name"` binds (its instance). */
+    const componentRefOf = new Map<VNode, number>();
 
     /** A prop default: `withDefaults`/`default:` factories are called for non-function props. */
     const defaultValue = (e: ts.Expression, type: Type, name: string, factory: boolean): Expr => {
@@ -2150,6 +2491,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
                   'computed',
                   'shallowRef',
                   'useTemplateRef',
+                  'useAttrs',
                   'onWatcherCleanup',
                   'nextTick',
                 ].includes(n) &&
@@ -2177,8 +2519,9 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         const kind = vueCall(e);
         if (kind === 'defineProps') props(e as ts.CallExpression);
         else if (kind === 'defineEmits') emits(e as ts.CallExpression);
-        else if (kind === 'defineSlots') {
-          // Types only (read through __RunicSlots).
+        else if (kind === 'defineSlots' || kind === 'defineOptions' || kind === 'defineExpose') {
+          // Types only (read through __RunicSlots); options and the exposed
+          // refs were read when parsing.
         } else if (kind && LIFECYCLE.has(kind)) lifecycle(stmt, e as ts.CallExpression, kind);
         else
           tsFail(
@@ -2216,6 +2559,15 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             );
           if (kind === 'defineModel') {
             model(init as ts.CallExpression, d);
+            continue;
+          }
+          if (kind === 'useAttrs') {
+            // The attrs object, forwarded with v-bind (read by name: rejected).
+            if ((init as ts.CallExpression).arguments.length || !ts.isIdentifier(d.name))
+              tsFail(d, 'E_ATTRS', 'Call useAttrs once, as const attrs = useAttrs()');
+            const sym = checker.getSymbolAtLocation(d.name)!;
+            setupBindings.set((d.name as ts.Identifier).text, sym);
+            lower.bindings.set(sym, { kind: 'cell', cell: restCell! });
             continue;
           }
           if (kind === 'defineSlots') {
@@ -2270,9 +2622,26 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             if (refKeys.has(k))
               tsFail(key, 'E_REF', `useTemplateRef("${k}") is declared twice (Vue throws)`);
             const typeArg = (init as ts.CallExpression).typeArguments?.[0];
-            const type: Type = { maybe: 'element' };
+            let type: Type = { maybe: 'element' };
+            // A component ref: the instance's exposed refs, InstanceType<typeof Child>.
+            const instance = refAttrs.some(
+              r => r.attr.value?.content === k && r.element.tagType === COMPONENT_TAG,
+            );
+            if (instance) {
+              const t = typeArg && types.map(checker.getTypeFromTypeNode(typeArg), typeArg);
+              if (!t || typeof t !== 'object' || !('record' in t))
+                tsFail(
+                  typeArg ?? init!,
+                  'E_REF',
+                  `A component ref takes the component's instance type: useTemplateRef<InstanceType<typeof Child>>("${k}")`,
+                );
+              type = { maybe: t as Type };
+            }
             // DOM element interfaces (frontend/dom.d.ts) carry `__runicElement`.
-            if (!typeArg || !checker.getTypeFromTypeNode(typeArg).getProperty('__runicElement'))
+            else if (
+              !typeArg ||
+              !checker.getTypeFromTypeNode(typeArg).getProperty('__runicElement')
+            )
               tsFail(
                 init!,
                 'E_REF',
@@ -2358,6 +2727,42 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           `No ref() or useTemplateRef("${name}") declares the template ref ${name}`,
           loc(attr),
         );
+      if (element.tagType === COMPONENT_TAG) {
+        // A component ref: the instance, through which the parent reaches the
+        // template ref the child exposes. That element is mounted exactly
+        // while the instance is, so the ref holds a record of it while both
+        // are mounted (one record per mount, like Vue's exposed proxy).
+        const child = units.get(u.children.get(childName(u, element.tag)!)!)!;
+        const exposed = exposedOf[child.index];
+        if (!exposed)
+          fail(
+            'E_REF',
+            `${element.tag} exposes no template ref: component refs reach what the child exposes with defineExpose({ input })`,
+            loc(attr),
+          );
+        const t = cells[cell].type;
+        const rec = maybeInner(t);
+        const fields =
+          rec && typeof rec === 'object' && 'record' in rec
+            ? types.records[rec.record].fields
+            : undefined;
+        if (
+          !fields ||
+          fields.length !== 1 ||
+          fields[0].name !== exposed!.key ||
+          !sameType(fields[0].type, { maybe: 'element' })
+        )
+          fail(
+            'E_REF',
+            `Template ref ${name} needs the component's instance type: useTemplateRef<InstanceType<typeof ${element.tag}>>("${name}")`,
+            loc(attr),
+          );
+        if (templateRefCells.has(cell))
+          fail('E_REF', `${cells[cell].name} is bound twice`, loc(attr));
+        templateRefCells.add(cell);
+        componentRefOf.set(element, cell);
+        continue;
+      }
       if (!sameType(cells[cell].type, { maybe: 'element' }))
         fail(
           'E_REF',
@@ -2374,6 +2779,46 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       refOf.set(element, cell);
     }
     templateRefsOf[COMPONENT] = { cells: templateRefCells, reads: refReadSites };
+    // defineExpose({ input }): an element template ref the parent's component
+    // ref reaches, forwarded through a bound prop (Vue sets both refs in the
+    // same post flush and clears them when the instance unmounts).
+    if (u.macros.expose) {
+      const [first, ...more] = u.macros.expose;
+      if (!first || more.length)
+        fail(
+          'E_EXPOSE',
+          'defineExpose with one template ref is supported (more members are planned for later)',
+          more[0]?.at ?? { file: u.rel, line: 1, column: 1 },
+        );
+      const sym = setupBindings.get(first.name);
+      const cell = sym && refVars.get(sym);
+      const bound = [...refOf].find(([, c]) => c === cell)?.[0];
+      if (cell === undefined || !bound)
+        fail(
+          'E_EXPOSE',
+          `${first.name} is not an element template ref (defineExpose supports template refs)`,
+          first.at,
+        );
+      // Mounted exactly while the instance is: outside v-if branches.
+      const unconditional = (list: VNode[]): boolean =>
+        list.some(
+          (n: VNode) =>
+            n.type === ELEMENT &&
+            !dir(n, 'if') &&
+            !dir(n, 'else-if') &&
+            !dir(n, 'else') &&
+            (n === bound || (n.tagType === PLAIN && unconditional(n.children))),
+        );
+      if (!unconditional(u.descriptor.template.ast.children))
+        fail(
+          'E_EXPOSE',
+          `The exposed ${first.name} is bound inside v-if: a parent's component ref would see an instance without it`,
+          first.at,
+        );
+      const prop = `$expose.${first.key}`;
+      cells[cell!].prop = prop;
+      exposedOf[COMPONENT] = { key: first.key, prop };
+    }
     for (const p of pending) p();
 
     // Template-scope bindings: unwrapped setup bindings, props, $emit.
@@ -2857,6 +3302,102 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       }
       return false;
     };
+    /**
+     * A fallthrough attribute or listener `p` (vnode prop `key`) for the
+     * attrs of `child`, with the value runtime-dom's patchProp gives the
+     * elements those attrs reach: listeners stay functions; boolean DOM
+     * properties (and the special boolean attributes) are present when true;
+     * other attributes are text (`false` → "false"), absent when nullish;
+     * `class` is normalised (trimmed) as the compiler does.
+     */
+    const fallEntry = (p: VNode, key: string, child: Unit): AttrItem => {
+      const name = bagName(key);
+      if (p.modifiers?.length)
+        fail(
+          'E_ATTRS',
+          `Modifiers on fallthrough ${p.name === 'on' ? 'listeners' : 'attributes'} are planned for a later milestone (Vue wraps the listener, which then sees the element's event)`,
+          loc(p),
+        );
+      if (p.type === DIRECTIVE && p.name === 'on') {
+        const event = name.slice(2);
+        if (!EVENT_KINDS.includes(event as HandlerEvent))
+          fail('E_EVENT', `@${p.arg.content} listeners are planned for a later milestone`, loc(p));
+        const v = value(exprNode(p.exp));
+        const t = typeOf(v);
+        const f = typeof t === 'object' && 'fn' in t ? t.fn : undefined;
+        if (!f || !(f.params.length === 0 || (f.params.length === 1 && f.params[0] === 'event')))
+          fail('E_EVENT', 'Event handlers take no parameter or the event object', loc(p));
+        return { name, value: v };
+      }
+      if (/^on/i.test(key) || /[A-Z]/.test(key) || name === 'style')
+        fail(
+          'E_ATTRS',
+          /^on/i.test(key)
+            ? `The fallthrough attribute ${key} would be an inline handler or a listener prop; use @event`
+            : name === 'style'
+              ? 'Fallthrough style is planned for a later milestone (Vue merges it with the root element’s style)'
+              : `Fallthrough attribute names are lowercase (${key})`,
+          loc(p),
+        );
+      const tags = [...plans.get(child)!.tags];
+      for (const tag of tags)
+        if ([...UNREFLECTED_PROPS['*'], ...(UNREFLECTED_PROPS[tag] ?? [])].includes(name))
+          fail(
+            'E_ATTRS',
+            `${name} falls through to <${tag}>, where Vue sets a property that is not the attribute text; declare it as a prop`,
+            loc(p),
+          );
+      const isProp = (tag: string) =>
+        [...BOOLEAN_PROPS['*'], ...(BOOLEAN_PROPS[tag] ?? [])].includes(name);
+      const flag = SPECIAL_BOOLEAN_ATTRS.has(name) || (tags.length > 0 && tags.every(isProp));
+      if (!flag && tags.some(isProp))
+        fail(
+          'E_ATTRS',
+          `${name} falls through to elements where it is a boolean property (${tags.filter(isProp).join(', ')}) and to others where it is attribute text (${tags.filter(t => !isProp(t)).join(', ')})`,
+          loc(p),
+        );
+      if (p.type === ATTRIBUTE) {
+        // Static: the compiler's text (class condensed), '' without a value.
+        const text: string = p.value?.content ?? '';
+        if (flag && name === 'hidden' && text === 'until-found')
+          fail('E_ATTRS', 'hidden="until-found" is unsupported', loc(p));
+        return { name, value: { op: 'lit', value: flag ? true : text } };
+      }
+      const v = value(exprNode(p.exp));
+      const t = typeOf(v);
+      if (name === 'class') {
+        // `:class` compiles to normalizeClass: strings trimmed, nullish → ''.
+        const s: Expr | undefined =
+          t === 'string'
+            ? v
+            : maybeInner(t) === 'string'
+              ? { op: 'nullish', left: v, right: { op: 'lit', value: '' } }
+              : undefined;
+        if (!s)
+          fail(
+            'E_TEMPLATE',
+            `:class with ${JSON.stringify(t)} (class objects and arrays are planned for later)`,
+            loc(p),
+          );
+        return { name, value: { op: 'builtin', name: 'string.trim', args: [s!], type: 'string' } };
+      }
+      if (flag) {
+        if (t !== 'boolean')
+          fail(
+            'E_ATTRS',
+            `${name} falls through as a boolean property; pass a boolean (Vue's coercion of ${JSON.stringify(t)} differs)`,
+            loc(p),
+          );
+        return { name, value: v };
+      }
+      if (t === 'string' || maybeInner(t) === 'string') return { name, value: v };
+      if (t === 'number' || t === 'boolean') return { name, value: { op: 'to-string', arg: v } };
+      return fail(
+        'E_ATTRS',
+        `Fallthrough attribute ${name} of type ${JSON.stringify(t)} is unsupported`,
+        loc(p),
+      );
+    };
     const component = (n: VNode, listed: boolean): Node => {
       const name = childName(u, n.tag)!;
       const child = units.get(u.children.get(name)!)!;
@@ -2864,16 +3405,32 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       const passed: { name: string; value: Expr; bind?: Expr }[] = [];
       const propCell = (prop: string, at: VNode, what = 'prop') => {
         const cell = target.cells.findIndex(c => c.prop === prop);
-        if (cell < 0)
-          fail(
-            'E_PROPS',
-            `${name} has no ${what} ${prop} (fallthrough attributes are planned for a later milestone)`,
-            loc(at),
-          );
+        if (cell < 0) fail('E_PROPS', `${name} has no ${what} ${prop}`, loc(at));
         if (passed.some(p => p.name === prop)) fail('E_PROPS', `${prop} is passed twice`, loc(at));
         return cell;
       };
+      // Attributes the child does not declare: its attrs (a bag in source
+      // order; mergeProps when $attrs is bound here or falls through to it).
+      const bag: AttrItem[] = [];
+      let merged = false;
       for (const p of n.props) {
+        if (p.type === ATTRIBUTE && p.name === 'ref') continue; // componentRefOf
+        if (isAttrsSpread(u, p)) {
+          bag.push({ spread: attrsRead() });
+          merged = true;
+          continue;
+        }
+        const key = passedKey(p);
+        if (
+          key !== undefined &&
+          (p.type === ATTRIBUTE || p.name === 'bind' || p.name === 'on') &&
+          !declares(child, key)
+        ) {
+          if (bag.some(b => 'name' in b && b.name === bagName(key)))
+            fail('E_ATTRS', `${key} is passed twice`, loc(p));
+          bag.push(fallEntry(p, key, child));
+          continue;
+        }
         if (p.type === ATTRIBUTE) {
           const prop = camelize(p.name);
           const want = target.cells[propCell(prop, p)].type;
@@ -2937,6 +3494,76 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             `v-${p.name}${p.arg ? ':' + p.arg.content : ''} on components is planned for a later milestone`,
             loc(p),
           );
+      }
+      // The root component also receives this component's attrs (cloneVNode
+      // merges them after its own props).
+      if (restCell !== undefined && u.macros.inheritAttrs && plan.roots?.includes(n)) {
+        bag.push({ spread: attrsRead() });
+        merged = true;
+      }
+      if (bag.length) {
+        if (!target.cells.some(c => c.prop === '...')) {
+          // Only spreads of attrs no call site fills.
+          if (bag.some(b => 'name' in b)) fail('E_INTERNAL', `${name} has no attrs cell`, loc(n));
+        } else
+          passed.push({
+            name: '...',
+            value:
+              bag.length === 1 && 'spread' in bag[0]
+                ? bag[0].spread
+                : { op: 'attrs', items: bag, ...(merged ? { merge: true as const } : {}) },
+          });
+      }
+      // A component ref: the child forwards its exposed element through a
+      // bound prop; the ref holds a record of it (one per mount).
+      const refCell = componentRefOf.get(n);
+      if (refCell !== undefined) {
+        const exposed = exposedOf[child.index]!;
+        const refType = cells[refCell].type;
+        const rec = (maybeInner(refType) as { record: number }).record;
+        const el: Type = { maybe: 'element' };
+        const nullish = (e: Expr): Expr => ({
+          op: 'builtin',
+          name: 'maybe.is-nullish',
+          args: [e],
+          type: 'boolean',
+        });
+        const read = (): Expr => {
+          const r: Expr = { op: 'cell', cell: refCell, read: 'current' };
+          unrenderedReads.add(r);
+          return r;
+        };
+        const fn = lower.reserve();
+        lower.functions[fn] = {
+          name: `${cells[refCell].name}$ref`,
+          component: COMPONENT,
+          params: [{ name: 'el', type: el }],
+          locals: [],
+          result: 'void',
+          body: [
+            {
+              op: 'set',
+              cell: refCell,
+              value: {
+                op: 'cond',
+                test: nullish(L(0)),
+                then: { op: 'null', type: refType },
+                else: { op: 'some', value: { op: 'record', record: rec, fields: [L(0)] } },
+              },
+            },
+          ],
+        };
+        passed.push({
+          name: exposed.prop,
+          // The child's element as the ref shows it (equal to the child's own cell).
+          value: {
+            op: 'cond',
+            test: nullish(read()),
+            then: { op: 'null', type: el },
+            else: { op: 'get', object: { op: 'unwrap', value: read() }, field: 0 },
+          },
+          bind: { op: 'closure', function: fn, captures: [] },
+        });
       }
       for (const c of target.cells)
         if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
@@ -3061,6 +3688,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       /** Listener parts per event, in Vue's call order. */
       const parts = new Map<HandlerEvent, Part[]>();
       let model: Part | undefined;
+      /** The prop index of v-bind="$attrs". */
+      let spreadAt: number | undefined;
       const checked = (v: Expr, at: VNode) => {
         if (props.some(q => q.name === 'checked'))
           fail('E_TEMPLATE', 'checked is set twice (checked, :checked, v-model)', loc(at));
@@ -3107,6 +3736,11 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           parts.set(event, [...(parts.get(event) ?? []), part]);
           continue;
         }
+        if (isAttrsSpread(u, p)) {
+          // v-bind="$attrs": the element's attributes around it merge with the attrs.
+          spreadAt = n.props.indexOf(p);
+          continue;
+        }
         if (!p.exp) fail('E_TEMPLATE', `v-${p.name} needs an expression`, loc(p));
         if (p.modifiers?.length)
           fail('E_TEMPLATE', `Directive modifiers are planned for M5`, loc(p));
@@ -3132,7 +3766,25 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           const name: string = p.arg.content;
           const v = value(exprNode(p.exp));
           const t = typeOf(v);
-          if (name === 'value' && n.tag === 'input')
+          if (name === 'class') {
+            // The compiler wraps :class in normalizeClass: strings trimmed, nullish → ''.
+            const s: Expr | undefined =
+              t === 'string'
+                ? v
+                : maybeInner(t) === 'string'
+                  ? { op: 'nullish', left: v, right: { op: 'lit', value: '' } }
+                  : undefined;
+            if (!s)
+              fail(
+                'E_TEMPLATE',
+                `:class with ${JSON.stringify(t)} (class objects and arrays are planned for later)`,
+                loc(p),
+              );
+            attrs.push({
+              name,
+              value: { op: 'builtin', name: 'string.trim', args: [s!], type: 'string' },
+            });
+          } else if (name === 'value' && n.tag === 'input')
             props.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
           else if (BOOLEAN_ATTRS.has(name))
             attrs.push({ name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } });
@@ -3208,6 +3860,39 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         handlers.push({ event, ...h, source: list.length === 1 ? source : loc(n) });
         listeners.push({ event, handler: handlers.length - 1, ...(args?.length ? { args } : {}) });
       }
+      // The attrs reach this element through v-bind="$attrs" or as the root
+      // (cloneVNode: mergeProps of its own props, then the attrs). Its own
+      // attributes the attrs may hold join the bag in source order: `class`
+      // values join, other names take the later value.
+      let spread: Expr | undefined;
+      if (u.macros.inheritAttrs && plan.roots?.includes(n)) spreadAt = n.props.length;
+      if (spreadAt !== undefined && restCell !== undefined) {
+        const keys = plan.keys;
+        for (const l of listeners)
+          if (keys.has(`on${l.event}`))
+            fail(
+              'E_ATTRS',
+              `@${l.event} is on the element and possibly in its fallthrough attributes (${keys.get(`on${l.event}`)}), which Vue would both call; this is planned for a later milestone`,
+              loc(n),
+            );
+        const position = (name: string) =>
+          n.props.findIndex(
+            (q: VNode) =>
+              (q.type === ATTRIBUTE && q.name === name) ||
+              (q.type === DIRECTIVE && q.name === 'bind' && q.arg?.content === name),
+          );
+        const before: AttrItem[] = [];
+        const after: AttrItem[] = [];
+        for (const a of [...attrs])
+          if (keys.has(a.name)) {
+            (position(a.name) < spreadAt! ? before : after).push(a);
+            attrs.splice(attrs.indexOf(a), 1);
+          }
+        spread =
+          before.length || after.length
+            ? { op: 'attrs', merge: true, items: [...before, { spread: attrsRead() }, ...after] }
+            : attrsRead();
+      }
       return {
         kind: 'element',
         tag: n.tag,
@@ -3215,6 +3900,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         ...(props.length ? { props } : {}),
         ...(listeners.length ? { listeners } : {}),
         ...(refOf.has(n) ? { ref: refOf.get(n)! } : {}),
+        ...(spread ? { spread } : {}),
         ...(n.children.length ? { children: children(n.children) } : {}),
         source: loc(n),
       };
