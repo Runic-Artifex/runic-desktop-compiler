@@ -93,7 +93,7 @@ fn array_index(i: f64) -> Option<usize> {
 /// HasProperty + Get of index `k` on a dense array, copying the element so no
 /// borrow is held while a callback runs.
 fn element<T: Clone>(a: &JsArray<T>, k: usize) -> Option<T> {
-    a.borrow().get(k).cloned()
+    a.read_slot(k as u32 + 1).get(k).cloned()
 }
 
 // Element access ------------------------------------------------------------------
@@ -107,7 +107,7 @@ pub fn join<T: ArrayElement>(a: &JsArray<T>, separator: Maybe<JsString>) -> JsSt
     join_elements(&a.borrow(), &separator)
 }
 pub fn length<T>(a: &JsArray<T>) -> f64 {
-    a.borrow().len() as f64
+    a.read_slot(0).len() as f64
 }
 /// `a[i]` when the static type admits undefined.
 pub fn get<T: Clone>(a: &JsArray<T>, i: f64) -> Maybe<T> {
@@ -132,10 +132,10 @@ pub fn get_checked<T: Clone>(a: &JsArray<T>, i: f64) -> JsResult<T> {
 /// Negative or non-integral indices would create a plain (non-element)
 /// property in JavaScript; they are unsupported and throw a RangeError too.
 pub fn set<T>(a: &JsArray<T>, i: f64, v: T) -> JsResult<()> {
-    let len = a.borrow().len();
+    let len = a.read_slot(0).len();
     match array_index(i) {
-        Some(k) if k < len => a.borrow_mut()[k] = v,
-        Some(k) if k == len => a.borrow_mut().push(v),
+        Some(k) if k < len => a.write_slots(&[k as u32 + 1])[k] = v,
+        Some(k) if k == len => a.write_slots(&[0, k as u32 + 1]).push(v),
         _ => {
             return Err(Throw::range_error(format!(
                 "Cannot assign array index {} (length {len}): holes and non-index properties are unsupported",
@@ -146,7 +146,7 @@ pub fn set<T>(a: &JsArray<T>, i: f64, v: T) -> JsResult<()> {
     Ok(())
 }
 pub fn at<T: Clone>(a: &JsArray<T>, i: f64) -> Maybe<T> {
-    let len = a.borrow().len() as f64;
+    let len = a.read_slot(0).len() as f64;
     let rel = to_integer_or_infinity(i);
     let k = if rel >= 0.0 { rel } else { len + rel };
     if k < 0.0 || k >= len {
@@ -164,7 +164,12 @@ pub fn push<T>(a: &JsArray<T>, items: Vec<T>) -> f64 {
     if items.is_empty() {
         return length(a);
     }
-    let mut v = a.borrow_mut();
+    // The length and the new elements change.
+    let len = a.read_slot(0).len() as u32;
+    let slots: Vec<u32> = std::iter::once(0)
+        .chain((len + 1)..=(len + items.len() as u32))
+        .collect();
+    let mut v = a.write_slots(&slots);
     v.extend(items);
     v.len() as f64
 }

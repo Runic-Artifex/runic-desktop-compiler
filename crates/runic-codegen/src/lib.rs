@@ -1060,12 +1060,15 @@ fn records(p: &Program) -> String {
         let owns: String = (0..rec.fields.len())
             .map(|i| format!("self.f{i} = js::Own::own(self.f{i}.clone()); "))
             .collect();
+        let marks: String = (0..rec.fields.len())
+            .map(|i| format!("js::Own::mark(&self.f{i}); "))
+            .collect();
         let _ = writeln!(
             out,
             "/// {}\n#[derive(Clone)]\npub struct R{r} {{ {fields}}}\n\
              impl Default for R{r} {{ fn default() -> Self {{ R{r} {{ {defaults}}} }} }}\n\
              impl js::HeapToString for R{r} {{ fn heap_to_string(&self) -> JsString {{ JsString::from(\"[object Object]\") }} }}\n\
-             impl js::OwnFields for R{r} {{ const PROXIED: bool = true; fn own_fields(&mut self) {{ {owns}}} }}\n\
+             impl js::OwnFields for R{r} {{ const PROXIED: bool = true; fn own_fields(&mut self) {{ {owns}}} fn mark_fields(&self) {{ {marks}}} }}\n\
              impl std::fmt::Debug for R{r} {{ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{ f.write_str({}) }} }}",
             rec.name.replace('\n', " "),
             rust_str(&rec.name)
@@ -1284,6 +1287,8 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
         // Initial proxied state is proxied (props are passed as is).
         let own = if cell.tracking == Tracking::Proxied && cell.prop.is_none() {
             "let v = js::Own::own(v); "
+        } else if cell.tracking == Tracking::Deep && cell.prop.is_none() {
+            "js::Own::mark(&v); "
         } else {
             ""
         };
@@ -1323,6 +1328,16 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
     );
 }
 
+/// Whether only reads through proxies make heap dependencies (programs with
+/// proxied state; otherwise every heap read counts).
+fn owned_only(p: &Program) -> bool {
+    p.components.iter().any(|c| {
+        c.cells
+            .iter()
+            .any(|cell| cell.tracking == Tracking::Proxied)
+    })
+}
+
 /// Derived values of component `k` (docs/design/M4-EFFECTS.md): `dget` reads
 /// the cached value (a dependency of a running tracked effect or derived),
 /// `dref` recomputes it when a dependency changed, keeping the value and its
@@ -1334,6 +1349,7 @@ fn component_derived(p: &Program, k: usize, out: &mut String) {
             continue;
         }
         let t = rust_type(&func.result);
+        let owned_only = owned_only(p);
         let same = same_expr(&func.result, "d.cached", "v");
         let _ = write!(clear, "st.dv{f} = None; ");
         let _ = writeln!(
@@ -1343,12 +1359,13 @@ fn component_derived(p: &Program, k: usize, out: &mut String) {
              let stale = match deps {{ None => true, Some(ds) => ds.iter().any(|d| d.changed(cx)) }};\n\
              if !stale {{ return Ok(()); }}\n\
              let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new()));\n\
+             let heap_outer = js::begin_heap_reads(Some({owned_only}));\n\
              let snap = {{ let s = Rc::clone(&inst.borrow().snap); s }};\n\
              let r = f{f}(cx, inst, &snap);\n\
-             let deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default();\n\
+             let heap = js::end_heap_reads(heap_outer);\n\
+             let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default();\n\
              let v: {t} = r?;\n\
-             let epochs = (js::mutation_epoch(), js::owned_epoch());\n\
-             let deps: Vec<runic_runtime::Dep<Cx>> = deps.into_iter().map(|d| runic_runtime::Dep {{ epochs, ..d }}).collect();\n\
+             deps.extend(runic_runtime::Dep::heap(heap));\n\
              let same = inst.borrow().dv{f}.as_ref().is_some_and(|d| {same});\n\
              if same {{ if let Some(d) = inst.borrow_mut().dv{f}.as_mut() {{ d.deps = deps; }} }}\n\
              else {{ let version = cx.jobs.version(); inst.borrow_mut().dv{f} = Some(runic_runtime::Derived {{ cached: v, deps, version }}); }}\n\
@@ -1356,7 +1373,7 @@ fn component_derived(p: &Program, k: usize, out: &mut String) {
              #[allow(unused_variables)]\nfn dget_{f}(cx: &mut Cx, inst: &I{k}) -> JsResult<{t}> {{\n\
              dref_{f}(cx, inst)?;\n\
              let (v, version) = {{ let st = inst.borrow(); let d = st.dv{f}.as_ref().expect(\"derived value\"); (d.cached.clone(), d.version) }};\n\
-             if let Some(t) = cx.tracking.as_mut() {{ let i2 = Rc::clone(inst); t.push(runic_runtime::Dep {{ cells: None, cell: 0, refresh: Some(Rc::new(move |cx: &mut Cx| {{ let _ = dref_{f}(cx, &i2); i2.borrow().dv{f}.as_ref().map_or(u64::MAX, |d| d.version) }})), version, kind: 0, epochs: (0, 0) }}); }}\n\
+             if let Some(t) = cx.tracking.as_mut() {{ let i2 = Rc::clone(inst); t.push(runic_runtime::Dep {{ cells: None, cell: 0, refresh: Some(Rc::new(move |cx: &mut Cx| {{ let _ = dref_{f}(cx, &i2); i2.borrow().dv{f}.as_ref().map_or(u64::MAX, |d| d.version) }})), version, heap: None }}); }}\n\
              Ok(v)\n}}"
         );
     }
@@ -1454,14 +1471,18 @@ fn component_effects(p: &Program, k: usize, out: &mut String) {
         }
         let tracked = effect.deps == EffectDeps::Tracked;
         let begin = if tracked {
-            "let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new()));"
+            format!(
+                "let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({}));",
+                owned_only(p)
+            )
         } else {
-            "let outer = cx.tracking.take();"
+            "let outer = cx.tracking.take(); let heap_outer = js::begin_heap_reads(None);"
+                .to_string()
         };
         let end = if tracked {
-            "let deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); let epochs = (js::mutation_epoch(), js::owned_epoch()); inst.borrow_mut().fx[e].deps = deps.into_iter().map(|d| runic_runtime::Dep { epochs, ..d }).collect();"
+            "let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); inst.borrow_mut().fx[e].deps = deps;"
         } else {
-            "cx.tracking = outer;"
+            "js::end_heap_reads(heap_outer); cx.tracking = outer;"
         };
         let cleanup = match &f.result {
             Type::Void => "Ok(_) => {}".to_string(),

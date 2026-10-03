@@ -1,0 +1,17 @@
+{
+  "description": "Effects over deep state re-run when an object they read was written: not for writes to other arrays or other items",
+  "fixtures": ["deep-tracking-svelte", "deep-tracking-vue"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "push-b" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "push-a" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "toggle-second" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "toggle-first" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "add-item" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

@@ -1232,7 +1232,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
    * anything (statically, through the functions and closures it reaches).
    * Calls of function props run the parent's code and are not counted.
    */
-  function access(roots: unknown[]) {
+  /** Cells read and written by `roots` (`cells`: the component's, to tell plain values from reactive state). */
+  function access(roots: unknown[], cells?: Cell[]) {
     const reads = new Set<number>();
     const writes = new Set<number>();
     let heap = false;
@@ -1258,14 +1259,20 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           else if (t.place !== 'local') heap = true;
           break;
         }
-        case 'builtin':
-          if (MUTATORS.test(o.name as string)) heap = true;
+        case 'builtin': {
+          // Mutating a plain (non-reactive) value held by a cell is not a write
+          // to reactive state.
+          const recv = (o.args as { op: string; cell?: number }[])[0];
+          const plain =
+            recv?.op === 'cell' && cells !== undefined && cells[recv.cell!].tracking !== 'deep';
+          if (MUTATORS.test(o.name as string) && !plain) heap = true;
           // Callbacks of other built-ins (forEach, map, …) run during the
           // call; timer and microtask callbacks run later.
           if (!/^(timer|microtask)\./.test(o.name as string))
             for (const a of o.args as { op: string; function?: number }[])
               if (a.op === 'closure') reach(a.function!);
           break;
+        }
         case 'call':
           reach(o.function as number);
           break;
@@ -1300,7 +1307,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   function rejectWatcherWrites(c: Component) {
     const watchers = (c.effects ?? []).filter(e => e.phase === 'pre' && e.deps.kind !== 'once');
     const info = watchers.map(e => {
-      const run = access([lower.functions[e.run].body]);
+      const run = access([lower.functions[e.run].body], c.cells);
       const deps = e.deps.kind === 'values' ? access(e.deps.values).reads : run.reads;
       return { e, run, deps };
     });

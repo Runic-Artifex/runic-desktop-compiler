@@ -126,14 +126,11 @@ impl<'a> FnCtx<'a> {
                     format!("inst.borrow().c.c{cell}.clone()")
                 };
                 // Reads of reactive cells are dependencies of a running tracked effect.
-                let kind = match c.cells[cell].tracking {
-                    Tracking::None => return format!("{{ let v = {read}; v }}"),
-                    Tracking::Deep if c.cells[cell].ty.is_reference() => 1,
-                    Tracking::Proxied if c.cells[cell].ty.is_reference() => 2,
-                    _ => 0,
-                };
+                if c.cells[cell].tracking == Tracking::None {
+                    return format!("{{ let v = {read}; v }}");
+                }
                 format!(
-                    "{{ let v = {read}; if let Some(t) = cx.tracking.as_mut() {{ let version = inst.borrow().ver[{cell}]; t.push(runic_runtime::Dep {{ cells: Some(Rc::clone(inst) as Rc<dyn runic_runtime::Versions>), cell: {cell}, refresh: None, version, kind: {kind}, epochs: (0, 0) }}); }} v }}"
+                    "{{ let v = {read}; if let Some(t) = cx.tracking.as_mut() {{ let version = inst.borrow().ver[{cell}]; t.push(runic_runtime::Dep {{ cells: Some(Rc::clone(inst) as Rc<dyn runic_runtime::Versions>), cell: {cell}, refresh: None, version, heap: None }}); }} v }}"
                 )
             }
             Read::Snapshot if self.snap => format!("snap.c{cell}.clone()"),
@@ -161,6 +158,10 @@ impl<'a> FnCtx<'a> {
         let own = match self.component {
             Some(c) if self.p.components[c].cells[cell].tracking == Tracking::Proxied => {
                 "let v = js::Own::own(v); "
+            }
+            // Deep state: what it holds becomes reactive.
+            Some(c) if self.p.components[c].cells[cell].tracking == Tracking::Deep => {
+                "js::Own::mark(&v); "
             }
             _ => "",
         };
@@ -357,7 +358,7 @@ impl<'a> FnCtx<'a> {
             }
             Get { object, field } => {
                 let o = self.expr(object);
-                format!("{{ let o = {o}; let v = o.borrow().f{field}.clone(); v }}")
+                format!("{{ let o = {o}; let v = o.read_slot({field}).f{field}.clone(); v }}")
             }
             Index { array, index } => {
                 let (code, n) = self.temps(&[(**array).clone(), (**index).clone()]);
@@ -598,7 +599,7 @@ impl<'a> FnCtx<'a> {
                     let v = self.expr(value);
                     let _ = writeln!(
                         out,
-                        "{{ let o = {o}; let v = {v}; let v = js::own_into(&o, v); o.borrow_mut().f{field} = v; }}"
+                        "{{ let o = {o}; let v = {v}; let v = js::own_into(&o, v); o.write_slots(&[{field}]).f{field} = v; }}"
                     );
                 }
                 Place::Index { array, index } => {

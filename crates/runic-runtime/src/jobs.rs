@@ -223,10 +223,8 @@ pub struct Dep<X> {
     pub cell: usize,
     pub refresh: Option<std::rc::Rc<dyn Fn(&mut X) -> u64>>,
     pub version: u64,
-    /// 0: identity, 1: deep (any heap mutation), 2: proxied.
-    pub kind: u8,
-    /// Heap mutation epochs after the effect ran.
-    pub epochs: (u64, u64),
+    /// A heap object read (deep state changes through its objects).
+    pub heap: Option<runic_js::HeapRead>,
 }
 
 impl<X> Clone for Dep<X> {
@@ -236,27 +234,35 @@ impl<X> Clone for Dep<X> {
             cell: self.cell,
             refresh: self.refresh.clone(),
             version: self.version,
-            kind: self.kind,
-            epochs: self.epochs,
+            heap: self.heap.clone(),
         }
     }
 }
 
 impl<X> Dep<X> {
+    /// The objects read while a tracked effect or derived value ran.
+    pub fn heap(reads: Vec<runic_js::HeapRead>) -> impl Iterator<Item = Dep<X>> {
+        reads.into_iter().map(|h| Dep {
+            cells: None,
+            cell: 0,
+            refresh: None,
+            version: 0,
+            heap: Some(h),
+        })
+    }
+
     /// Whether the cell was written (or, for deep state, the heap mutated)
     /// since, or the derived value changed.
     pub fn changed(&self, cx: &mut X) -> bool {
         if let Some(refresh) = &self.refresh {
             return refresh(cx) != self.version;
         }
+        if let Some(h) = &self.heap {
+            return h.changed();
+        }
         self.cells
             .as_ref()
             .is_some_and(|c| c.version(self.cell) != self.version)
-            || match self.kind {
-                1 => runic_js::mutation_epoch() != self.epochs.0,
-                2 => runic_js::owned_epoch() != self.epochs.1,
-                _ => false,
-            }
     }
 }
 

@@ -84,9 +84,20 @@ pub type JsMap<K, V> = JsRef<MapData<K, V>>;
 pub type JsSet<T> = JsRef<SetData<T>>;
 
 // Maps and sets are never proxied (Svelte requires SvelteMap/SvelteSet).
-impl<K, V> crate::OwnFields for MapData<K, V> {
+impl<K: crate::Own, V: crate::Own> crate::OwnFields for MapData<K, V> {
     const PROXIED: bool = false;
+    fn mark_fields(&self) {
+        for (k, v) in self.entries.values() {
+            k.mark();
+            v.mark();
+        }
+    }
 }
-impl<T> crate::OwnFields for SetData<T> {
+impl<T: crate::Own> crate::OwnFields for SetData<T> {
     const PROXIED: bool = false;
+    fn mark_fields(&self) {
+        for v in self.entries.values() {
+            v.mark();
+        }
+    }
 }

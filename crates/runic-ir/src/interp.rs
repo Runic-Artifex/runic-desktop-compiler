@@ -238,6 +238,15 @@ impl js::ToNumber for Val {
 }
 
 impl js::Own for Val {
+    fn mark(&self) {
+        match self {
+            Val::Array(a) => a.mark(),
+            Val::Record(r) => r.mark(),
+            Val::Map(m) => m.mark(),
+            Val::Set(s) => s.mark(),
+            _ => {}
+        }
+    }
     fn own(self) -> Self {
         match self {
             Val::Array(a) => Val::Array(a.own()),
@@ -253,6 +262,12 @@ impl js::OwnFields for RecordData {
         use js::Own;
         for f in self.fields.iter_mut() {
             *f = f.clone().own();
+        }
+    }
+    fn mark_fields(&self) {
+        use js::Own;
+        for f in &self.fields {
+            f.mark();
         }
     }
 }
@@ -446,6 +461,7 @@ struct DerivedSlot {
     value: Val,
     /// What its last computation read.
     reads: Vec<Read_>,
+    heap: Vec<js::HeapRead>,
     /// Bumped when a recomputation gives a different value.
     version: u64,
 }
@@ -460,6 +476,8 @@ struct EffectState {
     values: Vec<Val>,
     /// Reads of the last run (`tracked` dependencies).
     reads: Vec<Read_>,
+    /// Heap objects the last run read.
+    heap: Vec<js::HeapRead>,
 }
 
 /// A read recorded while a tracked effect or a derived value ran: a cell,
@@ -470,9 +488,6 @@ struct Read_ {
     cell: usize,
     derived: Option<usize>,
     version: u64,
-    /// Heap mutation epochs after the run (deep and proxied cells change
-    /// when the heap is mutated).
-    epochs: (u64, u64),
 }
 
 /// Slot content provided by a parent: its definition, the parent instance it
@@ -743,6 +758,11 @@ impl<'p> Machine<'p> {
                     None if cell.tracking == Tracking::Proxied && cell.prop.is_none() => {
                         js::Own::own(self.eval(&cell.init, &Frame::new(0))?)
                     }
+                    None if cell.tracking == Tracking::Deep => {
+                        let v = self.eval(&cell.init, &Frame::new(0))?;
+                        js::Own::mark(&v);
+                        v
+                    }
                     None => self.eval(&cell.init, &Frame::new(0))?,
                 };
                 if let Err(d) = check_domain(cell, &v) {
@@ -806,7 +826,6 @@ impl<'p> Machine<'p> {
                         cell: *cell,
                         derived: None,
                         version: self.instances[self.current].versions[*cell],
-                        epochs: (0, 0),
                     });
                 }
                 v
@@ -914,7 +933,7 @@ impl<'p> Machine<'p> {
                 Val::Array(js::array(out))
             }
             Get { object, field } => match self.eval(object, f)? {
-                Val::Record(r) => r.borrow().fields[*field].clone(),
+                Val::Record(r) => r.read_slot(*field as u32).fields[*field].clone(),
                 other => panic!("validated record, found {other:?}"),
             },
             Index { array, index } => {
@@ -1106,14 +1125,8 @@ impl<'p> Machine<'p> {
                     .is_none_or(|d| d.version != r.version)
             }
             None => {
-                let inst = &self.instances[r.instance];
-                let cell = &self.program.components[inst.component].cells[r.cell];
-                inst.versions[r.cell] != r.version
-                    || match cell.tracking {
-                        Tracking::Deep => js::mutation_epoch() != r.epochs.0,
-                        Tracking::Proxied => js::owned_epoch() != r.epochs.1,
-                        _ => false,
-                    }
+                // Deep state changes through the heap objects that were read.
+                self.instances[r.instance].versions[r.cell] != r.version
             }
         }
     }
@@ -1125,32 +1138,32 @@ impl<'p> Machine<'p> {
             None => true,
             Some(d) => {
                 let reads = d.reads.clone();
-                reads.iter().any(|r| self.read_changed(r))
+                d.heap.iter().any(js::HeapRead::changed)
+                    || reads.iter().any(|r| self.read_changed(r))
             }
         };
         if !stale {
             return Ok(());
         }
         let outer = self.tracking.replace(vec![]);
+        let heap_outer = js::begin_heap_reads(Some(self.tracks_owned));
         let saved = std::mem::replace(&mut self.current, inst);
         let saved_snap = self.snap.take();
         let result = self.call(f, vec![], vec![]);
         self.current = saved;
         self.snap = saved_snap;
+        let heap = js::end_heap_reads(heap_outer);
         let reads = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
         let value = result?;
-        let epochs = (js::mutation_epoch(), js::owned_epoch());
-        let reads = reads.into_iter().map(|r| Read_ { epochs, ..r }).collect();
+
         let same = self.instances[inst]
             .derived
             .get(&f)
             .is_some_and(|d| d.value.same(&value));
         if same {
-            self.instances[inst]
-                .derived
-                .get_mut(&f)
-                .expect("slot")
-                .reads = reads;
+            let slot = self.instances[inst].derived.get_mut(&f).expect("slot");
+            slot.reads = reads;
+            slot.heap = heap;
         } else {
             self.version_clock += 1;
             let version = self.version_clock;
@@ -1159,6 +1172,7 @@ impl<'p> Machine<'p> {
                 DerivedSlot {
                     value,
                     reads,
+                    heap,
                     version,
                 },
             );
@@ -1177,7 +1191,6 @@ impl<'p> Machine<'p> {
                 cell: 0,
                 derived: Some(f),
                 version,
-                epochs: (0, 0),
             });
         }
         Ok(value)
@@ -1209,7 +1222,7 @@ impl<'p> Machine<'p> {
             Place::Field { object, field } => match self.eval(object, f)? {
                 Val::Record(r) => {
                     let v = js::own_into(&r, v);
-                    r.borrow_mut().fields[*field] = v
+                    r.write_slots(&[*field as u32]).fields[*field] = v
                 }
                 other => panic!("validated record, found {other:?}"),
             },
@@ -1231,6 +1244,10 @@ impl<'p> Machine<'p> {
         // Proxied state stores proxies of plain objects and arrays.
         let v = match self.comp().cells[cell].tracking {
             Tracking::Proxied => js::Own::own(v),
+            Tracking::Deep => {
+                js::Own::mark(&v);
+                v
+            }
             _ => v,
         };
         if !self.instances[current].cells[cell].same(&v) {
@@ -1402,13 +1419,14 @@ impl<'p> Machine<'p> {
             "array.splice" => 3..usize::MAX,
             _ => 0..0,
         };
-        let a: Vec<Val> = match (a.first(), inserted.is_empty()) {
-            (Some(Val::Array(r)), false) if r.is_owned() => a
+        // (or are marked reactive in a reactive array).
+        let a: Vec<Val> = match (a.first().cloned(), inserted.is_empty()) {
+            (Some(Val::Array(r)), false) => a
                 .into_iter()
                 .enumerate()
                 .map(|(i, v)| {
                     if inserted.contains(&i) {
-                        js::Own::own(v)
+                        js::own_into(&r, v)
                     } else {
                         v
                     }
@@ -2722,8 +2740,10 @@ impl<'p> Machine<'p> {
             EffectDeps::Always => !started || updated.get(i).copied().unwrap_or(true),
             EffectDeps::Tracked => {
                 !started || {
-                    let reads = self.instances[i].effects[e].reads.clone();
-                    reads.iter().any(|r| self.read_changed(r))
+                    let state = &self.instances[i].effects[e];
+                    let reads = state.reads.clone();
+                    state.heap.iter().any(js::HeapRead::changed)
+                        || reads.iter().any(|r| self.read_changed(r))
                 }
             }
             EffectDeps::Values { values, initial } => {
@@ -2796,21 +2816,19 @@ impl<'p> Machine<'p> {
         } else {
             self.tracking.take()
         };
+        let heap_outer = js::begin_heap_reads(tracked.then_some(self.tracks_owned));
         let saved = std::mem::replace(&mut self.current, i);
         let saved_snap = self.snap.take();
         let result = self.call(effect.run, vec![], args);
         self.current = saved;
         self.snap = saved_snap;
+        let heap = js::end_heap_reads(heap_outer);
         let reads = std::mem::replace(&mut self.tracking, outer);
         let state = &mut self.instances[i].effects[e];
         state.started = true;
         if tracked {
-            let epochs = (js::mutation_epoch(), js::owned_epoch());
-            state.reads = reads
-                .unwrap_or_default()
-                .into_iter()
-                .map(|r| Read_ { epochs, ..r })
-                .collect();
+            state.heap = heap;
+            state.reads = reads.unwrap_or_default();
         }
         match result {
             Ok(Val::Closure(c)) => state.cleanup = Some(Val::Closure(c)),
