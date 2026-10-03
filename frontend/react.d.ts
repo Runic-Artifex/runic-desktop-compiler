@@ -17,4 +17,7 @@ declare namespace JSX {
   interface ElementChildrenAttribute {
     children: unknown;
   }
+  interface IntrinsicAttributes {
+    key?: string | number;
+  }
 }
