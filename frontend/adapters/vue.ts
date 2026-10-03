@@ -1302,14 +1302,6 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     const info = watchers.map(e => {
       const run = access([lower.functions[e.run].body]);
       const deps = e.deps.kind === 'values' ? access(e.deps.values).reads : run.reads;
-      // Vue re-runs a watchEffect only when a computed it read changed value;
-      // Runic tracks the cells the computed read.
-      if (e.deps.kind === 'tracked' && [...run.calls].some(f => computedFns.has(f)))
-        fail(
-          'E_EFFECT',
-          'A watchEffect reading a computed is planned for a later milestone (Vue re-runs it only when the computed value changes); watch the computed instead',
-          e.source,
-        );
       return { e, run, deps };
     });
     for (const w of info)
@@ -2221,9 +2213,10 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             const index = lower.reserve();
             lower.bindings.set(sym, { kind: 'computed', fn: index });
             computedFns.add(index);
-            pending.push(() =>
-              lower.function(getter as ts.ArrowFunction, name, undefined, COMPONENT, index),
-            );
+            pending.push(() => {
+              lower.function(getter as ts.ArrowFunction, name, undefined, COMPONENT, index);
+              lower.functions[index].derived = true;
+            });
             continue;
           }
           if (ts.isArrowFunction(init!) || ts.isFunctionExpression(init!)) {

@@ -1,0 +1,14 @@
+{
+  "description": "Derived values: an effect reading a derived re-runs only when its value changed; a derived recomputes once per change however often it is read; a derived nobody reads is never evaluated",
+  "fixtures": ["derived-timing-svelte", "derived-timing-vue"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "add-two" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "add-one" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "add-two" },
+    { "kind": "click", "id": "add-one" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

@@ -438,6 +438,16 @@ pub struct Instance<'p> {
     /// rendering a slot for content passed through it).
     parent: Option<usize>,
     effects: Vec<EffectState>,
+    /// Cached derived values by function.
+    derived: HashMap<usize, DerivedSlot>,
+}
+
+struct DerivedSlot {
+    value: Val,
+    /// What its last computation read.
+    reads: Vec<Read_>,
+    /// Bumped when a recomputation gives a different value.
+    version: u64,
 }
 
 /// The run state of one effect of an instance.
@@ -452,10 +462,13 @@ struct EffectState {
     reads: Vec<Read_>,
 }
 
-/// A cell read recorded while a tracked effect ran.
+/// A read recorded while a tracked effect or a derived value ran: a cell,
+/// or a derived value (`derived`, the function) of the instance.
+#[derive(Clone)]
 struct Read_ {
     instance: usize,
     cell: usize,
+    derived: Option<usize>,
     version: u64,
     /// Heap mutation epochs after the run (deep and proxied cells change
     /// when the heap is mutated).
@@ -718,6 +731,7 @@ impl<'p> Machine<'p> {
                 .iter()
                 .map(|_| EffectState::default())
                 .collect(),
+            derived: HashMap::new(),
         });
         let saved = std::mem::replace(&mut self.current, id);
         let result = (|| -> Res<()> {
@@ -790,6 +804,7 @@ impl<'p> Machine<'p> {
                     reads.push(Read_ {
                         instance: self.current,
                         cell: *cell,
+                        derived: None,
                         version: self.instances[self.current].versions[*cell],
                         epochs: (0, 0),
                     });
@@ -922,6 +937,10 @@ impl<'p> Machine<'p> {
                 Val::Null => return Err(Throw::type_error("Cannot read properties of null")),
                 v => v,
             },
+            Call { function, args } if self.program.functions[*function].derived => {
+                debug_assert!(args.is_empty());
+                self.read_derived(self.current, *function)?
+            }
             Call { function, args } => {
                 let values = args
                     .iter()
@@ -1071,6 +1090,97 @@ impl<'p> Machine<'p> {
         if self.phase.is_some() {
             self.again = true;
         }
+    }
+
+    /// Whether a recorded read is out of date; a derived value is brought up
+    /// to date first (it changed only if its value did).
+    fn read_changed(&mut self, r: &Read_) -> bool {
+        match r.derived {
+            Some(f) => {
+                if self.refresh_derived(r.instance, f).is_err() {
+                    return true;
+                }
+                self.instances[r.instance]
+                    .derived
+                    .get(&f)
+                    .is_none_or(|d| d.version != r.version)
+            }
+            None => {
+                let inst = &self.instances[r.instance];
+                let cell = &self.program.components[inst.component].cells[r.cell];
+                inst.versions[r.cell] != r.version
+                    || match cell.tracking {
+                        Tracking::Deep => js::mutation_epoch() != r.epochs.0,
+                        Tracking::Proxied => js::owned_epoch() != r.epochs.1,
+                        _ => false,
+                    }
+            }
+        }
+    }
+
+    /// Recompute derived value `f` of instance `inst` if what it read changed;
+    /// it keeps its value (and version) when the result is the same.
+    fn refresh_derived(&mut self, inst: usize, f: usize) -> Res<()> {
+        let stale = match self.instances[inst].derived.get(&f) {
+            None => true,
+            Some(d) => {
+                let reads = d.reads.clone();
+                reads.iter().any(|r| self.read_changed(r))
+            }
+        };
+        if !stale {
+            return Ok(());
+        }
+        let outer = self.tracking.replace(vec![]);
+        let saved = std::mem::replace(&mut self.current, inst);
+        let saved_snap = self.snap.take();
+        let result = self.call(f, vec![], vec![]);
+        self.current = saved;
+        self.snap = saved_snap;
+        let reads = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
+        let value = result?;
+        let epochs = (js::mutation_epoch(), js::owned_epoch());
+        let reads = reads.into_iter().map(|r| Read_ { epochs, ..r }).collect();
+        let same = self.instances[inst]
+            .derived
+            .get(&f)
+            .is_some_and(|d| d.value.same(&value));
+        if same {
+            self.instances[inst]
+                .derived
+                .get_mut(&f)
+                .expect("slot")
+                .reads = reads;
+        } else {
+            self.version_clock += 1;
+            let version = self.version_clock;
+            self.instances[inst].derived.insert(
+                f,
+                DerivedSlot {
+                    value,
+                    reads,
+                    version,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    /// The value of derived `f` of `inst` (a dependency of a running tracked effect).
+    fn read_derived(&mut self, inst: usize, f: usize) -> Res<Val> {
+        self.refresh_derived(inst, f)?;
+        let d = &self.instances[inst].derived[&f];
+        let (value, version) = (d.value.clone(), d.version);
+        if let Some(reads) = &mut self.tracking {
+            reads.push(Read_ {
+                instance: inst,
+                cell: 0,
+                derived: Some(f),
+                version,
+                epochs: (0, 0),
+            });
+        }
+        Ok(value)
     }
 
     /// The snapshot `snapshot` reads see in the running code.
@@ -2612,17 +2722,8 @@ impl<'p> Machine<'p> {
             EffectDeps::Always => !started || updated.get(i).copied().unwrap_or(true),
             EffectDeps::Tracked => {
                 !started || {
-                    let state = &self.instances[i].effects[e];
-                    state.reads.iter().any(|r| {
-                        let inst = &self.instances[r.instance];
-                        let cell = &self.program.components[inst.component].cells[r.cell];
-                        inst.versions[r.cell] != r.version
-                            || match cell.tracking {
-                                Tracking::Deep => js::mutation_epoch() != r.epochs.0,
-                                Tracking::Proxied => js::owned_epoch() != r.epochs.1,
-                                _ => false,
-                            }
-                    })
+                    let reads = self.instances[i].effects[e].reads.clone();
+                    reads.iter().any(|r| self.read_changed(r))
                 }
             }
             EffectDeps::Values { values, initial } => {

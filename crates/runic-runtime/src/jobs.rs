@@ -215,10 +215,13 @@ impl<T: CellVersions> Versions for std::cell::RefCell<T> {
     }
 }
 
-/// A cell read recorded while a tracked effect ran.
-pub struct Dep {
-    pub cells: std::rc::Rc<dyn Versions>,
+/// A read recorded while a tracked effect or a derived value ran: a cell
+/// (`cells`), or a derived value (`refresh` brings it up to date and gives
+/// its version). `X` is the generated app's context.
+pub struct Dep<X> {
+    pub cells: Option<std::rc::Rc<dyn Versions>>,
     pub cell: usize,
+    pub refresh: Option<std::rc::Rc<dyn Fn(&mut X) -> u64>>,
     pub version: u64,
     /// 0: identity, 1: deep (any heap mutation), 2: proxied.
     pub kind: u8,
@@ -226,10 +229,29 @@ pub struct Dep {
     pub epochs: (u64, u64),
 }
 
-impl Dep {
-    /// Whether the cell was written (or, for deep state, the heap mutated) since.
-    pub fn changed(&self) -> bool {
-        self.cells.version(self.cell) != self.version
+impl<X> Clone for Dep<X> {
+    fn clone(&self) -> Self {
+        Dep {
+            cells: self.cells.clone(),
+            cell: self.cell,
+            refresh: self.refresh.clone(),
+            version: self.version,
+            kind: self.kind,
+            epochs: self.epochs,
+        }
+    }
+}
+
+impl<X> Dep<X> {
+    /// Whether the cell was written (or, for deep state, the heap mutated)
+    /// since, or the derived value changed.
+    pub fn changed(&self, cx: &mut X) -> bool {
+        if let Some(refresh) = &self.refresh {
+            return refresh(cx) != self.version;
+        }
+        self.cells
+            .as_ref()
+            .is_some_and(|c| c.version(self.cell) != self.version)
             || match self.kind {
                 1 => runic_js::mutation_epoch() != self.epochs.0,
                 2 => runic_js::owned_epoch() != self.epochs.1,
@@ -238,14 +260,22 @@ impl Dep {
     }
 }
 
-/// The run state of one effect of an instance.
-pub struct Fx<C> {
-    pub started: bool,
-    pub cleanup: Option<C>,
-    pub deps: Vec<Dep>,
+/// A cached derived value of an instance.
+pub struct Derived<T, X> {
+    pub cached: T,
+    pub deps: Vec<Dep<X>>,
+    /// Bumped when a recomputation gives a different value.
+    pub version: u64,
 }
 
-impl<C> Default for Fx<C> {
+/// The run state of one effect of an instance.
+pub struct Fx<C, X> {
+    pub started: bool,
+    pub cleanup: Option<C>,
+    pub deps: Vec<Dep<X>>,
+}
+
+impl<C, X> Default for Fx<C, X> {
     fn default() -> Self {
         Fx {
             started: false,

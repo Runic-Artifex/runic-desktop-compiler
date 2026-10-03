@@ -378,6 +378,11 @@ pub struct Function {
     pub body: Vec<Stmt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
+    /// A derived value of its component (Svelte `$derived`, Vue `computed`):
+    /// cached per instance, recomputed when what it read changed, and a
+    /// changed dependency only when its value changed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub derived: bool,
 }
 
 impl Function {

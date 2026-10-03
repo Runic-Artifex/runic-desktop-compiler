@@ -1235,6 +1235,17 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
     let m = c.effects.len();
     let mut fx_values = String::new();
     let mut fx_value_defaults = String::new();
+    // Cached derived values.
+    for (f, func) in p.functions.iter().enumerate() {
+        if func.derived && func.component == Some(k) {
+            let _ = write!(
+                fx_values,
+                "pub dv{f}: Option<runic_runtime::Derived<{}, Cx>>, ",
+                rust_type(&func.result)
+            );
+            let _ = write!(fx_value_defaults, "dv{f}: None, ");
+        }
+    }
     for (e, effect) in c.effects.iter().enumerate() {
         if let EffectDeps::Values { values, .. } = &effect.deps {
             let cx = FnCtx::new(p, Some(k), vec![], None, Type::Void);
@@ -1253,10 +1264,10 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
          /// Template locals of component {name}.\n#[derive(Clone)]\npub struct T{k} {{ {locals}}}\n\
          impl Default for T{k} {{ fn default() -> Self {{ T{k} {{ {local_defaults}}} }} }}\n\
          /// An instance of {name}: current, snapshot and pre-handler cells, dirty bits and props.\n\
-         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub prev: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub changed: bool, pub ver: [u64; {n}], pub fx: Vec<runic_runtime::Fx<Lst>>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, {props}{fx_values}}}\n\
+         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub prev: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub changed: bool, pub ver: [u64; {n}], pub fx: Vec<runic_runtime::Fx<Lst, Cx>>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, {props}{fx_values}}}\n\
          pub type I{k} = Rc<RefCell<St{k}>>;\n\
          fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), prev: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], changed: false, ver: [0; {n}], fx: (0..{m}).map(|_| runic_runtime::Fx::default()).collect(), stable: std::collections::HashMap::new(), {prop_defaults}{fx_value_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
-         fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); let stable = std::mem::take(&mut inst.borrow_mut().stable); drop(stable); }}",
+         fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); let stable = std::mem::take(&mut inst.borrow_mut().stable); drop(stable); clear_derived_i{k}(inst); }}",
         name = c.name.replace('\n', " "),
     );
     // Initialisation: passed props keep their value; other cells evaluate `init`.
@@ -1309,6 +1320,50 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
          fn begin_i{k}(st: &mut St{k}) {{ st.before = st.c.clone(); }}\n\
          #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, owned: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.changed = dirty.iter().any(|d| *d); st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.prev = std::mem::replace(&mut st.snap, Rc::new(st.c.clone())); }}\n\
          #[allow(unused_variables)]\nfn cells_json_i{k}(inst: &I{k}) -> runic_runtime::Json {{ let st = inst.borrow(); runic_runtime::Json::Array(vec![{cells_json}]) }}\n"
+    );
+}
+
+/// Derived values of component `k` (docs/design/M4-EFFECTS.md): `dget` reads
+/// the cached value (a dependency of a running tracked effect or derived),
+/// `dref` recomputes it when a dependency changed, keeping the value and its
+/// version when the result is the same.
+fn component_derived(p: &Program, k: usize, out: &mut String) {
+    let mut clear = String::new();
+    for (f, func) in p.functions.iter().enumerate() {
+        if !(func.derived && func.component == Some(k)) {
+            continue;
+        }
+        let t = rust_type(&func.result);
+        let same = same_expr(&func.result, "d.cached", "v");
+        let _ = write!(clear, "st.dv{f} = None; ");
+        let _ = writeln!(
+            out,
+            "#[allow(unused_variables)]\nfn dref_{f}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n\
+             let deps = inst.borrow().dv{f}.as_ref().map(|d| d.deps.clone());\n\
+             let stale = match deps {{ None => true, Some(ds) => ds.iter().any(|d| d.changed(cx)) }};\n\
+             if !stale {{ return Ok(()); }}\n\
+             let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new()));\n\
+             let snap = {{ let s = Rc::clone(&inst.borrow().snap); s }};\n\
+             let r = f{f}(cx, inst, &snap);\n\
+             let deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default();\n\
+             let v: {t} = r?;\n\
+             let epochs = (js::mutation_epoch(), js::owned_epoch());\n\
+             let deps: Vec<runic_runtime::Dep<Cx>> = deps.into_iter().map(|d| runic_runtime::Dep {{ epochs, ..d }}).collect();\n\
+             let same = inst.borrow().dv{f}.as_ref().is_some_and(|d| {same});\n\
+             if same {{ if let Some(d) = inst.borrow_mut().dv{f}.as_mut() {{ d.deps = deps; }} }}\n\
+             else {{ let version = cx.jobs.version(); inst.borrow_mut().dv{f} = Some(runic_runtime::Derived {{ cached: v, deps, version }}); }}\n\
+             Ok(())\n}}\n\
+             #[allow(unused_variables)]\nfn dget_{f}(cx: &mut Cx, inst: &I{k}) -> JsResult<{t}> {{\n\
+             dref_{f}(cx, inst)?;\n\
+             let (v, version) = {{ let st = inst.borrow(); let d = st.dv{f}.as_ref().expect(\"derived value\"); (d.cached.clone(), d.version) }};\n\
+             if let Some(t) = cx.tracking.as_mut() {{ let i2 = Rc::clone(inst); t.push(runic_runtime::Dep {{ cells: None, cell: 0, refresh: Some(Rc::new(move |cx: &mut Cx| {{ let _ = dref_{f}(cx, &i2); i2.borrow().dv{f}.as_ref().map_or(u64::MAX, |d| d.version) }})), version, kind: 0, epochs: (0, 0) }}); }}\n\
+             Ok(v)\n}}"
+        );
+    }
+    // Derived slots and effect dependencies hold closures over the instance.
+    let _ = writeln!(
+        out,
+        "#[allow(unused_variables, unused_mut)]\nfn clear_derived_i{k}(inst: &I{k}) {{ let mut st = inst.borrow_mut(); {clear}for fx in st.fx.iter_mut() {{ fx.deps.clear(); }} }}"
     );
 }
 
@@ -1365,7 +1420,7 @@ fn component_effects(p: &Program, k: usize, out: &mut String) {
             EffectDeps::Once => "!started".to_string(),
             EffectDeps::Always => "!started || updated".to_string(),
             EffectDeps::Tracked => {
-                "!started || inst.borrow().fx[e].deps.iter().any(|d| d.changed())".to_string()
+                "!started || { let deps = inst.borrow().fx[e].deps.clone(); deps.iter().any(|d| d.changed(cx)) }".to_string()
             }
             EffectDeps::Values { initial, .. } => format!(
                 "{{ let new = {tuple}; let changed = match &inst.borrow().fxv{e} {{ Some(o) => !({same}), None => true }}; if !started && !{initial} {{ let mut st = inst.borrow_mut(); st.fxv{e} = Some(new); st.fx[e].started = true; return false; }} changed }}"
@@ -1570,6 +1625,7 @@ pub fn generate(
     for k in 0..p.components.len() {
         component_state(p, k, &mut out);
         component_effects(p, k, &mut out);
+        component_derived(p, k, &mut out);
     }
     // The context: event payload, listener closures and live instances.
     let live: String = (0..p.components.len())
@@ -1601,7 +1657,7 @@ pub fn generate(
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
          fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\

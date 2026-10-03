@@ -123,6 +123,8 @@ export interface Local {
 
 /** Local index space of a function: [...captures, ...params, ...locals]. */
 export interface Fn {
+  /** A cached derived value of its component (`$derived`, `computed`). */
+  derived?: boolean;
   name: string;
   /** Component whose cells the function reads and writes, if any. */
   component?: number;

@@ -133,7 +133,7 @@ impl<'a> FnCtx<'a> {
                     _ => 0,
                 };
                 format!(
-                    "{{ let v = {read}; if let Some(t) = cx.tracking.as_mut() {{ let version = inst.borrow().ver[{cell}]; t.push(runic_runtime::Dep {{ cells: Rc::clone(inst) as Rc<dyn runic_runtime::Versions>, cell: {cell}, version, kind: {kind}, epochs: (0, 0) }}); }} v }}"
+                    "{{ let v = {read}; if let Some(t) = cx.tracking.as_mut() {{ let version = inst.borrow().ver[{cell}]; t.push(runic_runtime::Dep {{ cells: Some(Rc::clone(inst) as Rc<dyn runic_runtime::Versions>), cell: {cell}, refresh: None, version, kind: {kind}, epochs: (0, 0) }}); }} v }}"
                 )
             }
             Read::Snapshot if self.snap => format!("snap.c{cell}.clone()"),
@@ -376,6 +376,10 @@ impl<'a> FnCtx<'a> {
             Unwrap { value } => {
                 let v = self.expr(value);
                 self.q(&format!("{v}.unwrap_js()"))
+            }
+            // A derived value: its cached slot (recomputed when needed).
+            Call { function, .. } if self.p.functions[*function].derived => {
+                self.q(&format!("dget_{function}(cx, inst)"))
             }
             Call { function, args } => {
                 let (code, names) = self.temps(args);
