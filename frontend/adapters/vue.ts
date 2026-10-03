@@ -12,6 +12,7 @@ import type { Cell, Component, Expr, Handler, Node, Program } from '../ir.ts';
 import { Lowerer, skipParens, type Hooks } from '../language.ts';
 import { createProgram, VUE } from '../program.ts';
 import { TypeMapper } from '../types.ts';
+import { lowerModules } from '../modules.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type VNode = any;
@@ -246,7 +247,7 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
 
   // --- Setup bindings ---
   const statements = [...sf.statements].filter(s => s.getStart(sf) < script.length);
-  const pending: (() => void)[] = [];
+  const pending = lowerModules(graph, program, lower, cells, COMPONENT, { skip: f => f === graph.entry });
   const setupBindings = new Map<string, ts.Symbol>();
   for (const stmt of statements) {
     if (ts.isImportDeclaration(stmt)) {
@@ -262,19 +263,16 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
           }
         continue;
       }
-      tsFail(
-        stmt,
-        'E_IMPORT',
-        'Imports in <script setup> are planned for M3 (local modules: schema 3 pipeline)',
-      );
+      if (spec.endsWith('.vue')) tsFail(stmt, 'E_TEMPLATE', 'Child components are planned for M3');
+      if (!spec.startsWith('.')) tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+      continue;
     }
     if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
     if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      const index = lower.reserve();
       const sym = checker.getSymbolAtLocation(stmt.name)!;
-      lower.bindings.set(sym, { kind: 'function', fn: index });
       setupBindings.set(stmt.name.text, sym);
-      pending.push(() => lower.function(stmt, stmt.name!.text, undefined, COMPONENT, index));
+      const p = lower.declare(sym, stmt, stmt.name.text, COMPONENT);
+      if (p) pending.push(p);
       continue;
     }
     if (ts.isVariableStatement(stmt) && stmt.declarationList.flags & ts.NodeFlags.Const) {
@@ -326,9 +324,8 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
           continue;
         }
         if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
-          const index = lower.reserve();
-          lower.bindings.set(sym, { kind: 'function', fn: index });
-          pending.push(() => lower.function(init, name, undefined, COMPONENT, index));
+          const p = lower.declare(sym, init, name, COMPONENT);
+          if (p) pending.push(p);
           continue;
         }
         // A setup constant, captured once.
@@ -425,7 +422,7 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
       h = lower.handler(e, COMPONENT, event === 'input');
     else if (ts.isIdentifier(e)) {
       const b = lower.binding(e);
-      if (b?.kind !== 'function') return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
+      if (b?.kind !== 'function' && b?.kind !== 'generic') return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
       // A method handler receives the event: lower its body with that parameter.
       const sym = checker.getSymbolAtLocation(e);
       const decl =
@@ -433,7 +430,8 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
         lower.bindings.get(sym) &&
         (setupDecl(e.text) as ts.FunctionLikeDeclaration | undefined);
       if (decl && decl.parameters.length) h = lower.handler(decl, COMPONENT, event === 'input');
-      else h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
+      else if (b.kind === 'function') h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
+      else return tsFail(e, 'E_EVENT', 'Unsupported handler');
     } else return tsFail(e, 'E_EVENT', 'Unsupported event handler');
     handlers.push({ event, ...h, source: loc(p) });
     return handlers.length - 1;

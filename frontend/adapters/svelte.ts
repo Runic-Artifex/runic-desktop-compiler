@@ -9,6 +9,7 @@ import type { Cell, Component, Expr, Handler, Node, Program, Stmt, Type } from '
 import { Lowerer, type Hooks } from '../language.ts';
 import { createProgram, RUNES } from '../program.ts';
 import { TypeMapper } from '../types.ts';
+import { lowerModules } from '../modules.ts';
 
 // The svelte/compiler AST is untyped here; nodes are plain objects.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -274,8 +275,9 @@ export async function lowerSvelte4(graph: Graph): Promise<{ ir: Program }> {
   };
 
   const statements = [...sf.statements].filter(s => s.getStart(sf) < script.length);
+  // Ordinary local modules initialise first (dependencies first).
+  const pending = lowerModules(graph, program, lower, cells, COMPONENT, { skip: f => f === graph.entry });
   // Pass 1: register bindings (functions are hoisted; cells get indices).
-  const pending: (() => void)[] = [];
   for (const stmt of statements) {
     if (ts.isImportDeclaration(stmt)) {
       const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
@@ -286,17 +288,14 @@ export async function lowerSvelte4(graph: Graph): Promise<{ ir: Program }> {
           'E_CAPABILITY',
           `${spec} imports (lifecycle, context, stores) are planned for M3/M4`,
         );
-      tsFail(
-        stmt,
-        'E_IMPORT',
-        'Component imports are planned for M3 (ordinary local modules: use the schema 3 pipeline)',
-      );
+      if (spec.endsWith('.svelte')) tsFail(stmt, 'E_TEMPLATE', 'Child components are planned for M3');
+      if (!spec.startsWith('.')) tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+      continue;
     }
     if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
     if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      const index = lower.reserve();
-      lower.bindings.set(checker.getSymbolAtLocation(stmt.name)!, { kind: 'function', fn: index });
-      pending.push(() => lower.function(stmt, stmt.name!.text, undefined, COMPONENT, index));
+      const p = lower.declare(checker.getSymbolAtLocation(stmt.name)!, stmt, stmt.name.text, COMPONENT);
+      if (p) pending.push(p);
       continue;
     }
     if (ts.isVariableStatement(stmt)) {
@@ -341,11 +340,8 @@ export async function lowerSvelte4(graph: Graph): Promise<{ ir: Program }> {
           continue;
         }
         if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) && isConst) {
-          const index = lower.reserve();
-          lower.bindings.set(sym, { kind: 'function', fn: index });
-          pending.push(() =>
-            lower.function(init as ts.ArrowFunction, name, undefined, COMPONENT, index),
-          );
+          const p = lower.declare(sym, init, name, COMPONENT);
+          if (p) pending.push(p);
           continue;
         }
         if (rune && !['$state', '$state.raw'].includes(rune))
@@ -451,11 +447,7 @@ export async function lowerSvelte4(graph: Graph): Promise<{ ir: Program }> {
         return fail('E_EVENT', 'Event handlers must be functions', loc(where));
       const target = lower.functions[b.fn];
       if (target && target.params.length)
-        return fail(
-          'E_EVENT',
-          'Named handlers with an event parameter: use an inline arrow function',
-          loc(where),
-        );
+        return fail('E_EVENT', 'Named handlers with typed parameters: use an inline arrow function', loc(where));
       h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
     } else return fail('E_EVENT', 'Unsupported event handler expression', loc(where));
     handlers.push({ event, ...h, source: loc(where) });

@@ -14,6 +14,7 @@ import type { Cell, Component, Expr, Handler, Node, Program, Stmt, Type } from '
 import { Lowerer, skipParens, type Hooks } from '../language.ts';
 import { createProgram, REACT } from '../program.ts';
 import { TypeMapper } from '../types.ts';
+import { lowerModules } from '../modules.ts';
 
 const TAGS = new Set([
   'div',
@@ -177,85 +178,51 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
     if (f.body) visit(f.body);
     return found;
   };
+  const isUseState = (callee: ts.Expression): boolean => {
+    if (!ts.isIdentifier(callee)) return false;
+    const decl = symbolOf(callee)?.declarations?.[0];
+    return decl?.getSourceFile().fileName === REACT && (decl as ts.FunctionDeclaration).name?.text === 'useState';
+  };
   const isJsx = (n: ts.Node) =>
     ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n);
-  const pending: (() => void)[] = [];
   let bootstrap: ts.ExpressionStatement | undefined;
-  for (const f of files.keys()) {
-    const sf = program.getSourceFile(f)!;
-    for (const stmt of sf.statements) {
-      if (ts.isImportDeclaration(stmt)) {
-        const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
-        if (!stmt.importClause) {
-          if (!spec.endsWith('.css'))
-            fail(stmt, 'E_IMPORT', 'Only local CSS side-effect imports are supported');
-          continue;
-        }
-        if (spec === 'react') {
-          const named = stmt.importClause.namedBindings;
-          if (named && ts.isNamedImports(named))
-            for (const el of named.elements)
-              if ((el.propertyName ?? el.name).text !== 'useState')
-                fail(
-                  el,
-                  'E_CAPABILITY',
-                  `react:${(el.propertyName ?? el.name).text} is planned for M3/M4`,
-                );
-          continue;
-        }
-        if (spec === 'react-dom/client') continue;
-        if (!spec.startsWith('.'))
-          fail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
-        continue;
-      }
-      if (
-        ts.isExportDeclaration(stmt) ||
-        ts.isTypeAliasDeclaration(stmt) ||
-        ts.isInterfaceDeclaration(stmt)
-      )
-        continue;
-      const register = (name: ts.Identifier, decl: ts.FunctionLikeDeclaration) => {
-        const sym = checker.getSymbolAtLocation(name)!;
-        if (returnsJsx(decl)) {
-          componentDecls.set(sym, decl);
-          return;
-        }
-        const index = lower.reserve();
-        lower.bindings.set(sym, { kind: 'function', fn: index });
-        pending.push(() => lower.function(decl, name.text, undefined, undefined, index));
-      };
-      if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-        register(stmt.name, stmt);
-        continue;
-      }
-      if (ts.isVariableStatement(stmt)) {
-        if (!(stmt.declarationList.flags & ts.NodeFlags.Const))
-          fail(stmt, 'E_MODULE', 'Mutable module state is unsupported');
-        for (const d of stmt.declarationList.declarations) {
-          if (!ts.isIdentifier(d.name) || !d.initializer)
-            fail(d, 'E_MODULE', 'Only plain module constants are supported');
-          const init = skipParens(d.initializer!);
-          if (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
-            register(d.name as ts.Identifier, init);
-          else {
-            const sym = checker.getSymbolAtLocation(d.name)!;
-            pending.push(() =>
-              lower.bindings.set(sym, {
-                kind: 'value',
-                expr: lower.value(d.initializer!, undefined, (d.name as ts.Identifier).text),
-              }),
-            );
-          }
-        }
-        continue;
-      }
-      if (ts.isExpressionStatement(stmt) && f === graph.entry && !bootstrap) {
-        bootstrap = stmt;
-        continue;
-      }
-      fail(stmt, 'E_MODULE', 'Unsupported module statement (top-level effects are planned for M4)');
+  const componentDecl = (n: ts.Statement): boolean => {
+    if (ts.isFunctionDeclaration(n) && n.name && returnsJsx(n)) {
+      componentDecls.set(checker.getSymbolAtLocation(n.name)!, n);
+      return true;
     }
-  }
+    if (ts.isVariableStatement(n)) {
+      const decls = n.declarationList.declarations;
+      const fns = decls.map(d => d.initializer && skipParens(d.initializer));
+      if (fns.length && fns.every(i => i && (ts.isArrowFunction(i) || ts.isFunctionExpression(i)) && returnsJsx(i))) {
+        decls.forEach((d, i) => componentDecls.set(checker.getSymbolAtLocation(d.name)!, fns[i] as ts.ArrowFunction));
+        return true;
+      }
+    }
+    return false;
+  };
+  // Ordinary local modules (and component modules) initialise dependencies first.
+  const pending = lowerModules(graph, program, lower, cells, COMPONENT, {
+    statement(stmt, file) {
+      if (componentDecl(stmt)) return true;
+      if (ts.isExpressionStatement(stmt) && file === graph.entry && !bootstrap) {
+        bootstrap = stmt;
+        return true;
+      }
+      return false;
+    },
+    frameworkImport(spec, stmt) {
+      if (spec === 'react') {
+        const named = stmt.importClause?.namedBindings;
+        if (named && ts.isNamedImports(named))
+          for (const el of named.elements)
+            if ((el.propertyName ?? el.name).text !== 'useState')
+              fail(el, 'E_CAPABILITY', `react:${(el.propertyName ?? el.name).text} is planned for M3/M4`);
+        return true;
+      }
+      return spec === 'react-dom/client';
+    },
+  });
   // createRoot(document.getElementById('root')).render(<App />)
   const call = bootstrap && skipParens(bootstrap.expression);
   const rendered =
@@ -286,9 +253,8 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
       break;
     }
     if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      const index = lower.reserve();
-      lower.bindings.set(checker.getSymbolAtLocation(stmt.name)!, { kind: 'function', fn: index });
-      pending.push(() => lower.function(stmt, stmt.name!.text, undefined, COMPONENT, index));
+      const p = lower.declare(checker.getSymbolAtLocation(stmt.name)!, stmt, stmt.name.text, COMPONENT);
+      if (p) pending.push(p);
       continue;
     }
     if (!ts.isVariableStatement(stmt) || !(stmt.declarationList.flags & ts.NodeFlags.Const))
@@ -302,8 +268,7 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
       if (
         init &&
         ts.isCallExpression(init) &&
-        ts.isIdentifier(init.expression) &&
-        init.expression.text === 'useState'
+        isUseState(init.expression)
       ) {
         if (!ts.isArrayBindingPattern(d.name) || d.name.elements.length !== 2)
           fail(d, 'E_STATE', 'Use const [value, setValue] = useState(initial)');
@@ -344,11 +309,11 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
         fail(d, 'E_COMPONENT', 'Destructuring in component bodies is planned for M3');
       const name = (d.name as ts.Identifier).text;
       const sym = checker.getSymbolAtLocation(d.name)!;
-      const index = lower.reserve();
       if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
-        lower.bindings.set(sym, { kind: 'function', fn: index });
-        pending.push(() => lower.function(init, name, undefined, COMPONENT, index));
+        const p = lower.declare(sym, init, name, COMPONENT);
+        if (p) pending.push(p);
       } else {
+        const index = lower.reserve();
         // A render-time value: recomputed from the render snapshot.
         lower.bindings.set(sym, { kind: 'derived', fn: index });
         pending.push(() => {
@@ -358,7 +323,7 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
             component: COMPONENT,
             params: [],
             locals: [],
-            result: lower.exprType(d.initializer!),
+            result: lower.types.typeOrUndefined(d.initializer!) ?? lower.valueType(v),
             body: [{ op: 'return', value: v }],
           };
         });
@@ -605,7 +570,10 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
             values.get(key) ??
             (el.initializer ? lower.value(el.initializer, COMPONENT, key) : undefined);
           if (!v) fail(el, 'E_PROPS', `Prop ${key} is not passed`);
-          lower.bindings.set(checker.getSymbolAtLocation(el.name)!, { kind: 'value', expr: v! });
+          const sym = checker.getSymbolAtLocation(el.name)!;
+          lower.bindings.set(sym, { kind: 'value', expr: v! });
+          // Untyped (JavaScript) props take the IR type of the passed value.
+          if (!types.typeOrUndefined(el.name)) types.override(sym, lower.valueType(v!));
         }
     }
     const b = decl.body;
@@ -627,16 +595,15 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
           if (
             init &&
             ts.isCallExpression(init) &&
-            ts.isIdentifier(init.expression) &&
-            init.expression.text === 'useState'
+            isUseState(init.expression)
           )
             fail(d, 'E_COMPONENT', 'State in child components is planned for M3');
           if (!ts.isIdentifier(d.name) || !d.initializer)
             fail(d, 'E_COMPONENT', 'Unsupported declaration in a child component');
-          lower.bindings.set(checker.getSymbolAtLocation(d.name)!, {
-            kind: 'value',
-            expr: lower.value(d.initializer!, COMPONENT, (d.name as ts.Identifier).text),
-          });
+          const sym = checker.getSymbolAtLocation(d.name)!;
+          const v = lower.value(d.initializer!, COMPONENT, (d.name as ts.Identifier).text);
+          lower.bindings.set(sym, { kind: 'value', expr: v });
+          if (!types.typeOrUndefined(d.name)) types.override(sym, lower.valueType(v));
         }
       }
     } else if (b) result = b as ts.Expression;

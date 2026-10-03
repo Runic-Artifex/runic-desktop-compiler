@@ -3,6 +3,8 @@ import { lowerReact } from './adapters/react.mjs';
 import { lowerVue } from './adapters/vue.mjs';
 import { lowerSvelte } from './adapters/svelte.mjs';
 export async function lower(graph, options = {}) {
+  // RUNIC_PIPELINE=4 forces the TypeScript frontend (migration testing).
+  if (process.env.RUNIC_PIPELINE) graph.config.pipeline = Number(process.env.RUNIC_PIPELINE);
   switch (graph.config.framework ?? 'react') {
     case 'react':
       if (graph.config.pipeline === 4) {
