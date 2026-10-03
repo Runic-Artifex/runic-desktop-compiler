@@ -309,6 +309,8 @@ export interface Schedule {
   checkpoint?: 'dispatch' | 'listener';
   /** A checkbox's `change` listeners run in the `click` dispatch. */
   changeWithClick?: boolean;
+  /** Controlled values are restored after every event (React). */
+  controlledRestore?: boolean;
   /**
    * `batched`: all cleanups of a phase run before its effects, in one walk
    * (children first) that includes the layout and post cleanups of

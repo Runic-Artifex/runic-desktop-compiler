@@ -54,7 +54,9 @@ export function App() {
           type="checkbox"
           aria-label="Agree"
           checked={agreed}
-          onChange={e => setAgreed(locked ? agreed : e.target.checked)}
+          onChange={e => {
+            if (!locked) setAgreed(e.target.checked);
+          }}
         />
       </div>
       <div className="row">

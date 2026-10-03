@@ -2693,6 +2693,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     schedule: {
       flush: 'event-microtask',
       changeWithClick: true,
+      controlledRestore: true,
       cleanups: 'batched',
       postWritesDeferred: true,
       mount: 'task',

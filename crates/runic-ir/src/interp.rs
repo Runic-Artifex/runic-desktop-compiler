@@ -590,6 +590,10 @@ pub struct Machine<'p> {
     hovered: Vec<u64>,
     /// Live values of uncontrolled text inputs (no `value` prop), by element id.
     live_values: HashMap<u64, String>,
+    /// Live checked state of checkboxes, by element id.
+    live_checked: HashMap<u64, bool>,
+    /// The controlled `value` and `checked` last applied, by element id.
+    control_cache: HashMap<u64, (Option<String>, Option<bool>)>,
     /// Class toggle state by element id: the class value, the toggles and
     /// the attribute they produced.
     class_states: HashMap<u64, (JsString, Vec<bool>, Option<JsString>)>,
@@ -724,6 +728,8 @@ impl<'p> Machine<'p> {
             event: None,
             hovered: vec![],
             live_values: HashMap::new(),
+            live_checked: HashMap::new(),
+            control_cache: HashMap::new(),
             class_states: HashMap::new(),
             host_listeners: vec![],
             root: runic_css::Root::default(),
@@ -2433,11 +2439,27 @@ impl<'p> Machine<'p> {
                 }
                 let mut value = None;
                 let mut checked = None;
+                // Controlled values: applied always (restore) or when they change.
+                let restore = self.program.schedule.controlled_restore;
                 for p in props {
                     match p.name.as_str() {
-                        "value" => value = Some(self.eval(&p.value, frame)?.string().to_rust()),
+                        "value" => {
+                            let v = self.eval(&p.value, frame)?.string().to_rust();
+                            let cache = self.control_cache.entry(id).or_default();
+                            if restore || cache.0.as_ref() != Some(&v) {
+                                cache.0 = Some(v.clone());
+                                self.live_values.insert(id, v);
+                            }
+                            value = self.live_values.get(&id).cloned();
+                        }
                         "checked" => {
-                            checked = Some(self.eval(&p.value, frame)?.boolean());
+                            let v = self.eval(&p.value, frame)?.boolean();
+                            let cache = self.control_cache.entry(id).or_default();
+                            if restore || cache.1 != Some(v) {
+                                cache.1 = Some(v);
+                                self.live_checked.insert(id, v);
+                            }
+                            checked = self.live_checked.get(&id).copied();
                             // A checkbox's value property defaults to "on".
                             value = Some(map.get("value").cloned().unwrap_or_else(|| "on".into()));
                         }
@@ -3519,6 +3541,10 @@ impl<'p> Machine<'p> {
             .map(|d| (EventKind::Change, d));
         let click = self.dispatch(target, EventKind::Click, data, with, s)?;
         let cancelled = click.as_ref().is_some_and(|e| e.default_prevented());
+        // The toggle stays unless the click was cancelled.
+        if let (Some(on), false) = (toggled, cancelled) {
+            self.live_checked.insert(target, on);
+        }
         if let Some(d) = change.filter(|_| !with_click) {
             if !cancelled {
                 self.dispatch(target, EventKind::Change, d, None, s)?;

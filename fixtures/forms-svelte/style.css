@@ -10,3 +10,4 @@ textarea, input[type='text'] { font-family: RunicFixture; font-size: 14px; line-
 textarea { width: 260px; height: 80px; resize: none; }
 input[type='text'] { width: 200px; }
 textarea:focus, input:focus { outline: none; border-color: #101010; }
+button { font-family: RunicFixture; font-size: 14px; padding: 6px 10px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }

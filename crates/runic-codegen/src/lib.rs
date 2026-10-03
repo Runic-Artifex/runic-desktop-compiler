@@ -748,17 +748,40 @@ impl Gen<'_> {
                         );
                     }
                 }
+                // Controlled values: restored at every sync (restore), or
+                // applied when they differ from the value last applied.
+                let restore = self.p.schedule.controlled_restore;
                 for p in props {
                     let v = self.ctx(k).expr(&p.value);
-                    if p.name == "checked" {
-                        let _ = writeln!(o.mount, "dom.set_checked(n{key}, {v});");
-                        let _ =
-                            writeln!(o.sync, "{{ let v = {v}; dom.set_checked(s.n{key}, v); }}");
+                    let (rty, conv, set) = if p.name == "checked" {
+                        ("bool", "", "dom.set_checked(N, v)")
                     } else {
-                        let _ = writeln!(o.mount, "dom.set_value(n{key}, &{v}.to_rust());");
+                        ("String", ".to_rust()", "dom.set_value(N, &v)")
+                    };
+                    let set_n = |n: &str| set.replace('N', n);
+                    if restore {
+                        let _ = writeln!(
+                            o.mount,
+                            "{{ let v = {v}{conv}; {}; }}",
+                            set_n(&format!("n{key}"))
+                        );
                         let _ = writeln!(
                             o.sync,
-                            "{{ let v = {v}.to_rust(); dom.set_value(s.n{key}, &v); }}"
+                            "{{ let v = {v}{conv}; {}; }}",
+                            set_n(&format!("s.n{key}"))
+                        );
+                    } else {
+                        let cache = format!("pv{key}_{}", p.name);
+                        o.fields.push((cache.clone(), format!("RefCell<{rty}>")));
+                        let _ = writeln!(
+                            o.mount,
+                            "let {cache} = RefCell::new({v}{conv}); {{ let v = {cache}.borrow().clone(); {}; }}",
+                            set_n(&format!("n{key}"))
+                        );
+                        let _ = writeln!(
+                            o.sync,
+                            "{{ let v = {v}{conv}; if cx.force_sync || *s.{cache}.borrow() != v {{ {}; *s.{cache}.borrow_mut() = v; }} }}",
+                            set_n(&format!("s.n{key}"))
                         );
                     }
                 }
@@ -1750,10 +1773,10 @@ pub fn generate(
          pub type Bag = Rc<dyn Fn(&mut Cx, js::Event) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, event: None, root: Default::default(), media: runic_runtime::media_env(), host: Vec::new(), listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: Default::default(), media: runic_runtime::media_env(), host: Vec::new(), listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1843,6 +1866,15 @@ pub fn generate(
         .enumerate()
         .map(|(i, mime)| format!("({}, include_bytes!(\"../assets/{i}\")), ", rust_str(mime)))
         .collect();
+    // React restores controlled values after every event, even when the
+    // event wrote no state.
+    let restore_controlled = if p.schedule.controlled_restore {
+        format!(
+            "if let Some((_, s)) = self.root.as_ref() {{ if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }} }}\n"
+        )
+    } else {
+        String::new()
+    };
     let _ = writeln!(
         out,
         "pub struct App {{ cx: Cx, inst: I{ri}, t: Rc<RefCell<T{ri}>>, root: Option<(NodeId, Box<S{root}>)> }}\n\
@@ -1854,7 +1886,7 @@ pub fn generate(
          let result = f(&mut self.cx);\n\
          for (node, on) in std::mem::take(&mut self.cx.focus) {{ dom.focus_element(NodeId::from_u64(node), on); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.cx.payload = None;\n\
-         if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{\n{rollback}self.cx.jobs.clear();\nself.cx.jobs.in_event = false;\n// Re-synchronise controlled inputs.\nself.flush(dom);\nreturn result;\n}} }}\n\
+         if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{\n{rollback}self.cx.jobs.clear();\nself.cx.jobs.in_event = false;\n// Re-synchronise controlled inputs.\nself.cx.force_sync = true;\nself.flush(dom);\nself.cx.force_sync = false;\nreturn result;\n}} }}\n\
          self.checkpoint(dom);\n\
          self.cx.jobs.in_event = false;\n\
          while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
@@ -1940,6 +1972,7 @@ pub fn generate(
          for group in groups {{\n\
          let r = self.task(dom, true, |cx| {{ let mut err = None; for (f, ev, current) in group {{ if !ev.enter(js::Element(current)) {{ continue; }} cx.payload = ev.payload(); cx.event = Some(ev); let r = f(cx); cx.event = None; if let Err(e) = r {{ if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }} err.get_or_insert(e); }} }} cx.payload = None; err.map_or(Ok(()), Err) }});\n\
          if let Err(e) = r {{ first.get_or_insert(e.to_string()); }}\n}}\n\
+         {restore_controlled}\
          first.map_or(Ok(()), Err)\n}}\n\
          fn host_listeners(&self, window: bool, event: Event) -> Vec<u32> {{ self.cx.host.iter().filter(|h| h.0 == window && h.1 == event).map(|h| h.3).collect() }}\n\
          fn advance(&mut self, dom: &mut Dom, to: f64) {{\n\

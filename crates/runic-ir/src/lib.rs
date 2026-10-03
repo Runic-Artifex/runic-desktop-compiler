@@ -139,6 +139,15 @@ pub struct Schedule {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub cleanup_reads_previous: bool,
+    /// Controlled values (`value`, `checked`) are restored after every
+    /// event (React); otherwise they are applied when they change, and what
+    /// the user typed or toggled stays until then (Svelte, Vue).
+    #[serde(
+        default,
+        rename = "controlledRestore",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub controlled_restore: bool,
 }
 
 /// How cleanups of re-running effects are ordered within a phase.
