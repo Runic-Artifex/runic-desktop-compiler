@@ -485,7 +485,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         name: key,
         type,
         init: required(type),
-        tracking: isReference(type) ? 'deep' : 'identity',
+        // Props are read-only (Rules of React): identity tracking is exact.
+        tracking: 'identity',
+        readonly: true,
         prop: key,
         source: sourceOf(at),
       });
@@ -630,6 +632,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
             type,
             init: { op: 'lit', value: 0 },
             tracking: 'identity',
+            readonly: true,
             source: sourceOf(d),
           });
           lower.bindings.set(checker.getSymbolAtLocation(v.name)!, { kind: 'cell', cell });

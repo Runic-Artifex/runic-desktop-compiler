@@ -285,6 +285,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
                 _ => None,
             };
             Ok(Cell {
+                readonly: false,
                 tracking: Tracking::Identity,
                 name: field(s, "name")?.as_str().unwrap_or_default().to_owned(),
                 ty: ty(field(s, "type")?)?,

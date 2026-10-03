@@ -1869,12 +1869,17 @@ export function App() { const [show, setShow] = useState(true); return ${templat
     );
 });
 
-test('React state mutated in place is rejected where it is rendered', async () => {
+test('React state and props are read-only (Rules of React)', async () => {
   await react(
     `function App() {
        const [items, setItems] = useState([1]);
        return <main><p id="n">{items.length}</p><button id="add" onClick={() => { items.push(2); setItems(items); }}>add</button></main>;
      }`,
-    root => assert.rejects(collect(root).then(lower), failWith('E_REACTIVITY', 'main.jsx')),
+    root => assert.rejects(collect(root).then(lower), failWith('E_READONLY', 'main.jsx')),
+  );
+  await react(
+    `function Child({ items }) { const k = items.push(1); return <p>{k}</p>; }
+     function App() { const [xs, setXs] = useState([1]); return <Child items={xs} />; }`,
+    root => assert.rejects(collect(root).then(lower), failWith('E_READONLY', 'main.jsx')),
   );
 });

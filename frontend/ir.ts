@@ -142,6 +142,8 @@ export interface RecordType {
 }
 
 export interface Cell {
+  /** Must not be mutated in place (React state and props). */
+  readonly?: boolean;
   name: string;
   type: Type;
   init: Expr;

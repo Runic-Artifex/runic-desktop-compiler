@@ -1500,6 +1500,10 @@ struct Origins<'a> {
     scope: Scope<'a>,
     locals: Vec<Origin>,
     out: &'a mut Mutations,
+    /// The statement being walked (for diagnostics).
+    source: Option<Source>,
+    /// An in-place mutation of a read-only cell.
+    error: Option<Diagnostic>,
 }
 
 impl Origins<'_> {
@@ -1533,6 +1537,18 @@ impl Origins<'_> {
 
     fn mutated(&mut self, e: &Expr, collection: bool) {
         match self.origin(e) {
+            Origin::Root(Root::Cell(k, cell)) if self.p.components[k].cells[cell].readonly => {
+                let c = &self.p.components[k].cells[cell];
+                let what = if c.prop.is_some() { "a prop" } else { "state" };
+                self.error.get_or_insert(Diagnostic::new(
+                    "E_READONLY",
+                    format!(
+                        "{} is {what} and must not be mutated in place; create a new value and set it",
+                        c.name
+                    ),
+                    self.source.as_ref().or(c.source.as_ref()),
+                ));
+            }
             Origin::Root(r) => {
                 self.out.roots.insert(r);
                 if collection {
@@ -1587,6 +1603,9 @@ impl Origins<'_> {
     }
 
     fn stmt(&mut self, s: &Stmt) {
+        if let Some(src) = stmt_source(s) {
+            self.source = Some(src.clone());
+        }
         match s {
             Stmt::Set { cell, value, .. } => {
                 self.expr(value);
@@ -1702,6 +1721,20 @@ fn holds(p: &Program, outer: &Type, inner: &Type, seen: &mut HashSet<usize>) -> 
     }
 }
 
+fn stmt_source(s: &Stmt) -> Option<&Source> {
+    match s {
+        Stmt::Set { source, .. }
+        | Stmt::Let { source, .. }
+        | Stmt::Assign { source, .. }
+        | Stmt::Expr { source, .. }
+        | Stmt::If { source, .. }
+        | Stmt::ForOf { source, .. }
+        | Stmt::Return { source, .. }
+        | Stmt::Throw { source, .. } => source.as_ref(),
+        _ => None,
+    }
+}
+
 fn untracked_template_reads(p: &Program) -> Result<()> {
     let mut m = Mutations::default();
     for f in &p.functions {
@@ -1718,8 +1751,13 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
             scope,
             locals: vec![],
             out: &mut m,
+            source: f.source.clone(),
+            error: None,
         };
         o.block(&f.body);
+        if let Some(d) = o.error {
+            return Err(d);
+        }
     }
     for (k, c) in p.components.iter().enumerate() {
         for h in &c.handlers {
@@ -1731,8 +1769,13 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 scope,
                 locals: vec![],
                 out: &mut m,
+                source: h.source.clone(),
+                error: None,
             };
             o.block(&h.body);
+            if let Some(d) = o.error {
+                return Err(d);
+            }
         }
     }
     let changes = |root: Root| -> Option<String> {
