@@ -1346,8 +1346,25 @@ impl<'p> NodeCx<'_, 'p> {
                 children,
                 reference,
                 spread,
+                classes,
                 ..
             } => {
+                for t in classes {
+                    if s.infer(&t.value, 0, src)? != Type::Boolean {
+                        return err(
+                            "E_IR",
+                            format!("Class toggle {} must be boolean", t.name),
+                            src,
+                        );
+                    }
+                }
+                if !classes.is_empty() {
+                    if let Some(a) = attrs.iter().find(|a| a.name == "class") {
+                        if s.infer(&a.value, 0, src)? != Type::String {
+                            return err("E_IR", "With class toggles, class must be a string", src);
+                        }
+                    }
+                }
                 if let Some(e) = spread {
                     if s.infer(e, 0, src)? != Type::Attrs {
                         return err("E_IR", "A spread must be an attribute bag", src);
@@ -1932,9 +1949,10 @@ fn visit_template(
                 props,
                 children,
                 spread,
+                classes,
                 ..
             } => {
-                exprs.extend(attrs.iter().chain(props).map(|a| &a.value));
+                exprs.extend(attrs.iter().chain(props).chain(classes).map(|a| &a.value));
                 exprs.extend(spread);
                 visit_template(p, k, children, src, f);
             }

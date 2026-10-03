@@ -590,6 +590,9 @@ pub struct Machine<'p> {
     hovered: Vec<u64>,
     /// Live values of uncontrolled text inputs (no `value` prop), by element id.
     live_values: HashMap<u64, String>,
+    /// Class toggle state by element id: the class value, the toggles and
+    /// the attribute they produced.
+    class_states: HashMap<u64, (JsString, Vec<bool>, Option<JsString>)>,
     /// Document and window listeners in registration order: (window, kind, listener).
     host_listeners: Vec<(bool, EventKind, Val)>,
     children: HashMap<InstKey, usize>,
@@ -717,6 +720,7 @@ impl<'p> Machine<'p> {
             event: None,
             hovered: vec![],
             live_values: HashMap::new(),
+            class_states: HashMap::new(),
             host_listeners: vec![],
             children: HashMap::new(),
             listeners: vec![],
@@ -2269,6 +2273,7 @@ impl<'p> Machine<'p> {
                 children,
                 reference,
                 spread,
+                classes,
                 ..
             } => {
                 let key = (
@@ -2311,6 +2316,44 @@ impl<'p> Machine<'p> {
                         }
                         other => panic!("validated attribute, found {other:?}"),
                     }
+                }
+                if !classes.is_empty() {
+                    let value = match attrs.iter().find(|a| a.name == "class") {
+                        Some(a) => self.eval(&a.value, frame)?.string(),
+                        None => JsString::new(),
+                    };
+                    let mut toggles = vec![];
+                    for t in classes {
+                        toggles.push(self.eval(&t.value, frame)?.boolean());
+                    }
+                    let named: Vec<(&str, bool)> = classes
+                        .iter()
+                        .zip(&toggles)
+                        .map(|(t, &on)| (t.name.as_str(), on))
+                        .collect();
+                    let current = match self.class_states.remove(&id) {
+                        Some((v, old, mut current)) if v == value => {
+                            for (i, &(name, on)) in named.iter().enumerate() {
+                                if old.get(i) != Some(&on) {
+                                    if let Some(next) = js::class_toggle(current.as_ref(), name, on)
+                                    {
+                                        current = Some(next);
+                                    }
+                                }
+                            }
+                            current
+                        }
+                        _ => js::class_compose(&value, &named),
+                    };
+                    match &current {
+                        Some(c) => {
+                            map.insert("class".into(), c.to_rust());
+                        }
+                        None => {
+                            map.remove("class");
+                        }
+                    }
+                    self.class_states.insert(id, (value, toggles, current));
                 }
                 let mut refs = vec![];
                 if let Some(bag) = spread {

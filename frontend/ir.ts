@@ -241,6 +241,8 @@ export type Node =
       ref?: number;
       /** An attribute bag applied after `attrs` (whose names it never holds). */
       spread?: Expr;
+      /** Class toggles composed with the (string) class attribute. */
+      classes?: Attr[];
       children?: Node[];
       source?: Source;
     }

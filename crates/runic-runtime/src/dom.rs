@@ -170,6 +170,13 @@ impl Listeners {
     }
 }
 
+/// Class toggle state of an element: the class value and toggles last applied.
+#[derive(Default)]
+pub struct ClassState {
+    value: Option<runic_js::JsString>,
+    toggles: Vec<bool>,
+}
+
 /// What an element's attribute bag applied: the bag, the attributes it
 /// set and its listener registrations `(event, key, identity)`.
 pub struct Spread<L> {
@@ -346,6 +353,38 @@ impl Dom<'_> {
         applied.listeners = kept;
         applied.names = names;
         applied.bag = Some(bag.clone());
+    }
+
+    /// Compose the class attribute from the class value and toggles: in full
+    /// when the value changed, otherwise by toggling the names whose toggle
+    /// changed (`classList.toggle`).
+    pub fn classes(
+        &mut self,
+        node: NodeId,
+        value: runic_js::JsString,
+        toggles: &[(&str, bool)],
+        state: &mut ClassState,
+    ) {
+        if state.value.as_ref() != Some(&value) {
+            let next = runic_js::class_compose(&value, toggles).map(|c| c.to_rust());
+            self.set_opt_attr(node, "class", next.as_deref());
+            state.value = Some(value);
+        } else {
+            for (i, &(name, on)) in toggles.iter().enumerate() {
+                if state.toggles.get(i) == Some(&on) {
+                    continue;
+                }
+                let current = self
+                    .doc
+                    .get_node(node)
+                    .and_then(|n| n.attr("class".into()))
+                    .map(runic_js::JsString::from);
+                if let Some(next) = runic_js::class_toggle(current.as_ref(), name, on) {
+                    self.set_attr(node, "class", &next.to_rust());
+                }
+            }
+        }
+        state.toggles = toggles.iter().map(|t| t.1).collect();
     }
 
     /// Remove one listener registration; its key is released like those of

@@ -429,7 +429,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (a.type === 'Attribute' && a.value !== true) {
           for (const v of Array.isArray(a.value) ? a.value : [a.value])
             if (v.type === 'ExpressionTag') expr(v.expression);
-        } else if (a.type === 'BindDirective' || a.type === 'SpreadAttribute') expr(a.expression);
+        } else if (
+          a.type === 'BindDirective' ||
+          a.type === 'SpreadAttribute' ||
+          a.type === 'ClassDirective'
+        )
+          expr(a.expression);
     };
     const fragment = (f: SNode) => {
       for (const n of f?.nodes ?? []) {
@@ -1336,6 +1341,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             a.value[0].data === 'checkbox',
         );
       let bound: { event: HandlerEvent; handler: ReturnType<Lowerer['bindHandler']> } | undefined;
+      const classes: { name: string; value: Expr }[] = [];
       let spread: { at: number; value: Expr } | undefined;
       let reference: number | undefined;
       for (const a of n.attributes) {
@@ -1466,10 +1472,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           props.push({ name: a.name, value: read });
           const event: HandlerEvent = kind === 'string' ? 'input' : 'change';
           bound = { event, handler: lower.bindHandler(target, COMPONENT, event, tb) };
+        } else if (a.type === 'ClassDirective') {
+          const e = exprNode(a.expression);
+          const v = value(e);
+          classes.push({
+            name: a.name,
+            value: typeOf(e, v) === 'boolean' ? v : { op: 'to-boolean', arg: v },
+          });
         } else if (a.type === 'SpreadAttribute') {
           if (spread) fail('E_TEMPLATE', 'One spread per element is supported', loc(a));
           spread = { at: n.attributes.indexOf(a), value: value(exprNode(a.expression)) };
         } else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
+      }
+      // With class toggles the class value is a string (absent: empty), as
+      // Svelte passes it to set_class.
+      if (classes.length) {
+        const i = attrs.findIndex(a => a.name === 'class');
+        if (i >= 0 && attrs[i].value.op === 'with')
+          attrs[i] = { name: 'class', value: (attrs[i].value as { value: Expr }).value };
+        if (i >= 0 && lower.irType(attrs[i].value, tb) !== 'string')
+          fail('E_TEMPLATE', 'With class: directives, class must be a string', loc(n));
       }
       // With a spread of rest props, the element's own attributes that the
       // bag may also hold join it in source order (a later one wins).
@@ -1527,6 +1549,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ...(listeners.length ? { listeners } : {}),
         ...(reference !== undefined ? { ref: reference } : {}),
         ...(bag ? { spread: bag } : {}),
+        ...(classes.length ? { classes } : {}),
         ...(n.fragment.nodes.length ? { children: children(n.fragment) } : {}),
         source: loc(n),
       };

@@ -3,6 +3,7 @@
 //! ECMAScript for its documented domain; tests compare against Node.
 
 mod attrs;
+mod classes;
 mod collections;
 mod element;
 mod error;
@@ -20,6 +21,7 @@ pub mod string_ops;
 
 pub use array_ops::join_elements;
 pub use attrs::{AttrValue, Attrs};
+pub use classes::{class_compose, class_toggle};
 pub use collections::*;
 pub use element::Element;
 pub use error::*;

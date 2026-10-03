@@ -1299,6 +1299,10 @@ pub enum Node {
         /// holds): its attributes and `on<event>` listeners.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         spread: Option<Expr>,
+        /// Class toggles (boolean values): with them, the `class` attribute
+        /// (a string, absent meaning empty) is composed as docs/IR.md describes.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        classes: Vec<Attr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         children: Vec<Node>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

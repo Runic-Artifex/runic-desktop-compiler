@@ -608,6 +608,7 @@ impl Gen<'_> {
                     listeners,
                     reference,
                     spread,
+                    classes,
                     ..
                 } = node
                 else {
@@ -643,7 +644,39 @@ impl Gen<'_> {
                         forward("s.ri{key}", "Maybe::Null").replace("{key}", &key.to_string())
                     );
                 }
+                if !classes.is_empty() {
+                    // The class attribute composed with the class toggles.
+                    let class = attrs.iter().find(|a| a.name == "class");
+                    let mut cx = self.ctx(k);
+                    let value = class.map_or("JsString::new()".to_string(), |a| cx.expr(&a.value));
+                    let toggles: Vec<String> = classes
+                        .iter()
+                        .map(|t| format!("({}, {})", rust_str(&t.name), cx.expr(&t.value)))
+                        .collect();
+                    let toggles = toggles.join(", ");
+                    o.fields
+                        .push((format!("cl{key}"), "runic_runtime::ClassState".into()));
+                    let _ = writeln!(
+                        o.mount,
+                        "let mut cl{key} = runic_runtime::ClassState::default(); {{ let v = {value}; dom.classes(n{key}, v, &[{toggles}], &mut cl{key}); }}"
+                    );
+                    let exprs: Vec<&Expr> = class
+                        .into_iter()
+                        .map(|a| &a.value)
+                        .chain(classes.iter().map(|t| &t.value))
+                        .collect();
+                    if !self.is_static(&exprs) {
+                        let guard = self.guard(&exprs);
+                        let _ = writeln!(
+                            o.update,
+                            "if {guard} {{ let v = {value}; dom.classes(s.n{key}, v, &[{toggles}], &mut s.cl{key}); }}"
+                        );
+                    }
+                }
                 for (i, a) in attrs.iter().enumerate() {
+                    if !classes.is_empty() && a.name == "class" {
+                        continue;
+                    }
                     let mut cx = self.ctx(k);
                     let ty = cx.ty(&a.value);
                     let raw = cx.expr(&a.value);
