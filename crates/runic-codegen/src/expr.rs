@@ -749,7 +749,7 @@ impl<'a> FnCtx<'a> {
         }
     }
 
-    fn error_record(&self) -> usize {
+    pub(crate) fn error_record(&self) -> usize {
         self.p
             .records
             .iter()

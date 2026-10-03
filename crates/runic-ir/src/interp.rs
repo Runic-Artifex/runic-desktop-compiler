@@ -48,6 +48,52 @@ pub enum Val {
     Set(JsSet<Val>),
     Closure(Rc<Closure>),
     Element(js::Element),
+    Promise(Promise),
+    /// A promise's resolve or reject function.
+    Resolver(Rc<Resolver>),
+}
+
+/// Promises of the interpreter: reactions become [`PJob`]s on the microtask queue.
+pub type Promise = js::JsPromise<Val, PJob>;
+
+/// The resolve (or reject) function of a promise; only its first call counts.
+pub struct Resolver {
+    promise: Promise,
+    reject: bool,
+    done: Rc<std::cell::Cell<bool>>,
+}
+
+impl std::fmt::Debug for Resolver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.reject { "reject" } else { "resolve" })
+    }
+}
+
+/// A promise job (ECMAScript's PromiseReactionJob and
+/// NewPromiseResolveThenableJob).
+pub enum PJob {
+    /// Run the handler for `outcome` and resolve `derived` with its result.
+    Reaction {
+        outcome: Res<Val>,
+        handler: PHandler,
+        derived: Promise,
+    },
+    /// Resolving `promise` with the promise `thenable` subscribes to it.
+    Adopt { promise: Promise, thenable: Promise },
+}
+
+pub enum PHandler {
+    /// `then(onFulfilled, onRejected)`; a missing handler passes the outcome on.
+    Then(Option<Val>, Option<Val>),
+    /// `finally(onFinally)`.
+    Finally(Val),
+    /// Element `index` of `Promise.all`.
+    All(Rc<AllState>, usize),
+}
+
+pub struct AllState {
+    values: RefCell<Vec<Val>>,
+    remaining: std::cell::Cell<usize>,
 }
 
 impl Val {
@@ -124,6 +170,8 @@ impl js::StrictEq for Val {
             (Val::Map(a), Val::Map(b)) => JsRef::ptr_eq(a, b),
             (Val::Set(a), Val::Set(b)) => JsRef::ptr_eq(a, b),
             (Val::Closure(a), Val::Closure(b)) => Rc::ptr_eq(a, b),
+            (Val::Resolver(a), Val::Resolver(b)) => Rc::ptr_eq(a, b),
+            (Val::Promise(a), Val::Promise(b)) => a == b,
             (Val::Element(a), Val::Element(b)) => a == b,
             _ => false,
         }
@@ -160,8 +208,9 @@ impl js::ToJsString for Val {
             Val::Record(r) => r.to_js_string(),
             Val::Map(_) => JsString::from("[object Map]"),
             Val::Set(_) => JsString::from("[object Set]"),
-            Val::Closure(_) => JsString::from("function"),
+            Val::Closure(_) | Val::Resolver(_) => JsString::from("function"),
             Val::Element(e) => e.to_js_string(),
+            Val::Promise(_) => JsString::from("[object Promise]"),
         }
     }
 }
@@ -215,7 +264,7 @@ impl js::TypeOf for Val {
             Val::Bool(_) => "boolean",
             Val::Num(_) => "number",
             Val::Str(_) => "string",
-            Val::Closure(_) => "function",
+            Val::Closure(_) | Val::Resolver(_) => "function",
             _ => "object",
         }
     }
@@ -234,6 +283,8 @@ impl ToMapKey for Val {
             Val::Map(m) => m.map_key(),
             Val::Set(s) => s.map_key(),
             Val::Closure(c) => MapKey::Ref(Rc::as_ptr(c) as *const u8 as usize),
+            Val::Resolver(r) => MapKey::Ref(Rc::as_ptr(r) as *const u8 as usize),
+            Val::Promise(p) => MapKey::Ref(p.addr()),
             Val::Element(e) => e.map_key(),
         }
     }
@@ -448,6 +499,7 @@ enum TimerKind {
 /// A queued microtask.
 enum Micro {
     Call(Val),
+    Promise(PJob),
     /// The flush job (see [`Schedule`]).
     Flush,
 }
@@ -530,6 +582,20 @@ pub struct Machine<'p> {
     version_clock: u64,
     /// localStorage items in insertion order.
     storage: Vec<(JsString, JsString)>,
+}
+
+/// The exception an Error record value stands for.
+fn throw_of(v: &Val) -> Throw {
+    match v {
+        Val::Record(r) => {
+            let r = r.borrow();
+            Throw {
+                name: r.fields[0].string(),
+                message: r.fields[1].string(),
+            }
+        }
+        other => panic!("validated error record, found {other:?}"),
+    }
 }
 
 /// `order` (parent first) with every instance after its children.
@@ -956,6 +1022,17 @@ impl<'p> Machine<'p> {
     }
 
     fn call_value(&mut self, callee: &Val, args: Vec<Val>) -> Res<Val> {
+        if let Val::Resolver(r) = callee {
+            if !r.done.replace(true) {
+                let v = args.into_iter().next().unwrap_or(Val::Undefined);
+                if r.reject {
+                    self.settle_promise(&r.promise, Err(throw_of(&v)));
+                } else {
+                    self.resolve_promise(&r.promise, v);
+                }
+            }
+            return Ok(Val::Undefined);
+        }
         let Val::Closure(c) = callee else {
             panic!("validated closure")
         };
@@ -1522,6 +1599,7 @@ impl<'p> Machine<'p> {
                 self.storage.clear();
                 Val::Undefined
             }
+            ("promise", m) => self.promise_builtin(m, a)?,
             ("microtask", "queue") => {
                 self.queue_micro(a[0].clone());
                 Val::Undefined
@@ -1574,7 +1652,9 @@ impl<'p> Machine<'p> {
     fn to_json(&self, v: &Val) -> Option<js::json::Json> {
         use js::json::Json as J;
         Some(match v {
-            Val::Undefined | Val::Closure(_) | Val::Element(_) => return None,
+            Val::Undefined | Val::Closure(_) | Val::Resolver(_) | Val::Element(_) => return None,
+            // A promise has no own enumerable properties.
+            Val::Promise(_) => J::Object(Default::default()),
             Val::Null => J::Null,
             Val::Bool(b) => J::Bool(*b),
             Val::Num(n) => {
@@ -2108,8 +2188,7 @@ impl<'p> Machine<'p> {
     }
 
     fn queue_micro(&mut self, callback: Val) {
-        self.note_mutations();
-        self.microtasks.push_back(Micro::Call(callback));
+        self.enqueue(Micro::Call(callback));
     }
 
     /// Run microtasks until none are left.
@@ -2129,7 +2208,200 @@ impl<'p> Machine<'p> {
                 }
             }
             Micro::Flush => self.flush(),
+            Micro::Promise(job) => self.promise_job(job),
         }
+    }
+
+    // Promises --------------------------------------------------------------------
+
+    /// Queue a microtask (after a flush the pending writes ask for).
+    fn enqueue(&mut self, job: Micro) {
+        self.note_mutations();
+        self.microtasks.push_back(job);
+    }
+
+    fn settle_promise(&mut self, p: &Promise, outcome: Res<Val>) {
+        for job in p.settle(outcome) {
+            self.enqueue(Micro::Promise(job));
+        }
+    }
+
+    /// Resolve `p` with `v`: a promise is adopted (one job to subscribe, one
+    /// for its reaction), anything else fulfils.
+    fn resolve_promise(&mut self, p: &Promise, v: Val) {
+        match v {
+            Val::Promise(q) if q == *p => self.settle_promise(
+                p,
+                Err(Throw::new(
+                    "TypeError",
+                    "Chaining cycle detected for promise",
+                )),
+            ),
+            Val::Promise(q) => self.enqueue(Micro::Promise(PJob::Adopt {
+                promise: p.clone(),
+                thenable: q,
+            })),
+            other => self.settle_promise(p, Ok(other)),
+        }
+    }
+
+    /// Register `handler` on `p` for the promise `derived`.
+    fn react(&mut self, p: &Promise, handler: PHandler, derived: Promise) {
+        let mut handler = Some(handler);
+        let reaction = Box::new(move |outcome| PJob::Reaction {
+            outcome,
+            handler: handler.take().expect("one reaction"),
+            derived,
+        });
+        if let Some(job) = p.react(reaction) {
+            self.enqueue(Micro::Promise(job));
+        }
+    }
+
+    fn error_value(&self, t: Throw) -> Val {
+        Val::Record(JsRef::new(RecordData {
+            record: self.error_record(),
+            fields: vec![Val::Str(t.name), Val::Str(t.message)],
+        }))
+    }
+
+    fn promise_job(&mut self, job: PJob) {
+        match job {
+            PJob::Adopt { promise, thenable } => {
+                self.react(&thenable, PHandler::Then(None, None), promise);
+            }
+            PJob::Reaction {
+                outcome,
+                handler,
+                derived,
+            } => match handler {
+                PHandler::Then(on_fulfilled, on_rejected) => {
+                    let (h, arg) = match outcome {
+                        Ok(v) => (on_fulfilled, Ok(v)),
+                        Err(t) => (on_rejected, Err(t)),
+                    };
+                    match (h, arg) {
+                        (None, Ok(v)) => self.resolve_promise(&derived, v),
+                        (None, Err(t)) => self.settle_promise(&derived, Err(t)),
+                        (Some(h), arg) => {
+                            let arg = arg.unwrap_or_else(|t| self.error_value(t));
+                            match self.call_value(&h, vec![arg]) {
+                                Ok(v) => self.resolve_promise(&derived, v),
+                                Err(t) => self.settle_promise(&derived, Err(t)),
+                            }
+                        }
+                    }
+                }
+                // thenFinally/catchFinally: run the callback, then settle with
+                // the original outcome once its result settles.
+                PHandler::Finally(f) => match self.call_value(&f, vec![]) {
+                    Err(t) => self.settle_promise(&derived, Err(t)),
+                    Ok(r) => {
+                        let p = match r {
+                            Val::Promise(p) => p,
+                            other => Promise::fulfilled(other),
+                        };
+                        let after = Promise::pending();
+                        let original = outcome;
+                        let mut original = Some(original);
+                        let target = after.clone();
+                        let reaction = Box::new(move |po: Res<Val>| PJob::Reaction {
+                            outcome: match po {
+                                Ok(_) => original.take().expect("one reaction"),
+                                Err(t) => Err(t),
+                            },
+                            handler: PHandler::Then(None, None),
+                            derived: target,
+                        });
+                        if let Some(job) = p.react(reaction) {
+                            self.enqueue(Micro::Promise(job));
+                        }
+                        self.resolve_promise(&derived, Val::Promise(after));
+                    }
+                },
+                PHandler::All(state, index) => match outcome {
+                    Ok(v) => {
+                        state.values.borrow_mut()[index] = v;
+                        state.remaining.set(state.remaining.get() - 1);
+                        if state.remaining.get() == 0 {
+                            let values = state.values.borrow().clone();
+                            self.resolve_promise(&derived, Val::Array(js::array(values)));
+                        }
+                    }
+                    Err(t) => self.settle_promise(&derived, Err(t)),
+                },
+            },
+        }
+    }
+
+    fn promise_builtin(&mut self, method: &str, a: Vec<Val>) -> Res<Val> {
+        let promise_of = |v: &Val| match v {
+            Val::Promise(p) => p.clone(),
+            other => panic!("validated promise, found {other:?}"),
+        };
+        Ok(match method {
+            "new" => {
+                let p = Promise::pending();
+                let done = Rc::new(std::cell::Cell::new(false));
+                let resolver = |reject| {
+                    Val::Resolver(Rc::new(Resolver {
+                        promise: p.clone(),
+                        reject,
+                        done: done.clone(),
+                    }))
+                };
+                let (resolve, reject) = (resolver(false), resolver(true));
+                if let Err(t) = self.call_value(&a[0], vec![resolve, reject]) {
+                    if !done.replace(true) {
+                        self.settle_promise(&p, Err(t));
+                    }
+                }
+                Val::Promise(p)
+            }
+            "resolve" => match &a[0] {
+                Val::Promise(p) => Val::Promise(p.clone()),
+                other => Val::Promise(Promise::fulfilled(other.clone())),
+            },
+            "reject" => Val::Promise(Promise::rejected(throw_of(&a[0]))),
+            "then" => {
+                let derived = Promise::pending();
+                let handler = PHandler::Then(Some(a[1].clone()), a.get(2).cloned());
+                self.react(&promise_of(&a[0]), handler, derived.clone());
+                Val::Promise(derived)
+            }
+            "catch" => {
+                let derived = Promise::pending();
+                let handler = PHandler::Then(None, Some(a[1].clone()));
+                self.react(&promise_of(&a[0]), handler, derived.clone());
+                Val::Promise(derived)
+            }
+            "finally" => {
+                let derived = Promise::pending();
+                self.react(
+                    &promise_of(&a[0]),
+                    PHandler::Finally(a[1].clone()),
+                    derived.clone(),
+                );
+                Val::Promise(derived)
+            }
+            "all" => {
+                let items = a[0].array().borrow().clone();
+                let derived = Promise::pending();
+                let state = Rc::new(AllState {
+                    values: RefCell::new(vec![Val::Undefined; items.len()]),
+                    remaining: std::cell::Cell::new(items.len()),
+                });
+                if items.is_empty() {
+                    self.resolve_promise(&derived, Val::Array(js::array(vec![])));
+                }
+                for (i, item) in items.iter().enumerate() {
+                    let p = promise_of(item);
+                    self.react(&p, PHandler::All(state.clone(), i), derived.clone());
+                }
+                Val::Promise(derived)
+            }
+            other => unreachable!("validated promise operation {other}"),
+        })
     }
 
     /// The flush job: passes that commit the state (render snapshots), run
@@ -2824,7 +3096,8 @@ pub fn cell_json(v: &Val) -> Json {
             None => json!("[Circular]"),
             Some(_v) => Json::Array(s.borrow().entries.values().map(cell_json).collect()),
         },
-        Val::Closure(_) => json!("function"),
+        Val::Closure(_) | Val::Resolver(_) => json!("function"),
+        Val::Promise(_) => json!("promise"),
         // Element ids differ between the interpreter and the native app.
         Val::Element(_) => json!("element"),
     }

@@ -119,6 +119,133 @@ pub fn json_compatible(t: &Type, records: &[RecordType], depth: usize) -> bool {
     }
 }
 
+fn error_type(t: &Type, records: &[RecordType]) -> bool {
+    matches!(t, Type::Record(r) if records.get(*r).is_some_and(crate::validate::is_error_record))
+}
+
+/// The type a handler's result settles to (`U` for `U` or `Promise<U>`).
+fn settles_to(t: &Type) -> Type {
+    match t {
+        Type::Promise(u) => (**u).clone(),
+        other => other.clone(),
+    }
+}
+
+fn promise_type(method: &str, args: &[Type], declared: &Type, records: &[RecordType]) -> R {
+    use Type::*;
+    let promise_of = |t: &Type| -> std::result::Result<Type, std::string::String> {
+        match t {
+            Promise(v) => Ok((**v).clone()),
+            other => Err(format!("expected a promise, found {}", other.name())),
+        }
+    };
+    let handler = |f: &Type,
+                   param: Option<&Type>,
+                   what: &str|
+     -> std::result::Result<Type, std::string::String> {
+        match f {
+            Fn(f)
+                if f.params.is_empty() || (f.params.len() == 1 && Some(&f.params[0]) == param) =>
+            {
+                Ok(settles_to(&f.result))
+            }
+            other => Err(format!(
+                "{what} handler has the wrong type {}",
+                other.name()
+            )),
+        }
+    };
+    let error = Record(
+        records
+            .iter()
+            .position(crate::validate::is_error_record)
+            .unwrap_or(usize::MAX),
+    );
+    match method {
+        // new Promise(executor): executor(resolve, reject?) runs synchronously.
+        "new" => {
+            arity(args, 1, 1)?;
+            let Fn(exec) = &args[0] else {
+                return Err("the executor must be a function".into());
+            };
+            let Some(Fn(resolve)) = exec.params.first() else {
+                return Err("the executor takes a resolve function".into());
+            };
+            let [value] = resolve.params.as_slice() else {
+                return Err("resolve takes one value".into());
+            };
+            if let Some(reject) = exec.params.get(1) {
+                if !matches!(reject, Fn(r) if r.params.len() == 1 && error_type(&r.params[0], records))
+                {
+                    return Err("reject takes an Error".into());
+                }
+            }
+            Ok(Promise(Box::new(value.clone())))
+        }
+        "resolve" => {
+            arity(args, 1, 1)?;
+            Ok(Promise(Box::new(settles_to(&args[0]))))
+        }
+        "reject" => {
+            arity(args, 1, 1)?;
+            if !error_type(&args[0], records) {
+                return Err("promises reject with Error values".into());
+            }
+            match declared {
+                Promise(_) => Ok(declared.clone()),
+                _ => Err("Promise.reject needs a declared promise type".into()),
+            }
+        }
+        // then(p, onFulfilled) and then(p, onFulfilled, onRejected): both
+        // handlers settle to the same type.
+        "then" => {
+            arity(args, 2, 3)?;
+            let t = promise_of(&args[0])?;
+            let u = handler(&args[1], Some(&t), "fulfilment")?;
+            if let Some(r) = args.get(2) {
+                if handler(r, Some(&error), "rejection")? != u {
+                    return Err("both handlers must settle to the same type".into());
+                }
+            }
+            Ok(Promise(Box::new(u)))
+        }
+        // A promise that never fulfils (Promise<void> from Promise.reject)
+        // settles to the handler's type.
+        "catch" => {
+            arity(args, 2, 2)?;
+            let t = promise_of(&args[0])?;
+            let u = handler(&args[1], Some(&error), "rejection")?;
+            if u != t && t != Void {
+                return Err("a catch handler settles to the promise's type".into());
+            }
+            Ok(Promise(Box::new(u)))
+        }
+        "finally" => {
+            arity(args, 2, 2)?;
+            promise_of(&args[0])?;
+            match &args[1] {
+                Fn(f) if f.params.is_empty() => Ok(args[0].clone()),
+                other => Err(format!(
+                    "finally takes a function without parameters, found {}",
+                    other.name()
+                )),
+            }
+        }
+        // Promise.all over an array of promises of one type.
+        "all" => {
+            arity(args, 1, 1)?;
+            match &args[0] {
+                Array(p) => Ok(Promise(Box::new(Array(Box::new(promise_of(p)?))))),
+                other => Err(format!(
+                    "Promise.all takes an array of promises, found {}",
+                    other.name()
+                )),
+            }
+        }
+        other => Err(format!("unknown promise operation {other}")),
+    }
+}
+
 /// The result type of builtin `name` applied to `args`, given the frontend's
 /// declared result type `declared` (used where the result is not determined
 /// by the arguments, e.g. `JSON.parse`).
@@ -160,6 +287,9 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &n, "id").map(|_| Void)
         }
         ("clock", "now" | "date") => arity(args, 0, 0).map(|_| n),
+        // Promises (docs/design/M4-EFFECTS.md): handlers return a value or a
+        // promise of it; rejections are Error records.
+        ("promise", _) => promise_type(method, args, declared, records),
         // localStorage: string keys and values; a missing key reads null.
         ("storage", "get") => {
             arity(args, 1, 1)?;

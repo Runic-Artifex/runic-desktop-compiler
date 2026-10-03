@@ -21,11 +21,6 @@ pub struct Storage {
     path: Option<PathBuf>,
 }
 
-/// The items of a probe's in-memory storage (kept for a `reload`).
-pub fn seeded() -> Option<Vec<(JsString, JsString)>> {
-    SEED.with(|s| s.borrow().clone())
-}
-
 impl Storage {
     /// The storage of the app named `app` (its file, or a probe's seed).
     pub fn open(app: &str) -> Self {

@@ -254,6 +254,10 @@ export class Lowerer {
         paramTypes?.[pending.length] ?? this.types.map(this.checker.getTypeAtLocation(p), p);
       if (!ts.isIdentifier(p.name))
         this.fail(p, 'E_FUNCTION', 'Destructured parameters are planned for later');
+      // An overridden parameter type also holds where the parameter is read.
+      const given = paramTypes?.[pending.length];
+      const symbol = this.checker.getSymbolAtLocation(p.name);
+      if (given && symbol) this.types.override(symbol, given);
       pending.push({
         symbol: this.checker.getSymbolAtLocation(p.name),
         type,
@@ -1469,8 +1473,44 @@ export class Lowerer {
       if ('set' in t) return 'set';
       if ('maybe' in t) return 'maybe';
       if ('record' in t) return 'record';
+      if ('promise' in t) return 'promise';
     }
     return undefined;
+  }
+
+  /**
+   * A promise rejection handler: its parameter (`any` in TypeScript's
+   * declarations) is the Error record.
+   */
+  private rejectionHandler(arg: ts.Expression, b: FnBuilder): Expr {
+    const f = skipParens(arg);
+    if (!(ts.isArrowFunction(f) || ts.isFunctionExpression(f))) return this.expr(arg, b);
+    const { index, builder } = this.function(f, `${b.name}.rejected`, b, b.component, undefined, [
+      { record: this.errorRecord() },
+    ]);
+    return { op: 'closure', function: index, captures: builder.captureSources.map(c => c.local) };
+  }
+
+  /** `then`, `catch` and `finally` of a promise. */
+  private promiseMethod(method: string, receiver: Expr, e: ts.CallExpression, b: FnBuilder): Expr {
+    const a = e.arguments;
+    let args: Expr[];
+    if (method === 'then' && (a.length === 1 || a.length === 2))
+      args = [this.expr(a[0], b), ...(a[1] ? [this.rejectionHandler(a[1], b)] : [])];
+    else if (method === 'catch' && a.length === 1) args = [this.rejectionHandler(a[0], b)];
+    else if (method === 'finally' && a.length === 1) args = [this.expr(a[0], b)];
+    else
+      return this.fail(
+        e,
+        'E_MEMBER',
+        `Promise .${method} with ${a.length} arguments is unsupported`,
+      );
+    return {
+      op: 'builtin',
+      name: `promise.${method}`,
+      args: [receiver, ...args],
+      type: this.tsCallType(e) ?? this.fail(e, 'E_TYPE_UNSUPPORTED', 'Promise result type unknown'),
+    };
   }
 
   /** The name of a standard-library global that `e` resolves to (a local binding cannot impersonate it). */
@@ -1842,6 +1882,11 @@ export class Lowerer {
       }
       if (global && STATIC_NAMESPACES.has(global))
         return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
+      if (global === 'Promise') {
+        if (!['resolve', 'reject', 'all'].includes(method))
+          return this.fail(e, 'E_BUILTIN', `Promise.${method} is planned for later`);
+        return this.builtinCall(`promise.${method}`, args(), b, this.tsCallType(e), e);
+      }
       if (ts.isIdentifier(callee.expression)) {
         const special = this.binding(callee.expression);
         if (special?.kind === 'props')
@@ -1849,6 +1894,7 @@ export class Lowerer {
       }
       const receiver = this.expr(callee.expression, b);
       const kind = this.receiverKind(this.irType(receiver, b));
+      if (kind === 'promise') return this.promiseMethod(method, receiver, e, b);
       if (kind === 'record')
         return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
       if (kind)
@@ -1936,6 +1982,13 @@ export class Lowerer {
     // An untyped callee (e.g. a JavaScript callback prop) has no parameter list.
     const untyped = this.checker.getTypeAtLocation(e.expression).flags & ts.TypeFlags.Any;
     if (!sig || untyped) return e.arguments.map(a => this.expr(a, b));
+    // A callee with an overridden function type (a promise's resolve) takes its parameters.
+    const given = this.types.overridden(e.expression);
+    if (typeof given === 'object' && 'fn' in given)
+      return given.fn.params.map((pt, i) => {
+        const arg = e.arguments[i];
+        return arg ? this.coerce(arg, b, pt) : ({ op: 'undefined', type: pt } as Expr);
+      });
     return sig.parameters.map((p, i) => {
       const pt = this.types.map(this.checker.getTypeOfSymbolAtLocation(p, e), e);
       const arg = e.arguments[i];
@@ -1946,6 +1999,41 @@ export class Lowerer {
 
   private newExpression(e: ts.NewExpression, b: FnBuilder): Expr {
     const global = this.globalName(e.expression);
+    if (global === 'Promise') {
+      // new Promise<T>(executor): resolve takes a T, reject an Error.
+      const type = this.exprType(e);
+      const exec = e.arguments?.[0] && skipParens(e.arguments[0]);
+      if (
+        !exec ||
+        !(ts.isArrowFunction(exec) || ts.isFunctionExpression(exec)) ||
+        !(typeof type === 'object' && 'promise' in type)
+      )
+        return this.fail(
+          e,
+          'E_NEW',
+          'new Promise takes an executor function and a known value type',
+        );
+      const value = type.promise;
+      const { index, builder } = this.function(
+        exec,
+        `${b.name}.executor`,
+        b,
+        b.component,
+        undefined,
+        [
+          { fn: { params: [value], result: 'void' } },
+          { fn: { params: [{ record: this.errorRecord() }], result: 'void' } },
+        ],
+      );
+      return {
+        op: 'builtin',
+        name: 'promise.new',
+        args: [
+          { op: 'closure', function: index, captures: builder.captureSources.map(c => c.local) },
+        ],
+        type,
+      };
+    }
     const args = (e.arguments ?? []).map(a => this.expr(a, b));
     if (global === 'Map' || global === 'Set')
       return { op: 'builtin', name: `${global}.new`, args, type: this.exprType(e) };

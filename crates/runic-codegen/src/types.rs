@@ -14,6 +14,8 @@ pub fn rust_type(t: &Type) -> String {
         Type::Map(k, v) => format!("JsMap<{}, {}>", rust_type(k), rust_type(v)),
         Type::Set(i) => format!("JsSet<{}>", rust_type(i)),
         Type::Element => "js::Element".into(),
+        // Reactions are microtask jobs of the generated app.
+        Type::Promise(i) => format!("js::JsPromise<{}, Lst>", rust_type(i)),
         Type::Fn(f) => format!(
             "Rc<dyn Fn(&mut Cx{}) -> JsResult<{}>>",
             f.params
@@ -40,6 +42,7 @@ pub fn default_value(t: &Type, p: &Program) -> String {
         Type::Map(..) => "JsRef::new(js::MapData::default())".into(),
         Type::Set(_) => "JsRef::new(js::SetData::default())".into(),
         Type::Element => "js::Element(0)".into(),
+        Type::Promise(_) => "js::JsPromise::pending()".into(),
         Type::Fn(f) => format!(
             "{{ let f: {} = Rc::new(|_: &mut Cx{}| -> JsResult<{}> {{ unreachable!(\"uninitialised function\") }}); f }}",
             rust_type(t),

@@ -6,6 +6,37 @@ use crate::expr::{FnCtx, js_str};
 use crate::types::rust_type;
 use runic_ir::{Expr, Program, Type};
 
+/// An IR function `f` of type `fty` as a promise handler: it receives the
+/// value (or, for rejections, the Error record of the exception) and its
+/// result settles the derived promise (a returned promise is adopted).
+fn promise_handler(fty: &Type, f: &str, error: Option<usize>) -> String {
+    let Type::Fn(sig) = fty else {
+        unreachable!("validated handler")
+    };
+    let arg = match error {
+        Some(e) => format!("JsRef::new(R{e} {{ f0: v.name.clone(), f1: v.message.clone() }})"),
+        None => "v".into(),
+    };
+    let call = if sig.params.is_empty() {
+        "{ let _ = v; f(cx)? }".to_string()
+    } else {
+        format!("f(cx, {arg})?")
+    };
+    let wrap = match &*sig.result {
+        Type::Promise(_) => "Promise",
+        _ => "Value",
+    };
+    let v = if error.is_some() { "v: js::Throw" } else { "v" };
+    format!(
+        "{{ let f = {f}; let h: runic_runtime::promises::Handler<_, _, Cx> = Rc::new(move |cx: &mut Cx, {v}| Ok(runic_runtime::promises::Settles::{wrap}({call}))); h }}"
+    )
+}
+
+/// The exception an Error record stands for.
+fn throw_of(e: &str) -> String {
+    format!("js::Throw {{ name: {e}.borrow().f0.clone(), message: {e}.borrow().f1.clone() }}")
+}
+
 fn opt_num(t: Option<&String>) -> String {
     t.map_or("Maybe::Undefined".into(), |v| format!("Maybe::Some({v})"))
 }
@@ -211,6 +242,77 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("storage", "set") => format!("{{ cx.storage.set({}, {}); }}", t[0], t[1]),
         ("storage", "remove") => format!("{{ cx.storage.remove(&{}); }}", t[0]),
         ("storage", "clear") => "{ cx.storage.clear(); }".into(),
+        ("promise", "new") => {
+            let Type::Fn(exec) = &types[0] else {
+                unreachable!("validated executor")
+            };
+            let rej = if exec.params.len() > 1 {
+                let e = cx.error_record();
+                format!(
+                    "let rej: Rc<dyn Fn(&mut Cx, JsRef<R{e}>) -> JsResult<()>> = Rc::new(move |cx: &mut Cx, e: JsRef<R{e}>| rej(cx, {})); ",
+                    throw_of("e")
+                )
+            } else {
+                "let _ = rej; ".into()
+            };
+            let pass = if exec.params.len() > 1 {
+                ", res, rej"
+            } else {
+                ", res"
+            };
+            format!(
+                "runic_runtime::promises::new(cx, |cx: &mut Cx, res, rej| {{ {rej}({})(cx{pass})?; Ok(()) }})",
+                t[0]
+            )
+        }
+        ("promise", "resolve") => match &types[0] {
+            Type::Promise(_) => t[0].clone(),
+            _ => format!("js::JsPromise::fulfilled({})", t[0]),
+        },
+        ("promise", "reject") => format!("<{}>::rejected({})", rust_type(ty), throw_of(&t[0])),
+        ("promise", "then") => {
+            let on_rejected = match (args.get(2), types.get(2)) {
+                (Some(_), Some(rt)) => format!(
+                    "Some({})",
+                    promise_handler(rt, &t[2], Some(cx.error_record()))
+                ),
+                _ => "None".into(),
+            };
+            format!(
+                "runic_runtime::promises::then(cx, &{}, {}, {on_rejected})",
+                t[0],
+                promise_handler(&types[1], &t[1], None)
+            )
+        }
+        ("promise", "catch") => {
+            // A promise that never fulfils (Promise<void> from Promise.reject) may settle to another type.
+            let map = match (&types[0], ty) {
+                (a, b) if a == b => "|v| v",
+                _ => "|_| unreachable!(\"a promise that never fulfils\")",
+            };
+            format!(
+                "runic_runtime::promises::catch(cx, &{}, {map}, {})",
+                t[0],
+                promise_handler(&types[1], &t[1], Some(cx.error_record()))
+            )
+        }
+        ("promise", "finally") => {
+            let Type::Fn(sig) = &types[1] else {
+                unreachable!("validated callback")
+            };
+            let wrap = match &*sig.result {
+                Type::Promise(_) => "Promise",
+                _ => "Value",
+            };
+            format!(
+                "{{ let f = {}; runic_runtime::promises::finally(cx, &{}, Rc::new(move |cx: &mut Cx| Ok(runic_runtime::promises::Settles::{wrap}(f(cx)?)))) }}",
+                t[1], t[0]
+            )
+        }
+        ("promise", "all") => format!(
+            "{{ let items = {}.borrow().clone(); runic_runtime::promises::all(cx, &items) }}",
+            t[0]
+        ),
         ("microtask", "queue") => format!(
             "{{ let f = {}; let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = f(cx)?; Ok(()) }}); cx.jobs.queue(g); }}",
             t[0]

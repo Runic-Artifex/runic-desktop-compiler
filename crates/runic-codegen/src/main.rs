@@ -116,7 +116,9 @@ fn main() {
                         // A new program instance on the same localStorage.
                         let storage = m.storage();
                         m = Machine::with_storage(&program, storage).unwrap_or_else(|d| fail(d));
-                        steps.push(json!({"action": action, "outcome": "reloaded", "state": m.snapshot()}));
+                        steps.push(
+                            json!({"action": action, "outcome": "reloaded", "state": m.snapshot()}),
+                        );
                         continue;
                     }
                     Some("wait") => {

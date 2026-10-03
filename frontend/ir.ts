@@ -19,6 +19,7 @@ export type Type =
   | { record: number }
   | { map: [Type, Type] }
   | { set: Type }
+  | { promise: Type }
   | { fn: { params: Type[]; result: Type } }
   /** An element handle (DOM ref). */
   | 'element'

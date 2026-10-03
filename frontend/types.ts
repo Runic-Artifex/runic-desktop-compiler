@@ -40,7 +40,8 @@ export class TypeMapper {
     return this.map(t, node);
   }
 
-  private overridden(node: ts.Node): Type | undefined {
+  /** The type given to `node` instead of TypeScript's, if any. */
+  overridden(node: ts.Node): Type | undefined {
     if (ts.isIdentifier(node)) {
       const s = this.checker.getSymbolAtLocation(node);
       return s && this.overrides.get(s);
@@ -148,7 +149,15 @@ export class TypeMapper {
         },
       };
     }
-    if (name && ['Date', 'RegExp', 'Promise', 'Error', 'HTMLElement', 'Event'].includes(name))
+    if (name === 'Promise') {
+      const [arg] = this.checker.getTypeArguments(t as ts.TypeReference);
+      // Promise<never> (Promise.reject) never fulfils: Promise<void>.
+      const inner = arg && !(arg.flags & ts.TypeFlags.Never) ? this.map(arg, at) : 'void';
+      if (typeof inner === 'object' && 'promise' in inner)
+        this.fail(at, 'E_TYPE_UNSUPPORTED', 'Promises of promises are unsupported');
+      return { promise: inner };
+    }
+    if (name && ['Date', 'RegExp', 'Error', 'HTMLElement', 'Event'].includes(name))
       this.fail(at, 'E_TYPE_UNSUPPORTED', `${name} values are planned for a later milestone`);
     return { record: this.record(t, at) };
   }

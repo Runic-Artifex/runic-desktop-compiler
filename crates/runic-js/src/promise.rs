@@ -75,6 +75,11 @@ impl<T: Clone, J> JsPromise<T, J> {
         }
     }
 
+    /// Stable identity for hashing (SameValueZero keys).
+    pub fn addr(&self) -> usize {
+        Rc::as_ptr(&self.0) as *const u8 as usize
+    }
+
     pub fn ptr_eq(a: &Self, b: &Self) -> bool {
         Rc::ptr_eq(&a.0, &b.0)
     }

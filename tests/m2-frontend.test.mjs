@@ -224,3 +224,29 @@ test('expression-bodied handlers discard their value; cyclic data can be stored 
   );
   assert.deepEqual(out, ['', '', '1 root']);
 });
+
+test('promises: reactions, adoption, finally, all and rejections in microtask order (as Node)', async () => {
+  const out = await run(
+    `let out = $state('');
+     function go() {
+       const log: string[] = [];
+       const p = Promise.resolve(1);
+       p.then(v => { log.push('a' + v); });
+       queueMicrotask(() => log.push('m'));
+       const q = new Promise<number>(resolve => resolve(2));
+       q.then(v => log.push('b' + v)).then(() => log.push('c'));
+       Promise.reject(new Error('x')).catch(e => log.push('e:' + e.message));
+       p.then(v => Promise.resolve(v + 10)).then(v => log.push('adopt' + v));
+       p.finally(() => log.push('f')).then(v => log.push('fv' + v));
+       Promise.all([p, q, Promise.resolve(3)]).then(vs => log.push('all' + vs.join(',')));
+       new Promise<number>((_, reject) => reject(new Error('r'))).then(() => log.push('no'), e => log.push('r:' + e.message));
+       setTimeout(() => { out = log.join(' '); }, 0);
+     }`,
+    [
+      { kind: 'click', id: 'go' },
+      { kind: 'wait', ms: 10 },
+    ],
+  );
+  // node: a1 m b2 e:x f r:r c all1,2,3 adopt11 fv1
+  assert.deepEqual(out, ['', '', 'a1 m b2 e:x f r:r c all1,2,3 adopt11 fv1']);
+});

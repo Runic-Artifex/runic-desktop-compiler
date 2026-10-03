@@ -260,6 +260,8 @@ pub enum Type {
     Fn(FnType),
     /// An element handle (DOM ref), compared by identity.
     Element,
+    /// A promise of a value (never itself a promise), compared by identity.
+    Promise(Box<Type>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -282,6 +284,7 @@ impl Type {
             Type::Map(k, v) => format!("Map<{}, {}>", k.name(), v.name()),
             Type::Set(t) => format!("Set<{}>", t.name()),
             Type::Element => "element".into(),
+            Type::Promise(t) => format!("Promise<{}>", t.name()),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params
