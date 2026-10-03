@@ -85,6 +85,12 @@ pub trait App: 'static {
     /// error the task's writes are rolled back and controlled inputs are
     /// re-synchronised.
     fn dispatch(&mut self, dom: &mut Dom, deliveries: &[Delivery]) -> Result<(), String>;
+    /// Listener keys of the document (`window: false`) or the window for
+    /// `event`, in registration order.
+    fn host_listeners(&self, window: bool, event: Event) -> Vec<u32> {
+        let _ = (window, event);
+        Vec::new()
+    }
     fn cells_json(&self) -> Json;
     /// Cells of every other live component instance in tree order, as
     /// `{ "component": name, "cells": [...] }`.

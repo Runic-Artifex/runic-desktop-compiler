@@ -56,6 +56,37 @@ interface WheelEvent extends MouseEvent {
   readonly deltaY: number;
 }
 
+// The window and the document as event targets (listeners lower to
+// `window.listen` / `document.unlisten` built-ins).
+interface HostEventMap {
+  click: MouseEvent;
+  dblclick: MouseEvent;
+  contextmenu: MouseEvent;
+  mousedown: MouseEvent;
+  mouseup: MouseEvent;
+  mousemove: MouseEvent;
+  pointerdown: PointerEvent;
+  pointerup: PointerEvent;
+  pointermove: PointerEvent;
+  keydown: KeyboardEvent;
+  keyup: KeyboardEvent;
+  input: Event;
+  change: Event;
+  wheel: WheelEvent;
+}
+interface HostEventTarget {
+  addEventListener<K extends keyof HostEventMap>(
+    type: K,
+    listener: (event: HostEventMap[K]) => void,
+  ): void;
+  removeEventListener<K extends keyof HostEventMap>(
+    type: K,
+    listener: (event: HostEventMap[K]) => void,
+  ): void;
+}
+declare const window: HostEventTarget;
+declare const document: HostEventTarget;
+
 declare function setTimeout(handler: () => void, timeout?: number): number;
 declare function setInterval(handler: () => void, timeout?: number): number;
 declare function clearTimeout(id: number | undefined): void;

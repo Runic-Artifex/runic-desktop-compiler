@@ -9,6 +9,13 @@ use crate::{
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Element(pub u64);
 
+impl Element {
+    /// The document and the window as event targets (`currentTarget` of
+    /// their listeners).
+    pub const DOCUMENT: Element = Element(u64::MAX - 1);
+    pub const WINDOW: Element = Element(u64::MAX);
+}
+
 impl Truthy for Element {
     fn truthy(&self) -> bool {
         true

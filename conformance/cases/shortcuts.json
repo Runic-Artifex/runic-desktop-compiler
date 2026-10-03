@@ -1,0 +1,16 @@
+{
+  "description": "Window and document listeners: svelte:window keyboard shortcuts, a document click-outside listener added by an effect while a panel is open, stopPropagation keeping an event from the document and window, and a listener added during the dispatch of the click that opened the panel (it runs for that click, as in browsers)",
+  "fixtures": ["shortcuts-svelte"],
+  "actions": [
+    { "kind": "click", "id": "open" },
+    { "kind": "click", "id": "panel" },
+    { "kind": "click", "id": "field" },
+    { "kind": "type", "text": "aq" },
+    { "kind": "press", "key": "Control+k" },
+    { "kind": "click", "id": "open" },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "click", "id": "open-late" },
+    { "kind": "click", "id": "open" },
+    { "kind": "click", "id": "state" }
+  ]
+}

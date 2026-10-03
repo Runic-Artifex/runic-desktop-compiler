@@ -684,6 +684,32 @@ impl EventKind {
         }
     }
 
+    pub const ALL: [EventKind; 18] = [
+        EventKind::Click,
+        EventKind::Input,
+        EventKind::Change,
+        EventKind::Keydown,
+        EventKind::Keyup,
+        EventKind::Dblclick,
+        EventKind::Contextmenu,
+        EventKind::Pointerdown,
+        EventKind::Pointerup,
+        EventKind::Pointermove,
+        EventKind::Pointerenter,
+        EventKind::Pointerleave,
+        EventKind::Mousedown,
+        EventKind::Mouseup,
+        EventKind::Mousemove,
+        EventKind::Mouseenter,
+        EventKind::Mouseleave,
+        EventKind::Wheel,
+    ];
+
+    /// The kind named `name` (`event.type`).
+    pub fn parse(name: &str) -> Option<EventKind> {
+        EventKind::ALL.into_iter().find(|k| k.name() == name)
+    }
+
     /// `event.type`.
     pub fn name(self) -> &'static str {
         match self {

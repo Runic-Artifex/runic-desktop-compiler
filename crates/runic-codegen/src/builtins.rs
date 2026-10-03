@@ -348,6 +348,35 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         // before any update (the DOM does not change while it runs).
         ("element", "focus") => format!("{{ cx.focus.push(({}.0, true)); }}", t[0]),
         ("element", "blur") => format!("{{ cx.focus.push(({}.0, false)); }}", t[0]),
+        // Window and document listeners, identified by their function value.
+        (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
+            let Some(Expr::Lit {
+                value: runic_ir::Value::String(name),
+            }) = args.first()
+            else {
+                unreachable!("validated event kind")
+            };
+            let kind = format!("Event::{:?}", runic_ir::EventKind::parse(name).expect("validated kind"));
+            let window = target == "window";
+            let find = format!(
+                "cx.host.iter().position(|h| h.0 == {window} && h.1 == {kind} && h.2 == id)"
+            );
+            if m == "unlisten" {
+                format!(
+                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.host.remove(i).3; cx.listeners[key as usize] = None; cx.free.push(key); }} }}",
+                    t[1]
+                )
+            } else {
+                let call = match &types[1] {
+                    Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                    _ => "f(cx, cx.event.clone().expect(\"event context\"))",
+                };
+                format!(
+                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if {find}.is_none() {{ let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); let key = cx.listen(g); cx.host.push(({window}, {kind}, id, key)); }} }}",
+                    t[1]
+                )
+            }
+        }
         ("event", m) => {
             let e = &t[0];
             match m {

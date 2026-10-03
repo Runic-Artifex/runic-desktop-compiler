@@ -108,6 +108,8 @@ interface Unit {
   synthetic: string;
   /** Script length and its offset in the original file. */
   scriptLength: number;
+  /** End of the script statements in the virtual module (the script and synthesized code). */
+  statementsEnd: number;
   scriptStart: number;
   /** Synthetic ranges copied from the original (template expressions, patterns). */
   segments: { synth: number; orig: number; length: number }[];
@@ -241,6 +243,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       virtual: file + '.__runic.ts',
       synthetic: '',
       scriptLength: script.length,
+      statementsEnd: script.length,
       scriptStart: ast.instance ? ast.instance.content.start : 0,
       segments: [],
       starts: new Map(),
@@ -286,11 +289,38 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // Virtual modules: the script, then the template as typed statements.
   for (const u of order) {
     const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
-    let s = script + '\nfunction __runic_template() {\n';
+    let s = script + '\n';
     const copy = (start: number, end: number) => {
       u.segments.push({ synth: s.length, orig: start, length: end - start });
       s += u.original.slice(start, end);
     };
+    // <svelte:window> and <svelte:document> listeners: added when the
+    // component mounts and removed when it unmounts, as script code would.
+    let hosts = 0;
+    for (const n of u.ast.fragment.nodes) {
+      if (n.type !== 'SvelteWindow' && n.type !== 'SvelteDocument') continue;
+      const target = n.type === 'SvelteWindow' ? 'window' : 'document';
+      for (const a of n.attributes) {
+        if (
+          a.type !== 'Attribute' ||
+          !/^on[a-z]+$/.test(a.name) ||
+          a.value === true ||
+          Array.isArray(a.value)
+        )
+          fail(
+            'E_TEMPLATE',
+            `<svelte:${target}> supports event attributes with a handler expression`,
+            locate(u.original, a.start, u.rel),
+          );
+        const event = JSON.stringify(a.name.slice(2));
+        const name = `__runic_${target}_${hosts++}`;
+        s += `const ${name} = (`;
+        copy(a.value.expression.start, a.value.expression.end);
+        s += `) satisfies (event: HostEventMap[${event}]) => void;\n$effect.pre(() => { ${target}.addEventListener(${event}, ${name}); return () => ${target}.removeEventListener(${event}, ${name}); });\n`;
+      }
+    }
+    u.statementsEnd = s.length;
+    s += 'function __runic_template() {\n';
     const inline = (e: SNode) => {
       s += '(';
       u.starts.set(e, s.length);
@@ -502,7 +532,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const COMPONENT = u.index;
     const sf = program.getSourceFile(u.virtual)!;
     const loc = (n: SNode) => locate(u.original, n.start ?? 0, u.rel);
-    const statements = [...sf.statements].filter(s => s.getStart(sf) < u.scriptLength);
+    const statements = [...sf.statements].filter(s => s.getStart(sf) < u.statementsEnd);
     const pending: (() => void)[] = [];
     /** Snippet props become slots: declaration and the prop's symbol. */
     const slots: { name: string; params?: Type[] }[] = [];
@@ -811,9 +841,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       return { op: 'to-string', arg: v };
     };
     const clean = (fragment: SNode): SNode[] => {
-      const list = fragment.nodes
-        .filter((n: SNode) => n.type !== 'Comment')
-        .map((n: SNode) => ({ ...n }));
+      // Comments, <svelte:window> and <svelte:document> leave no node;
+      // the text around them joins.
+      const list: SNode[] = [];
+      for (const n of fragment.nodes) {
+        if (['Comment', 'SvelteWindow', 'SvelteDocument'].includes(n.type)) continue;
+        const last = list.at(-1);
+        if (n.type === 'Text' && last?.type === 'Text') last.data += n.data;
+        else list.push({ ...n });
+      }
       while (list[0]?.type === 'Text' && !list[0].data.trim()) list.shift();
       while (list.at(-1)?.type === 'Text' && !list.at(-1).data.trim()) list.pop();
       if (list[0]?.type === 'Text') list[0].data = list[0].data.trimStart();
@@ -927,7 +963,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           });
         } else if (n.type === 'AwaitBlock')
           fail('E_TEMPLATE', 'Await blocks are planned for M4', loc(n));
-        else fail('E_TEMPLATE', `Unsupported template node ${n.type}`, loc(n));
+        else if (n.type === 'SvelteWindow' || n.type === 'SvelteDocument') {
+          // Lowered as script code (see the virtual modules).
+        } else fail('E_TEMPLATE', `Unsupported template node ${n.type}`, loc(n));
       }
       flush();
       return out;

@@ -3,7 +3,17 @@
 // semantics of their reactive bindings through `Hooks`.
 import ts from 'typescript';
 import path from 'node:path';
-import type { EventKind, Expr, Fn, Global, Local, Place, Stmt, Type } from './ir.ts';
+import {
+  EVENT_KINDS,
+  type EventKind,
+  type Expr,
+  type Fn,
+  type Global,
+  type Local,
+  type Place,
+  type Stmt,
+  type Type,
+} from './ir.ts';
 import { sameType, TypeMapper, type Fail } from './types.ts';
 import { builtinType, EVENT_MEMBERS, irType, maybeInner } from './irtype.ts';
 import { DOM } from './program.ts';
@@ -81,6 +91,8 @@ export class FnBuilder {
   readonly event: HandlerEvent | undefined;
   /** A local holding the event object, for the handler and closures inside it. */
   eventLocal: number | undefined;
+  /** The declared result type of a function builder (its returns convert to it). */
+  result: Type | undefined;
 
   constructor(
     name: string,
@@ -308,15 +320,31 @@ export class Lowerer {
       tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
         ? 'void'
         : this.types.map(tsResult, decl);
+    // A function expression where a void-returning function is expected
+    // (a listener, a callback): its value is never observed.
+    // (Not under `satisfies`, which keeps the expression's own type.)
+    let holder: ts.Node = decl.parent;
+    while (ts.isParenthesizedExpression(holder)) holder = holder.parent;
+    const expected =
+      (ts.isArrowFunction(decl) || ts.isFunctionExpression(decl)) &&
+      !async &&
+      !ts.isSatisfiesExpression(holder)
+        ? this.checker.getContextualType(decl)?.getCallSignatures()
+        : undefined;
+    const voidContext =
+      expected?.length === 1 && !!(expected[0].getReturnType().flags & ts.TypeFlags.Void);
+    if (voidContext) result = 'void';
     // Body lowering may add captures; params/locals are appended after, so we
     // lower into a staging builder and rebase indices at the end.
+    if (voidContext || !(tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+      b.result = result;
     const lowered = this.withParams(b, pending, () => {
       if (!async) return this.functionBody(decl, b);
       if (!(typeof result === 'object' && 'promise' in result))
         return this.fail(decl, 'E_ASYNC', 'An async function needs a Promise result type');
       return asyncBody(this, decl, b, result.promise);
     });
-    if (tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+    if (!voidContext && tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
       result = this.returnType(lowered, b);
     const body = remapLocals(lowered, i => b.final(i));
     const fn: Fn = {
@@ -400,7 +428,9 @@ export class Lowerer {
     if (custom) return custom;
     if (this.isStatementLike(e))
       return [...this.statement(ts.factory.createExpressionStatement(e), b, e)];
-    return [{ op: 'return', value: this.expr(e, b) }];
+    const value = this.expr(e, b);
+    if (b.result === 'void' && this.irType(value, b) !== 'void') return [{ op: 'expr', value }];
+    return [{ op: 'return', value }];
   }
 
   /** Assignments and update expressions used for their effect. */
@@ -560,14 +590,18 @@ export class Lowerer {
       ];
     }
     if (ts.isReturnStatement(s) && b.asyncReturn) return b.asyncReturn(s.expression, s);
-    if (ts.isReturnStatement(s))
-      return [
-        {
-          op: 'return',
-          ...(s.expression ? { value: this.expr(s.expression, b) } : {}),
-          ...this.src(s),
-        },
-      ];
+    if (ts.isReturnStatement(s)) {
+      let value = s.expression && this.expr(s.expression, b);
+      if (value && b.result === 'void' && this.irType(value, b) !== 'void')
+        return [
+          { op: 'expr', value },
+          { op: 'return', ...this.src(s) },
+        ];
+      // `T | undefined` results: a returned T is wrapped.
+      const inner = b.result && maybeInner(b.result);
+      if (value && inner && sameType(this.irType(value, b), inner)) value = { op: 'some', value };
+      return [{ op: 'return', ...(value ? { value } : {}), ...this.src(s) }];
+    }
     if (ts.isThrowStatement(s))
       return [{ op: 'throw', value: this.expr(s.expression, b), ...this.src(s) }];
     if (ts.isWhileStatement(s))
@@ -1957,7 +1991,28 @@ export class Lowerer {
         return { op: 'builtin', name: 'clock.date', args: [], type: NUMBER };
       if (this.hostName(callee.expression) === 'performance' && method === 'now')
         return { op: 'builtin', name: 'clock.now', args: [], type: NUMBER };
-      if (this.hostName(callee.expression) === 'localStorage') {
+      const host = this.hostName(callee.expression);
+      if (
+        (host === 'window' || host === 'document') &&
+        (method === 'addEventListener' || method === 'removeEventListener')
+      ) {
+        const [type, listener, options] = e.arguments;
+        if (options)
+          this.fail(
+            options,
+            'E_EVENT',
+            'Listener options (capture, passive, once) are planned for a later milestone',
+          );
+        if (!type || !ts.isStringLiteralLike(type) || !EVENT_KINDS.includes(type.text as EventKind))
+          this.fail(type ?? e, 'E_EVENT', `${host}.${method} takes a supported event name literal`);
+        return {
+          op: 'builtin',
+          name: `${host}.${method === 'addEventListener' ? 'listen' : 'unlisten'}`,
+          args: [{ op: 'lit', value: (type as ts.StringLiteral).text }, this.expr(listener, b)],
+          type: 'void',
+        };
+      }
+      if (host === 'localStorage') {
         const name = { getItem: 'get', setItem: 'set', removeItem: 'remove', clear: 'clear' }[
           method
         ];

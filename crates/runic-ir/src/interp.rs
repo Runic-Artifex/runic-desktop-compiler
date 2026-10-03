@@ -576,6 +576,10 @@ pub struct Machine<'p> {
     event: Option<js::Event>,
     /// Element ids from the root to the element under the pointer.
     hovered: Vec<u64>,
+    /// Live values of uncontrolled text inputs (no `value` prop), by element id.
+    live_values: HashMap<u64, String>,
+    /// Document and window listeners in registration order: (window, kind, listener).
+    host_listeners: Vec<(bool, EventKind, Val)>,
     children: HashMap<InstKey, usize>,
     /// Listeners of the last render, indexed by `VNode` listener ids.
     listeners: Vec<ListenerRef>,
@@ -700,6 +704,8 @@ impl<'p> Machine<'p> {
             payload: None,
             event: None,
             hovered: vec![],
+            live_values: HashMap::new(),
+            host_listeners: vec![],
             children: HashMap::new(),
             listeners: vec![],
             order: vec![],
@@ -1770,6 +1776,24 @@ impl<'p> Machine<'p> {
             ("clock", "date") => Val::Num(CLOCK_ORIGIN + self.now),
             // Focus has no interpreter observable (the snapshot has no focus).
             ("element", "focus" | "blur") => Val::Undefined,
+            (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
+                let window = target == "window";
+                let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
+                let f = a[1].clone();
+                let at = self
+                    .host_listeners
+                    .iter()
+                    .position(|g| g.0 == window && g.1 == kind && g.2.same(&f));
+                match (m, at) {
+                    // Adding a registered listener again does nothing.
+                    ("listen", None) => self.host_listeners.push((window, kind, f)),
+                    ("unlisten", Some(i)) => {
+                        self.host_listeners.remove(i);
+                    }
+                    _ => {}
+                }
+                Val::Undefined
+            }
             ("event", m) => {
                 let Val::Event(e) = &a[0] else {
                     panic!("validated event")
@@ -2258,6 +2282,17 @@ impl<'p> Machine<'p> {
                         }
                         _ => {}
                     }
+                }
+                // An uncontrolled text input shows what was typed, initially its
+                // `value` attribute.
+                if value.is_none() && checked.is_none() && tag == "input" {
+                    value = Some(
+                        self.live_values
+                            .get(&id)
+                            .cloned()
+                            .or_else(|| map.get("value").cloned())
+                            .unwrap_or_default(),
+                    );
                 }
                 let mut refs = vec![];
                 for l in listeners {
@@ -3183,6 +3218,8 @@ impl<'p> Machine<'p> {
                     |n| matches!(n, VNode::Element { attrs, .. } if attrs.contains_key("disabled") || attrs.contains_key("readonly")),
                 );
                 if !locked {
+                    self.live_values
+                        .insert(id, data.unwrap_or_default().to_owned());
                     let data = js::EventData {
                         value: JsString::from(data.unwrap_or_default()),
                         ..Default::default()
@@ -3521,11 +3558,51 @@ impl<'p> Machine<'p> {
                 s.error.get_or_insert(d);
             }
         }
+        if kind.bubbles() {
+            self.dispatch_globals(kind, &event, s);
+        }
         event.finish();
         if let Some(e2) = second {
+            let kind = EventKind::parse(&e2.data().kind.to_rust()).expect("event kind");
+            self.dispatch_globals(kind, &e2, s);
             e2.finish();
         }
         Ok(Some(event))
+    }
+
+    /// After the element path: the document's listeners, then the window's,
+    /// each a callback of its own (a microtask checkpoint follows it). A
+    /// target's listeners are those registered when the event reaches it;
+    /// one removed meanwhile is not called.
+    fn dispatch_globals(&mut self, kind: EventKind, event: &js::Event, s: &mut Run) {
+        for window in [false, true] {
+            let current = if window {
+                js::Element::WINDOW
+            } else {
+                js::Element::DOCUMENT
+            };
+            let listeners: Vec<Val> = self
+                .host_listeners
+                .iter()
+                .filter(|g| g.0 == window && g.1 == kind)
+                .map(|g| g.2.clone())
+                .collect();
+            for f in listeners {
+                let live = self
+                    .host_listeners
+                    .iter()
+                    .any(|g| g.0 == window && g.1 == kind && g.2.same(&f));
+                if !live || !event.enter(current) {
+                    continue;
+                }
+                s.ran = true;
+                let arg = Val::Event(event.clone());
+                let result = self.task(None, true, |m| m.call_value(&f, vec![arg]).map(|_| ()));
+                if let Err(d) = result {
+                    s.error.get_or_insert(d);
+                }
+            }
+        }
     }
 }
 

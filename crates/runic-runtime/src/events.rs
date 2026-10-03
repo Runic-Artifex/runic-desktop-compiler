@@ -309,8 +309,33 @@ impl<A: App> Handler<'_, A> {
             })
             .collect();
         self.dispatch(doc, &deliveries);
+        if kind.bubbles() {
+            self.host(doc, kind, &event);
+        }
         event.finish();
         Some(event)
+    }
+
+    /// After the element path: the document's listeners, then the window's,
+    /// each a callback of its own (a microtask checkpoint follows it). A
+    /// target's listeners are those registered when the event reaches it;
+    /// one removed meanwhile is not called.
+    fn host(&mut self, doc: &mut BaseDocument, kind: Event, event: &runic_js::Event) {
+        for window in [false, true] {
+            let current = if window {
+                Element::WINDOW
+            } else {
+                Element::DOCUMENT
+            };
+            for listener in self.app.host_listeners(window, kind) {
+                let delivery = Delivery {
+                    listener,
+                    event: event.clone(),
+                    current: current.0,
+                };
+                self.dispatch(doc, &[delivery]);
+            }
+        }
     }
 
     /// Run one dispatch of listeners.
@@ -412,6 +437,8 @@ impl<A: App> Handler<'_, A> {
                 });
             }
             self.dispatch(doc, &deliveries);
+            self.host(doc, Event::Click, &event);
+            self.host(doc, Event::Change, &change);
             event.finish();
             change.finish();
             Some(event)

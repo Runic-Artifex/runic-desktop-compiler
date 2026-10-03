@@ -342,6 +342,19 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // pending flush, then fulfils; `after` fulfils when the pending (or
         // running) flush ends, or is fulfilled already.
         ("flush", "tick" | "after") => arity(args, 0, 0).map(|_| Promise(Box::new(Void))),
+        // Window and document listeners: the event kind (a literal, checked by
+        // the validator) and a listener taking the event or nothing.
+        ("window" | "document", "listen" | "unlisten") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &s, "event kind")?;
+            match &args[1] {
+                Fn(f) if f.params.is_empty() || f.params == [Event] => Ok(Void),
+                other => Err(format!(
+                    "listener must take the event or nothing, found {}",
+                    other.name()
+                )),
+            }
+        }
         // Event objects (docs/design/M5-PLATFORM.md).
         ("event", m) => {
             arity(args, 1, 1)?;

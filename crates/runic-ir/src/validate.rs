@@ -472,6 +472,24 @@ impl<'a> Scope<'a> {
             }
             Builtin { name, args, ty } => {
                 self.check_type(ty, src)?;
+                if matches!(
+                    name.as_str(),
+                    "window.listen" | "window.unlisten" | "document.listen" | "document.unlisten"
+                ) {
+                    let kind = match args.first() {
+                        Some(Lit {
+                            value: Value::String(k),
+                        }) => EventKind::parse(k),
+                        _ => None,
+                    };
+                    if kind.is_none() {
+                        return err(
+                            "E_BUILTIN",
+                            format!("{name}: the event kind must be a supported event name"),
+                            src,
+                        );
+                    }
+                }
                 let types = args
                     .iter()
                     .map(|a| self.infer(a, d, src))
