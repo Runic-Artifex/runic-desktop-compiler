@@ -17,8 +17,8 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 | M0 | Repository restructure and plan | — | Standalone | Done 2026-10-03 |
 | M1 | Rust IR, codegen and runtime library; renderer toggle; automated conformance; startup/size measurement | all 15 existing fixtures | Standalone, 2 spikes | Done 2026-10-03 ([results](../conformance/results/m1.md)) |
 | M2 | JS values, statements and functions | 7GUIs Counter, Temperature Converter, ledger example | Standalone design ([M2-VALUES](design/M2-VALUES.md)), then subagents for built-ins | Done 2026-10-03 ([results](../conformance/results/m2.md)) |
-| M3 | Components, slots and snippets, keyed lists, instance lifetimes | 7GUIs CRUD, TodoMVC (in memory) | Standalone core, then subagents per adapter | Planned |
-| M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone, then a workflow to mine ordering cases | Planned |
+| M3 | Components, slots and snippets, keyed lists, instance lifetimes | 7GUIs CRUD, TodoMVC (in memory) | Standalone core, then subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m3.md)) |
+| M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone core, ordering research subagent, subagents per adapter | In progress |
 | M5 | Full event model, forms, layout/measurement APIs, host services | 7GUIs Circle Drawer, Cells; a virtualized list | Subagents per service; desktop track standalone | Planned |
 | M6 | npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | translation-editor sub-screens, corpus apps | Workflows for corpus and packs | Planned |
 | M7 | Runic application bridge to .NET | an SDK sample app with a C# view model | Standalone + spike | Planned |
@@ -115,6 +115,12 @@ Replace the parts that cannot scale before adding any capability.
 **Work mode:**
 - **Standalone:** IR instance/list/region constructs, the runtime reconciler, and the conformance cases, written first as the specification.
 - **Parallel subagents:** one per adapter (Svelte first, then React and Vue) in worktrees against the shared cases; native builds are serialised. I integrate; `/code-review` runs before merge.
+
+**Outcome (done):**
+- Components, props, two-way bindings, keyed and unkeyed lists with each framework's reorder, slots and snippets, element refs, checkboxes and `keydown` run in all three frameworks ([M3-COMPONENTS](design/M3-COMPONENTS.md#outcome)); Svelte deep state follows Svelte's proxy identity.
+- TodoMVC (in memory) and 7GUIs CRUD run in React, Vue and Svelte; 101 conformance runs pass with pixels, optimised and `--no-opt`, except the declared `reorder-navigation` gap (M5 focus model). The differential test covers 29 fixtures and 15 examples without mismatch.
+- The React regions spike is reported in [REACT-REGIONS](research/REACT-REGIONS.md); its conclusions feed the M4 reactivity model.
+- A review before the tag found eight defects. Three were fixed (cyclic deep state, checkbox toggle order, expression-bodied handlers); three are fixed on the M4 branch by the flush model (per-event dispatch, a flush per timer task, ref writes); the rest are recorded deviations in the [results](../conformance/results/m3.md).
 
 ## M4: Effects, time and async
 
@@ -224,3 +230,5 @@ Solid and further frontends; porting the language layer or adapters to Rust (oxc
 - 2026-10-03: Svelte leads (D14), derived from the SDK's web packages and the editor's stack.
 - 2026-10-03 (M2): the schema 3 mapping registry and its model-assisted discovery were retired with the schema 3 IR. Its rules mapped `Math.min`/`Math.max` helper shapes, which the language layer now compiles exactly, and its validator was built on the deleted `ir.mjs`. Mapping packs return in M6 for library APIs (D9), validated against the reference interpreter; the old implementation is at tag `m1`.
 - 2026-10-03 (M2): an uncaught exception in a handler keeps the writes made before it, as the frameworks do; the earlier draft's rollback rule was wrong.
+- 2026-10-03 (M3): object literals have JavaScript key order (keys are observable), so a literal written in a different order than its declared type is rejected instead of silently reordered.
+- 2026-10-03 (M4): effects come before promises in M4's work order; the Timer and persistence examples need them, while promises matter first for the application bridge (M7).

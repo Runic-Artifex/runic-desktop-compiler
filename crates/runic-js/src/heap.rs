@@ -8,6 +8,7 @@ use std::fmt;
 use std::rc::Rc;
 
 thread_local! {
+    static VISITING: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
     static EPOCH: Cell<u64> = const { Cell::new(0) };
     static OWNED_EPOCH: Cell<u64> = const { Cell::new(0) };
 }
@@ -61,6 +62,19 @@ impl<T> JsRef<T> {
     pub fn addr(&self) -> usize {
         Rc::as_ptr(&self.0) as *const u8 as usize
     }
+    /// Enter this value while walking a value graph (probe JSON): `None` if
+    /// it is already being walked (a cycle; proxies share their storage).
+    pub fn visit(&self) -> Option<Visit> {
+        let a = Rc::as_ptr(&self.0.storage) as *const u8 as usize;
+        VISITING.with(|v| {
+            let mut v = v.borrow_mut();
+            if v.contains(&a) {
+                return None;
+            }
+            v.push(a);
+            Some(Visit)
+        })
+    }
     /// Whether this is a proxy of deep state.
     pub fn is_owned(&self) -> bool {
         self.0.owned
@@ -75,6 +89,15 @@ impl<T> JsRef<T> {
             storage: Rc::clone(&self.0.storage),
             owned: true,
         }))
+    }
+}
+
+/// A value being walked (see [`JsRef::visit`]); leaving it on drop.
+pub struct Visit;
+
+impl Drop for Visit {
+    fn drop(&mut self) {
+        VISITING.with(|v| v.borrow_mut().pop());
     }
 }
 
@@ -129,8 +152,11 @@ impl<T: OwnFields> Own for JsRef<T> {
             return self;
         }
         let p = self.proxy();
-        // Nested values are proxied in place (not a mutation of the program's data).
-        p.0.storage.borrow_mut().own_fields();
+        // Nested values are proxied in place (not a mutation of the program's
+        // data). A cycle reaches storage that is being proxied already.
+        if let Ok(mut storage) = p.0.storage.try_borrow_mut() {
+            storage.own_fields();
+        }
         p
     }
 }

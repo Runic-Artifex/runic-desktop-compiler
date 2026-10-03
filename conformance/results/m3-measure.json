@@ -1,0 +1,361 @@
+{
+  "schema": 1,
+  "date": "2026-10-03T18:54:09.488Z",
+  "host": "Linux 7.2.8 x86_64",
+  "display": "Xvfb 1024x768x24",
+  "renderer": "cpu",
+  "results": [
+    {
+      "fixture": "components-react",
+      "bytes": 13968256,
+      "mib": 13.32,
+      "processMs": 33.4,
+      "firstFrameMs": 27.2,
+      "runs": 7
+    },
+    {
+      "fixture": "components-svelte",
+      "bytes": 13964160,
+      "mib": 13.32,
+      "processMs": 31.1,
+      "firstFrameMs": 25.3,
+      "runs": 7
+    },
+    {
+      "fixture": "components-vue",
+      "bytes": 13964160,
+      "mib": 13.32,
+      "processMs": 33,
+      "firstFrameMs": 25.9,
+      "runs": 7
+    },
+    {
+      "fixture": "counter-react",
+      "bytes": 13890432,
+      "mib": 13.25,
+      "processMs": 31.5,
+      "firstFrameMs": 25.2,
+      "runs": 7
+    },
+    {
+      "fixture": "counter-svelte",
+      "bytes": 13890432,
+      "mib": 13.25,
+      "processMs": 31.6,
+      "firstFrameMs": 25,
+      "runs": 7
+    },
+    {
+      "fixture": "counter-vue",
+      "bytes": 13890432,
+      "mib": 13.25,
+      "processMs": 33,
+      "firstFrameMs": 25.8,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-react",
+      "bytes": 13894528,
+      "mib": 13.25,
+      "processMs": 33.5,
+      "firstFrameMs": 26.8,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-svelte",
+      "bytes": 13894528,
+      "mib": 13.25,
+      "processMs": 30.1,
+      "firstFrameMs": 24.2,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-vue",
+      "bytes": 13894528,
+      "mib": 13.25,
+      "processMs": 30.5,
+      "firstFrameMs": 24,
+      "runs": 7
+    },
+    {
+      "fixture": "key-svelte",
+      "bytes": 13947776,
+      "mib": 13.3,
+      "processMs": 31.8,
+      "firstFrameMs": 25.1,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-react",
+      "bytes": 13890432,
+      "mib": 13.25,
+      "processMs": 30.9,
+      "firstFrameMs": 25.1,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-svelte",
+      "bytes": 13890432,
+      "mib": 13.25,
+      "processMs": 34.3,
+      "firstFrameMs": 27.8,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-vue",
+      "bytes": 13890432,
+      "mib": 13.25,
+      "processMs": 32.4,
+      "firstFrameMs": 26.2,
+      "runs": 7
+    },
+    {
+      "fixture": "ownership-svelte",
+      "bytes": 13947776,
+      "mib": 13.3,
+      "processMs": 30.6,
+      "firstFrameMs": 24.2,
+      "runs": 7
+    },
+    {
+      "fixture": "pricing",
+      "bytes": 13902720,
+      "mib": 13.26,
+      "processMs": 31.5,
+      "firstFrameMs": 25.5,
+      "runs": 7
+    },
+    {
+      "fixture": "quantity",
+      "bytes": 13894528,
+      "mib": 13.25,
+      "processMs": 32.9,
+      "firstFrameMs": 26.1,
+      "runs": 7
+    },
+    {
+      "fixture": "refs-react",
+      "bytes": 13890432,
+      "mib": 13.25,
+      "processMs": 31.5,
+      "firstFrameMs": 25.3,
+      "runs": 7
+    },
+    {
+      "fixture": "refs-svelte",
+      "bytes": 13894528,
+      "mib": 13.25,
+      "processMs": 30.5,
+      "firstFrameMs": 24.2,
+      "runs": 7
+    },
+    {
+      "fixture": "refs-vue",
+      "bytes": 13894528,
+      "mib": 13.25,
+      "processMs": 32.4,
+      "firstFrameMs": 25.7,
+      "runs": 7
+    },
+    {
+      "fixture": "reorder-react",
+      "bytes": 13939584,
+      "mib": 13.29,
+      "processMs": 32,
+      "firstFrameMs": 25.5,
+      "runs": 7
+    },
+    {
+      "fixture": "reorder-svelte",
+      "bytes": 13939584,
+      "mib": 13.29,
+      "processMs": 31.5,
+      "firstFrameMs": 25,
+      "runs": 7
+    },
+    {
+      "fixture": "reorder-vue",
+      "bytes": 13939584,
+      "mib": 13.29,
+      "processMs": 34.1,
+      "firstFrameMs": 28,
+      "runs": 7
+    },
+    {
+      "fixture": "settings-wizard",
+      "bytes": 13910912,
+      "mib": 13.27,
+      "processMs": 32.8,
+      "firstFrameMs": 26.5,
+      "runs": 7
+    },
+    {
+      "fixture": "slots-react",
+      "bytes": 13972352,
+      "mib": 13.33,
+      "processMs": 31.7,
+      "firstFrameMs": 24.6,
+      "runs": 7
+    },
+    {
+      "fixture": "slots-svelte",
+      "bytes": 13972352,
+      "mib": 13.33,
+      "processMs": 31.2,
+      "firstFrameMs": 25,
+      "runs": 7
+    },
+    {
+      "fixture": "slots-vue",
+      "bytes": 13972352,
+      "mib": 13.33,
+      "processMs": 33,
+      "firstFrameMs": 26,
+      "runs": 7
+    },
+    {
+      "fixture": "smoke",
+      "bytes": 13874048,
+      "mib": 13.23,
+      "processMs": 32.5,
+      "firstFrameMs": 25.2,
+      "runs": 7
+    },
+    {
+      "fixture": "thermostat",
+      "bytes": 13898624,
+      "mib": 13.25,
+      "processMs": 31.9,
+      "firstFrameMs": 25.1,
+      "runs": 7
+    },
+    {
+      "fixture": "timers-svelte",
+      "bytes": 13898624,
+      "mib": 13.25,
+      "processMs": 31.1,
+      "firstFrameMs": 24.4,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-counter-react",
+      "bytes": 13874048,
+      "mib": 13.23,
+      "processMs": 30.6,
+      "firstFrameMs": 24.4,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-counter-svelte",
+      "bytes": 13874048,
+      "mib": 13.23,
+      "processMs": 31,
+      "firstFrameMs": 24.2,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-counter-vue",
+      "bytes": 13874048,
+      "mib": 13.23,
+      "processMs": 30.5,
+      "firstFrameMs": 24.5,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-crud-react",
+      "bytes": 13960064,
+      "mib": 13.31,
+      "processMs": 31.4,
+      "firstFrameMs": 25.1,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-crud-svelte",
+      "bytes": 13960064,
+      "mib": 13.31,
+      "processMs": 31.2,
+      "firstFrameMs": 25.1,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-crud-vue",
+      "bytes": 13960064,
+      "mib": 13.31,
+      "processMs": 33.5,
+      "firstFrameMs": 27.2,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-temperature-react",
+      "bytes": 13886336,
+      "mib": 13.24,
+      "processMs": 30.3,
+      "firstFrameMs": 23.8,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-temperature-svelte",
+      "bytes": 13886336,
+      "mib": 13.24,
+      "processMs": 30.7,
+      "firstFrameMs": 24,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-temperature-vue",
+      "bytes": 13886336,
+      "mib": 13.24,
+      "processMs": 30.5,
+      "firstFrameMs": 24.2,
+      "runs": 7
+    },
+    {
+      "fixture": "ledger-react",
+      "bytes": 13943680,
+      "mib": 13.3,
+      "processMs": 31.3,
+      "firstFrameMs": 24.6,
+      "runs": 7
+    },
+    {
+      "fixture": "ledger-svelte",
+      "bytes": 13943680,
+      "mib": 13.3,
+      "processMs": 32.2,
+      "firstFrameMs": 26,
+      "runs": 7
+    },
+    {
+      "fixture": "ledger-vue",
+      "bytes": 13939584,
+      "mib": 13.29,
+      "processMs": 30.6,
+      "firstFrameMs": 24.2,
+      "runs": 7
+    },
+    {
+      "fixture": "todomvc-react",
+      "bytes": 13972352,
+      "mib": 13.33,
+      "processMs": 31.9,
+      "firstFrameMs": 25.1,
+      "runs": 7
+    },
+    {
+      "fixture": "todomvc-svelte",
+      "bytes": 13976448,
+      "mib": 13.33,
+      "processMs": 32.5,
+      "firstFrameMs": 25.8,
+      "runs": 7
+    },
+    {
+      "fixture": "todomvc-vue",
+      "bytes": 13964160,
+      "mib": 13.32,
+      "processMs": 31.6,
+      "firstFrameMs": 24.5,
+      "runs": 7
+    }
+  ]
+}
