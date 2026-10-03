@@ -2,7 +2,7 @@
 
 | Document | Purpose |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Target architecture and binding decisions (D1–D11) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Target architecture and binding decisions (D1–D15) |
 | [ROADMAP.md](ROADMAP.md) | Milestones M0–M10 with examples, exit criteria and work mode |
 | [WORKING.md](WORKING.md) | How work is executed: standalone, subagents, workflows; resource rules |
 | [CONTRACT.md](CONTRACT.md) | The input that is implemented and accepted today (v5) |

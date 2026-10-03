@@ -1,10 +1,10 @@
 # Working on Runic Desktop Compiler
 
-The compiler turns JavaScript/TypeScript framework applications (React, Vue and Svelte today) into native Rust applications rendered with Blitz, with no browser, WebView or (by default) JavaScript engine.
+The compiler turns JavaScript/TypeScript framework applications (React, Vue and Svelte today) into native Rust applications rendered with Blitz, with no browser, WebView or (by default) JavaScript engine. It exists to give the [Runic SDK](/home/viktor/Development/RunicArtifex/runic-sdk) a WebView-free, fast-starting deployment path; the north-star app is the SDK's Translations Editor (Svelte/SvelteKit).
 
 Start here:
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): binding decisions D1–D11.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): binding decisions D1–D15.
 - [docs/ROADMAP.md](docs/ROADMAP.md): the current milestone and its work mode.
 - [docs/WORKING.md](docs/WORKING.md): when to work standalone, delegate to a subagent or propose a workflow, and the resource rules for parallel work.
 - [docs/CONTRACT.md](docs/CONTRACT.md): what is actually implemented. Roadmap items are not supported until a milestone has verified them.
