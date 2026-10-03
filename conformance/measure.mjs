@@ -11,6 +11,8 @@
 // Xvfb has no GPU; the GPU renderer runs on Mesa lavapipe there, so its
 // timings are functional checks, not performance results.
 import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -33,6 +35,8 @@ const fixtures = positionals.length
 
 const median = xs => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const display = ':' + (90 + Math.floor(Math.random() * 100));
+const dataHome = mkdtempSync(path.join(os.tmpdir(), 'runic-measure-'));
+process.on('exit', () => rmSync(dataHome, { recursive: true, force: true }));
 const xvfb = spawn('Xvfb', [display, '-screen', '0', '1024x768x24', '-nolisten', 'tcp'], { stdio: 'ignore' });
 await new Promise(r => setTimeout(r, 700));
 const results = [];
@@ -47,7 +51,9 @@ try {
     for (let i = 0; i < Number(values.runs); i++) {
       const t = performance.now();
       const r = spawnSync(binary, ['--x11'], {
-        env: { ...process.env, DISPLAY: display, WAYLAND_DISPLAY: '', RUNIC_EXIT_AFTER_FIRST_FRAME: '1' },
+        // A fresh data directory: apps start without saved localStorage and
+        // never write to the user's.
+        env: { ...process.env, DISPLAY: display, WAYLAND_DISPLAY: '', RUNIC_EXIT_AFTER_FIRST_FRAME: '1', XDG_DATA_HOME: dataHome },
         encoding: 'utf8',
         timeout: 30_000,
       });

@@ -1,17 +1,18 @@
 <script lang="ts">
   import TodoItem from './TodoItem.svelte';
-  import { visible, plural, type Todo, type Filter } from './todos.ts';
+  import { visible, plural, load, nextId, STORAGE_KEY, type Todo, type Filter } from './todos.ts';
 
-  let todos = $state<Todo[]>([
-    { id: 1, title: 'Read the TodoMVC spec', done: true },
-    { id: 2, title: 'Compile it to Rust', done: false },
-  ]);
-  let next = $state(3);
+  let todos = $state<Todo[]>(load());
+  let next = $state(nextId(todos));
   let draft = $state('');
   let filter = $state<Filter>('all');
   let shown = $derived(visible(todos, filter));
   let left = $derived(todos.filter(t => !t.done).length);
   let completed = $derived(todos.length - left);
+  // Saved after every change.
+  $effect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+  });
 
   function add() {
     const title = draft.trim();

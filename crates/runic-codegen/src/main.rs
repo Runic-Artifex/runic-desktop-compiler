@@ -88,7 +88,23 @@ fn main() {
         "interp" => {
             let actions: serde_json::Value = serde_json::from_reader(std::io::stdin())
                 .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e.to_string(), None)));
-            let mut m = Machine::new(&program).unwrap_or_else(|d| fail(d));
+            // localStorage items the case starts with (a JSON object).
+            let storage: serde_json::Map<String, serde_json::Value> = flag(&args, "--storage")
+                .map(|s| {
+                    serde_json::from_str(&s)
+                        .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e.to_string(), None)))
+                })
+                .unwrap_or_default();
+            let storage = storage
+                .into_iter()
+                .map(|(k, v)| {
+                    (
+                        runic_js::JsString::from(k.as_str()),
+                        runic_js::JsString::from(v.as_str().unwrap_or_default()),
+                    )
+                })
+                .collect();
+            let mut m = Machine::with_storage(&program, storage).unwrap_or_else(|d| fail(d));
             let mut steps = vec![json!({"action": null, "state": m.snapshot()})];
             for action in actions.as_array().cloned().unwrap_or_default() {
                 // Targets: an element id, or the n-th element listening for the action's event.
@@ -96,6 +112,13 @@ fn main() {
                     Some("click") => EventKind::Click,
                     Some("input") => EventKind::Input,
                     Some("keydown") => EventKind::Keydown,
+                    Some("reload") => {
+                        // A new program instance on the same localStorage.
+                        let storage = m.storage();
+                        m = Machine::with_storage(&program, storage).unwrap_or_else(|d| fail(d));
+                        steps.push(json!({"action": action, "outcome": "reloaded", "state": m.snapshot()}));
+                        continue;
+                    }
                     Some("wait") => {
                         let result = m.advance(action["ms"].as_f64().unwrap_or(0.0));
                         let outcome = match result {

@@ -25,22 +25,38 @@ Native apps take time from the system clock and wake winit for the next timer or
 
 ## Promises and async functions
 
-**Values.** `Promise<T>` is an IR type. A promise is pending, fulfilled with a `T` or rejected with an exception value; reactions run as microtasks in registration order. Built-ins: `Promise.resolve`, `Promise.reject`, `new Promise(executor)`, `then`/`catch`/`finally`, `Promise.all`/`allSettled`/`race`/`any`, `queueMicrotask`.
+**Values.** `Promise<T>` is an IR type (`T` is never itself a promise; TypeScript flattens). A promise is pending, fulfilled with a `T` or rejected with an exception value. Native code represents it as a shared cell (`JsPromise<T>`) holding its state and pending reactions; identity is reference identity.
 
-**Async functions** are lowered by the shared language layer, not by the backend. An `async` function becomes an ordinary IR function returning a `Promise<T>`; each `await` splits the body into continuation closures registered with `then`, as Regenerator does:
+**Operations** (built-ins, each with ECMAScript's job ordering):
 
-- locals live across an `await` are boxed (the existing closure machinery);
-- `try`/`catch`/`finally` around an `await` becomes rejection and settlement handlers;
-- a loop containing `await` becomes a recursive continuation;
-- `return` resolves and `throw` rejects the function's promise.
+| Built-in | Semantics |
+|---|---|
+| `promise.new(executor)` | calls `executor(resolve, reject)` synchronously; an exception rejects (unless already resolved) |
+| `promise.resolve(v)` | `v` itself when it is a promise, otherwise a fulfilled promise |
+| `promise.reject(e)` | a rejected promise |
+| `promise.then(p, onFulfilled?, onRejected?)` | a new promise; when `p` settles, one microtask runs the handler and resolves the new promise with its result |
+| `promise.catch`, `promise.finally` | `then` with the spec's wrappers (`finally` passes the original outcome through after its callback's promise settles) |
+| `promise.all`, `allSettled`, `race`, `any` | as specified, each element through `Promise.resolve` and `then` |
 
-This keeps the IR, the interpreter and codegen free of suspension: they only need promises, closures and the scheduler. The ordering is exactly JavaScript's as long as each `await` costs the same number of microtask ticks as in V8 (one for an awaited native promise, `await v` on a non-promise resolves through `Promise.resolve`). Conformance includes cases that interleave two async chains to pin this down.
+Resolving a promise with another promise adopts it through a `NewPromiseResolveThenableJob`: one microtask to call `then`, one more for the reaction, so adoption costs two ticks. Callbacks whose static result type is `Promise<U>` are typed `Promise<U>`; a callback whose result may or may not be a promise (`U | Promise<U>`) is rejected. Unhandled rejections are reported like uncaught exceptions and are not observable to the program.
 
-React's closures over a render's state stay a question for the reactivity model below: a continuation created during an event handler reads state through the same read rules as the handler (React: the render snapshot of the render that created the handler).
+**Async functions** are lowered by the shared language layer, so the IR, the interpreter and codegen only need promises, closures and the scheduler:
+
+- The function returns `promise.new`, and its body runs synchronously inside the executor until the first `await`.
+- The body becomes a state machine: a resume closure created once per call, whose locals are boxed captures, dispatching on a state local inside a labelled loop. A statement that contains an `await` is split at the `await`; the code before it stores the next state and registers the resume closure with `promise.then(promise.resolve(e), resume, fail)`, which costs one tick after `e` settles, as in V8.
+- Control structures that contain an `await` (`if`, loops, `for-of`, `switch`, `try`/`catch`) become explicit state transitions: the loop's continue jumps to the condition's state, `break` to the state after it. Statements without `await` stay structured.
+- `return v` resolves the function's promise with `v` (adopting a returned promise: two extra ticks, as specified); an uncaught exception rejects it. A `try` around an `await` records, per state, the state of its `catch` block; the resume closure catches exceptions and continues there or rejects.
+- First version: `await` as a statement, in `const x = await e`, `x = await e` and `return await e`, and as the whole condition or iterable of a control statement. `await` nested inside other expressions, `finally` blocks that contain or enclose an `await`, `for await`, async generators and async arrow functions used as event handlers' return values (handlers ignore results) follow; until then they are rejected with a diagnostic.
+
+React closures follow the snapshot rule: a continuation is created by the handler or effect it belongs to and reads that render's snapshot (case `await-in-handler`). Svelte `tick()` and Vue `nextTick()` become promises resolved by the framework's flush (`tick`: after the flush, two microtask hops; `nextTick`: chained on the pending flush), per [M4-ORDERING §3–4](M4-ORDERING.md).
 
 ## Host services: localStorage
 
-`localStorage.getItem/setItem/removeItem/clear/key/length` with string values. Native apps persist to a per-app file in the platform data directory, written after each task that changed it; the probe and the interpreter use an in-memory store that a case can seed (`"storage": { … }`), as the browser harness does through `page.addInitScript`. The `storage` event (other windows) is out of scope.
+`localStorage.getItem/setItem/removeItem/clear` with string values, items in insertion order. `key()` and `length` are rejected for now (Chromium orders keys by its own map), as is the `storage` event (other windows).
+
+- **Native apps** keep the items of an app in `$XDG_DATA_HOME/runic/<title>/localStorage.json` (`~/.local/share` by default; the title with other characters than letters, digits, `-` and `_` replaced), written after every change as UTF-16 code units so any string survives.
+- **Probes and the interpreter** keep them in memory, seeded by the case (`"storage": { key: value }`); the browser harness seeds through `page.addInitScript` once per tab. `measure.mjs` runs apps with a fresh data directory.
+- **`reload`** starts the app again on the same storage: the browser reloads the page, the probe and the interpreter create a new app instance. Timers and the clock start again natively, while Chromium's `Date.now()` continues; cases with `reload` must not depend on time.
 
 ## Updates are flushed in a microtask
 

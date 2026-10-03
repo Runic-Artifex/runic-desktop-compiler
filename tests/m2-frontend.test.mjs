@@ -202,3 +202,25 @@ test('uncovered constructs are rejected with diagnostics', async () => {
   await rejects(`let r = $state(/a/);`, 'E_TYPE_UNSUPPORTED');
   await rejects(`import { tick } from 'svelte';`, 'E_CAPABILITY');
 });
+
+test('expression-bodied handlers discard their value; cyclic data can be stored in deep state', async () => {
+  const out = await run(
+    `interface Node { name: string; parent: Node | null; children: Node[] }
+     let items = $state<string[]>([]);
+     let tree = $state<Node[]>([]);
+     let out = $state('');
+     function go() {
+       const root: Node = { name: 'root', parent: null, children: [] };
+       const child: Node = { name: 'child', parent: root, children: [] };
+       root.children.push(child);
+       tree.push(root);
+       out = \`\${items.length} \${tree[0].children[0].parent?.name}\`;
+     }`,
+    [
+      { kind: 'click', id: 'push' },
+      { kind: 'click', id: 'go' },
+    ],
+    `<button id="push" onclick={() => items.push('a')}>push</button><button id="go" onclick={go}>go</button><p id="out">{out}</p>`,
+  );
+  assert.deepEqual(out, ['', '', '1 root']);
+});

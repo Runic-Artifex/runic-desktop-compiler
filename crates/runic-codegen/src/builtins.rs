@@ -204,6 +204,13 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             )
         }
         ("timer", "clear") => format!("{{ cx.timers.clear({}); }}", t[0]),
+        ("storage", "get") => format!(
+            "(match cx.storage.get(&{}) {{ Some(v) => Maybe::Some(v), None => Maybe::Null }})",
+            t[0]
+        ),
+        ("storage", "set") => format!("{{ cx.storage.set({}, {}); }}", t[0], t[1]),
+        ("storage", "remove") => format!("{{ cx.storage.remove(&{}); }}", t[0]),
+        ("storage", "clear") => "{ cx.storage.clear(); }".into(),
         ("microtask", "queue") => format!(
             "{{ let f = {}; let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = f(cx)?; Ok(()) }}); cx.jobs.queue(g); }}",
             t[0]

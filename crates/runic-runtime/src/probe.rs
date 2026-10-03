@@ -397,6 +397,21 @@ pub(crate) fn run<A: App>() {
     let width = flag("--width").and_then(|v| v.parse().ok()).unwrap_or(800);
     let height = flag("--height").and_then(|v| v.parse().ok()).unwrap_or(600);
     let out = flag("--out").map(std::path::PathBuf::from);
+    // localStorage items the case starts with (a JSON object), kept in memory.
+    let storage: serde_json::Map<String, Value> = flag("--storage")
+        .map(|s| serde_json::from_str(&s).expect("--storage takes a JSON object"))
+        .unwrap_or_default();
+    crate::storage::seed(
+        storage
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    runic_js::JsString::from(k.as_str()),
+                    runic_js::JsString::from(v.as_str().unwrap_or_default()),
+                )
+            })
+            .collect(),
+    );
     let actions: Value = serde_json::from_reader(std::io::stdin()).expect("action list on stdin");
     let mut native = shell::document::<A>(width, height);
     let mount_us = start.elapsed().as_secs_f64() * 1e6;
@@ -425,7 +440,12 @@ pub(crate) fn run<A: App>() {
         .enumerate()
     {
         let t = Instant::now();
-        perform(&mut native, &action);
+        if action["kind"] == "reload" {
+            // A new app instance on the same (in-memory) localStorage.
+            native = shell::document::<A>(width, height);
+        } else {
+            perform(&mut native, &action);
+        }
         native.doc.resolve(0.0);
         native.listeners.settle(&mut native.doc);
         let us = t.elapsed().as_secs_f64() * 1e6;

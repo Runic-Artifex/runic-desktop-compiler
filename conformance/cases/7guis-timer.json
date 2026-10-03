@@ -1,0 +1,17 @@
+{
+  "description": "7GUIs Timer (M4): an interval started by an effect at mount, a gauge and elapsed time on virtual time, duration changes stopping and resuming, reset",
+  "fixtures": ["examples/7guis-timer-svelte"],
+  "actions": [
+    { "kind": "wait", "ms": 1000 },
+    { "kind": "wait", "ms": 2500 },
+    { "kind": "click", "id": "shorter" },
+    { "kind": "click", "id": "shorter" },
+    { "kind": "wait", "ms": 1000 },
+    { "kind": "click", "id": "longer" },
+    { "kind": "click", "id": "longer" },
+    { "kind": "click", "id": "longer" },
+    { "kind": "wait", "ms": 1000 },
+    { "kind": "click", "id": "reset" },
+    { "kind": "wait", "ms": 600 }
+  ]
+}

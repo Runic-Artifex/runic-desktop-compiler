@@ -1,0 +1,19 @@
+{
+  "description": "Cyclic objects stored into Svelte $state: no failure, values readable through the cycle. Svelte proxies lazily, so an object reached back through a cycle is a new proxy (identity differs); natively nested values are proxied once, eagerly (recorded M3 deviation: lazy proxy snapshots)",
+  "fixtures": [
+    "ownership-svelte"
+  ],
+  "knownGaps": {
+    "semantics": "Identity through a cycle back-reference: Svelte creates a new proxy on each lazy access path, the native proxy is shared (lazy proxy snapshots are not modelled)"
+  },
+  "actions": [
+    {
+      "kind": "click",
+      "id": "cycle"
+    },
+    {
+      "kind": "click",
+      "id": "cycle"
+    }
+  ]
+}

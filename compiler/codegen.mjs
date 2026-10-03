@@ -113,9 +113,10 @@ export function migrate(ir) {
 }
 
 /** Run `actions` through the reference interpreter. */
-export function interpret(ir, actions) {
+export function interpret(ir, actions, { storage } = {}) {
   return withIR(ir, file => {
-    const r = spawnSync(codegenBinary(), ['interp', file], {
+    const extra = storage ? ['--storage', JSON.stringify(storage)] : [];
+    const r = spawnSync(codegenBinary(), ['interp', file, ...extra], {
       input: JSON.stringify(actions),
       encoding: 'utf8',
       maxBuffer: 64 << 20,
