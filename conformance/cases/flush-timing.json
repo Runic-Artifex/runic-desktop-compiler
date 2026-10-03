@@ -1,0 +1,11 @@
+{
+  "description": "tick()/nextTick() around the flush: microtasks and flush promises queued before and after the first write, and awaiting the flush in an async handler",
+  "fixtures": ["flush-timing-svelte", "flush-timing-vue"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "later" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

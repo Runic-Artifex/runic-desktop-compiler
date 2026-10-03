@@ -499,6 +499,8 @@ enum TimerKind {
 /// A queued microtask.
 enum Micro {
     Call(Val),
+    /// Run any pending flush now, then fulfil the promise (`flush.tick`).
+    Tick(Promise),
     Promise(PJob),
     /// The flush job (see [`Schedule`]).
     Flush,
@@ -580,6 +582,8 @@ pub struct Machine<'p> {
     /// While a cleanup runs under `cleanupReadsPrevious`.
     reading_previous: bool,
     version_clock: u64,
+    /// The promise `flush.after` handed out for the pending flush.
+    flush_promise: Option<Promise>,
     /// localStorage items in insertion order.
     storage: Vec<(JsString, JsString)>,
 }
@@ -675,6 +679,7 @@ impl<'p> Machine<'p> {
             stable_fns: HashMap::new(),
             reading_previous: false,
             version_clock: 0,
+            flush_promise: None,
             storage,
         };
         for g in &program.globals {
@@ -1600,6 +1605,22 @@ impl<'p> Machine<'p> {
                 Val::Undefined
             }
             ("promise", m) => self.promise_builtin(m, a)?,
+            ("flush", "tick") => {
+                let p = Promise::pending();
+                self.enqueue(Micro::Tick(p.clone()));
+                Val::Promise(p)
+            }
+            ("flush", "after") => {
+                if self.flush_pending || self.phase.is_some() {
+                    Val::Promise(
+                        self.flush_promise
+                            .get_or_insert_with(Promise::pending)
+                            .clone(),
+                    )
+                } else {
+                    Val::Promise(Promise::fulfilled(Val::Undefined))
+                }
+            }
             ("microtask", "queue") => {
                 self.queue_micro(a[0].clone());
                 Val::Undefined
@@ -2208,6 +2229,14 @@ impl<'p> Machine<'p> {
                 }
             }
             Micro::Flush => self.flush(),
+            Micro::Tick(p) => {
+                if self.flush_pending {
+                    self.microtasks.retain(|j| !matches!(j, Micro::Flush));
+                    self.default_tasks.retain(|j| !matches!(j, Micro::Flush));
+                    self.flush();
+                }
+                self.settle_promise(&p, Ok(Val::Undefined));
+            }
             Micro::Promise(job) => self.promise_job(job),
         }
     }
@@ -2439,6 +2468,9 @@ impl<'p> Machine<'p> {
         }
         self.phase = None;
         self.epochs = (js::mutation_epoch(), js::owned_epoch());
+        if let Some(p) = self.flush_promise.take() {
+            self.settle_promise(&p, Ok(Val::Undefined));
+        }
     }
 
     /// Heap mutations made by effects extend the flush like cell writes.

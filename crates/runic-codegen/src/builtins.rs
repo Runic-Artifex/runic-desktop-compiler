@@ -336,6 +336,8 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "{{ let items = {}.borrow().clone(); runic_runtime::promises::all(cx, &items) }}",
             t[0]
         ),
+        ("flush", "tick") => "{ let p = <js::JsPromise<(), Lst>>::pending(); let q = p.clone(); cx.jobs.queue_flush_then(Rc::new(move |cx: &mut Cx| { runic_runtime::promises::settle(cx, &q, Ok(())); Ok(()) })); p }".into(),
+        ("flush", "after") => "(if cx.jobs.flushing() { cx.flush_promise.get_or_insert_with(js::JsPromise::pending).clone() } else { js::JsPromise::fulfilled(()) })".into(),
         ("microtask", "queue") => format!(
             "{{ let f = {}; let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = f(cx)?; Ok(()) }}); cx.jobs.queue(g); }}",
             t[0]

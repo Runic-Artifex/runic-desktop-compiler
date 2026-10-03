@@ -200,7 +200,7 @@ test('uncovered constructs are rejected with diagnostics', async () => {
   await rejects(`let c = $state(0); $effect.root(() => { c; });`, 'E_STATEMENT');
   await rejects(`let xs = $state([1]);`, 'E_TEMPLATE', '{@html "<b>x</b>"}');
   await rejects(`let r = $state(/a/);`, 'E_TYPE_UNSUPPORTED');
-  await rejects(`import { tick } from 'svelte';`, 'E_CAPABILITY');
+  await rejects(`import { getContext } from 'svelte';`, 'E_CAPABILITY');
 });
 
 test('expression-bodied handlers discard their value; cyclic data can be stored in deep state', async () => {

@@ -63,6 +63,9 @@ declare module 'vue' {
   export function watchPostEffect(effect: (onCleanup: OnCleanup) => void): WatchHandle;
   export function watchSyncEffect(effect: (onCleanup: OnCleanup) => void): WatchHandle;
   export function onWatcherCleanup(cleanupFn: () => void): void;
+  /** The pending flush's promise (fulfilled already when no flush is pending). */
+  export function nextTick(): Promise<void>;
+  export function nextTick<R>(fn: () => R): Promise<R>;
   export function onBeforeMount(hook: () => unknown): void;
   export function onMounted(hook: () => unknown): void;
   export function onBeforeUpdate(hook: () => unknown): void;

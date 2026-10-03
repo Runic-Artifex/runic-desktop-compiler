@@ -128,7 +128,6 @@ const UNSUPPORTED_VUE: Record<string, string> = {
   onRenderTracked: 'onRenderTracked is a development hook and unsupported',
   onRenderTriggered: 'onRenderTriggered is a development hook and unsupported',
   onServerPrefetch: 'onServerPrefetch is server-side only',
-  nextTick: 'nextTick is planned with promises (M4)',
 };
 const CLEANUP: Type = { fn: { params: [], result: 'void' } };
 const L = (i: number): Expr => ({ op: 'local', local: i });
@@ -992,6 +991,26 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           return tsFail(node, 'E_EMITS', `Event ${first.text} needs argument ${i + 1}`);
         });
         return { op: 'call-value', callee: { op: 'cell', cell, read: 'current' }, args };
+      }
+      // nextTick(): the pending flush's promise (fulfilled already when none
+      // is pending); nextTick(fn) chains fn on it.
+      if (vueCall(node) === 'nextTick') {
+        const after: Expr = {
+          op: 'builtin',
+          name: 'flush.after',
+          args: [],
+          type: { promise: 'void' },
+        };
+        if (!node.arguments.length) return after;
+        if (node.arguments.length > 1)
+          return tsFail(node, 'E_CALL', 'nextTick takes at most one callback');
+        const type = types.of(node);
+        return {
+          op: 'builtin',
+          name: 'promise.then',
+          args: [after, lower.expr(node.arguments[0], ctx)],
+          type,
+        };
       }
       if (MACROS.has(callee.text) && vueCall(node))
         return tsFail(node, 'E_MACRO', `${callee.text} is a top-level <script setup> declaration`);
@@ -2049,9 +2068,14 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               const n = (el.propertyName ?? el.name).text;
               if (UNSUPPORTED_VUE[n]) tsFail(el, 'E_CAPABILITY', UNSUPPORTED_VUE[n]);
               if (
-                !['ref', 'computed', 'shallowRef', 'useTemplateRef', 'onWatcherCleanup'].includes(
-                  n,
-                ) &&
+                ![
+                  'ref',
+                  'computed',
+                  'shallowRef',
+                  'useTemplateRef',
+                  'onWatcherCleanup',
+                  'nextTick',
+                ].includes(n) &&
                 !LIFECYCLE.has(n)
               )
                 tsFail(el, 'E_CAPABILITY', `vue:${n} is planned for a later milestone`);

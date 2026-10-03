@@ -443,11 +443,25 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
 
   // --- Lowering state (one component at a time) ---
   let cells: Cell[] = [];
+  /** The name a binding imported from 'svelte' has there (`undefined` for other bindings). */
+  const svelteImport = (id: ts.Identifier): string | undefined => {
+    const decl = checker.getSymbolAtLocation(id)?.declarations?.[0];
+    if (!decl || !ts.isImportSpecifier(decl)) return undefined;
+    const from = decl.parent.parent.parent.moduleSpecifier;
+    return ts.isStringLiteral(from) && from.text === 'svelte'
+      ? (decl.propertyName ?? decl.name).text
+      : undefined;
+  };
   const hooks: Hooks = {
     readCell: cell => ({ op: 'cell', cell, read: 'current' }),
     cellType: cell => cells[cell].type,
     writeCell: (cell, value) => [{ op: 'set', cell, value }],
     call(node, _ctx, lower) {
+      // tick(): a microtask that runs any pending flush, then fulfils.
+      if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'tick') {
+        if (node.arguments.length) return tsFail(node, 'E_CALL', 'tick takes no arguments');
+        return { op: 'builtin', name: 'flush.tick', args: [], type: { promise: 'void' } };
+      }
       if (
         ts.isIdentifier(node.expression) &&
         node.expression.text.startsWith('$') &&
@@ -642,7 +656,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             tsFail(stmt, 'E_CAPABILITY', 'Import onMount and onDestroy from svelte by name');
           for (const el of (named as ts.NamedImports).elements) {
             const imported = (el.propertyName ?? el.name).text;
-            if (!['onMount', 'onDestroy'].includes(imported))
+            if (!['onMount', 'onDestroy', 'tick'].includes(imported))
               tsFail(
                 el,
                 'E_CAPABILITY',

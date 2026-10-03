@@ -338,6 +338,10 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &s, "key").map(|_| Void)
         }
         ("storage", "clear") => arity(args, 0, 0).map(|_| Void),
+        // Framework flush timing: `tick` is a microtask that runs any
+        // pending flush, then fulfils; `after` fulfils when the pending (or
+        // running) flush ends, or is fulfilled already.
+        ("flush", "tick" | "after") => arity(args, 0, 0).map(|_| Promise(Box::new(Void))),
         ("microtask", "queue") => {
             arity(args, 1, 1)?;
             match &args[0] {

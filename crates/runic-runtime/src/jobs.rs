@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 pub enum Job<C> {
     Call(C),
     Flush,
+    /// Run any pending flush now, then the callback (`flush.tick`).
+    FlushThen(C),
 }
 
 pub struct Jobs<C> {
@@ -103,6 +105,27 @@ impl<C> Jobs<C> {
             runic_js::mutation_epoch() != self.epochs.0,
             runic_js::owned_epoch() != self.epochs.1,
         )
+    }
+
+    /// A microtask that runs any pending flush, then `callback`.
+    pub fn queue_flush_then(&mut self, callback: C) {
+        self.note_mutations();
+        self.microtasks.push_back(Job::FlushThen(callback));
+    }
+
+    /// Take the pending flush out of the queues (to run it now).
+    pub fn take_flush(&mut self) -> bool {
+        if !self.flush_pending {
+            return false;
+        }
+        self.microtasks.retain(|j| !matches!(j, Job::Flush));
+        self.defaults.retain(|j| !matches!(j, Job::Flush));
+        true
+    }
+
+    /// Whether a flush is pending or running.
+    pub fn flushing(&self) -> bool {
+        self.flush_pending || self.phase.is_some()
     }
 
     /// `queueMicrotask`.
