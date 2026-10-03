@@ -1704,6 +1704,14 @@ export function App() {
 }`,
       'E_EFFECT',
     ],
+    // Children content is not re-rendered with the receiving component.
+    [
+      `const log: number[] = [];
+function C() { ${fx} return <b>c</b>; }
+function Box({ children }: { children: ReactNode }) { const [n, setN] = useState(0); return <div onClick={() => setN(n + 1)}>{children}</div>; }
+export function App() { return <Box><C /></Box>; }`,
+      'E_EFFECT',
+    ],
   ];
   for (const [source, code] of cases)
     await react(

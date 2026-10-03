@@ -14,6 +14,9 @@
 // - `children` and other ReactNode props rendered as `{children}`, and render
 //   props `(x: T) => ReactNode` called as `{row(x)}`, are slots: the parent's
 //   JSX (or inline render function) is slot content evaluated in the parent;
+// - `useEffect`/`useLayoutEffect` → post/layout effects whose functions read
+//   their render's snapshot, with React's commit schedule (batched cleanups,
+//   passive writes in a later task, the first commit in a task);
 // - controlled checkboxes (`checked` + `onChange` → `change`) and `onKeyDown`;
 // - JSX → IR nodes with React's whitespace and child rendering rules.
 import ts from 'typescript';
@@ -2086,6 +2089,49 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     });
   };
 
+  /**
+   * `always` effects run after every update of their instance, and an
+   * instance updates when its rendering parent does. React re-renders an
+   * element only when the component that created it renders: children
+   * content (`{children}`, ReactNode props) is created by the parent passing
+   * it, so it does not re-render when only the receiving component does.
+   * Reject effects without dependencies in components rendered (at any
+   * depth) inside children content; render props create their content on
+   * each call, so they follow the rendering parent as the IR does.
+   */
+  const checkChildrenEffects = () => {
+    const inside = new Set<number>();
+    const add = (k: number) => {
+      if (inside.has(k)) return;
+      inside.add(k);
+      visit(components[k].template, true);
+    };
+    const visit = (nodes: Node[], within: boolean) => {
+      for (const n of nodes) {
+        if (n.kind === 'component') {
+          if (within) add(n.component);
+          for (const s of n.slots ?? []) {
+            const call = slotsOf[n.component].find(x => x.name === s.name)?.call;
+            visit(s.body, within || !call);
+          }
+        }
+        if (n.kind === 'element') visit(n.children ?? [], within);
+        if (n.kind === 'if') visit([...n.then, ...(n.else ?? [])], within);
+        if (n.kind === 'each') visit([...n.body, ...(n.else ?? [])], within);
+        if (n.kind === 'slot') visit(n.fallback ?? [], within);
+      }
+    };
+    components.forEach(c => visit(c.template, false));
+    for (const k of inside)
+      for (const e of components[k].effects ?? [])
+        if (e.deps.kind === 'always')
+          throw new Diagnostic(
+            'E_EFFECT',
+            `${components[k].name} is rendered inside children content, which React does not re-render when only the receiving component renders; effects without dependencies are unsupported there (list the dependencies)`,
+            e.source,
+          );
+  };
+
   const rootIndex = instantiate(app!, new Map(), rendered);
   for (const c of components[rootIndex].cells)
     if (c.prop && isRequired(c.init))
@@ -2095,6 +2141,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       fail(rendered, 'E_BOOTSTRAP', `The root component requires the render prop ${s.name}`);
   checkDependencies();
   checkUnmountOrder();
+  checkChildrenEffects();
   checkRenderRefs();
   const capabilities = ['dom', 'css', 'window', 'click', 'keyboard'];
   if (components.some(c => c.handlers.some(h => h.event === 'input')))

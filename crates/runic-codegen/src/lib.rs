@@ -836,13 +836,14 @@ impl Gen<'_> {
                         pass,
                         "{{ let v = {v}; {b}let mut st = ci{key}.borrow_mut(); st.p{cell} = Some(v.clone()); st.c.c{cell} = v; {bind} }}"
                     );
-                    // Update: a changed prop sets the child's cell and dirty bit.
+                    // Update: a changed prop sets the child's cell and dirty bit; it is
+                    // part of this render, not a change the next flush sees (`before`).
                     let ty = &child.cells[cell].ty;
                     let same = same_expr(ty, "(*o)", "v");
                     let guard = self.guard(&[&a.value]);
                     let _ = writeln!(
                         o.update,
-                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
+                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); st.before.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
                     );
                     if let Some(b) = &a.bind {
                         let guard = self.guard(&[b]);
