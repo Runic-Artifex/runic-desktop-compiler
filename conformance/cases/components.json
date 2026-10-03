@@ -1,0 +1,25 @@
+{
+  "description": "Child instances with own state, callback props, keyed moves and removal, list fallback, two-way prop binding, remount resets child state",
+  "fixtures": ["components-svelte"],
+  "actions": [
+    { "kind": "click", "id": "count-2" },
+    { "kind": "click", "id": "count-2" },
+    { "kind": "click", "id": "count-3" },
+    { "kind": "click", "id": "up-2" },
+    { "kind": "click", "id": "up-3" },
+    { "kind": "click", "id": "reverse" },
+    { "kind": "focus", "id": "name" },
+    { "kind": "type", "text": "!" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "count-4" },
+    { "kind": "click", "id": "remove-1" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "remove-2" },
+    { "kind": "click", "id": "remove-3" },
+    { "kind": "click", "id": "remove-4" },
+    { "kind": "click", "id": "add" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Enter" }
+  ]
+}

@@ -2,7 +2,7 @@
 // schema 4 (docs/design/M2-VALUES.md). Framework adapters supply only the
 // semantics of their reactive bindings through `Hooks`.
 import ts from 'typescript';
-import type { Expr, Fn, Local, Place, Stmt, Type } from './ir.ts';
+import type { Expr, Fn, Global, Local, Place, Stmt, Type } from './ir.ts';
 import { sameType, TypeMapper, type Fail } from './types.ts';
 import { builtinType, irType, maybeInner } from './irtype.ts';
 
@@ -127,6 +127,8 @@ const STRING: Type = 'string';
 
 export class Lowerer {
   readonly functions: Fn[] = [];
+  /** Module constants shared by all components (program globals). */
+  readonly globals: Global[] = [];
   readonly bindings = new Map<ts.Symbol, Binding>();
 
   readonly program: ts.Program;
@@ -350,13 +352,24 @@ export class Lowerer {
    * Lower an inline event handler (arrow/function expression) into handler
    * locals and body. Its first parameter is the event object.
    */
+  /** The builder of a component template; its locals are the template locals. */
+  template(component: number): FnBuilder {
+    return new FnBuilder('template', undefined, component, new Set(), false);
+  }
+
+  /**
+   * Lower an inline event handler. Inside a template scope (`parent`), values
+   * it captures (list items) become handler params, passed by the listener as
+   * `args`.
+   */
   handler(
     decl: ts.FunctionLikeDeclaration,
     component: number,
     input: boolean,
-  ): { locals: Local[]; body: Stmt[] } {
+    parent?: FnBuilder,
+  ): { params?: Local[]; locals: Local[]; body: Stmt[]; args?: Expr[] } {
     const boxed = this.analyseCaptures(decl);
-    const b = new FnBuilder('handler', undefined, component, boxed, input);
+    const b = new FnBuilder('handler', parent, component, boxed, input);
     const event = decl.parameters[0];
     if (event) {
       if (!ts.isIdentifier(event.name))
@@ -366,8 +379,13 @@ export class Lowerer {
     if (decl.parameters.length > 1)
       this.fail(decl.parameters[1], 'E_EVENT', 'Event handlers take at most one parameter');
     const body = this.functionBody(decl, b);
-    if (b.captures.length) throw new Error('handler captures');
-    return { locals: b.locals, body };
+    if (!b.captures.length) return { locals: b.locals, body };
+    return {
+      params: b.captures,
+      locals: b.locals,
+      body: remapLocals(body, i => b.final(i)),
+      args: b.captureSources.map(c => ({ op: 'local', local: c.local }) as Expr),
+    };
   }
 
   /**
@@ -969,6 +987,7 @@ export class Lowerer {
       cell: c => this.hooks.cellType(c),
       records: this.types.records,
       functions: this.functions,
+      globals: this.globals,
     });
   }
 

@@ -106,13 +106,18 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
                 .unwrap_or_else(|| el.name.local.to_string()),
         )
     });
-    json!({
+    let mut state = json!({
         "dom": snapshot_node(doc, root, focused),
         "focused": focused_name,
         "viewport": {"width": width, "height": height, "scrollX": 0, "scrollY": 0},
         "geometry": geometry,
         "cells": native.app.cells_json(),
-    })
+    });
+    let instances = native.app.instances_json();
+    if !instances.is_empty() {
+        state["instances"] = Value::Array(instances);
+    }
+    state
 }
 
 fn pointer(x: f32, y: f32, buttons: MouseEventButtons) -> BlitzPointerEvent {

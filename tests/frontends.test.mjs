@@ -275,7 +275,7 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
     [
       'counter-svelte',
       '{#if show}<p id="details">Visible</p>{/if}',
-      '{#each [1] as x}<p>{x}</p>{/each}',
+      '{#key show}<p id="details">Visible</p>{/key}',
       'E_TEMPLATE',
     ],
     [
@@ -283,12 +283,6 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
       'bind:value={text}',
       'bind:value={() => text, value => text = value}',
       'E_TEMPLATE',
-    ],
-    [
-      'editor-svelte',
-      'bind:value={text}',
-      'oninput={(e) => text = e.target.value} bind:value={text}',
-      'E_EVENT',
     ],
     ['editor-svelte', 'bind:value={text}', 'bind:value={length}', 'E_TEMPLATE'],
   ];

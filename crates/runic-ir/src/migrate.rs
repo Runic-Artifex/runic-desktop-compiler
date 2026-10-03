@@ -242,6 +242,7 @@ fn node(v: &Json, handlers: &[Json]) -> Result<Node> {
                 listeners.push(Listener {
                     event: event_kind,
                     handler: event as usize,
+                    args: vec![],
                 });
             }
             Ok(Node::Element {
@@ -290,6 +291,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
                     value: value(field(s, "initial")?)?,
                 },
                 domain,
+                prop: None,
                 source: source(s),
             })
         })
@@ -318,6 +320,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
                 })
                 .collect::<Result<_>>()?;
             Ok(Handler {
+                params: vec![],
                 locals: vec![],
                 name: None,
                 event,
@@ -373,11 +376,13 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
             assets: serde_json::from_value(field(v, "assets")?.clone())
                 .or_else(|_| bad("assets"))?,
         },
+        globals: vec![],
         components: vec![Component {
             name: "App".into(),
             cells,
             handlers: converted_handlers,
             template,
+            template_locals: vec![],
         }],
         root: 0,
         container_attrs: match v.get("container").and_then(|c| c.get("attrs")) {

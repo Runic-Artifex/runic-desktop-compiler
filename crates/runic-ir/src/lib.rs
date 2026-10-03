@@ -75,6 +75,10 @@ pub struct Program {
     pub records: Vec<RecordType>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub functions: Vec<Function>,
+    /// Module-level constants, evaluated once in order at startup (a module
+    /// object keeps its identity across all components).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub globals: Vec<Global>,
     pub components: Vec<Component>,
     pub root: usize,
     /// Attributes the framework sets on the mount container (`#root`).
@@ -274,6 +278,18 @@ impl Function {
     }
 }
 
+/// A module constant. `init` may read earlier globals and call module functions.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Global {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub ty: Type,
+    pub init: Expr,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Component {
@@ -283,6 +299,22 @@ pub struct Component {
     #[serde(default)]
     pub handlers: Vec<Handler>,
     pub template: Vec<Node>,
+    /// Locals bound by `each` nodes (and slot parameters) in the template.
+    #[serde(
+        rename = "templateLocals",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub template_locals: Vec<Local>,
+}
+
+impl Component {
+    /// Index of the prop cell named `name`.
+    pub fn prop(&self, name: &str) -> Option<usize> {
+        self.cells
+            .iter()
+            .position(|c| c.prop.as_deref() == Some(name))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -308,6 +340,9 @@ pub struct Cell {
     pub tracking: Tracking,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<Domain>,
+    /// The prop this cell receives from the parent (`init` is its default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prop: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
 }
@@ -341,6 +376,10 @@ pub struct Handler {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub event: EventKind,
+    /// Values passed by the listener (`args`); the local index space is
+    /// params, then locals.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<Local>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub locals: Vec<Local>,
     pub body: Vec<Stmt>,
@@ -476,6 +515,10 @@ pub enum Expr {
     Null {
         #[serde(rename = "type")]
         ty: Type,
+    },
+    /// A module constant.
+    Global {
+        global: usize,
     },
     Cell {
         cell: usize,
@@ -695,6 +738,7 @@ impl Expr {
             | Undefined { .. }
             | Null { .. }
             | Cell { .. }
+            | Global { .. }
             | Local { .. }
             | Payload
             | Closure { .. } => vec![],
@@ -808,6 +852,20 @@ pub struct Attr {
 pub struct Listener {
     pub event: EventKind,
     pub handler: usize,
+    /// Arguments for the handler's params, evaluated in the template scope at dispatch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<Expr>,
+}
+
+/// A prop passed to a component instance.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PropArg {
+    pub name: String,
+    pub value: Expr,
+    /// `fn(T) -> void` called after the child writes the prop (two-way binding).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -839,14 +897,41 @@ pub enum Node {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source: Option<Source>,
     },
+    /// An instance of `component`.
+    Component {
+        component: usize,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        props: Vec<PropArg>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    /// One block of `body` per element of `items`.
+    Each {
+        items: Expr,
+        /// Template local receiving the element.
+        item: usize,
+        /// Template local receiving the index.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<usize>,
+        /// Block identity; blocks are matched by index without a key.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<Expr>,
+        body: Vec<Node>,
+        #[serde(rename = "else", default, skip_serializing_if = "Vec::is_empty")]
+        otherwise: Vec<Node>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
 }
 
 impl Node {
     pub fn source(&self) -> Option<&Source> {
         match self {
-            Node::Element { source, .. } | Node::Text { source, .. } | Node::If { source, .. } => {
-                source.as_ref()
-            }
+            Node::Element { source, .. }
+            | Node::Text { source, .. }
+            | Node::If { source, .. }
+            | Node::Component { source, .. }
+            | Node::Each { source, .. } => source.as_ref(),
         }
     }
     /// The literal `id` attribute of an element, if any.

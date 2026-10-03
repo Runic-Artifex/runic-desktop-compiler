@@ -247,7 +247,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
 
   // --- Setup bindings ---
   const statements = [...sf.statements].filter(s => s.getStart(sf) < script.length);
-  const pending = lowerModules(graph, program, lower, cells, COMPONENT, {
+  const pending = lowerModules(graph, program, lower, {
     skip: f => f === graph.entry,
   });
   const setupBindings = new Map<string, ts.Symbol>();
@@ -599,6 +599,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     styles: { css: graph.css, assets: graph.assets },
     records: types.records,
     functions: lower.functions,
+    globals: lower.globals,
     components: [comp],
     root: 0,
     // Vue's app.mount() marks the container.

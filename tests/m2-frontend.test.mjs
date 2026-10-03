@@ -198,7 +198,7 @@ test('arrays, maps, sets, JSON and deep state', async () => {
 test('uncovered constructs are rejected with diagnostics', async () => {
   await rejects(`let x: any = $state(1);`, 'E_TYPE_UNSUPPORTED');
   await rejects(`let c = $state(0); $effect(() => { c; });`, 'E_STATEMENT');
-  await rejects(`let xs = $state([1]);`, 'E_TEMPLATE', '{#each xs as x}<p>{x}</p>{/each}');
+  await rejects(`let xs = $state([1]);`, 'E_TEMPLATE', '{#key xs}<p>x</p>{/key}');
   await rejects(`let r = $state(/a/);`, 'E_TYPE_UNSUPPORTED');
   await rejects(`import { onMount } from 'svelte';`, 'E_CAPABILITY');
 });

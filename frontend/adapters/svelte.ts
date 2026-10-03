@@ -1,15 +1,17 @@
-// Svelte 5 (runes) adapter on the shared language layer (docs/design/M2-VALUES.md).
-// Framework semantics only: runes → cells/derived functions, immediate reads
-// and writes, template → IR nodes, events → handlers. Ordinary code goes
-// through frontend/language.ts.
+// Svelte 5 (runes) adapter on the shared language layer (docs/design/M2-VALUES.md,
+// docs/design/M3-COMPONENTS.md). Framework semantics only: runes → cells and
+// derived functions with immediate reads and writes, `$props` → prop cells,
+// child components → instances, `{#each}` → lists, template → IR nodes,
+// events → handlers. Ordinary code goes through frontend/language.ts.
 import ts from 'typescript';
 import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
-import type { Cell, Component, Expr, Handler, Node, Program, Stmt, Type } from '../ir.ts';
-import { Lowerer, type Hooks } from '../language.ts';
+import type { Cell, Component, Expr, Handler, Listener, Node, Program, Stmt, Type } from '../ir.ts';
+import { FnBuilder, Lowerer, type Hooks } from '../language.ts';
 import { createProgram, RUNES } from '../program.ts';
 import { TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
+import { arrayElement } from '../irtype.ts';
 
 // The svelte/compiler AST is untyped here; nodes are plain objects.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,32 +76,50 @@ interface Graph {
   };
 }
 
+type Source = { file: string; line: number; column: number };
+
 /** Source location in the original file for an offset. */
-function locate(text: string, offset: number, file: string) {
+function locate(text: string, offset: number, file: string): Source {
   const before = text.slice(0, offset);
   const lines = before.split('\n');
   return { file, line: lines.length, column: lines.at(-1)!.length + 1 };
 }
 
+/** A `.svelte` file and its virtual TypeScript module. */
+interface Unit {
+  file: string;
+  rel: string;
+  original: string;
+  ast: SNode;
+  index: number;
+  virtual: string;
+  synthetic: string;
+  /** Script length and its offset in the original file. */
+  scriptLength: number;
+  scriptStart: number;
+  /** Synthetic ranges copied from the original (template expressions, patterns). */
+  segments: { synth: number; orig: number; length: number }[];
+  /** Synthetic start of each template expression, each pattern and each index. */
+  starts: Map<SNode, number>;
+  /** Child components by local name. */
+  children: Map<string, string>;
+}
+
 export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const { root } = graph;
-  const fail = (
-    code: string,
-    message: string,
-    source?: { file: string; line: number; column: number },
-  ): never => {
+  const fail = (code: string, message: string, source?: Source): never => {
     throw new Diagnostic(code, message, source);
   };
+  const rel = (f: string) => path.relative(root, f);
 
   // --- Bootstrap: mount(App, { target: document.getElementById('root') }) ---
   const entryCode = graph.modules.get(graph.entry)!.code;
   const entry = ts.createSourceFile(graph.entry, entryCode, ts.ScriptTarget.Latest, true);
-  const rel = (f: string) => path.relative(root, f);
   const at = (sf: ts.SourceFile, n: ts.Node) => {
     const p = sf.getLineAndCharacterOfPosition(n.getStart(sf));
     return { file: rel(sf.fileName), line: p.line + 1, column: p.character + 1 };
   };
-  let componentFile: string | undefined;
+  let rootFile: string | undefined;
   let mountName: string | undefined;
   let bootstrap: ts.Expression | undefined;
   const componentNames = new Map<string, string>();
@@ -142,106 +162,244 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     bootstrap.expression.text === mountName
   ) {
     const [component] = bootstrap.arguments;
-    if (component && ts.isIdentifier(component)) componentFile = componentNames.get(component.text);
+    if (component && ts.isIdentifier(component)) rootFile = componentNames.get(component.text);
   }
-  if (!componentFile)
+  if (!rootFile)
     fail(
       'E_BOOTSTRAP',
       'Expected mount(App, {target: document.getElementById("root")})',
       bootstrap ? at(entry, bootstrap) : undefined,
     );
-  const file = componentFile!;
-  const original = graph.modules.get(file)!.code;
-  const fileRel = rel(file);
-  let ast: SNode;
-  try {
-    ast = graph.tooling.compiler.parse(original, { filename: file, modern: true });
-  } catch (e) {
-    const err = e as { message: string; start?: { line: number; column: number } };
-    throw new Diagnostic('E_PARSE', err.message, {
-      file: fileRel,
-      line: err.start?.line ?? 1,
-      column: (err.start?.column ?? 0) + 1,
-    });
-  }
-  const loc = (n: SNode) => locate(original, n.start ?? 0, fileRel);
-  if (ast.module) fail('E_TEMPLATE', '<script module> is planned for M3', loc(ast.module));
-  if (ast.css)
-    fail(
-      'E_TEMPLATE',
-      'Component styles (scoped CSS) are planned for M6; import local CSS instead',
-      loc(ast.css),
-    );
-  if (ast.options) fail('E_TEMPLATE', '<svelte:options> is unsupported', loc(ast.options));
 
-  // --- Virtual TypeScript module: script + template expressions ---
-  const script = ast.instance
-    ? original.slice(ast.instance.content.start, ast.instance.content.end)
-    : '';
-  const scriptStart = ast.instance ? ast.instance.content.start : 0;
-  const segments: { synth: number; orig: number; length: number }[] = [];
-  let synthetic = script + '\nfunction __runic_template() {\n';
-  const templateExprs: SNode[] = [];
-  const addExpr = (e: SNode) => {
-    const text = original.slice(e.start, e.end);
-    synthetic += '(';
-    segments.push({ synth: synthetic.length, orig: e.start, length: text.length });
-    synthetic += text + ');\n';
-    templateExprs.push(e);
+  // --- Components: parse, then build each virtual module (children first) ---
+  const units = new Map<string, Unit>();
+  const order: Unit[] = [];
+  const parse = (file: string, from?: Source): Unit => {
+    const original = graph.modules.get(file)?.code;
+    if (original === undefined)
+      return fail('E_IMPORT', `Component ${rel(file)} was not collected`, from);
+    const fileRel = rel(file);
+    let ast: SNode;
+    try {
+      ast = graph.tooling.compiler.parse(original, { filename: file, modern: true });
+    } catch (e) {
+      const err = e as { message: string; start?: { line: number; column: number } };
+      throw new Diagnostic('E_PARSE', err.message, {
+        file: fileRel,
+        line: err.start?.line ?? 1,
+        column: (err.start?.column ?? 0) + 1,
+      });
+    }
+    const loc = (n: SNode) => locate(original, n.start ?? 0, fileRel);
+    if (ast.module)
+      fail('E_TEMPLATE', '<script module> is planned for a later milestone', loc(ast.module));
+    if (ast.css)
+      fail(
+        'E_TEMPLATE',
+        'Component styles (scoped CSS) are planned for M6; import local CSS instead',
+        loc(ast.css),
+      );
+    if (ast.options) fail('E_TEMPLATE', '<svelte:options> is unsupported', loc(ast.options));
+    const script = ast.instance
+      ? original.slice(ast.instance.content.start, ast.instance.content.end)
+      : '';
+    // Child components imported by the instance script.
+    const children = new Map<string, string>();
+    const scriptSf = ts.createSourceFile(file + '.ts', script, ts.ScriptTarget.Latest, true);
+    for (const stmt of scriptSf.statements) {
+      if (!ts.isImportDeclaration(stmt)) continue;
+      const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
+      if (!spec.endsWith('.svelte')) continue;
+      const edge = graph.modules.get(file)!.imports.find(i => i.specifier === spec);
+      const name = stmt.importClause?.name?.text;
+      if (!edge || !name || stmt.importClause?.namedBindings)
+        fail(
+          'E_IMPORT',
+          'Import components as `import Name from "./Name.svelte"`',
+          locate(original, ast.instance.content.start + stmt.getStart(scriptSf), fileRel),
+        );
+      children.set(name!, edge!.resolved);
+    }
+    return {
+      file,
+      rel: fileRel,
+      original,
+      ast,
+      index: -1,
+      virtual: file + '.__runic.ts',
+      synthetic: '',
+      scriptLength: script.length,
+      scriptStart: ast.instance ? ast.instance.content.start : 0,
+      segments: [],
+      starts: new Map(),
+      children,
+    };
   };
-  const collect = (n: SNode) => {
-    if (!n || typeof n !== 'object') return;
-    if (Array.isArray(n)) return n.forEach(collect);
-    if (n.type === 'ExpressionTag') addExpr(n.expression);
-    else if (n.type === 'IfBlock') addExpr(n.test);
-    else if (n.type === 'Attribute' && n.value !== true) {
-      for (const v of Array.isArray(n.value) ? n.value : [n.value])
-        if (v.type === 'ExpressionTag') addExpr(v.expression);
-      return;
-    } else if (n.type === 'BindDirective') addExpr(n.expression);
-    for (const [k, v] of Object.entries(n))
-      if (k !== 'metadata' && v && typeof v === 'object') collect(v);
+  const visit = (file: string, stack: string[], from?: Source) => {
+    if (stack.includes(file))
+      fail('E_COMPONENT', 'Recursive components are planned for a later milestone', from);
+    if (units.has(file)) return;
+    const u = parse(file, from);
+    units.set(file, u);
+    for (const [, child] of u.children)
+      visit(child, [...stack, file], { file: u.rel, line: 1, column: 1 });
+    u.index = order.length;
+    order.push(u);
   };
-  collect(ast.fragment);
-  synthetic += '}\n';
-  const virtual = file + '.__runic.ts';
-  const files = new Map<string, string>([[virtual, synthetic]]);
+  visit(rootFile!, []);
+
+  // The props type each component exports to its parents' virtual modules.
+  const propsType = (u: Unit): string => {
+    const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
+    const sf = ts.createSourceFile(u.file + '.ts', script, ts.ScriptTarget.Latest, true);
+    for (const stmt of sf.statements)
+      if (ts.isVariableStatement(stmt))
+        for (const d of stmt.declarationList.declarations) {
+          const init = d.initializer;
+          if (
+            init &&
+            ts.isCallExpression(init) &&
+            ts.isIdentifier(init.expression) &&
+            init.expression.text === '$props'
+          )
+            return d.type
+              ? script.slice(d.type.getStart(sf), d.type.end)
+              : init.typeArguments?.[0]
+                ? script.slice(init.typeArguments[0].getStart(sf), init.typeArguments[0].end)
+                : 'Record<string, never>';
+        }
+    return 'Record<string, never>';
+  };
+
+  // Virtual modules: the script, then the template as typed statements.
+  for (const u of order) {
+    const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
+    let s = script + '\nfunction __runic_template() {\n';
+    const copy = (start: number, end: number) => {
+      u.segments.push({ synth: s.length, orig: start, length: end - start });
+      s += u.original.slice(start, end);
+    };
+    const inline = (e: SNode) => {
+      s += '(';
+      u.starts.set(e, s.length);
+      copy(e.start, e.end);
+      s += ')';
+    };
+    const expr = (e: SNode) => {
+      inline(e);
+      s += ';\n';
+    };
+    const attrs = (list: SNode[]) => {
+      for (const a of list)
+        if (a.type === 'Attribute' && a.value !== true) {
+          for (const v of Array.isArray(a.value) ? a.value : [a.value])
+            if (v.type === 'ExpressionTag') expr(v.expression);
+        } else if (a.type === 'BindDirective') expr(a.expression);
+    };
+    const fragment = (f: SNode) => {
+      for (const n of f?.nodes ?? []) {
+        if (n.type === 'ExpressionTag') expr(n.expression);
+        else if (n.type === 'IfBlock') {
+          expr(n.test);
+          fragment(n.consequent);
+          fragment(n.alternate);
+        } else if (n.type === 'EachBlock') {
+          s += 'for (const ';
+          u.starts.set(n.context, s.length);
+          copy(n.context.start, n.context.end);
+          s += ' of ';
+          inline(n.expression);
+          s += ') {\n';
+          if (n.index) {
+            s += 'const ';
+            // Keyed by the body fragment, which survives the copies made by `clean`.
+            u.starts.set(n.body, s.length);
+            s += `${n.index}: number = 0;\n`;
+          }
+          if (n.key) expr(n.key);
+          fragment(n.body);
+          s += '}\n';
+          fragment(n.fallback);
+        } else if (n.type === 'Component') {
+          if (!u.children.has(n.name))
+            fail(
+              'E_TEMPLATE',
+              `${n.name} is not an imported component`,
+              locate(u.original, n.start, u.rel),
+            );
+          // Props are checked against the child's props type (typing inline callbacks).
+          s += `((__p: __RunicProps_${n.name}) => 0)({\n`;
+          for (const a of n.attributes) {
+            if (a.type === 'Attribute' && a.value !== true && !Array.isArray(a.value)) {
+              s += `${JSON.stringify(a.name)}: `;
+              inline(a.value.expression);
+              s += ',\n';
+            } else if (a.type === 'BindDirective') {
+              s += `${JSON.stringify(a.name)}: `;
+              inline(a.expression);
+              s += ',\n';
+            }
+          }
+          s += '} as never);\n';
+          for (const a of n.attributes)
+            if (a.type === 'Attribute' && Array.isArray(a.value))
+              for (const v of a.value) if (v.type === 'ExpressionTag') expr(v.expression);
+          fragment(n.fragment);
+        } else if (n.type === 'RegularElement') {
+          attrs(n.attributes);
+          fragment(n.fragment);
+        }
+      }
+    };
+    fragment(u.ast.fragment);
+    s += '}\n';
+    for (const [name, file] of u.children)
+      s += `import type { __RunicProps as __RunicProps_${name} } from ${JSON.stringify(units.get(file)!.virtual)};\n`;
+    s += `export type __RunicProps = ${propsType(u)};\n`;
+    u.synthetic = s;
+  }
+  const files = new Map<string, string>();
+  for (const u of order) files.set(u.virtual, u.synthetic);
   for (const [id, m] of graph.modules)
     if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep)) files.set(id, m.code);
   const program = createProgram(files, [RUNES]);
-  const sf = program.getSourceFile(virtual)!;
-  const syntax = program.getSyntacticDiagnostics(sf);
-  if (syntax.length) {
-    const d = syntax[0];
-    fail(
-      'E_PARSE',
-      ts.flattenDiagnosticMessageText(d.messageText, '\n'),
-      d.start !== undefined ? sourceAt(d.start) : undefined,
-    );
-  }
-  function sourceAt(pos: number) {
-    if (pos < script.length) return locate(original, scriptStart + pos, fileRel);
-    const seg = segments.find(s => pos >= s.synth && pos <= s.synth + s.length);
+  const unitOf = new Map<ts.SourceFile, Unit>();
+  for (const u of order) unitOf.set(program.getSourceFile(u.virtual)!, u);
+  const sourceAt = (u: Unit, pos: number): Source => {
+    if (pos < u.scriptLength) return locate(u.original, u.scriptStart + pos, u.rel);
+    const seg = u.segments.find(s => pos >= s.synth && pos <= s.synth + s.length);
     return seg
-      ? locate(original, seg.orig + (pos - seg.synth), fileRel)
-      : { file: fileRel, line: 1, column: 1 };
-  }
-  const sourceOf = (n: ts.Node) => {
+      ? locate(u.original, seg.orig + (pos - seg.synth), u.rel)
+      : { file: u.rel, line: 1, column: 1 };
+  };
+  const sourceOf = (n: ts.Node): Source => {
     const f = n.getSourceFile();
-    if (f !== sf) {
+    const u = unitOf.get(f);
+    if (!u) {
       const p = f.getLineAndCharacterOfPosition(n.getStart(f));
       return { file: rel(f.fileName), line: p.line + 1, column: p.character + 1 };
     }
-    return sourceAt(n.getStart(sf));
+    return sourceAt(u, n.getStart(f));
   };
+  for (const u of order) {
+    const sf = program.getSourceFile(u.virtual)!;
+    const syntax = program.getSyntacticDiagnostics(sf);
+    if (syntax.length) {
+      const d = syntax[0];
+      fail(
+        'E_PARSE',
+        ts.flattenDiagnosticMessageText(d.messageText, '\n'),
+        d.start !== undefined ? sourceAt(u, d.start) : undefined,
+      );
+    }
+  }
   const tsFail = (n: ts.Node, code: string, message: string): never =>
     fail(code, message, sourceOf(n));
   const checker = program.getTypeChecker();
   const types = new TypeMapper(checker, tsFail);
 
-  // --- Component state ---
-  const cells: Cell[] = [];
-  const COMPONENT = 0;
+  // --- Lowering state (one component at a time) ---
+  let cells: Cell[] = [];
   const hooks: Hooks = {
     readCell: cell => ({ op: 'cell', cell, read: 'current' }),
     cellType: cell => cells[cell].type,
@@ -273,334 +431,520 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       return `${callee.expression.text}.${callee.name.text}`;
     return undefined;
   };
-
-  const statements = [...sf.statements].filter(s => s.getStart(sf) < script.length);
   // Ordinary local modules initialise first (dependencies first).
-  const pending = lowerModules(graph, program, lower, cells, COMPONENT, {
-    skip: f => f === graph.entry,
-  });
-  // Pass 1: register bindings (functions are hoisted; cells get indices).
-  for (const stmt of statements) {
-    if (ts.isImportDeclaration(stmt)) {
-      const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
-      if (stmt.importClause?.isTypeOnly) continue;
-      if (spec === 'svelte' || spec.startsWith('svelte/'))
-        tsFail(
-          stmt,
-          'E_CAPABILITY',
-          `${spec} imports (lifecycle, context, stores) are planned for M3/M4`,
-        );
-      if (spec.endsWith('.svelte'))
-        tsFail(stmt, 'E_TEMPLATE', 'Child components are planned for M3');
-      if (!spec.startsWith('.'))
-        tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
-      continue;
-    }
-    if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
-    if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      const p = lower.declare(
-        checker.getSymbolAtLocation(stmt.name)!,
-        stmt,
-        stmt.name.text,
-        COMPONENT,
-      );
-      if (p) pending.push(p);
-      continue;
-    }
-    if (ts.isVariableStatement(stmt)) {
-      const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
-      for (const d of stmt.declarationList.declarations) {
-        if (!ts.isIdentifier(d.name))
-          tsFail(
-            d,
-            'E_DECLARATION',
-            'Destructured component declarations are planned for M3 ($props)',
-          );
-        const name = (d.name as ts.Identifier).text;
-        const sym = checker.getSymbolAtLocation(d.name)!;
-        const init = d.initializer;
-        const rune = runeName(init);
-        if (rune === '$derived' || rune === '$derived.by') {
-          const index = lower.reserve();
-          lower.bindings.set(sym, { kind: 'derived', fn: index });
-          const call = init as ts.CallExpression;
-          pending.push(() => {
-            if (rune === '$derived.by') {
-              const getter = call.arguments[0];
-              if (
-                !getter ||
-                !(ts.isArrowFunction(getter) || ts.isFunctionExpression(getter)) ||
-                getter.parameters.length
-              )
-                tsFail(call, 'E_RUNE', '$derived.by takes a zero-parameter function');
-              lower.function(getter as ts.ArrowFunction, name, undefined, COMPONENT, index);
-            } else {
-              const v = lower.value(call.arguments[0], COMPONENT, `${name}$derived`);
-              lower.functions[index] = {
-                name,
-                component: COMPONENT,
-                params: [],
-                locals: [],
-                result: types.of(d.name),
-                body: [{ op: 'return', value: v }],
-              };
-            }
-          });
-          continue;
-        }
-        if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) && isConst) {
-          const p = lower.declare(sym, init, name, COMPONENT);
-          if (p) pending.push(p);
-          continue;
-        }
-        if (rune && !['$state', '$state.raw'].includes(rune))
-          tsFail(init!, 'E_RUNE', `${rune} is planned for a later milestone (see docs/ROADMAP.md)`);
-        const cell = cells.length;
-        const type = types.of(d.name) as Type;
-        const tracking =
-          rune === '$state'
-            ? 'deep'
-            : rune === '$state.raw'
-              ? 'identity'
-              : isConst
-                ? 'identity'
-                : 'none';
-        cells.push({ name, type, init: { op: 'lit', value: 0 }, tracking, source: sourceOf(d) });
-        lower.bindings.set(sym, { kind: 'cell', cell });
-        pending.push(() => {
-          let value: ts.Expression | undefined = init;
-          if (rune) value = (init as ts.CallExpression).arguments[0];
-          cells[cell].init = value
-            ? coerceInit(lower.value(value, COMPONENT, `${name}$init`), lower.exprType(value), type)
-            : { op: 'undefined', type };
-        });
-      }
-      continue;
-    }
-    if (ts.isExpressionStatement(stmt))
-      tsFail(stmt, 'E_STATEMENT', 'Top-level statements ($effect, calls) are planned for M4');
-    if (ts.isClassDeclaration(stmt))
-      tsFail(stmt, 'E_TYPE_UNSUPPORTED', 'Classes are planned for later');
-    if (!ts.isEmptyStatement(stmt)) tsFail(stmt, 'E_STATEMENT', 'Unsupported component statement');
-  }
-  for (const p of pending) p();
+  for (const p of lowerModules(graph, program, lower, { skip: f => f === graph.entry })) p();
 
-  // --- Template ---
-  const exprNode = (e: SNode): ts.Expression => {
-    const index = templateExprs.indexOf(e);
-    const fn = sf.statements.find(
-      s => ts.isFunctionDeclaration(s) && s.name?.text === '__runic_template',
-    ) as ts.FunctionDeclaration;
-    const stmt = fn.body!.statements[index] as ts.ExpressionStatement;
-    return (stmt.expression as ts.ParenthesizedExpression).expression;
-  };
-  const handlers: Handler[] = [];
-  const display = (e: ts.Expression): Expr => {
-    // Svelte renders `value ?? ''` stringified.
-    const t = types.of(e);
-    const v = lower.value(e, COMPONENT, 'text');
-    if (t === 'string') return v;
-    if (typeof t === 'object' && 'maybe' in t) {
-      const wrapper = lower.reserve();
-      lower.functions[wrapper] = {
-        name: 'text$maybe',
-        component: COMPONENT,
-        params: [],
-        locals: [{ name: '$v', type: t }],
-        result: 'string',
-        body: [
-          { op: 'let', local: 0, value: v },
-          {
-            op: 'if',
-            test: {
-              op: 'builtin',
-              name: 'maybe.is-nullish',
-              args: [{ op: 'local', local: 0 }],
-              type: 'boolean',
-            },
-            then: [{ op: 'return', value: { op: 'lit', value: '' } }],
-          },
-          {
-            op: 'return',
-            value: { op: 'to-string', arg: { op: 'unwrap', value: { op: 'local', local: 0 } } },
-          },
-        ],
-      };
-      return { op: 'call', function: wrapper, args: [] };
-    }
-    return { op: 'to-string', arg: v };
-  };
-  const clean = (fragment: SNode): SNode[] => {
-    const list = fragment.nodes
-      .filter((n: SNode) => n.type !== 'Comment')
-      .map((n: SNode) => ({ ...n }));
-    while (list[0]?.type === 'Text' && !list[0].data.trim()) list.shift();
-    while (list.at(-1)?.type === 'Text' && !list.at(-1).data.trim()) list.pop();
-    if (list[0]?.type === 'Text') list[0].data = list[0].data.trimStart();
-    if (list.at(-1)?.type === 'Text') list.at(-1).data = list.at(-1).data.trimEnd();
-    for (let i = 0; i < list.length; i++)
-      if (list[i].type === 'Text') {
-        if (list[i - 1]?.type !== 'ExpressionTag') list[i].data = list[i].data.replace(/^\s+/, ' ');
-        if (list[i + 1]?.type !== 'ExpressionTag') list[i].data = list[i].data.replace(/\s+$/, ' ');
-      }
-    return list;
-  };
-  const handlerFor = (value: SNode, event: 'click' | 'input', where: SNode): number => {
-    const e = exprNode(value);
-    let h: Omit<Handler, 'event'>;
-    if (ts.isArrowFunction(e) || ts.isFunctionExpression(e))
-      h = lower.handler(e, COMPONENT, event === 'input');
-    else if (ts.isIdentifier(e)) {
-      const b = lower.binding(e);
-      if (b?.kind !== 'function')
-        return fail('E_EVENT', 'Event handlers must be functions', loc(where));
-      const target = lower.functions[b.fn];
-      if (target && target.params.length)
-        return fail(
-          'E_EVENT',
-          'Named handlers with typed parameters: use an inline arrow function',
-          loc(where),
-        );
-      h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
-    } else return fail('E_EVENT', 'Unsupported event handler expression', loc(where));
-    handlers.push({ event, ...h, source: loc(where) });
-    return handlers.length - 1;
-  };
-  const children = (fragment: SNode): Node[] => {
-    const out: Node[] = [];
-    let parts: Expr[] = [];
-    const flush = () => {
-      if (parts.length) out.push({ kind: 'text', parts });
-      parts = [];
-    };
-    for (const n of clean(fragment)) {
-      if (n.type === 'Text') {
-        if (n.data) parts.push({ op: 'lit', value: n.data });
-      } else if (n.type === 'ExpressionTag') parts.push(display(exprNode(n.expression)));
-      else if (n.type === 'RegularElement') {
-        flush();
-        out.push(element(n));
-      } else if (n.type === 'IfBlock') {
-        flush();
-        const testNode = exprNode(n.test);
-        const tv = lower.value(testNode, COMPONENT, 'if');
-        out.push({
-          kind: 'if',
-          test: types.of(testNode) === 'boolean' ? tv : { op: 'to-boolean', arg: tv },
-          then: children(n.consequent),
-          ...(n.alternate ? { else: children(n.alternate) } : {}),
-          source: loc(n),
+  const components: Component[] = [];
+  for (const u of order) components[u.index] = lowerComponent(u);
+
+  function lowerComponent(u: Unit): Component {
+    cells = [];
+    const COMPONENT = u.index;
+    const sf = program.getSourceFile(u.virtual)!;
+    const loc = (n: SNode) => locate(u.original, n.start ?? 0, u.rel);
+    const statements = [...sf.statements].filter(s => s.getStart(sf) < u.scriptLength);
+    const pending: (() => void)[] = [];
+
+    /** `let { a, b = 1, c = $bindable() }: Props = $props()` → prop cells. */
+    const props = (d: ts.VariableDeclaration) => {
+      if (!ts.isObjectBindingPattern(d.name))
+        return tsFail(d, 'E_PROPS', 'Destructure $props(): let { a, b } = $props()');
+      for (const el of d.name.elements) {
+        if (el.dotDotDotToken)
+          tsFail(el, 'E_PROPS', 'Rest props are planned for a later milestone');
+        if (!ts.isIdentifier(el.name))
+          tsFail(el, 'E_PROPS', 'Nested prop destructuring is planned for a later milestone');
+        const name = (el.name as ts.Identifier).text;
+        const key = el.propertyName ? (el.propertyName as ts.Identifier).text : name;
+        const sym = checker.getSymbolAtLocation(el.name)!;
+        const type = types.of(el.name) as Type;
+        const cell = cells.length;
+        cells.push({
+          name,
+          type,
+          init: required(type),
+          tracking: isReference(type) ? 'deep' : 'identity',
+          prop: key,
+          source: sourceOf(el),
         });
-      } else if (
-        n.type === 'EachBlock' ||
-        n.type === 'KeyBlock' ||
-        n.type === 'SnippetBlock' ||
-        n.type === 'RenderTag' ||
-        n.type === 'Component'
-      )
-        fail('E_TEMPLATE', `${n.type} is planned for M3`, loc(n));
-      else if (n.type === 'AwaitBlock')
-        fail('E_TEMPLATE', 'Await blocks are planned for M4', loc(n));
-      else fail('E_TEMPLATE', `Unsupported template node ${n.type}`, loc(n));
+        lower.bindings.set(sym, { kind: 'cell', cell });
+        let fallback = el.initializer;
+        if (fallback && runeName(fallback) === '$bindable')
+          fallback = (fallback as ts.CallExpression).arguments[0];
+        if (fallback) {
+          const f = fallback;
+          pending.push(() => {
+            cells[cell].init = coerceInit(
+              lower.value(f, COMPONENT, `${name}$default`),
+              lower.exprType(f),
+              type,
+            );
+          });
+        }
+      }
+    };
+
+    // Pass 1: register bindings (functions are hoisted; cells get indices).
+    for (const stmt of statements) {
+      if (ts.isImportDeclaration(stmt)) {
+        const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
+        if (stmt.importClause?.isTypeOnly) continue;
+        if (spec === 'svelte' || spec.startsWith('svelte/'))
+          tsFail(
+            stmt,
+            'E_CAPABILITY',
+            `${spec} imports (lifecycle, context, stores) are planned for M4`,
+          );
+        if (spec.endsWith('.svelte')) continue;
+        if (!spec.startsWith('.'))
+          tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+        continue;
+      }
+      if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
+      if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+        const p = lower.declare(
+          checker.getSymbolAtLocation(stmt.name)!,
+          stmt,
+          stmt.name.text,
+          COMPONENT,
+        );
+        if (p) pending.push(p);
+        continue;
+      }
+      if (ts.isVariableStatement(stmt)) {
+        const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
+        for (const d of stmt.declarationList.declarations) {
+          const init = d.initializer;
+          const rune = runeName(init);
+          if (rune === '$props') {
+            props(d);
+            continue;
+          }
+          if (!ts.isIdentifier(d.name))
+            tsFail(d, 'E_DECLARATION', 'Destructuring is supported for $props() only');
+          const name = (d.name as ts.Identifier).text;
+          const sym = checker.getSymbolAtLocation(d.name)!;
+          if (rune === '$derived' || rune === '$derived.by') {
+            const index = lower.reserve();
+            lower.bindings.set(sym, { kind: 'derived', fn: index });
+            const call = init as ts.CallExpression;
+            pending.push(() => {
+              if (rune === '$derived.by') {
+                const getter = call.arguments[0];
+                if (
+                  !getter ||
+                  !(ts.isArrowFunction(getter) || ts.isFunctionExpression(getter)) ||
+                  getter.parameters.length
+                )
+                  tsFail(call, 'E_RUNE', '$derived.by takes a zero-parameter function');
+                lower.function(getter as ts.ArrowFunction, name, undefined, COMPONENT, index);
+              } else {
+                const v = lower.value(call.arguments[0], COMPONENT, `${name}$derived`);
+                lower.functions[index] = {
+                  name,
+                  component: COMPONENT,
+                  params: [],
+                  locals: [],
+                  result: types.of(d.name),
+                  body: [{ op: 'return', value: v }],
+                };
+              }
+            });
+            continue;
+          }
+          if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) && isConst) {
+            const p = lower.declare(sym, init, name, COMPONENT);
+            if (p) pending.push(p);
+            continue;
+          }
+          if (rune && !['$state', '$state.raw'].includes(rune))
+            tsFail(
+              init!,
+              'E_RUNE',
+              `${rune} is planned for a later milestone (see docs/ROADMAP.md)`,
+            );
+          const cell = cells.length;
+          const type = types.of(d.name) as Type;
+          const tracking =
+            rune === '$state'
+              ? 'deep'
+              : rune === '$state.raw'
+                ? 'identity'
+                : isConst
+                  ? 'identity'
+                  : 'none';
+          cells.push({ name, type, init: { op: 'lit', value: 0 }, tracking, source: sourceOf(d) });
+          lower.bindings.set(sym, { kind: 'cell', cell });
+          pending.push(() => {
+            let value: ts.Expression | undefined = init;
+            if (rune) value = (init as ts.CallExpression).arguments[0];
+            cells[cell].init = value
+              ? coerceInit(
+                  lower.value(value, COMPONENT, `${name}$init`),
+                  lower.exprType(value),
+                  type,
+                )
+              : { op: 'undefined', type };
+          });
+        }
+        continue;
+      }
+      if (ts.isExpressionStatement(stmt))
+        tsFail(stmt, 'E_STATEMENT', 'Top-level statements ($effect, calls) are planned for M4');
+      if (ts.isClassDeclaration(stmt))
+        tsFail(stmt, 'E_TYPE_UNSUPPORTED', 'Classes are planned for later');
+      if (!ts.isEmptyStatement(stmt))
+        tsFail(stmt, 'E_STATEMENT', 'Unsupported component statement');
     }
-    flush();
-    return out;
-  };
-  const element = (n: SNode): Node => {
-    if (!TAGS.has(n.name))
-      fail('E_TEMPLATE', `<${n.name}> is outside the supported elements`, loc(n));
-    const attrs: { name: string; value: Expr }[] = [];
-    const props: { name: string; value: Expr }[] = [];
-    const listeners: { event: 'click' | 'input'; handler: number }[] = [];
-    for (const a of n.attributes) {
-      if (a.type === 'Attribute') {
-        const name: string = a.name;
-        if (/^on[a-z]+$/.test(name)) {
-          const event = name.slice(2);
-          if (event !== 'click' && event !== 'input')
-            fail('E_EVENT', `on${event} handlers are planned for M5`, loc(a));
-          if (a.value === true || Array.isArray(a.value))
-            fail('E_EVENT', 'Event attributes need a handler expression', loc(a));
-          listeners.push({
-            event: event as 'click' | 'input',
-            handler: handlerFor(a.value.expression, event as 'click' | 'input', a),
-          });
-          continue;
+    for (const p of pending) p();
+
+    // --- Template ---
+    const tb: FnBuilder = lower.template(COMPONENT);
+    const handlers: Handler[] = [];
+    /** The TS node of a template expression (or each pattern) by its synthetic span. */
+    const nodeAt = (n: SNode, length = n.end - n.start): ts.Node => {
+      const start = u.starts.get(n);
+      if (start === undefined) return fail('E_INTERNAL', 'Template expression not mapped', loc(n));
+      let found: ts.Node | undefined;
+      const walk = (x: ts.Node) => {
+        if (found) return;
+        if (x.getStart(sf) === start && x.end === start + length) {
+          found = x;
+          return;
         }
-        if (name.toLowerCase() !== name)
-          fail('E_TEMPLATE', `Attribute ${name} must be lowercase`, loc(a));
-        const values: SNode[] =
-          a.value === true ? [] : Array.isArray(a.value) ? a.value : [a.value];
-        if (a.value === true) {
-          attrs.push({
-            name,
-            value: BOOLEAN_ATTRS.has(name) ? { op: 'lit', value: true } : { op: 'lit', value: '' },
-          });
-          continue;
+        if (x.getStart(sf) <= start && x.end >= start + length) ts.forEachChild(x, walk);
+      };
+      walk(sf);
+      return found ?? fail('E_INTERNAL', 'Template expression not found', loc(n));
+    };
+    const exprNode = (e: SNode) => nodeAt(e) as ts.Expression;
+    const value = (e: ts.Expression): Expr => lower.expr(e, tb);
+    const typeOf = (e: ts.Expression, v: Expr): Type =>
+      types.typeOrUndefined(e) ?? lower.irType(v, tb);
+    const display = (e: ts.Expression): Expr => {
+      // Svelte renders `value ?? ''` stringified.
+      const v = value(e);
+      const t = typeOf(e, v);
+      if (t === 'string') return v;
+      if (typeof t === 'object' && 'maybe' in t) return maybeText(lower, v, t);
+      return { op: 'to-string', arg: v };
+    };
+    const clean = (fragment: SNode): SNode[] => {
+      const list = fragment.nodes
+        .filter((n: SNode) => n.type !== 'Comment')
+        .map((n: SNode) => ({ ...n }));
+      while (list[0]?.type === 'Text' && !list[0].data.trim()) list.shift();
+      while (list.at(-1)?.type === 'Text' && !list.at(-1).data.trim()) list.pop();
+      if (list[0]?.type === 'Text') list[0].data = list[0].data.trimStart();
+      if (list.at(-1)?.type === 'Text') list.at(-1).data = list.at(-1).data.trimEnd();
+      for (let i = 0; i < list.length; i++)
+        if (list[i].type === 'Text') {
+          if (list[i - 1]?.type !== 'ExpressionTag')
+            list[i].data = list[i].data.replace(/^\s+/, ' ');
+          if (list[i + 1]?.type !== 'ExpressionTag')
+            list[i].data = list[i].data.replace(/\s+$/, ' ');
         }
-        if (values.length === 1 && values[0].type === 'ExpressionTag') {
-          const e = exprNode(values[0].expression);
-          const t = types.of(e);
-          const v = lower.value(e, COMPONENT, name);
-          if (name === 'value' && n.name === 'input') {
-            props.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
-          } else if (BOOLEAN_ATTRS.has(name))
-            attrs.push({ name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } });
-          else if (typeof t === 'object' && 'maybe' in t)
+      return list;
+    };
+    const handlerFor = (v: SNode, event: 'click' | 'input', where: SNode): Listener => {
+      const e = exprNode(v);
+      let h: {
+        params?: Handler['params'];
+        locals?: Handler['locals'];
+        body: Stmt[];
+        args?: Expr[];
+      };
+      if (ts.isArrowFunction(e) || ts.isFunctionExpression(e))
+        h = lower.handler(e, COMPONENT, event === 'input', tb);
+      else if (ts.isIdentifier(e)) {
+        const b = lower.binding(e);
+        if (b?.kind === 'function') {
+          const target = lower.functions[b.fn];
+          if (target && target.params.length)
+            return fail(
+              'E_EVENT',
+              'Named handlers with typed parameters: use an inline arrow function',
+              loc(where),
+            );
+          h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
+        } else if (b?.kind === 'cell') {
+          // A function-valued prop or state (a callback): call it without the event.
+          const t = cells[b.cell].type;
+          if (typeof t !== 'object' || !('fn' in t))
+            return fail('E_EVENT', 'Event handlers must be functions', loc(where));
+          if (t.fn.params.length)
+            return fail(
+              'E_EVENT',
+              'Callbacks taking the event object are planned for M5; use an inline arrow function',
+              loc(where),
+            );
+          h = {
+            body: [
+              {
+                op: 'expr',
+                value: { op: 'call-value', callee: { op: 'cell', cell: b.cell }, args: [] },
+              },
+            ],
+          };
+        } else return fail('E_EVENT', 'Event handlers must be functions', loc(where));
+      } else return fail('E_EVENT', 'Unsupported event handler expression', loc(where));
+      const { args, ...rest } = h;
+      handlers.push({ event, ...rest, source: loc(where) });
+      return { event, handler: handlers.length - 1, ...(args?.length ? { args } : {}) };
+    };
+    const children = (fragment: SNode): Node[] => {
+      const out: Node[] = [];
+      let parts: Expr[] = [];
+      const flush = () => {
+        if (parts.length) out.push({ kind: 'text', parts });
+        parts = [];
+      };
+      for (const n of clean(fragment)) {
+        if (n.type === 'Text') {
+          if (n.data) parts.push({ op: 'lit', value: n.data });
+        } else if (n.type === 'ExpressionTag') parts.push(display(exprNode(n.expression)));
+        else if (n.type === 'RegularElement') {
+          flush();
+          out.push(element(n));
+        } else if (n.type === 'IfBlock') {
+          flush();
+          const testNode = exprNode(n.test);
+          const tv = value(testNode);
+          out.push({
+            kind: 'if',
+            test: typeOf(testNode, tv) === 'boolean' ? tv : { op: 'to-boolean', arg: tv },
+            then: children(n.consequent),
+            ...(n.alternate ? { else: children(n.alternate) } : {}),
+            source: loc(n),
+          });
+        } else if (n.type === 'EachBlock') {
+          flush();
+          out.push(each(n));
+        } else if (n.type === 'Component') {
+          flush();
+          out.push(component(n));
+        } else if (n.type === 'KeyBlock' || n.type === 'SnippetBlock' || n.type === 'RenderTag')
+          fail('E_TEMPLATE', `${n.type} is planned for a later M3 step`, loc(n));
+        else if (n.type === 'AwaitBlock')
+          fail('E_TEMPLATE', 'Await blocks are planned for M4', loc(n));
+        else fail('E_TEMPLATE', `Unsupported template node ${n.type}`, loc(n));
+      }
+      flush();
+      return out;
+    };
+    const each = (n: SNode): Node => {
+      const itemsNode = exprNode(n.expression);
+      const items = value(itemsNode);
+      const itemType = arrayElement(lower.irType(items, tb));
+      if (!itemType) return fail('E_TEMPLATE', '{#each} requires an array', loc(n));
+      let pattern = nodeAt(n.context);
+      if (ts.isVariableDeclaration(pattern)) pattern = pattern.name;
+      if (!ts.isIdentifier(pattern))
+        fail('E_TEMPLATE', 'Destructured {#each} items are planned for a later M3 step', loc(n));
+      const item = tb.local((pattern as ts.Identifier).text, itemType);
+      lower.bindings.set(checker.getSymbolAtLocation(pattern)!, {
+        kind: 'local',
+        owner: tb,
+        local: item,
+      });
+      let index: number | undefined;
+      if (n.index) {
+        index = tb.local(n.index, 'number');
+        const decl = nodeAt(n.body, n.index.length);
+        lower.bindings.set(checker.getSymbolAtLocation(decl)!, {
+          kind: 'local',
+          owner: tb,
+          local: index,
+        });
+      }
+      const key = n.key ? value(exprNode(n.key)) : undefined;
+      return {
+        kind: 'each',
+        items,
+        item,
+        ...(index !== undefined ? { index } : {}),
+        ...(key ? { key } : {}),
+        body: children(n.body),
+        ...(n.fallback ? { else: children(n.fallback) } : {}),
+        source: loc(n),
+      };
+    };
+    const component = (n: SNode): Node => {
+      const child = units.get(u.children.get(n.name)!)!;
+      const target = components[child.index];
+      const passed: { name: string; value: Expr; bind?: Expr }[] = [];
+      const propCell = (a: SNode) => {
+        const cell = target.cells.findIndex(c => c.prop === a.name);
+        if (cell < 0) fail('E_PROPS', `${n.name} has no prop ${a.name}`, loc(a));
+        return cell;
+      };
+      for (const a of n.attributes) {
+        if (a.type === 'Attribute') {
+          const want = target.cells[propCell(a)].type;
+          let v: Expr;
+          if (a.value === true) v = { op: 'lit', value: true };
+          else if (Array.isArray(a.value)) {
+            let joined: Expr | undefined;
+            for (const part of a.value) {
+              const p: Expr =
+                part.type === 'Text'
+                  ? { op: 'lit', value: part.data }
+                  : display(exprNode(part.expression));
+              joined = joined ? { op: 'concat', left: joined, right: p } : p;
+            }
+            v = joined ?? { op: 'lit', value: '' };
+          } else {
+            const e = exprNode(a.value.expression);
+            v = value(e);
+            v = coerceInit(v, typeOf(e, v), want);
+          }
+          passed.push({ name: a.name, value: v });
+        } else if (a.type === 'BindDirective') {
+          const want = target.cells[propCell(a)].type;
+          const e = exprNode(a.expression);
+          const b = ts.isIdentifier(e) ? lower.binding(e) : undefined;
+          if (b?.kind !== 'cell' || JSON.stringify(cells[b.cell].type) !== JSON.stringify(want))
+            fail('E_TEMPLATE', `bind:${a.name} needs a $state variable of the prop's type`, loc(a));
+          const own = (b as { cell: number }).cell;
+          const setter = lower.reserve();
+          lower.functions[setter] = {
+            name: `bind:${a.name}`,
+            component: COMPONENT,
+            params: [{ name: 'v', type: want }],
+            locals: [],
+            result: 'void',
+            body: [{ op: 'set', cell: own, value: { op: 'local', local: 0 } }],
+          };
+          passed.push({
+            name: a.name,
+            value: { op: 'cell', cell: own, read: 'current' },
+            bind: { op: 'closure', function: setter, captures: [] },
+          });
+        } else fail('E_TEMPLATE', `${a.type} on components is planned for a later M3 step`, loc(a));
+      }
+      for (const c of target.cells)
+        if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
+          fail('E_PROPS', `${n.name} requires the prop ${c.prop}`, loc(n));
+      if (n.fragment.nodes.some((c: SNode) => c.type !== 'Text' || c.data.trim()))
+        fail(
+          'E_TEMPLATE',
+          'Component children and snippets are planned for a later M3 step',
+          loc(n),
+        );
+      return {
+        kind: 'component',
+        component: child.index,
+        ...(passed.length ? { props: passed } : {}),
+        source: loc(n),
+      };
+    };
+    const element = (n: SNode): Node => {
+      if (!TAGS.has(n.name))
+        fail('E_TEMPLATE', `<${n.name}> is outside the supported elements`, loc(n));
+      const attrs: { name: string; value: Expr }[] = [];
+      const props: { name: string; value: Expr }[] = [];
+      const listeners: Listener[] = [];
+      let bound: number | undefined;
+      for (const a of n.attributes) {
+        if (a.type === 'Attribute') {
+          const name: string = a.name;
+          if (/^on[a-z]+$/.test(name)) {
+            const event = name.slice(2);
+            if (event !== 'click' && event !== 'input')
+              fail('E_EVENT', `on${event} handlers are planned for M5`, loc(a));
+            if (a.value === true || Array.isArray(a.value))
+              fail('E_EVENT', 'Event attributes need a handler expression', loc(a));
+            listeners.push(handlerFor(a.value.expression, event as 'click' | 'input', a));
+            continue;
+          }
+          if (name.toLowerCase() !== name)
+            fail('E_TEMPLATE', `Attribute ${name} must be lowercase`, loc(a));
+          const values: SNode[] =
+            a.value === true ? [] : Array.isArray(a.value) ? a.value : [a.value];
+          if (a.value === true) {
             attrs.push({
               name,
-              value:
-                t.maybe === 'string'
-                  ? v
-                  : fail(
-                      'E_TEMPLATE',
-                      `Attribute ${name} of type ${JSON.stringify(t)} is unsupported`,
-                      loc(a),
-                    ),
+              value: BOOLEAN_ATTRS.has(name)
+                ? { op: 'lit', value: true }
+                : { op: 'lit', value: '' },
             });
-          else attrs.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
-          continue;
+            continue;
+          }
+          if (values.length === 1 && values[0].type === 'ExpressionTag') {
+            const e = exprNode(values[0].expression);
+            const v = value(e);
+            const t = typeOf(e, v);
+            if (name === 'value' && n.name === 'input') {
+              props.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
+            } else if (BOOLEAN_ATTRS.has(name))
+              attrs.push({ name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } });
+            else if (typeof t === 'object' && 'maybe' in t)
+              attrs.push({
+                name,
+                value:
+                  t.maybe === 'string'
+                    ? v
+                    : fail(
+                        'E_TEMPLATE',
+                        `Attribute ${name} of type ${JSON.stringify(t)} is unsupported`,
+                        loc(a),
+                      ),
+              });
+            else attrs.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
+            continue;
+          }
+          let joined: Expr | undefined;
+          for (const v of values) {
+            const part: Expr =
+              v.type === 'Text' ? { op: 'lit', value: v.data } : display(exprNode(v.expression));
+            joined = joined ? { op: 'concat', left: joined, right: part } : part;
+          }
+          attrs.push({ name, value: joined ?? { op: 'lit', value: '' } });
+        } else if (a.type === 'BindDirective') {
+          if (a.name !== 'value' || n.name !== 'input')
+            fail('E_TEMPLATE', `bind:${a.name} is planned for M5`, loc(a));
+          const target = exprNode(a.expression);
+          const b = ts.isIdentifier(target) ? lower.binding(target) : undefined;
+          if (b?.kind !== 'cell' || types.of(target) !== 'string')
+            fail('E_TEMPLATE', 'bind:value needs a string $state variable', loc(a));
+          bound = (b as { cell: number }).cell;
+          props.push({ name: 'value', value: { op: 'cell', cell: bound } });
+        } else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
+      }
+      if (bound !== undefined) {
+        // bind:value listens on the element itself, before the delegated
+        // oninput handler, so the bound state is written first.
+        const write: Stmt = { op: 'set', cell: bound, value: { op: 'payload' } };
+        const own = listeners.find(l => l.event === 'input');
+        if (own) handlers[own.handler].body.unshift(write);
+        else {
+          handlers.push({ event: 'input', body: [write], source: loc(n) });
+          listeners.push({ event: 'input', handler: handlers.length - 1 });
         }
-        let value: Expr | undefined;
-        for (const v of values) {
-          const part: Expr =
-            v.type === 'Text' ? { op: 'lit', value: v.data } : display(exprNode(v.expression));
-          value = value ? { op: 'concat', left: value, right: part } : part;
-        }
-        attrs.push({ name, value: value ?? { op: 'lit', value: '' } });
-      } else if (a.type === 'BindDirective') {
-        if (a.name !== 'value' || n.name !== 'input')
-          fail('E_TEMPLATE', `bind:${a.name} is planned for M5`, loc(a));
-        const target = exprNode(a.expression);
-        const b = ts.isIdentifier(target) ? lower.binding(target) : undefined;
-        if (b?.kind !== 'cell' || types.of(target) !== 'string')
-          fail('E_TEMPLATE', 'bind:value needs a string $state variable', loc(a));
-        const cell = (b as { cell: number }).cell;
-        props.push({ name: 'value', value: { op: 'cell', cell } });
-        handlers.push({
-          event: 'input',
-          body: [{ op: 'set', cell, value: { op: 'payload' } }],
-          source: loc(a),
-        });
-        listeners.push({ event: 'input', handler: handlers.length - 1 });
-      } else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
-    }
-    if (listeners.filter(l => l.event === 'input').length > 1)
-      fail('E_EVENT', 'bind:value combined with oninput is unsupported', loc(n));
-    return {
-      kind: 'element',
-      tag: n.name,
-      ...(attrs.length ? { attrs } : {}),
-      ...(props.length ? { props } : {}),
-      ...(listeners.length ? { listeners } : {}),
-      ...(n.fragment.nodes.length ? { children: children(n.fragment) } : {}),
-      source: loc(n),
+      }
+      return {
+        kind: 'element',
+        tag: n.name,
+        ...(attrs.length ? { attrs } : {}),
+        ...(props.length ? { props } : {}),
+        ...(listeners.length ? { listeners } : {}),
+        ...(n.fragment.nodes.length ? { children: children(n.fragment) } : {}),
+        source: loc(n),
+      };
     };
-  };
-  const template = children(ast.fragment);
-  const component: Component = { name: path.basename(file, '.svelte'), cells, handlers, template };
+    const template = children(u.ast.fragment);
+    return {
+      name: path.basename(u.file, '.svelte'),
+      cells,
+      handlers,
+      template,
+      ...(tb.locals.length ? { templateLocals: tb.locals } : {}),
+    };
+  }
+
   const capabilities = ['dom', 'css', 'window', 'click', 'keyboard'];
-  if (handlers.some(h => h.event === 'input')) capabilities.push('text-input');
+  if (components.some(c => c.handlers.some(h => h.event === 'input')))
+    capabilities.push('text-input');
   const ir: Program = {
     schema: 4,
     meta: {
@@ -608,7 +952,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       sourceHash: graph.hash,
       frontend: {
         adapter: 'svelte',
-        version: 2,
+        version: 3,
         packages: graph.tooling.packages,
         tools: { typescript: ts.version },
       },
@@ -620,8 +964,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     styles: { css: graph.css, assets: graph.assets },
     records: types.records,
     functions: lower.functions,
-    components: [component],
-    root: 0,
+    globals: lower.globals,
+    components,
+    root: units.get(rootFile!)!.index,
   };
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
@@ -632,4 +977,47 @@ function coerceInit(v: Expr, from: Type, to: Type): Expr {
   if (typeof to === 'object' && 'maybe' in to && !(typeof from === 'object' && 'maybe' in from))
     return { op: 'some', value: v };
   return v;
+}
+
+const isReference = (t: Type): boolean =>
+  typeof t === 'object' &&
+  ('array' in t ||
+    'record' in t ||
+    'map' in t ||
+    'set' in t ||
+    ('maybe' in t && isReference(t.maybe)));
+
+/** The initialiser of a prop without a default: `undefined` if nullable, otherwise required. */
+function required(t: Type): Expr {
+  if (typeof t === 'object' && 'maybe' in t) return { op: 'undefined', type: t };
+  return { op: 'unwrap', value: { op: 'undefined', type: { maybe: t } } };
+}
+const isRequired = (init: Expr) => init.op === 'unwrap' && init.value.op === 'undefined';
+
+/** `String(v ?? '')` for a nullable value, as Svelte renders text. */
+export function maybeText(lower: Lowerer, v: Expr, t: Type): Expr {
+  const fn = lower.reserve();
+  lower.functions[fn] = {
+    name: 'text$maybe',
+    params: [{ name: '$v', type: t }],
+    locals: [],
+    result: 'string',
+    body: [
+      {
+        op: 'if',
+        test: {
+          op: 'builtin',
+          name: 'maybe.is-nullish',
+          args: [{ op: 'local', local: 0 }],
+          type: 'boolean',
+        },
+        then: [{ op: 'return', value: { op: 'lit', value: '' } }],
+      },
+      {
+        op: 'return',
+        value: { op: 'to-string', arg: { op: 'unwrap', value: { op: 'local', local: 0 } } },
+      },
+    ],
+  };
+  return { op: 'call', function: fn, args: [v] };
 }

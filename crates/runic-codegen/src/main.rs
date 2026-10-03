@@ -31,7 +31,13 @@ fn count(nodes: &[Node]) -> usize {
             Node::Text { .. } => 1,
             Node::If {
                 then, otherwise, ..
+            }
+            | Node::Each {
+                body: then,
+                otherwise,
+                ..
             } => 1 + count(then) + count(otherwise),
+            Node::Component { .. } => 1,
         })
         .sum()
 }

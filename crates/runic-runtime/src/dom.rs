@@ -10,10 +10,12 @@ pub enum Event {
     Input,
 }
 
-/// Listener registrations: element → (event, handler index).
+/// Listener registrations: element → (event, listener key of the app).
 #[derive(Default)]
 pub(crate) struct Listeners {
     map: HashMap<NodeId, Vec<(Event, u32)>>,
+    /// Keys of listeners whose elements were removed (the app frees them).
+    freed: Vec<u32>,
     /// Inputs whose value was set by script before their editor existed: the
     /// caret moves to the end once the editor is created (as `input.value = v`).
     pending_caret: Vec<NodeId>,
@@ -105,12 +107,31 @@ impl Dom<'_> {
 
     /// Detach and free a subtree, dropping its listener registrations.
     pub fn remove(&mut self, node: NodeId) {
-        let listeners = &mut self.listeners.map;
+        let Listeners { map, freed, .. } = &mut *self.listeners;
         self.doc
             .mutate()
-            .remove_and_drop_node_with(node, &mut |freed| {
-                listeners.remove(&freed);
+            .remove_and_drop_node_with(node, &mut |gone| {
+                if let Some(list) = map.remove(&gone) {
+                    freed.extend(list.into_iter().map(|(_, key)| key));
+                }
             });
+    }
+
+    /// Listener keys released by removed elements since the last call.
+    pub fn take_freed(&mut self) -> Vec<u32> {
+        std::mem::take(&mut self.listeners.freed)
+    }
+
+    /// Move (or insert) `nodes` into `parent` before `before`, or append them.
+    pub fn insert_all(&mut self, parent: NodeId, nodes: &[NodeId], before: Option<NodeId>) {
+        if nodes.is_empty() {
+            return;
+        }
+        let mut m = self.doc.mutate();
+        match before {
+            Some(anchor) => m.insert_nodes_before(anchor, nodes),
+            None => m.append_children(parent, nodes),
+        }
     }
 
     pub fn listen(&mut self, node: NodeId, event: Event, handler: u32) {

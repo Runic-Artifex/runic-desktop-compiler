@@ -31,6 +31,7 @@ export type Expr =
   | { op: 'undefined'; type: Type }
   | { op: 'null'; type: Type }
   | { op: 'cell'; cell: number; read?: Read }
+  | { op: 'global'; global: number }
   | { op: 'local'; local: number }
   | { op: 'payload' }
   | {
@@ -141,12 +142,24 @@ export interface Cell {
   init: Expr;
   tracking?: 'deep' | 'identity' | 'none';
   domain?: { kind: 'text'; maxUtf16: number };
+  /** The prop this cell receives from its parent (`init` is the default). */
+  prop?: string;
+  source?: Source;
+}
+
+/** A module constant (evaluated once at startup). */
+export interface Global {
+  name: string;
+  type: Type;
+  init: Expr;
   source?: Source;
 }
 
 export interface Handler {
   name?: string;
   event: 'click' | 'input';
+  /** Values passed by the listener; the local index space is params, then locals. */
+  params?: Local[];
   locals?: Local[];
   body: Stmt[];
   source?: Source;
@@ -163,18 +176,41 @@ export type Node =
       tag: string;
       attrs?: Attr[];
       props?: Attr[];
-      listeners?: { event: 'click' | 'input'; handler: number }[];
+      listeners?: Listener[];
       children?: Node[];
       source?: Source;
     }
   | { kind: 'text'; parts: Expr[]; source?: Source }
-  | { kind: 'if'; test: Expr; then: Node[]; else?: Node[]; source?: Source };
+  | { kind: 'if'; test: Expr; then: Node[]; else?: Node[]; source?: Source }
+  | {
+      kind: 'component';
+      component: number;
+      props?: { name: string; value: Expr; bind?: Expr }[];
+      source?: Source;
+    }
+  | {
+      kind: 'each';
+      items: Expr;
+      item: number;
+      index?: number;
+      key?: Expr;
+      body: Node[];
+      else?: Node[];
+      source?: Source;
+    };
+
+export interface Listener {
+  event: 'click' | 'input';
+  handler: number;
+  args?: Expr[];
+}
 
 export interface Component {
   name: string;
   cells: Cell[];
   handlers: Handler[];
   template: Node[];
+  templateLocals?: Local[];
 }
 
 export interface Program {
@@ -191,6 +227,7 @@ export interface Program {
   styles: { css: string; assets: { path: string; sha256: string; bytes: number; mime: string }[] };
   records?: RecordType[];
   functions?: Fn[];
+  globals?: Global[];
   components: Component[];
   root: number;
   containerAttrs?: Record<string, string>;

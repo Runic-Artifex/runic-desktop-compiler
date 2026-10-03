@@ -2,13 +2,14 @@
 // crates/runic-ir/src/validate.rs and builtins.rs). The frontend prefers
 // TypeScript's types; where TypeScript only knows `any` (untyped JavaScript,
 // JSON, catch bindings), decisions use these types instead.
-import type { Expr, Fn, RecordType, Type } from './ir.ts';
+import type { Expr, Fn, Global, RecordType, Type } from './ir.ts';
 
 export interface TypeEnv {
   local(index: number): Type;
   cell(index: number): Type;
   records: RecordType[];
   functions: Fn[];
+  globals: Global[];
 }
 
 const N: Type = 'number';
@@ -31,6 +32,8 @@ export function irType(e: Expr, env: TypeEnv): Type {
       return e.type;
     case 'cell':
       return env.cell(e.cell);
+    case 'global':
+      return env.globals[e.global].type;
     case 'local':
       return env.local(e.local);
     case 'payload':

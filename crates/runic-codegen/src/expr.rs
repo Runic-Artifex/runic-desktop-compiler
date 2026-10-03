@@ -1,10 +1,12 @@
 //! Emission of IR expressions and statements as Rust inside one function
 //! context (function, handler, template or initialiser).
 //!
-//! Conventions: values are owned; every function receives `cx: &mut Cx`;
-//! arguments of calls are evaluated into temporaries first (JS evaluation
-//! order, no overlapping borrows of `cx`); errors propagate with `?`, or to
-//! the innermost `try` through `tri!` and labelled-block breaks.
+//! Conventions: values are owned; every function receives `cx: &mut Cx`, and
+//! functions of a component also `inst: &I{k}` (the instance whose cells they
+//! use); arguments of calls are evaluated into temporaries first (JS
+//! evaluation order, no overlapping borrows); cell reads release their borrow
+//! immediately; errors propagate with `?`, or to the innermost `try` through
+//! `tri!` and labelled-block breaks.
 
 use crate::types::{default_value, rust_type};
 use runic_ir::validate::infer_in;
@@ -101,9 +103,27 @@ impl<'a> FnCtx<'a> {
     }
 
     fn cell_read(&self, cell: usize, read: Read) -> String {
-        match read {
-            Read::Current => format!("cx.c.c{cell}.clone()"),
-            Read::Snapshot => format!("cx.snap.c{cell}.clone()"),
+        let part = match read {
+            Read::Current => "c",
+            Read::Snapshot => "snap",
+        };
+        format!("{{ let v = inst.borrow().{part}.c{cell}.clone(); v }}")
+    }
+
+    /// Write cell `cell` of the current instance from the Rust variable `v`;
+    /// a bound prop then calls its binding.
+    fn cell_write(&self, cell: usize) -> String {
+        let check = self.domain_check(cell, "v");
+        let prop = self
+            .component
+            .is_some_and(|c| self.p.components[c].cells[cell].prop.is_some());
+        if prop {
+            let call = self.q("b(cx, v)");
+            format!(
+                "{check}inst.borrow_mut().c.c{cell} = v.clone(); let b = {{ let b = inst.borrow().b{cell}.clone(); b }}; if let Some(b) = b {{ {call}; }} "
+            )
+        } else {
+            format!("{check}inst.borrow_mut().c.c{cell} = v; ")
         }
     }
 
@@ -136,6 +156,7 @@ impl<'a> FnCtx<'a> {
             Undefined { .. } => "Maybe::Undefined".into(),
             Null { .. } => "Maybe::Null".into(),
             Cell { cell, read } => self.cell_read(*cell, *read),
+            Global { global } => format!("cx.g{global}.clone()"),
             Local { local } => self.local_read(*local),
             Payload => "cx.payload.clone().expect(\"typed payload\")".into(),
             Not { arg } => format!("(!{})", self.expr(arg)),
@@ -300,8 +321,13 @@ impl<'a> FnCtx<'a> {
             }
             Call { function, args } => {
                 let (code, names) = self.temps(args);
+                let inst = if self.p.functions[*function].component.is_some() {
+                    ", inst"
+                } else {
+                    ""
+                };
                 let call = self.q(&format!(
-                    "f{function}(cx{})",
+                    "f{function}(cx{inst}{})",
                     names.iter().map(|n| format!(", {n}")).collect::<String>()
                 ));
                 format!("{{ {code}{call} }}")
@@ -363,6 +389,12 @@ impl<'a> FnCtx<'a> {
     fn closure(&mut self, function: usize, captures: &[usize]) -> String {
         let f = &self.p.functions[function];
         let mut code = String::from("{ ");
+        let inst = if f.component.is_some() {
+            code.push_str("let ki = Rc::clone(inst); ");
+            ", &ki"
+        } else {
+            ""
+        };
         let mut names = vec![];
         for (k, &c) in captures.iter().enumerate() {
             let name = format!("k{k}");
@@ -387,7 +419,7 @@ impl<'a> FnCtx<'a> {
         }));
         let _ = write!(
             code,
-            "let f: {fn_ty} = Rc::new(move |cx: &mut Cx{}| -> JsResult<{}> {{ f{function}(cx{forward_caps}{forward_params}) }}); f }}",
+            "let f: {fn_ty} = Rc::new(move |cx: &mut Cx{}| -> JsResult<{}> {{ f{function}(cx{inst}{forward_caps}{forward_params}) }}); f }}",
             params.iter().map(|p| format!(", {p}")).collect::<String>(),
             rust_type(&f.result),
         );
@@ -435,8 +467,8 @@ impl<'a> FnCtx<'a> {
         match s {
             Stmt::Set { cell, value, .. } => {
                 let v = self.expr(value);
-                let check = self.domain_check(*cell, "v");
-                let _ = writeln!(out, "{{ let v = {v}; {check}cx.c.c{cell} = v; }}");
+                let write = self.cell_write(*cell);
+                let _ = writeln!(out, "{{ let v = {v}; {write}}}");
             }
             Stmt::Let { local, value, .. } => {
                 let v = match value {
@@ -458,8 +490,8 @@ impl<'a> FnCtx<'a> {
                 }
                 Place::Cell { cell } => {
                     let v = self.expr(value);
-                    let check = self.domain_check(*cell, "v");
-                    let _ = writeln!(out, "{{ let v = {v}; {check}cx.c.c{cell} = v; }}");
+                    let write = self.cell_write(*cell);
+                    let _ = writeln!(out, "{{ let v = {v}; {write}}}");
                 }
                 Place::Field { object, field } => {
                     let o = self.expr(object);
@@ -685,8 +717,11 @@ pub fn function(p: &Program, index: usize, errors: &mut Vec<String>) -> String {
         }
     }
     format!(
-        "/// {}\n#[allow(unused_mut, unused_variables, unused_assignments, unreachable_code, unused_labels, clippy::all)]\nfn f{index}(cx: &mut Cx{sig}) -> JsResult<{}> {{\n{prologue}{body}#[allow(unreachable_code)]\nOk({})\n}}\n",
+        "/// {}\n#[allow(unused_mut, unused_variables, unused_assignments, unreachable_code, unused_labels, clippy::all)]\nfn f{index}(cx: &mut Cx{}{sig}) -> JsResult<{}> {{\n{prologue}{body}#[allow(unreachable_code)]\nOk({})\n}}\n",
         f.name.replace('\n', " "),
+        f.component
+            .map(|k| format!(", inst: &I{k}"))
+            .unwrap_or_default(),
         rust_type(&f.result),
         default_value(&f.result, p),
     )

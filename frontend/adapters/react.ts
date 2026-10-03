@@ -214,7 +214,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     return false;
   };
   // Ordinary local modules (and component modules) initialise dependencies first.
-  const pending = lowerModules(graph, program, lower, cells, COMPONENT, {
+  const pending = lowerModules(graph, program, lower, {
     statement(stmt, file) {
       if (componentDecl(stmt)) return true;
       if (ts.isExpressionStatement(stmt) && file === graph.entry && !bootstrap) {
@@ -666,6 +666,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     styles: { css: graph.css, assets: graph.assets },
     records: types.records,
     functions: lower.functions,
+    globals: lower.globals,
     components: [comp],
     root: 0,
   };

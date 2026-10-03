@@ -13,7 +13,7 @@ use runic_js::{
 };
 use serde_json::{Map, Value as Json, json};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 /// Field values of a record, with its record type index.
@@ -27,6 +27,8 @@ pub struct RecordData {
 pub struct Closure {
     pub function: usize,
     pub captures: Vec<Rc<RefCell<Val>>>,
+    /// The component instance a component function runs in.
+    pub instance: Option<usize>,
 }
 
 /// A dynamic value.
@@ -325,12 +327,49 @@ pub fn normalize(nodes: Vec<VNode>) -> Vec<VNode> {
     out
 }
 
-pub struct Machine<'p> {
-    pub program: &'p Program,
-    component: usize,
+/// The state of one component instance. Instances are never reused: a
+/// destroyed instance stays reachable from closures that captured it (as a
+/// JavaScript closure keeps its component's state alive), but is no longer
+/// rendered.
+pub struct Instance {
+    pub component: usize,
     pub cells: Vec<Val>,
     snapshot: Vec<Val>,
+    /// The value each prop cell last received from the parent.
+    passed: Vec<Option<Val>>,
+    /// Two-way binding setters of prop cells.
+    binds: Vec<Option<Val>>,
+    alive: bool,
+}
+
+/// Identity of a child instance: its parent instance, its `component` node and
+/// the list keys on the path between them.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct InstKey {
+    parent: usize,
+    node: usize,
+    path: Vec<MapKey>,
+}
+
+/// A rendered listener: the handler with its instance and argument values.
+struct ListenerRef {
+    instance: usize,
+    handler: usize,
+    args: Vec<Val>,
+}
+
+pub struct Machine<'p> {
+    pub program: &'p Program,
+    globals: Vec<Val>,
+    instances: Vec<Instance>,
+    /// The instance whose cells expressions read and write.
+    current: usize,
     payload: Option<JsString>,
+    children: HashMap<InstKey, usize>,
+    /// Listeners of the last render, indexed by `VNode` listener ids.
+    listeners: Vec<ListenerRef>,
+    /// Child instances in tree order (last render).
+    order: Vec<usize>,
 }
 
 fn throw_diag(t: Throw) -> Diagnostic {
@@ -341,24 +380,72 @@ impl<'p> Machine<'p> {
     pub fn new(program: &'p Program) -> Result<Self> {
         let mut m = Machine {
             program,
-            component: program.root,
-            cells: vec![],
-            snapshot: vec![],
+            globals: vec![],
+            instances: vec![],
+            current: 0,
             payload: None,
+            children: HashMap::new(),
+            listeners: vec![],
+            order: vec![],
         };
-        let comp = &program.components[program.root];
-        for cell in &comp.cells {
-            let frame = Frame::new(0);
-            let v = m.eval(&cell.init, &frame).map_err(throw_diag)?;
-            check_domain(cell, &v)?;
-            m.cells.push(v);
-            m.snapshot = m.cells.clone();
+        for g in &program.globals {
+            let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
+            m.globals.push(v);
         }
+        m.create(program.root, &[]).map_err(throw_diag)?;
         Ok(m)
     }
 
+    /// Create an instance of `component` with the props passed by its parent
+    /// (`(cell, value, bind)`); returns its id.
+    fn create(&mut self, component: usize, props: &[(usize, Val, Option<Val>)]) -> Res<usize> {
+        let comp = &self.program.components[component];
+        let id = self.instances.len();
+        let n = comp.cells.len();
+        self.instances.push(Instance {
+            component,
+            cells: Vec::with_capacity(n),
+            snapshot: vec![],
+            passed: vec![None; n],
+            binds: vec![None; n],
+            alive: true,
+        });
+        let saved = std::mem::replace(&mut self.current, id);
+        let result = (|| -> Res<()> {
+            for (i, cell) in comp.cells.iter().enumerate() {
+                let passed = props.iter().find(|(c, _, _)| *c == i);
+                let v = match passed {
+                    Some((_, v, _)) => v.clone(),
+                    None => self.eval(&cell.init, &Frame::new(0))?,
+                };
+                if let Err(d) = check_domain(cell, &v) {
+                    return Err(Throw::new("RunicDomainError", d.message));
+                }
+                let inst = &mut self.instances[id];
+                if let Some((_, v, b)) = passed {
+                    inst.passed[i] = Some(v.clone());
+                    inst.binds[i] = b.clone();
+                }
+                inst.cells.push(v);
+                inst.snapshot = inst.cells.clone();
+            }
+            Ok(())
+        })();
+        self.current = saved;
+        result.map(|_| id)
+    }
+
+    fn inst(&self) -> &Instance {
+        &self.instances[self.current]
+    }
+
     fn comp(&self) -> &'p Component {
-        &self.program.components[self.component]
+        &self.program.components[self.instances[self.current].component]
+    }
+
+    /// Cells of the root instance.
+    pub fn cells(&self) -> &[Val] {
+        &self.instances[0].cells
     }
 
     // Expressions ---------------------------------------------------------------
@@ -372,11 +459,12 @@ impl<'p> Machine<'p> {
             Cell {
                 cell,
                 read: Read::Current,
-            } => self.cells[*cell].clone(),
+            } => self.inst().cells[*cell].clone(),
             Cell {
                 cell,
                 read: Read::Snapshot,
-            } => self.snapshot[*cell].clone(),
+            } => self.inst().snapshot[*cell].clone(),
+            Global { global } => self.globals[*global].clone(),
             Local { local } => f.get(*local),
             Payload => Val::Str(self.payload.clone().expect("payload context")),
             Not { arg } => Val::Bool(!self.eval(arg, f)?.boolean()),
@@ -526,6 +614,7 @@ impl<'p> Machine<'p> {
                 Val::Closure(Rc::new(self::Closure {
                     function: *function,
                     captures,
+                    instance: target.component.map(|_| self.current),
                 }))
             }
             Builtin { name, args, ty } => {
@@ -593,7 +682,13 @@ impl<'p> Machine<'p> {
         while args.len() < func.params.len() {
             args.push(Val::Undefined);
         }
-        self.call(c.function, c.captures.clone(), args)
+        let saved = self.current;
+        if let Some(i) = c.instance {
+            self.current = i;
+        }
+        let r = self.call(c.function, c.captures.clone(), args);
+        self.current = saved;
+        r
     }
 
     // Statements ----------------------------------------------------------------
@@ -629,7 +724,12 @@ impl<'p> Machine<'p> {
         if let Err(d) = check_domain(&self.comp().cells[cell], &v) {
             return Err(Throw::new("RunicDomainError", d.message));
         }
-        self.cells[cell] = v;
+        let current = self.current;
+        self.instances[current].cells[cell] = v.clone();
+        // A bound prop forwards the write to the parent.
+        if let Some(bind) = self.instances[current].binds[cell].clone() {
+            self.call_value(&bind, vec![v])?;
+        }
         Ok(())
     }
 
@@ -1197,22 +1297,59 @@ impl<'p> Machine<'p> {
 
     // Rendering -------------------------------------------------------------------
 
+    /// Render the program. Rendering also reconciles instances: children are
+    /// created on first render, receive changed props, and are destroyed when
+    /// no longer rendered.
     pub fn render(&mut self) -> Result<Vec<VNode>> {
+        self.listeners.clear();
+        self.order.clear();
+        let mut visited = HashSet::new();
         let mut out = vec![];
-        let template = &self.comp().template;
-        for n in template {
-            self.render_node(n, &mut out).map_err(throw_diag)?;
-        }
+        let result = self.render_instance(0, &mut out, &mut visited);
+        // Destroy instances that were not rendered.
+        let instances = &mut self.instances;
+        self.children.retain(|_, id| {
+            let keep = visited.contains(id);
+            if !keep {
+                instances[*id].alive = false;
+            }
+            keep
+        });
+        result.map_err(throw_diag)?;
         Ok(normalize(out))
     }
 
-    fn render_node(&mut self, n: &Node, out: &mut Vec<VNode>) -> Res<()> {
-        let frame = Frame::new(0);
+    fn render_instance(
+        &mut self,
+        id: usize,
+        out: &mut Vec<VNode>,
+        visited: &mut HashSet<usize>,
+    ) -> Res<()> {
+        let saved = std::mem::replace(&mut self.current, id);
+        let comp = self.comp();
+        let frame = Frame::new(comp.template_locals.len());
+        let mut path = vec![];
+        let r = comp
+            .template
+            .iter()
+            .try_for_each(|n| self.render_node(n, &frame, &mut path, out, visited));
+        self.current = saved;
+        r
+    }
+
+    fn render_node(
+        &mut self,
+        n: &'p Node,
+        frame: &Frame,
+        path: &mut Vec<MapKey>,
+        out: &mut Vec<VNode>,
+        visited: &mut HashSet<usize>,
+    ) -> Res<()> {
         match n {
             Node::Text { parts, .. } => {
                 let mut text = String::new();
                 for p in parts {
-                    text.push_str(&self.eval(p, &frame)?.string().to_rust());
+                    text.push_str(&self.eval(p, frame)?.string().to_rust());
                 }
                 out.push(VNode::Text(text));
             }
@@ -1222,14 +1359,95 @@ impl<'p> Machine<'p> {
                 otherwise,
                 ..
             } => {
-                let body = if self.eval(test, &frame)?.boolean() {
+                let body = if self.eval(test, frame)?.boolean() {
                     then
                 } else {
                     otherwise
                 };
                 for c in body {
-                    self.render_node(c, out)?;
+                    self.render_node(c, frame, path, out, visited)?;
                 }
+            }
+            Node::Each {
+                items,
+                item,
+                index,
+                key,
+                body,
+                otherwise,
+                ..
+            } => {
+                let list = self.eval(items, frame)?.array();
+                let values: Vec<Val> = list.borrow().clone();
+                if values.is_empty() {
+                    for c in otherwise {
+                        self.render_node(c, frame, path, out, visited)?;
+                    }
+                }
+                let mut seen = HashSet::new();
+                for (i, v) in values.into_iter().enumerate() {
+                    frame.set(*item, v);
+                    if let Some(x) = index {
+                        frame.set(*x, Val::Num(i as f64));
+                    }
+                    let k = match key {
+                        Some(k) => self.eval(k, frame)?.map_key(),
+                        None => MapKey::Num((i as f64).to_bits()),
+                    };
+                    if !seen.insert(k.clone()) {
+                        return Err(Throw::new("RunicKeyError", "Duplicate key in a keyed list"));
+                    }
+                    path.push(k);
+                    for c in body {
+                        self.render_node(c, frame, path, out, visited)?;
+                    }
+                    path.pop();
+                }
+            }
+            Node::Component {
+                component, props, ..
+            } => {
+                let child = &self.program.components[*component];
+                let mut args = vec![];
+                for a in props {
+                    let v = self.eval(&a.value, frame)?;
+                    let b = match &a.bind {
+                        Some(b) => Some(self.eval(b, frame)?),
+                        None => None,
+                    };
+                    args.push((child.prop(&a.name).expect("validated prop"), v, b));
+                }
+                let key = InstKey {
+                    parent: self.current,
+                    node: n as *const Node as usize,
+                    path: path.clone(),
+                };
+                let id = match self.children.get(&key) {
+                    Some(&id) => {
+                        let inst = &mut self.instances[id];
+                        for (cell, v, b) in args {
+                            let changed = match &inst.passed[cell] {
+                                Some(old) => !old.same(&v),
+                                None => true,
+                            };
+                            if changed {
+                                inst.passed[cell] = Some(v.clone());
+                                inst.cells[cell] = v.clone();
+                                inst.snapshot[cell] = v;
+                            }
+                            inst.binds[cell] = b;
+                        }
+                        id
+                    }
+                    None => {
+                        let id = self.create(*component, &args)?;
+                        self.children.insert(key, id);
+                        id
+                    }
+                };
+                visited.insert(id);
+                self.order.push(id);
+                self.render_instance(id, out, visited)?;
             }
             Node::Element {
                 tag,
@@ -1241,7 +1459,7 @@ impl<'p> Machine<'p> {
             } => {
                 let mut map = BTreeMap::new();
                 for a in attrs {
-                    match self.eval(&a.value, &frame)? {
+                    match self.eval(&a.value, frame)? {
                         Val::Bool(true) => {
                             map.insert(a.name.clone(), String::new());
                         }
@@ -1255,18 +1473,32 @@ impl<'p> Machine<'p> {
                 let mut value = None;
                 for p in props {
                     if p.name == "value" {
-                        value = Some(self.eval(&p.value, &frame)?.string().to_rust());
+                        value = Some(self.eval(&p.value, frame)?.string().to_rust());
                     }
+                }
+                let mut refs = vec![];
+                for l in listeners {
+                    let args = l
+                        .args
+                        .iter()
+                        .map(|a| self.eval(a, frame))
+                        .collect::<Res<Vec<_>>>()?;
+                    refs.push((l.event, self.listeners.len()));
+                    self.listeners.push(ListenerRef {
+                        instance: self.current,
+                        handler: l.handler,
+                        args,
+                    });
                 }
                 let mut kids = vec![];
                 for c in children {
-                    self.render_node(c, &mut kids)?;
+                    self.render_node(c, frame, path, &mut kids, visited)?;
                 }
                 out.push(VNode::Element {
                     tag: tag.clone(),
                     attrs: map,
                     value,
-                    listeners: listeners.iter().map(|l| (l.event, l.handler)).collect(),
+                    listeners: refs,
                     children: normalize(kids),
                 });
             }
@@ -1274,42 +1506,74 @@ impl<'p> Machine<'p> {
         Ok(())
     }
 
+    /// Cells of the root instance and the DOM; other live instances follow in
+    /// tree order under `instances` (omitted when there are none).
     pub fn snapshot(&mut self) -> Json {
-        let cells: Vec<Json> = self.cells.iter().map(cell_json).collect();
         let dom = match self.render() {
             Ok(d) => Json::Array(d.iter().map(VNode::to_json).collect()),
             Err(e) => json!({ "error": e.to_string() }),
         };
-        json!({ "cells": cells, "dom": dom })
+        let cells: Vec<Json> = self.instances[0].cells.iter().map(cell_json).collect();
+        let mut state = json!({ "cells": cells, "dom": dom });
+        if !self.order.is_empty() {
+            state["instances"] = Json::Array(
+                self.order
+                    .iter()
+                    .map(|&id| {
+                        let i = &self.instances[id];
+                        json!({
+                            "component": self.program.components[i.component].name,
+                            "cells": i.cells.iter().map(cell_json).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect(),
+            );
+        }
+        state
     }
 
-    /// Run handler `h`. Writes made before an exception persist (as in
-    /// JavaScript); text-domain violations reject the whole handler.
-    pub fn run(&mut self, h: usize, payload: Option<&str>) -> Result<Vec<bool>> {
-        let handler = &self.comp().handlers[h];
-        let before = self.cells.clone();
-        self.snapshot = self.cells.clone();
+    /// Run handler `h` of instance `instance` with listener arguments. Writes
+    /// made before an exception persist (as in JavaScript); text-domain
+    /// violations reject the whole handler.
+    fn run(
+        &mut self,
+        instance: usize,
+        h: usize,
+        args: Vec<Val>,
+        payload: Option<&str>,
+    ) -> Result<()> {
+        let component = self.instances[instance].component;
+        let handler = &self.program.components[component].handlers[h];
+        let before: Vec<Vec<Val>> = self.instances.iter().map(|i| i.cells.clone()).collect();
+        for i in &mut self.instances {
+            i.snapshot = i.cells.clone();
+        }
         self.payload = payload.map(JsString::from);
-        let frame = Frame::new(handler.locals.len());
+        let frame = Frame::new(handler.params.len() + handler.locals.len());
+        for (i, a) in args.into_iter().enumerate() {
+            frame.set(i, a);
+        }
+        let saved = std::mem::replace(&mut self.current, instance);
         let result = self.exec_block(&handler.body, &frame);
+        self.current = saved;
         self.payload = None;
         if let Err(t) = &result {
             if t.name.to_rust() == "RunicDomainError" {
-                self.cells = before;
-                self.snapshot = self.cells.clone();
+                for (i, cells) in self.instances.iter_mut().zip(before) {
+                    i.cells = cells;
+                }
+                for i in &mut self.instances {
+                    i.snapshot = i.cells.clone();
+                }
                 return Err(Diagnostic::new("E_TEXT_PAYLOAD", t.message.to_rust(), None));
             }
         }
-        let changed = self
-            .cells
-            .iter()
-            .zip(&before)
-            .map(|(a, b)| !a.same(b))
-            .collect();
         // Outside handlers the snapshot is the committed state (React render reads).
-        self.snapshot = self.cells.clone();
+        for i in &mut self.instances {
+            i.snapshot = i.cells.clone();
+        }
         match result {
-            Ok(_) => Ok(changed),
+            Ok(_) => Ok(()),
             Err(t) => Err(Diagnostic::new(
                 "E_THROW",
                 t.to_string(),
@@ -1318,8 +1582,9 @@ impl<'p> Machine<'p> {
         }
     }
 
-    /// Fire `event` at the element with `id`. Returns `Ok(false)` when the DOM
-    /// rules or a missing listener mean no handler runs.
+    /// Fire `event` at the element with `id` (the first in tree order).
+    /// Returns `Ok(false)` when the DOM rules or a missing listener mean no
+    /// handler runs.
     pub fn fire(&mut self, id: &str, event: EventKind, payload: Option<&str>) -> Result<bool> {
         let tree = self.render()?;
         let Some(VNode::Element {
@@ -1337,10 +1602,22 @@ impl<'p> Machine<'p> {
         {
             return Ok(false);
         }
-        let Some(&(_, h)) = listeners.iter().find(|(k, _)| *k == event) else {
+        let Some(&(_, l)) = listeners.iter().find(|(k, _)| *k == event) else {
             return Ok(false);
         };
-        self.run(h, payload)?;
+        let ListenerRef {
+            instance,
+            handler,
+            args,
+        } = std::mem::replace(
+            &mut self.listeners[l],
+            ListenerRef {
+                instance: 0,
+                handler: 0,
+                args: vec![],
+            },
+        );
+        self.run(instance, handler, args, payload)?;
         Ok(true)
     }
 }

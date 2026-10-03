@@ -1,11 +1,10 @@
 // Ordinary local JavaScript/TypeScript modules, shared by every adapter.
 // Modules initialise once, dependencies first. Functions become IR functions
-// (typed, or specialised per call site when untyped); primitive constants are
-// inlined; reference-typed constants are evaluated once (a never-written
-// cell), so their identity is shared as in JavaScript.
+// (typed, or specialised per call site when untyped) that belong to no
+// component; primitive constants are inlined; reference-typed constants are
+// program globals evaluated once, so their identity is shared as in JavaScript.
 import ts from 'typescript';
 import path from 'node:path';
-import type { Cell } from './ir.ts';
 import { skipParens, type Lowerer } from './language.ts';
 
 export interface ModuleGraph {
@@ -43,8 +42,6 @@ export function lowerModules(
   graph: ModuleGraph,
   program: ts.Program,
   lower: Lowerer,
-  cells: Cell[],
-  component: number,
   options: ModuleOptions = {},
 ): (() => void)[] {
   const checker = program.getTypeChecker();
@@ -92,7 +89,7 @@ export function lowerModules(
           checker.getSymbolAtLocation(stmt.name)!,
           stmt,
           stmt.name.text,
-          component,
+          undefined,
         );
         if (p) pending.push(p);
         continue;
@@ -107,7 +104,7 @@ export function lowerModules(
           const name = (d.name as ts.Identifier).text;
           const init = skipParens(d.initializer!);
           if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
-            const p = lower.declare(sym, init, name, component);
+            const p = lower.declare(sym, init, name, undefined);
             if (p) pending.push(p);
             continue;
           }
@@ -118,20 +115,21 @@ export function lowerModules(
             pending.push(() =>
               lower.bindings.set(sym, {
                 kind: 'value',
-                expr: lower.value(init, component, `${name}$module`),
+                expr: lower.value(init, undefined, `${name}$module`),
               }),
             );
           else {
-            // A shared instance: a never-written cell initialised once.
-            const cell = cells.length;
-            cells.push({
+            // A shared instance: a program global initialised once.
+            const global = lower.globals.length;
+            lower.globals.push({
               name,
               type,
               init: { op: 'undefined', type: { maybe: 'number' } },
-              tracking: 'identity',
             });
-            lower.bindings.set(sym, { kind: 'cell', cell });
-            pending.push(() => (cells[cell].init = lower.value(init, component, `${name}$module`)));
+            lower.bindings.set(sym, { kind: 'value', expr: { op: 'global', global } });
+            pending.push(
+              () => (lower.globals[global].init = lower.value(init, undefined, `${name}$module`)),
+            );
           }
         }
         continue;

@@ -2,11 +2,16 @@
 //!
 //! The generated module implements `runic_runtime::App`:
 //! - records become structs behind `JsRef` (reference identity);
-//! - every IR function becomes `fn fN(cx: &mut Cx, captures…, params…)`;
-//! - each template scope (component root, conditional branch) becomes a
-//!   struct with node handles and the last written binding values;
-//! - after a handler, dirty cells (SameValue changes, plus deep cells after
-//!   heap mutation) drive targeted DOM updates, and live input values are
+//! - each component has a cell struct and instances `I{k}` (shared, so
+//!   closures keep their instance alive); its functions and handlers take the
+//!   instance as `inst`;
+//! - every IR function becomes `fn fN(cx: &mut Cx, [inst,] captures…, params…)`;
+//! - each template scope (component root, conditional branch, list block)
+//!   becomes a struct with node handles, child instances and the last written
+//!   binding values; listeners are closures over their instance and locals;
+//! - after a handler, dirty cells of every live instance (SameValue changes,
+//!   plus deep cells after heap mutation) drive targeted DOM updates, keyed
+//!   lists reuse and move their blocks, and live input values are
 //!   re-synchronised with their cells (controlled-input semantics).
 
 use runic_ir::*;
@@ -163,6 +168,10 @@ fn stmt_refs(
 
 // ---------------------------------------------------------------------------
 // Pass 1: plan template scopes and node keys.
+//
+// A scope is the node list of a component root, a conditional branch or a
+// list block. Every scope belongs to one component; its expressions run in
+// an instance of that component with the template locals of the scope.
 
 enum Item<'a> {
     Text {
@@ -180,30 +189,64 @@ enum Item<'a> {
         then: usize,
         otherwise: usize,
     },
+    Component {
+        key: usize,
+        component: usize,
+        props: &'a [PropArg],
+        root: usize,
+    },
+    Each {
+        key: usize,
+        node: &'a Node,
+        body: usize,
+        otherwise: usize,
+    },
 }
 
 struct PlanScope<'a> {
+    component: usize,
     items: Vec<Item<'a>>,
 }
 
-#[derive(Default)]
 struct Planner<'a> {
+    p: &'a Program,
     scopes: Vec<Option<PlanScope<'a>>>,
+    /// Root scope of each component (planned once).
+    roots: Vec<Option<usize>>,
     key: usize,
 }
 
 impl<'a> Planner<'a> {
-    fn scope(&mut self, nodes: &'a [Node]) -> usize {
+    fn new(p: &'a Program) -> Self {
+        Planner {
+            p,
+            scopes: vec![],
+            roots: vec![None; p.components.len()],
+            key: 0,
+        }
+    }
+    fn root(&mut self, component: usize) -> usize {
+        if let Some(id) = self.roots[component] {
+            return id;
+        }
         let id = self.scopes.len();
+        self.roots[component] = Some(id);
         self.scopes.push(None);
-        let items = self.items(nodes);
-        self.scopes[id] = Some(PlanScope { items });
+        let items = self.items(&self.p.components[component].template, component);
+        self.scopes[id] = Some(PlanScope { component, items });
         id
     }
-    fn items(&mut self, nodes: &'a [Node]) -> Vec<Item<'a>> {
-        nodes.iter().map(|n| self.item(n)).collect()
+    fn scope(&mut self, nodes: &'a [Node], component: usize) -> usize {
+        let id = self.scopes.len();
+        self.scopes.push(None);
+        let items = self.items(nodes, component);
+        self.scopes[id] = Some(PlanScope { component, items });
+        id
     }
-    fn item(&mut self, n: &'a Node) -> Item<'a> {
+    fn items(&mut self, nodes: &'a [Node], component: usize) -> Vec<Item<'a>> {
+        nodes.iter().map(|n| self.item(n, component)).collect()
+    }
+    fn item(&mut self, n: &'a Node, component: usize) -> Item<'a> {
         self.key += 1;
         let key = self.key;
         match n {
@@ -211,7 +254,7 @@ impl<'a> Planner<'a> {
             Node::Element { children, .. } => Item::Element {
                 key,
                 node: n,
-                children: self.items(children),
+                children: self.items(children, component),
             },
             Node::If {
                 test,
@@ -219,8 +262,8 @@ impl<'a> Planner<'a> {
                 otherwise,
                 ..
             } => {
-                let then = self.scope(then);
-                let otherwise = self.scope(otherwise);
+                let then = self.scope(then, component);
+                let otherwise = self.scope(otherwise, component);
                 Item::If {
                     key,
                     test,
@@ -228,12 +271,33 @@ impl<'a> Planner<'a> {
                     otherwise,
                 }
             }
+            Node::Component {
+                component: c,
+                props,
+                ..
+            } => Item::Component {
+                key,
+                component: *c,
+                props,
+                root: self.root(*c),
+            },
+            Node::Each {
+                body, otherwise, ..
+            } => {
+                let body = self.scope(body, component);
+                let otherwise = self.scope(otherwise, component);
+                Item::Each {
+                    key,
+                    node: n,
+                    body,
+                    otherwise,
+                }
+            }
         }
     }
 }
 
-/// Rust expression for the first mounted node among `items` of scope `s`,
-/// falling back to `tail`.
+/// Rust expression for the first mounted node among `items`, falling back to `tail`.
 fn first_of(items: &[Item], tail: &str) -> String {
     let mut out = String::new();
     for item in items {
@@ -247,8 +311,17 @@ fn first_of(items: &[Item], tail: &str) -> String {
             } => format!(
                 "s.then{key}.as_deref().and_then(first_s{then}).or_else(|| s.else{key}.as_deref().and_then(first_s{otherwise}))"
             ),
+            Item::Component { key, root, .. } => format!("first_s{root}(&s.cs{key})"),
+            Item::Each {
+                key,
+                body,
+                otherwise,
+                ..
+            } => format!(
+                "s.e{key}.iter().find_map(|(_, _, b)| first_s{body}(b)).or_else(|| s.else{key}.as_deref().and_then(first_s{otherwise}))"
+            ),
         };
-        let is_static = !matches!(item, Item::If { .. });
+        let is_static = matches!(item, Item::Text { .. } | Item::Element { .. });
         out = if out.is_empty() {
             part
         } else {
@@ -270,7 +343,6 @@ fn first_of(items: &[Item], tail: &str) -> String {
 
 struct Gen<'a> {
     p: &'a Program,
-    component: usize,
     optimize: bool,
     reads: Vec<Option<BTreeSet<usize>>>,
 }
@@ -281,11 +353,27 @@ struct Out {
     mount: String,
     update: String,
     sync: String,
+    dispose: String,
+    nodes: String,
+    instances: String,
+}
+
+/// Whether an expression reads template locals (directly or by capture).
+fn reads_locals(e: &Expr) -> bool {
+    matches!(e, Expr::Local { .. })
+        || matches!(e, Expr::Closure { captures, .. } if !captures.is_empty())
+        || e.children().iter().any(|c| reads_locals(c))
 }
 
 impl Gen<'_> {
-    fn ctx(&self) -> FnCtx<'_> {
-        FnCtx::new(self.p, Some(self.component), vec![], false, Type::Void)
+    fn ctx(&self, component: usize) -> FnCtx<'_> {
+        FnCtx::new(
+            self.p,
+            Some(component),
+            self.p.components[component].template_locals.clone(),
+            false,
+            Type::Void,
+        )
     }
 
     /// Cells an expression may read; `None` = unknown.
@@ -305,48 +393,55 @@ impl Gen<'_> {
         Some(cells)
     }
 
+    /// The update condition of a binding: a dirty cell it reads, or changed
+    /// template locals (`tl`).
     fn guard(&self, exprs: &[&Expr]) -> String {
         if !self.optimize {
             return "true".into();
         }
+        let locals = exprs.iter().any(|e| reads_locals(e));
         match self.deps(exprs) {
             None => "true".into(),
-            Some(d) if d.is_empty() => "false".into(),
-            Some(d) => d
-                .iter()
-                .map(|c| format!("dirty[{c}]"))
-                .collect::<Vec<_>>()
-                .join(" || "),
+            Some(d) => {
+                let mut parts: Vec<String> = d.iter().map(|c| format!("d[{c}]")).collect();
+                if locals {
+                    parts.push("tl".into());
+                }
+                if parts.is_empty() {
+                    "false".into()
+                } else {
+                    parts.join(" || ")
+                }
+            }
         }
     }
 
     fn is_static(&self, exprs: &[&Expr]) -> bool {
-        self.deps(exprs).is_some_and(|d| d.is_empty())
+        self.deps(exprs).is_some_and(|d| d.is_empty()) && !exprs.iter().any(|e| reads_locals(e))
+    }
+
+    /// Bind the template locals of `component` from `t` (an `Rc<RefCell<T{k}>>`).
+    fn prelude(&self, component: usize, t: &str) -> String {
+        let locals = &self.p.components[component].template_locals;
+        if locals.is_empty() {
+            return String::new();
+        }
+        let mut s = format!("let tb = {t}.borrow(); ");
+        for i in 0..locals.len() {
+            let _ = write!(s, "let mut l{i} = tb.l{i}.clone(); ");
+        }
+        s.push_str("drop(tb);\n");
+        s
     }
 
     fn scope(&self, id: usize, scope: &PlanScope) -> String {
+        let k = scope.component;
         let mut o = Out::default();
         for (i, item) in scope.items.iter().enumerate() {
-            self.item(item, &mut o, None, &scope.items[i + 1..]);
+            self.item(k, item, &mut o, None, &scope.items[i + 1..]);
         }
-        let mut remove = String::new();
         for item in &scope.items {
-            match item {
-                Item::Text { key, .. } | Item::Element { key, .. } => {
-                    let _ = writeln!(remove, "dom.remove(s.n{key});");
-                }
-                Item::If {
-                    key,
-                    then,
-                    otherwise,
-                    ..
-                } => {
-                    let _ = writeln!(
-                        remove,
-                        "if let Some(b) = &s.then{key} {{ remove_s{then}(b, dom); }}\nif let Some(b) = &s.else{key} {{ remove_s{otherwise}(b, dom); }}"
-                    );
-                }
-            }
+            self.top_nodes(item, &mut o.nodes);
         }
         let fields: String = o
             .fields
@@ -355,22 +450,64 @@ impl Gen<'_> {
             .collect();
         let inits: String = o.fields.iter().map(|(n, _)| format!("{n}, ")).collect();
         let first = first_of(&scope.items, "None");
+        let prelude = self.prelude(k, "t");
+        let n = self.p.components[k].cells.len();
         format!(
             "pub struct S{id} {{ {fields}}}\n\
-             #[allow(unused_variables)]\nfn mount_s{id}(cx: &mut Cx, dom: &mut Dom, parent: NodeId, before: Option<NodeId>) -> JsResult<Box<S{id}>> {{\n{mount}Ok(Box::new(S{id} {{ {inits}}}))\n}}\n\
-             #[allow(unused_variables)]\nfn update_s{id}(s: &mut S{id}, cx: &mut Cx, dom: &mut Dom, dirty: &[bool], parent: NodeId, after: Option<NodeId>) -> JsResult<()> {{\n{update}Ok(())\n}}\n\
-             #[allow(unused_variables)]\nfn sync_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) -> JsResult<()> {{\n{sync}Ok(())\n}}\n\
+             #[allow(unused_variables, unused_mut)]\nfn mount_s{id}(cx: &mut Cx, dom: &mut Dom, inst: &I{k}, t: &Rc<RefCell<T{k}>>, parent: NodeId, before: Option<NodeId>) -> JsResult<Box<S{id}>> {{\n{prelude}{mount}Ok(Box::new(S{id} {{ {inits}}}))\n}}\n\
+             #[allow(unused_variables, unused_mut)]\nfn update_s{id}(s: &mut S{id}, cx: &mut Cx, dom: &mut Dom, inst: &I{k}, t: &Rc<RefCell<T{k}>>, tl: bool, parent: NodeId, after: Option<NodeId>) -> JsResult<()> {{\nlet d: [bool; {n}] = inst.borrow().dirty;\n{prelude}{update}Ok(())\n}}\n\
+             #[allow(unused_variables, unused_mut)]\nfn sync_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom, inst: &I{k}, t: &Rc<RefCell<T{k}>>) -> JsResult<()> {{\n{prelude}{sync}Ok(())\n}}\n\
+             #[allow(unused_variables)]\nfn dispose_s{id}(s: &S{id}, cx: &mut Cx) {{\n{dispose}}}\n\
+             #[allow(unused_variables)]\nfn nodes_s{id}(s: &S{id}, out: &mut Vec<NodeId>) {{\n{nodes}}}\n\
+             #[allow(unused_variables)]\nfn instances_s{id}(s: &S{id}, out: &mut Vec<runic_runtime::Json>) {{\n{instances}}}\n\
              fn first_s{id}(s: &S{id}) -> Option<NodeId> {{ {first} }}\n\
-             fn remove_s{id}(s: &S{id}, dom: &mut Dom) {{\n{remove}}}\n\n",
+             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ dispose_s{id}(s, cx); let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); for n in ns {{ dom.remove(n); }} }}\n\n",
             mount = o.mount,
             update = o.update,
             sync = o.sync,
+            dispose = o.dispose,
+            nodes = o.nodes,
+            instances = o.instances,
         )
     }
 
+    /// Top-level DOM nodes of an item, in order (for moves and removal).
+    fn top_nodes(&self, item: &Item, out: &mut String) {
+        match item {
+            Item::Text { key, .. } | Item::Element { key, .. } => {
+                let _ = writeln!(out, "out.push(s.n{key});");
+            }
+            Item::If {
+                key,
+                then,
+                otherwise,
+                ..
+            } => {
+                let _ = writeln!(
+                    out,
+                    "if let Some(b) = &s.then{key} {{ nodes_s{then}(b, out); }}\nif let Some(b) = &s.else{key} {{ nodes_s{otherwise}(b, out); }}"
+                );
+            }
+            Item::Component { key, root, .. } => {
+                let _ = writeln!(out, "nodes_s{root}(&s.cs{key}, out);");
+            }
+            Item::Each {
+                key,
+                body,
+                otherwise,
+                ..
+            } => {
+                let _ = writeln!(
+                    out,
+                    "for (_, _, b) in &s.e{key} {{ nodes_s{body}(b, out); }}\nif let Some(b) = &s.else{key} {{ nodes_s{otherwise}(b, out); }}"
+                );
+            }
+        }
+    }
+
     /// DOM text of a string-typed expression.
-    fn text_value(&self, parts: &[Expr]) -> String {
-        let mut cx = self.ctx();
+    fn text_value(&self, k: usize, parts: &[Expr]) -> String {
+        let mut cx = self.ctx(k);
         if let [only] = parts {
             return format!("{}.to_rust()", cx.expr(only));
         }
@@ -382,36 +519,44 @@ impl Gen<'_> {
         s
     }
 
-    fn item(&self, item: &Item, o: &mut Out, parent: Option<usize>, following: &[Item]) {
+    fn item(&self, k: usize, item: &Item, o: &mut Out, parent: Option<usize>, following: &[Item]) {
         let attach = |field: &str| match parent {
             Some(p) => format!("dom.append(n{p}, {field});\n"),
             None => format!("dom.insert(parent, {field}, before);\n"),
         };
+        // Mount parent/before and update parent/tail anchor of dynamic items.
+        let (mp, mb, up, tail) = match parent {
+            Some(p) => (format!("n{p}"), "None", format!("s.n{p}"), "None"),
+            None => ("parent".into(), "before", "parent".into(), "after"),
+        };
         match item {
             Item::Text { key, parts } => {
-                let k = *key;
-                o.fields.push((format!("n{k}"), "NodeId".into()));
-                let value = self.text_value(parts);
+                let key = *key;
+                o.fields.push((format!("n{key}"), "NodeId".into()));
+                let value = self.text_value(k, parts);
                 let refs: Vec<&Expr> = parts.iter().collect();
                 if self.is_static(&refs) {
-                    let _ = writeln!(o.mount, "let n{k} = dom.text(&{value});");
+                    let _ = writeln!(o.mount, "let n{key} = dom.text(&{value});");
                 } else {
-                    o.fields.push((format!("v{k}"), "String".into()));
-                    let _ = writeln!(o.mount, "let v{k} = {value};\nlet n{k} = dom.text(&v{k});");
+                    o.fields.push((format!("v{key}"), "String".into()));
+                    let _ = writeln!(
+                        o.mount,
+                        "let v{key} = {value};\nlet n{key} = dom.text(&v{key});"
+                    );
                     let guard = self.guard(&refs);
                     let _ = writeln!(
                         o.update,
-                        "if {guard} {{ let v = {value}; if v != s.v{k} {{ dom.set_text(s.n{k}, &v); s.v{k} = v; }} }}"
+                        "if {guard} {{ let v = {value}; if v != s.v{key} {{ dom.set_text(s.n{key}, &v); s.v{key} = v; }} }}"
                     );
                 }
-                o.mount.push_str(&attach(&format!("n{k}")));
+                o.mount.push_str(&attach(&format!("n{key}")));
             }
             Item::Element {
                 key,
                 node,
                 children,
             } => {
-                let k = *key;
+                let key = *key;
                 let Node::Element {
                     tag,
                     attrs,
@@ -422,10 +567,10 @@ impl Gen<'_> {
                 else {
                     unreachable!()
                 };
-                o.fields.push((format!("n{k}"), "NodeId".into()));
-                let _ = writeln!(o.mount, "let n{k} = dom.element({});", rust_str(tag));
+                o.fields.push((format!("n{key}"), "NodeId".into()));
+                let _ = writeln!(o.mount, "let n{key} = dom.element({});", rust_str(tag));
                 for (i, a) in attrs.iter().enumerate() {
-                    let mut cx = self.ctx();
+                    let mut cx = self.ctx(k);
                     let ty = cx.ty(&a.value);
                     let raw = cx.expr(&a.value);
                     let name = rust_str(&a.name);
@@ -460,40 +605,55 @@ impl Gen<'_> {
                         let _ = writeln!(
                             o.mount,
                             "{{ let v = {value}; {} }}",
-                            write(&format!("n{k}"), "v")
+                            write(&format!("n{key}"), "v")
                         );
                     } else {
-                        let cache = format!("a{k}_{i}");
+                        let cache = format!("a{key}_{i}");
                         o.fields.push((cache.clone(), rty.into()));
                         let _ = writeln!(
                             o.mount,
                             "let {cache} = {value};\n{}",
-                            write(&format!("n{k}"), &cache)
+                            write(&format!("n{key}"), &cache)
                         );
                         let guard = self.guard(&[&a.value]);
                         let _ = writeln!(
                             o.update,
                             "if {guard} {{ let v = {value}; if v != s.{cache} {{ {} s.{cache} = v; }} }}",
-                            write(&format!("s.n{k}"), "v")
+                            write(&format!("s.n{key}"), "v")
                         );
                     }
                 }
                 for p in props {
-                    let value = format!("{}.to_rust()", self.ctx().expr(&p.value));
-                    let _ = writeln!(o.mount, "dom.set_value(n{k}, &{value});");
-                    let _ = writeln!(o.sync, "{{ let v = {value}; dom.set_value(s.n{k}, &v); }}");
+                    let value = format!("{}.to_rust()", self.ctx(k).expr(&p.value));
+                    let _ = writeln!(o.mount, "dom.set_value(n{key}, &{value});");
+                    let _ = writeln!(
+                        o.sync,
+                        "{{ let v = {value}; dom.set_value(s.n{key}, &v); }}"
+                    );
                 }
                 for l in listeners {
                     let ev = match l.event {
                         EventKind::Click => "Event::Click",
                         EventKind::Input => "Event::Input",
                     };
-                    let _ = writeln!(o.mount, "dom.listen(n{k}, {ev}, {});", l.handler);
+                    let mut cx = self.ctx(k);
+                    let mut args = String::new();
+                    let mut names = String::new();
+                    for (i, a) in l.args.iter().enumerate() {
+                        let _ = write!(args, "let a{i} = {}; ", cx.expr(a));
+                        let _ = write!(names, ", a{i}");
+                    }
+                    let prelude = self.prelude(k, "t");
+                    let _ = writeln!(
+                        o.mount,
+                        "{{ let inst = Rc::clone(inst); let t = Rc::clone(t); let key = cx.listen(Rc::new(move |cx: &mut Cx| -> JsResult<()> {{ {prelude}{args}handler_{k}_{}(cx, &inst{names}) }})); dom.listen(n{key}, {ev}, key); }}",
+                        l.handler
+                    );
                 }
                 for (i, c) in children.iter().enumerate() {
-                    self.item(c, o, Some(k), &children[i + 1..]);
+                    self.item(k, c, o, Some(key), &children[i + 1..]);
                 }
-                o.mount.push_str(&attach(&format!("n{k}")));
+                o.mount.push_str(&attach(&format!("n{key}")));
             }
             Item::If {
                 key,
@@ -501,45 +661,218 @@ impl Gen<'_> {
                 then,
                 otherwise,
             } => {
-                let k = *key;
-                let (t, e) = (*then, *otherwise);
-                let test_rs = self.ctx().expr(test);
-                o.fields.push((format!("t{k}"), "bool".into()));
+                let key = *key;
+                let (th, el) = (*then, *otherwise);
+                let test_rs = self.ctx(k).expr(test);
+                o.fields.push((format!("t{key}"), "bool".into()));
                 o.fields
-                    .push((format!("then{k}"), format!("Option<Box<S{t}>>")));
+                    .push((format!("then{key}"), format!("Option<Box<S{th}>>")));
                 o.fields
-                    .push((format!("else{k}"), format!("Option<Box<S{e}>>")));
-                let (mp, mb, up, tail) = match parent {
-                    Some(p) => (format!("n{p}"), "None", format!("s.n{p}"), "None"),
-                    None => ("parent".into(), "before", "parent".into(), "after"),
-                };
+                    .push((format!("else{key}"), format!("Option<Box<S{el}>>")));
                 let _ = writeln!(
                     o.mount,
-                    "let t{k} = {test_rs};\n\
-                     let then{k} = if t{k} {{ Some(mount_s{t}(cx, dom, {mp}, {mb})?) }} else {{ None }};\n\
-                     let else{k} = if t{k} {{ None }} else {{ Some(mount_s{e}(cx, dom, {mp}, {mb})?) }};"
+                    "let t{key} = {test_rs};\n\
+                     let then{key} = if t{key} {{ Some(mount_s{th}(cx, dom, inst, t, {mp}, {mb})?) }} else {{ None }};\n\
+                     let else{key} = if t{key} {{ None }} else {{ Some(mount_s{el}(cx, dom, inst, t, {mp}, {mb})?) }};"
                 );
                 let anchor = first_of(following, tail);
                 let guard = self.guard(&[test]);
                 let _ = writeln!(
                     o.update,
                     "{{\n\
-                     let t = if {guard} {{ {test_rs} }} else {{ s.t{k} }};\n\
+                     let c = if {guard} {{ {test_rs} }} else {{ s.t{key} }};\n\
                      let anchor = {anchor};\n\
-                     if t != s.t{k} {{\n\
-                     if let Some(b) = s.then{k}.take() {{ remove_s{t}(&b, dom); }}\n\
-                     if let Some(b) = s.else{k}.take() {{ remove_s{e}(&b, dom); }}\n\
-                     if t {{ s.then{k} = Some(mount_s{t}(cx, dom, {up}, anchor)?); }} else {{ s.else{k} = Some(mount_s{e}(cx, dom, {up}, anchor)?); }}\n\
-                     s.t{k} = t;\n\
+                     if c != s.t{key} {{\n\
+                     if let Some(b) = s.then{key}.take() {{ remove_s{th}(&b, cx, dom); }}\n\
+                     if let Some(b) = s.else{key}.take() {{ remove_s{el}(&b, cx, dom); }}\n\
+                     if c {{ s.then{key} = Some(mount_s{th}(cx, dom, inst, t, {up}, anchor)?); }} else {{ s.else{key} = Some(mount_s{el}(cx, dom, inst, t, {up}, anchor)?); }}\n\
+                     s.t{key} = c;\n\
                      }} else {{\n\
-                     if let Some(b) = s.then{k}.as_mut() {{ update_s{t}(b, cx, dom, dirty, {up}, anchor)?; }}\n\
-                     if let Some(b) = s.else{k}.as_mut() {{ update_s{e}(b, cx, dom, dirty, {up}, anchor)?; }}\n\
+                     if let Some(b) = s.then{key}.as_mut() {{ update_s{th}(b, cx, dom, inst, t, tl, {up}, anchor)?; }}\n\
+                     if let Some(b) = s.else{key}.as_mut() {{ update_s{el}(b, cx, dom, inst, t, tl, {up}, anchor)?; }}\n\
                      }}\n\
                      }}"
                 );
                 let _ = writeln!(
                     o.sync,
-                    "if let Some(b) = &s.then{k} {{ sync_s{t}(b, cx, dom)?; }}\nif let Some(b) = &s.else{k} {{ sync_s{e}(b, cx, dom)?; }}"
+                    "if let Some(b) = &s.then{key} {{ sync_s{th}(b, cx, dom, inst, t)?; }}\nif let Some(b) = &s.else{key} {{ sync_s{el}(b, cx, dom, inst, t)?; }}"
+                );
+                let _ = writeln!(
+                    o.dispose,
+                    "if let Some(b) = &s.then{key} {{ dispose_s{th}(b, cx); }}\nif let Some(b) = &s.else{key} {{ dispose_s{el}(b, cx); }}"
+                );
+                let _ = writeln!(
+                    o.instances,
+                    "if let Some(b) = &s.then{key} {{ instances_s{th}(b, out); }}\nif let Some(b) = &s.else{key} {{ instances_s{el}(b, out); }}"
+                );
+            }
+            Item::Component {
+                key,
+                component: c,
+                props,
+                root,
+            } => {
+                let key = *key;
+                let (c, root) = (*c, *root);
+                let child = &self.p.components[c];
+                o.fields.push((format!("ci{key}"), format!("I{c}")));
+                o.fields
+                    .push((format!("ct{key}"), format!("Rc<RefCell<T{c}>>")));
+                o.fields.push((format!("cs{key}"), format!("Box<S{root}>")));
+                let mut pass = String::new();
+                for a in props.iter() {
+                    let cell = child.prop(&a.name).expect("validated prop");
+                    let mut cx = self.ctx(k);
+                    let v = cx.expr(&a.value);
+                    let bind = match &a.bind {
+                        Some(_) => format!("st.b{cell} = Some(b);"),
+                        None => String::new(),
+                    };
+                    let b = match &a.bind {
+                        Some(b) => format!("let b = {}; ", cx.expr(b)),
+                        None => String::new(),
+                    };
+                    let _ = writeln!(
+                        pass,
+                        "{{ let v = {v}; {b}let mut st = ci{key}.borrow_mut(); st.p{cell} = Some(v.clone()); st.c.c{cell} = v; {bind} }}"
+                    );
+                    // Update: a changed prop sets the child's cell and dirty bit.
+                    let ty = &child.cells[cell].ty;
+                    let same = same_expr(ty, "(*o)", "v");
+                    let guard = self.guard(&[&a.value]);
+                    let _ = writeln!(
+                        o.update,
+                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); st.snap.c{cell} = v; st.dirty[{cell}] = true; }} }}"
+                    );
+                    if let Some(b) = &a.bind {
+                        let guard = self.guard(&[b]);
+                        let bv = self.ctx(k).expr(b);
+                        let _ = writeln!(
+                            o.update,
+                            "if {guard} {{ let b = {bv}; s.ci{key}.borrow_mut().b{cell} = Some(b); }}"
+                        );
+                    }
+                }
+                let _ = writeln!(
+                    o.mount,
+                    "let ci{key} = new_i{c}(cx);\n{pass}init_i{c}(cx, &ci{key})?;\nlet ct{key}: Rc<RefCell<T{c}>> = Rc::new(RefCell::new(T{c}::default()));\nlet cs{key} = mount_s{root}(cx, dom, &ci{key}, &ct{key}, {mp}, {mb})?;"
+                );
+                let anchor = first_of(following, tail);
+                let _ = writeln!(
+                    o.update,
+                    "{{ let anchor = {anchor}; update_s{root}(&mut s.cs{key}, cx, dom, &s.ci{key}, &s.ct{key}, false, {up}, anchor)?; }}"
+                );
+                let _ = writeln!(
+                    o.sync,
+                    "sync_s{root}(&s.cs{key}, cx, dom, &s.ci{key}, &s.ct{key})?;"
+                );
+                let _ = writeln!(
+                    o.dispose,
+                    "dispose_s{root}(&s.cs{key}, cx); destroy_i{c}(cx, &s.ci{key});"
+                );
+                let _ = writeln!(
+                    o.instances,
+                    "out.push(runic_runtime::Json::Object([(\"component\".to_string(), runic_runtime::Json::String({}.into())), (\"cells\".to_string(), cells_json_i{c}(&s.ci{key}))].into_iter().collect()));\ninstances_s{root}(&s.cs{key}, out);",
+                    rust_str(&child.name)
+                );
+            }
+            Item::Each {
+                key,
+                node,
+                body,
+                otherwise,
+            } => {
+                let key = *key;
+                let (bd, el) = (*body, *otherwise);
+                let Node::Each {
+                    items,
+                    item,
+                    index,
+                    key: list_key,
+                    ..
+                } = node
+                else {
+                    unreachable!()
+                };
+                o.fields.push((
+                    format!("e{key}"),
+                    format!("Vec<(js::MapKey, Rc<RefCell<T{k}>>, Box<S{bd}>)>"),
+                ));
+                o.fields
+                    .push((format!("else{key}"), format!("Option<Box<S{el}>>")));
+                let items_rs = self.ctx(k).expr(items);
+                let set_index = match index {
+                    Some(x) => format!("v.l{x} = i as f64; "),
+                    None => String::new(),
+                };
+                // The block's locals and key.
+                let key_rs = match list_key {
+                    Some(e) => {
+                        let prelude = self.prelude(k, "t2");
+                        let v = self.ctx(k).expr(e);
+                        format!("{{ {prelude}let kv = {v}; js::ToMapKey::map_key(&kv) }}")
+                    }
+                    None => "js::ToMapKey::map_key(&(i as f64))".into(),
+                };
+                let block = format!(
+                    "let t2: Rc<RefCell<T{k}>> = Rc::new(RefCell::new({{ let mut v = t.borrow().clone(); v.l{item} = x; {set_index}v }}));\n\
+                     let bk = {key_rs};\n\
+                     if !seen.insert(bk.clone()) {{ return Err(js::Throw::new(\"RunicKeyError\", \"Duplicate key in a keyed list\")); }}"
+                );
+                let _ = writeln!(
+                    o.mount,
+                    "let mut e{key}: Vec<(js::MapKey, Rc<RefCell<T{k}>>, Box<S{bd}>)> = Vec::new();\n\
+                     {{ let items = {items_rs}; let values: Vec<_> = items.borrow().clone(); let mut seen = std::collections::HashSet::new();\n\
+                     for (i, x) in values.into_iter().enumerate() {{\n{block}\nlet b = mount_s{bd}(cx, dom, inst, &t2, {mp}, {mb})?;\ne{key}.push((bk, t2, b));\n}} }}\n\
+                     let else{key} = if e{key}.is_empty() {{ Some(mount_s{el}(cx, dom, inst, t, {mp}, {mb})?) }} else {{ None }};"
+                );
+                let anchor = first_of(following, tail);
+                let guard = self.guard(&[items]);
+                let _ = writeln!(
+                    o.update,
+                    "{{\n\
+                     let after_list = {anchor};\n\
+                     if {guard} {{\n\
+                     let items = {items_rs}; let values: Vec<_> = items.borrow().clone(); let mut seen = std::collections::HashSet::new();\n\
+                     let mut old: std::collections::HashMap<js::MapKey, (usize, Rc<RefCell<T{k}>>, Box<S{bd}>)> = s.e{key}.drain(..).enumerate().map(|(i, (k, t, b))| (k, (i, t, b))).collect();\n\
+                     let mut next: Vec<(js::MapKey, Rc<RefCell<T{k}>>, Option<Box<S{bd}>>, Option<usize>)> = Vec::new();\n\
+                     for (i, x) in values.into_iter().enumerate() {{\n{block}\n\
+                     match old.remove(&bk) {{ Some((oi, ot, ob)) => {{ let v = t2.borrow().clone(); *ot.borrow_mut() = v; next.push((bk, ot, Some(ob), Some(oi))); }} None => next.push((bk, t2, None, None)) }}\n\
+                     }}\n\
+                     let mut gone: Vec<_> = old.into_values().collect(); gone.sort_by_key(|g| g.0);\n\
+                     for (_, _, ob) in gone {{ remove_s{bd}(&ob, cx, dom); }}\n\
+                     let keep = runic_runtime::lis_keep(&next.iter().map(|e| e.3).collect::<Vec<_>>());\n\
+                     let mut anchor = after_list;\n\
+                     let mut out = Vec::with_capacity(next.len());\n\
+                     for (j, (bk, tt, b, _)) in next.into_iter().enumerate().rev() {{\n\
+                     let b = match b {{\n\
+                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); dom.insert_all({up}, &ns, anchor); }} update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor)?; b }}\n\
+                     None => mount_s{bd}(cx, dom, inst, &tt, {up}, anchor)?,\n\
+                     }};\n\
+                     if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }}\n\
+                     out.push((bk, tt, b));\n\
+                     }}\n\
+                     out.reverse(); s.e{key} = out;\n\
+                     }} else {{\n\
+                     let mut anchor = after_list;\n\
+                     for (_, tt, b) in s.e{key}.iter_mut().rev() {{ update_s{bd}(b, cx, dom, inst, tt, tl, {up}, anchor)?; if let Some(f) = first_s{bd}(b) {{ anchor = Some(f); }} }}\n\
+                     }}\n\
+                     if s.e{key}.is_empty() {{\n\
+                     match s.else{key}.as_mut() {{ Some(b) => update_s{el}(b, cx, dom, inst, t, tl, {up}, after_list)?, None => s.else{key} = Some(mount_s{el}(cx, dom, inst, t, {up}, after_list)?) }}\n\
+                     }} else if let Some(b) = s.else{key}.take() {{ remove_s{el}(&b, cx, dom); }}\n\
+                     }}"
+                );
+                let _ = writeln!(
+                    o.sync,
+                    "for (_, tt, b) in &s.e{key} {{ sync_s{bd}(b, cx, dom, inst, tt)?; }}\nif let Some(b) = &s.else{key} {{ sync_s{el}(b, cx, dom, inst, t)?; }}"
+                );
+                let _ = writeln!(
+                    o.dispose,
+                    "for (_, _, b) in &s.e{key} {{ dispose_s{bd}(b, cx); }}\nif let Some(b) = &s.else{key} {{ dispose_s{el}(b, cx); }}"
+                );
+                let _ = writeln!(
+                    o.instances,
+                    "for (_, _, b) in &s.e{key} {{ instances_s{bd}(b, out); }}\nif let Some(b) = &s.else{key} {{ instances_s{el}(b, out); }}"
                 );
             }
         }
@@ -670,6 +1003,106 @@ fn probe_json(t: &Type, v: &str) -> String {
     }
 }
 
+/// Per-component state types and instance lifecycle functions.
+fn component_state(p: &Program, k: usize, out: &mut String) {
+    let c = &p.components[k];
+    let n = c.cells.len();
+    let fields: String = c
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(i, cell)| format!("pub c{i}: {}, ", rust_type(&cell.ty)))
+        .collect();
+    let defaults: String = c
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(i, cell)| format!("c{i}: {}, ", default_value(&cell.ty, p)))
+        .collect();
+    let locals: String = c
+        .template_locals
+        .iter()
+        .enumerate()
+        .map(|(i, l)| format!("pub l{i}: {}, ", rust_type(&l.ty)))
+        .collect();
+    let local_defaults: String = c
+        .template_locals
+        .iter()
+        .enumerate()
+        .map(|(i, l)| format!("l{i}: {}, ", default_value(&l.ty, p)))
+        .collect();
+    let mut props = String::new();
+    let mut prop_defaults = String::new();
+    for (i, cell) in c.cells.iter().enumerate() {
+        if cell.prop.is_some() {
+            let t = rust_type(&cell.ty);
+            let f = rust_type(&Type::Fn(FnType {
+                params: vec![cell.ty.clone()],
+                result: Box::new(Type::Void),
+            }));
+            let _ = write!(props, "pub p{i}: Option<{t}>, pub b{i}: Option<{f}>, ");
+            let _ = write!(prop_defaults, "p{i}: None, b{i}: None, ");
+        }
+    }
+    let _ = writeln!(
+        out,
+        "/// Cells of component {name}.\n#[derive(Clone)]\npub struct Cells{k} {{ {fields}}}\n\
+         impl Default for Cells{k} {{ fn default() -> Self {{ Cells{k} {{ {defaults}}} }} }}\n\
+         /// Template locals of component {name}.\n#[derive(Clone)]\npub struct T{k} {{ {locals}}}\n\
+         impl Default for T{k} {{ fn default() -> Self {{ T{k} {{ {local_defaults}}} }} }}\n\
+         /// An instance of {name}: current, snapshot and pre-handler cells, dirty bits and props.\n\
+         pub struct St{k} {{ pub c: Cells{k}, pub snap: Cells{k}, pub before: Cells{k}, pub dirty: [bool; {n}], {props}}}\n\
+         pub type I{k} = Rc<RefCell<St{k}>>;\n\
+         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Cells{k}::default(), before: Cells{k}::default(), dirty: [false; {n}], {prop_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
+         fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); }}",
+        name = c.name.replace('\n', " "),
+    );
+    // Initialisation: passed props keep their value; other cells evaluate `init`.
+    let mut init = String::new();
+    for (i, cell) in c.cells.iter().enumerate() {
+        let mut cx = FnCtx::new(p, Some(k), vec![], false, Type::Void);
+        let v = cx.expr(&cell.init);
+        let check = match cell.domain {
+            Some(Domain::Text { max_utf16 }) => format!(
+                "if !js::valid_single_line(&v.to_rust(), {max_utf16}) {{ return Err(js::Throw::new(\"RunicDomainError\", \"initial value leaves the text domain\")); }} "
+            ),
+            None => String::new(),
+        };
+        let assign = format!("{{ let v = {v}; {check}inst.borrow_mut().c.c{i} = v; }}");
+        if cell.prop.is_some() {
+            let _ = writeln!(init, "if inst.borrow().p{i}.is_none() {assign}");
+        } else {
+            let _ = writeln!(init, "{assign}");
+        }
+    }
+    let dirty: String = c
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(i, cell)| {
+            let same = same_expr(&cell.ty, &format!("st.before.c{i}"), &format!("st.c.c{i}"));
+            match cell.tracking {
+                Tracking::None => "false, ".to_string(),
+                Tracking::Deep if cell.ty.is_reference() => format!("(!{same} || deep), "),
+                _ => format!("!{same}, "),
+            }
+        })
+        .collect();
+    let cells_json: String = c
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(i, cell)| format!("{}, ", probe_json(&cell.ty, &format!("st.c.c{i}"))))
+        .collect();
+    let _ = writeln!(
+        out,
+        "#[allow(unused_variables)]\nfn init_i{k}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n{init}let mut st = inst.borrow_mut(); st.snap = st.c.clone(); st.before = st.c.clone();\nOk(())\n}}\n\
+         fn begin_i{k}(st: &mut St{k}) {{ st.before = st.c.clone(); st.snap = st.c.clone(); }}\n\
+         #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.snap = st.c.clone(); }}\n\
+         #[allow(unused_variables)]\nfn cells_json_i{k}(inst: &I{k}) -> runic_runtime::Json {{ let st = inst.borrow(); runic_runtime::Json::Array(vec![{cells_json}]) }}\n"
+    );
+}
+
 /// Generate `app.rs` for a validated program. `css` is the stylesheet with
 /// assets replaced by `runic-asset:N` references.
 pub fn generate(
@@ -679,17 +1112,15 @@ pub fn generate(
     asset_mimes: &[String],
     options: &Options,
 ) -> Result<String> {
-    let ci = p.root;
-    let c = &p.components[ci];
     let reads = function_reads(p);
     let g = Gen {
         p,
-        component: ci,
         optimize: options.optimize,
         reads,
     };
-    let mut planner = Planner::default();
-    let root = planner.scope(&c.template);
+    let mut planner = Planner::new(p);
+    let root = planner.root(p.root);
+    let ri = p.root;
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -703,24 +1134,42 @@ pub fn generate(
          macro_rules! tri {{ ($e:expr, $l:lifetime) => {{ match $e {{ Ok(v) => v, Err(e) => break $l Err(e) }} }}; }}\n"
     );
     out.push_str(&records(p));
-    // Cells and context.
-    let fields: String = c
-        .cells
+    for k in 0..p.components.len() {
+        component_state(p, k, &mut out);
+    }
+    // The context: event payload, listener closures and live instances.
+    let live: String = (0..p.components.len())
+        .map(|k| format!("pub live{k}: Vec<I{k}>, "))
+        .collect();
+    let live_init: String = (0..p.components.len())
+        .map(|k| format!("live{k}: Vec::new(), "))
+        .collect();
+    let globals: String = p
+        .globals
         .iter()
         .enumerate()
-        .map(|(i, cell)| format!("pub c{i}: {}, ", rust_type(&cell.ty)))
+        .map(|(i, g)| format!("pub g{i}: {}, ", rust_type(&g.ty)))
         .collect();
-    let defaults: String = c
-        .cells
+    let globals_init: String = p
+        .globals
         .iter()
         .enumerate()
-        .map(|(i, cell)| format!("c{i}: {}, ", default_value(&cell.ty, p)))
+        .map(|(i, g)| format!("g{i}: {}, ", default_value(&g.ty, p)))
         .collect();
+    let mut init_globals = String::new();
+    for (i, g) in p.globals.iter().enumerate() {
+        let mut cx = FnCtx::new(p, None, vec![], false, Type::Void);
+        let v = cx.expr(&g.init);
+        let _ = writeln!(init_globals, "{{ let v = {v}; cx.g{i} = v; }}");
+    }
     let _ = writeln!(
         out,
-        "#[derive(Clone)]\npub struct Cells {{ {fields}}}\n\
-         impl Default for Cells {{ fn default() -> Self {{ Cells {{ {defaults}}} }} }}\n\
-         pub struct Cx {{ pub c: Cells, pub snap: Cells, pub payload: Option<JsString> }}\n"
+        "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, {live}{globals}}}\n\
+         impl Cx {{\n\
+         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
+         }}\n"
     );
     // Functions.
     let mut errors = vec![];
@@ -728,40 +1177,57 @@ pub fn generate(
         out.push_str(&expr::function(p, f, &mut errors));
     }
     // Handlers.
-    for (h, handler) in c.handlers.iter().enumerate() {
-        let mut cx = FnCtx::new(
-            p,
-            Some(ci),
-            handler.locals.clone(),
-            handler.event == EventKind::Input,
-            Type::Void,
-        );
-        let body = cx.block(&handler.body);
-        errors.extend(cx.errors.iter().map(|e| format!("handler {h}: {e}")));
-        let locals: String = handler
-            .locals
-            .iter()
-            .enumerate()
-            .map(|(i, l)| {
-                if l.boxed {
-                    format!(
-                        "let mut l{i}: Rc<RefCell<{}>> = Rc::new(RefCell::new({}));\n",
-                        rust_type(&l.ty),
+    for (k, c) in p.components.iter().enumerate() {
+        for (h, handler) in c.handlers.iter().enumerate() {
+            let all: Vec<Local> = handler
+                .params
+                .iter()
+                .chain(&handler.locals)
+                .cloned()
+                .collect();
+            let mut cx = FnCtx::new(
+                p,
+                Some(k),
+                all.clone(),
+                handler.event == EventKind::Input,
+                Type::Void,
+            );
+            let body = cx.block(&handler.body);
+            errors.extend(
+                cx.errors
+                    .iter()
+                    .map(|e| format!("{} handler {h}: {e}", c.name)),
+            );
+            let np = handler.params.len();
+            let mut sig = String::new();
+            let mut locals = String::new();
+            for (i, l) in all.iter().enumerate() {
+                let t = rust_type(&l.ty);
+                if i < np {
+                    if l.boxed {
+                        let _ = write!(sig, ", p{i}: {t}");
+                        let _ = writeln!(
+                            locals,
+                            "let mut l{i}: Rc<RefCell<{t}>> = Rc::new(RefCell::new(p{i}));"
+                        );
+                    } else {
+                        let _ = write!(sig, ", mut l{i}: {t}");
+                    }
+                } else if l.boxed {
+                    let _ = writeln!(
+                        locals,
+                        "let mut l{i}: Rc<RefCell<{t}>> = Rc::new(RefCell::new({}));",
                         default_value(&l.ty, p)
-                    )
+                    );
                 } else {
-                    format!(
-                        "let mut l{i}: {} = {};\n",
-                        rust_type(&l.ty),
-                        default_value(&l.ty, p)
-                    )
+                    let _ = writeln!(locals, "let mut l{i}: {t} = {};", default_value(&l.ty, p));
                 }
-            })
-            .collect();
-        let _ = writeln!(
-            out,
-            "#[allow(unused_mut, unused_variables, unused_assignments, unreachable_code, unused_labels)]\nfn handler_{h}(cx: &mut Cx) -> JsResult<()> {{\n{locals}{body}Ok(())\n}}\n"
-        );
+            }
+            let _ = writeln!(
+                out,
+                "#[allow(unused_mut, unused_variables, unused_assignments, unreachable_code, unused_labels)]\nfn handler_{k}_{h}(cx: &mut Cx, inst: &I{k}{sig}) -> JsResult<()> {{\n{locals}{body}Ok(())\n}}\n"
+            );
+        }
     }
     if !errors.is_empty() {
         return Err(Diagnostic::new("E_CODEGEN", errors.join("; "), None));
@@ -770,50 +1236,22 @@ pub fn generate(
     for (id, scope) in planner.scopes.iter().enumerate() {
         out.push_str(&g.scope(id, scope.as_ref().expect("planned scope")));
     }
-    // Initial cells.
-    let mut init = String::new();
-    for (i, cell) in c.cells.iter().enumerate() {
-        let mut cx = FnCtx::new(p, Some(ci), vec![], false, Type::Void);
-        let v = cx.expr(&cell.init);
-        let _ = writeln!(
-            init,
-            "cx.c.c{i} = (|| -> JsResult<_> {{ let cx = &mut cx; Ok({v}) }})().expect(\"initial value of {}\");\ncx.snap.c{i} = cx.c.c{i}.clone();",
-            cell.name.escape_default()
-        );
-        if let Some(Domain::Text { max_utf16 }) = cell.domain {
-            let _ = writeln!(
-                init,
-                "assert!(js::valid_single_line(&cx.c.c{i}.to_rust(), {max_utf16}), \"initial text domain\");"
-            );
-        }
-    }
-    let n = c.cells.len();
-    let dirty: String = c
-        .cells
-        .iter()
-        .enumerate()
-        .map(|(i, cell)| {
-            let same = same_expr(
-                &cell.ty,
-                &format!("before.c{i}"),
-                &format!("self.cx.c.c{i}"),
-            );
-            match cell.tracking {
-                Tracking::None => "false, ".to_string(),
-                Tracking::Deep if cell.ty.is_reference() => format!("(!{same} || deep), "),
-                _ => format!("!{same}, "),
-            }
-        })
-        .collect();
-    let dispatch_arms: String = (0..c.handlers.len())
-        .map(|h| format!("{h} => handler_{h}(&mut self.cx),\n"))
-        .collect();
-    let cells_json: String = c
-        .cells
-        .iter()
-        .enumerate()
-        .map(|(i, cell)| format!("{}, ", probe_json(&cell.ty, &format!("self.cx.c.c{i}"))))
-        .collect();
+    let each_live = |f: &str| -> String {
+        (0..p.components.len())
+            .map(|k| {
+                format!(
+                    "for i in &self.cx.live{k} {{ {} }}\n",
+                    f.replace("{k}", &k.to_string())
+                )
+            })
+            .collect()
+    };
+    let begin = each_live("begin_i{k}(&mut i.borrow_mut());");
+    let rollback = each_live("let mut st = i.borrow_mut(); st.c = st.before.clone();");
+    let end = each_live(&format!(
+        "end_i{{k}}(&mut i.borrow_mut(), deep, {});",
+        options.optimize
+    ));
     let container: String = p
         .container_attrs
         .iter()
@@ -826,39 +1264,42 @@ pub fn generate(
         .collect();
     let _ = writeln!(
         out,
-        "pub struct App {{ cx: Cx, root: Option<(NodeId, Box<S{root}>)> }}\n\
+        "pub struct App {{ cx: Cx, inst: I{ri}, t: Rc<RefCell<T{ri}>>, root: Option<(NodeId, Box<S{root}>)> }}\n\
+         impl App {{\n\
+         fn free(&mut self, dom: &mut Dom) {{ for k in dom.take_freed() {{ self.cx.listeners[k as usize] = None; self.cx.free.push(k); }} }}\n\
+         }}\n\
          impl runic_runtime::App for App {{\n\
          const TITLE: &'static str = {title};\n\
          const CSS: &'static str = {css};\n\
          const ASSETS: &'static [(&'static str, &'static [u8])] = &[{assets}];\n\
          const IR_HASH: &'static str = {hash};\n\
-         fn new() -> Self {{\nlet mut cx = Cx {{ c: Cells::default(), snap: Cells::default(), payload: None }};\n{init}cx.snap = cx.c.clone();\nApp {{ cx, root: None }}\n}}\n\
+         fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\nApp {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
-         {container}match mount_s{root}(&mut self.cx, dom, parent, None) {{\n\
+         {container}match mount_s{root}(&mut self.cx, dom, &self.inst, &self.t, parent, None) {{\n\
          Ok(s) => self.root = Some((parent, s)),\n\
-         Err(e) => eprintln!(\"runic: render error: {{e}}\"),\n}}\n}}\n\
-         fn dispatch(&mut self, dom: &mut Dom, handler: u32, payload: Option<&str>) -> Result<(), String> {{\n\
-         let before = self.cx.c.clone();\n\
-         self.cx.snap = self.cx.c.clone();\n\
+         Err(e) => eprintln!(\"runic: render error: {{e}}\"),\n}}\n\
+         self.free(dom);\n}}\n\
+         fn dispatch(&mut self, dom: &mut Dom, listener: u32, payload: Option<&str>) -> Result<(), String> {{\n\
+         let Some(l) = self.cx.listeners.get(listener as usize).cloned().flatten() else {{ return Ok(()); }};\n\
+         {begin}\
          self.cx.payload = payload.map(JsString::from);\n\
          let epoch = js::mutation_epoch();\n\
-         let result = match handler {{\n{dispatch_arms}_ => Err(js::Throw::new(\"Error\", \"unknown handler\")),\n}};\n\
+         let result = l(&mut self.cx);\n\
          self.cx.payload = None;\n\
-         if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{ self.cx.c = before.clone(); }} }}\n\
+         if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{ {rollback} }} }}\n\
          let deep = js::mutation_epoch() != epoch;\n\
-         self.cx.snap = self.cx.c.clone();\n\
-         let dirty: [bool; {n}] = [{dirty}];\n\
-         let dirty = if {optimize} {{ dirty }} else {{ [true; {n}] }};\n\
+         {end}\
          if let Some((parent, s)) = self.root.as_mut() {{\n\
-         if let Err(e) = update_s{root}(s, &mut self.cx, dom, &dirty, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
-         if let Err(e) = sync_s{root}(s, &mut self.cx, dom) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
+         if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
+         if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
+         self.free(dom);\n\
          result.map_err(|e| e.to_string())\n}}\n\
-         fn cells_json(&self) -> runic_runtime::Json {{ runic_runtime::Json::Array(vec![{cells_json}]) }}\n\
+         fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\
+         fn instances_json(&self) -> Vec<runic_runtime::Json> {{ let mut out = Vec::new(); if let Some((_, s)) = &self.root {{ instances_s{root}(s, &mut out); }} out }}\n\
          }}",
         title = rust_str(&p.meta.title),
         css = rust_str(css),
         hash = rust_str(ir_hash),
-        optimize = options.optimize,
     );
     Ok(out)
 }

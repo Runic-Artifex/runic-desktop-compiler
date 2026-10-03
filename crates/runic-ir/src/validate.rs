@@ -39,6 +39,10 @@ struct Scope<'a> {
     result: Option<Type>,
     labels: Vec<Option<String>>,
     count: usize,
+    /// In templates: which template locals are bound by enclosing nodes.
+    bound: Option<Vec<bool>>,
+    /// Globals readable here (a global's initialiser sees only earlier ones).
+    globals: usize,
 }
 
 impl<'a> Scope<'a> {
@@ -52,10 +56,25 @@ impl<'a> Scope<'a> {
             result: None,
             labels: vec![],
             count: 0,
+            bound: None,
+            globals: program.globals.len(),
         }
     }
 
+    /// The typing scope of a template expression with `bound` template locals.
+    fn template(program: &'a Program, component: usize, bound: &[bool]) -> Self {
+        let mut s = Scope::new(program, Some(component));
+        s.locals = program.components[component].template_locals.clone();
+        s.bound = Some(bound.to_vec());
+        s
+    }
+
     fn local(&self, i: usize, src: Option<&Source>) -> Result<&Local> {
+        if let Some(bound) = &self.bound {
+            if !bound.get(i).copied().unwrap_or(false) {
+                return err("E_IR", format!("Template local {i} is not bound here"), src);
+            }
+        }
         match self.locals.get(i) {
             Some(l) => Ok(l),
             None => err("E_IR", format!("Unknown local {i}"), src),
@@ -138,6 +157,16 @@ impl<'a> Scope<'a> {
                 ty.clone()
             }
             Cell { cell, .. } => self.cell(*cell, src)?.ty.clone(),
+            Global { global } => {
+                if *global >= self.globals {
+                    return err(
+                        "E_IR",
+                        format!("Invalid or forward global reference {global}"),
+                        src,
+                    );
+                }
+                self.program.globals[*global].ty.clone()
+            }
             Local { local } => self.local(*local, src)?.ty.clone(),
             Payload => {
                 if !self.payload {
@@ -723,14 +752,10 @@ pub fn validate(p: &Program) -> Result<()> {
             return err("E_IR", format!("Invalid container attribute {name}"), None);
         }
     }
-    if p.components.len() != 1 || p.root != 0 {
-        // Component composition is IR work for M3.
-        return err(
-            "E_IR",
-            "The backend currently mounts exactly one component",
-            None,
-        );
+    if p.root >= p.components.len() {
+        return err("E_IR", "The root component does not exist", None);
     }
+    unconditional_cycles(p)?;
     if p.functions.len() > MAX_FUNCTIONS {
         return err("E_RESOURCE", "Too many functions", None);
     }
@@ -769,20 +794,86 @@ pub fn validate(p: &Program) -> Result<()> {
         s.check_type(&f.result, src)?;
         s.block(&f.body).map_err(|d| d.or_source(src))?;
     }
-    let mut ids = HashSet::new();
+    for (i, g) in p.globals.iter().enumerate() {
+        let src = g.source.as_ref();
+        let mut s = Scope::new(p, None);
+        s.globals = i;
+        s.check_type(&g.ty, src)?;
+        if s.infer(&g.init, 0, src)? != g.ty {
+            return err(
+                "E_IR",
+                format!("Initialiser type differs from global {}", g.name),
+                src,
+            );
+        }
+    }
     let mut nodes = 0;
     for ci in 0..p.components.len() {
-        validate_component(p, ci, &mut ids, &mut nodes)?;
+        validate_component(p, ci, &mut nodes)?;
     }
     Ok(())
 }
 
-fn validate_component(
-    p: &Program,
-    ci: usize,
-    ids: &mut HashSet<String>,
-    nodes: &mut usize,
-) -> Result<()> {
+/// Reject components that instantiate themselves without a condition or list
+/// in between (their mount would not terminate).
+fn unconditional_cycles(p: &Program) -> Result<()> {
+    fn children(nodes: &[Node], out: &mut Vec<(usize, Option<Source>)>) {
+        for n in nodes {
+            match n {
+                Node::Component {
+                    component, source, ..
+                } => out.push((*component, source.clone())),
+                Node::Element { children: c, .. } => children(c, out),
+                _ => {}
+            }
+        }
+    }
+    let n = p.components.len();
+    let edges: Vec<Vec<(usize, Option<Source>)>> = p
+        .components
+        .iter()
+        .map(|c| {
+            let mut out = vec![];
+            children(&c.template, &mut out);
+            out
+        })
+        .collect();
+    for (_, e) in edges.iter().enumerate() {
+        for (c, src) in e {
+            if *c >= n {
+                return err("E_IR", format!("Unknown component {c}"), src.as_ref());
+            }
+        }
+    }
+    // Depth-first search for a cycle.
+    fn visit(i: usize, edges: &[Vec<(usize, Option<Source>)>], state: &mut [u8]) -> Result<()> {
+        state[i] = 1;
+        for (c, src) in &edges[i] {
+            match state[*c] {
+                1 => {
+                    return err(
+                        "E_IR",
+                        "A component instantiates itself unconditionally",
+                        src.as_ref(),
+                    );
+                }
+                0 => visit(*c, edges, state)?,
+                _ => {}
+            }
+        }
+        state[i] = 2;
+        Ok(())
+    }
+    let mut state = vec![0u8; n];
+    for i in 0..n {
+        if state[i] == 0 {
+            visit(i, &edges, &mut state)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
     let c = &p.components[ci];
     if c.cells.len() > MAX_CELLS || c.handlers.len() > MAX_HANDLERS {
         return err(
@@ -791,8 +882,17 @@ fn validate_component(
             None,
         );
     }
+    let mut props = HashSet::new();
+    for l in &c.template_locals {
+        Scope::new(p, None).check_type(&l.ty, None)?;
+    }
     for (i, cell) in c.cells.iter().enumerate() {
         let src = cell.source.as_ref();
+        if let Some(name) = &cell.prop {
+            if name.is_empty() || !props.insert(name.as_str()) {
+                return err("E_IR", format!("Empty or duplicate prop {name}"), src);
+            }
+        }
         let mut s = Scope::new(p, Some(ci));
         s.visible = i;
         s.check_type(&cell.ty, src)?;
@@ -815,8 +915,49 @@ fn validate_component(
     }
     let mut used = vec![false; c.handlers.len()];
     let mut stack = vec![];
+    // Locals bound by `each` nodes are visible only in their bodies; the other
+    // template locals are temporaries of template expressions.
+    fn each_locals(nodes: &[Node], out: &mut HashSet<usize>) {
+        for n in nodes {
+            match n {
+                Node::Each {
+                    item,
+                    index,
+                    body,
+                    otherwise,
+                    ..
+                } => {
+                    out.insert(*item);
+                    out.extend(*index);
+                    each_locals(body, out);
+                    each_locals(otherwise, out);
+                }
+                Node::If {
+                    then, otherwise, ..
+                } => {
+                    each_locals(then, out);
+                    each_locals(otherwise, out);
+                }
+                Node::Element { children, .. } => each_locals(children, out),
+                Node::Text { .. } | Node::Component { .. } => {}
+            }
+        }
+    }
+    let mut scoped = HashSet::new();
+    each_locals(&c.template, &mut scoped);
+    let mut bound: Vec<bool> = (0..c.template_locals.len())
+        .map(|i| !scoped.contains(&i))
+        .collect();
     for node in &c.template {
-        validate_node(p, ci, node, None, 0, ids, nodes, &mut used, &mut stack)?;
+        let mut cx = NodeCx {
+            p,
+            ci,
+            nodes: &mut *nodes,
+            used: &mut used,
+            stack: &mut stack,
+            bound: &mut bound,
+        };
+        cx.node(node, None, 0)?;
     }
     for (i, h) in c.handlers.iter().enumerate() {
         let src = h.source.as_ref();
@@ -824,7 +965,7 @@ fn validate_component(
             return err("E_IR", "Handler is not referenced by any listener", src);
         }
         let mut s = Scope::new(p, Some(ci));
-        s.locals = h.locals.clone();
+        s.locals = h.params.iter().chain(&h.locals).cloned().collect();
         s.payload = h.event == EventKind::Input;
         s.result = Some(Type::Void);
         for l in &s.locals {
@@ -835,139 +976,239 @@ fn validate_component(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn validate_node(
-    p: &Program,
+/// Template validation state of one component.
+struct NodeCx<'a, 'p> {
+    p: &'p Program,
     ci: usize,
-    node: &Node,
-    parent: Option<&Source>,
-    depth: usize,
-    ids: &mut HashSet<String>,
-    nodes: &mut usize,
-    used: &mut [bool],
-    stack: &mut Vec<&'static str>,
-) -> Result<()> {
-    let c = &p.components[ci];
-    *nodes += 1;
-    // Text nodes carry no source; diagnostics use the enclosing element.
-    let src = node.source().or(parent);
-    if depth > MAX_DEPTH || *nodes > MAX_NODES {
-        return err(
-            "E_RESOURCE",
-            "Template is too deep or has too many nodes",
-            src,
-        );
+    nodes: &'a mut usize,
+    used: &'a mut [bool],
+    stack: &'a mut Vec<&'static str>,
+    /// Template locals bound by enclosing `each` nodes.
+    bound: &'a mut Vec<bool>,
+}
+
+impl<'p> NodeCx<'_, 'p> {
+    fn scope(&self) -> Scope<'p> {
+        Scope::template(self.p, self.ci, self.bound)
     }
-    let mut s = Scope::new(p, Some(ci));
-    match node {
-        Node::Text { parts, .. } => {
-            if parts.is_empty() || parts.len() > 256 {
-                return err("E_IR", "Text nodes need between 1 and 256 parts", src);
-            }
-            for part in parts {
-                if s.infer(part, 0, src)? != Type::String {
-                    return err("E_IR", "Text parts must be strings", src);
+
+    fn nodes(&mut self, list: &[Node], src: Option<&Source>, depth: usize) -> Result<()> {
+        list.iter().try_for_each(|n| self.node(n, src, depth + 1))
+    }
+
+    /// Bind template local `i` (of type `ty`) for the duration of `f`.
+    fn bind<T>(
+        &mut self,
+        i: usize,
+        ty: &Type,
+        src: Option<&Source>,
+        f: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<T> {
+        let c = &self.p.components[self.ci];
+        let Some(l) = c.template_locals.get(i) else {
+            return err("E_IR", format!("Unknown template local {i}"), src);
+        };
+        if self.bound[i] {
+            return err(
+                "E_IR",
+                format!("Template local {i} is bound twice or used as a temporary"),
+                src,
+            );
+        }
+        if l.ty != *ty {
+            return err(
+                "E_IR",
+                format!("Template local {} must be {}", l.name, ty.name()),
+                src,
+            );
+        }
+        self.bound[i] = true;
+        let r = f(self);
+        self.bound[i] = false;
+        r
+    }
+
+    fn node(&mut self, node: &Node, parent: Option<&Source>, depth: usize) -> Result<()> {
+        let p = self.p;
+        let c = &p.components[self.ci];
+        *self.nodes += 1;
+        // Text nodes carry no source; diagnostics use the enclosing element.
+        let src = node.source().or(parent);
+        if depth > MAX_DEPTH || *self.nodes > MAX_NODES {
+            return err(
+                "E_RESOURCE",
+                "Template is too deep or has too many nodes",
+                src,
+            );
+        }
+        let mut s = self.scope();
+        match node {
+            Node::Text { parts, .. } => {
+                if parts.is_empty() || parts.len() > 256 {
+                    return err("E_IR", "Text nodes need between 1 and 256 parts", src);
+                }
+                for part in parts {
+                    if s.infer(part, 0, src)? != Type::String {
+                        return err("E_IR", "Text parts must be strings", src);
+                    }
                 }
             }
-        }
-        Node::If {
-            test,
-            then,
-            otherwise,
-            ..
-        } => {
-            if s.infer(test, 0, src)? != Type::Boolean {
-                return err("E_IR", "Conditional template requires a boolean test", src);
-            }
-            for n in then.iter().chain(otherwise) {
-                validate_node(p, ci, n, src, depth + 1, ids, nodes, used, stack)?;
-            }
-        }
-        Node::Element {
-            tag,
-            attrs,
-            props,
-            listeners,
-            children,
-            ..
-        } => {
-            let Some(&tag) = TAGS.iter().find(|t| **t == tag) else {
-                return err(
-                    "E_IR",
-                    format!("Element <{tag}> is outside the supported set"),
-                    src,
-                );
-            };
-            if VOID.contains(&tag) && !children.is_empty() {
-                return err("E_IR", format!("<{tag}> cannot have children"), src);
-            }
-            if tag == "button" && stack.contains(&"button") {
-                return err("E_IR", "Nested buttons are invalid", src);
-            }
-            let mut names = HashSet::new();
-            for a in attrs {
-                if !attr_name_ok(&a.name) || !names.insert(a.name.as_str()) {
-                    return err(
-                        "E_IR",
-                        format!("Invalid or duplicate attribute {}", a.name),
-                        src,
-                    );
+            Node::If {
+                test,
+                then,
+                otherwise,
+                ..
+            } => {
+                if s.infer(test, 0, src)? != Type::Boolean {
+                    return err("E_IR", "Conditional template requires a boolean test", src);
                 }
-                match s.infer(&a.value, 0, src)? {
-                    Type::String | Type::Boolean => {}
-                    Type::Maybe(inner) if *inner == Type::String => {}
-                    other => {
+                self.nodes(then, src, depth)?;
+                self.nodes(otherwise, src, depth)?;
+            }
+            Node::Each {
+                items,
+                item,
+                index,
+                key,
+                body,
+                otherwise,
+                ..
+            } => {
+                let Type::Array(element) = s.infer(items, 0, src)? else {
+                    return err("E_IR", "each requires an array", src);
+                };
+                self.nodes(otherwise, src, depth)?;
+                self.bind(*item, &element, src, |cx| {
+                    let inner = |cx: &mut Self| -> Result<()> {
+                        if let Some(k) = key {
+                            match cx.scope().infer(k, 0, src)? {
+                                Type::Fn(_) | Type::Void => {
+                                    return err("E_IR", "List keys must be values", src);
+                                }
+                                _ => {}
+                            }
+                        }
+                        cx.nodes(body, src, depth)
+                    };
+                    match index {
+                        Some(i) => cx.bind(*i, &Type::Number, src, inner),
+                        None => inner(cx),
+                    }
+                })?;
+            }
+            Node::Component {
+                component, props, ..
+            } => {
+                let child = &p.components[*component];
+                let mut names = HashSet::new();
+                for a in props {
+                    let Some(cell) = child.prop(&a.name) else {
                         return err(
                             "E_IR",
-                            format!("Attribute {} cannot be {}", a.name, other.name()),
+                            format!("{} has no prop {}", child.name, a.name),
+                            src,
+                        );
+                    };
+                    if !names.insert(a.name.as_str()) {
+                        return err("E_IR", format!("Prop {} is passed twice", a.name), src);
+                    }
+                    let ty = &child.cells[cell].ty;
+                    s.expect(&a.value, ty.clone(), 0, src)?;
+                    if let Some(b) = &a.bind {
+                        let want = Type::Fn(FnType {
+                            params: vec![ty.clone()],
+                            result: Box::new(Type::Void),
+                        });
+                        s.expect(b, want, 0, src)?;
+                    }
+                }
+            }
+            Node::Element {
+                tag,
+                attrs,
+                props,
+                listeners,
+                children,
+                ..
+            } => {
+                let Some(&tag) = TAGS.iter().find(|t| **t == tag) else {
+                    return err(
+                        "E_IR",
+                        format!("Element <{tag}> is outside the supported set"),
+                        src,
+                    );
+                };
+                if VOID.contains(&tag) && !children.is_empty() {
+                    return err("E_IR", format!("<{tag}> cannot have children"), src);
+                }
+                if tag == "button" && self.stack.contains(&"button") {
+                    return err("E_IR", "Nested buttons are invalid", src);
+                }
+                let mut names = HashSet::new();
+                for a in attrs {
+                    if !attr_name_ok(&a.name) || !names.insert(a.name.as_str()) {
+                        return err(
+                            "E_IR",
+                            format!("Invalid or duplicate attribute {}", a.name),
                             src,
                         );
                     }
-                }
-                if a.name == "id" {
-                    let Some(id) = node.element_id() else {
-                        return err("E_IR", "Element ids must be string literals", src);
-                    };
-                    if id.is_empty() || !ids.insert(id.to_owned()) {
-                        return err("E_IR", format!("Empty or duplicate element id {id}"), src);
+                    match s.infer(&a.value, 0, src)? {
+                        Type::String | Type::Boolean => {}
+                        Type::Maybe(inner) if *inner == Type::String => {}
+                        other => {
+                            return err(
+                                "E_IR",
+                                format!("Attribute {} cannot be {}", a.name, other.name()),
+                                src,
+                            );
+                        }
                     }
                 }
-            }
-            for prop in props {
-                if prop.name != "value" || tag != "input" {
-                    return err(
-                        "E_IR",
-                        "Only the live value property of inputs is supported",
-                        src,
-                    );
+                for prop in props {
+                    if prop.name != "value" || tag != "input" {
+                        return err(
+                            "E_IR",
+                            "Only the live value property of inputs is supported",
+                            src,
+                        );
+                    }
+                    if s.infer(&prop.value, 0, src)? != Type::String {
+                        return err("E_IR", "The value property must be a string", src);
+                    }
                 }
-                if s.infer(&prop.value, 0, src)? != Type::String {
-                    return err("E_IR", "The value property must be a string", src);
+                let mut kinds = HashSet::new();
+                for l in listeners {
+                    let Some(h) = c.handlers.get(l.handler) else {
+                        return err("E_IR", "Listener refers to an unknown handler", src);
+                    };
+                    if h.event != l.event || !kinds.insert(l.event) {
+                        return err(
+                            "E_IR",
+                            "Listener and handler event kinds differ or repeat",
+                            src,
+                        );
+                    }
+                    if l.event == EventKind::Input && tag != "input" {
+                        return err("E_IR", "Input listeners require an input element", src);
+                    }
+                    if l.args.len() != h.params.len() {
+                        return err(
+                            "E_IR",
+                            "Listener arguments do not match the handler parameters",
+                            src,
+                        );
+                    }
+                    for (a, param) in l.args.iter().zip(&h.params) {
+                        s.expect(a, param.ty.clone(), 0, src)?;
+                    }
+                    self.used[l.handler] = true;
                 }
+                self.stack.push(tag);
+                self.nodes(children, src, depth)?;
+                self.stack.pop();
             }
-            let mut kinds = HashSet::new();
-            for l in listeners {
-                let Some(h) = c.handlers.get(l.handler) else {
-                    return err("E_IR", "Listener refers to an unknown handler", src);
-                };
-                if h.event != l.event || !kinds.insert(l.event) {
-                    return err(
-                        "E_IR",
-                        "Listener and handler event kinds differ or repeat",
-                        src,
-                    );
-                }
-                if l.event == EventKind::Input && tag != "input" {
-                    return err("E_IR", "Input listeners require an input element", src);
-                }
-                used[l.handler] = true;
-            }
-            stack.push(tag);
-            for n in children {
-                validate_node(p, ci, n, src, depth + 1, ids, nodes, used, stack)?;
-            }
-            stack.pop();
         }
+        Ok(())
     }
-    Ok(())
 }
