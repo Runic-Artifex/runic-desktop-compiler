@@ -185,6 +185,26 @@ impl js::ToNumber for Val {
     }
 }
 
+impl js::Own for Val {
+    fn own(self) -> Self {
+        match self {
+            Val::Array(a) => Val::Array(a.own()),
+            Val::Record(r) => Val::Record(r.own()),
+            other => other,
+        }
+    }
+}
+
+impl js::OwnFields for RecordData {
+    const PROXIED: bool = true;
+    fn own_fields(&mut self) {
+        use js::Own;
+        for f in self.fields.iter_mut() {
+            *f = f.clone().own();
+        }
+    }
+}
+
 impl js::TypeOf for Val {
     fn type_of(&self) -> &'static str {
         match self {
@@ -449,6 +469,10 @@ impl<'p> Machine<'p> {
                 let passed = props.iter().find(|(c, _, _)| *c == i);
                 let v = match passed {
                     Some((_, v, _)) => v.clone(),
+                    // Initial proxied state is proxied (props are passed as is).
+                    None if cell.tracking == Tracking::Proxied && cell.prop.is_none() => {
+                        js::Own::own(self.eval(&cell.init, &Frame::new(0))?)
+                    }
                     None => self.eval(&cell.init, &Frame::new(0))?,
                 };
                 if let Err(d) = check_domain(cell, &v) {
@@ -741,12 +765,16 @@ impl<'p> Machine<'p> {
             Place::Local { local } => f.set(*local, v),
             Place::Cell { cell } => self.set_cell(*cell, v)?,
             Place::Field { object, field } => match self.eval(object, f)? {
-                Val::Record(r) => r.borrow_mut().fields[*field] = v,
+                Val::Record(r) => {
+                    let v = js::own_into(&r, v);
+                    r.borrow_mut().fields[*field] = v
+                }
                 other => panic!("validated record, found {other:?}"),
             },
             Place::Index { array, index } => {
                 let a = self.eval(array, f)?.array();
                 let i = self.eval(index, f)?.num();
+                let v = js::own_into(&a, v);
                 js::array_ops::set(&a, i, v)?;
             }
         }
@@ -758,6 +786,11 @@ impl<'p> Machine<'p> {
             return Err(Throw::new("RunicDomainError", d.message));
         }
         let current = self.current;
+        // Proxied state stores proxies of plain objects and arrays.
+        let v = match self.comp().cells[cell].tracking {
+            Tracking::Proxied => js::Own::own(v),
+            _ => v,
+        };
         self.instances[current].cells[cell] = v.clone();
         // A bound prop forwards the write to the parent.
         if let Some(bind) = self.instances[current].binds[cell].clone() {
@@ -916,6 +949,27 @@ impl<'p> Machine<'p> {
     }
 
     fn builtin(&mut self, name: &str, a: Vec<Val>, types: &[Type], ty: &Type) -> Res<Val> {
+        // Items inserted into a proxied array become proxies.
+        let inserted = match name {
+            "array.push" | "array.unshift" => 1..usize::MAX,
+            "array.fill" => 1..2,
+            "array.splice" => 3..usize::MAX,
+            _ => 0..0,
+        };
+        let a: Vec<Val> = match (a.first(), inserted.is_empty()) {
+            (Some(Val::Array(r)), false) if r.is_owned() => a
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| {
+                    if inserted.contains(&i) {
+                        js::Own::own(v)
+                    } else {
+                        v
+                    }
+                })
+                .collect(),
+            _ => a,
+        };
         use js::array_ops as arr;
         use js::string_ops as st;
         let n = |i: usize| a[i].num();

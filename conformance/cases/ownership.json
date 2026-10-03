@@ -1,0 +1,48 @@
+{
+  "description": "Svelte $state proxies: stored raw objects get a new identity, same-handler raw writes stay visible, values read from state keep their identity, spread copies are raw",
+  "fixtures": [
+    "ownership-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "add"
+    },
+    {
+      "kind": "click",
+      "id": "add"
+    },
+    {
+      "kind": "click",
+      "id": "pick"
+    },
+    {
+      "kind": "click",
+      "id": "rename"
+    },
+    {
+      "kind": "click",
+      "id": "copy"
+    },
+    {
+      "kind": "click",
+      "id": "rename"
+    },
+    {
+      "kind": "click",
+      "id": "tag"
+    },
+    {
+      "kind": "click",
+      "id": "tag"
+    },
+    {
+      "kind": "click",
+      "id": "pick"
+    },
+    {
+      "kind": "click",
+      "id": "rename"
+    }
+  ]
+}

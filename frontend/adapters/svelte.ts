@@ -514,7 +514,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           name,
           type,
           init: required(type),
-          tracking: isReference(type) ? 'deep' : 'identity',
+          // Props carry the parent's proxies; mutations through them are reactive.
+          tracking: isReference(type) ? 'proxied' : 'identity',
           prop: key,
           source: sourceOf(el),
         });
@@ -617,7 +618,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           if (type === 'element') type = { maybe: 'element' };
           const tracking =
             rune === '$state'
-              ? 'deep'
+              ? // $state proxies plain objects and arrays (docs/design/M3-COMPONENTS.md).
+                'proxied'
               : rune === '$state.raw'
                 ? 'identity'
                 : isConst

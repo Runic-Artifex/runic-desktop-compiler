@@ -299,17 +299,33 @@ fn array(cx: &FnCtx, m: &str, t: &[String], types: &[Type]) -> String {
     let a = &t[0];
     let ar = "js::array_ops";
     let opt = |i: usize| opt_num(t.get(i));
-    let rest = |from: usize| format!("vec![{}]", t.get(from..).unwrap_or(&[]).join(", "));
+    // Items inserted into a proxied array become proxies.
+    let owned_rest = |from: usize| {
+        format!(
+            "vec![{}]",
+            t.get(from..)
+                .unwrap_or(&[])
+                .iter()
+                .map(|x| format!("js::own_into(&{a}, {x})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     match m {
         "length" => format!("{ar}::length(&{a})"),
         "get" => format!("{ar}::get(&{a}, {})", t[1]),
         "at" => format!("{ar}::at(&{a}, {})", t[1]),
-        "push" => format!("{ar}::push(&{a}, {})", rest(1)),
-        "unshift" => format!("{ar}::unshift(&{a}, {})", rest(1)),
+        "push" => format!("{ar}::push(&{a}, {})", owned_rest(1)),
+        "unshift" => format!("{ar}::unshift(&{a}, {})", owned_rest(1)),
         "pop" => format!("{ar}::pop(&{a})"),
         "shift" => format!("{ar}::shift(&{a})"),
         "slice" => format!("{ar}::slice(&{a}, {}, {})", opt(1), opt(2)),
-        "splice" => format!("{ar}::splice(&{a}, {}, {}, {})", t[1], opt(2), rest(3)),
+        "splice" => format!(
+            "{ar}::splice(&{a}, {}, {}, {})",
+            t[1],
+            opt(2),
+            owned_rest(3)
+        ),
         "concat" => {
             let args: Vec<String> = t[1..]
                 .iter()
@@ -380,7 +396,12 @@ fn array(cx: &FnCtx, m: &str, t: &[String], types: &[Type]) -> String {
             }
         }
         "with" => cx.q(&format!("{ar}::with(&{a}, {}, {})", t[1], t[2])),
-        "fill" => format!("{ar}::fill(&{a}, {}, {}, {})", t[1], opt(2), opt(3)),
+        "fill" => format!(
+            "{ar}::fill(&{a}, js::own_into(&{a}, {}), {}, {})",
+            t[1],
+            opt(2),
+            opt(3)
+        ),
         "flat" => format!("{ar}::flat(&{a})"),
         other => unreachable!("validated array method {other}"),
     }

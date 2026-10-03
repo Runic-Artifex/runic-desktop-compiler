@@ -82,3 +82,11 @@ impl<T> Default for SetData<T> {
 
 pub type JsMap<K, V> = JsRef<MapData<K, V>>;
 pub type JsSet<T> = JsRef<SetData<T>>;
+
+// Maps and sets are never proxied (Svelte requires SvelteMap/SvelteSet).
+impl<K, V> crate::OwnFields for MapData<K, V> {
+    const PROXIED: bool = false;
+}
+impl<T> crate::OwnFields for SetData<T> {
+    const PROXIED: bool = false;
+}

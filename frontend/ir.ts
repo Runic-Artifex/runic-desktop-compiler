@@ -142,7 +142,7 @@ export interface Cell {
   name: string;
   type: Type;
   init: Expr;
-  tracking?: 'deep' | 'identity' | 'none';
+  tracking?: 'deep' | 'identity' | 'none' | 'proxied';
   domain?: { kind: 'text'; maxUtf16: number };
   /** The prop this cell receives from its parent (`init` is the default). */
   prop?: string;

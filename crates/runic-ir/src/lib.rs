@@ -367,6 +367,10 @@ pub enum Tracking {
     Deep,
     /// Never dirty: a plain variable whose changes do not update the UI.
     None,
+    /// Svelte `$state`: stored plain objects and arrays become proxies (a new
+    /// identity over the same storage), and only mutations through proxies
+    /// make the cell dirty.
+    Proxied,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

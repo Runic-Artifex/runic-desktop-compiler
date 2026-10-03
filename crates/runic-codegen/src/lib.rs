@@ -1037,11 +1037,15 @@ fn records(p: &Program) -> String {
             .enumerate()
             .map(|(i, f)| format!("f{i}: {}, ", default_value(&f.ty, p)))
             .collect();
+        let owns: String = (0..rec.fields.len())
+            .map(|i| format!("self.f{i} = js::Own::own(self.f{i}.clone()); "))
+            .collect();
         let _ = writeln!(
             out,
             "/// {}\n#[derive(Clone)]\npub struct R{r} {{ {fields}}}\n\
              impl Default for R{r} {{ fn default() -> Self {{ R{r} {{ {defaults}}} }} }}\n\
              impl js::HeapToString for R{r} {{ fn heap_to_string(&self) -> JsString {{ JsString::from(\"[object Object]\") }} }}\n\
+             impl js::OwnFields for R{r} {{ const PROXIED: bool = true; fn own_fields(&mut self) {{ {owns}}} }}\n\
              impl std::fmt::Debug for R{r} {{ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{ f.write_str({}) }} }}",
             rec.name.replace('\n', " "),
             rust_str(&rec.name)
@@ -1229,7 +1233,13 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
             ),
             None => String::new(),
         };
-        let assign = format!("{{ let v = {v}; {check}inst.borrow_mut().c.c{i} = v; }}");
+        // Initial proxied state is proxied (props are passed as is).
+        let own = if cell.tracking == Tracking::Proxied && cell.prop.is_none() {
+            "let v = js::Own::own(v); "
+        } else {
+            ""
+        };
+        let assign = format!("{{ let v = {v}; {check}{own}inst.borrow_mut().c.c{i} = v; }}");
         if cell.prop.is_some() {
             let _ = writeln!(init, "if inst.borrow().p{i}.is_none() {assign}");
         } else {
@@ -1245,6 +1255,7 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
             match cell.tracking {
                 Tracking::None => "false, ".to_string(),
                 Tracking::Deep if cell.ty.is_reference() => format!("(!{same} || deep), "),
+                Tracking::Proxied if cell.ty.is_reference() => format!("(!{same} || owned), "),
                 _ => format!("!{same}, "),
             }
         })
@@ -1259,7 +1270,7 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
         out,
         "#[allow(unused_variables)]\nfn init_i{k}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n{init}let mut st = inst.borrow_mut(); st.snap = st.c.clone(); st.before = st.c.clone();\nOk(())\n}}\n\
          fn begin_i{k}(st: &mut St{k}) {{ st.before = st.c.clone(); st.snap = st.c.clone(); }}\n\
-         #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.snap = st.c.clone(); }}\n\
+         #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, owned: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.snap = st.c.clone(); }}\n\
          #[allow(unused_variables)]\nfn cells_json_i{k}(inst: &I{k}) -> runic_runtime::Json {{ let st = inst.borrow(); runic_runtime::Json::Array(vec![{cells_json}]) }}\n"
     );
 }
@@ -1415,7 +1426,7 @@ pub fn generate(
     let begin = each_live("begin_i{k}(&mut i.borrow_mut());");
     let rollback = each_live("let mut st = i.borrow_mut(); st.c = st.before.clone();");
     let end = each_live(&format!(
-        "end_i{{k}}(&mut i.borrow_mut(), deep, {});",
+        "end_i{{k}}(&mut i.borrow_mut(), deep, owned, {});",
         options.optimize
     ));
     let container: String = p
@@ -1450,10 +1461,12 @@ pub fn generate(
          {begin}\
          self.cx.payload = payload.map(JsString::from);\n\
          let epoch = js::mutation_epoch();\n\
+         let owned_epoch = js::owned_epoch();\n\
          let result = l(&mut self.cx);\n\
          self.cx.payload = None;\n\
          if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{ {rollback} }} }}\n\
          let deep = js::mutation_epoch() != epoch;\n\
+         let owned = js::owned_epoch() != owned_epoch;\n\
          {end}\
          if let Some((parent, s)) = self.root.as_mut() {{\n\
          if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\

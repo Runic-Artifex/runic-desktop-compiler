@@ -124,13 +124,20 @@ impl<'a> FnCtx<'a> {
         let prop = self
             .component
             .is_some_and(|c| self.p.components[c].cells[cell].prop.is_some());
+        // Proxied state stores proxies of plain objects and arrays.
+        let own = match self.component {
+            Some(c) if self.p.components[c].cells[cell].tracking == Tracking::Proxied => {
+                "let v = js::Own::own(v); "
+            }
+            _ => "",
+        };
         if prop {
             let call = self.q("b(cx, v)");
             format!(
-                "{check}inst.borrow_mut().c.c{cell} = v.clone(); let b = {{ let b = inst.borrow().b{cell}.clone(); b }}; if let Some(b) = b {{ {call}; }} "
+                "{check}{own}inst.borrow_mut().c.c{cell} = v.clone(); let b = {{ let b = inst.borrow().b{cell}.clone(); b }}; if let Some(b) = b {{ {call}; }} "
             )
         } else {
-            format!("{check}inst.borrow_mut().c.c{cell} = v; ")
+            format!("{check}{own}inst.borrow_mut().c.c{cell} = v; ")
         }
     }
 
@@ -510,7 +517,7 @@ impl<'a> FnCtx<'a> {
                     let v = self.expr(value);
                     let _ = writeln!(
                         out,
-                        "{{ let o = {o}; let v = {v}; o.borrow_mut().f{field} = v; }}"
+                        "{{ let o = {o}; let v = {v}; let v = js::own_into(&o, v); o.borrow_mut().f{field} = v; }}"
                     );
                 }
                 Place::Index { array, index } => {
@@ -518,7 +525,10 @@ impl<'a> FnCtx<'a> {
                     let i = self.expr(index);
                     let v = self.expr(value);
                     let set = self.q("js::array_ops::set(&a, i, v)");
-                    let _ = writeln!(out, "{{ let a = {a}; let i = {i}; let v = {v}; {set}; }}");
+                    let _ = writeln!(
+                        out,
+                        "{{ let a = {a}; let i = {i}; let v = {v}; let v = js::own_into(&a, v); {set}; }}"
+                    );
                 }
             },
             Stmt::Expr { value, .. } => {
