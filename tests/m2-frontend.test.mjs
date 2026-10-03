@@ -303,3 +303,38 @@ test('async functions: awaits, returned promises, loops, try/catch and rejection
     'sync x1 i0 caught boom y2 i1 g done fails late add3 chain5 i3 loop38',
   ]);
 });
+
+test('templates cannot read values that change without notifying the framework', async () => {
+  const markup = (expr, handler) =>
+    `<button id="go" onclick={${handler}}>go</button><p id="out">{${expr}}</p>`;
+  // A plain let written later.
+  await rejects(`let n = 0;`, 'E_REACTIVITY', markup('n', '() => { n += 1; }'));
+  // Raw state mutated in place.
+  await rejects(
+    `let xs = $state.raw<number[]>([]);`,
+    'E_REACTIVITY',
+    markup('xs.length', '() => xs.push(1)'),
+  );
+  // A Map in $state mutated (Svelte does not proxy maps).
+  await rejects(
+    `let m = $state(new Map<string, number>());`,
+    'E_REACTIVITY',
+    markup('m.size', "() => m.set('a', 1)"),
+  );
+  // A local alias of raw state mutated, and an element of it.
+  await rejects(
+    `interface T { done: boolean } let ts = $state.raw<T[]>([{ done: false }]);
+     function toggle() { const first = ts[0]; first.done = !first.done; ts = ts; }`,
+    'E_REACTIVITY',
+    markup('ts[0].done', 'toggle'),
+  );
+  // Accepted: a fresh copy mutated, then assigned; a derived getter counting runs.
+  const out = await run(
+    `let xs = $state.raw<number[]>([]);
+     let runs = 0;
+     let total = $derived.by(() => { runs += 1; return xs.length; });
+     let out = $state('');
+     function go() { const next = [...xs]; next.push(1); xs = next; out = String(total); }`,
+  );
+  assert.deepEqual(out, ['', '1']);
+});

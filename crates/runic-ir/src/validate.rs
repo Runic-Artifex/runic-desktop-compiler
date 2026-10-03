@@ -823,7 +823,7 @@ pub fn validate(p: &Program) -> Result<()> {
     for ci in 0..p.components.len() {
         validate_component(p, ci, &mut nodes)?;
     }
-    Ok(())
+    untracked_template_reads(p)
 }
 
 /// Reject components that instantiate themselves without a condition or list
@@ -1402,5 +1402,552 @@ impl<'p> NodeCx<'_, 'p> {
             }
         }
         Ok(())
+    }
+}
+
+// Untracked template reads ---------------------------------------------------
+//
+// Native templates update a binding when what it reads changed. The
+// frameworks re-render a whole block or component when any of its reactive
+// state changes, so a value that changes without notifying them shows its new
+// value only when a neighbour changes. Templates must not read such values:
+// cells that are not reactive but written, reference values tracked by
+// identity but mutated in place (raw state, React state mutated against the
+// Rules of React), maps and sets in proxied state (proxies do not wrap them)
+// and mutated module objects.
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Root {
+    Cell(usize, usize),
+    Global(usize),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Origin {
+    Root(Root),
+    /// A new value (its own contents may still alias others).
+    Fresh,
+    Unknown,
+}
+
+#[derive(Default)]
+struct Mutations {
+    /// Non-reactive cells written outside their initialiser.
+    written: HashSet<(usize, usize)>,
+    /// Values mutated in place, by root.
+    roots: HashSet<Root>,
+    /// Maps and sets mutated in place, by root.
+    collections: HashSet<Root>,
+    /// Types of values mutated in place whose root is unknown.
+    types: Vec<Type>,
+}
+
+const MUTATORS: &[&str] = &[
+    "array.push",
+    "array.pop",
+    "array.shift",
+    "array.unshift",
+    "array.splice",
+    "array.sort",
+    "array.reverse",
+    "array.fill",
+    "array.copyWithin",
+    "map.set",
+    "map.delete",
+    "map.clear",
+    "set.add",
+    "set.delete",
+    "set.clear",
+];
+/// Built-ins returning a new top-level value.
+const FRESH: &[&str] = &[
+    "array.map",
+    "array.filter",
+    "array.slice",
+    "array.concat",
+    "array.flat",
+    "array.flatMap",
+    "array.toSorted",
+    "array.toReversed",
+    "array.toSpliced",
+    "array.with",
+    "Array.from",
+    "Object.keys",
+    "Object.values",
+    "Object.entries",
+    "map.keys",
+    "map.values",
+    "map.entries",
+    "set.values",
+    "Map.new",
+    "Set.new",
+    "structuredClone",
+    "JSON.parse",
+    "string.split",
+];
+/// Built-ins returning an element of their receiver.
+const ELEMENT: &[&str] = &[
+    "array.find",
+    "array.findLast",
+    "array.at",
+    "array.pop",
+    "array.shift",
+    "map.get",
+];
+
+struct Origins<'a> {
+    p: &'a Program,
+    scope: Scope<'a>,
+    locals: Vec<Origin>,
+    out: &'a mut Mutations,
+}
+
+impl Origins<'_> {
+    fn origin(&self, e: &Expr) -> Origin {
+        let element = |o: Origin| match o {
+            Origin::Root(r) => Origin::Root(r),
+            _ => Origin::Unknown,
+        };
+        match e {
+            Expr::Cell { cell, .. } => match self.scope.component {
+                Some(k) => Origin::Root(Root::Cell(k, *cell)),
+                None => Origin::Unknown,
+            },
+            Expr::Global { global } => Origin::Root(Root::Global(*global)),
+            Expr::Local { local } => self.locals.get(*local).copied().unwrap_or(Origin::Unknown),
+            Expr::Get { object, .. } => element(self.origin(object)),
+            Expr::Index { array, .. } => element(self.origin(array)),
+            Expr::Unwrap { value } | Expr::Some { value } => self.origin(value),
+            Expr::Array { .. } | Expr::Record { .. } | Expr::Closure { .. } => Origin::Fresh,
+            Expr::Builtin { name, args, .. } if FRESH.contains(&name.as_str()) => {
+                let _ = args;
+                Origin::Fresh
+            }
+            Expr::Builtin { name, args, .. } if ELEMENT.contains(&name.as_str()) => {
+                element(args.first().map_or(Origin::Unknown, |a| self.origin(a)))
+            }
+            Expr::Lit { .. } | Expr::Undefined { .. } | Expr::Null { .. } => Origin::Fresh,
+            _ => Origin::Unknown,
+        }
+    }
+
+    fn mutated(&mut self, e: &Expr, collection: bool) {
+        match self.origin(e) {
+            Origin::Root(r) => {
+                self.out.roots.insert(r);
+                if collection {
+                    self.out.collections.insert(r);
+                }
+            }
+            Origin::Fresh => {}
+            Origin::Unknown => {
+                if let Ok(t) = self.scope.infer(e, 0, None) {
+                    self.out.types.push(t);
+                }
+            }
+        }
+    }
+
+    fn expr(&mut self, e: &Expr) {
+        if let Expr::Builtin { name, args, .. } = e {
+            if MUTATORS.contains(&name.as_str()) {
+                if let Some(receiver) = args.first() {
+                    self.mutated(
+                        receiver,
+                        name.starts_with("map.") || name.starts_with("set."),
+                    );
+                }
+            }
+        }
+        if let Expr::With { local, value, .. } | Expr::Optional { local, value, .. } = e {
+            let o = self.origin(value);
+            self.bind(*local, o);
+        }
+        for c in e.children() {
+            self.expr(c);
+        }
+    }
+
+    fn bind(&mut self, local: usize, o: Origin) {
+        if self.locals.len() <= local {
+            self.locals.resize(local + 1, Origin::Unknown);
+        }
+        // Several sources: unknown.
+        self.locals[local] = match self.locals[local] {
+            Origin::Unknown => o,
+            prev if prev == o => o,
+            _ => Origin::Unknown,
+        };
+    }
+
+    fn block(&mut self, body: &[Stmt]) {
+        for s in body {
+            self.stmt(s);
+        }
+    }
+
+    fn stmt(&mut self, s: &Stmt) {
+        match s {
+            Stmt::Set { cell, value, .. } => {
+                self.expr(value);
+                self.written(*cell);
+            }
+            Stmt::Let { local, value, .. } => {
+                if let Some(v) = value {
+                    self.expr(v);
+                    let o = self.origin(v);
+                    self.bind(*local, o);
+                }
+            }
+            Stmt::Assign { target, value, .. } => {
+                self.expr(value);
+                match target {
+                    Place::Local { local } => {
+                        let o = self.origin(value);
+                        self.bind(*local, o);
+                    }
+                    Place::Cell { cell } => self.written(*cell),
+                    Place::Field { object, .. } => {
+                        self.expr(object);
+                        self.mutated(object, false);
+                    }
+                    Place::Index { array, index } => {
+                        self.expr(array);
+                        self.expr(index);
+                        self.mutated(array, false);
+                    }
+                }
+            }
+            Stmt::Expr { value, .. } | Stmt::Throw { value, .. } => self.expr(value),
+            Stmt::Return { value, .. } => {
+                if let Some(v) = value {
+                    self.expr(v);
+                }
+            }
+            Stmt::If {
+                test,
+                then,
+                otherwise,
+                ..
+            } => {
+                self.expr(test);
+                self.block(then);
+                self.block(otherwise);
+            }
+            Stmt::While {
+                test, body, update, ..
+            } => {
+                self.expr(test);
+                self.block(body);
+                self.block(update);
+            }
+            Stmt::ForOf {
+                local,
+                iterable,
+                body,
+                ..
+            } => {
+                self.expr(iterable);
+                let o = match self.origin(iterable) {
+                    Origin::Root(r) => Origin::Root(r),
+                    _ => Origin::Unknown,
+                };
+                self.bind(*local, o);
+                self.block(body);
+            }
+            Stmt::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                self.block(body);
+                if let Some(c) = catch {
+                    self.block(&c.body);
+                }
+                if let Some(f) = finally {
+                    self.block(f);
+                }
+            }
+            Stmt::Break { .. } | Stmt::Continue { .. } => {}
+        }
+    }
+
+    fn written(&mut self, cell: usize) {
+        if let Some(k) = self.scope.component {
+            if self.p.components[k].cells[cell].tracking == Tracking::None {
+                self.out.written.insert((k, cell));
+            }
+        }
+    }
+}
+
+/// Whether a value of type `outer` can hold a value of type `inner`.
+fn holds(p: &Program, outer: &Type, inner: &Type, seen: &mut HashSet<usize>) -> bool {
+    if outer == inner {
+        return true;
+    }
+    match outer {
+        Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
+            holds(p, t, inner, seen)
+        }
+        Type::Map(k, v) => holds(p, k, inner, seen) || holds(p, v, inner, seen),
+        Type::Record(r) => {
+            seen.insert(*r)
+                && p.records[*r]
+                    .fields
+                    .iter()
+                    .any(|f| holds(p, &f.ty, inner, seen))
+        }
+        _ => false,
+    }
+}
+
+fn untracked_template_reads(p: &Program) -> Result<()> {
+    let mut m = Mutations::default();
+    for f in &p.functions {
+        let mut scope = Scope::new(p, f.component);
+        scope.locals = f
+            .captures
+            .iter()
+            .chain(&f.params)
+            .chain(&f.locals)
+            .cloned()
+            .collect();
+        let mut o = Origins {
+            p,
+            scope,
+            locals: vec![],
+            out: &mut m,
+        };
+        o.block(&f.body);
+    }
+    for (k, c) in p.components.iter().enumerate() {
+        for h in &c.handlers {
+            let mut scope = Scope::new(p, Some(k));
+            scope.locals = h.params.iter().chain(&h.locals).cloned().collect();
+            scope.payload = h.event.payload();
+            let mut o = Origins {
+                p,
+                scope,
+                locals: vec![],
+                out: &mut m,
+            };
+            o.block(&h.body);
+        }
+    }
+    let changes = |root: Root| -> Option<String> {
+        let (ty, name, tracking) = match root {
+            Root::Cell(k, cell) => {
+                let c = &p.components[k].cells[cell];
+                (&c.ty, c.name.clone(), c.tracking)
+            }
+            Root::Global(g) => (
+                &p.globals[g].ty,
+                p.globals[g].name.clone(),
+                Tracking::Identity,
+            ),
+        };
+        let mutated_type = |collections: bool| {
+            m.types.iter().any(|t| {
+                (!collections || matches!(t, Type::Map(..) | Type::Set(_)))
+                    && t.is_reference()
+                    && holds(p, ty, t, &mut HashSet::new())
+            })
+        };
+        match tracking {
+            Tracking::None if matches!(root, Root::Cell(..)) => {
+                let Root::Cell(k, cell) = root else { unreachable!() };
+                if m.written.contains(&(k, cell)) {
+                    return Some(format!(
+                        "{name} changes but is not reactive state; declare it as state (the frameworks would show its new value only when other state changes)"
+                    ));
+                }
+                (ty.is_reference() && (m.roots.contains(&root) || mutated_type(false))).then(|| {
+                    format!("{name} is mutated in place but is not reactive state; declare it as state")
+                })
+            }
+            Tracking::None | Tracking::Identity => (ty.is_reference()
+                && (m.roots.contains(&root) || mutated_type(false)))
+            .then(|| match root {
+                Root::Global(_) => format!(
+                    "Module value {name} is mutated and read while rendering; module state is not reactive (keep it in component state)"
+                ),
+                Root::Cell(..) => format!(
+                    "{name} is mutated in place, which does not update the view (Svelte: use $state, not $state.raw; React: set a new value instead of mutating state)"
+                ),
+            }),
+            Tracking::Proxied => (m.collections.contains(&root) || mutated_type(true)).then(|| {
+                format!(
+                    "{name} holds a Map or Set that is mutated; Svelte state does not track Map and Set mutations (SvelteMap and SvelteSet are planned for M6; or assign a new Map/Set)"
+                )
+            }),
+            Tracking::Deep => None,
+        }
+    };
+    for (k, c) in p.components.iter().enumerate() {
+        let mut err = None;
+        visit_template(p, k, &c.template, None, &mut |root, src| {
+            if err.is_none() {
+                if let Some(msg) = changes(root) {
+                    err = Some(Diagnostic::new("E_REACTIVITY", msg, src));
+                }
+            }
+        });
+        if let Some(d) = err {
+            return Err(d);
+        }
+    }
+    Ok(())
+}
+
+/// The roots read while rendering `nodes` of component `k` (through the
+/// functions they call), with the source of the reading node.
+fn visit_template(
+    p: &Program,
+    k: usize,
+    nodes: &[Node],
+    parent: Option<&Source>,
+    f: &mut dyn FnMut(Root, Option<&Source>),
+) {
+    for n in nodes {
+        let src = match n {
+            Node::Element { source, .. }
+            | Node::Text { source, .. }
+            | Node::If { source, .. }
+            | Node::Component { source, .. }
+            | Node::Slot { source, .. }
+            | Node::Each { source, .. } => source.as_ref().or(parent),
+        };
+        let mut exprs: Vec<&Expr> = vec![];
+        match n {
+            Node::Element {
+                attrs,
+                props,
+                children,
+                ..
+            } => {
+                exprs.extend(attrs.iter().chain(props).map(|a| &a.value));
+                visit_template(p, k, children, src, f);
+            }
+            Node::Text { parts, .. } => exprs.extend(parts),
+            Node::If {
+                test,
+                then,
+                otherwise,
+                ..
+            } => {
+                exprs.push(test);
+                visit_template(p, k, then, src, f);
+                visit_template(p, k, otherwise, src, f);
+            }
+            Node::Component { props, slots, .. } => {
+                exprs.extend(props.iter().map(|a| &a.value));
+                for s in slots {
+                    visit_template(p, k, &s.body, src, f);
+                }
+            }
+            Node::Slot { args, fallback, .. } => {
+                exprs.extend(args);
+                visit_template(p, k, fallback, src, f);
+            }
+            Node::Each {
+                items,
+                key,
+                body,
+                otherwise,
+                ..
+            } => {
+                exprs.push(items);
+                exprs.extend(key.as_ref());
+                visit_template(p, k, body, src, f);
+                visit_template(p, k, otherwise, src, f);
+            }
+        }
+        let mut seen = HashSet::new();
+        for e in exprs {
+            reads(p, Some(k), e, &mut seen, &mut |r| f(r, src));
+        }
+    }
+}
+
+/// Cells and globals `e` reads, through called functions.
+fn reads(
+    p: &Program,
+    k: Option<usize>,
+    e: &Expr,
+    seen: &mut HashSet<usize>,
+    f: &mut dyn FnMut(Root),
+) {
+    match e {
+        Expr::Cell { cell, .. } => {
+            if let Some(k) = k {
+                f(Root::Cell(k, *cell));
+            }
+        }
+        Expr::Global { global } => f(Root::Global(*global)),
+        // A derived value is cached on its tracked dependencies, natively as
+        // in the frameworks: what its getter reads otherwise does not show.
+        Expr::Call { function, .. } if p.functions[*function].derived => {}
+        Expr::Call { function, .. } => {
+            if seen.insert(*function) {
+                let func = &p.functions[*function];
+                let mut body_exprs = vec![];
+                collect_exprs(&func.body, &mut body_exprs);
+                for x in body_exprs {
+                    reads(p, func.component, x, seen, f);
+                }
+            }
+        }
+        _ => {}
+    }
+    for c in e.children() {
+        reads(p, k, c, seen, f);
+    }
+}
+
+fn collect_exprs<'a>(body: &'a [Stmt], out: &mut Vec<&'a Expr>) {
+    for s in body {
+        match s {
+            Stmt::Set { value, .. } | Stmt::Expr { value, .. } | Stmt::Throw { value, .. } => {
+                out.push(value)
+            }
+            Stmt::Let { value, .. } | Stmt::Return { value, .. } => out.extend(value.as_ref()),
+            Stmt::Assign { value, .. } => out.push(value),
+            Stmt::If {
+                test,
+                then,
+                otherwise,
+                ..
+            } => {
+                out.push(test);
+                collect_exprs(then, out);
+                collect_exprs(otherwise, out);
+            }
+            Stmt::While {
+                test, body, update, ..
+            } => {
+                out.push(test);
+                collect_exprs(body, out);
+                collect_exprs(update, out);
+            }
+            Stmt::ForOf { iterable, body, .. } => {
+                out.push(iterable);
+                collect_exprs(body, out);
+            }
+            Stmt::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                collect_exprs(body, out);
+                if let Some(c) = catch {
+                    collect_exprs(&c.body, out);
+                }
+                if let Some(f) = finally {
+                    collect_exprs(f, out);
+                }
+            }
+            Stmt::Break { .. } | Stmt::Continue { .. } => {}
+        }
     }
 }

@@ -1868,3 +1868,13 @@ export function App() { const [show, setShow] = useState(true); return ${templat
       },
     );
 });
+
+test('React state mutated in place is rejected where it is rendered', async () => {
+  await react(
+    `function App() {
+       const [items, setItems] = useState([1]);
+       return <main><p id="n">{items.length}</p><button id="add" onClick={() => { items.push(2); setItems(items); }}>add</button></main>;
+     }`,
+    root => assert.rejects(collect(root).then(lower), failWith('E_REACTIVITY', 'main.jsx')),
+  );
+});
