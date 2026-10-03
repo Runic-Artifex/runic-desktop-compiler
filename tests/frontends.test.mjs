@@ -1181,25 +1181,6 @@ test('Vue rejects uncovered checkbox, key and slot behaviour with locations', as
     );
 });
 
-// The refs case (conformance/cases/refs.json) as interpreter actions: typing
-// into the focused field becomes input events (the snapshot has no focus).
-const refActions = [
-  { kind: 'click', id: 'focus' },
-  { kind: 'input', id: 'field', value: 'abc' },
-  { kind: 'keydown', id: 'field', key: 'Escape' },
-  { kind: 'input', id: 'field', value: 'abcx' },
-  { kind: 'click', id: 'check' },
-  { kind: 'click', id: 'focus-details' },
-  { kind: 'keydown', id: 'details', key: 'Enter' },
-  { kind: 'click', id: 'toggle' },
-  { kind: 'click', id: 'check' },
-  { kind: 'click', id: 'focus-details' },
-  { kind: 'click', id: 'toggle' },
-  { kind: 'click', id: 'check' },
-  { kind: 'click', id: 'focus' },
-  { kind: 'input', id: 'field', value: 'abcx!' },
-];
-
 /** `edit` with several replacements in one file. */
 async function edits(name, file, pairs) {
   let g = await graph(name);
