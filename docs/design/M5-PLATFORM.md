@@ -29,10 +29,36 @@ The props a parent passes are known at each call site, so the rest of them is to
 
 ## Events
 
-- **Event objects.** Handlers may read `event.target`/`currentTarget` (value, checked), `key`, modifier keys, pointer coordinates and `button`, and call `preventDefault()`/`stopPropagation()`. The IR event payload becomes a record per event kind; `preventDefault` affects the runtime's default action (activation, text input), `stopPropagation` ends bubbling.
-- **Kinds:** `focus`/`blur` (no bubbling) and `focusin`/`focusout`, `dblclick`, `pointerdown/up/move/enter/leave` and the mouse equivalents, `wheel`, `scroll`, `input`/`change` on all controls, `submit`.
-- **Window and document targets:** `<svelte:window>`, `<svelte:document>`, `window.addEventListener`/`removeEventListener` (Vue and React through effects) for `keydown` shortcuts, `resize` and `pointerdown` outside popovers.
-- **Delivery:** the order of listeners per element and per phase follows the DOM (capture, target, bubble). Svelte's delegated events and React's root listener keep their observable ordering relative to native listeners on `window`.
+Handlers in the editor's component library receive event objects as values (`onclick={(e) => …}` passed through rest props, `e.preventDefault()` in forms and menus), so M5 makes the event a value instead of a per-kind payload.
+
+**IR.**
+- `event` is an opaque type; `{ "op": "event" }` is the event a handler is running for (closures capture it like any value).
+- Built-ins read it:
+  - `event.type`;
+  - keyboard: `key`, `code`, `ctrlKey`/`shiftKey`/`altKey`/`metaKey`, `repeat`;
+  - pointer and mouse: `clientX`/`clientY`, `button`/`buttons`;
+  - wheel: `deltaX`/`deltaY`;
+  - the target control: `value`, `checked`;
+  - `target`/`currentTarget` as `element` handles, `defaultPrevented`.
+- `event.preventDefault()`, `event.stopPropagation()` and `event.stopImmediatePropagation()` set its flags.
+- `payload` stays as a shorthand for the old per-kind values.
+
+**Kinds.**
+- The existing `click`, `input`, `change` and `keydown`.
+- `keyup`, `dblclick`, `contextmenu`, `focus`/`blur` (not bubbling) and `focusin`/`focusout`.
+- `pointerdown`/`up`/`move`/`enter`/`leave`, `mousedown`/`up`/`move`/`enter`/`leave`.
+- `wheel` and `scroll`.
+
+The runtime takes them from Blitz's event stream; probes and the browser harness gain the matching actions (double click, hover, wheel, key up).
+
+**Dispatch.**
+- Listeners run in DOM order: target first, then bubbling. `stopPropagation` ends the walk after the current element's listener.
+- After dispatch the runtime skips the default actions of a cancelled event:
+  - a checkbox toggle (reverted, as Chromium reverts it);
+  - button activation by Enter/Space;
+  - text insertion by `keydown`;
+  - focus moving on `mousedown` (the menu and popover pattern).
+- Window and document listeners (`<svelte:window>`, `<svelte:document>`, `window.addEventListener`) see an event after the root (bubbling) and before default actions.
 
 ## Forms
 
@@ -61,8 +87,8 @@ A capability interface in `runic-runtime` (one module per service, each with a p
 
 ## Work order
 
-1. Rest props and spread attributes, `class:`/`style:` directives, component refs (`bind:this` on components through `$bindable` refs).
-2. Event objects and event kinds; window and document listeners.
+1. Event objects, event kinds and default-action cancellation; window and document listeners.
+2. Rest props and spread attributes (listeners included), `class:`/`style:` directives, component refs (`bind:this` on components through `$bindable` refs).
 3. `textarea`, `select`, radio buttons.
 4. Document element, `matchMedia`, layout reads and scrolling.
 5. Services: console, clipboard, history, `Date`/`Intl`, `RegExp`, randomness.
