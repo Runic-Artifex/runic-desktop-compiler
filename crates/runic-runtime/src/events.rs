@@ -33,6 +33,7 @@ impl<A: App> Document for Native<A> {
         DocGuardMut::Ref(&mut self.doc)
     }
     fn handle_ui_event(&mut self, event: UiEvent) {
+        self.listeners.settle(&mut self.doc);
         let handler = Handler {
             app: &mut self.app,
             listeners: &mut self.listeners,
@@ -237,6 +238,10 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 match next {
                     Some(n) => {
                         doc.set_focus_to(n);
+                        // Keyboard focus selects the content of text fields (Chromium).
+                        if controls::has_editor(doc, n) {
+                            doc.with_text_input(n, |mut editor| editor.select_all());
+                        }
                     }
                     None => doc.clear_focus(),
                 }

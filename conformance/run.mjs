@@ -57,7 +57,7 @@ try {
     const viewports = (c.viewports ?? [[800, 600], [420, 600]]).map(([width, height]) => ({ width, height }));
     const actions = expand(c.actions);
     for (const fixture of c.fixtures) {
-      const dir = path.join(repo, 'fixtures', fixture);
+      const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
       if (!binaries.has(fixture)) binaries.set(fixture, await buildProbe(dir, { release: values.release, noOpt: values['no-opt'] }));
       const { binary, ir } = binaries.get(fixture);
       for (const viewport of viewports) {
@@ -91,7 +91,7 @@ try {
               (values.pixels ? `  pixels ${flag(run.passed.pixels)}` : '') +
               (run.error ? `  ERROR ${run.error.split('\n')[0]}` : ''),
           );
-        await writeFile(path.join(out, `${c.name}--${fixture}--${viewport.width}x${viewport.height}.json`), JSON.stringify(run, null, 2) + '\n');
+        await writeFile(path.join(out, `${c.name}--${path.basename(fixture)}--${viewport.width}x${viewport.height}.json`), JSON.stringify(run, null, 2) + '\n');
       }
     }
   }

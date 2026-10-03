@@ -620,9 +620,16 @@ fn records(p: &Program) -> String {
                 )
             })
             .collect();
+        let probes: String = rec
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| format!("{}, ", probe_json(&f.ty, &format!("b.f{i}"))))
+            .collect();
         let _ = writeln!(
             out,
-            "#[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n"
+            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let b = v.borrow(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
+             #[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n"
         );
     }
     out
@@ -647,12 +654,16 @@ fn probe_json(t: &Type, v: &str) -> String {
             "runic_runtime::Json::Array({v}.borrow().iter().map(|x| {}).collect())",
             probe_json(i, "(*x)")
         ),
-        Type::Record(_) => {
-            format!("{{ let _ = &{v}; runic_runtime::Json::String(\"record\".into()) }}")
-        }
-        Type::Map(..) | Type::Set(_) => {
-            format!("{{ let _ = &{v}; runic_runtime::Json::String(\"collection\".into()) }}")
-        }
+        Type::Record(r) => format!("probe_r{r}(&{v})"),
+        Type::Map(k, x) => format!(
+            "runic_runtime::Json::Array({v}.borrow().entries.values().map(|(k, x)| runic_runtime::Json::Array(vec![{}, {}])).collect())",
+            probe_json(k, "(*k)"),
+            probe_json(x, "(*x)")
+        ),
+        Type::Set(i) => format!(
+            "runic_runtime::Json::Array({v}.borrow().entries.values().map(|x| {}).collect())",
+            probe_json(i, "(*x)")
+        ),
         Type::Fn(_) => {
             format!("{{ let _ = &{v}; runic_runtime::Json::String(\"function\".into()) }}")
         }
@@ -688,6 +699,7 @@ pub fn generate(
          use runic_runtime::js::{{JsArray, JsMap, JsRef, JsResult, JsSet, JsString, Maybe}};\n\
          use std::cell::RefCell;\n\
          use std::rc::Rc;\n\
+         #[allow(unused_macros)]\n\
          macro_rules! tri {{ ($e:expr, $l:lifetime) => {{ match $e {{ Ok(v) => v, Err(e) => break $l Err(e) }} }}; }}\n"
     );
     out.push_str(&records(p));

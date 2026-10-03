@@ -33,11 +33,11 @@ const [command, app] = positionals;
 export async function buildApp(app, options = {}) {
   const graph = await collect(app),
     { ir } = await lower(graph, { registry: !options.noMappings });
-  if (!ir.assets.some(a => a.mime === 'font/woff2'))
+  if (!(ir.assets ?? ir.styles.assets).some(a => a.mime === 'font/woff2'))
     throw new Diagnostic(
       'E_FONT',
       'Native builds require a local bundled WOFF2 font referenced by CSS; system font fallback is outside the contract',
-      ir.ui.source,
+      ir.ui?.source,
     );
   const out = path.resolve(
     options.out ?? `artifacts/${path.basename(graph.root)}${options.noOpt ? '-no-opt' : ''}`,
@@ -207,7 +207,8 @@ async function main() {
     const { ir } = await lower(graph, { registry: !values['no-mappings'] });
     const out = values.out ?? `artifacts/analysis/${path.basename(graph.root)}/ir.json`;
     await mkdir(path.dirname(out), { recursive: true });
-    await writeFile(out, JSON.stringify(ir, null, 2) + '\n');
+    const { irHash, ...schema4 } = ir;
+    await writeFile(out, JSON.stringify(ir.schema === 4 ? schema4 : ir, null, 2) + '\n');
     console.log(
       JSON.stringify(
         values.json

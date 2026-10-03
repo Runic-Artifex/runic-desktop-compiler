@@ -4,8 +4,12 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 let [file, filter = ''] = process.argv.slice(2);
 if (!file) {
-  const dirs = (await readdir('artifacts/conformance')).sort();
-  file = path.join('artifacts/conformance', dirs.at(-1), 'report.json');
+  const { existsSync, statSync } = await import('node:fs');
+  const dirs = (await readdir('artifacts/conformance'))
+    .map(d => path.join('artifacts/conformance', d, 'report.json'))
+    .filter(f => existsSync(f))
+    .sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs);
+  file = dirs.at(-1);
 }
 const { runs } = JSON.parse(await readFile(file, 'utf8'));
 for (const r of runs) {

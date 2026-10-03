@@ -1,0 +1,23 @@
+{
+  "description": "Ledger (M2): records, arrays, Map, string methods, derived values, deep $state mutation",
+  "fixtures": ["examples/ledger-svelte"],
+  "actions": [
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "pay" },
+    { "kind": "focus", "id": "draft" },
+    { "kind": "type", "text": "  milk" },
+    { "kind": "click", "id": "add-draft" },
+    { "kind": "click", "id": "pay" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "remove" },
+    { "kind": "click", "id": "pay" },
+    { "kind": "click", "id": "pay" },
+    { "kind": "click", "id": "pay" },
+    { "kind": "focus", "id": "draft" },
+    { "kind": "type", "text": "ünïcode café" },
+    { "kind": "click", "id": "add-draft" }
+  ]
+}

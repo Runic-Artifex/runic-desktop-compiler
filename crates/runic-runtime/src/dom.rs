@@ -14,9 +14,26 @@ pub enum Event {
 #[derive(Default)]
 pub(crate) struct Listeners {
     map: HashMap<NodeId, Vec<(Event, u32)>>,
+    /// Inputs whose value was set by script before their editor existed: the
+    /// caret moves to the end once the editor is created (as `input.value = v`).
+    pending_caret: Vec<NodeId>,
 }
 
 impl Listeners {
+    /// Apply pending caret moves for editors created since (call after layout).
+    pub(crate) fn settle(&mut self, doc: &mut BaseDocument) {
+        self.pending_caret.retain(|&id| {
+            if doc.get_node(id).is_none() {
+                return false;
+            }
+            if !crate::controls::has_editor(doc, id) {
+                return true;
+            }
+            doc.with_text_input(id, |mut editor| editor.move_to_text_end());
+            false
+        });
+    }
+
     pub(crate) fn get(&self, node: NodeId, event: Event) -> Option<u32> {
         self.map
             .get(&node)?
@@ -118,6 +135,7 @@ impl Dom<'_> {
             crate::controls::live_value(self.doc, node, value);
         } else {
             self.set_attr(node, "value", value);
+            self.listeners.pending_caret.push(node);
         }
     }
 }

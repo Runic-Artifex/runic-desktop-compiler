@@ -37,7 +37,7 @@ function rng(seed) {
   };
 }
 
-const TEXTS = ['', 'a', 'Hello', 'ünï 😀', 'x'.repeat(256), 'x'.repeat(257), 'line\nbreak', ' ', 'Jell'];
+const TEXTS = ['', 'a', 'Hello', 'ünï 😀', 'x'.repeat(256), 'x'.repeat(257), 'line\nbreak', ' ', 'Jell', '100', '-40', '1e3', ' 0x10 ', '3.25', 'NaN', '  milk'];
 
 function targets(nodes, out = { click: new Set(), input: new Set() }) {
   for (const n of nodes) {
@@ -82,11 +82,11 @@ const random = rng(Number(values.seed));
 let failures = 0;
 let steps = 0;
 for (const fixture of fixtures) {
-  const dir = path.join(repo, 'fixtures', fixture);
+  const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
   const { ir } = await lower(await collect(dir));
   const v4 = migrate(ir);
   const ids = targets(v4.components[v4.root].template);
-  const out = path.join(repo, '.cache/conformance/diff-bin', fixture + (values['no-opt'] ? '-no-opt' : ''));
+  const out = path.join(repo, '.cache/conformance/diff-bin', path.basename(fixture) + (values['no-opt'] ? '-no-opt' : ''));
   await buildApp(dir, { out, probe: true, noOpt: values['no-opt'] });
   const binary = path.join(out, 'runic-app');
   const click = [...ids.click];
@@ -95,7 +95,7 @@ for (const fixture of fixtures) {
   for (let t = 0; t < Number(values.traces); t++) {
     const actions = [];
     for (let i = 0; i < Number(values.length); i++) {
-      if (input.length && random() < 0.3)
+      if (input.length && (!click.length || random() < 0.3))
         actions.push({ kind: 'input', id: input[Math.floor(random() * input.length)], value: TEXTS[Math.floor(random() * TEXTS.length)] });
       else actions.push({ kind: 'click', id: click[Math.floor(random() * click.length)] });
     }
@@ -108,7 +108,7 @@ for (const fixture of fixtures) {
       if (JSON.stringify(want) !== JSON.stringify(got)) {
         fixtureFailures++;
         if (fixtureFailures <= 3)
-          console.log(`MISMATCH ${fixture} trace ${t} step ${i} ${JSON.stringify(actions[i - 1] ?? null)}\n  interp ${JSON.stringify(want).slice(0, 600)}\n  native ${JSON.stringify(got).slice(0, 600)}`);
+          console.log(`MISMATCH ${fixture} trace ${t} step ${i} ${JSON.stringify(actions[i - 1] ?? null)}\n  interp ${JSON.stringify(want).slice(0, process.env.DIFF_FULL ? undefined : 600)}\n  native ${JSON.stringify(got).slice(0, process.env.DIFF_FULL ? undefined : 600)}`);
         break;
       }
     }

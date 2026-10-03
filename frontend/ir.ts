@@ -1,0 +1,200 @@
+// Runic IR schema 4 as TypeScript types. Mirrors crates/runic-ir/src/lib.rs;
+// the Rust validator is authoritative. See docs/IR.md and
+// docs/design/M2-VALUES.md.
+
+export const SCHEMA = 4;
+
+export interface Source {
+  file: string;
+  line: number;
+  column: number;
+}
+
+export type Type =
+  | 'number'
+  | 'string'
+  | 'boolean'
+  | { maybe: Type }
+  | { array: Type }
+  | { record: number }
+  | { map: [Type, Type] }
+  | { set: Type }
+  | { fn: { params: Type[]; result: Type } }
+  | 'void';
+
+export type Literal = boolean | number | string;
+
+export type Read = 'current' | 'snapshot';
+
+export type Expr =
+  | { op: 'lit'; value: Literal }
+  | { op: 'undefined'; type: Type }
+  | { op: 'null'; type: Type }
+  | { op: 'cell'; cell: number; read?: Read }
+  | { op: 'local'; local: number }
+  | { op: 'payload' }
+  | {
+      op:
+        | 'not'
+        | 'neg'
+        | 'to-string'
+        | 'to-number'
+        | 'to-boolean'
+        | 'utf16-length'
+        | 'typeof'
+        | 'bit-not';
+      arg: Expr;
+    }
+  | {
+      op:
+        | 'add'
+        | 'sub'
+        | 'mul'
+        | 'div'
+        | 'rem'
+        | 'pow'
+        | 'min'
+        | 'max'
+        | 'concat'
+        | 'eq'
+        | 'ne'
+        | 'lt'
+        | 'le'
+        | 'gt'
+        | 'ge'
+        | 'and'
+        | 'or'
+        | 'nullish'
+        | 'bit-and'
+        | 'bit-or'
+        | 'bit-xor'
+        | 'shl'
+        | 'shr'
+        | 'ushr';
+      left: Expr;
+      right: Expr;
+    }
+  | { op: 'cond'; test: Expr; then: Expr; else: Expr }
+  | { op: 'mapped'; rule: string; guard: Expr; fast: Expr; reference: Expr }
+  | { op: 'record'; record: number; fields: Expr[] }
+  | { op: 'array'; type: Type; items: (Expr | { spread: Expr })[] }
+  | { op: 'get'; object: Expr; field: number }
+  | { op: 'index'; array: Expr; index: Expr }
+  | { op: 'some'; value: Expr }
+  | { op: 'optional'; value: Expr; local: number; then: Expr }
+  | { op: 'call'; function: number; args: Expr[] }
+  | { op: 'call-value'; callee: Expr; args: Expr[] }
+  | { op: 'closure'; function: number; captures: number[] }
+  | { op: 'builtin'; name: string; args: Expr[]; type: Type }
+  /** Evaluate `value`, bind it to `local`, then evaluate `body` (sequencing with a temporary). */
+  | { op: 'with'; local: number; value: Expr; body: Expr }
+  /** Unwrap a Maybe; throws TypeError when nullish (`x!` then member access). */
+  | { op: 'unwrap'; value: Expr };
+
+export type Place =
+  | { place: 'local'; local: number }
+  | { place: 'cell'; cell: number }
+  | { place: 'field'; object: Expr; field: number }
+  | { place: 'index'; array: Expr; index: Expr };
+
+export type Stmt = (
+  | { op: 'set'; cell: number; value: Expr }
+  | { op: 'let'; local: number; value?: Expr }
+  | { op: 'assign'; target: Place; value: Expr }
+  | { op: 'expr'; value: Expr }
+  | { op: 'if'; test: Expr; then: Stmt[]; else?: Stmt[] }
+  | { op: 'while'; test: Expr; body: Stmt[]; update?: Stmt[]; label?: string }
+  | { op: 'for-of'; local: number; iterable: Expr; body: Stmt[]; label?: string }
+  | { op: 'break' | 'continue'; label?: string }
+  | { op: 'return'; value?: Expr }
+  | { op: 'throw'; value: Expr }
+  | { op: 'try'; body: Stmt[]; catch?: { local?: number; body: Stmt[] }; finally?: Stmt[] }
+) & { source?: Source };
+
+export interface Local {
+  name: string;
+  type: Type;
+  boxed?: boolean;
+}
+
+/** Local index space of a function: [...captures, ...params, ...locals]. */
+export interface Fn {
+  name: string;
+  /** Component whose cells the function reads and writes, if any. */
+  component?: number;
+  captures?: Local[];
+  params: Local[];
+  locals: Local[];
+  result: Type;
+  body: Stmt[];
+  source?: Source;
+}
+
+export interface RecordType {
+  name: string;
+  fields: { name: string; type: Type }[];
+}
+
+export interface Cell {
+  name: string;
+  type: Type;
+  init: Expr;
+  tracking?: 'deep' | 'identity';
+  domain?: { kind: 'text'; maxUtf16: number };
+  source?: Source;
+}
+
+export interface Handler {
+  name?: string;
+  event: 'click' | 'input';
+  locals?: Local[];
+  body: Stmt[];
+  source?: Source;
+}
+
+export interface Attr {
+  name: string;
+  value: Expr;
+}
+
+export type Node =
+  | {
+      kind: 'element';
+      tag: string;
+      attrs?: Attr[];
+      props?: Attr[];
+      listeners?: { event: 'click' | 'input'; handler: number }[];
+      children?: Node[];
+      source?: Source;
+    }
+  | { kind: 'text'; parts: Expr[]; source?: Source }
+  | { kind: 'if'; test: Expr; then: Node[]; else?: Node[]; source?: Source };
+
+export interface Component {
+  name: string;
+  cells: Cell[];
+  handlers: Handler[];
+  template: Node[];
+}
+
+export interface Program {
+  schema: 4;
+  meta: {
+    title: string;
+    sourceHash: string;
+    frontend: unknown;
+    provenance?: unknown;
+    mappings?: { id: string; version: number; sha256: string }[];
+  };
+  renderer?: 'cpu' | 'gpu';
+  capabilities: string[];
+  styles: { css: string; assets: { path: string; sha256: string; bytes: number; mime: string }[] };
+  records?: RecordType[];
+  functions?: Fn[];
+  components: Component[];
+  root: number;
+  containerAttrs?: Record<string, string>;
+}
+
+export const lit = (value: Literal): Expr => ({ op: 'lit', value });
+export const str = (value: string): Expr => ({ op: 'lit', value });

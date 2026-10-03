@@ -1,0 +1,12 @@
+{
+  "description": "7GUIs Counter (M2, Svelte pipeline 4)",
+  "fixtures": ["examples/7guis-counter-svelte"],
+  "actions": [
+    { "kind": "click", "id": "count" },
+    { "kind": "click", "id": "count" },
+    { "kind": "click", "id": "count" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "press", "key": "Shift+Tab" }
+  ]
+}

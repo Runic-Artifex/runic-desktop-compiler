@@ -56,7 +56,9 @@ function withIR(ir, f) {
   const dir = mkdtempSync(path.join(tmpdir(), 'runic-ir-'));
   try {
     const file = path.join(dir, 'ir.json');
-    writeFileSync(file, JSON.stringify(ir));
+    // Schema 4 has no irHash field (the hash is passed separately).
+    const { irHash, ...body } = ir;
+    writeFileSync(file, JSON.stringify(ir.schema === 4 ? body : ir));
     return f(file, dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });

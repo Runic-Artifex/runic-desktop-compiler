@@ -87,6 +87,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     for _ in 0..4 {
         doc.resolve(0.0);
     }
+    listeners.settle(&mut doc);
     Native {
         doc,
         app,
