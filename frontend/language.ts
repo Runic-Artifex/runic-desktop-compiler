@@ -30,7 +30,8 @@ export type Binding =
   | { kind: 'computed'; fn: number }
   /** A component's props object (inlined components): member reads are values. */
   | { kind: 'props'; values: Map<string, Expr> }
-  | { kind: 'event' };
+  /** A handler's event parameter. */
+  | { kind: 'event'; handler: FnBuilder };
 
 export interface Hooks {
   /** The expression reading `cell` in `ctx` (read mode is framework semantics). */
@@ -66,6 +67,8 @@ export class FnBuilder {
   readonly boxed: Set<ts.Symbol>;
   /** The event of a handler builder (its payload: input value, checked state, key). */
   readonly event: HandlerEvent | undefined;
+  /** A local holding the payload, for closures inside the handler that read it. */
+  payloadLocal: number | undefined;
 
   constructor(
     name: string,
@@ -382,11 +385,16 @@ export class Lowerer {
     if (event) {
       if (!ts.isIdentifier(event.name))
         this.fail(event, 'E_EVENT', 'Destructured event parameters are unsupported');
-      this.bindings.set(this.checker.getSymbolAtLocation(event.name)!, { kind: 'event' });
+      this.bindings.set(this.checker.getSymbolAtLocation(event.name)!, {
+        kind: 'event',
+        handler: b,
+      });
     }
     if (decl.parameters.length > 1)
       this.fail(decl.parameters[1], 'E_EVENT', 'Event handlers take at most one parameter');
     const body = this.functionBody(decl, b);
+    if (b.payloadLocal !== undefined)
+      body.unshift({ op: 'let', local: b.payloadLocal, value: { op: 'payload' } });
     if (!b.captures.length) return { locals: b.locals, body };
     return {
       params: b.captures,
@@ -1462,6 +1470,13 @@ export class Lowerer {
     return { op: 'lit', value: text };
   }
 
+  /** The payload of `handler`'s event, read in `b` (the handler or a closure inside it). */
+  private payload(handler: FnBuilder, b: FnBuilder): Expr {
+    if (b === handler) return { op: 'payload' };
+    handler.payloadLocal ??= handler.local('event', handler.event === 'change' ? BOOLEAN : STRING);
+    return { op: 'local', local: b.resolve(handler, handler.payloadLocal) };
+  }
+
   private globalName(e: ts.Expression): string | undefined {
     if (!ts.isIdentifier(e)) return undefined;
     const s = this.symbol(e);
@@ -1552,20 +1567,25 @@ export class Lowerer {
       return { op: 'builtin', name: `${global}.${name}`, args: [], type: NUMBER };
     const EVENTS =
       'Event objects are supported as e.target.value (input), e.target.checked (change) and e.key (keydown), also through currentTarget';
-    if (ts.isIdentifier(e.expression) && this.binding(e.expression)?.kind === 'event') {
-      if (name === 'key' && b.event === 'keydown') return { op: 'payload' };
+    const eventOf = (x: ts.Expression) => {
+      const binding = ts.isIdentifier(x) ? this.binding(x) : undefined;
+      return binding?.kind === 'event' ? binding.handler : undefined;
+    };
+    const direct = eventOf(e.expression);
+    if (direct) {
+      if (name === 'key' && direct.event === 'keydown') return this.payload(direct, b);
       return this.fail(e, 'E_EVENT', EVENTS);
     }
-    if (
-      ts.isPropertyAccessExpression(e.expression) &&
-      ts.isIdentifier(e.expression.expression) &&
-      this.binding(e.expression.expression)?.kind === 'event'
-    ) {
+    const viaTarget = ts.isPropertyAccessExpression(e.expression)
+      ? eventOf(e.expression.expression)
+      : undefined;
+    if (viaTarget && ts.isPropertyAccessExpression(e.expression)) {
       if (
         ['target', 'currentTarget'].includes(e.expression.name.text) &&
-        ((name === 'value' && b.event === 'input') || (name === 'checked' && b.event === 'change'))
+        ((name === 'value' && viaTarget.event === 'input') ||
+          (name === 'checked' && viaTarget.event === 'change'))
       )
-        return { op: 'payload' };
+        return this.payload(viaTarget, b);
       return this.fail(e, 'E_EVENT', EVENTS);
     }
     const object = this.expr(e.expression, b);
@@ -1918,6 +1938,21 @@ export class Lowerer {
     const recordType = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
     if (!(typeof recordType === 'object' && 'record' in recordType))
       return this.fail(e, 'E_OBJECT', 'Object literal without a record type');
+    const declared = this.types.records[recordType.record];
+    // Keys are observable (Object.keys, JSON.stringify): the record has the
+    // literal's key order.
+    const order = this.types.keyOrder(e, declared.fields);
+    if (order.some((n, i) => declared.fields[i].name !== n)) {
+      if (declared.name !== 'Object')
+        return this.fail(
+          e,
+          'E_OBJECT',
+          `Properties are in a different order than in ${declared.name} (${declared.fields
+            .map(f => f.name)
+            .join(', ')}); key order is observable, so write them in declaration order`,
+        );
+      recordType.record = this.types.reordered(recordType.record, order);
+    }
     const record = this.types.records[recordType.record];
     const values: (Expr | undefined)[] = record.fields.map(() => undefined);
     const spreads: { local: number; value: Expr }[] = [];

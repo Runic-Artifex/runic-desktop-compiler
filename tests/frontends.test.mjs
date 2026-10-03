@@ -1180,3 +1180,41 @@ test('Vue rejects uncovered checkbox, key and slot behaviour with locations', as
       `${file}: ${to}`,
     );
 });
+
+test('Event fields inside closures in a handler; spreads keep the source key order', async () => {
+  const app = `import { useState } from 'react';
+type Todo = { id: number; done: boolean; title: string };
+export function App() {
+  const [todos, setTodos] = useState<Todo[]>([{ id: 1, done: false, title: 'a' }]);
+  const [log, setLog] = useState('');
+  return <main>
+    <button id="t" onClick={() => setTodos(todos.map(t => ({ ...t, done: !t.done })))}>toggle</button>
+    <p id="keys">{todos.map(t => Object.keys(t).join(',') + ':' + String(t.done)).join(';')}</p>
+    <input id="k" onKeyDown={e => setLog(l => l + e.key)} />
+    <p id="log">{log}</p>
+  </main>;
+}`;
+  await react(
+    `import { App } from './App.tsx';`,
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const steps = run(ir, [
+        { kind: 'click', id: 't' },
+        { kind: 'keydown', id: 'k', key: 'a' },
+        { kind: 'keydown', id: 'k', key: 'b' },
+      ]);
+      assert.deepEqual(texts(steps, ['keys', 'log']), { keys: 'id,done,title:true', log: 'ab' });
+    },
+    { 'App.tsx': app },
+  );
+  await react(
+    `import { App } from './App.tsx';`,
+    root => assert.rejects(collect(root).then(lower), failWith('E_OBJECT', 'App.tsx')),
+    {
+      'App.tsx': app.replace(
+        "{ id: 1, done: false, title: 'a' }",
+        "{ id: 1, title: 'a', done: false }",
+      ),
+    },
+  );
+});

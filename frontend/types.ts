@@ -171,6 +171,13 @@ export class TypeMapper {
         pt = this.checker.getNullableType(pt, ts.TypeFlags.Undefined);
       placeholder.fields.push({ name: p.name, type: this.map(pt, decl ?? at) });
     }
+    // An object literal's keys are in JavaScript order (TypeScript orders
+    // spread types differently).
+    const literal = t.symbol?.declarations?.[0];
+    if (literal && ts.isObjectLiteralExpression(literal)) {
+      const order = this.keyOrder(literal, placeholder.fields);
+      placeholder.fields.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+    }
     // Structurally identical records share one IR record.
     const shape = JSON.stringify(placeholder.fields);
     const same = this.byShape.get(shape);
@@ -186,6 +193,39 @@ export class TypeMapper {
 
   private referencesSelf(r: RecordType, index: number): boolean {
     return JSON.stringify(r.fields).includes(`{"record":${index}}`);
+  }
+
+  /**
+   * The key order of an object literal with `fields`: its own keys in order,
+   * where a spread contributes its source's keys; other fields follow.
+   */
+  keyOrder(e: ts.ObjectLiteralExpression, fields: { name: string }[]): string[] {
+    const order: string[] = [];
+    for (const p of e.properties) {
+      let names: string[] = [];
+      if (ts.isSpreadAssignment(p)) {
+        const st = this.of(p.expression);
+        if (typeof st === 'object' && 'record' in st)
+          names = this.records[st.record].fields.map(f => f.name);
+      } else if (p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)))
+        names = [p.name.text];
+      for (const n of names)
+        if (!order.includes(n) && fields.some(f => f.name === n)) order.push(n);
+    }
+    for (const f of fields) if (!order.includes(f.name)) order.push(f.name);
+    return order;
+  }
+
+  /** The record with `record`'s fields in the order of `names` (shared by shape). */
+  reordered(record: number, names: string[]): number {
+    const r = this.records[record];
+    const fields = names.map(n => r.fields.find(f => f.name === n)!);
+    const shape = JSON.stringify(fields);
+    const same = this.byShape.get(shape);
+    if (same !== undefined) return same;
+    this.records.push({ name: r.name, fields });
+    this.byShape.set(shape, this.records.length - 1);
+    return this.records.length - 1;
   }
 
   fieldIndex(record: number, name: string, at: ts.Node): number {
