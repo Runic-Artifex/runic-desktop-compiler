@@ -1218,3 +1218,184 @@ export function App() {
     },
   );
 });
+
+/**
+ * The refs conformance actions as the interpreter sees them (it has no focus
+ * model): typing goes to the focused field, Escape blurs it so the next
+ * typing is lost, Enter activates the focused details button.
+ */
+const refActions = [
+  { kind: 'click', id: 'focus' },
+  { kind: 'input', id: 'field', value: 'abc' },
+  { kind: 'keydown', id: 'field', key: 'Escape' },
+  { kind: 'click', id: 'check' },
+  { kind: 'click', id: 'focus-details' },
+  { kind: 'keydown', id: 'details', key: 'Enter' },
+  { kind: 'click', id: 'toggle' },
+  { kind: 'click', id: 'check' },
+  { kind: 'click', id: 'focus-details' },
+  { kind: 'click', id: 'toggle' },
+  { kind: 'click', id: 'check' },
+  { kind: 'click', id: 'focus' },
+  { kind: 'input', id: 'field', value: 'abc!' },
+];
+
+test('React and Svelte element refs agree: set at mount, null after removal, read live', async () => {
+  const react = run((await lower(await graph('refs-react'))).ir, refActions);
+  const svelte = run((await lower(await graph('refs-svelte'))).ir, refActions);
+  for (let i = 0; i <= refActions.length; i++) {
+    assert.deepEqual(
+      controls(react.slice(0, i + 1)),
+      controls(svelte.slice(0, i + 1)),
+      `refs step ${i}`,
+    );
+    assert.deepEqual(react[i].state.cells, svelte[i].state.cells, `refs cells step ${i}`);
+  }
+  // The details ref is null while its button is removed, and set again on remount.
+  assert.deepEqual(react[7].state.cells.slice(0, 2), ['element', null]);
+  assert.deepEqual(react[10].state.cells.slice(0, 2), ['element', 'element']);
+  assert.deepEqual(
+    [8, 11].map(i => texts(react.slice(0, i + 1), ['status']).status),
+    ['details gone', 'details mounted'],
+  );
+});
+
+test('React refs in JavaScript; mutable boxes are read live and never re-render', async () => {
+  await react(
+    `import {useRef} from 'react';
+     function App() {
+       const field = useRef(/** @type {HTMLInputElement | null} */ (null));
+       const clicks = useRef(0);
+       const [shown, setShown] = useState(0);
+       const [text, setText] = useState('');
+       return <main>
+         <input id="f" ref={field} value={text} onChange={e => setText(e.target.value)} />
+         <button id="focus" onClick={() => field.current?.focus()}>Focus</button>
+         <button id="count" onClick={() => { clicks.current++; clicks.current += 1; }}>Count</button>
+         <button id="show" onClick={() => setShown(clicks.current)}>Show</button>
+         <p id="out">{shown}</p>
+       </main>;
+     }`,
+    async root => {
+      const { ir } = await lower(await collect(root));
+      assert.deepEqual(
+        ir.components[0].cells.slice(0, 2).map(c => [c.type, c.tracking]),
+        [
+          [{ maybe: 'element' }, 'none'],
+          ['number', 'none'],
+        ],
+      );
+      const steps = run(ir, [
+        { kind: 'click', id: 'focus' },
+        { kind: 'click', id: 'count' },
+        { kind: 'click', id: 'count' },
+        { kind: 'click', id: 'show' },
+      ]);
+      assert.ok(steps.slice(1).every(s => s.outcome === 'handled'));
+      // The second write in a handler sees the first (no snapshot), and
+      // writing the box does not re-render.
+      assert.equal(texts(steps.slice(0, 4), ['out']).out, '0');
+      assert.equal(texts(steps, ['out']).out, '4');
+    },
+  );
+});
+
+test('React rejects uncovered ref behaviour with locations', async () => {
+  const app = body => `import { useRef, useState, type ReactNode } from 'react';\n${body}`;
+  const cases = [
+    // Callback refs, ref forwarding and ref objects passed as values.
+    ['export function App() { return <input ref={el => {}} />; }', 'E_REF'],
+    [
+      `function C() { return <b>c</b>; }
+export function App() { const r = useRef<HTMLElement | null>(null); return <C ref={r} />; }`,
+      'E_REF',
+    ],
+    [
+      `function C({ r }: { r: { current: HTMLElement | null } }) { return <b>c</b>; }
+export function App() { const r = useRef<HTMLElement | null>(null); return <C r={r} />; }`,
+      'E_REF',
+    ],
+    // React owns element refs: writes, several elements, lists and slot content.
+    [
+      `export function App() {
+  const r = useRef<HTMLInputElement>(null);
+  return <input ref={r} onClick={() => { r.current = null; }} />;
+}`,
+      'E_REF',
+    ],
+    [
+      `export function App() {
+  const r = useRef<HTMLElement>(null);
+  return <p><b ref={r}>a</b><i ref={r}>b</i></p>;
+}`,
+      'E_REF',
+    ],
+    [
+      `export function App() {
+  const r = useRef<HTMLElement>(null);
+  return <ul>{[1, 2].map(i => <li key={i} ref={r}>{i}</li>)}</ul>;
+}`,
+      'E_REF',
+    ],
+    [
+      `function Box({ children }: { children: ReactNode }) { return <div>{children}</div>; }
+export function App() {
+  const r = useRef<HTMLInputElement>(null);
+  return <Box><input ref={r} /></Box>;
+}`,
+      'E_REF',
+    ],
+    ['export function App() { const r = useRef(0); return <input ref={r} />; }', 'E_REF'],
+    ['export function App() { const [r, setR] = useState(1); return <input ref={r} />; }', 'E_REF'],
+    // Reads and writes while rendering: JSX, render-time consts, initialisers,
+    // functions called from them and closures called through function values.
+    [
+      `export function App() {
+  const r = useRef<HTMLInputElement>(null);
+  return <p><input ref={r} />{r.current ? 'mounted' : 'none'}</p>;
+}`,
+      'E_REF',
+    ],
+    [
+      `export function App() {
+  const n = useRef(1);
+  const doubled = n.current * 2;
+  return <p>{doubled}</p>;
+}`,
+      'E_REF',
+    ],
+    [
+      `export function App() {
+  const n = useRef(1);
+  const [m, setM] = useState(n.current);
+  return <p>{m}</p>;
+}`,
+      'E_REF',
+    ],
+    [
+      `export function App() {
+  const n = useRef(1);
+  function bump() { n.current++; return 'x'; }
+  return <p onClick={() => { n.current = 0; }}>{bump()}</p>;
+}`,
+      'E_REF',
+    ],
+    [
+      `function Label({ text }: { text: () => string }) { return <b>{text()}</b>; }
+export function App() {
+  const n = useRef('a');
+  return <Label text={() => n.current} />;
+}`,
+      'E_REF',
+    ],
+    // Boxes holding shared heap values, and untyped refs that are never attached.
+    ['export function App() { const r = useRef([1]); return <p>a</p>; }', 'E_CAPABILITY'],
+    ['export function App() { const r = useRef(null); return <p>a</p>; }', 'E_REF'],
+  ];
+  for (const [source, code] of cases)
+    await react(
+      `import { App } from './App.tsx';`,
+      root => assert.rejects(collect(root).then(lower), failWith(code, 'App.tsx'), source),
+      { 'App.tsx': app(source) },
+    );
+});
