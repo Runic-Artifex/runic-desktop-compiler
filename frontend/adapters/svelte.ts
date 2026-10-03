@@ -1604,6 +1604,9 @@ function mergeHandlers(
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */
 function coerceInit(v: Expr, from: Type, to: Type): Expr {
+  // A null or undefined default takes the prop's type.
+  if ((v.op === 'null' || v.op === 'undefined') && typeof to === 'object' && 'maybe' in to)
+    return { op: v.op, type: to };
   if (typeof to === 'object' && 'maybe' in to && !(typeof from === 'object' && 'maybe' in from))
     return { op: 'some', value: v };
   return v;

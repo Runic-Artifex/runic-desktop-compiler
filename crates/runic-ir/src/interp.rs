@@ -1151,6 +1151,15 @@ impl<'p> Machine<'p> {
 
     /// A ref cell set or cleared while rendering: a write that the running
     /// flush handles in another pass (outside a flush, the next flush sees it).
+    /// A ref that is a bound prop (`bind:ref` on the component) forwards
+    /// its element to the parent, as any write to the prop does.
+    fn forward_ref(&mut self, instance: usize, cell: usize, v: Val) -> Res<()> {
+        if let Some(bind) = self.instances[instance].binds[cell].clone() {
+            self.call_value(&bind, vec![v])?;
+        }
+        Ok(())
+    }
+
     fn ref_changed(&mut self, instance: usize, cell: usize) {
         self.bump(instance, cell);
         if self.phase.is_some() {
@@ -2037,6 +2046,8 @@ impl<'p> Machine<'p> {
             {
                 self.instances[inst].cells[cell] = Val::Null;
                 self.ref_changed(inst, cell);
+                self.forward_ref(inst, cell, Val::Null)
+                    .map_err(throw_diag)?;
             }
         }
         // Destroy instances that were not rendered.
@@ -2282,8 +2293,9 @@ impl<'p> Machine<'p> {
                     let current = self.current;
                     let element = Val::Element(js::Element(id));
                     if !self.instances[current].cells[*cell].same(&element) {
-                        self.instances[current].cells[*cell] = element;
+                        self.instances[current].cells[*cell] = element.clone();
                         self.ref_changed(current, *cell);
+                        self.forward_ref(current, *cell, element)?;
                     }
                     self.refs.insert((current, *cell), id);
                 }

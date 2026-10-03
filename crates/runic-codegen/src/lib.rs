@@ -616,15 +616,31 @@ impl Gen<'_> {
                 o.fields.push((format!("n{key}"), "NodeId".into()));
                 let _ = writeln!(o.mount, "let n{key} = dom.element({});", rust_str(tag));
                 if let Some(r) = reference {
-                    // The ref holds the element while mounted and null afterwards.
+                    // The ref holds the element while mounted and null afterwards;
+                    // a ref that is a bound prop forwards it to the parent.
+                    let prop = self.p.components[k].cells[*r].prop.is_some();
+                    let forward = |inst: &str, v: &str| {
+                        if prop {
+                            format!(
+                                "{{ let b = {inst}.borrow().b{r}.clone(); if let Some(b) = b {{ if let Err(e) = b(cx, {v}) {{ eprintln!(\"runic: uncaught exception in a binding: {{e}}\"); }} }} }}"
+                            )
+                        } else {
+                            String::new()
+                        }
+                    };
                     o.fields.push((format!("ri{key}"), format!("I{k}")));
                     let _ = writeln!(
                         o.mount,
-                        "let ri{key} = Rc::clone(inst); {{ let ver = cx.jobs.version(); let mut st = inst.borrow_mut(); st.c.c{r} = Maybe::Some(js::Element(n{key}.as_u64())); st.ver[{r}] = ver; }} cx.jobs.ref_written();"
+                        "let ri{key} = Rc::clone(inst); {{ let ver = cx.jobs.version(); let mut st = inst.borrow_mut(); st.c.c{r} = Maybe::Some(js::Element(n{key}.as_u64())); st.ver[{r}] = ver; }} cx.jobs.ref_written(); {}",
+                        forward(
+                            "inst",
+                            &format!("Maybe::Some(js::Element(n{key}.as_u64()))")
+                        )
                     );
                     let _ = writeln!(
                         o.dispose,
-                        "{{ let mut st = s.ri{key}.borrow_mut(); if matches!(&st.c.c{r}, Maybe::Some(e) if e.0 == s.n{key}.as_u64()) {{ st.c.c{r} = Maybe::Null; st.ver[{r}] = cx.jobs.version(); cx.jobs.ref_written(); }} }}"
+                        "{{ let cleared = {{ let mut st = s.ri{key}.borrow_mut(); let mine = matches!(&st.c.c{r}, Maybe::Some(e) if e.0 == s.n{key}.as_u64()); if mine {{ st.c.c{r} = Maybe::Null; st.ver[{r}] = cx.jobs.version(); cx.jobs.ref_written(); }} mine }}; if cleared {{ {} }} }}",
+                        forward("s.ri{key}", "Maybe::Null").replace("{key}", &key.to_string())
                     );
                 }
                 for (i, a) in attrs.iter().enumerate() {
