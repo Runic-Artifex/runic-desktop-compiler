@@ -1,0 +1,15 @@
+{
+  "description": "Closures created in a handler (timeouts, microtasks) read state after the handler: React's the render they were created in, Svelte and Vue the current value; functional updates see the latest state",
+  "fixtures": ["closures-react", "closures-svelte", "closures-vue"],
+  "actions": [
+    { "kind": "click", "id": "later" },
+    { "kind": "wait", "ms": 150 },
+    { "kind": "click", "id": "micro" },
+    { "kind": "click", "id": "functional" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "later" },
+    { "kind": "click", "id": "later" },
+    { "kind": "click", "id": "micro" },
+    { "kind": "wait", "ms": 200 }
+  ]
+}
