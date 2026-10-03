@@ -987,10 +987,13 @@ impl Gen<'_> {
                      let after_list = {anchor};\n\
                      if {guard} {{\n\
                      let items = {items_rs}; let values: Vec<_> = items.borrow().clone(); let mut seen = std::collections::HashSet::new();\n\
+                     // Keys first: a throwing key or a duplicate leaves the blocks as they are.\n\
+                     let mut fresh = Vec::with_capacity(values.len());\n\
+                     for (i, x) in values.into_iter().enumerate() {{\n{block}\nfresh.push((bk, t2));\n}}\n\
                      let old_len = s.e{key}.len();\n\
                      let mut old: std::collections::HashMap<js::MapKey, (usize, Rc<RefCell<T{k}>>, Box<S{bd}>)> = s.e{key}.drain(..).enumerate().map(|(i, (k, t, b))| (k, (i, t, b))).collect();\n\
                      let mut next: Vec<(js::MapKey, Rc<RefCell<T{k}>>, Option<Box<S{bd}>>, Option<usize>)> = Vec::new();\n\
-                     for (i, x) in values.into_iter().enumerate() {{\n{block}\n\
+                     for (bk, t2) in fresh {{\n\
                      match old.remove(&bk) {{ Some((oi, ot, ob)) => {{ let v = t2.borrow().clone(); *ot.borrow_mut() = v; next.push((bk, ot, Some(ob), Some(oi))); }} None => next.push((bk, t2, None, None)) }}\n\
                      }}\n\
                      let mut gone: Vec<_> = old.into_values().collect(); gone.sort_by_key(|g| g.0);\n\
@@ -998,15 +1001,17 @@ impl Gen<'_> {
                      let keep = runic_runtime::reorder::keep(runic_runtime::reorder::Reorder::{reorder:?}, &next.iter().map(|e| e.3).collect::<Vec<_>>(), old_len);\n\
                      let mut anchor = after_list;\n\
                      let mut out = Vec::with_capacity(next.len());\n\
+                     // Every block is placed even if one throws (no block is lost with its DOM); the first error is returned after.\n\
+                     let mut err = None;\n\
                      for (j, (bk, tt, b, _)) in next.into_iter().enumerate().rev() {{\n\
                      let b = match b {{\n\
-                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); dom.insert_all({up}, &ns, anchor); }} update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor)?; b }}\n\
-                     None => mount_s{bd}(cx, dom, inst, &tt, {up}, anchor)?,\n\
+                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); dom.insert_all({up}, &ns, anchor); }} if let Err(e) = update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor) {{ err.get_or_insert(e); }} Some(b) }}\n\
+                     None => match mount_s{bd}(cx, dom, inst, &tt, {up}, anchor) {{ Ok(b) => Some(b), Err(e) => {{ err.get_or_insert(e); None }} }},\n\
                      }};\n\
-                     if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }}\n\
-                     out.push((bk, tt, b));\n\
+                     if let Some(b) = b {{ if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }} out.push((bk, tt, b)); }}\n\
                      }}\n\
                      out.reverse(); s.e{key} = out;\n\
+                     if let Some(e) = err {{ return Err(e); }}\n\
                      }} else {{\n\
                      let mut anchor = after_list;\n\
                      for (_, tt, b) in s.e{key}.iter_mut().rev() {{ update_s{bd}(b, cx, dom, inst, tt, tl, {up}, anchor)?; if let Some(f) = first_s{bd}(b) {{ anchor = Some(f); }} }}\n\
