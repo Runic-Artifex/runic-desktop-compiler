@@ -328,6 +328,43 @@ impl<'a> FnCtx<'a> {
                     )
                 }
             }
+            Attrs { items } => {
+                let mut code =
+                    String::from("{ let mut v: Vec<(JsString, js::AttrValue<Bag>)> = Vec::new(); ");
+                for item in items {
+                    match item {
+                        AttrItem::Spread { spread } => {
+                            let x = self.expr(spread);
+                            code.push_str(&format!("v.extend({x}.entries().iter().cloned()); "));
+                        }
+                        AttrItem::Entry { name, value } => {
+                            let t = self.ty(value);
+                            let x = self.expr(value);
+                            let entry = match &t {
+                                Type::String => format!("js::AttrValue::Text({x})"),
+                                Type::Boolean => format!("js::AttrValue::Flag({x})"),
+                                Type::Maybe(_) => format!(
+                                    "match {x} {{ Maybe::Some(s) => js::AttrValue::Text(s), _ => js::AttrValue::Absent }}"
+                                ),
+                                Type::Fn(f) => {
+                                    let call = if f.params.is_empty() {
+                                        "f(cx)"
+                                    } else {
+                                        "f(cx, e)"
+                                    };
+                                    format!(
+                                        "{{ let f = {x}; let id = Rc::as_ptr(&f) as *const () as usize; let b: Bag = Rc::new(move |cx: &mut Cx, e: js::Event| {{ let _ = &e; let _ = {call}?; Ok(()) }}); js::AttrValue::Listener(id, b) }}"
+                                    )
+                                }
+                                other => unreachable!("validated bag entry {other:?}"),
+                            };
+                            code.push_str(&format!("v.push(({}, {entry})); ", js_str(name)));
+                        }
+                    }
+                }
+                code.push_str("js::Attrs::new(v) }");
+                code
+            }
             Record { record, fields } => {
                 let (code, names) = self.temps(fields);
                 let inits: String = names

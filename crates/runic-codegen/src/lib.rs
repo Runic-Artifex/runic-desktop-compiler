@@ -607,6 +607,7 @@ impl Gen<'_> {
                     props,
                     listeners,
                     reference,
+                    spread,
                     ..
                 } = node
                 else {
@@ -677,6 +678,24 @@ impl Gen<'_> {
                             o.update,
                             "if {guard} {{ let v = {value}; if v != s.{cache} {{ {} s.{cache} = v; }} }}",
                             write(&format!("s.n{key}"), "v")
+                        );
+                    }
+                }
+                if let Some(bag) = spread {
+                    // The bag's attributes and listeners, re-applied when it changes.
+                    let value = self.ctx(k).expr(bag);
+                    let listen = "&mut |f: Bag| -> u32 { cx.listen(Rc::new(move |cx: &mut Cx| { let e = cx.event.clone().expect(\"event context\"); f(cx, e) })) }";
+                    o.fields
+                        .push((format!("sp{key}"), "runic_runtime::Spread<Bag>".into()));
+                    let _ = writeln!(
+                        o.mount,
+                        "let mut sp{key} = runic_runtime::Spread::default(); {{ let v = {value}; dom.spread(n{key}, &v, &mut sp{key}, {listen}); }}"
+                    );
+                    if !self.is_static(&[bag]) {
+                        let guard = self.guard(&[bag]);
+                        let _ = writeln!(
+                            o.update,
+                            "if {guard} {{ let v = {value}; dom.spread(s.n{key}, &v, &mut s.sp{key}, {listen}); }}"
                         );
                     }
                 }
@@ -1172,6 +1191,9 @@ fn probe_json(t: &Type, v: &str) -> String {
         }
         Type::Event => {
             format!("{{ let _ = &{v}; runic_runtime::Json::String(\"event\".into()) }}")
+        }
+        Type::Attrs => {
+            format!("{{ let _ = &{v}; runic_runtime::Json::String(\"attrs\".into()) }}")
         }
     }
 }
@@ -1675,6 +1697,8 @@ pub fn generate(
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
+         /// A listener of an attribute bag (called with the event).\n\
+         pub type Bag = Rc<dyn Fn(&mut Cx, js::Event) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
          pub struct Cx {{ pub payload: Option<JsString>, pub event: Option<js::Event>, pub host: Vec<(bool, Event, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\

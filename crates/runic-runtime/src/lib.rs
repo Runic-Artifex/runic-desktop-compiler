@@ -18,7 +18,7 @@ mod storage;
 mod timers;
 
 pub use blitz_traits::node_id::NodeId;
-pub use dom::{Dom, Event};
+pub use dom::{Dom, Event, Spread};
 pub use jobs::{CellVersions, Dep, Derived, Fx, Job, Jobs, Phase, Versions};
 pub use promises::Microtasks;
 pub use serde_json::Value as Json;

@@ -268,6 +268,8 @@ pub enum Type {
     Promise(Box<Type>),
     /// An event object (handlers' `event`), compared by identity.
     Event,
+    /// An attribute bag (rest props, spread attributes), compared by entries.
+    Attrs,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -292,6 +294,7 @@ impl Type {
             Type::Element => "element".into(),
             Type::Promise(t) => format!("Promise<{}>", t.name()),
             Type::Event => "event".into(),
+            Type::Attrs => "attrs".into(),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params
@@ -859,6 +862,14 @@ pub enum Read {
     Snapshot,
 }
 
+/// An attribute bag item: an entry, or the entries of another bag.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AttrItem {
+    Spread { spread: Expr },
+    Entry { name: String, value: Expr },
+}
+
 /// An array literal item.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -1038,6 +1049,10 @@ pub enum Expr {
         ty: Type,
         items: Vec<ArrayItem>,
     },
+    /// An attribute bag; a later entry of a name wins.
+    Attrs {
+        items: Vec<AttrItem>,
+    },
     Get {
         object: Box<Expr>,
         field: usize,
@@ -1165,6 +1180,13 @@ impl Expr {
                     ArrayItem::Item(e) => e,
                 })
                 .collect(),
+            Attrs { items } => items
+                .iter()
+                .map(|i| match i {
+                    AttrItem::Spread { spread } => spread,
+                    AttrItem::Entry { value, .. } => value,
+                })
+                .collect(),
             Get { object, .. } => vec![object],
             Index { array, index } => vec![array, index],
             Some { value } | Unwrap { value } => vec![value],
@@ -1273,6 +1295,10 @@ pub enum Node {
         /// React refs, Vue template refs).
         #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
         reference: Option<usize>,
+        /// An attribute bag applied after `attrs` (whose names it never
+        /// holds): its attributes and `on<event>` listeners.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spread: Option<Expr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         children: Vec<Node>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

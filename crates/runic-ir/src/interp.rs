@@ -49,6 +49,8 @@ pub enum Val {
     Closure(Rc<Closure>),
     Element(js::Element),
     Event(js::Event),
+    /// An attribute bag: entries in order (a later entry of a name wins).
+    Attrs(Rc<Vec<(String, Val)>>),
     Promise(Promise),
     /// A promise's resolve or reject function.
     Resolver(Rc<Resolver>),
@@ -175,6 +177,12 @@ impl js::StrictEq for Val {
             (Val::Promise(a), Val::Promise(b)) => a == b,
             (Val::Element(a), Val::Element(b)) => a == b,
             (Val::Event(a), Val::Event(b)) => a == b,
+            (Val::Attrs(a), Val::Attrs(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|((n, x), (m, y))| n == m && x.same(y))
+            }
             _ => false,
         }
     }
@@ -213,6 +221,7 @@ impl js::ToJsString for Val {
             Val::Closure(_) | Val::Resolver(_) => JsString::from("function"),
             Val::Element(e) => e.to_js_string(),
             Val::Event(e) => e.to_js_string(),
+            Val::Attrs(_) => JsString::from("[object Object]"),
             Val::Promise(_) => JsString::from("[object Promise]"),
         }
     }
@@ -305,6 +314,7 @@ impl ToMapKey for Val {
             Val::Promise(p) => MapKey::Ref(p.addr()),
             Val::Element(e) => e.map_key(),
             Val::Event(e) => e.map_key(),
+            Val::Attrs(a) => MapKey::Ref(Rc::as_ptr(a) as *const u8 as usize),
         }
     }
 }
@@ -521,6 +531,8 @@ struct ListenerRef {
     instance: usize,
     handler: usize,
     args: Vec<Val>,
+    /// A listener from an attribute bag: a function value called with the event.
+    closure: Option<Val>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -859,6 +871,22 @@ impl<'p> Machine<'p> {
             Local { local } => f.get(*local),
             Payload => self.payload.clone().expect("payload context"),
             Event => Val::Event(self.event.clone().expect("event context")),
+            Attrs { items } => {
+                let mut out = vec![];
+                for item in items {
+                    match item {
+                        AttrItem::Spread { spread } => {
+                            if let Val::Attrs(b) = self.eval(spread, f)? {
+                                out.extend(b.iter().cloned());
+                            }
+                        }
+                        AttrItem::Entry { name, value } => {
+                            out.push((name.clone(), self.eval(value, f)?));
+                        }
+                    }
+                }
+                Val::Attrs(Rc::new(out))
+            }
             Not { arg } => Val::Bool(!self.eval(arg, f)?.boolean()),
             Neg { arg } => Val::Num(-self.eval(arg, f)?.num()),
             BitNot { arg } => Val::Num(js::bit_not(self.eval(arg, f)?.num())),
@@ -1882,7 +1910,8 @@ impl<'p> Machine<'p> {
             | Val::Closure(_)
             | Val::Resolver(_)
             | Val::Element(_)
-            | Val::Event(_) => return None,
+            | Val::Event(_)
+            | Val::Attrs(_) => return None,
             // A promise has no own enumerable properties.
             Val::Promise(_) => J::Object(Default::default()),
             Val::Null => J::Null,
@@ -2228,6 +2257,7 @@ impl<'p> Machine<'p> {
                 listeners,
                 children,
                 reference,
+                spread,
                 ..
             } => {
                 let key = (
@@ -2270,6 +2300,36 @@ impl<'p> Machine<'p> {
                         other => panic!("validated attribute, found {other:?}"),
                     }
                 }
+                let mut refs = vec![];
+                if let Some(bag) = spread {
+                    let Val::Attrs(bag) = self.eval(bag, frame)? else {
+                        panic!("validated attribute bag")
+                    };
+                    for (name, v) in resolve_attrs(&bag) {
+                        match name.strip_prefix("on").and_then(EventKind::parse) {
+                            Some(kind) => {
+                                refs.push((kind, self.listeners.len()));
+                                self.listeners.push(ListenerRef {
+                                    instance: self.current,
+                                    handler: usize::MAX,
+                                    args: vec![],
+                                    closure: Some(v.clone()),
+                                });
+                            }
+                            None => match v {
+                                Val::Str(s) => {
+                                    map.insert(name.to_owned(), s.to_rust());
+                                }
+                                Val::Bool(true) => {
+                                    map.insert(name.to_owned(), String::new());
+                                }
+                                _ => {
+                                    map.remove(name);
+                                }
+                            },
+                        }
+                    }
+                }
                 let mut value = None;
                 let mut checked = None;
                 for p in props {
@@ -2294,7 +2354,6 @@ impl<'p> Machine<'p> {
                             .unwrap_or_default(),
                     );
                 }
-                let mut refs = vec![];
                 for l in listeners {
                     let args = l
                         .args
@@ -2306,6 +2365,7 @@ impl<'p> Machine<'p> {
                         instance: self.current,
                         handler: l.handler,
                         args,
+                        closure: None,
                     });
                 }
                 let mut kids = vec![];
@@ -3515,6 +3575,7 @@ impl<'p> Machine<'p> {
                         instance: 0,
                         handler: 0,
                         args: vec![],
+                        closure: None,
                     },
                 );
                 (r, e, current)
@@ -3535,9 +3596,11 @@ impl<'p> Machine<'p> {
             let source = {
                 let (r, ..) = &listeners[0];
                 let c = self.instances[r.instance].component;
-                self.program.components[c].handlers[r.handler]
-                    .source
-                    .clone()
+                self.program.components[c]
+                    .handlers
+                    .get(r.handler)
+                    .filter(|_| r.closure.is_none())
+                    .and_then(|h| h.source.clone())
             };
             let result = self.task(source.as_ref(), true, |m| {
                 let mut error = None;
@@ -3545,7 +3608,11 @@ impl<'p> Machine<'p> {
                     if !event.enter(js::Element(current)) {
                         continue;
                     }
-                    if let Err(t) = m.run(r.instance, r.handler, r.args, Some(event)) {
+                    let result = match &r.closure {
+                        Some(f) => m.call_value(f, vec![Val::Event(event)]).map(|_| ()),
+                        None => m.run(r.instance, r.handler, r.args, Some(event)),
+                    };
+                    if let Err(t) = result {
                         if t.name.to_rust() == "RunicDomainError" {
                             return Err(t);
                         }
@@ -3604,6 +3671,19 @@ impl<'p> Machine<'p> {
             }
         }
     }
+}
+
+/// The entries of a bag that apply: the last of each name, in the order
+/// of their first occurrence.
+fn resolve_attrs(bag: &[(String, Val)]) -> Vec<(&str, &Val)> {
+    let mut out: Vec<(&str, &Val)> = vec![];
+    for (name, v) in bag {
+        match out.iter_mut().find(|(n, _)| *n == name.as_str()) {
+            Some(slot) => slot.1 = v,
+            None => out.push((name, v)),
+        }
+    }
+    out
 }
 
 /// Outcome of a harness action: whether any listener ran, and the first error.
@@ -3770,6 +3850,7 @@ pub fn cell_json(v: &Val) -> Json {
         // Element ids differ between the interpreter and the native app.
         Val::Element(_) => json!("element"),
         Val::Event(_) => json!("event"),
+        Val::Attrs(_) => json!("attrs"),
     }
 }
 

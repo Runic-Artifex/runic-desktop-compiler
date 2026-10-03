@@ -7,6 +7,7 @@ import ts from 'typescript';
 import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
 import type {
+  AttrItem,
   Cell,
   Component,
   Expr,
@@ -263,6 +264,98 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   };
   visit(rootFile!, []);
 
+  // Rest props (docs/design/M5-PLATFORM.md): each component's declared prop
+  // names and rest binding, and the names its rest bag may hold, gathered
+  // from every call site and through forwarding (`<Child {...rest} />`).
+  const decls = new Map<string, { declared: Set<string>; rest?: string }>();
+  for (const u of order) {
+    const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
+    const sf = ts.createSourceFile(u.file + '.ts', script, ts.ScriptTarget.Latest, true);
+    const d: { declared: Set<string>; rest?: string } = { declared: new Set() };
+    for (const stmt of sf.statements)
+      if (ts.isVariableStatement(stmt))
+        for (const v of stmt.declarationList.declarations) {
+          const init = v.initializer;
+          if (
+            !init ||
+            !ts.isCallExpression(init) ||
+            !ts.isIdentifier(init.expression) ||
+            init.expression.text !== '$props' ||
+            !ts.isObjectBindingPattern(v.name)
+          )
+            continue;
+          for (const el of v.name.elements) {
+            if (el.dotDotDotToken && ts.isIdentifier(el.name)) d.rest = el.name.text;
+            else if (!el.dotDotDotToken)
+              d.declared.add(
+                ((el.propertyName ?? el.name) as ts.Identifier).text ?? el.name.getText(sf),
+              );
+          }
+        }
+    decls.set(u.file, d);
+  }
+  const restKeys = new Map<string, Set<string>>();
+  for (const [file, d] of decls) if (d.rest) restKeys.set(file, new Set());
+  const forwards: { from: string; to: string; at: Source }[] = [];
+  const walkTemplate = (node: unknown, f: (n: SNode) => void, seen = new Set<unknown>()) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const x of node) walkTemplate(x, f, seen);
+      return;
+    }
+    const n = node as SNode;
+    if (typeof n.type === 'string') f(n);
+    for (const [k, v] of Object.entries(n)) if (k !== 'parent') walkTemplate(v, f, seen);
+  };
+  for (const u of order) {
+    const rest = decls.get(u.file)!.rest;
+    walkTemplate(u.ast.fragment, n => {
+      if (n.type !== 'Component' && n.type !== 'RegularElement') return;
+      for (const a of n.attributes ?? []) {
+        if (a.type === 'SpreadAttribute') {
+          if (!rest || a.expression.type !== 'Identifier' || a.expression.name !== rest)
+            fail(
+              'E_TEMPLATE',
+              'Spread attributes are supported for rest props ({...rest}); other spreads are planned for later',
+              locate(u.original, a.start, u.rel),
+            );
+          if (n.type === 'Component') {
+            const to = u.children.get(n.name);
+            if (to) forwards.push({ from: u.file, to, at: locate(u.original, a.start, u.rel) });
+          }
+        } else if (
+          n.type === 'Component' &&
+          (a.type === 'Attribute' || a.type === 'BindDirective')
+        ) {
+          const to = u.children.get(n.name);
+          const keys = to && restKeys.get(to);
+          if (keys && !decls.get(to)!.declared.has(a.name)) keys.add(a.name);
+        }
+      }
+    });
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const { from, to, at } of forwards) {
+      const into = restKeys.get(to);
+      if (!into) fail('E_PROPS', 'The component takes no rest props', at);
+      for (const k of restKeys.get(from)!)
+        if (!into!.has(k)) {
+          into!.add(k);
+          changed = true;
+        }
+    }
+  }
+  for (const { from, to, at } of forwards)
+    for (const k of restKeys.get(from)!)
+      if (decls.get(to)!.declared.has(k))
+        fail(
+          'E_PROPS',
+          `The rest props may hold ${k}, which the receiving component declares; pass ${k} explicitly`,
+          at,
+        );
+
   // The props type each component exports to its parents' virtual modules.
   const propsType = (u: Unit): string => {
     const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
@@ -336,7 +429,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (a.type === 'Attribute' && a.value !== true) {
           for (const v of Array.isArray(a.value) ? a.value : [a.value])
             if (v.type === 'ExpressionTag') expr(v.expression);
-        } else if (a.type === 'BindDirective') expr(a.expression);
+        } else if (a.type === 'BindDirective' || a.type === 'SpreadAttribute') expr(a.expression);
     };
     const fragment = (f: SNode) => {
       for (const n of f?.nodes ?? []) {
@@ -371,10 +464,19 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             );
           // Props are checked against the child's props type (typing inline callbacks).
           s += `((__p: __RunicProps_${n.name}) => 0)({\n`;
+          const childDecl = decls.get(u.children.get(n.name)!)!;
           for (const a of n.attributes) {
             if (a.type === 'Attribute' && a.value !== true && !Array.isArray(a.value)) {
               s += `${JSON.stringify(a.name)}: `;
               inline(a.value.expression);
+              // A listener in the rest props is typed by its event.
+              const kind = /^on([a-z]+)$/.exec(a.name)?.[1];
+              if (kind && childDecl.rest && !childDecl.declared.has(a.name))
+                s += ` satisfies (event: RunicEventMap[${JSON.stringify(kind)}]) => unknown`;
+              s += ',\n';
+            } else if (a.type === 'SpreadAttribute') {
+              s += '...';
+              inline(a.expression);
               s += ',\n';
             } else if (a.type === 'BindDirective') {
               s += `${JSON.stringify(a.name)}: `;
@@ -558,8 +660,20 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (!ts.isObjectBindingPattern(d.name))
         return tsFail(d, 'E_PROPS', 'Destructure $props(): let { a, b } = $props()');
       for (const el of d.name.elements) {
-        if (el.dotDotDotToken)
-          tsFail(el, 'E_PROPS', 'Rest props are planned for a later milestone');
+        if (el.dotDotDotToken) {
+          // Rest props: an attribute bag of the props the parent passes beyond these.
+          if (!ts.isIdentifier(el.name)) tsFail(el, 'E_PROPS', 'Rest props need a name');
+          const cell = cells.length;
+          cells.push({
+            name: (el.name as ts.Identifier).text,
+            type: 'attrs',
+            init: { op: 'attrs', items: [] },
+            prop: '...',
+            source: sourceOf(el),
+          });
+          lower.bindings.set(checker.getSymbolAtLocation(el.name)!, { kind: 'cell', cell });
+          continue;
+        }
         if (!ts.isIdentifier(el.name))
           tsFail(el, 'E_PROPS', 'Nested prop destructuring is planned for a later milestone');
         const name = (el.name as ts.Identifier).text;
@@ -1053,16 +1167,72 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       });
       return { kind: 'slot', name, ...(args.length ? { args } : {}), source: loc(n) };
     };
+    /**
+     * An attribute passed into rest props, as Svelte would set it on an
+     * element: listeners (`on<event>`) stay functions; other values become
+     * attribute values (boolean attributes present iff true, others strings,
+     * nullish values absent).
+     */
+    const restEntry = (a: SNode): AttrItem => {
+      const name: string = a.name;
+      if (a.value === true)
+        return { name, value: { op: 'lit', value: BOOLEAN_ATTRS.has(name) ? true : '' } };
+      if (Array.isArray(a.value)) {
+        let joined: Expr | undefined;
+        for (const part of a.value) {
+          const p: Expr =
+            part.type === 'Text'
+              ? { op: 'lit', value: part.data }
+              : display(exprNode(part.expression));
+          joined = joined ? { op: 'concat', left: joined, right: p } : p;
+        }
+        return { name, value: joined ?? { op: 'lit', value: '' } };
+      }
+      const e = exprNode(a.value.expression);
+      const v = value(e);
+      const t = typeOf(e, v);
+      const kind = /^on([a-z]+)$/.exec(name)?.[1];
+      if (kind) {
+        const listener =
+          EVENT_KINDS.includes(kind as HandlerEvent) &&
+          typeof t === 'object' &&
+          'fn' in t &&
+          (t.fn.params.length === 0 || (t.fn.params.length === 1 && t.fn.params[0] === 'event'));
+        if (!listener)
+          fail('E_EVENT', `${name} in rest props must be a listener of a supported event`, loc(a));
+        return { name, value: v };
+      }
+      if (BOOLEAN_ATTRS.has(name))
+        return { name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } };
+      if (t === 'string' || (typeof t === 'object' && 'maybe' in t && t.maybe === 'string'))
+        return { name, value: v };
+      if (typeof t === 'object' && 'maybe' in t)
+        fail('E_TEMPLATE', `Attribute ${name} of type ${JSON.stringify(t)} is unsupported`, loc(a));
+      return { name, value: { op: 'to-string', arg: v } };
+    };
     const component = (n: SNode): Node => {
       const child = units.get(u.children.get(n.name)!)!;
       const target = components[child.index];
       const passed: { name: string; value: Expr; bind?: Expr }[] = [];
+      // Props the child does not declare go into its rest props.
+      const restCell = target.cells.findIndex(c => c.prop === '...');
+      const bag: AttrItem[] = [];
+      const declared = (name: string) => target.cells.some(c => c.prop === name);
       const propCell = (a: SNode) => {
         const cell = target.cells.findIndex(c => c.prop === a.name);
         if (cell < 0) fail('E_PROPS', `${n.name} has no prop ${a.name}`, loc(a));
         return cell;
       };
       for (const a of n.attributes) {
+        if (a.type === 'SpreadAttribute') {
+          if (restCell < 0) fail('E_PROPS', `${n.name} takes no rest props`, loc(a));
+          bag.push({ spread: value(exprNode(a.expression)) });
+          continue;
+        }
+        if (a.type === 'Attribute' && restCell >= 0 && !declared(a.name)) {
+          bag.push(restEntry(a));
+          continue;
+        }
         if (a.type === 'Attribute') {
           const want = target.cells[propCell(a)].type;
           let v: Expr;
@@ -1106,6 +1276,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           });
         } else fail('E_TEMPLATE', `${a.type} on components is planned for a later M3 step`, loc(a));
       }
+      if (bag.length) passed.push({ name: '...', value: { op: 'attrs', items: bag } });
       for (const c of target.cells)
         if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
           fail('E_PROPS', `${n.name} requires the prop ${c.prop}`, loc(n));
@@ -1165,6 +1336,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             a.value[0].data === 'checkbox',
         );
       let bound: { event: HandlerEvent; handler: ReturnType<Lowerer['bindHandler']> } | undefined;
+      let spread: { at: number; value: Expr } | undefined;
       let reference: number | undefined;
       for (const a of n.attributes) {
         if (a.type === 'Attribute') {
@@ -1294,7 +1466,36 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           props.push({ name: a.name, value: read });
           const event: HandlerEvent = kind === 'string' ? 'input' : 'change';
           bound = { event, handler: lower.bindHandler(target, COMPONENT, event, tb) };
+        } else if (a.type === 'SpreadAttribute') {
+          if (spread) fail('E_TEMPLATE', 'One spread per element is supported', loc(a));
+          spread = { at: n.attributes.indexOf(a), value: value(exprNode(a.expression)) };
         } else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
+      }
+      // With a spread of rest props, the element's own attributes that the
+      // bag may also hold join it in source order (a later one wins).
+      let bag: Expr | undefined;
+      if (spread) {
+        const keys = restKeys.get(u.file)!;
+        const position = (name: string) =>
+          n.attributes.findIndex((a: SNode) => a.type === 'Attribute' && a.name === name);
+        const before: AttrItem[] = [];
+        const after: AttrItem[] = [];
+        for (const a of [...attrs])
+          if (keys.has(a.name)) {
+            (position(a.name) < spread.at ? before : after).push({ name: a.name, value: a.value });
+            attrs.splice(attrs.indexOf(a), 1);
+          }
+        for (const l of listeners)
+          if (keys.has(`on${l.event}`))
+            fail(
+              'E_TEMPLATE',
+              `on${l.event} is both on the element and possibly in the spread rest props`,
+              loc(n),
+            );
+        bag =
+          before.length || after.length
+            ? { op: 'attrs', items: [...before, { spread: spread.value }, ...after] }
+            : spread.value;
       }
       if (bound) {
         // A binding listens on the element itself, before the delegated
@@ -1325,6 +1526,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ...(props.length ? { props } : {}),
         ...(listeners.length ? { listeners } : {}),
         ...(reference !== undefined ? { ref: reference } : {}),
+        ...(bag ? { spread: bag } : {}),
         ...(n.fragment.nodes.length ? { children: children(n.fragment) } : {}),
         source: loc(n),
       };

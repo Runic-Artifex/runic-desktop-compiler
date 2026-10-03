@@ -38,6 +38,8 @@ export function irType(e: Expr, env: TypeEnv): Type {
       return env.local(e.local);
     case 'event':
       return 'event';
+    case 'attrs':
+      return 'attrs';
     case 'payload':
     case 'to-string':
     case 'typeof':

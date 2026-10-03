@@ -30,6 +30,32 @@ pub enum Event {
 }
 
 impl Event {
+    pub const ALL: [Event; 18] = [
+        Event::Click,
+        Event::Input,
+        Event::Change,
+        Event::Keydown,
+        Event::Keyup,
+        Event::Dblclick,
+        Event::Contextmenu,
+        Event::Pointerdown,
+        Event::Pointerup,
+        Event::Pointermove,
+        Event::Pointerenter,
+        Event::Pointerleave,
+        Event::Mousedown,
+        Event::Mouseup,
+        Event::Mousemove,
+        Event::Mouseenter,
+        Event::Mouseleave,
+        Event::Wheel,
+    ];
+
+    /// The kind named `name` (`event.type`).
+    pub fn parse(name: &str) -> Option<Event> {
+        Event::ALL.into_iter().find(|e| e.name() == name)
+    }
+
     /// `event.type`.
     pub fn name(self) -> &'static str {
         match self {
@@ -144,6 +170,24 @@ impl Listeners {
     }
 }
 
+/// What an element's attribute bag applied: the bag, the attributes it
+/// set and its listener registrations `(event, key, identity)`.
+pub struct Spread<L> {
+    bag: Option<runic_js::Attrs<L>>,
+    names: Vec<String>,
+    listeners: Vec<(Event, u32, usize)>,
+}
+
+impl<L> Default for Spread<L> {
+    fn default() -> Self {
+        Spread {
+            bag: None,
+            names: Vec::new(),
+            listeners: Vec::new(),
+        }
+    }
+}
+
 pub struct Dom<'a> {
     pub(crate) doc: &'a mut BaseDocument,
     pub(crate) listeners: &'a mut Listeners,
@@ -244,6 +288,73 @@ impl Dom<'_> {
             Some(anchor) => m.insert_nodes_before(anchor, nodes),
             None => m.append_children(parent, nodes),
         }
+    }
+
+    /// Apply an element's attribute bag: attributes it no longer holds are
+    /// removed and listener registrations follow its `on<event>` entries
+    /// (`listen` registers a listener with the app and gives its key).
+    pub fn spread<L: Clone>(
+        &mut self,
+        node: NodeId,
+        bag: &runic_js::Attrs<L>,
+        applied: &mut Spread<L>,
+        listen: &mut dyn FnMut(L) -> u32,
+    ) {
+        use runic_js::{AttrValue, StrictEq};
+        if applied.bag.as_ref().is_some_and(|b| b.strict_eq(bag)) {
+            return;
+        }
+        let mut names = vec![];
+        let mut wanted: Vec<(Event, usize, L)> = vec![];
+        for (name, value) in bag.resolved() {
+            let name = name.to_rust();
+            if let AttrValue::Listener(id, f) = value {
+                if let Some(event) = name.strip_prefix("on").and_then(Event::parse) {
+                    wanted.push((event, *id, f.clone()));
+                }
+                continue;
+            }
+            match value {
+                AttrValue::Text(t) => self.set_attr(node, &name, &t.to_rust()),
+                AttrValue::Flag(true) => self.set_attr(node, &name, ""),
+                _ => continue,
+            }
+            names.push(name);
+        }
+        for old in &applied.names {
+            if !names.contains(old) {
+                self.set_opt_attr(node, old, None);
+            }
+        }
+        // Listeners: keep registrations of the same function, drop the
+        // others, register the new ones.
+        let mut kept = vec![];
+        for (event, key, id) in std::mem::take(&mut applied.listeners) {
+            if wanted.iter().any(|(e, i, _)| *e == event && *i == id) {
+                kept.push((event, key, id));
+            } else {
+                self.unlisten(node, key);
+            }
+        }
+        for (event, id, f) in wanted {
+            if !kept.iter().any(|(e, _, i)| *e == event && *i == id) {
+                let key = listen(f);
+                self.listen(node, event, key);
+                kept.push((event, key, id));
+            }
+        }
+        applied.listeners = kept;
+        applied.names = names;
+        applied.bag = Some(bag.clone());
+    }
+
+    /// Remove one listener registration; its key is released like those of
+    /// removed elements.
+    pub fn unlisten(&mut self, node: NodeId, key: u32) {
+        if let Some(list) = self.listeners.map.get_mut(&node) {
+            list.retain(|(_, k)| *k != key);
+        }
+        self.listeners.freed.push(key);
     }
 
     pub fn listen(&mut self, node: NodeId, event: Event, handler: u32) {

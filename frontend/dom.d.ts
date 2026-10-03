@@ -74,6 +74,13 @@ interface HostEventMap {
   change: Event;
   wheel: WheelEvent;
 }
+// Every event kind (listeners passed through rest props).
+interface RunicEventMap extends HostEventMap {
+  pointerenter: PointerEvent;
+  pointerleave: PointerEvent;
+  mouseenter: MouseEvent;
+  mouseleave: MouseEvent;
+}
 interface HostEventTarget {
   addEventListener<K extends keyof HostEventMap>(
     type: K,

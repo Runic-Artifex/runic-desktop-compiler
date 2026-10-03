@@ -50,6 +50,7 @@ Types follow the value model (D16, [M2-VALUES](design/M2-VALUES.md)). Unit types
 | map / set | `{"map": [K, V]}` / `{"set": T}` | insertion-ordered, SameValueZero keys |
 | function | `{"fn": {"params": [T…], "result": T}}` | reference-counted closure (a component function's closure keeps its instance) |
 | element | `"element"` | opaque element handle (refs), identity equality |
+| attribute bag | `"attrs"` | `js::Attrs`: ordered `(name, value)` entries (attribute text, absent, boolean presence, or an `on<event>` listener); compared by entries, listeners by function identity (M5) |
 | event | `"event"` | `js::Event`: the event object of a dispatch, read through `event.*` built-ins; identity equality (M5) |
 | promise | `{"promise": T}` | `JsPromise<T>`: pending or settled, reactions run as microtasks; identity equality; never a promise of a promise |
 
@@ -118,6 +119,7 @@ Every expression has a statically known type, which the validator infers and che
 | `lit {value}`, `undefined {type}`, `null {type}` | value / `type` | Literals; `undefined`/`null` carry their Maybe type |
 | `cell {cell, read: "current" \| "snapshot"}` | cell type | `current`: latest value, including writes earlier in this handler. `snapshot`: the value the last render observed (React state). In templates and initialisers both mean the committed value. |
 | `local {local}`, `payload` | local type / event payload | |
+| `attrs {items}` | attrs | An attribute bag from items in order, each `{name, value}` (value: string, `maybe<string>`, boolean, or for `on<event>` names a function taking the event or nothing) or `{spread}` (a bag); a later entry of a name wins |
 | `event` | event | The event object of the running handler (handlers only; closures read it through a local) |
 | `global {global}` | global type | A module constant |
 | `not`, `neg`, `bit-not`, `to-string`, `to-number`, `to-boolean`, `typeof`, `utf16-length` `{arg}` | | `!`, unary `-`, `~`, `String(x)`, `Number(x)`, `Boolean(x)`, `typeof`, `.length` |
@@ -166,6 +168,7 @@ Node =
 - **Live properties:** `value` and `checked` are controlled: after every dispatch the runtime re-synchronises them (equal values are left untouched, preserving selection and composition). Checkboxes require `checked`.
 - **Lists:** blocks are matched by `key` (SameValueZero; duplicates throw `RunicKeyError`) or by index. Reused blocks keep their nodes, instances and state; `reorder` names the framework's keyed diff, which decides which blocks move (a moved focused element is blurred, as in Chromium).
 - **Slots:** a component node's slot definitions run in the parent instance with `params` bound to the child's slot arguments; a child without content for a slot renders its `fallback`.
+- **Spread:** an element's `spread` (an attribute bag) applies after its `attrs`, whose names it never holds (the frontend guarantees this from every call site). Its attributes are set or removed, and its `on<event>` entries are listeners of the element, re-registered when the bag changes. A component's rest props are a prop cell of type `attrs` with `prop: "..."`; the call site passes the bag as the prop `...`.
 - **Refs** hold the element while it is mounted and `null` after removal; `element.focus`/`element.blur` apply in order when the running callback returns (the DOM does not change while it runs).
 
 ## Validation limits

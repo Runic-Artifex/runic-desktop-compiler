@@ -2,6 +2,7 @@
 //! reference interpreter (docs/design/M2-VALUES.md). Every function matches
 //! ECMAScript for its documented domain; tests compare against Node.
 
+mod attrs;
 mod collections;
 mod element;
 mod error;
@@ -18,6 +19,7 @@ pub mod json;
 pub mod string_ops;
 
 pub use array_ops::join_elements;
+pub use attrs::{AttrValue, Attrs};
 pub use collections::*;
 pub use element::Element;
 pub use error::*;

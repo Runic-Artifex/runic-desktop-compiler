@@ -330,6 +330,35 @@ impl<'a> Scope<'a> {
                 }
                 a
             }
+            Attrs { items } => {
+                for item in items {
+                    match item {
+                        AttrItem::Spread { spread } => self.expect(spread, Type::Attrs, d, src)?,
+                        AttrItem::Entry { name, value } => {
+                            let t = self.infer(value, d, src)?;
+                            let ok = match name.strip_prefix("on").and_then(EventKind::parse) {
+                                Some(_) => matches!(
+                                    &t,
+                                    Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event]
+                                ),
+                                None => {
+                                    attr_name_ok(name)
+                                        && (matches!(t, Type::String | Type::Boolean)
+                                            || t == Type::maybe(Type::String))
+                                }
+                            };
+                            if !ok {
+                                return err(
+                                    "E_IR",
+                                    format!("Attribute bag entry {name} cannot be {}", t.name()),
+                                    src,
+                                );
+                            }
+                        }
+                    }
+                }
+                Type::Attrs
+            }
             Record { record, fields } => {
                 let rec = self.record(*record, src)?;
                 if rec.fields.len() != fields.len() {
@@ -1316,8 +1345,14 @@ impl<'p> NodeCx<'_, 'p> {
                 listeners,
                 children,
                 reference,
+                spread,
                 ..
             } => {
+                if let Some(e) = spread {
+                    if s.infer(e, 0, src)? != Type::Attrs {
+                        return err("E_IR", "A spread must be an attribute bag", src);
+                    }
+                }
                 if let Some(r) = reference {
                     let want = Type::maybe(Type::Element);
                     match c.cells.get(*r) {
@@ -1896,9 +1931,11 @@ fn visit_template(
                 attrs,
                 props,
                 children,
+                spread,
                 ..
             } => {
                 exprs.extend(attrs.iter().chain(props).map(|a| &a.value));
+                exprs.extend(spread);
                 visit_template(p, k, children, src, f);
             }
             Node::Text { parts, .. } => exprs.extend(parts),

@@ -25,9 +25,14 @@ export type Type =
   | 'element'
   /** An event object (handlers' `event`). */
   | 'event'
+  /** An attribute bag (rest props, spread attributes). */
+  | 'attrs'
   | 'void';
 
 export type Literal = boolean | number | string;
+
+/** An attribute bag item: an entry, or the entries of another bag. */
+export type AttrItem = { name: string; value: Expr } | { spread: Expr };
 
 /** Event kinds (docs/design/M5-PLATFORM.md). */
 export type EventKind =
@@ -83,6 +88,8 @@ export type Expr =
   | { op: 'payload' }
   /** The event object of the running handler. */
   | { op: 'event' }
+  /** An attribute bag; a later entry of a name wins. */
+  | { op: 'attrs'; items: AttrItem[] }
   | {
       op:
         | 'not'
@@ -232,6 +239,8 @@ export type Node =
       listeners?: Listener[];
       /** A cell holding this element while mounted (null after removal). */
       ref?: number;
+      /** An attribute bag applied after `attrs` (whose names it never holds). */
+      spread?: Expr;
       children?: Node[];
       source?: Source;
     }
