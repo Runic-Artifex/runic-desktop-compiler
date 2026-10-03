@@ -155,7 +155,7 @@ trait Elem: Clone + ArrayElement + StrictEq + ToMapKey + 'static {
     }
 }
 
-fn reduce_with<T, U>(
+fn reduce_with<T: Clone, U>(
     a: &JsArray<T>,
     right: bool,
     init: U,
@@ -1291,15 +1291,26 @@ fn copying_callbacks_may_mutate_the_receiver() {
 }
 
 #[test]
-#[should_panic(expected = "already borrowed")]
-fn non_copying_callbacks_must_not_mutate_the_receiver() {
-    // forEach/map/some/... have no `T: Clone` bound in the frozen signatures,
-    // so the element stays borrowed while the callback runs (documented).
+fn callbacks_may_mutate_the_receiver() {
+    // JS: forEach visits the initial length; the pushes take effect.
     let a = nums(&[1.0, 2.0]);
-    let _ = ops::for_each(&a, |_, _| {
+    let mut seen = vec![];
+    ops::for_each(&a, |x, _| {
+        seen.push(*x);
         ops::push(&a, vec![3.0]);
         Ok(())
-    });
+    })
+    .unwrap();
+    assert_eq!(seen, vec![1.0, 2.0]);
+    assert_eq!(*a.borrow(), vec![1.0, 2.0, 3.0, 3.0]);
+    // map/some/reduce copy elements too.
+    let b = nums(&[1.0, 2.0, 3.0]);
+    let doubled = ops::map(&b, |x, _| {
+        ops::pop(&b);
+        Ok(x * 2.0)
+    })
+    .unwrap();
+    assert_eq!(*doubled.borrow(), vec![2.0, 4.0]);
 }
 
 #[test]

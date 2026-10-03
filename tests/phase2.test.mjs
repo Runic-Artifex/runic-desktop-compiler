@@ -198,7 +198,7 @@ test('Vue boolean interpolation lowers an explicit string operation', async () =
     const { ir } = await collect(root).then(g => lower(g, { registry: false }));
     const value = nodes(render(ir, [1, 0, 0, true])).find(n => n.attrs?.id === 'value');
     assert.equal(value.children[0].text, 'true');
-    assert.match(generate(ir), /js::boolean_to_string\(c\.c3\)/);
+    assert.match(generate(ir), /js::ToJsString::to_js_string\(&cx\.c\.c3/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

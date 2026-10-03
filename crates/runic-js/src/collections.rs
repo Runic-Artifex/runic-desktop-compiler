@@ -61,7 +61,9 @@ pub struct MapData<K, V> {
 
 impl<K, V> Default for MapData<K, V> {
     fn default() -> Self {
-        MapData { entries: IndexMap::new() }
+        MapData {
+            entries: IndexMap::new(),
+        }
     }
 }
 
@@ -72,7 +74,9 @@ pub struct SetData<T> {
 
 impl<T> Default for SetData<T> {
     fn default() -> Self {
-        SetData { entries: IndexMap::new() }
+        SetData {
+            entries: IndexMap::new(),
+        }
     }
 }
 

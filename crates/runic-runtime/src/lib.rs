@@ -67,7 +67,7 @@ pub trait App: 'static {
         dom: &mut Dom,
         handler: u32,
         payload: Option<&str>,
-    ) -> Result<(), &'static str>;
+    ) -> Result<(), String>;
     fn cells_json(&self) -> Json;
 }
 

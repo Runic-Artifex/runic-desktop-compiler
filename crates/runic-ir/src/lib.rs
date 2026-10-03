@@ -1,9 +1,10 @@
 //! Runic IR schema 4: serialized program types, validation, schema 3 migration
 //! and the reference interpreter that defines the meaning of each operation.
-//! See `docs/IR.md`.
+//! See `docs/IR.md` and `docs/design/M2-VALUES.md`.
 
 use serde::{Deserialize, Serialize};
 
+pub mod builtins;
 pub mod interp;
 pub mod migrate;
 pub mod validate;
@@ -63,6 +64,10 @@ pub struct Program {
     pub renderer: Renderer,
     pub capabilities: Vec<String>,
     pub styles: Styles,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub records: Vec<RecordType>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub functions: Vec<Function>,
     pub components: Vec<Component>,
     pub root: usize,
     /// Attributes the framework sets on the mount container (`#root`).
@@ -121,25 +126,71 @@ pub struct Asset {
     pub mime: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// IR types (D16). Unit variants serialize as strings (`"number"`), the others
+/// as single-key objects (`{"maybe": T}`, `{"map": [K, V]}`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Type {
     Number,
     String,
     Boolean,
+    /// The result type of functions without a value.
+    Void,
+    Maybe(Box<Type>),
+    Array(Box<Type>),
+    Record(usize),
+    Map(Box<Type>, Box<Type>),
+    Set(Box<Type>),
+    Fn(FnType),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FnType {
+    pub params: Vec<Type>,
+    pub result: Box<Type>,
 }
 
 impl Type {
-    pub fn name(self) -> &'static str {
+    pub fn name(&self) -> String {
         match self {
-            Type::Number => "number",
-            Type::String => "string",
-            Type::Boolean => "boolean",
+            Type::Number => "number".into(),
+            Type::String => "string".into(),
+            Type::Boolean => "boolean".into(),
+            Type::Void => "void".into(),
+            Type::Maybe(t) => format!("{} | undefined", t.name()),
+            Type::Array(t) => format!("{}[]", t.name()),
+            Type::Record(r) => format!("record#{r}"),
+            Type::Map(k, v) => format!("Map<{}, {}>", k.name(), v.name()),
+            Type::Set(t) => format!("Set<{}>", t.name()),
+            Type::Fn(f) => format!(
+                "({}) => {}",
+                f.params
+                    .iter()
+                    .map(Type::name)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                f.result.name()
+            ),
+        }
+    }
+    pub fn maybe(t: Type) -> Type {
+        Type::Maybe(Box::new(t))
+    }
+    pub fn array(t: Type) -> Type {
+        Type::Array(Box::new(t))
+    }
+    /// Reference types have identity (and are affected by deep mutation).
+    pub fn is_reference(&self) -> bool {
+        match self {
+            Type::Array(_) | Type::Record(_) | Type::Map(..) | Type::Set(_) => true,
+            Type::Maybe(t) => t.is_reference(),
+            _ => false,
         }
     }
 }
 
-/// A literal or runtime value. Serialized literals are always finite.
+/// A literal value. Serialized literals are always finite.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Value {
@@ -156,12 +207,63 @@ impl Value {
             Value::String(_) => Type::String,
         }
     }
-    /// SameValue (`Object.is`) semantics, used to detect changed cells.
-    pub fn same(&self, other: &Value) -> bool {
-        match (self, other) {
-            (Value::Number(a), Value::Number(b)) => runic_js::same_value(*a, *b),
-            (a, b) => a == b,
-        }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecordType {
+    pub name: String,
+    pub fields: Vec<Field>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Field {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Local {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub ty: Type,
+    /// Captured by a closure and mutated: shared by reference.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub boxed: bool,
+}
+
+/// A function. Its local index space is `[...captures, ...params, ...locals]`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Function {
+    pub name: String,
+    /// The component whose cells the function reads and writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub captures: Vec<Local>,
+    pub params: Vec<Local>,
+    #[serde(default)]
+    pub locals: Vec<Local>,
+    pub result: Type,
+    pub body: Vec<Stmt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+}
+
+impl Function {
+    pub fn local(&self, i: usize) -> Option<&Local> {
+        self.captures
+            .iter()
+            .chain(&self.params)
+            .chain(&self.locals)
+            .nth(i)
+    }
+    pub fn local_count(&self) -> usize {
+        self.captures.len() + self.params.len() + self.locals.len()
     }
 }
 
@@ -176,6 +278,18 @@ pub struct Component {
     pub template: Vec<Node>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Tracking {
+    /// Dirty when assigned a value that is not SameValue to the old one.
+    #[default]
+    Identity,
+    /// Also dirty after any heap mutation in a handler (Svelte `$state`, Vue `ref`).
+    Deep,
+    /// Never dirty: a plain variable whose changes do not update the UI.
+    None,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Cell {
@@ -183,10 +297,16 @@ pub struct Cell {
     #[serde(rename = "type")]
     pub ty: Type,
     pub init: Expr,
+    #[serde(default, skip_serializing_if = "is_identity")]
+    pub tracking: Tracking,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<Domain>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
+}
+
+fn is_identity(t: &Tracking) -> bool {
+    *t == Tracking::Identity
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -214,9 +334,28 @@ pub struct Handler {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub event: EventKind,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub locals: Vec<Local>,
     pub body: Vec<Stmt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "place", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum Place {
+    Local { local: usize },
+    Cell { cell: usize },
+    Field { object: Expr, field: usize },
+    Index { array: Expr, index: Expr },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Catch {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<usize>,
+    pub body: Vec<Stmt>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -227,6 +366,75 @@ pub enum Stmt {
         value: Expr,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source: Option<Source>,
+    },
+    Let {
+        local: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<Expr>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    Assign {
+        target: Place,
+        value: Expr,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    Expr {
+        value: Expr,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    If {
+        test: Expr,
+        then: Vec<Stmt>,
+        #[serde(rename = "else", default, skip_serializing_if = "Vec::is_empty")]
+        otherwise: Vec<Stmt>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    While {
+        test: Expr,
+        body: Vec<Stmt>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        update: Vec<Stmt>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+    ForOf {
+        local: usize,
+        iterable: Expr,
+        body: Vec<Stmt>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    Break {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+    Continue {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+    Return {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<Expr>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    Throw {
+        value: Expr,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
+    Try {
+        body: Vec<Stmt>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        catch: Option<Catch>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        finally: Option<Vec<Stmt>>,
     },
 }
 
@@ -240,16 +448,35 @@ pub enum Read {
     Snapshot,
 }
 
+/// An array literal item.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ArrayItem {
+    Spread { spread: Expr },
+    Item(Expr),
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum Expr {
     Lit {
         value: Value,
     },
+    Undefined {
+        #[serde(rename = "type")]
+        ty: Type,
+    },
+    Null {
+        #[serde(rename = "type")]
+        ty: Type,
+    },
     Cell {
         cell: usize,
         #[serde(default)]
         read: Read,
+    },
+    Local {
+        local: usize,
     },
     Payload,
     Not {
@@ -258,7 +485,19 @@ pub enum Expr {
     Neg {
         arg: Box<Expr>,
     },
+    BitNot {
+        arg: Box<Expr>,
+    },
     ToString {
+        arg: Box<Expr>,
+    },
+    ToNumber {
+        arg: Box<Expr>,
+    },
+    ToBoolean {
+        arg: Box<Expr>,
+    },
+    Typeof {
         arg: Box<Expr>,
     },
     Utf16Length {
@@ -276,11 +515,47 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    Div {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Rem {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Pow {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Min {
         left: Box<Expr>,
         right: Box<Expr>,
     },
     Max {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    BitAnd {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    BitOr {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    BitXor {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Shl {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Shr {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Ushr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
@@ -320,6 +595,11 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    /// `left ?? right`
+    Nullish {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
     Cond {
         test: Box<Expr>,
         then: Box<Expr>,
@@ -331,6 +611,62 @@ pub enum Expr {
         guard: Box<Expr>,
         fast: Box<Expr>,
         reference: Box<Expr>,
+    },
+    Record {
+        record: usize,
+        fields: Vec<Expr>,
+    },
+    Array {
+        #[serde(rename = "type")]
+        ty: Type,
+        items: Vec<ArrayItem>,
+    },
+    Get {
+        object: Box<Expr>,
+        field: usize,
+    },
+    Index {
+        array: Box<Expr>,
+        index: Box<Expr>,
+    },
+    /// Wrap a value into `Maybe`.
+    Some {
+        value: Box<Expr>,
+    },
+    /// `value?.…`: when `value` is nullish the result is undefined; otherwise
+    /// the unwrapped value is bound to `local` and `then` (a Maybe) is the result.
+    Optional {
+        value: Box<Expr>,
+        local: usize,
+        then: Box<Expr>,
+    },
+    /// Unwrap a Maybe; throws a TypeError when nullish.
+    Unwrap {
+        value: Box<Expr>,
+    },
+    Call {
+        function: usize,
+        args: Vec<Expr>,
+    },
+    CallValue {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+    },
+    Closure {
+        function: usize,
+        captures: Vec<usize>,
+    },
+    Builtin {
+        name: String,
+        args: Vec<Expr>,
+        #[serde(rename = "type")]
+        ty: Type,
+    },
+    /// Evaluate `value`, bind it to `local`, then evaluate `body`.
+    With {
+        local: usize,
+        value: Box<Expr>,
+        body: Box<Expr>,
     },
 }
 
@@ -348,13 +684,35 @@ impl Expr {
     pub fn children(&self) -> Vec<&Expr> {
         use Expr::*;
         match self {
-            Lit { .. } | Cell { .. } | Payload => vec![],
-            Not { arg } | Neg { arg } | ToString { arg } | Utf16Length { arg } => vec![arg],
+            Lit { .. }
+            | Undefined { .. }
+            | Null { .. }
+            | Cell { .. }
+            | Local { .. }
+            | Payload
+            | Closure { .. } => vec![],
+            Not { arg }
+            | Neg { arg }
+            | BitNot { arg }
+            | ToString { arg }
+            | ToNumber { arg }
+            | ToBoolean { arg }
+            | Typeof { arg }
+            | Utf16Length { arg } => vec![arg],
             Add { left, right }
             | Sub { left, right }
             | Mul { left, right }
+            | Div { left, right }
+            | Rem { left, right }
+            | Pow { left, right }
             | Min { left, right }
             | Max { left, right }
+            | BitAnd { left, right }
+            | BitOr { left, right }
+            | BitXor { left, right }
+            | Shl { left, right }
+            | Shr { left, right }
+            | Ushr { left, right }
             | Concat { left, right }
             | Eq { left, right }
             | Ne { left, right }
@@ -363,7 +721,8 @@ impl Expr {
             | Gt { left, right }
             | Ge { left, right }
             | And { left, right }
-            | Or { left, right } => vec![left, right],
+            | Or { left, right }
+            | Nullish { left, right } => vec![left, right],
             Cond {
                 test,
                 then,
@@ -375,10 +734,25 @@ impl Expr {
                 reference,
                 ..
             } => vec![guard, fast, reference],
+            Record { fields, .. } => fields.iter().collect(),
+            Array { items, .. } => items
+                .iter()
+                .map(|i| match i {
+                    ArrayItem::Spread { spread } => spread,
+                    ArrayItem::Item(e) => e,
+                })
+                .collect(),
+            Get { object, .. } => vec![object],
+            Index { array, index } => vec![array, index],
+            Some { value } | Unwrap { value } => vec![value],
+            Optional { value, then, .. } => vec![value, then],
+            Call { args, .. } | Builtin { args, .. } => args.iter().collect(),
+            CallValue { callee, args } => std::iter::once(&**callee).chain(args).collect(),
+            With { value, body, .. } => vec![value, body],
         }
     }
 
-    /// Cells read by this expression (any read mode), sorted and deduplicated.
+    /// Cells read directly by this expression (not through calls), sorted.
     pub fn deps(&self) -> Vec<usize> {
         let mut out = vec![];
         self.collect_deps(&mut out);
@@ -404,6 +778,14 @@ impl Expr {
                 ..
             }
         ) || self.children().iter().any(|c| c.reads_snapshot())
+    }
+
+    /// Whether evaluation may run user functions (whose reads are not visible in `deps`).
+    pub fn calls(&self) -> bool {
+        matches!(
+            self,
+            Expr::Call { .. } | Expr::CallValue { .. } | Expr::Builtin { .. }
+        ) || self.children().iter().any(|c| c.calls())
     }
 }
 

@@ -326,14 +326,15 @@ pub fn find<T: Clone>(
     }
     Ok(Maybe::Undefined)
 }
-pub fn find_index<T>(
+pub fn find_index<T: Clone>(
     a: &JsArray<T>,
     mut f: impl FnMut(&T, f64) -> JsResult<bool>,
 ) -> JsResult<f64> {
     let len = a.borrow().len();
     for k in 0..len {
-        let items = a.borrow();
-        if k < items.len() && f(&items[k], k as f64)? {
+        if let Some(x) = element(a, k)
+            && f(&x, k as f64)?
+        {
             return Ok(k as f64);
         }
     }
@@ -353,34 +354,43 @@ pub fn find_last<T: Clone>(
     }
     Ok(Maybe::Undefined)
 }
-pub fn find_last_index<T>(
+pub fn find_last_index<T: Clone>(
     a: &JsArray<T>,
     mut f: impl FnMut(&T, f64) -> JsResult<bool>,
 ) -> JsResult<f64> {
     let len = a.borrow().len();
     for k in (0..len).rev() {
-        let items = a.borrow();
-        if k < items.len() && f(&items[k], k as f64)? {
+        if let Some(x) = element(a, k)
+            && f(&x, k as f64)?
+        {
             return Ok(k as f64);
         }
     }
     Ok(-1.0)
 }
-pub fn some<T>(a: &JsArray<T>, mut f: impl FnMut(&T, f64) -> JsResult<bool>) -> JsResult<bool> {
+pub fn some<T: Clone>(
+    a: &JsArray<T>,
+    mut f: impl FnMut(&T, f64) -> JsResult<bool>,
+) -> JsResult<bool> {
     let len = a.borrow().len();
     for k in 0..len {
-        let items = a.borrow();
-        if k < items.len() && f(&items[k], k as f64)? {
+        if let Some(x) = element(a, k)
+            && f(&x, k as f64)?
+        {
             return Ok(true);
         }
     }
     Ok(false)
 }
-pub fn every<T>(a: &JsArray<T>, mut f: impl FnMut(&T, f64) -> JsResult<bool>) -> JsResult<bool> {
+pub fn every<T: Clone>(
+    a: &JsArray<T>,
+    mut f: impl FnMut(&T, f64) -> JsResult<bool>,
+) -> JsResult<bool> {
     let len = a.borrow().len();
     for k in 0..len {
-        let items = a.borrow();
-        if k < items.len() && !f(&items[k], k as f64)? {
+        if let Some(x) = element(a, k)
+            && !f(&x, k as f64)?
+        {
             return Ok(false);
         }
     }
@@ -401,46 +411,46 @@ pub fn filter<T: Clone>(
     }
     Ok(array(out))
 }
-pub fn map<T, U>(
+pub fn map<T: Clone, U>(
     a: &JsArray<T>,
     mut f: impl FnMut(&T, f64) -> JsResult<U>,
 ) -> JsResult<JsArray<U>> {
     let len = a.borrow().len();
     let mut out = Vec::with_capacity(len);
     for k in 0..len {
-        let items = a.borrow();
-        if k < items.len() {
-            out.push(f(&items[k], k as f64)?);
+        if let Some(x) = element(a, k) {
+            out.push(f(&x, k as f64)?);
         }
     }
     Ok(array(out))
 }
-pub fn flat_map<T, U: Clone>(
+pub fn flat_map<T: Clone, U: Clone>(
     a: &JsArray<T>,
     mut f: impl FnMut(&T, f64) -> JsResult<JsArray<U>>,
 ) -> JsResult<JsArray<U>> {
     let len = a.borrow().len();
     let mut out = Vec::new();
     for k in 0..len {
-        let items = a.borrow();
-        if k < items.len() {
-            let mapped = f(&items[k], k as f64)?;
+        if let Some(x) = element(a, k) {
+            let mapped = f(&x, k as f64)?;
             out.extend(mapped.borrow().iter().cloned());
         }
     }
     Ok(array(out))
 }
-pub fn for_each<T>(a: &JsArray<T>, mut f: impl FnMut(&T, f64) -> JsResult<()>) -> JsResult<()> {
+pub fn for_each<T: Clone>(
+    a: &JsArray<T>,
+    mut f: impl FnMut(&T, f64) -> JsResult<()>,
+) -> JsResult<()> {
     let len = a.borrow().len();
     for k in 0..len {
-        let items = a.borrow();
-        if k < items.len() {
-            f(&items[k], k as f64)?;
+        if let Some(x) = element(a, k) {
+            f(&x, k as f64)?;
         }
     }
     Ok(())
 }
-pub fn reduce<T, U>(
+pub fn reduce<T: Clone, U>(
     a: &JsArray<T>,
     mut f: impl FnMut(U, &T, f64) -> JsResult<U>,
     init: U,
@@ -448,9 +458,8 @@ pub fn reduce<T, U>(
     let len = a.borrow().len();
     let mut acc = init;
     for k in 0..len {
-        let items = a.borrow();
-        if k < items.len() {
-            acc = f(acc, &items[k], k as f64)?;
+        if let Some(x) = element(a, k) {
+            acc = f(acc, &x, k as f64)?;
         }
     }
     Ok(acc)
@@ -473,7 +482,7 @@ pub fn reduce_first<T: Clone>(
     }
     Ok(acc)
 }
-pub fn reduce_right<T, U>(
+pub fn reduce_right<T: Clone, U>(
     a: &JsArray<T>,
     mut f: impl FnMut(U, &T, f64) -> JsResult<U>,
     init: U,
@@ -481,9 +490,8 @@ pub fn reduce_right<T, U>(
     let len = a.borrow().len();
     let mut acc = init;
     for k in (0..len).rev() {
-        let items = a.borrow();
-        if k < items.len() {
-            acc = f(acc, &items[k], k as f64)?;
+        if let Some(x) = element(a, k) {
+            acc = f(acc, &x, k as f64)?;
         }
     }
     Ok(acc)

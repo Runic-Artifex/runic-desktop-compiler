@@ -54,6 +54,15 @@ impl Dom<'_> {
         self.doc.mutate().set_attribute(node, attr(name), value);
     }
 
+    /// Optional attributes are present iff `value` is Some.
+    pub fn set_opt_attr(&mut self, node: NodeId, name: &str, value: Option<&str>) {
+        let mut m = self.doc.mutate();
+        match value {
+            Some(v) => m.set_attribute(node, attr(name), v),
+            None => m.clear_attribute(node, attr(name)),
+        }
+    }
+
     /// Boolean attributes are present (with an empty value) iff `on`.
     pub fn set_bool_attr(&mut self, node: NodeId, name: &str, on: bool) {
         let mut m = self.doc.mutate();

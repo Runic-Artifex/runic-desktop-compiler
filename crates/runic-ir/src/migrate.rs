@@ -283,6 +283,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
                 _ => None,
             };
             Ok(Cell {
+                tracking: Tracking::Identity,
                 name: field(s, "name")?.as_str().unwrap_or_default().to_owned(),
                 ty: ty(field(s, "type")?)?,
                 init: Expr::Lit {
@@ -317,6 +318,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
                 })
                 .collect::<Result<_>>()?;
             Ok(Handler {
+                locals: vec![],
                 name: None,
                 event,
                 body,
@@ -347,6 +349,8 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
         .map(str::to_owned)
         .collect();
     Ok(Program {
+        records: vec![],
+        functions: vec![],
         schema: SCHEMA,
         meta: Meta {
             title: field(v, "title")?.as_str().unwrap_or_default().to_owned(),

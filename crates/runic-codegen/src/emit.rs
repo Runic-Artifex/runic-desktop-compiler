@@ -58,7 +58,7 @@ pub fn write_crate(
 ) -> Result<()> {
     let (css, assets) = extract_assets(&program.styles.css)?;
     let mimes: Vec<String> = assets.iter().map(|(m, _)| m.clone()).collect();
-    let app = generate(program, ir_hash, &css, &mimes, options);
+    let app = generate(program, ir_hash, &css, &mimes, options)?;
     std::fs::create_dir_all(out.join("src")).map_err(io)?;
     std::fs::create_dir_all(out.join("assets")).map_err(io)?;
     for (i, (_, bytes)) in assets.iter().enumerate() {

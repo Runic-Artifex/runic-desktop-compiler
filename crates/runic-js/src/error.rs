@@ -15,7 +15,10 @@ pub type JsResult<T> = Result<T, Throw>;
 
 impl Throw {
     pub fn new(name: &str, message: impl Into<String>) -> Self {
-        Throw { name: JsString::from(name), message: JsString::from(message.into()) }
+        Throw {
+            name: JsString::from(name),
+            message: JsString::from(message.into()),
+        }
     }
     pub fn type_error(message: impl Into<String>) -> Self {
         Throw::new("TypeError", message)
