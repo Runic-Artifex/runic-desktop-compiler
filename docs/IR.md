@@ -2,7 +2,7 @@
 
 This is the serialized contract between the frontend adapters and the Rust backend (D1). Its types live in `crates/runic-ir` (`src/lib.rs`), and that crate is the authority whenever this document and the code disagree. The `runic-ir` validator and reference interpreter define its meaning. The code generator in `crates/runic-codegen` must agree with that interpreter (D8).
 
-Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)). The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
+Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) and in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)). The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
 
 ## Program
 
@@ -15,9 +15,11 @@ Schema 4 was introduced in M1 and extended additively in M2 with values, stateme
   "styles": { "css": "…", "assets": [{ "path": "assets/x.woff2", "sha256": "…", "bytes": 1234, "mime": "font/woff2" }] },
   "records":   [ { "name": "Item", "fields": [ { "name": "label", "type": "string" } ] } ],
   "functions": [ Function, … ],
+  "globals":   [ { "name": "DEFAULTS", "type": T, "init": Expr } ],  // module constants, evaluated once in order
   "components": [ Component, … ],
   "root": 0,                         // index of the mounted component
-  "containerAttrs": { "data-v-app": "" }   // optional: attributes the framework sets on #root at mount
+  "containerAttrs": { "data-v-app": "" },  // optional: attributes the framework sets on #root at mount
+  "restoreFocus": true               // optional: refocus an element a list move blurred (React DOM)
 }
 ```
 
@@ -37,7 +39,8 @@ Types follow the value model (D16, [M2-VALUES](design/M2-VALUES.md)). Unit types
 | array | `{"array": T}` | `JsRef<Vec<T>>`: shared, mutable, identity equality |
 | record | `{"record": i}` | generated struct behind `JsRef` (index into `records`) |
 | map / set | `{"map": [K, V]}` / `{"set": T}` | insertion-ordered, SameValueZero keys |
-| function | `{"fn": {"params": [T…], "result": T}}` | reference-counted closure |
+| function | `{"fn": {"params": [T…], "result": T}}` | reference-counted closure (a component function's closure keeps its instance) |
+| element | `"element"` | opaque element handle (refs), identity equality |
 
 Literal values (`lit`) are numbers, strings and booleans. String literals are Unicode text; a literal containing a lone surrogate is rejected by the frontend (`E_STRING`), although computed strings may contain one.
 
@@ -52,20 +55,23 @@ Local = { "name": "sum", "type": "number", "boxed": false }
 
 The local index space of a function is `captures`, then `params`, then `locals`. `boxed` marks a local that a closure captures and mutates, so it is shared by reference; unboxed captures are copied when the closure is created. Module-level functions have no `component`.
 
-## Components
+## Components and instances
 
 ```jsonc
 {
-  "name": "App",
-  "cells":    [ { "name": "count", "type": "number", "init": Expr, "tracking": "identity" } ],
-  "handlers": [ { "event": "click" | "input", "locals": [Local], "body": [Stmt] } ],
-  "template": [ Node ]
+  "name": "Row",
+  "cells":    [ { "name": "label", "type": "string", "init": Expr, "prop": "label", "tracking": "identity" } ],
+  "handlers": [ { "event": "click", "params": [Local], "locals": [Local], "body": [Stmt] } ],
+  "template": [ Node ],
+  "templateLocals": [Local],                       // list items, slot params, template temporaries
+  "slots": [ { "name": "row", "params": [T…] } ]   // slots the template renders
 }
 ```
 
-- **Cells** are the component's reactive state. `init` may only read cells declared earlier.
-- **Tracking** decides when a write makes a cell dirty: `identity` (default) when the new value is not SameValue to the old one; `deep` also after any heap mutation during the handler (Svelte `$state`, Vue `ref`); `none` never (a plain variable whose changes do not update the UI).
-- **Handlers** run synchronously when an event reaches a listener. `input` handlers receive the control's new value as `payload` (type string). The handler commits after its body finishes: every dirty cell's bindings update once.
+- **Instances.** Every component can be instantiated many times; the root has one instance. An instance owns one value per cell, is created when its `component` node mounts (props, then cell initialisers) and destroyed with that node. Instance identity is the parent instance, the node, and the list keys and slot renderers on the path between them. Functions with `component: k` run in an instance of `k`.
+- **Cells** are the instance's reactive state. `init` may only read cells declared earlier. A cell with `prop` receives that prop from the parent (`init` is its default): when the parent's value changes (SameValue) the cell is set and becomes dirty; a write by the child calls the parent's `bind` closure if there is one.
+- **Tracking** decides when a write makes a cell dirty: `identity` (default) when the new value is not SameValue to the old one; `deep` also after any heap mutation during the handler (Vue `ref`); `proxied` (Svelte `$state`) stores proxies of plain objects and arrays (a new identity over the same storage) and is dirty after mutations through proxies; `none` never.
+- **Handlers** run synchronously when an event reaches a listener. Their local index space is `params` (the listener's `args`), then `locals`. The payload is the input value (`input`), the new checked state (`change`, boolean) or `event.key` (`keydown`). After the handler, every live instance's dirty cells update their bindings once.
 - **Domains** (`{ "kind": "text", "maxUtf16": 256 }`) appear only in migrated schema 3 programs; they constrain a text cell on every write.
 
 ## Statements
@@ -93,7 +99,8 @@ Every expression has a statically known type, which the validator infers and che
 |---|---|---|
 | `lit {value}`, `undefined {type}`, `null {type}` | value / `type` | Literals; `undefined`/`null` carry their Maybe type |
 | `cell {cell, read: "current" \| "snapshot"}` | cell type | `current`: latest value, including writes earlier in this handler. `snapshot`: the value the last render observed (React state). In templates and initialisers both mean the committed value. |
-| `local {local}`, `payload` | local type / string | |
+| `local {local}`, `payload` | local type / event payload | |
+| `global {global}` | global type | A module constant |
 | `not`, `neg`, `bit-not`, `to-string`, `to-number`, `to-boolean`, `typeof`, `utf16-length` `{arg}` | | `!`, unary `-`, `~`, `String(x)`, `Number(x)`, `Boolean(x)`, `typeof`, `.length` |
 | `add`, `sub`, `mul`, `div`, `rem`, `pow`, `min`, `max`, `bit-and`, `bit-or`, `bit-xor`, `shl`, `shr`, `ushr` `{left, right}` | number | JavaScript number operators |
 | `concat {left, right}` | string | `+` on strings |
@@ -119,22 +126,36 @@ Every expression has a statically known type, which the validator infers and che
 ```jsonc
 Node =
   { "kind": "element", "tag": "button",
-    "attrs": [ { "name": "class", "value": Expr } ],     // string or boolean; boolean attrs are present iff true
-    "props": [ { "name": "value", "value": Expr } ],     // live DOM properties (text input value)
-    "listeners": [ { "event": "click", "handler": 0 } ],
+    "attrs": [ { "name": "class", "value": Expr } ],     // string, Maybe<string> (absent when nullish) or boolean
+    "props": [ { "name": "value", "value": Expr } ],     // live properties: value (text inputs), checked (checkboxes)
+    "listeners": [ { "event": "click", "handler": 0, "args": [Expr] } ],
+    "ref": 3,                                            // a cell of type element | null | undefined
     "children": [ Node ] }
 | { "kind": "text", "parts": [ Expr ] }                  // concatenation of string parts
 | { "kind": "if", "test": Expr, "then": [ Node ], "else": [ Node ] }
+| { "kind": "each", "items": Expr, "item": 4, "index"?: 5, "key"?: Expr,
+    "reorder"?: "lis" | "forward" | "stash", "body": [ Node ], "else"?: [ Node ] }
+| { "kind": "component", "component": 1,
+    "props": [ { "name": "label", "value": Expr, "bind"?: Expr } ],
+    "slots": [ { "name": "row", "params": [6], "body": [ Node ] } ] }
+| { "kind": "slot", "name": "row", "args": [Expr], "fallback": [ Node ] }
 ```
 
-- **Tags** come from an allow-list in `validate.rs`. M3 adds `each` (keyed lists), `component`, `slot` and `region` nodes.
-- **Element identity:** an element's `id` attribute must be a literal and unique within the program, because probes and conformance address elements by id.
-- **Listeners:** at most one per element and event kind. Activation behaviour (Enter/Space on buttons, click focus, Tab order) and the disabled/readonly checks belong to the runtime's DOM semantics, not to the IR.
-- **Text inputs:** a `value` prop is a live, controlled property: after every dispatch the runtime re-synchronises the control with the prop's value (equal values are left untouched, preserving selection and composition).
+- **Tags** come from an allow-list in `validate.rs`.
+- **Ids** may be dynamic; probes and conformance address the first element with an id in tree order, like `getElementById`.
+- **Listeners:** at most one per element and event kind; `args` are evaluated at dispatch in the template scope. Events are `click` (bubbles), `input` (text inputs), `change` (checkboxes) and `keydown` (bubbles from the focused element, before default actions). Activation, focus, Tab order and the disabled/readonly checks belong to the runtime's DOM semantics.
+- **Live properties:** `value` and `checked` are controlled: after every dispatch the runtime re-synchronises them (equal values are left untouched, preserving selection and composition). Checkboxes require `checked`.
+- **Lists:** blocks are matched by `key` (SameValueZero; duplicates throw `RunicKeyError`) or by index. Reused blocks keep their nodes, instances and state; `reorder` names the framework's keyed diff, which decides which blocks move (a moved focused element is blurred, as in Chromium).
+- **Slots:** a component node's slot definitions run in the parent instance with `params` bound to the child's slot arguments; a child without content for a slot renders its `fallback`.
+- **Refs** hold the element while it is mounted and `null` after removal; `element.focus`/`element.blur` are applied after the update.
 
 ## Validation limits
 
 The validator caps a program at 4,096 template nodes, 1,024 cells per component, 1,024 handlers, 4,096 functions, expression and statement depth 96, 2^20 expressions and 4 MiB of CSS. Each limit has a diagnostic. These are resource limits, not semantic assumptions. Diagnostics carry the source location of the statement, cell, handler or element they concern, falling back to the enclosing function or element.
+
+## Snapshots
+
+The interpreter's and probe's state snapshots contain the DOM, the root instance's `cells`, and `instances`: every other live instance in tree order as `{ "component": name, "cells": [...] }`. Element handles appear as `"element"`.
 
 ## Correctness
 

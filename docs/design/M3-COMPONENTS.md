@@ -1,6 +1,6 @@
 # M3 design: components, instances and lists
 
-Status: design for M3 ([roadmap](../ROADMAP.md#m3-components-and-lists)). It extends IR schema 4 additively, like M2.
+Status: implemented in M3 ([roadmap](../ROADMAP.md#m3-components-and-lists)); the IR is specified in [IR.md](../IR.md). It extends IR schema 4 additively, like M2. Where the implementation departed from the first draft, this note was updated; see [Outcome](#outcome).
 
 ## Goals
 
@@ -52,7 +52,8 @@ The validator checks that each passed prop exists, that types match, and that `b
 
 Components gain `templateLocals: [Local]`. Template expressions inside an `each` body may read the locals of the enclosing `each` nodes with `{ "op": "local" }`.
 
-- **Keyed:** blocks are matched by key. A matched block keeps its DOM nodes and component instances; its locals are updated, and the nodes move into the new order. Unmatched old blocks are destroyed; new keys are mounted. Duplicate keys throw a `RunicKeyError` (the frameworks reject them too).
+- **Keyed:** blocks are matched by key. A matched block keeps its DOM nodes and component instances; its locals are updated, and the nodes move into the new order. Unmatched old blocks are destroyed; new keys are mounted. Duplicate keys throw a `RunicKeyError` (Svelte throws; React and Vue only warn, a recorded deviation).
+- **Which blocks move** is observable: Chromium blurs a focused element whose node is moved. `each.reorder` names the framework's keyed diff, ported exactly in runic-runtime's `reorder` module: `lis` (Vue's `patchKeyedChildren`), `forward` (React's `reconcileChildrenArray`) and `stash` (Svelte 5's `reconcile`). React DOM refocuses the previously focused element after each commit (`restoreFocus`).
 - **Unkeyed:** blocks are matched by index, so item values update in place (Svelte, Vue and React without keys behave this way).
 - `else` renders when the array is empty (Svelte `{:else}`).
 - Bindings inside a block re-evaluate when a cell they read is dirty, or when the block's locals were reassigned or the `items` expression was re-evaluated (an item object may have been mutated in place).
@@ -82,18 +83,19 @@ The slot body evaluates in the parent instance (its cells and template locals), 
 
 ## Refs
 
-A cell of type `{"maybe": "element"}` can be bound to an element: `{ "kind": "element", …, "ref": cell }`. It is set after mount and cleared on removal (as `bind:this`, Vue template refs and `useRef`). `element.focus()` is the first element built-in; measurement APIs arrive with layout in M5. The `element` type is opaque: it can be compared, stored and passed, not inspected.
+A cell of type `{"maybe": "element"}` can be bound to an element: `{ "kind": "element", …, "ref": cell }`. It is set at mount and set to `null` on removal (as `bind:this`, Vue template refs and `useRef`). `element.focus()` and `element.blur()` are the element built-ins, applied by the runtime after the update; measurement APIs arrive with layout in M5. The `element` type is opaque: it can be compared, stored and passed, not inspected. DOM element types come from `frontend/dom.d.ts`.
 
 ## Svelte deep-state ownership
 
-Svelte `$state` proxies plain objects and arrays. A proxy has its own identity, and once it has read a property, writes through the raw object are invisible to it. Native code models this by ownership instead of proxies:
+Svelte `$state` proxies plain objects and arrays. A proxy has its own identity but wraps the raw object; properties are read from the raw object until the proxy has read them once. Native code models proxies as *wrappers* (`JsRef::proxy`): a new identity sharing the raw value's storage.
 
-- A heap value is either *raw* or *owned by deep state*. Values created inside deep state (literals assigned into it, results of array methods on owned arrays) are owned.
-- Storing a raw object or array into deep state (a `set` of a `deep` cell, or an `assign`/mutating built-in on an owned value) stores a deep copy that is owned. A value read from deep state is already owned and is stored as is.
-- Consequences match Svelte: `items.push(x); items.at(-1) === x` is false, and later writes through `x` do not reach the state; values read from state keep their identity.
-- `Map`, `Set` and class instances are not proxied by Svelte; storing them keeps the reference and their mutations do not make cells dirty (Svelte requires `SvelteMap`/`SvelteSet` for that, M6). Vue proxies collections too, so Vue's `deep` tracking keeps M2 behaviour.
+- Storing a raw object or array into proxied state (a `set` of a `proxied` cell, an `assign` into a proxy, or an item inserted into a proxied array) stores a proxy of it; nested plain objects and arrays are proxied in place. Values read from state are proxies already and keep their identity.
+- Consequences match Svelte: `items.push(x); items.includes(x)` is false; storing the same raw object twice gives two distinct proxies; a raw write right after storing (`items.push(x); x.name = …`) is visible, because both share storage.
+- Only mutations through proxies make `proxied` cells dirty (Svelte's raw writes are not reactive).
+- `Map`, `Set` and class instances are never proxied (Svelte requires `SvelteMap`/`SvelteSet`, M6); Vue keeps `deep` tracking.
+- Not modelled: Svelte's lazy per-property snapshot. A raw write in a *later* handler stays visible natively, while Svelte hides it for properties its proxy has already read (recorded deviation).
 
-The ownership rule lives in a tracking mode (`"deep-owned"`) so that only the Svelte adapter selects it.
+The ownership rule is the `proxied` tracking mode, which only the Svelte adapter selects.
 
 ## Native implementation
 
@@ -121,3 +123,16 @@ Probe and interpreter snapshots keep `cells` for the root instance and add `inst
 4. React and Vue adapters in parallel subagents on the same cases.
 5. Slots/children, refs, ownership, checkboxes and keydown.
 6. React regions spike: compare React Compiler's reactive scopes with our dependency guards on the examples (report only).
+
+## Outcome
+
+Implemented as designed, with these changes and findings:
+
+- **Module objects** became program `globals` (module constants evaluated once), since component cells cannot be shared between components.
+- **Events:** `change` (checkboxes, boolean payload) and `keydown` (payload `event.key`, bubbling, before default actions) joined `click` and `input`; checkboxes have a live `checked` property. The runtime owns checkbox activation (Blitz's default action touched removed checkboxes).
+- **Differential test:** it now picks targets from the live DOM (`nth` actions) and compares child instances; before M3 it only reached the root template.
+- **Codegen** builds `runic-codegen` per working tree (`.cache/codegen-target`), so parallel worktrees cannot swap each other's backend.
+- **Deviations** (recorded in the M3 results):
+  - *Update granularity.* Svelte runs all text and attribute updates of a block together, Vue and React re-render components; a value read without reactivity (a `Map` in `$state`, a plain `let`) therefore refreshes there when a neighbour changes, but natively only when its own dependencies change. Planned with the M4 reactivity work, which needs shared dependency analysis in the interpreter and codegen.
+  - *Navigation after a move-induced blur* continues from the moved element natively, from Chromium's detach position in the browser (case `reorder-navigation`, known gap, M5 focus model).
+  - Svelte's lazy proxy snapshots (above); duplicate keys throw where React and Vue warn.

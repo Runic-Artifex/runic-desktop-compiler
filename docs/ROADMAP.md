@@ -123,6 +123,12 @@ Replace the parts that cannot scale before adding any capability.
 - **Timers and async:** `setTimeout`/`setInterval`/`requestAnimationFrame`, Promises and `async`/`await` lowered to futures, with microtask vs macrotask ordering.
 - **Event loop:** a native event loop on winit.
 - **Storage:** `localStorage` as the first host service.
+- **Reactivity model** (carried from M3 and [the React regions report](research/REACT-REGIONS.md)), needed before effects can depend on it:
+  - dependency analysis shared by the interpreter and codegen, with each framework's update granularity (Svelte block template effects, Vue component re-render, React component re-render that cascades to children), so values read without reactivity refresh as in the framework;
+  - derived values computed once per update in per-instance slots (`$derived`, `computed`, React render constants) instead of once per read, which fixes their identity within a render; `useMemo`/`useCallback` as cached slots;
+  - an "instance rendered" notion for React effects, and closures that keep their own render's state (stale-closure semantics for timers and `await`);
+  - the Rules of React as compile errors (mutating props or state during render, render-time `setState`), which also lets React reference props use identity tracking;
+  - refining deep tracking (by reachability or property path) before effects depend on dirtiness.
 
 **Examples:** 7GUIs Timer, and TodoMVC with persistence.
 
@@ -134,7 +140,8 @@ Replace the parts that cannot scale before adding any capability.
 
 **Scope:**
 - **Events:** the full DOM event model (capture, bubble, `preventDefault`, `stopPropagation`, keyboard, pointer, wheel, focus, scroll).
-- **Form controls:** textarea, select, checkbox, radio and multiple editors. Lift the single-editor and 256-unit limits.
+- **Focus model:** Chromium's sequential navigation starting point as a live range (after a list move blurs the focused element, case `reorder-navigation`), `dblclick`/`blur` editing (TodoMVC's edit mode), placeholders (Blitz gap).
+- **Form controls:** textarea, select, radio and multiple editors (controlled checkboxes landed in M3; the single-editor and 256-unit limits ended with the M2 frontends).
 - **Layout and measurement:** `getBoundingClientRect`, `ResizeObserver`, scroll position, `matchMedia` (including `prefers-color-scheme`) and inline style bindings. The editor's virtualized list, popovers and floating positioning need these.
 - **Host services:** fetch of local resources, clipboard, history and hash routing, console, a `Date`/`Intl` subset, and window title/size.
 - **Rendering and accessibility:** SVG icons as far as Blitz renders them; accessibility through AccessKit.
