@@ -777,7 +777,7 @@ pub fn generate(
         let v = cx.expr(&cell.init);
         let _ = writeln!(
             init,
-            "cx.c.c{i} = (|| -> JsResult<_> {{ let cx = &mut cx; Ok({v}) }})().expect(\"initial value of {}\");",
+            "cx.c.c{i} = (|| -> JsResult<_> {{ let cx = &mut cx; Ok({v}) }})().expect(\"initial value of {}\");\ncx.snap.c{i} = cx.c.c{i}.clone();",
             cell.name.escape_default()
         );
         if let Some(Domain::Text { max_utf16 }) = cell.domain {
@@ -846,6 +846,7 @@ pub fn generate(
          self.cx.payload = None;\n\
          if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{ self.cx.c = before.clone(); }} }}\n\
          let deep = js::mutation_epoch() != epoch;\n\
+         self.cx.snap = self.cx.c.clone();\n\
          let dirty: [bool; {n}] = [{dirty}];\n\
          let dirty = if {optimize} {{ dirty }} else {{ [true; {n}] }};\n\
          if let Some((parent, s)) = self.root.as_mut() {{\n\

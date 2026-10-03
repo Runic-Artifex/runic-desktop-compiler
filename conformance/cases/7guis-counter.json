@@ -1,12 +1,34 @@
 {
-  "description": "7GUIs Counter (M2, Svelte pipeline 4)",
-  "fixtures": ["examples/7guis-counter-svelte"],
+  "description": "7GUIs Counter (M2)",
+  "fixtures": [
+    "examples/7guis-counter-svelte",
+    "examples/7guis-counter-react",
+    "examples/7guis-counter-vue"
+  ],
   "actions": [
-    { "kind": "click", "id": "count" },
-    { "kind": "click", "id": "count" },
-    { "kind": "click", "id": "count" },
-    { "kind": "press", "key": "Enter" },
-    { "kind": "press", "key": "Space" },
-    { "kind": "press", "key": "Shift+Tab" }
+    {
+      "kind": "click",
+      "id": "count"
+    },
+    {
+      "kind": "click",
+      "id": "count"
+    },
+    {
+      "kind": "click",
+      "id": "count"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "press",
+      "key": "Space"
+    },
+    {
+      "kind": "press",
+      "key": "Shift+Tab"
+    }
   ]
 }

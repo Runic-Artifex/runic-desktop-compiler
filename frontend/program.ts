@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const RUNES = path.join(here, 'svelte-runes.d.ts');
+export const REACT = path.join(here, 'react.d.ts');
+export const VUE = path.join(here, 'vue.d.ts');
 
 export const OPTIONS: ts.CompilerOptions = {
   target: ts.ScriptTarget.ES2023,
@@ -16,6 +18,7 @@ export const OPTIONS: ts.CompilerOptions = {
   allowJs: true,
   checkJs: true,
   allowImportingTsExtensions: true,
+  jsx: ts.JsxEmit.Preserve,
   types: [],
 };
 

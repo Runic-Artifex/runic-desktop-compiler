@@ -1296,6 +1296,7 @@ impl<'p> Machine<'p> {
         if let Err(t) = &result {
             if t.name.to_rust() == "RunicDomainError" {
                 self.cells = before;
+                self.snapshot = self.cells.clone();
                 return Err(Diagnostic::new("E_TEXT_PAYLOAD", t.message.to_rust(), None));
             }
         }
@@ -1305,6 +1306,8 @@ impl<'p> Machine<'p> {
             .zip(&before)
             .map(|(a, b)| !a.same(b))
             .collect();
+        // Outside handlers the snapshot is the committed state (React render reads).
+        self.snapshot = self.cells.clone();
         match result {
             Ok(_) => Ok(changed),
             Err(t) => Err(Diagnostic::new(

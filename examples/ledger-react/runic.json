@@ -1,0 +1,6 @@
+{
+  "framework": "react",
+  "entry": "main.tsx",
+  "title": "Ledger",
+  "pipeline": 4
+}

@@ -5,8 +5,16 @@ import { lowerSvelte } from './adapters/svelte.mjs';
 export async function lower(graph, options = {}) {
   switch (graph.config.framework ?? 'react') {
     case 'react':
+      if (graph.config.pipeline === 4) {
+        const { lowerReact4 } = await import('../frontend/adapters/react.ts');
+        return lowerReact4(graph, options);
+      }
       return lowerReact(graph, options);
     case 'vue':
+      if (graph.config.pipeline === 4) {
+        const { lowerVue4 } = await import('../frontend/adapters/vue.ts');
+        return lowerVue4(graph, options);
+      }
       return lowerVue(graph, options);
     case 'svelte':
       // Pipeline 4: the TypeScript frontend on the shared language layer (M2).

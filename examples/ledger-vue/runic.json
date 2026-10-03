@@ -1,0 +1,6 @@
+{
+  "framework": "vue",
+  "entry": "main.js",
+  "title": "Ledger",
+  "pipeline": 4
+}

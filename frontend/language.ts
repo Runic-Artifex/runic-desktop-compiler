@@ -11,6 +11,12 @@ export type Binding =
   | { kind: 'function'; fn: number }
   | { kind: 'derived'; fn: number }
   | { kind: 'value'; expr: Expr }
+  /** A Vue ref (`x.value` reads and writes the cell). */
+  | { kind: 'ref'; cell: number }
+  /** A Vue computed (`x.value` calls the derived function). */
+  | { kind: 'computed'; fn: number }
+  /** A component's props object (inlined components): member reads are values. */
+  | { kind: 'props'; values: Map<string, Expr> }
   | { kind: 'event' };
 
 export interface Hooks {
@@ -288,6 +294,8 @@ export class Lowerer {
     if (ts.isBlock(decl.body!)) return this.block(decl.body.statements, b);
     // Expression-bodied arrow.
     const e = decl.body as ts.Expression;
+    const custom = this.hooks.statement?.(skipParens(e), b, this);
+    if (custom) return custom;
     if (this.isStatementLike(e))
       return [...this.statement(ts.factory.createExpressionStatement(e), b, e)];
     return [{ op: 'return', value: this.expr(e, b) }];
@@ -781,6 +789,28 @@ export class Lowerer {
     return [{ op: 'expr', value: this.expr(e, b), ...this.src(origin) }];
   }
 
+  /**
+   * The IR type of an assignment target. TypeScript reports `any` for
+   * targets it rejects (e.g. Vue template `count++` on an unwrapped ref), so
+   * bindings answer first.
+   */
+  private targetType(target: ts.Expression, b: FnBuilder): Type {
+    if (ts.isIdentifier(target)) {
+      const binding = this.binding(target);
+      if (binding?.kind === 'cell') return this.hooks.cellType(binding.cell);
+      if (binding?.kind === 'local') return b.typeOf(b.resolve(binding.owner, binding.local));
+    }
+    if (
+      ts.isPropertyAccessExpression(target) &&
+      ts.isIdentifier(target.expression) &&
+      target.name.text === 'value'
+    ) {
+      const ref = this.binding(target.expression);
+      if (ref?.kind === 'ref') return this.hooks.cellType(ref.cell);
+    }
+    return this.typeAt(target);
+  }
+
   /** `target op= value` as statements. */
   assignment(
     target: ts.Expression,
@@ -803,7 +833,14 @@ export class Lowerer {
     )
       return this.fail(target, 'E_ASSIGN', 'Logical assignment operators are planned for later');
     else if (compound)
-      value = this.binary(compound, current(), this.typeOfNode(target), rhs(), rhsType(), target);
+      value = this.binary(
+        compound,
+        current(),
+        this.targetType(target, b),
+        rhs(),
+        rhsType(),
+        target,
+      );
     else return this.fail(target, 'E_ASSIGN', 'Unsupported assignment operator');
     if (ts.isIdentifier(target)) {
       const binding = this.binding(target);
@@ -822,6 +859,16 @@ export class Lowerer {
         return this.hooks.writeCell!(binding.cell, value, b, target);
       }
       return this.fail(target, 'E_ASSIGN', `Cannot assign to ${target.text}`);
+    }
+    if (
+      ts.isPropertyAccessExpression(target) &&
+      ts.isIdentifier(target.expression) &&
+      target.name.text === 'value'
+    ) {
+      const ref = this.binding(target.expression);
+      if (ref?.kind === 'ref') return this.hooks.writeCell!(ref.cell, value, b, target);
+      if (ref?.kind === 'computed')
+        return this.fail(target, 'E_ASSIGN', 'Computed values are read-only');
     }
     return [{ op: 'assign', target: this.place(target, b), value, ...this.src(target) }];
   }
@@ -976,9 +1023,21 @@ export class Lowerer {
   exprType(e: ts.Expression): Type {
     const inner = skipParens(e);
     if (ts.isArrayLiteralExpression(inner) || ts.isObjectLiteralExpression(inner)) {
-      const ctx = this.checker.getContextualType(inner);
+      let ctx = this.checker.getContextualType(inner);
       // The literal itself is never nullish, even where the context allows it.
-      if (ctx) return this.types.map(this.checker.getNonNullableType(ctx), inner);
+      if (ctx) ctx = this.checker.getNonNullableType(ctx);
+      // In a union context (e.g. useState's `S | (() => S)`) use the member
+      // of the literal's own kind.
+      if (ctx?.isUnion()) {
+        const array = ts.isArrayLiteralExpression(inner);
+        const members = ctx.types.filter(t =>
+          array
+            ? this.checker.isArrayType(t) || this.checker.isTupleType(t)
+            : !!(t.flags & ts.TypeFlags.Object) && !t.getCallSignatures().length,
+        );
+        if (members.length === 1) ctx = members[0];
+      }
+      if (ctx) return this.types.map(ctx, inner);
     }
     return this.types.of(e);
   }
@@ -1051,6 +1110,19 @@ export class Lowerer {
         // A function used as a value: wrap it in a closure forwarding its params.
         return { op: 'closure', function: binding.fn, captures: [] };
       }
+      case 'props':
+        return this.fail(
+          id,
+          'E_PROPS',
+          'Use props through member access (props.name) or destructuring',
+        );
+      case 'ref':
+      case 'computed':
+        return this.fail(
+          id,
+          'E_REF',
+          'Refs are supported through .value (passing ref objects is planned for M3)',
+        );
       case 'event':
         return this.fail(
           id,
@@ -1249,6 +1321,24 @@ export class Lowerer {
 
   private property(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
     const name = e.name.text;
+    if (ts.isIdentifier(e.expression)) {
+      const special = this.binding(e.expression);
+      if (special?.kind === 'props')
+        return special.values.get(name) ?? this.fail(e, 'E_PROPS', `Prop ${name} is not passed`);
+      if (special?.kind === 'ref' && name === 'value') {
+        const read = this.hooks.readCell(special.cell, b, e);
+        const here = this.types.typeOrUndefined(e);
+        const declared = this.hooks.cellType(special.cell);
+        return typeof declared === 'object' &&
+          'maybe' in declared &&
+          here !== undefined &&
+          !(typeof here === 'object' && 'maybe' in here)
+          ? { op: 'unwrap', value: read }
+          : read;
+      }
+      if (special?.kind === 'computed' && name === 'value')
+        return { op: 'call', function: special.fn, args: [] };
+    }
     const global = this.globalName(e.expression);
     if (global === 'Math' || global === 'Number')
       return { op: 'builtin', name: `${global}.${name}`, args: [], type: this.types.of(e) };

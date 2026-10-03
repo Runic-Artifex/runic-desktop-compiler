@@ -1,20 +1,70 @@
 {
   "description": "7GUIs Temperature Converter (M2): two controlled editors, number parsing and formatting",
-  "fixtures": ["examples/7guis-temperature-svelte"],
+  "fixtures": [
+    "examples/7guis-temperature-svelte",
+    "examples/7guis-temperature-react",
+    "examples/7guis-temperature-vue"
+  ],
   "actions": [
-    { "kind": "focus", "id": "celsius" },
-    { "kind": "type", "text": "100" },
-    { "kind": "press", "key": "Backspace" },
-    { "kind": "type", "text": ".5" },
-    { "kind": "type", "text": "x" },
-    { "kind": "press", "key": "Backspace" },
-    { "kind": "focus", "id": "fahrenheit" },
-    { "kind": "select", "id": "fahrenheit", "start": 0, "end": 5 },
-    { "kind": "type", "text": "-40" },
-    { "kind": "press", "key": "Tab" },
-    { "kind": "type", "text": "1e3" },
-    { "kind": "press", "key": "Shift+Tab" },
-    { "kind": "select", "id": "celsius", "start": 0, "end": 4 },
-    { "kind": "type", "text": " 0x10 " }
+    {
+      "kind": "focus",
+      "id": "celsius"
+    },
+    {
+      "kind": "type",
+      "text": "100"
+    },
+    {
+      "kind": "press",
+      "key": "Backspace"
+    },
+    {
+      "kind": "type",
+      "text": ".5"
+    },
+    {
+      "kind": "type",
+      "text": "x"
+    },
+    {
+      "kind": "press",
+      "key": "Backspace"
+    },
+    {
+      "kind": "focus",
+      "id": "fahrenheit"
+    },
+    {
+      "kind": "select",
+      "id": "fahrenheit",
+      "start": 0,
+      "end": 5
+    },
+    {
+      "kind": "type",
+      "text": "-40"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "type",
+      "text": "1e3"
+    },
+    {
+      "kind": "press",
+      "key": "Shift+Tab"
+    },
+    {
+      "kind": "select",
+      "id": "celsius",
+      "start": 0,
+      "end": 4
+    },
+    {
+      "kind": "type",
+      "text": " 0x10 "
+    }
   ]
 }

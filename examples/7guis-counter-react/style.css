@@ -1,0 +1,12 @@
+@font-face { font-family: RunicExample; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eef0ea; color: #22302a; font-family: RunicExample; font-size: 16px; }
+body { padding: 32px; }
+main { max-width: 620px; margin: 0 auto; padding: 28px; background: #fbfbf7; border: 1px solid #b9c0b4; border-radius: 10px; }
+h1 { margin: 0 0 20px; font-size: 24px; font-weight: 400; }
+p { margin: 8px 0; line-height: 1.5; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+button, input { font-family: RunicExample; font-size: 15px; padding: 8px 12px; border: 1px solid #4f6357; border-radius: 6px; background: #e3e9e0; color: #22302a; }
+input { width: 160px; background: #ffffff; }
+button:disabled { background: #ececea; color: #8a8d88; border-color: #c2c4bd; }
+@media (max-width: 480px) { body { padding: 12px; } main { padding: 16px; } }
