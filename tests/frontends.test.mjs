@@ -317,12 +317,48 @@ test('React rejects uncovered behaviour with locations', async () => {
     ['function App(){console.log("render");return <p>Hi</p>;}', 'E_COMPONENT'],
     ['const discarded=Date.now();function App(){return <p>Hi</p>;}', 'E_UNRESOLVED'],
     ['import {useEffect} from "react";function App(){return <p>Hi</p>;}', 'E_CAPABILITY'],
+    ['const App=()=> <select><option>one</option></select>;', 'E_JSX'],
+    // Lists need an inline callback returning JSX, with plain parameters and value keys.
+    ['function App(){return <p>{[1,2].map(String)}</p>;}', 'E_JSX'],
+    ['function App(){return <p>{[1,2].map(x=>x)}</p>;}', 'E_JSX'],
+    ['function App(){return <p>{[1,2].map(x=>{const y=x;return <b>{y}</b>;})}</p>;}', 'E_JSX'],
+    ['function App(){return <p>{[[1]].map(([x])=><b>{x}</b>)}</p>;}', 'E_JSX'],
+    ['function App(){return <p>{[[1]].map(x=><b key={x}>a</b>)}</p>;}', 'E_JSX'],
+    ['function App(){return <p>{[1].map((x,i,all)=><b>{x}</b>)}</p>;}', 'E_JSX'],
+    ['function App(){return <p>{[1].map(x=>x>0&&<b key={x}>a</b>)}</p>;}', 'E_JSX'],
+    // React keeps one instance (or DOM node) when both branches render the same type.
     [
-      'function Child(){const[n,set]=useState(1);return <p>{n}</p>;}function App(){const[show,set]=useState(true);return <div>{show&&<Child/>}</div>;}',
+      'function C({n}){const[c,s]=useState(n);return <b>{c}</b>;}function App(){const[f,set]=useState(true);return <p>{f?<C n={1}/>:<C n={2}/>}</p>;}',
+      'E_JSX',
+    ],
+    [
+      'function App(){const[f,set]=useState(true);return <p>{f?<b>a</b>:f?null:<b>b</b>}</p>;}',
+      'E_JSX',
+    ],
+    // Props: unknown, missing, untyped and unused, recursive components.
+    [
+      'function C({n}){return <b>{n}</b>;}function App(){return <p><C n={1} m={2}/></p>;}',
+      'E_PROPS',
+    ],
+    ['function C({n}){return <b>{n}</b>;}function App(){return <p><C/></p>;}', 'E_PROPS'],
+    [
+      'function C({n}){return <b>{n}</b>;}function App(){return <p><C n={1}/><C n="a"/></p>;}',
+      'E_PROPS',
+    ],
+    [
+      'function C({n,items=[1]}){return <b>{n}</b>;}function App(){return <p><C n={1}/></p>;}',
+      'E_PROPS',
+    ],
+    ['function C({children}){return <b>a</b>;}function App(){return <p><C/></p>;}', 'E_PROPS'],
+    [
+      'function C({n}){return <p>{n>0&&<C n={n-1}/>}</p>;}function App(){return <C n={2}/>;}',
       'E_COMPONENT',
     ],
-    ['const App=()=> <select><option>one</option></select>;', 'E_JSX'],
-    ['function App(){return <p>{[1,2].map(x=><b>{x}</b>)}</p>;}', 'E_JSX'],
+    ['function C(){return <b>a</b>;}function App(){return <C>child</C>;}', 'E_COMPONENT'],
+    [
+      'function App(){const[xs,set]=useState([()=>{}]);return <p>{xs.map(f=><b onClick={f}>a</b>)}</p>;}',
+      'E_EVENT',
+    ],
     ['function App(){return <p style={{color:"red"}}>a</p>;}', 'E_JSX'],
     ['function App(){return <p onMouseOver={()=>1}>a</p>;}', 'E_EVENT'],
     [
@@ -354,6 +390,120 @@ test('React untyped props and helpers take the IR types of their values', async 
       assert.deepEqual(texts(steps.slice(0, 1), ['out']), { out: 'EUR: 2' });
       assert.deepEqual(texts(steps, ['out']), { out: 'EUR: 4!' });
       assert.equal(flat(steps.at(-1).state.dom).find(n => n.attrs.id === 'out').attrs.title, '4');
+    },
+  );
+});
+
+/** The interpreter DOM without whitespace-only text nodes (Svelte keeps them between blocks). */
+const visible = nodes =>
+  nodes
+    .filter(n => typeof n !== 'string' || n.trim())
+    .map(n => (typeof n === 'string' ? n : { ...n, children: visible(n.children) }));
+
+test('React and Svelte components agree: instances, keyed lists, callbacks and remounts', async () => {
+  const actions = [
+    ['count-2'],
+    ['count-2'],
+    ['count-3'],
+    ['up-2'],
+    ['up-3'],
+    ['reverse'],
+    ['name', 'Delta!'],
+    ['add'],
+    ['count-4'],
+    ['remove-1'],
+    ['toggle'],
+    ['toggle'],
+    ['remove-2'],
+    ['remove-3'],
+    ['remove-4'],
+    ['add'],
+  ].map(([id, value]) => (value ? { kind: 'input', id, value } : { kind: 'click', id }));
+  const traces = [];
+  for (const f of ['react', 'svelte']) {
+    const { ir } = await lower(await graph('components-' + f));
+    traces.push(run(ir, actions).map(s => visible(s.state.dom)));
+  }
+  assert.deepEqual(traces[0], traces[1]);
+  const { ir } = await lower(await graph('components-react'));
+  const steps = run(ir, actions);
+  // Moved rows keep their own state; the remounted editor starts over.
+  assert.deepEqual(texts(steps.slice(0, 8), ['label-2', 'label-3', 'edits']), {
+    'label-2': 'Beta (2)',
+    'label-3': 'Gamma (1)',
+    edits: 'Edits: 1',
+  });
+  assert.deepEqual(texts(steps.slice(0, 13), ['label-4', 'edits']), {
+    'label-4': 'Delta! (1)',
+    edits: 'Edits: 0',
+  });
+  assert.equal(texts(steps.slice(0, 16), ['empty']).empty, 'Nothing left');
+  assert.equal(texts(steps, ['label-5'])['label-5'], 'Delta! (0)');
+  assert.equal(ir.components.length, 3);
+  assert.deepEqual(
+    ir.components.map(c => c.cells.filter(x => x.prop).map(x => `${x.prop}:${x.tracking}`)),
+    [
+      [],
+      ['id:identity', 'label:identity', 'first:identity', 'onRemove:identity', 'onUp:identity'],
+      ['value:identity', 'onChange:identity'],
+    ],
+  );
+});
+
+test('React instances remount with conditions and keys; setters and props objects pass as values', async () => {
+  await react(
+    `function Counter({label, start = 0, onDone}) {
+       const [n, setN] = useState(start);
+       return <p><button id={'inc-' + label} onClick={() => setN(v => v + 1)}>{label}:{n}</button><button id={'done-' + label} onClick={() => onDone(n)}>done</button></p>;
+     }
+     function Tag(props) { return <i id="tag">{props.text}</i>; }
+     function App() {
+       const [show, setShow] = useState(true);
+       const [total, setTotal] = useState(0);
+       const [names, setNames] = useState(['a', 'b']);
+       const [k, setK] = useState(0);
+       return <main>
+         <p id="total">{total && <b>{total}</b>}</p>
+         <button id="show" onClick={() => setShow(!show)}>s</button>
+         <button id="rekey" onClick={() => setK(k + 1)}>k</button>
+         <button id="rot" onClick={() => setNames([...names.slice(1), names[0]])}>r</button>
+         <Tag text={'t' + total}/>
+         {show && <Counter label="x" onDone={setTotal}/>}
+         <Counter key={k} label="y" start={10} onDone={setTotal}/>
+         <ul id="list">{names.map((name, i) => <li key={name} id={'li-' + name}><Counter label={name} onDone={(/** @type {number} */ v) => setTotal(v * 10 + i)}/>{i}</li>)}</ul>
+       </main>;
+     }`,
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const click = id => ({ kind: 'click', id });
+      const steps = run(ir, [
+        click('inc-x'),
+        click('inc-x'),
+        click('done-x'),
+        click('show'),
+        click('show'),
+        click('inc-y'),
+        click('rekey'),
+        click('inc-a'),
+        click('rot'),
+        click('done-a'),
+      ]);
+      const at = (i, ids) => texts(steps.slice(0, i + 1), ids);
+      // A falsy number renders as text in React.
+      assert.deepEqual(at(0, ['total', 'tag']), { total: '0', tag: 't0' });
+      assert.deepEqual(at(3, ['total', 'tag', 'inc-x']), { total: '2', tag: 't2', 'inc-x': 'x:2' });
+      assert.equal(at(4, ['inc-x'])['inc-x'], undefined);
+      assert.equal(at(5, ['inc-x'])['inc-x'], 'x:0');
+      assert.equal(at(6, ['inc-y'])['inc-y'], 'y:11');
+      assert.equal(at(7, ['inc-y'])['inc-y'], 'y:10');
+      assert.deepEqual(at(9, ['li-a', 'li-b']), { 'li-a': 'a:1done1', 'li-b': 'b:0done0' });
+      const list = flat(steps[9].state.dom).find(n => n.attrs.id === 'list');
+      assert.deepEqual(
+        list.children.map(c => c.attrs.id),
+        ['li-b', 'li-a'],
+      );
+      // The callback captured the item's current index (1).
+      assert.equal(at(10, ['total']).total, '11');
     },
   );
 });

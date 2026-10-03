@@ -1,20 +1,27 @@
-// React 19 adapter on the shared language layer (docs/design/M2-VALUES.md).
-// Framework semantics only:
+// React 19 adapter on the shared language layer (docs/design/M2-VALUES.md,
+// docs/design/M3-COMPONENTS.md). Framework semantics only:
+// - every function component is an IR component: each rendered <Child/> is an
+//   instance with its own cells, created and destroyed with its template
+//   region (conditional branches, list items), so state resets on remount;
+// - props are prop cells (destructured or `props.name`); their types come from
+//   TypeScript, or from the first call site for untyped JavaScript props;
 // - useState → identity-tracked cells; setters write, updater functions see
 //   the pending value; every other read sees the render snapshot;
 // - component-body `const` values are derived functions over that snapshot,
 //   nested functions are component functions;
-// - stateless child components are inlined with their props bound;
+// - `items.map(item => <Row key={…}/>)` → keyed (or, without a key, indexed)
+//   lists; a `key` elsewhere remounts its element when it changes;
 // - JSX → IR nodes with React's whitespace and child rendering rules.
 import ts from 'typescript';
 import path from 'node:path';
 import { decodeHTMLStrict } from 'entities';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
-import type { Cell, Component, Expr, Handler, Node, Program, Stmt, Type } from '../ir.ts';
-import { Lowerer, skipParens, type Hooks } from '../language.ts';
+import type { Cell, Component, Expr, Handler, Listener, Node, Program, Stmt, Type } from '../ir.ts';
+import { FnBuilder, Lowerer, skipParens, type Hooks } from '../language.ts';
 import { createProgram, REACT } from '../program.ts';
-import { TypeMapper } from '../types.ts';
+import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
+import { arrayElement, maybeInner } from '../irtype.ts';
 
 const TAGS = new Set([
   'div',
@@ -77,11 +84,13 @@ interface Graph {
   tooling: { packages: Record<string, string> };
 }
 
-/** React's JSX text rule: trim lines, drop whitespace-only lines, join with spaces. */
+type Jsx = ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment;
+
 /** The token at `pos` (an internal TypeScript API, stable across 5.x). */
 const tokenAt = (ts as unknown as { getTokenAtPosition(sf: ts.SourceFile, pos: number): ts.Node })
   .getTokenAtPosition;
 
+/** React's JSX text rule: trim lines, drop whitespace-only lines, join with spaces. */
 function cleanText(text: string): string {
   const lines = text.replace(/\r/g, '').split('\n');
   const parts = lines.map((s, i) => {
@@ -91,6 +100,15 @@ function cleanText(text: string): string {
     return s;
   });
   return decodeHTMLStrict(parts.filter(Boolean).join(' '));
+}
+
+/** The lowering state of the component being lowered (children nest). */
+interface Scope {
+  index: number;
+  cells: Cell[];
+  handlers: Handler[];
+  /** Template scope: its locals are list items, indices and temporaries. */
+  tb: FnBuilder;
 }
 
 export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
@@ -120,9 +138,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       );
   }
   const types = new TypeMapper(checker, fail);
-  const cells: Cell[] = [];
+  /** The component being lowered. */
+  let cur: Scope = undefined as unknown as Scope;
   const setters = new Map<ts.Symbol, number>();
-  const COMPONENT = 0;
   const symbolOf = (n: ts.Node) => {
     const s = checker.getSymbolAtLocation(n);
     return s && s.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(s) : s;
@@ -138,7 +156,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   const hooks: Hooks = {
     // Render, handler and closure reads all observe the render snapshot.
     readCell: cell => ({ op: 'cell', cell, read: 'snapshot' }),
-    cellType: cell => cells[cell].type,
+    cellType: cell => cur.cells[cell].type,
     statement(e, ctx, lower) {
       const s = setterCall(e);
       if (!s) return undefined;
@@ -157,7 +175,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           callee: f,
           args: [{ op: 'cell', cell: s.cell, read: 'current' }],
         };
-      } else value = lower.coerce(s.arg, ctx, cells[s.cell].type);
+      } else value = lower.coerce(s.arg, ctx, cur.cells[s.cell].type);
       return [{ op: 'set', cell: s.cell, value, source: sourceOf(e) }] as Stmt[];
     },
     call(node) {
@@ -169,7 +187,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   const lower = new Lowerer(program, checker, types, hooks, fail, sourceOf);
 
   // --- Modules: functions and constants (shared by every component) ---
-  const componentDecls = new Map<ts.Symbol, ts.FunctionLikeDeclaration>();
+  const componentDecls = new Map<ts.Symbol, { decl: ts.FunctionLikeDeclaration; name: string }>();
   const returnsJsx = (f: ts.FunctionLikeDeclaration): boolean => {
     let found = false;
     const visit = (n: ts.Node) => {
@@ -190,12 +208,12 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       (decl as ts.FunctionDeclaration).name?.text === 'useState'
     );
   };
-  const isJsx = (n: ts.Node): n is ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment =>
+  const isJsx = (n: ts.Node): n is Jsx =>
     ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n);
   let bootstrap: ts.ExpressionStatement | undefined;
   const componentDecl = (n: ts.Statement): boolean => {
     if (ts.isFunctionDeclaration(n) && n.name && returnsJsx(n)) {
-      componentDecls.set(checker.getSymbolAtLocation(n.name)!, n);
+      componentDecls.set(checker.getSymbolAtLocation(n.name)!, { decl: n, name: n.name.text });
       return true;
     }
     if (ts.isVariableStatement(n)) {
@@ -206,7 +224,10 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         fns.every(i => i && (ts.isArrowFunction(i) || ts.isFunctionExpression(i)) && returnsJsx(i))
       ) {
         decls.forEach((d, i) =>
-          componentDecls.set(checker.getSymbolAtLocation(d.name)!, fns[i] as ts.ArrowFunction),
+          componentDecls.set(checker.getSymbolAtLocation(d.name)!, {
+            decl: fns[i] as ts.ArrowFunction,
+            name: d.name.getText(),
+          }),
         );
         return true;
       }
@@ -214,7 +235,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     return false;
   };
   // Ordinary local modules (and component modules) initialise dependencies first.
-  const pending = lowerModules(graph, program, lower, {
+  const modulePending = lowerModules(graph, program, lower, {
     statement(stmt, file) {
       if (componentDecl(stmt)) return true;
       if (ts.isExpressionStatement(stmt) && file === graph.entry && !bootstrap) {
@@ -232,13 +253,14 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
               fail(
                 el,
                 'E_CAPABILITY',
-                `react:${(el.propertyName ?? el.name).text} is planned for M3/M4`,
+                `react:${(el.propertyName ?? el.name).text} is planned for M4`,
               );
         return true;
       }
       return spec === 'react-dom/client';
     },
   });
+  for (const p of modulePending) p();
   // createRoot(document.getElementById('root')).render(<App />)
   const call = bootstrap && skipParens(bootstrap.expression);
   const rendered =
@@ -254,158 +276,340 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       'Entry must contain exactly one createRoot(document.getElementById("root")).render(<App />)',
       bootstrap && sourceOf(bootstrap),
     );
-  const appDecl = componentDecls.get(symbolOf(rendered.tagName)!);
-  if (!appDecl)
+  const app = componentDecls.get(symbolOf(rendered.tagName)!);
+  if (!app)
     fail(rendered, 'E_BOOTSTRAP', 'The rendered component must be a local function component');
+  if (rendered.attributes.properties.length)
+    fail(rendered.attributes, 'E_BOOTSTRAP', 'The root component is rendered without props');
 
-  // --- The root component body ---
-  const body = appDecl!.body;
-  if (!body) fail(appDecl!, 'E_COMPONENT', 'The root component needs a body');
-  // An expression body is the returned JSX.
-  let returned: ts.Expression | undefined = ts.isBlock(body!) ? undefined : (body as ts.Expression);
-  for (const stmt of ts.isBlock(body!) ? body.statements : []) {
-    if (ts.isReturnStatement(stmt)) {
-      returned = stmt.expression;
-      break;
+  // --- Components: lowered on first use, children while their parent's template is lowered ---
+  const components: Component[] = [];
+  const indexOf = new Map<ts.FunctionLikeDeclaration, number>();
+  const active: ts.FunctionLikeDeclaration[] = [];
+  /** The component index of `decl`, lowering it first if needed (`site`: first call site's prop types). */
+  const instantiate = (
+    entry: { decl: ts.FunctionLikeDeclaration; name: string },
+    site: Map<string, Type>,
+    at: ts.Node,
+  ): number => {
+    if (active.includes(entry.decl))
+      return fail(at, 'E_COMPONENT', 'Recursive components are planned for a later milestone');
+    const known = indexOf.get(entry.decl);
+    if (known !== undefined) return known;
+    const index = components.length;
+    components.push(undefined as unknown as Component);
+    indexOf.set(entry.decl, index);
+    const saved = cur;
+    active.push(entry.decl);
+    try {
+      components[index] = lowerComponent(entry.decl, entry.name, index, site);
+    } finally {
+      active.pop();
+      cur = saved;
     }
-    if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      const p = lower.declare(
-        checker.getSymbolAtLocation(stmt.name)!,
-        stmt,
-        stmt.name.text,
-        COMPONENT,
-      );
-      if (p) pending.push(p);
-      continue;
-    }
-    if (!ts.isVariableStatement(stmt) || !(stmt.declarationList.flags & ts.NodeFlags.Const))
-      fail(
-        stmt,
-        'E_COMPONENT',
-        'Component bodies support const declarations, useState and nested functions',
-      );
-    for (const d of (stmt as ts.VariableStatement).declarationList.declarations) {
-      const init = d.initializer && skipParens(d.initializer);
-      if (init && ts.isCallExpression(init) && isUseState(init.expression)) {
-        if (!ts.isArrayBindingPattern(d.name) || d.name.elements.length !== 2)
-          fail(d, 'E_STATE', 'Use const [value, setValue] = useState(initial)');
-        const [v, s] = (d.name as ts.ArrayBindingPattern)
-          .elements as unknown as ts.BindingElement[];
-        if (!ts.isIdentifier(v.name) || !ts.isIdentifier(s.name))
-          fail(d, 'E_STATE', 'useState names must be identifiers');
-        const cell = cells.length;
-        const type = types.of(v.name);
-        const arg = init.arguments[0];
-        if (arg && (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)))
-          fail(arg, 'E_STATE', 'Lazy useState initialisers are planned for M3');
-        cells.push({
-          name: (v.name as ts.Identifier).text,
-          type,
-          init: { op: 'lit', value: 0 },
-          tracking: 'identity',
-          source: sourceOf(d),
-        });
-        lower.bindings.set(checker.getSymbolAtLocation(v.name)!, { kind: 'cell', cell });
-        setters.set(checker.getSymbolAtLocation(s.name)!, cell);
-        pending.push(() => {
-          if (!arg) {
-            cells[cell].init = { op: 'undefined', type };
-            return;
-          }
-          const v = lower.value(arg, COMPONENT, `${cells[cell].name}$init`);
-          const from = lower.exprType(arg);
-          const widen =
-            typeof type === 'object' &&
-            'maybe' in type &&
-            !(typeof from === 'object' && 'maybe' in from);
-          cells[cell].init = widen ? { op: 'some', value: v } : v;
-        });
+    return index;
+  };
+
+  function lowerComponent(
+    decl: ts.FunctionLikeDeclaration,
+    name: string,
+    COMPONENT: number,
+    site: Map<string, Type>,
+  ): Component {
+    cur = { index: COMPONENT, cells: [], handlers: [], tb: lower.template(COMPONENT) };
+    const { cells } = cur;
+    const pending: (() => void)[] = [];
+
+    // --- Props: `{ a, b = 1 }: Props` or `props: Props` → prop cells ---
+    if (decl.parameters.length > 1)
+      fail(decl.parameters[1], 'E_PROPS', 'Function components take a single props parameter');
+    const param = decl.parameters[0];
+    const propCell = (key: string, type: Type, at: ts.Node): number => {
+      if (key === 'children')
+        fail(at, 'E_PROPS', 'children props are planned for a later M3 step (slots)');
+      if (key === 'key' || key === 'ref')
+        fail(at, 'E_PROPS', `${key} is not passed to components as a prop`);
+      cells.push({
+        name: key,
+        type,
+        init: required(type),
+        tracking: isReference(type) ? 'deep' : 'identity',
+        prop: key,
+        source: sourceOf(at),
+      });
+      return cells.length - 1;
+    };
+    if (param && ts.isObjectBindingPattern(param.name)) {
+      for (const el of param.name.elements) {
+        if (el.dotDotDotToken) fail(el, 'E_PROPS', 'Rest props are planned for a later milestone');
+        if (!ts.isIdentifier(el.name))
+          fail(el, 'E_PROPS', 'Nested prop destructuring is planned for a later milestone');
+        const local = el.name as ts.Identifier;
+        const key = el.propertyName ? propertyName(el.propertyName) : local.text;
+        const sym = checker.getSymbolAtLocation(local)!;
+        let type = types.typeOrUndefined(local);
+        if (type === undefined) {
+          // Untyped JavaScript: the IR type of the value at the first call site.
+          type = site.get(key);
+          if (type === undefined)
+            return fail(
+              el,
+              'E_PROPS',
+              `Prop ${key} needs a type: annotate the props or pass it where ${name} is first used`,
+            );
+          types.override(sym, type);
+        }
+        const cell = propCell(key, type, el);
+        cells[cell].name = local.text;
+        lower.bindings.set(sym, { kind: 'cell', cell });
+        const fallback = el.initializer;
+        if (fallback) {
+          if (isReference(type))
+            fail(
+              fallback,
+              'E_PROPS',
+              'React re-creates object and array prop defaults on every render; such defaults are unsupported (pass the prop)',
+            );
+          const t = type;
+          pending.push(() => {
+            cells[cell].init = coerceInit(
+              lower.value(fallback, COMPONENT, `${key}$default`),
+              lower.exprType(fallback),
+              t,
+            );
+          });
+        }
+      }
+    } else if (param && ts.isIdentifier(param.name)) {
+      const values = new Map<string, Expr>();
+      const t = checker.getTypeAtLocation(param.name);
+      if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+        for (const [key, type] of site)
+          values.set(key, { op: 'cell', cell: propCell(key, type, param), read: 'snapshot' });
+      } else
+        for (const p of checker.getPropertiesOfType(t)) {
+          let pt = checker.getTypeOfSymbolAtLocation(p, param);
+          if (p.flags & ts.SymbolFlags.Optional)
+            pt = checker.getNullableType(pt, ts.TypeFlags.Undefined);
+          const at = p.valueDeclaration ?? param;
+          const cell = propCell(p.name, types.map(pt, at), at);
+          values.set(p.name, { op: 'cell', cell, read: 'snapshot' });
+        }
+      lower.bindings.set(checker.getSymbolAtLocation(param.name)!, { kind: 'props', values });
+    } else if (param) fail(param, 'E_PROPS', 'Unsupported props parameter');
+
+    // --- Body: useState, derived constants, nested functions ---
+    const body = decl.body;
+    if (!body) fail(decl, 'E_COMPONENT', 'Components need a body');
+    // An expression body is the returned JSX.
+    let returned: ts.Expression | undefined = ts.isBlock(body!)
+      ? undefined
+      : (body as ts.Expression);
+    for (const stmt of ts.isBlock(body!) ? body.statements : []) {
+      if (ts.isReturnStatement(stmt)) {
+        returned = stmt.expression;
+        break;
+      }
+      if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+        const p = lower.declare(
+          checker.getSymbolAtLocation(stmt.name)!,
+          stmt,
+          stmt.name.text,
+          COMPONENT,
+        );
+        if (p) pending.push(p);
         continue;
       }
-      if (!ts.isIdentifier(d.name))
-        fail(d, 'E_COMPONENT', 'Destructuring in component bodies is planned for M3');
-      const name = (d.name as ts.Identifier).text;
-      const sym = checker.getSymbolAtLocation(d.name)!;
-      if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
-        const p = lower.declare(sym, init, name, COMPONENT);
-        if (p) pending.push(p);
-      } else {
-        const index = lower.reserve();
-        // A render-time value: recomputed from the render snapshot.
-        lower.bindings.set(sym, { kind: 'derived', fn: index });
-        pending.push(() => {
-          const v = lower.value(d.initializer!, COMPONENT, `${name}$render`);
-          lower.functions[index] = {
-            name,
-            component: COMPONENT,
-            params: [],
-            locals: [],
-            result: lower.types.typeOrUndefined(d.initializer!) ?? lower.valueType(v),
-            body: [{ op: 'return', value: v }],
-          };
-        });
+      if (!ts.isVariableStatement(stmt) || !(stmt.declarationList.flags & ts.NodeFlags.Const))
+        fail(
+          stmt,
+          'E_COMPONENT',
+          'Component bodies support const declarations, useState and nested functions',
+        );
+      for (const d of (stmt as ts.VariableStatement).declarationList.declarations) {
+        const init = d.initializer && skipParens(d.initializer);
+        if (init && ts.isCallExpression(init) && isUseState(init.expression)) {
+          if (!ts.isArrayBindingPattern(d.name) || d.name.elements.length !== 2)
+            fail(d, 'E_STATE', 'Use const [value, setValue] = useState(initial)');
+          const [v, s] = (d.name as ts.ArrayBindingPattern)
+            .elements as unknown as ts.BindingElement[];
+          if (!ts.isIdentifier(v.name) || !ts.isIdentifier(s.name))
+            fail(d, 'E_STATE', 'useState names must be identifiers');
+          const cell = cells.length;
+          const type = types.of(v.name);
+          const arg = init.arguments[0];
+          if (arg && (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)))
+            fail(arg, 'E_STATE', 'Lazy useState initialisers are planned for a later milestone');
+          cells.push({
+            name: (v.name as ts.Identifier).text,
+            type,
+            init: { op: 'lit', value: 0 },
+            tracking: 'identity',
+            source: sourceOf(d),
+          });
+          lower.bindings.set(checker.getSymbolAtLocation(v.name)!, { kind: 'cell', cell });
+          const setter = checker.getSymbolAtLocation(s.name)!;
+          setters.set(setter, cell);
+          // A setter passed as a value (e.g. a callback prop): a function writing the cell.
+          if (usedAsValue(setter, body!)) {
+            const fn = lower.reserve();
+            lower.functions[fn] = {
+              name: (s.name as ts.Identifier).text,
+              component: COMPONENT,
+              params: [{ name: 'value', type }],
+              locals: [],
+              result: 'void',
+              body: [{ op: 'set', cell, value: { op: 'local', local: 0 } }],
+              source: sourceOf(s),
+            };
+            lower.bindings.set(setter, { kind: 'function', fn });
+          }
+          pending.push(() => {
+            if (!arg) {
+              cells[cell].init = { op: 'undefined', type };
+              return;
+            }
+            const v = lower.value(arg, COMPONENT, `${cells[cell].name}$init`);
+            cells[cell].init = coerceInit(v, lower.exprType(arg), type);
+          });
+          continue;
+        }
+        if (!ts.isIdentifier(d.name))
+          fail(
+            d,
+            'E_COMPONENT',
+            'Destructuring in component bodies is planned for a later milestone',
+          );
+        const local = (d.name as ts.Identifier).text;
+        const sym = checker.getSymbolAtLocation(d.name)!;
+        if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+          const p = lower.declare(sym, init, local, COMPONENT);
+          if (p) pending.push(p);
+        } else {
+          const index = lower.reserve();
+          // A render-time value: recomputed from the render snapshot.
+          lower.bindings.set(sym, { kind: 'derived', fn: index });
+          pending.push(() => {
+            const v = lower.value(d.initializer!, COMPONENT, `${local}$render`);
+            lower.functions[index] = {
+              name: local,
+              component: COMPONENT,
+              params: [],
+              locals: [],
+              result: lower.types.typeOrUndefined(d.initializer!) ?? lower.valueType(v),
+              body: [{ op: 'return', value: v }],
+            };
+          });
+        }
       }
     }
+    const r = returned && skipParens(returned);
+    if (!r || !isJsx(r)) fail(decl, 'E_COMPONENT', 'Components must return JSX');
+    for (const p of pending) p();
+    const template = jsx(r as Jsx);
+    return {
+      name,
+      cells,
+      handlers: cur.handlers,
+      template,
+      ...(cur.tb.locals.length ? { templateLocals: cur.tb.locals } : {}),
+    };
   }
-  if (!returned) fail(appDecl!, 'E_COMPONENT', 'The component must return JSX');
-  for (const p of pending) p();
+
+  /** Whether `sym` is referenced in `body` other than as a callee. */
+  const usedAsValue = (sym: ts.Symbol, body: ts.Node): boolean => {
+    let found = false;
+    const visit = (n: ts.Node) => {
+      if (found) return;
+      if (
+        ts.isIdentifier(n) &&
+        !ts.isBindingElement(n.parent) &&
+        !(ts.isCallExpression(n.parent) && n.parent.expression === n) &&
+        symbolOf(n) === sym
+      )
+        found = true;
+      ts.forEachChild(n, visit);
+    };
+    visit(body);
+    return found;
+  };
 
   // --- JSX ---
-  const handlers: Handler[] = [];
+  const expr = (e: ts.Expression): Expr => lower.expr(e, cur.tb);
   /** The type of lowered `v`: TypeScript's, or the IR type where TypeScript only knows any. */
   const typeOf = (e: ts.Expression, v: Expr): Type =>
-    types.typeOrUndefined(e) === undefined ? lower.valueType(v) : lower.exprType(e);
+    types.typeOrUndefined(e) === undefined ? lower.irType(v, cur.tb) : lower.exprType(e);
+  /** Text for a rendered value; undefined when React renders nothing. */
   const display = (e: ts.Expression): Expr | undefined => {
-    if (
-      ts.isCallExpression(e) &&
-      ts.isPropertyAccessExpression(e.expression) &&
-      e.expression.name.text === 'map'
-    )
-      fail(e, 'E_JSX', 'Rendering lists is planned for M3');
     // React renders strings and numbers; booleans, null and undefined render nothing.
-    const v = lower.value(e, COMPONENT, 'text');
+    const v = expr(e);
     const t = typeOf(e, v);
     if (t === 'boolean') return undefined;
     if (t === 'string') return v;
     if (t === 'number') return { op: 'to-string', arg: v };
-    if (typeof t === 'object' && 'maybe' in t && (t.maybe === 'string' || t.maybe === 'number')) {
-      const fn = lower.reserve();
-      lower.functions[fn] = {
-        name: 'text$maybe',
-        component: COMPONENT,
-        params: [],
-        locals: [{ name: '$v', type: t }],
-        result: 'string',
-        body: [
-          { op: 'let', local: 0, value: v },
-          {
-            op: 'if',
-            test: {
-              op: 'builtin',
-              name: 'maybe.is-nullish',
-              args: [{ op: 'local', local: 0 }],
-              type: 'boolean',
-            },
-            then: [{ op: 'return', value: { op: 'lit', value: '' } }],
-          },
-          {
-            op: 'return',
-            value: { op: 'to-string', arg: { op: 'unwrap', value: { op: 'local', local: 0 } } },
-          },
-        ],
-      };
-      return { op: 'call', function: fn, args: [] };
+    if (typeof t === 'object' && 'maybe' in t) {
+      if (t.maybe === 'string' || t.maybe === 'number') return maybeText(v, t);
+      if (t.maybe === 'boolean') return undefined;
     }
-    return fail(e, 'E_JSX', `Rendering ${JSON.stringify(t)} values is unsupported (lists are M3)`);
+    if (typeof t === 'object' && 'array' in t)
+      return fail(e, 'E_JSX', 'Render arrays as lists: items.map(item => <li key={…}>…</li>)');
+    return fail(e, 'E_JSX', `Rendering ${JSON.stringify(t)} values is unsupported`);
   };
-  const handlerFor = (expr: ts.Expression, event: 'click' | 'input', where: ts.Node): number => {
-    const e = skipParens(expr);
-    let h: Omit<Handler, 'event'>;
+  /** `String(v ?? '')` for a nullable value, as React renders text. */
+  const maybeText = (v: Expr, t: Type): Expr => {
+    const fn = lower.reserve();
+    lower.functions[fn] = {
+      name: 'text$maybe',
+      params: [{ name: '$v', type: t }],
+      locals: [],
+      result: 'string',
+      body: [
+        {
+          op: 'if',
+          test: {
+            op: 'builtin',
+            name: 'maybe.is-nullish',
+            args: [{ op: 'local', local: 0 }],
+            type: 'boolean',
+          },
+          then: [{ op: 'return', value: { op: 'lit', value: '' } }],
+        },
+        {
+          op: 'return',
+          value: { op: 'to-string', arg: { op: 'unwrap', value: { op: 'local', local: 0 } } },
+        },
+      ],
+    };
+    return { op: 'call', function: fn, args: [v] };
+  };
+  /** Whether `e` reads a list item or index (a template local). */
+  const readsTemplateLocals = (e: ts.Node): boolean => {
+    let found = false;
+    const visit = (n: ts.Node) => {
+      if (found) return;
+      if (ts.isIdentifier(n)) {
+        const b = lower.binding(n);
+        if (b?.kind === 'local' && b.owner === cur.tb) found = true;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(e);
+    return found;
+  };
+  const handlerFor = (
+    expression: ts.Expression,
+    event: 'click' | 'input',
+    where: ts.Node,
+  ): Listener => {
+    const e = skipParens(expression);
+    let h: Omit<Handler, 'event'> & { args?: Expr[] };
     if (ts.isArrowFunction(e) || ts.isFunctionExpression(e))
-      h = lower.handler(e, COMPONENT, event === 'input');
+      h = lower.handler(e, cur.index, event === 'input', cur.tb);
     else {
-      const callee = lower.value(e, COMPONENT, 'handler');
-      const t = types.of(e);
+      if (readsTemplateLocals(e))
+        fail(where, 'E_EVENT', 'Handlers that depend on list items must be inline arrow functions');
+      const callee = lower.value(e, cur.index, 'handler');
+      const t = types.typeOrUndefined(e) ?? lower.valueType(callee);
       if (typeof t === 'object' && 'fn' in t && t.fn.params.length)
         fail(where, 'E_EVENT', 'Handlers taking the event object must be inline arrow functions');
       const b = ts.isIdentifier(e) ? lower.binding(e) : undefined;
@@ -421,91 +625,285 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         ],
       };
     }
-    handlers.push({ event, ...h, source: sourceOf(where) });
-    return handlers.length - 1;
+    const { args, ...rest } = h;
+    cur.handlers.push({ event, ...rest, source: sourceOf(where) });
+    return { event, handler: cur.handlers.length - 1, ...(args?.length ? { args } : {}) };
   };
-  const children = (list: readonly ts.JsxChild[]): Node[] => {
+  const isNothing = (e: ts.Expression) =>
+    e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined');
+  const isMap = (e: ts.Expression): e is ts.CallExpression =>
+    ts.isCallExpression(e) &&
+    ts.isPropertyAccessExpression(e.expression) &&
+    e.expression.name.text === 'map';
+  /** Whether a child expression renders elements (rather than text). */
+  const structural = (x: ts.Expression): boolean => {
+    const e = skipParens(x);
+    if (isJsx(e) || isMap(e)) return true;
+    if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken)
+      return structural(e.right);
+    if (ts.isConditionalExpression(e)) return structural(e.whenTrue) || structural(e.whenFalse);
+    return false;
+  };
+  /** The nodes of one JSX child expression. */
+  const slot = (x: ts.Expression): Node[] => {
+    const e = skipParens(x);
+    if (isJsx(e)) return jsx(e);
+    if (isMap(e)) return [list(e)];
+    if (isNothing(e)) return [];
+    if (
+      ts.isBinaryExpression(e) &&
+      e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      structural(e.right)
+    ) {
+      // `n && <X/>` renders a falsy number (0, NaN) as text.
+      const v = expr(e.left);
+      const t = typeOf(e.left, v);
+      const text: Expr | undefined =
+        t === 'number'
+          ? { op: 'to-string', arg: v }
+          : maybeInner(t) === 'number'
+            ? maybeText(v, t)
+            : undefined;
+      return [
+        {
+          kind: 'if',
+          test: lower.truthy(v, t),
+          then: slot(e.right),
+          ...(text ? { else: [{ kind: 'text', parts: [text] }] } : {}),
+          source: sourceOf(e),
+        },
+      ];
+    }
+    if (ts.isConditionalExpression(e) && structural(e)) {
+      sameBranchType(e);
+      const v = expr(e.condition);
+      return [
+        {
+          kind: 'if',
+          test: lower.truthy(v, typeOf(e.condition, v)),
+          then: slot(e.whenTrue),
+          else: slot(e.whenFalse),
+          source: sourceOf(e),
+        },
+      ];
+    }
+    const d = display(e);
+    return d ? [{ kind: 'text', parts: [d] }] : [];
+  };
+  /** Keys consumed by a list or a branch (no remount wrapper). */
+  const consumedKeys = new Set<ts.JsxAttribute>();
+  const keyOf = (n: ts.Expression): ts.JsxAttribute | undefined => {
+    const opening = ts.isJsxElement(n)
+      ? n.openingElement
+      : ts.isJsxSelfClosingElement(n)
+        ? n
+        : undefined;
+    return opening?.attributes.properties.find(
+      (a): a is ts.JsxAttribute => ts.isJsxAttribute(a) && a.name.getText() === 'key',
+    );
+  };
+  /**
+   * React reconciles the two branches of a conditional at the same position:
+   * the same element type or component keeps its DOM node or instance. IR
+   * branches remount, so that case is rejected unless distinct literal keys
+   * make React remount too.
+   */
+  const sameBranchType = (e: ts.ConditionalExpression) => {
+    /** The element types a branch can render at this position. */
+    const kinds = (x: ts.Expression): string[] => {
+      const y = skipParens(x);
+      if (ts.isJsxFragment(y)) return ['<>'];
+      if (isMap(y)) return ['[]'];
+      if (ts.isJsxElement(y) || ts.isJsxSelfClosingElement(y)) {
+        const tag = (ts.isJsxElement(y) ? y.openingElement : y).tagName;
+        const s = ts.isIdentifier(tag) && /^[A-Z]/.test(tag.text) ? symbolOf(tag) : undefined;
+        return [s ? `component:${componentDecls.get(s)?.name ?? tag.getText()}` : tag.getText()];
+      }
+      if (ts.isConditionalExpression(y)) return [...kinds(y.whenTrue), ...kinds(y.whenFalse)];
+      if (
+        ts.isBinaryExpression(y) &&
+        y.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      )
+        return kinds(y.right);
+      return [];
+    };
+    const a = kinds(e.whenTrue);
+    const b = kinds(e.whenFalse);
+    if (!a.some(k => b.includes(k))) return;
+    const ka = keyOf(skipParens(e.whenTrue));
+    const kb = keyOf(skipParens(e.whenFalse));
+    const literal = (k: ts.JsxAttribute | undefined) =>
+      k?.initializer && ts.isStringLiteral(k.initializer) ? k.initializer.text : undefined;
+    if (
+      a.length === 1 &&
+      b.length === 1 &&
+      literal(ka) !== undefined &&
+      literal(kb) !== undefined &&
+      literal(ka) !== literal(kb)
+    ) {
+      consumedKeys.add(ka!);
+      consumedKeys.add(kb!);
+      return;
+    }
+    fail(
+      e,
+      'E_JSX',
+      'Both branches can render the same element type or component, which React updates in place instead of remounting; render it once with conditional props, or give the branches distinct keys',
+    );
+  };
+  const children = (kids: readonly ts.JsxChild[]): Node[] => {
     const out: Node[] = [];
     let parts: Expr[] = [];
     const flush = () => {
       if (parts.length) out.push({ kind: 'text', parts });
       parts = [];
     };
-    for (const child of list) {
+    for (const child of kids) {
       if (ts.isJsxText(child)) {
         const text = cleanText(child.text);
         if (text) parts.push({ op: 'lit', value: text });
       } else if (ts.isJsxExpression(child)) {
         if (!child.expression) continue;
-        const e = skipParens(child.expression);
-        if (isJsx(e)) {
+        if (structural(child.expression)) {
           flush();
-          out.push(...jsx(e));
-        } else if (
-          ts.isBinaryExpression(e) &&
-          e.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
-          isJsx(skipParens(e.right))
-        ) {
-          flush();
-          out.push({
-            kind: 'if',
-            test: test(e.left),
-            then: jsx(skipParens(e.right) as ts.JsxElement),
-            source: sourceOf(e),
-          });
-        } else if (
-          ts.isConditionalExpression(e) &&
-          (isJsx(skipParens(e.whenTrue)) || isJsx(skipParens(e.whenFalse)))
-        ) {
-          flush();
-          const branch = (x: ts.Expression): Node[] => {
-            const y = skipParens(x);
-            if (isJsx(y)) return jsx(y);
-            if (
-              y.kind === ts.SyntaxKind.NullKeyword ||
-              (ts.isIdentifier(y) && y.text === 'undefined')
-            )
-              return [];
-            const d = display(y);
-            return d ? [{ kind: 'text', parts: [d] }] : [];
-          };
-          out.push({
-            kind: 'if',
-            test: test(e.condition),
-            then: branch(e.whenTrue),
-            else: branch(e.whenFalse),
-            source: sourceOf(e),
-          });
+          out.push(...slot(child.expression));
         } else {
-          const d = display(e);
+          const d = display(skipParens(child.expression));
           if (d) parts.push(d);
         }
       } else if (isJsx(child)) {
         flush();
-        out.push(...jsx(child as ts.JsxElement));
+        out.push(...jsx(child));
       } else fail(child, 'E_JSX', 'Unsupported JSX child');
     }
     flush();
     return out;
   };
-  const test = (e: ts.Expression): Expr => {
-    const v = lower.value(e, COMPONENT, 'condition');
-    return typeOf(e, v) === 'boolean' ? v : { op: 'to-boolean', arg: v };
+  /** `items.map((item, i) => <Row key={item.id} …/>)` → an each node. */
+  const list = (call: ts.CallExpression): Node => {
+    const receiver = (call.expression as ts.PropertyAccessExpression).expression;
+    const [cb, thisArg] = call.arguments;
+    if (!cb || thisArg || !(ts.isArrowFunction(cb) || ts.isFunctionExpression(cb)))
+      return fail(
+        call,
+        'E_JSX',
+        'Lists need an inline callback returning JSX: items.map(item => <li key={…}>…</li>)',
+      );
+    const items = expr(receiver);
+    const element = arrayElement(lower.irType(items, cur.tb));
+    if (!element) return fail(receiver, 'E_JSX', 'Lists render arrays (.map on an array)');
+    const [itemParam, indexParam, arrayParam] = cb.parameters;
+    if (arrayParam)
+      fail(arrayParam, 'E_JSX', 'The array parameter of list callbacks is unsupported');
+    const bind = (p: ts.ParameterDeclaration, type: Type): number => {
+      if (!ts.isIdentifier(p.name) || p.initializer || p.dotDotDotToken)
+        fail(
+          p,
+          'E_JSX',
+          'Destructured or defaulted list parameters are planned for a later M3 step',
+        );
+      const local = cur.tb.local((p.name as ts.Identifier).text, type);
+      lower.bindings.set(checker.getSymbolAtLocation(p.name)!, {
+        kind: 'local',
+        owner: cur.tb,
+        local,
+      });
+      return local;
+    };
+    const item = itemParam ? bind(itemParam, element) : cur.tb.local('$item', element);
+    const index = indexParam ? bind(indexParam, 'number') : undefined;
+    let result: ts.Expression | undefined;
+    if (ts.isBlock(cb.body)) {
+      const [only] = cb.body.statements;
+      if (cb.body.statements.length === 1 && ts.isReturnStatement(only)) result = only.expression;
+    } else result = cb.body;
+    const r = result && skipParens(result);
+    if (!r || !structural(r))
+      return fail(cb, 'E_JSX', 'List callbacks must return JSX directly (no statements)');
+    const keyAttr = keyOf(r);
+    let key: Expr | undefined;
+    if (keyAttr) {
+      consumedKeys.add(keyAttr);
+      key = keyValue(keyAttr).value;
+    } else {
+      // A key inside `c ? <A key/> : …` or `c && <A key/>` keys the item in React.
+      const branchKeyed = (x: ts.Expression): boolean => {
+        const y = skipParens(x);
+        if (ts.isConditionalExpression(y))
+          return branchKeyed(y.whenTrue) || branchKeyed(y.whenFalse);
+        if (
+          ts.isBinaryExpression(y) &&
+          y.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+        )
+          return branchKeyed(y.right);
+        return !!keyOf(y);
+      };
+      if (branchKeyed(r))
+        fail(
+          r,
+          'E_JSX',
+          'Keys on conditional list items are unsupported; key the returned element',
+        );
+    }
+    return {
+      kind: 'each',
+      items,
+      item,
+      ...(index !== undefined ? { index } : {}),
+      ...(key ? { key } : {}),
+      body: slot(r),
+      source: sourceOf(call),
+    };
   };
-  const inlined = new Set<ts.Node>();
-  const jsx = (n: ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment): Node[] => {
+  /** A key's value: React keys are strings; numbers and strings map one-to-one. */
+  const keyValue = (attr: ts.JsxAttribute): { value: Expr; type: Type } => {
+    const init = attr.initializer;
+    if (!init) return fail(attr, 'E_JSX', 'key needs a value');
+    if (ts.isStringLiteral(init)) return { value: { op: 'lit', value: init.text }, type: 'string' };
+    const e = (init as ts.JsxExpression).expression;
+    if (!e) return fail(attr, 'E_JSX', 'key needs a value');
+    const value = expr(e);
+    const type = lower.irType(value, cur.tb);
+    if (type !== 'string' && type !== 'number')
+      fail(
+        attr,
+        'E_JSX',
+        `Keys must be strings or numbers (React stringifies other values), not ${JSON.stringify(type)}`,
+      );
+    return { value, type };
+  };
+  /** A key outside a list root: the element remounts when the key changes. */
+  const keyed = (attr: ts.JsxAttribute | undefined, nodes: Node[], at: ts.Node): Node[] => {
+    if (!attr || consumedKeys.has(attr)) return nodes;
+    const { value, type } = keyValue(attr);
+    const local = cur.tb.local('$key', type);
+    return [
+      {
+        kind: 'each',
+        items: { op: 'array', type: { array: type }, items: [value] },
+        item: local,
+        key: { op: 'local', local },
+        body: nodes,
+        source: sourceOf(at),
+      },
+    ];
+  };
+  const jsx = (n: Jsx): Node[] => {
     if (ts.isJsxFragment(n)) return children(n.children);
     const opening = ts.isJsxElement(n) ? n.openingElement : n;
     const tag = opening.tagName;
     const kids = ts.isJsxElement(n) ? n.children : [];
-    if (ts.isIdentifier(tag) && /^[A-Z]/.test(tag.text)) return component(opening, kids, n);
+    const keyAttr = keyOf(n);
+    if (ts.isIdentifier(tag) && /^[A-Z]/.test(tag.text))
+      return keyed(keyAttr, component(opening, kids, n), n);
     const name = tag.getText();
     if (!TAGS.has(name)) fail(tag, 'E_JSX', `<${name}> is outside the supported elements`);
     const attrs: { name: string; value: Expr }[] = [];
     const props: { name: string; value: Expr }[] = [];
-    const listeners: { event: 'click' | 'input'; handler: number }[] = [];
+    const listeners: Listener[] = [];
     for (const a of opening.attributes.properties) {
-      if (!ts.isJsxAttribute(a)) fail(a, 'E_JSX', 'Spread attributes are planned for M3');
+      if (!ts.isJsxAttribute(a))
+        fail(a, 'E_JSX', 'Spread attributes are planned for a later milestone');
       const attr = a as ts.JsxAttribute;
       const raw = attr.name.getText();
       const init = attr.initializer;
@@ -514,14 +912,12 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         if (!init || !ts.isJsxExpression(init) || !init.expression)
           fail(attr, 'E_EVENT', 'Event props need a handler expression');
         const event = raw === 'onClick' ? 'click' : 'input';
-        listeners.push({
-          event,
-          handler: handlerFor((init as ts.JsxExpression).expression!, event, attr),
-        });
+        listeners.push(handlerFor((init as ts.JsxExpression).expression!, event, attr));
         continue;
       }
       if (/^on[A-Z]/.test(raw)) fail(attr, 'E_EVENT', `${raw} is planned for M5`);
-      if (raw === 'style') fail(attr, 'E_JSX', 'Style objects are planned for M3');
+      if (raw === 'style') fail(attr, 'E_JSX', 'Style objects are planned for a later milestone');
+      if (raw === 'ref') fail(attr, 'E_JSX', 'Element refs are planned for a later M3 step');
       const attrName = ATTRS[raw] ?? raw;
       if (attrName !== attrName.toLowerCase() && !attrName.startsWith('aria-'))
         fail(attr, 'E_JSX', `Unsupported prop ${raw}`);
@@ -534,7 +930,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         continue;
       }
       const e = (init as ts.JsxExpression).expression!;
-      const v = lower.value(e, COMPONENT, attrName);
+      const v = expr(e);
       const t = typeOf(e, v);
       if (attrName === 'value' && name === 'input')
         props.push({ name: 'value', value: t === 'string' ? v : { op: 'to-string', arg: v } });
@@ -543,110 +939,91 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       else if (t === 'boolean') fail(attr, 'E_JSX', `Boolean value for ${attrName}`);
       else attrs.push({ name: attrName, value: t === 'string' ? v : { op: 'to-string', arg: v } });
     }
-    return [
-      {
-        kind: 'element',
-        tag: name,
-        ...(attrs.length ? { attrs } : {}),
-        ...(props.length ? { props } : {}),
-        ...(listeners.length ? { listeners } : {}),
-        ...(kids.length ? { children: children(kids) } : {}),
-        source: sourceOf(n),
-      },
-    ];
+    return keyed(
+      keyAttr,
+      [
+        {
+          kind: 'element',
+          tag: name,
+          ...(attrs.length ? { attrs } : {}),
+          ...(props.length ? { props } : {}),
+          ...(listeners.length ? { listeners } : {}),
+          ...(kids.length ? { children: children(kids) } : {}),
+          source: sourceOf(n),
+        },
+      ],
+      n,
+    );
   };
-  /** Inline a stateless child component with its props bound to the caller's values. */
+  /** A child component instance; its props are evaluated in the parent's template scope. */
   const component = (
     opening: ts.JsxOpeningLikeElement,
     kids: readonly ts.JsxChild[],
     at: ts.Node,
   ): Node[] => {
-    const decl = componentDecls.get(symbolOf(opening.tagName)!);
-    if (!decl)
+    const entry = componentDecls.get(symbolOf(opening.tagName)!);
+    if (!entry)
       return fail(
         opening.tagName,
         'E_COMPONENT',
         `${opening.tagName.getText()} is not a local function component`,
       );
-    if (inlined.has(decl)) fail(at, 'E_COMPONENT', 'Recursive components are unsupported');
     if (kids.some(k => !ts.isJsxText(k) || cleanText(k.text)))
-      fail(at, 'E_COMPONENT', 'Component children are planned for M3');
-    const values = new Map<string, Expr>();
+      fail(at, 'E_COMPONENT', 'Component children are planned for a later M3 step');
+    const passed: { name: string; value: Expr; type: Type; at: ts.Node }[] = [];
     for (const a of opening.attributes.properties) {
-      if (!ts.isJsxAttribute(a)) fail(a, 'E_JSX', 'Spread props are planned for M3');
+      if (!ts.isJsxAttribute(a)) fail(a, 'E_JSX', 'Spread props are planned for a later milestone');
       const attr = a as ts.JsxAttribute;
+      const name = attr.name.getText();
+      if (name === 'key') continue;
       const init = attr.initializer;
-      const v: Expr = !init
+      const value: Expr = !init
         ? { op: 'lit', value: true }
         : ts.isStringLiteral(init)
           ? { op: 'lit', value: decodeHTMLStrict(init.text) }
-          : lower.value((init as ts.JsxExpression).expression!, COMPONENT, attr.name.getText());
-      values.set(attr.name.getText(), v);
+          : expr((init as ts.JsxExpression).expression!);
+      passed.push({ name, value, type: lower.irType(value, cur.tb), at: attr });
     }
-    const [param] = decl.parameters;
-    if (param) {
-      if (ts.isIdentifier(param.name))
-        lower.bindings.set(checker.getSymbolAtLocation(param.name)!, { kind: 'props', values });
-      else if (ts.isObjectBindingPattern(param.name))
-        for (const el of param.name.elements) {
-          const key = ((el.propertyName ?? el.name) as ts.Identifier).text;
-          if (!ts.isIdentifier(el.name))
-            fail(el, 'E_COMPONENT', 'Nested prop destructuring is planned for M3');
-          const v =
-            values.get(key) ??
-            (el.initializer ? lower.value(el.initializer, COMPONENT, key) : undefined);
-          if (!v) fail(el, 'E_PROPS', `Prop ${key} is not passed`);
-          const sym = checker.getSymbolAtLocation(el.name)!;
-          lower.bindings.set(sym, { kind: 'value', expr: v! });
-          // Untyped (JavaScript) props take the IR type of the passed value.
-          if (!types.typeOrUndefined(el.name)) types.override(sym, lower.valueType(v!));
-        }
-    }
-    const b = decl.body;
-    let result: ts.Expression | undefined;
-    if (b && ts.isBlock(b)) {
-      for (const stmt of b.statements) {
-        if (ts.isReturnStatement(stmt)) {
-          result = stmt.expression;
-          break;
-        }
-        if (!ts.isVariableStatement(stmt))
-          fail(
-            stmt,
-            'E_COMPONENT',
-            'Child components support const declarations (state in children is M3)',
-          );
-        for (const d of (stmt as ts.VariableStatement).declarationList.declarations) {
-          const init = d.initializer && skipParens(d.initializer);
-          if (init && ts.isCallExpression(init) && isUseState(init.expression))
-            fail(d, 'E_COMPONENT', 'State in child components is planned for M3');
-          if (!ts.isIdentifier(d.name) || !d.initializer)
-            fail(d, 'E_COMPONENT', 'Unsupported declaration in a child component');
-          const sym = checker.getSymbolAtLocation(d.name)!;
-          const v = lower.value(d.initializer!, COMPONENT, (d.name as ts.Identifier).text);
-          lower.bindings.set(sym, { kind: 'value', expr: v });
-          if (!types.typeOrUndefined(d.name)) types.override(sym, lower.valueType(v));
-        }
-      }
-    } else if (b) result = b as ts.Expression;
-    const r = result && skipParens(result);
-    if (!r || !isJsx(r)) return fail(decl, 'E_COMPONENT', 'Components must return JSX');
-    inlined.add(decl);
-    try {
-      return jsx(r as ts.JsxElement);
-    } finally {
-      inlined.delete(decl);
-    }
+    const index = instantiate(entry, new Map(passed.map(p => [p.name, p.type])), at);
+    const target = components[index];
+    const props = passed.map(p => {
+      const cell = target.cells.find(c => c.prop === p.name);
+      if (!cell) return fail(p.at, 'E_PROPS', `${entry.name} has no prop ${p.name}`);
+      if (sameType(p.type, cell.type)) return { name: p.name, value: p.value };
+      if (maybeInner(cell.type) && sameType(maybeInner(cell.type)!, p.type))
+        return { name: p.name, value: { op: 'some', value: p.value } as Expr };
+      if (maybeInner(p.type) && sameType(maybeInner(p.type)!, cell.type) && !isRequired(cell.init))
+        return fail(
+          p.at,
+          'E_PROPS',
+          `${p.name} may be undefined, where React uses the prop's default; pass a defined value`,
+        );
+      return fail(
+        p.at,
+        'E_PROPS',
+        `Prop ${p.name} of ${entry.name} has type ${JSON.stringify(cell.type)}, not ${JSON.stringify(p.type)}`,
+      );
+    });
+    for (const c of target.cells)
+      if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
+        fail(at, 'E_PROPS', `${entry.name} requires the prop ${c.prop}`);
+    return [
+      {
+        kind: 'component',
+        component: index,
+        ...(props.length ? { props } : {}),
+        source: sourceOf(at),
+      },
+    ];
   };
-  const template = jsx(skipParens(returned!) as ts.JsxElement);
-  const comp: Component = {
-    name: (appDecl as ts.FunctionDeclaration).name?.text ?? 'App',
-    cells,
-    handlers,
-    template,
-  };
+
+  const rootIndex = instantiate(app!, new Map(), rendered);
+  for (const c of components[rootIndex].cells)
+    if (c.prop && isRequired(c.init))
+      fail(rendered, 'E_BOOTSTRAP', `The root component requires the prop ${c.prop}`);
   const capabilities = ['dom', 'css', 'window', 'click', 'keyboard'];
-  if (handlers.some(h => h.event === 'input')) capabilities.push('text-input');
+  if (components.some(c => c.handlers.some(h => h.event === 'input')))
+    capabilities.push('text-input');
   const ir: Program = {
     schema: 4,
     meta: {
@@ -654,7 +1031,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       sourceHash: graph.hash,
       frontend: {
         adapter: 'react',
-        version: 2,
+        version: 3,
         packages: graph.tooling.packages,
         tools: { typescript: ts.version },
       },
@@ -667,11 +1044,36 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     records: types.records,
     functions: lower.functions,
     globals: lower.globals,
-    components: [comp],
-    root: 0,
+    components,
+    root: rootIndex,
   };
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
 }
+
+const propertyName = (n: ts.PropertyName): string =>
+  ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : n.getText();
+
+/** Widen an initial value to the cell type (T → Maybe<T>). */
+function coerceInit(v: Expr, from: Type, to: Type): Expr {
+  if (typeof to === 'object' && 'maybe' in to && !(typeof from === 'object' && 'maybe' in from))
+    return { op: 'some', value: v };
+  return v;
+}
+
+const isReference = (t: Type): boolean =>
+  typeof t === 'object' &&
+  ('array' in t ||
+    'record' in t ||
+    'map' in t ||
+    'set' in t ||
+    ('maybe' in t && isReference(t.maybe)));
+
+/** The initialiser of a prop without a default: `undefined` if nullable, otherwise required. */
+function required(t: Type): Expr {
+  if (typeof t === 'object' && 'maybe' in t) return { op: 'undefined', type: t };
+  return { op: 'unwrap', value: { op: 'undefined', type: { maybe: t } } };
+}
+const isRequired = (init: Expr) => init.op === 'unwrap' && init.value.op === 'undefined';
 
 export type { Type };

@@ -1763,7 +1763,9 @@ export class Lowerer {
   /** Arguments with optional parameters widened to Maybe and missing ones as undefined. */
   private callArgs(e: ts.CallExpression, b: FnBuilder): Expr[] {
     const sig = this.checker.getResolvedSignature(e);
-    if (!sig) return e.arguments.map(a => this.expr(a, b));
+    // An untyped callee (e.g. a JavaScript callback prop) has no parameter list.
+    const untyped = this.checker.getTypeAtLocation(e.expression).flags & ts.TypeFlags.Any;
+    if (!sig || untyped) return e.arguments.map(a => this.expr(a, b));
     return sig.parameters.map((p, i) => {
       const pt = this.types.map(this.checker.getTypeOfSymbolAtLocation(p, e), e);
       const arg = e.arguments[i];
