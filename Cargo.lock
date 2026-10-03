@@ -2340,6 +2340,7 @@ dependencies = [
  "blitz-traits",
  "keyboard-types 0.7.0",
  "markup5ever",
+ "png",
  "serde_json",
  "winit",
 ]
