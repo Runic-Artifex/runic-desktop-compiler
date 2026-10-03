@@ -126,6 +126,15 @@ impl<T: ArrayElement> HeapToString for Vec<T> {
 /// How an element appears in `Array.prototype.join`/`toString` (nullish → "").
 pub trait ArrayElement {
     fn join_string(&self) -> JsString;
+    /// `undefined`, which `sort`/`toSorted` place last without comparing.
+    fn is_undefined(&self) -> bool {
+        false
+    }
+    /// `null`, whose ToString (used by the default sort order) is "null"
+    /// although `join` renders it as "".
+    fn is_null(&self) -> bool {
+        false
+    }
 }
 impl ArrayElement for f64 {
     fn join_string(&self) -> JsString {
@@ -153,6 +162,12 @@ impl<T: ArrayElement> ArrayElement for Maybe<T> {
             Maybe::Some(v) => v.join_string(),
             _ => JsString::new(),
         }
+    }
+    fn is_undefined(&self) -> bool {
+        matches!(self, Maybe::Undefined)
+    }
+    fn is_null(&self) -> bool {
+        matches!(self, Maybe::Null)
     }
 }
 
