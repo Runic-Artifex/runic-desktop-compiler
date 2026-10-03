@@ -3554,16 +3554,7 @@ impl<'p> Machine<'p> {
         if self.inside_disabled(target)? {
             return Ok(());
         }
-        let mods: Vec<(&str, &str)> = js::MODIFIER_KEYS
-            .iter()
-            .copied()
-            .filter(|(m, _)| match *m {
-                "Shift" => k.shift,
-                "Control" => k.ctrl,
-                "Alt" => k.alt,
-                _ => k.meta,
-            })
-            .collect();
+        let mods = k.modifiers.clone();
         let mut held = js::KeySpec::default();
         let data = |key: &str, code: &str, held: &js::KeySpec| js::EventData {
             key: JsString::from(key),

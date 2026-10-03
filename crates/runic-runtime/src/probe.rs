@@ -203,17 +203,16 @@ fn press<A: App>(native: &mut Native<A>, spec: &str) {
             })
         })
         .unwrap_or_else(|| panic!("unsupported key {spec}"));
-    let flags = [
-        (k.shift, Modifiers::SHIFT),
-        (k.ctrl, Modifiers::CONTROL),
-        (k.alt, Modifiers::ALT),
-        (k.meta, Modifiers::META),
-    ];
-    let mods: Vec<(&str, &str, Modifiers)> = runic_js::MODIFIER_KEYS
+    let flag = |name: &str| match name {
+        "Shift" => Modifiers::SHIFT,
+        "Control" => Modifiers::CONTROL,
+        "Alt" => Modifiers::ALT,
+        _ => Modifiers::META,
+    };
+    let mods: Vec<(&str, &str, Modifiers)> = k
+        .modifiers
         .iter()
-        .zip(flags)
-        .filter(|(_, (on, _))| *on)
-        .map(|(&(name, code), (_, flag))| (name, code, flag))
+        .map(|&(name, code)| (name, code, flag(name)))
         .collect();
     let key_of = |name: &str| -> Key {
         if name.chars().count() == 1 {
@@ -228,7 +227,9 @@ fn press<A: App>(native: &mut Native<A>, spec: &str) {
         let e = key_event(key_of(name), code.parse().expect("code"), held, None, false);
         native.handle_ui_event(UiEvent::KeyDown(e));
     }
-    let text = (k.key.chars().count() == 1).then_some(k.key.as_str());
+    // With Control, Alt or Meta held Playwright types no text.
+    let text =
+        (k.key.chars().count() == 1 && !(k.ctrl || k.alt || k.meta)).then_some(k.key.as_str());
     let (key, code) = (key_of(&k.key), k.code.parse::<Code>().expect("code"));
     native.handle_ui_event(UiEvent::KeyDown(key_event(
         key.clone(),

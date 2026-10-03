@@ -12,6 +12,9 @@ pub struct KeySpec {
     pub shift: bool,
     pub alt: bool,
     pub meta: bool,
+    /// The modifier keys in the order written (pressed in this order,
+    /// released in reverse): (key, code).
+    pub modifiers: Vec<(&'static str, &'static str)>,
 }
 
 /// The modifier keys: (name, code).
@@ -75,6 +78,13 @@ pub fn parse_key_spec(spec: &str) -> Option<KeySpec> {
             "Alt" => out.alt = true,
             "Meta" => out.meta = true,
             _ => return None,
+        }
+        let key = MODIFIER_KEYS
+            .iter()
+            .find(|(k, _)| *k == m)
+            .expect("modifier");
+        if !out.modifiers.contains(key) {
+            out.modifiers.push(*key);
         }
         name = rest;
     }
