@@ -12,7 +12,7 @@ import { interpret, generate } from '../compiler/codegen.mjs';
 
 const graphs = new Map();
 const graph = name => {
-  if (!graphs.has(name)) graphs.set(name, collect('fixtures/' + name));
+  if (!graphs.has(name)) graphs.set(name, collect(name.includes('/') ? name : 'fixtures/' + name));
   return graphs.get(name);
 };
 
@@ -476,7 +476,7 @@ test('Vue rejects uncovered component behaviour with locations', async () => {
       'App.vue',
       '<Editor v-if="showEditor" v-model="name" />',
       '<Editor v-if="showEditor" v-model="name">x</Editor>',
-      'E_TEMPLATE',
+      'E_SLOTS',
     ],
     ['App.vue', '<Editor v-if="showEditor" v-model="name" />', '<Other />', 'E_TEMPLATE'],
     ['Editor.vue', 'edits++', 'edits = value.length', 'E_MODEL'],
@@ -705,4 +705,281 @@ test('JSX entities decode; strings count UTF-16 units; lone surrogate literals a
   await react('function App(){return <p>{"\\ud800"}</p>;}', async root =>
     assert.rejects(collect(root).then(lower), failWith('E_STRING', 'main.jsx')),
   );
+});
+
+/**
+ * Ids, disabled state, live control state (value, checked) and the text of
+ * leaf elements after the last action (frameworks keep different whitespace
+ * between elements).
+ */
+function controls(steps) {
+  const dom = flat(steps.at(-1).state.dom).filter(n => n.attrs.id);
+  const leafText = n => (n.children.every(c => typeof c === 'string') ? textOf(n) : '…');
+  return dom.map(n => {
+    const live =
+      n.checked !== undefined
+        ? `[${n.checked ? 'x' : ' '}]`
+        : n.value !== undefined
+          ? `[${n.value}]`
+          : '';
+    return `${n.attrs.id}${n.attrs.disabled === undefined ? '' : '[disabled]'}${live}=${leafText(n)}`;
+  });
+}
+const todoActions = [
+  { kind: 'input', id: 'new-todo', value: 'Buy milk' },
+  { kind: 'keydown', id: 'new-todo', key: 'Enter' },
+  { kind: 'input', id: 'new-todo', value: 'Walk' },
+  { kind: 'keydown', id: 'new-todo', key: 'Escape' },
+  { kind: 'input', id: 'new-todo', value: '  ' },
+  { kind: 'keydown', id: 'new-todo', key: 'Enter' },
+  { kind: 'input', id: 'new-todo', value: 'Ship M3' },
+  { kind: 'keydown', id: 'new-todo', key: 'a' },
+  { kind: 'keydown', id: 'new-todo', key: 'Enter' },
+  { kind: 'click', id: 'toggle-3' },
+  { kind: 'click', id: 'filter-active' },
+  { kind: 'click', id: 'toggle-2' },
+  { kind: 'click', id: 'filter-completed' },
+  { kind: 'keydown', id: 'toggle-1', key: ' ' },
+  { kind: 'click', id: 'filter-all' },
+  { kind: 'click', id: 'toggle-all' },
+  { kind: 'click', id: 'toggle-all' },
+  { kind: 'click', id: 'toggle-2' },
+  { kind: 'click', id: 'destroy-1' },
+  { kind: 'click', id: 'clear' },
+];
+const crudActions = [
+  { kind: 'click', id: 'person-2' },
+  { kind: 'input', id: 'name', value: 'Maximilian' },
+  { kind: 'click', id: 'update' },
+  { kind: 'input', id: 'prefix', value: 'm' },
+  { kind: 'click', id: 'person-2' },
+  { kind: 'click', id: 'delete' },
+  { kind: 'input', id: 'prefix', value: '' },
+  { kind: 'input', id: 'name', value: 'Ada' },
+  { kind: 'input', id: 'surname', value: 'Lovelace' },
+  { kind: 'click', id: 'create' },
+  { kind: 'click', id: 'person-1' },
+];
+const slotActions = [
+  { kind: 'click', id: 'pick-2' },
+  { kind: 'click', id: 'tally-3' },
+  { kind: 'click', id: 'tally-3' },
+  { kind: 'click', id: 'order' },
+  { kind: 'click', id: 'tally-1' },
+  { kind: 'click', id: 'note' },
+  { kind: 'click', id: 'pick-3' },
+  { kind: 'click', id: 'order' },
+  { kind: 'click', id: 'drop' },
+  { kind: 'click', id: 'tally-2' },
+];
+/** Vue and Svelte agree after every action (the Vue card also renders a header fallback). */
+async function agree(vueName, svelteName, actions) {
+  const vue = run((await lower(await graph(vueName))).ir, actions);
+  const svelte = run((await lower(await graph(svelteName))).ir, actions);
+  const strip = lines => lines.filter(l => !l.startsWith('header-'));
+  for (let i = 0; i <= actions.length; i++)
+    assert.deepEqual(
+      strip(controls(vue.slice(0, i + 1))),
+      strip(controls(svelte.slice(0, i + 1))),
+      `${vueName} step ${i}`,
+    );
+  return [vue, svelte];
+}
+
+test('Vue TodoMVC, CRUD and slots match Svelte: checkboxes, keys, slot props and fallbacks', async () => {
+  const [todo] = await agree('examples/todomvc-vue', 'examples/todomvc-svelte', todoActions);
+  // Escape cleared "Walk", the blank draft was ignored, clear removed the completed todos.
+  assert.deepEqual(
+    controls(todo).filter(l => /^(title|count|new-todo|toggle)/.test(l)),
+    [
+      'toggle-all[ ]=',
+      'new-todo[]=',
+      'toggle-3[ ]=',
+      'title-3=Buy milk',
+      'toggle-4[ ]=',
+      'title-4=Ship M3',
+      'count=2 items left',
+    ],
+  );
+  await agree('examples/7guis-crud-vue', 'examples/7guis-crud-svelte', crudActions);
+  const [vue, svelte] = await agree('slots-vue', 'slots-svelte', slotActions);
+  // The plain card renders the header fallback in the child's scope.
+  assert.ok(controls(vue).includes('header-plain=plain'), controls(vue).join());
+  // Stateful components inside slot content keep their state across moves.
+  const tallies = steps => steps.at(-1).state.instances.filter(i => i.component === 'Tally');
+  assert.deepEqual(tallies(vue), tallies(svelte));
+  assert.deepEqual(
+    tallies(vue).map(i => i.cells),
+    [
+      [2, 1],
+      [3, 2],
+    ],
+  );
+});
+
+test('Vue listener, model and slot forms lower to the same behaviour', async () => {
+  const same = async (name, actions, variants) => {
+    const base = controls(run((await lower(await graph(name))).ir, actions));
+    for (const [file, from, to] of variants) {
+      const { ir } = await lower(await edit(name, file, from, to));
+      assert.deepEqual(controls(run(ir, actions)), base, `${file}: ${to}`);
+    }
+  };
+  await same('examples/todomvc-vue', todoActions, [
+    ['App.vue', '@keydown.esc=', '@keydown.escape='],
+    ['App.vue', '@keydown.esc=', '@keydown.enter.esc="() => {}" @keydown.esc='],
+    // A return ends only its own listener of the merged event.
+    [
+      'App.vue',
+      '@keydown.enter="add" @keydown.esc="draft = \'\'"',
+      '@keydown="(e) => { if (e.key !== \'Enter\') return; add(); }" @keydown.esc="draft = \'\'"',
+    ],
+    [
+      'App.vue',
+      '@change="toggleAll($event.target.checked)"',
+      '@change="(e) => toggleAll(e.target.checked)"',
+    ],
+    [
+      'TodoItem.vue',
+      'v-model="todo.done"',
+      ':checked="todo.done" @change="todo.done = $event.target.checked"',
+    ],
+    ['TodoItem.vue', 'v-model="todo.done"', 'v-model="todo.done" @change="() => {}"'],
+    // v-model on a member of a v-for item, without a child component.
+    [
+      'App.vue',
+      '<TodoItem v-for="todo in shown" :key="todo.id" :todo="todo" @remove="remove" />',
+      '<li v-for="todo in shown" :key="todo.id" :id="`todo-${todo.id}`" :class="todo.done ? \'completed\' : \'\'"><input :id="`toggle-${todo.id}`" type="checkbox" aria-label="Done" v-model="todo.done" /><span :id="`title-${todo.id}`">{{ todo.title }}</span><button :id="`destroy-${todo.id}`" class="destroy" @click="remove(todo.id)">Delete</button></li>',
+    ],
+  ]);
+  await same('slots-vue', slotActions, [
+    ['Card.vue', 'defineSlots<{ default(): any; header?(props: { title: string }): any }>();', ''],
+    [
+      'Picker.vue',
+      'const descending',
+      'defineSlots<{ row(props: { item: Item; first: boolean }): any }>();\nconst descending',
+    ],
+    [
+      'App.vue',
+      '<template #header="{ title }"><span id="fancy-header">Header for {{ title }}',
+      '<template v-slot:header="{ title: t }"><span id="fancy-header">Header for {{ t }}',
+    ],
+    ['App.vue', '<template #row="{ item, first }">', '<template #row="{ first, item }">'],
+    [
+      'App.vue',
+      '<Card title="plain"><p id="plain-body">Picked {{ picked }}</p></Card>',
+      '<Card title="plain"><template #default><p id="plain-body">Picked {{ picked }}</p></template></Card>',
+    ],
+  ]);
+});
+
+test('Vue key modifiers follow withKeys: hyphenated keys and aliases', async () => {
+  const { vueKeyValues } = await import('../frontend/adapters/vue.ts');
+  assert.deepEqual(vueKeyValues(['enter']), ['enter', 'Enter']);
+  assert.deepEqual(vueKeyValues(['esc']), ['esc', 'Esc', 'escape', 'Escape']);
+  assert.deepEqual(vueKeyValues(['space']), ['space', 'Space', ' ']);
+  assert.deepEqual(vueKeyValues(['delete']), ['delete', 'Delete', 'backspace', 'Backspace']);
+  assert.deepEqual(vueKeyValues(['up']), ['up', 'Up', 'arrow-up', 'Arrow-up', 'ArrowUp']);
+  assert.deepEqual(vueKeyValues(['page-down']), ['page-down', 'Page-down', 'PageDown']);
+  assert.deepEqual(vueKeyValues(['a']), ['a', 'A']);
+  // .delete also handles Backspace; other keys are ignored.
+  const { ir } = await lower(
+    await edit('examples/todomvc-vue', 'App.vue', '@keydown.esc=', '@keydown.delete='),
+  );
+  const typed = { kind: 'input', id: 'new-todo', value: 'x' };
+  for (const [key, value] of [
+    ['Backspace', ''],
+    ['Delete', ''],
+    ['Escape', 'x'],
+    ['Del', 'x'],
+  ]) {
+    const steps = run(ir, [typed, { kind: 'keydown', id: 'new-todo', key }]);
+    assert.ok(controls(steps).includes(`new-todo[${value}]=`), `${key}: ${controls(steps)}`);
+  }
+});
+
+test('Vue rejects uncovered checkbox, key and slot behaviour with locations', async () => {
+  const todo = 'examples/todomvc-vue';
+  const cases = [
+    [todo, 'App.vue', '@keydown.esc=', '@keydown.ctrl.esc=', 'E_TEMPLATE'],
+    [todo, 'App.vue', '@keydown.esc=', '@keydown.esc.prevent=', 'E_TEMPLATE'],
+    [todo, 'App.vue', '@click="clearCompleted"', '@click.enter="clearCompleted"', 'E_TEMPLATE'],
+    [todo, 'App.vue', '@input="draft = $event.target.value"', '@change="draft = 1"', 'E_EVENT'],
+    [
+      todo,
+      'App.vue',
+      ':value="draft" @input="draft = $event.target.value"',
+      'v-model="draft"',
+      'E_TEMPLATE',
+    ],
+    [todo, 'App.vue', ':checked="left === 0"', '', 'E_TEMPLATE'],
+    [todo, 'App.vue', ':checked="left === 0"', ':checked="left"', 'E_TEMPLATE'],
+    [todo, 'App.vue', ':checked="left === 0"', ':checked="left === 0" checked', 'E_TEMPLATE'],
+    [todo, 'TodoItem.vue', 'v-model="todo.done"', 'v-model="todo.title"', 'E_TEMPLATE'],
+    [
+      todo,
+      'TodoItem.vue',
+      'v-model="todo.done"',
+      'v-model="todo.done" true-value="y"',
+      'E_TEMPLATE',
+    ],
+    [todo, 'TodoItem.vue', 'v-model="todo.done"', 'v-model.lazy="todo.done"', 'E_TEMPLATE'],
+    [
+      todo,
+      'TodoItem.vue',
+      'v-model="todo.done"',
+      'v-model="todo.done" :value="todo.id"',
+      'E_TEMPLATE',
+    ],
+    ['slots-vue', 'App.vue', '#row="{ item, first }"', '#row="props"', 'E_SLOTS'],
+    ['slots-vue', 'App.vue', '#row="{ item, first }"', '#row="{ item, first, last }"', 'E_SLOTS'],
+    ['slots-vue', 'App.vue', '#row="{ item, first }"', '#row="{ item = 1, first }"', 'E_SLOTS'],
+    [
+      'slots-vue',
+      'App.vue',
+      '<template #header="{ title }">',
+      '<template v-if="note" #header="{ title }">',
+      'E_SLOTS',
+    ],
+    ['slots-vue', 'App.vue', '#header="{ title }"', '#footer="{ title }"', 'E_SLOTS'],
+    // Vue would render Card's header fallback whenever this content renders nothing.
+    [
+      'slots-vue',
+      'App.vue',
+      '<span id="fancy-header">',
+      '<span v-if="note === \'set\'" id="fancy-header">',
+      'E_SLOTS',
+    ],
+    [
+      'slots-vue',
+      'App.vue',
+      '<Tally :id="item.id" />',
+      '<Tally :id="item.id">x</Tally>',
+      'E_SLOTS',
+    ],
+    [
+      'slots-vue',
+      'App.vue',
+      '<Picker :items="items">',
+      '<Picker :items="items" v-slot="{ item }">',
+      'E_SLOTS',
+    ],
+    [
+      'slots-vue',
+      'Card.vue',
+      '<slot name="header" :title="title">',
+      '<slot :name="title">',
+      'E_SLOTS',
+    ],
+    ['slots-vue', 'Card.vue', ':title="title">', ':title="title" :extra="1">', 'E_SLOTS'],
+    ['slots-vue', 'Card.vue', ':title="title">', ':title="1">', 'E_PROPS'],
+    ['slots-vue', 'Card.vue', '<slot />', '<slot name="footer" />', 'E_SLOTS'],
+    ['slots-vue', 'Picker.vue', '<slot name="row"', '<slot v-bind="item" name="row"', 'E_SLOTS'],
+  ];
+  for (const [name, file, from, to, code] of cases)
+    await assert.rejects(
+      lower(await edit(name, file, from, to)),
+      failWith(code, file),
+      `${file}: ${to}`,
+    );
 });

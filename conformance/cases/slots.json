@@ -1,6 +1,6 @@
 {
   "description": "Children and snippets: parent-owned content with parent state and handlers, snippet arguments changed by child state, stateful components inside slot content, optional snippets",
-  "fixtures": ["slots-svelte"],
+  "fixtures": ["slots-svelte", "slots-vue"],
   "actions": [
     { "kind": "click", "id": "pick-2" },
     { "kind": "click", "id": "tally-3" },

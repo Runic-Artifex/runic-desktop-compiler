@@ -47,3 +47,15 @@ declare function defineModel<T>(
   name: string,
   options?: { required?: false },
 ): import('vue').Ref<T | undefined>;
+/** `defineSlots<{ name(props: P): any }>()` (type-only; the result is not lowered). */
+declare function defineSlots<T>(): T;
+
+// Template typing of slots: a `<slot>` outlet returns its props from the
+// synthetic template function (so untyped slots infer their props), and slot
+// content destructures the props of the child's slot.
+declare const __runic_never: boolean;
+declare function __runic_slot<S, K extends string>(): K extends keyof S
+  ? NonNullable<S[K]> extends (props: infer P, ...rest: never[]) => unknown
+    ? P
+    : Record<string, never>
+  : never;

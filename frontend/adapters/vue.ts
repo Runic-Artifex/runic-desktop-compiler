@@ -10,7 +10,13 @@
 //   (destructured or as an object, optionally `withDefaults`) → prop cells;
 //   `defineEmits<T>()` → function-typed `on<Event>` prop cells that default to
 //   a no-op; `defineModel<T>()` → a prop cell written through `.value`, bound
-//   by the parent's `v-model`; `v-for` → lists.
+//   by the parent's `v-model`; `v-for` → lists;
+// - `<slot>` outlets → slot nodes with fallbacks (props typed by
+//   `defineSlots<T>()` or inferred from the outlets); `<template #name>` and
+//   default content → parent-owned slot bodies with destructured slot props;
+// - checkboxes: `:checked` / `v-model` → the live checked property, `@change`
+//   (vModelCheckbox listens first); `@keydown` with withKeys key modifiers;
+//   duplicate listeners of one event run in order.
 import ts from 'typescript';
 import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
@@ -26,7 +32,15 @@ import type {
   Stmt,
   Type,
 } from '../ir.ts';
-import { FnBuilder, Lowerer, isAssignmentOperator, skipParens, type Hooks } from '../language.ts';
+import {
+  FnBuilder,
+  Lowerer,
+  isAssignmentOperator,
+  remapLocals,
+  skipParens,
+  type HandlerEvent,
+  type Hooks,
+} from '../language.ts';
 import { createProgram, VUE } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
@@ -76,7 +90,38 @@ const BOOLEAN_ATTRS = new Set([
   'autofocus',
   'multiple',
 ]);
-const MACROS = new Set(['defineProps', 'withDefaults', 'defineEmits', 'defineModel']);
+const MACROS = new Set([
+  'defineProps',
+  'withDefaults',
+  'defineEmits',
+  'defineModel',
+  'defineSlots',
+]);
+/** runtime-dom withKeys aliases (`.esc` → `escape`, …). */
+const KEY_NAMES: Record<string, string> = {
+  esc: 'escape',
+  space: ' ',
+  up: 'arrow-up',
+  left: 'arrow-left',
+  right: 'arrow-right',
+  down: 'arrow-down',
+  delete: 'backspace',
+};
+/** compiler-dom modifiers that are not key names on keyboard events. */
+const NON_KEY_MODIFIERS = new Set([
+  'stop',
+  'prevent',
+  'self',
+  'ctrl',
+  'shift',
+  'alt',
+  'meta',
+  'exact',
+  'middle',
+  'passive',
+  'once',
+  'capture',
+]);
 // compiler-core node types
 const ELEMENT = 1;
 const TEXT = 2;
@@ -87,6 +132,7 @@ const DIRECTIVE = 7;
 // compiler-core element tag types
 const PLAIN = 0;
 const COMPONENT_TAG = 1;
+const SLOT_TAG = 2;
 
 interface Graph {
   root: string;
@@ -138,6 +184,8 @@ interface Macros {
     events: { key: string; params: string; arity: number }[];
   };
   models: { prop: string; typeText: string; nullable: boolean }[];
+  /** `defineSlots<T>()`: its type argument (without it, slot props are inferred). */
+  slots?: { typeText: string };
   /** Top-level setup names the template can see (refs unwrapped). */
   topNames: string[];
 }
@@ -461,6 +509,17 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       }
       macros.models.push({ prop, typeText: text(typeArg!), nullable });
     };
+    const slots = (call: ts.CallExpression) => {
+      if (macros.slots) fail('E_SLOTS', 'defineSlots may be called once', at(call));
+      const typeArg = call.typeArguments?.[0];
+      if (!typeArg || call.arguments.length)
+        fail(
+          'E_SLOTS',
+          'Declare slots with a type: defineSlots<{ row(props: { item: T }): any }>()',
+          at(call),
+        );
+      macros.slots = { typeText: text(typeArg!) };
+    };
     for (const stmt of sf.statements) {
       if (ts.isImportDeclaration(stmt)) {
         const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
@@ -476,6 +535,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         const m = macroOf(stmt.expression);
         if (m?.name === 'defineProps' || m?.name === 'withDefaults') props(m.call);
         else if (m?.name === 'defineEmits') emits(m.call);
+        else if (m?.name === 'defineSlots') slots(m.call);
         else if (m) fail('E_MODEL', 'Assign defineModel to a variable', at(stmt));
         continue;
       }
@@ -486,6 +546,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         if (m?.name === 'defineProps' || m?.name === 'withDefaults') props(m.call, d.name);
         else if (m?.name === 'defineEmits') emits(m.call, d.name);
         else if (m?.name === 'defineModel') model(m.call, d.name);
+        else if (m?.name === 'defineSlots') slots(m.call);
         if (ts.isIdentifier(d.name)) macros.topNames.push(d.name.text);
         else if (ts.isObjectBindingPattern(d.name) && m)
           for (const el of d.name.elements)
@@ -528,6 +589,36 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   };
   const dir = (n: VNode, name: string): VNode | undefined =>
     n.props.find((p: VNode) => p.type === DIRECTIVE && p.name === name);
+  /** `<template #name>` children of a component tag. */
+  const slotTemplates = (n: VNode): VNode[] =>
+    n.children.filter((c: VNode) => c.type === ELEMENT && c.tag === 'template' && dir(c, 'slot'));
+  /**
+   * Whether slot content always yields a vnode that renderSlot counts as
+   * content (ensureValidVNode): text, an element or a component, possibly in
+   * a v-if chain that ends in v-else. Lists, nested slots and v-if without
+   * v-else may render only comments or empty fragments.
+   */
+  const alwaysRenders = (list: VNode[]): boolean => {
+    const items = list.filter(c => c.type !== COMMENT);
+    const single = (c: VNode) =>
+      c.type === ELEMENT && c.tagType !== SLOT_TAG && c.tag !== 'template' && !dir(c, 'for');
+    for (let i = 0; i < items.length; i++) {
+      const c = items[i];
+      if (c.type === TEXT || c.type === INTERPOLATION) return true;
+      if (!dir(c, 'if')) {
+        if (single(c)) return true;
+        continue;
+      }
+      const chain = [c];
+      while (
+        items[i + 1]?.type === ELEMENT &&
+        (dir(items[i + 1], 'else-if') || dir(items[i + 1], 'else'))
+      )
+        chain.push(items[++i]);
+      if (dir(chain.at(-1), 'else') && chain.every(single)) return true;
+    }
+    return false;
+  };
 
   // --- Virtual modules: script, then the template as typed statements ---
   for (const u of order) {
@@ -572,6 +663,18 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       s += ' }';
       u.starts.set(e, [start, s.length]);
       s += ')';
+    };
+    /** v-if/v-else-if tests and v-for keys of a component or slot outlet. */
+    const structuralExprs = (n: VNode) => {
+      for (const p of n.props)
+        if (
+          p.type === DIRECTIVE &&
+          p.exp &&
+          (['if', 'else-if'].includes(p.name) || (p.name === 'bind' && p.arg?.content === 'key'))
+        ) {
+          inline(p.exp);
+          s += ';\n';
+        }
     };
     const walk = (n: VNode) => {
       if (n.type === INTERPOLATION) {
@@ -634,15 +737,50 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           }
         }
         s += '});\n';
-        for (const p of n.props)
-          if (
-            p.type === DIRECTIVE &&
-            p.exp &&
-            (['if', 'else-if'].includes(p.name) || (p.name === 'bind' && p.arg?.content === 'key'))
-          ) {
-            inline(p.exp);
-            s += ';\n';
+        structuralExprs(n);
+        // Slot content, in blocks that destructure the child's slot props.
+        const block = (slot: string, exp: VNode | undefined, body: VNode[]) => {
+          s += '{\n';
+          if (exp) {
+            s += 'const ';
+            mark(exp);
+            s += ` = __runic_slot<__RunicSlots_${name}, ${JSON.stringify(slot)}>();\n`;
           }
+          for (const c of body) walk(c);
+          s += '}\n';
+        };
+        const templates = slotTemplates(n);
+        for (const t of templates) {
+          const d = dir(t, 'slot');
+          block(d.arg?.isStatic ? d.arg.content : 'default', d.exp, t.children);
+        }
+        const rest = n.children.filter((c: VNode) => !templates.includes(c));
+        if (rest.length) block('default', dir(n, 'slot')?.exp, rest);
+      } else if (n.tagType === SLOT_TAG) {
+        // A slot outlet returns its props, so the slot type of an untyped
+        // component is inferred from the template function's return type
+        // (through a function, so TypeScript does not normalise the props of
+        // different slots into one object type with optional members).
+        structuralExprs(n);
+        const slot = n.props.find((p: VNode) => p.type === ATTRIBUTE && p.name === 'name');
+        s += `if (__runic_never) return { __slot: ${JSON.stringify(slot?.value?.content ?? 'default')} as const, props: () => ({\n`;
+        for (const p of n.props) {
+          if (p.type === ATTRIBUTE && p.name !== 'name')
+            s += `${JSON.stringify(camelize(p.name))}: ${JSON.stringify(p.value?.content ?? '')},\n`;
+          else if (
+            p.type === DIRECTIVE &&
+            p.name === 'bind' &&
+            p.exp &&
+            p.arg?.isStatic &&
+            !['key', 'name'].includes(p.arg.content)
+          ) {
+            s += `${JSON.stringify(camelize(p.arg.content))}: `;
+            inline(p.exp);
+            s += ',\n';
+          }
+        }
+        s += '}) };\n';
+        for (const c of n.children ?? []) walk(c);
       } else {
         for (const p of n.props) {
           if (p.type !== DIRECTIVE || !p.exp || p.name === 'for') continue;
@@ -657,7 +795,12 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     for (const c of u.descriptor.template.ast.children) walk(c);
     s += '}\n';
     for (const [name, file] of u.children)
-      s += `import type { __RunicProps as __RunicProps_${name} } from ${JSON.stringify(units.get(file)!.virtual)};\n`;
+      s += `import type { __RunicProps as __RunicProps_${name}, __RunicSlots as __RunicSlots_${name} } from ${JSON.stringify(units.get(file)!.virtual)};\n`;
+    s +=
+      'type __RunicSlotReturn = Exclude<ReturnType<typeof __runic_template>, void | undefined>;\n';
+    s += macros.slots
+      ? `export type __RunicSlots = ${macros.slots.typeText};\n`
+      : "export type __RunicSlots = { [K in __RunicSlotReturn['__slot']]: (props: ReturnType<Extract<__RunicSlotReturn, { __slot: K }>['props']>) => unknown };\n";
     const events = macros.emits?.events ?? [];
     s += `type __RunicEmits = { ${events.map(e => `${JSON.stringify(e.key)}: ${e.params} => void;`).join(' ')} };\n`;
     s += `type __RunicModels = { ${macros.models
@@ -804,6 +947,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   for (const p of lowerModules(graph, program, lower, { skip: f => f === graph.entry })) p();
 
   const components: Component[] = [];
+  /** Slot prop names of each component, in the order of the slot's IR params. */
+  const slotProps: Map<string, string[]>[] = [];
   for (const u of order) components[u.index] = lowerComponent(u);
 
   function lowerComponent(u: Unit): Component {
@@ -1030,7 +1175,9 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         const kind = vueCall(e);
         if (kind === 'defineProps') props(e as ts.CallExpression);
         else if (kind === 'defineEmits') emits(e as ts.CallExpression);
-        else
+        else if (kind === 'defineSlots') {
+          // Types only (read through __RunicSlots).
+        } else
           tsFail(
             stmt,
             'E_STATEMENT',
@@ -1052,6 +1199,13 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           }
           if (kind === 'defineModel') {
             model(init as ts.CallExpression, d);
+            continue;
+          }
+          if (kind === 'defineSlots') {
+            // `slots.x` in setup (render functions) is planned for later; the
+            // template's slot outlets are typed through __RunicSlots.
+            if (ts.isIdentifier(d.name))
+              setupBindings.set(d.name.text, checker.getSymbolAtLocation(d.name)!);
             continue;
           }
           if (!ts.isIdentifier(d.name) || !init)
@@ -1077,11 +1231,9 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             pending.push(() => {
               const arg = call.arguments[0];
               if (!arg) return;
-              cells[cell].init = coerceInit(
-                lower.value(arg, COMPONENT, `${name}$init`),
-                lower.exprType(arg),
-                type,
-              );
+              // The IR type of the lowered value (a bare `null` takes the ref's type).
+              const v = lower.value(arg, COMPONENT, `${name}$init`);
+              cells[cell].init = coerceInit(v, lower.valueType(v), type);
             });
             continue;
           }
@@ -1155,6 +1307,79 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         emitSymbols.add(checker.getSymbolAtLocation(d.name)!);
     }
 
+    // --- Slots: declared by defineSlots or inferred from the <slot> outlets ---
+    const slotDecls = new Map<string, { names: string[]; types: Type[] }>();
+    {
+      const alias = sf.statements.find(
+        s => ts.isTypeAliasDeclaration(s) && s.name.text === '__RunicSlots',
+      ) as ts.TypeAliasDeclaration;
+      const define = statements
+        .flatMap(s =>
+          ts.isExpressionStatement(s)
+            ? [s.expression]
+            : ts.isVariableStatement(s)
+              ? s.declarationList.declarations.map(d => d.initializer)
+              : [],
+        )
+        .find(e => e && vueCall(skipParens(e)) === 'defineSlots');
+      /** The first outlet of a slot (where inferred types are reported). */
+      const outletOf = (list: VNode[], name: string): VNode | undefined => {
+        for (const n of list) {
+          if (n.type !== ELEMENT) continue;
+          if (
+            n.tagType === SLOT_TAG &&
+            (n.props.find((p: VNode) => p.type === ATTRIBUTE && p.name === 'name')?.value
+              ?.content ?? 'default') === name
+          )
+            return n;
+          const inner = outletOf(n.children ?? [], name);
+          if (inner) return inner;
+        }
+        return undefined;
+      };
+      for (const slot of checker.getPropertiesOfType(checker.getTypeAtLocation(alias.name))) {
+        const at = define ?? alias;
+        const relocate = <T>(f: () => T): T => {
+          if (define) return f();
+          try {
+            return f();
+          } catch (e) {
+            const outlet = outletOf(u.descriptor.template.ast.children, slot.name);
+            if (e instanceof Diagnostic && outlet)
+              throw new Diagnostic(
+                (e as Diagnostic & { code: string }).code,
+                `Slot ${slot.name}: ${e.message}`,
+                loc(outlet),
+              );
+            throw e;
+          }
+        };
+        const fn = checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(slot, alias));
+        const [sig] = fn.getCallSignatures();
+        if (!sig)
+          tsFail(
+            at,
+            'E_SLOTS',
+            `Declare slot ${slot.name} as a function: ${slot.name}(props: { … }): any`,
+          );
+        const names: string[] = [];
+        const params: Type[] = [];
+        const param = sig.parameters[0];
+        if (param) {
+          const propsType = checker.getTypeOfSymbolAtLocation(param, alias);
+          for (const p of checker.getPropertiesOfType(propsType)) {
+            let t = checker.getTypeOfSymbolAtLocation(p, alias);
+            if (p.flags & ts.SymbolFlags.Optional)
+              t = checker.getNullableType(t, ts.TypeFlags.Undefined);
+            names.push(p.name);
+            params.push(relocate(() => types.map(t, at)));
+          }
+        }
+        slotDecls.set(slot.name, { names, types: params });
+      }
+      slotProps[COMPONENT] = new Map([...slotDecls].map(([k, d]) => [k, d.names]));
+    }
+
     // --- Template ---
     const tb: FnBuilder = lower.template(COMPONENT);
     const handlers: Handler[] = [];
@@ -1212,18 +1437,17 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       }
       return undefined;
     };
-    const handlerFor = (p: VNode, event: 'click' | 'input'): Listener => {
+    const handlerFor = (p: VNode, event: HandlerEvent): Part => {
       const e = skipParens(exprNode(p.exp));
-      const input = event === 'input';
-      let h: { params?: Local[]; locals?: Local[]; body: Stmt[]; args?: Expr[] };
+      let h: Part;
       if (ts.isArrowFunction(e) || ts.isFunctionExpression(e))
-        h = lower.handler(e, COMPONENT, input, tb);
+        h = lower.handler(e, COMPONENT, event, tb);
       else if (ts.isIdentifier(e)) {
         const b = lower.binding(e);
         if (b?.kind === 'function' || b?.kind === 'generic') {
           // A method handler receives the event: lower its body with that parameter.
           const decl = setupDecl(e.text);
-          if (decl && decl.parameters.length) h = lower.handler(decl, COMPONENT, input);
+          if (decl && decl.parameters.length) h = lower.handler(decl, COMPONENT, event);
           else if (b.kind === 'function')
             h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
           else return tsFail(e, 'E_EVENT', 'Unsupported handler');
@@ -1244,9 +1468,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           };
         } else return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
       } else return tsFail(e, 'E_EVENT', 'Unsupported event handler');
-      const { args, ...rest } = h;
-      handlers.push({ event, ...rest, source: loc(p) });
-      return { event, handler: handlers.length - 1, ...(args?.length ? { args } : {}) };
+      return { ...h, source: loc(p) };
     };
     /** Fit a value to a prop type (T → Maybe<T>). */
     const fit = (v: Expr, want: Type, what: string, at: VNode): Expr => {
@@ -1369,9 +1591,65 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     };
     const node = (n: VNode): Node => (dir(n, 'for') ? each(n) : single(n, false));
     const single = (n: VNode, listed: boolean): Node =>
-      n.tagType === COMPONENT_TAG && childName(u, n.tag)
-        ? component(n, listed)
-        : element(n, listed);
+      n.tagType === SLOT_TAG
+        ? outlet(n, listed)
+        : n.tagType === COMPONENT_TAG && childName(u, n.tag)
+          ? component(n, listed)
+          : element(n, listed);
+    /** `<slot name="x" :prop="v">fallback</slot>` → a slot node (args in declaration order). */
+    const outlet = (n: VNode, listed: boolean): Node => {
+      let name = 'default';
+      const given = new Map<string, Expr>();
+      for (const p of n.props) {
+        if (p.type === ATTRIBUTE) {
+          if (p.name === 'name') {
+            if (!p.value?.content) fail('E_SLOTS', 'Slot names must not be empty', loc(p));
+            name = p.value.content;
+          } else given.set(camelize(p.name), { op: 'lit', value: p.value?.content ?? '' });
+          continue;
+        }
+        if (structural(p, listed)) continue;
+        if (
+          p.name === 'bind' &&
+          p.exp &&
+          p.arg?.isStatic &&
+          p.arg.content !== 'name' &&
+          !p.modifiers?.length
+        ) {
+          const prop = camelize(p.arg.content);
+          if (given.has(prop)) fail('E_SLOTS', `Slot prop ${prop} is passed twice`, loc(p));
+          given.set(prop, value(exprNode(p.exp)));
+          continue;
+        }
+        fail(
+          'E_SLOTS',
+          p.name === 'bind' && p.arg?.content === 'name'
+            ? 'Dynamic slot names are planned for a later milestone'
+            : `v-${p.name}${p.arg ? ':' + p.arg.content : ''} on <slot> is planned for a later milestone`,
+          loc(p),
+        );
+      }
+      const decl =
+        slotDecls.get(name) ??
+        fail('E_SLOTS', `Slot ${name} is not declared in defineSlots`, loc(n));
+      const args = decl.names.map((prop, i): Expr => {
+        const v = given.get(prop);
+        given.delete(prop);
+        if (v) return fit(v, decl.types[i], `Slot prop ${prop}`, n);
+        if (maybeInner(decl.types[i])) return { op: 'undefined', type: decl.types[i] };
+        return fail('E_SLOTS', `Slot ${name} needs the prop ${prop}`, loc(n));
+      });
+      for (const extra of given.keys())
+        fail('E_SLOTS', `Slot ${name} declares no prop ${extra}`, loc(n));
+      const fallback = children(n.children);
+      return {
+        kind: 'slot',
+        name,
+        ...(args.length ? { args } : {}),
+        ...(fallback.length ? { fallback } : {}),
+        source: loc(n),
+      };
+    };
     const each = (n: VNode): Node => {
       const r = dir(n, 'for').forParseResult;
       if (r.index)
@@ -1465,6 +1743,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           continue;
         }
         if (structural(p, listed)) continue;
+        if (p.name === 'slot') continue; // the default slot's props, below
         if (!p.exp) fail('E_TEMPLATE', `v-${p.name} needs an expression`, loc(p));
         if (p.modifiers?.length)
           fail('E_TEMPLATE', 'Directive modifiers are planned for M5', loc(p));
@@ -1506,14 +1785,102 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       for (const c of target.cells)
         if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
           fail('E_PROPS', `${name} requires the prop ${c.prop}`, loc(n));
-      if (
-        n.children.some((c: VNode) => c.type !== COMMENT && (c.type !== TEXT || c.content.trim()))
-      )
-        fail('E_TEMPLATE', 'Slots are planned for a later M3 step', loc(n));
+      // Slot content: parent-owned nodes with the slot props as template locals.
+      const defs: { name: string; params?: number[]; body: Node[] }[] = [];
+      const def = (slot: string, exp: VNode | undefined, body: VNode[], at: VNode) => {
+        const names = slotProps[child.index].get(slot);
+        if (!names)
+          fail(
+            'E_SLOTS',
+            `${name} renders no slot ${slot} (Vue would discard this content)`,
+            loc(at),
+          );
+        if (defs.some(d => d.name === slot))
+          fail('E_SLOTS', `Slot ${slot} is given twice`, loc(at));
+        const types = target.slots!.find(d => d.name === slot)!.params ?? [];
+        const params = types.map(() => -1);
+        if (exp) {
+          let pattern = nodeAt(exp);
+          if (ts.isVariableDeclaration(pattern)) pattern = pattern.name;
+          if (!ts.isObjectBindingPattern(pattern))
+            fail('E_SLOTS', 'Destructure slot props: #name="{ item, index }"', loc(exp));
+          for (const el of (pattern as ts.ObjectBindingPattern).elements) {
+            const key =
+              el.propertyName &&
+              (ts.isIdentifier(el.propertyName) || ts.isStringLiteral(el.propertyName))
+                ? el.propertyName.text
+                : !el.propertyName && ts.isIdentifier(el.name)
+                  ? el.name.text
+                  : undefined;
+            if (el.dotDotDotToken || el.initializer || !key || !ts.isIdentifier(el.name))
+              tsFail(
+                el,
+                'E_SLOTS',
+                'Slot props support plain and renamed destructuring ({ item, first: isFirst }); defaults, rest and nested patterns are planned for later',
+              );
+            const i = names!.indexOf(key!);
+            if (i < 0) tsFail(el, 'E_SLOTS', `Slot ${slot} of ${name} has no prop ${key}`);
+            if (params[i] >= 0) tsFail(el, 'E_SLOTS', `Slot prop ${key} is destructured twice`);
+            const id = el.name as ts.Identifier;
+            params[i] = tb.local(id.text, types[i]);
+            lower.bindings.set(checker.getSymbolAtLocation(id)!, {
+              kind: 'local',
+              owner: tb,
+              local: params[i],
+            });
+          }
+        }
+        params.forEach((p, i) => {
+          if (p < 0) params[i] = tb.local(`$${names![i]}`, types[i]);
+        });
+        // renderSlot shows the fallback when the content renders only comments.
+        if (hasFallback(target.template, slot) && !alwaysRenders(body))
+          fail(
+            'E_SLOTS',
+            `${name} has fallback content for slot ${slot}, which Vue also renders when this content renders nothing (only v-if or v-for); add an unconditional element or text`,
+            loc(at),
+          );
+        defs.push({ name: slot, ...(params.length ? { params } : {}), body: children(body) });
+      };
+      const own = dir(n, 'slot');
+      const templates = slotTemplates(n);
+      const rest = n.children.filter((c: VNode) => !templates.includes(c) && c.type !== COMMENT);
+      if (own) {
+        if (own.arg && !(own.arg.isStatic && own.arg.content === 'default'))
+          fail('E_SLOTS', 'v-slot on a component tag names the default slot', loc(own));
+        if (templates.length)
+          fail(
+            'E_SLOTS',
+            'Use <template #default> when the component also has named slots (Vue rejects mixing)',
+            loc(own),
+          );
+        def('default', own.exp, rest, own);
+      } else {
+        for (const t of templates) {
+          const d = dir(t, 'slot');
+          if (d.arg && !d.arg.isStatic)
+            fail('E_SLOTS', 'Dynamic slot names are planned for a later milestone', loc(d));
+          for (const p of t.props)
+            if (p !== d)
+              fail(
+                'E_SLOTS',
+                'Slot templates with other directives (conditional or repeated slots) are planned for a later milestone',
+                loc(p),
+              );
+          def(d.arg?.content ?? 'default', d.exp, t.children, t);
+        }
+        // Implicit default content (whitespace alone does not make one next to named slots).
+        if (
+          rest.length &&
+          (!templates.length || rest.some((c: VNode) => c.type !== TEXT || c.content.trim()))
+        )
+          def('default', undefined, rest, rest.find((c: VNode) => c.type !== TEXT) ?? n);
+      }
       return {
         kind: 'component',
         component: child.index,
         ...(passed.length ? { props: passed } : {}),
+        ...(defs.length ? { slots: defs } : {}),
         source: loc(n),
       };
     };
@@ -1529,8 +1896,27 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];
+      const checkbox =
+        n.tag === 'input' &&
+        n.props.some(
+          (p: VNode) =>
+            p.type === ATTRIBUTE && p.name === 'type' && p.value?.content === 'checkbox',
+        );
+      /** Listener parts per event, in Vue's call order. */
+      const parts = new Map<HandlerEvent, Part[]>();
+      let model: Part | undefined;
+      const checked = (v: Expr, at: VNode) => {
+        if (props.some(q => q.name === 'checked'))
+          fail('E_TEMPLATE', 'checked is set twice (checked, :checked, v-model)', loc(at));
+        props.push({ name: 'checked', value: v });
+      };
       for (const p of n.props) {
         if (p.type === ATTRIBUTE) {
+          if (checkbox && p.name === 'checked') {
+            // Vue sets checked as a DOM property ('' → true), not an attribute.
+            checked({ op: 'lit', value: true }, p);
+            continue;
+          }
           attrs.push({
             name: p.name,
             value: BOOLEAN_ATTRS.has(p.name)
@@ -1541,15 +1927,49 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         }
         if (structural(p, listed)) continue;
         if (!p.exp) fail('E_TEMPLATE', `v-${p.name} needs an expression`, loc(p));
-        if (p.modifiers?.length)
-          fail('E_TEMPLATE', `Directive modifiers are planned for M5`, loc(p));
         if (p.name === 'on') {
-          const event = p.arg?.content;
-          if (event !== 'click' && event !== 'input')
-            fail('E_EVENT', `@${event} is planned for M5`, loc(p));
-          listeners.push(handlerFor(p, event));
+          const event = p.arg?.isStatic ? p.arg.content : undefined;
+          if (!['click', 'input', 'change', 'keydown'].includes(event))
+            fail('E_EVENT', `@${event ?? '[dynamic]'} is planned for M5`, loc(p));
+          if (event === 'change' && !checkbox)
+            fail('E_EVENT', '@change is supported on checkboxes (text inputs: @input)', loc(p));
+          const modifiers: string[] = (p.modifiers ?? []).map(
+            (m: VNode) => (typeof m === 'string' ? m : m.content) as string,
+          );
+          if (
+            modifiers.length &&
+            (event !== 'keydown' || modifiers.some(m => NON_KEY_MODIFIERS.has(m)))
+          )
+            fail(
+              'E_TEMPLATE',
+              'Event modifiers are planned for M5 (key names on @keydown are supported)',
+              loc(p),
+            );
+          let part = handlerFor(p, event as HandlerEvent);
+          if (modifiers.length) part = keyGuard(part, modifiers);
+          parts.set(event as HandlerEvent, [...(parts.get(event as HandlerEvent) ?? []), part]);
           continue;
         }
+        if (p.modifiers?.length)
+          fail('E_TEMPLATE', `Directive modifiers are planned for M5`, loc(p));
+        if (p.name === 'bind' && p.arg?.isStatic && checkbox && p.arg.content === 'checked') {
+          // Vue sets the checked DOM property; '' would be true and null false.
+          const v = value(exprNode(p.exp));
+          if (typeOf(v) !== 'boolean')
+            fail('E_TEMPLATE', ':checked on a checkbox takes a boolean', loc(p));
+          checked(v, p);
+          continue;
+        }
+        if (
+          p.name === 'bind' &&
+          checkbox &&
+          ['value', 'true-value', 'false-value'].includes(p.arg?.content)
+        )
+          fail(
+            'E_TEMPLATE',
+            `:${p.arg.content} on checkboxes is planned for a later milestone`,
+            loc(p),
+          );
         if (p.name === 'bind' && p.arg?.isStatic) {
           const name: string = p.arg.content;
           const v = value(exprNode(p.exp));
@@ -1569,13 +1989,57 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             );
           continue;
         }
-        if (p.name === 'model')
-          fail(
-            'E_TEMPLATE',
-            'v-model on elements is planned for M5 (IME composition); use :value and @input',
-            loc(p),
-          );
+        if (p.name === 'model') {
+          if (!checkbox)
+            fail(
+              'E_TEMPLATE',
+              'v-model on elements other than checkboxes is planned for M5 (IME composition); use :value and @input',
+              loc(p),
+            );
+          if (
+            n.props.some(
+              (q: VNode) => q.type === ATTRIBUTE && ['true-value', 'false-value'].includes(q.name),
+            )
+          )
+            fail(
+              'E_TEMPLATE',
+              'Checkbox value attributes with v-model are planned for later',
+              loc(p),
+            );
+          const target = skipParens(exprNode(p.exp));
+          if (ts.isIdentifier(target) && lower.binding(target)?.kind === 'local')
+            fail(
+              'E_TEMPLATE',
+              'v-model cannot assign a v-for or slot scope variable (Vue rejects it)',
+              loc(p),
+            );
+          const read = value(target);
+          if (typeOf(read) !== 'boolean')
+            fail(
+              'E_TEMPLATE',
+              `v-model on a checkbox needs a boolean target, not ${JSON.stringify(typeOf(read))} (arrays and sets are planned for later)`,
+              loc(p),
+            );
+          checked(read, p);
+          // vModelCheckbox assigns el.checked on change.
+          model = { ...lower.bindHandler(target, COMPONENT, 'change', tb), source: loc(p) };
+          continue;
+        }
         fail('E_TEMPLATE', `v-${p.name} is planned for a later milestone`, loc(p));
+      }
+      if (checkbox && !props.some(q => q.name === 'checked'))
+        fail(
+          'E_TEMPLATE',
+          'Checkboxes need :checked or v-model (uncontrolled checkboxes are planned for later)',
+          loc(n),
+        );
+      // v-model's change listener is added when the directive is created,
+      // before Vue patches the element's props (and its @change listener).
+      if (model) parts.set('change', [model, ...(parts.get('change') ?? [])]);
+      for (const [event, list] of parts) {
+        const { args, source, ...h } = mergeParts(list);
+        handlers.push({ event, ...h, source: list.length === 1 ? source : loc(n) });
+        listeners.push({ event, handler: handlers.length - 1, ...(args?.length ? { args } : {}) });
       }
       return {
         kind: 'element',
@@ -1594,6 +2058,14 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       handlers,
       template,
       ...(tb.locals.length ? { templateLocals: tb.locals } : {}),
+      ...(slotDecls.size
+        ? {
+            slots: [...slotDecls].map(([name, d]) => ({
+              name,
+              ...(d.types.length ? { params: d.types } : {}),
+            })),
+          }
+        : {}),
     };
   }
 
@@ -1627,6 +2099,163 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   };
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
+}
+
+/** Whether a component template renders fallback content for `slot`. */
+function hasFallback(nodes: Node[], slot: string): boolean {
+  return nodes.some(n => {
+    switch (n.kind) {
+      case 'slot':
+        return (n.name === slot && !!n.fallback?.length) || hasFallback(n.fallback ?? [], slot);
+      case 'element':
+        return hasFallback(n.children ?? [], slot);
+      case 'if':
+        return hasFallback(n.then, slot) || hasFallback(n.else ?? [], slot);
+      case 'each':
+        return hasFallback(n.body, slot) || hasFallback(n.else ?? [], slot);
+      case 'component':
+        return (n.slots ?? []).some(d => hasFallback(d.body, slot));
+      default:
+        return false;
+    }
+  });
+}
+
+/** A lowered listener body before it becomes a handler. */
+type Part = {
+  params?: Local[];
+  locals?: Local[];
+  body: Stmt[];
+  args?: Expr[];
+  source?: Source;
+};
+
+/**
+ * The KeyboardEvent.key values a list of Vue key modifiers accepts: withKeys
+ * runs the handler when `hyphenate(event.key)` equals a modifier or its alias.
+ * Key values are named keys in PascalCase or single characters, so the
+ * candidates are the modifier as written, capitalised, upper-cased and in
+ * PascalCase, kept when they hyphenate back to the modifier.
+ */
+export function vueKeyValues(modifiers: string[]): string[] {
+  const out = new Set<string>();
+  for (const m of modifiers)
+    for (const t of [m, KEY_NAMES[m]]) {
+      if (t === undefined) continue;
+      const pascal = t.split('-').map(capitalize).join('');
+      for (const k of [t, capitalize(t), t.toUpperCase(), pascal])
+        if (hyphenate(k) === t) out.add(k);
+    }
+  return [...out];
+}
+
+/** Run `part` only for the keys its modifiers name (the event payload is the key). */
+function keyGuard(part: Part, modifiers: string[]): Part {
+  const test = vueKeyValues(modifiers)
+    .map((k): Expr => ({ op: 'eq', left: { op: 'payload' }, right: { op: 'lit', value: k } }))
+    .reduce((a, b) => ({ op: 'or', left: a, right: b }));
+  return { ...part, body: [{ op: 'if', test, then: part.body }] };
+}
+
+const hasReturn = (body: Stmt[]): boolean =>
+  body.some(s => {
+    switch (s.op) {
+      case 'return':
+        return true;
+      case 'if':
+        return hasReturn(s.then) || hasReturn(s.else ?? []);
+      case 'while':
+        return hasReturn(s.body) || hasReturn(s.update ?? []);
+      case 'for-of':
+        return hasReturn(s.body);
+      case 'try':
+        return hasReturn(s.body) || hasReturn(s.catch?.body ?? []) || hasReturn(s.finally ?? []);
+      default:
+        return false;
+    }
+  });
+
+/** Replace `return` by a break out of the loop labelled `label`. */
+function breakReturns(body: Stmt[], label: string): Stmt[] {
+  return body.flatMap((s): Stmt[] => {
+    switch (s.op) {
+      case 'return':
+        return [
+          ...(s.value ? [{ op: 'expr', value: s.value } as Stmt] : []),
+          { op: 'break', label },
+        ];
+      case 'if':
+        return [
+          {
+            ...s,
+            then: breakReturns(s.then, label),
+            ...(s.else ? { else: breakReturns(s.else, label) } : {}),
+          },
+        ];
+      case 'while':
+        return [
+          {
+            ...s,
+            body: breakReturns(s.body, label),
+            ...(s.update ? { update: breakReturns(s.update, label) } : {}),
+          },
+        ];
+      case 'for-of':
+        return [{ ...s, body: breakReturns(s.body, label) }];
+      case 'try':
+        return [
+          {
+            ...s,
+            body: breakReturns(s.body, label),
+            ...(s.catch ? { catch: { ...s.catch, body: breakReturns(s.catch.body, label) } } : {}),
+            ...(s.finally ? { finally: breakReturns(s.finally, label) } : {}),
+          },
+        ];
+      default:
+        return [s];
+    }
+  });
+}
+
+/**
+ * One handler calling Vue's listeners for an event in order (Vue merges
+ * duplicate `@event` bindings into an array; v-model listens first). A
+ * `return` ends only its own listener.
+ */
+function mergeParts(list: Part[]): Part {
+  if (list.length === 1) return list[0];
+  return list
+    .map((p, i): Part => {
+      if (!hasReturn(p.body)) return p;
+      const label = `listener$${i}`;
+      return {
+        ...p,
+        body: [
+          {
+            op: 'while',
+            test: { op: 'lit', value: true },
+            label,
+            body: [...breakReturns(p.body, label), { op: 'break', label }],
+          },
+        ],
+      };
+    })
+    .reduce((a, b) => {
+      const aP = a.params?.length ?? 0;
+      const bP = b.params?.length ?? 0;
+      const aL = a.locals?.length ?? 0;
+      const bodyA = remapLocals(a.body, i => (i < aP ? i : i + bP));
+      const bodyB = remapLocals(b.body, i => (i < bP ? i + aP : i + aP + aL));
+      const params = [...(a.params ?? []), ...(b.params ?? [])];
+      const locals = [...(a.locals ?? []), ...(b.locals ?? [])];
+      const args = [...(a.args ?? []), ...(b.args ?? [])];
+      return {
+        ...(params.length ? { params } : {}),
+        ...(locals.length ? { locals } : {}),
+        body: [...bodyA, ...bodyB],
+        ...(args.length ? { args } : {}),
+      };
+    });
 }
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */

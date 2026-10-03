@@ -1,6 +1,6 @@
 {
   "description": "TodoMVC in memory: Enter adds, Escape clears the draft, checkbox toggles (pointer and Space), toggle all, filters, delete, clear completed",
-  "fixtures": ["examples/todomvc-svelte"],
+  "fixtures": ["examples/todomvc-svelte", "examples/todomvc-vue"],
   "actions": [
     { "kind": "focus", "id": "new-todo" },
     { "kind": "type", "text": "Buy milk" },
