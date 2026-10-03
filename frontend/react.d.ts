@@ -3,6 +3,13 @@
 declare module 'react' {
   type SetState<S> = (value: S | ((previous: S) => S)) => void;
   export function useState<S>(initial: S | (() => S)): [S, SetState<S>];
+  /** A ref object: React sets `current` to the element of `ref={…}`; otherwise a mutable box. */
+  export interface RefObject<T> {
+    current: T;
+  }
+  export function useRef<T>(initial: T): RefObject<T>;
+  export function useRef<T>(initial: T | null): RefObject<T | null>;
+  export function useRef<T = undefined>(initial?: undefined): RefObject<T | undefined>;
   /** What a component can render: children and render-prop results. */
   export type ReactNode =
     JSX.Element | string | number | boolean | null | undefined | Iterable<ReactNode>;

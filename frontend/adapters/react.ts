@@ -137,7 +137,21 @@ interface Scope {
   slotOf: Map<ts.Symbol, string>;
   /** The props object parameter (for `props.children`). */
   props?: ts.Symbol;
+  /** Cells of `useRef` objects (read live, never re-render). */
+  refs: Set<number>;
+  /** Ref objects attached with `ref={r}` to an element of this component's JSX. */
+  attached: Map<ts.Symbol, ts.JsxAttribute>;
+  /** Cells of the attached refs (React owns their value). */
+  elementRefs: Set<number>;
+  /** Nesting depth of JSX that may render more than once (list items, slot content). */
+  repeated: number;
 }
+
+/**
+ * The key marking ref accesses in the IR under construction, removed before
+ * the program is returned: an index into the accessing source nodes.
+ */
+const REF_ACCESS = '$reactRefAccess';
 
 export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   const { root } = graph;
@@ -181,10 +195,33 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     if (e.arguments.length !== 1) fail(e, 'E_STATE', 'State setters take one argument');
     return { cell, arg: e.arguments[0] };
   };
+  /** Source nodes of ref accesses (`r.current`), indexed by the REF_ACCESS marks. */
+  const refAccesses: ts.Node[] = [];
+  const markRefAccess = <T extends Expr | Stmt>(x: T, node: ts.Node): T => {
+    refAccesses.push(node);
+    return { ...x, [REF_ACCESS]: refAccesses.length - 1 };
+  };
   const hooks: Hooks = {
-    // Render, handler and closure reads all observe the render snapshot.
-    readCell: cell => ({ op: 'cell', cell, read: 'snapshot' }),
+    // State reads (render, handlers, closures) observe the render snapshot.
+    // `ref.current` is not a snapshot: React mutates the ref object at commit
+    // (and on writes), so every read sees its latest value.
+    readCell: (cell, _ctx, node) =>
+      cur.refs.has(cell)
+        ? markRefAccess({ op: 'cell', cell, read: 'current' }, node)
+        : { op: 'cell', cell, read: 'snapshot' },
     cellType: cell => cur.cells[cell].type,
+    writeCell(cell, value, _ctx, node) {
+      if (!cur.refs.has(cell))
+        return fail(node, 'E_ASSIGN', 'This framework does not support direct state assignment');
+      if (cur.elementRefs.has(cell))
+        return fail(
+          node,
+          'E_REF',
+          `React sets ${cur.cells[cell].name}.current to the element of ref={${cur.cells[cell].name}}; assigning it is unsupported`,
+        );
+      // A mutable box: the write is immediate and never re-renders.
+      return [markRefAccess({ op: 'set', cell, value, source: sourceOf(node) }, node)];
+    },
     statement(e, ctx, lower) {
       const s = setterCall(e);
       if (!s) return undefined;
@@ -235,12 +272,13 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     if (f.body) visit(f.body);
     return found;
   };
-  const isUseState = (callee: ts.Expression): boolean => {
+  /** Whether `callee` is React's hook `name` (also when imported under another name). */
+  const isHook = (callee: ts.Expression, name: 'useState' | 'useRef'): boolean => {
     if (!ts.isIdentifier(callee)) return false;
     const decl = symbolOf(callee)?.declarations?.[0];
     return (
       decl?.getSourceFile().fileName === REACT &&
-      (decl as ts.FunctionDeclaration).name?.text === 'useState'
+      (decl as ts.FunctionDeclaration).name?.text === name
     );
   };
   const isJsx = (n: ts.Node): n is Jsx =>
@@ -286,7 +324,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           for (const el of named.elements)
             if (
               !el.isTypeOnly &&
-              !['useState', 'ReactNode', 'ReactElement'].includes((el.propertyName ?? el.name).text)
+              !['useState', 'useRef', 'RefObject', 'ReactNode', 'ReactElement'].includes(
+                (el.propertyName ?? el.name).text,
+              )
             )
               fail(
                 el,
@@ -363,6 +403,10 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       tb: lower.template(COMPONENT),
       slots: [],
       slotOf: new Map(),
+      refs: new Set(),
+      attached: attachedRefs(decl),
+      elementRefs: new Set(),
+      repeated: 0,
     };
     const { cells, slots } = cur;
     const pending: (() => void)[] = [];
@@ -520,11 +564,15 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         fail(
           stmt,
           'E_COMPONENT',
-          'Component bodies support const declarations, useState and nested functions',
+          'Component bodies support const declarations, useState, useRef and nested functions',
         );
       for (const d of (stmt as ts.VariableStatement).declarationList.declarations) {
         const init = d.initializer && skipParens(d.initializer);
-        if (init && ts.isCallExpression(init) && isUseState(init.expression)) {
+        if (init && ts.isCallExpression(init) && isHook(init.expression, 'useRef')) {
+          lowerUseRef(d, init, COMPONENT, pending);
+          continue;
+        }
+        if (init && ts.isCallExpression(init) && isHook(init.expression, 'useState')) {
           if (!ts.isArrayBindingPattern(d.name) || d.name.elements.length !== 2)
             fail(d, 'E_STATE', 'Use const [value, setValue] = useState(initial)');
           const [v, s] = (d.name as ts.ArrayBindingPattern)
@@ -629,6 +677,107 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         : {}),
     };
   }
+
+  // --- Refs: useRef objects, attached to elements or used as mutable boxes ---
+  /**
+   * The ref objects attached with `ref={r}` to elements in `decl`. React keeps
+   * the last attached element in a ref shared by several elements and clears
+   * it when any of them unmounts, so a ref may be attached once.
+   */
+  const attachedRefs = (decl: ts.FunctionLikeDeclaration): Map<ts.Symbol, ts.JsxAttribute> => {
+    const found = new Map<ts.Symbol, ts.JsxAttribute>();
+    const visit = (n: ts.Node) => {
+      if (
+        ts.isJsxAttribute(n) &&
+        n.name.getText() === 'ref' &&
+        n.initializer &&
+        ts.isJsxExpression(n.initializer) &&
+        n.initializer.expression &&
+        ts.isIdentifier(skipParens(n.initializer.expression))
+      ) {
+        const sym = symbolOf(skipParens(n.initializer.expression));
+        if (sym) {
+          if (found.has(sym))
+            fail(
+              n,
+              'E_REF',
+              'This ref is already attached to another element; React keeps the last attached element and clears the ref when any of them unmounts, which is unsupported',
+            );
+          found.set(sym, n);
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    if (decl.body) visit(decl.body);
+    return found;
+  };
+  /** The IR types a ref can hold: elements and primitives (no shared heap values). */
+  const refValue = (t: Type): boolean => {
+    const base = maybeInner(t) ?? t;
+    return base === 'element' || base === 'number' || base === 'string' || base === 'boolean';
+  };
+  /** `const r = useRef<T>(initial)` → a cell read live through `r.current`. */
+  const lowerUseRef = (
+    d: ts.VariableDeclaration,
+    call: ts.CallExpression,
+    COMPONENT: number,
+    pending: (() => void)[],
+  ) => {
+    if (!ts.isIdentifier(d.name)) return fail(d, 'E_REF', 'Use const ref = useRef(initial)');
+    if (call.arguments.length > 1) fail(call.arguments[1], 'E_REF', 'useRef takes one argument');
+    const name = d.name.text;
+    const sym = checker.getSymbolAtLocation(d.name)!;
+    const attachedAt = cur.attached.get(sym);
+    const current = checker.getPropertyOfType(checker.getTypeAtLocation(d.name), 'current');
+    const tsType = current && checker.getTypeOfSymbolAtLocation(current, d.name);
+    // `useRef(null)` in JavaScript: TypeScript types `current` as null.
+    if (!tsType || tsType.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Any))
+      return fail(
+        d,
+        'E_REF',
+        `${name} needs a type: useRef<HTMLInputElement>(null) in TypeScript, useRef(/** @type {HTMLInputElement | null} */ (null)) in JavaScript`,
+      );
+    const type = types.map(tsType, d.name);
+    if (!refValue(type))
+      fail(
+        d,
+        'E_CAPABILITY',
+        `useRef holding ${JSON.stringify(type)} is planned for a later milestone (refs hold elements, numbers, strings and booleans)`,
+      );
+    const cells = cur.cells;
+    const cell = cells.length;
+    if (attachedAt) {
+      if (JSON.stringify(type) !== JSON.stringify({ maybe: 'element' }))
+        fail(
+          attachedAt,
+          'E_REF',
+          `ref={${name}} needs an element ref that can be null (React clears it on unmount): useRef<HTMLElement | null>(null)`,
+        );
+      cur.elementRefs.add(cell);
+    }
+    // React never re-renders for a ref: its cell is never dirty.
+    cells.push({
+      name,
+      type,
+      init: { op: 'lit', value: 0 },
+      tracking: 'none',
+      source: sourceOf(d),
+    });
+    cur.refs.add(cell);
+    lower.bindings.set(sym, { kind: 'ref', cell, field: 'current' });
+    const arg = call.arguments[0];
+    pending.push(() => {
+      const bare = arg && skipParens(arg);
+      if (!bare || isNothing(bare)) {
+        const op = bare?.kind === ts.SyntaxKind.NullKeyword ? 'null' : 'undefined';
+        if (!maybeInner(type)) fail(d, 'E_REF', `${name} is ${op} initially; type it as nullable`);
+        cells[cell].init = { op, type };
+        return;
+      }
+      const v = lower.value(arg, COMPONENT, `${name}$init`);
+      cells[cell].init = coerceInit(v, lower.exprType(arg), type);
+    });
+  };
 
   /** Whether `decl` reads `props.<key>` of its props object `props`. */
   const readsProp = (decl: ts.Node, props: ts.Symbol, key: string): boolean => {
@@ -874,6 +1023,24 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     const { args, ...rest } = h;
     cur.handlers.push({ event, ...rest, source: sourceOf(where) });
     return { event, handler: cur.handlers.length - 1, ...(args?.length ? { args } : {}) };
+  };
+  /** `ref={r}` on an element: the cell of a useRef object of this component. */
+  const elementRef = (attr: ts.JsxAttribute): number => {
+    const init = attr.initializer;
+    const e = init && ts.isJsxExpression(init) && init.expression && skipParens(init.expression);
+    if (e && (ts.isArrowFunction(e) || ts.isFunctionExpression(e)))
+      return fail(attr, 'E_REF', 'Callback refs are planned for a later milestone; use useRef');
+    const b = e && ts.isIdentifier(e) ? lower.binding(e) : undefined;
+    if (b?.kind !== 'ref' || b.field !== 'current' || !cur.elementRefs.has(b.cell))
+      return fail(attr, 'E_REF', 'ref takes a useRef object declared in this component');
+    // A list item or slot content can attach the ref to several elements.
+    if (cur.repeated)
+      return fail(
+        attr,
+        'E_REF',
+        'Refs on elements in list items or children/render-prop content are unsupported (the ref could be attached to several elements)',
+      );
+    return b.cell;
   };
   const isNothing = (e: ts.Expression) =>
     e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === 'undefined');
@@ -1140,6 +1307,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           'Keys on conditional list items are unsupported; key the returned element',
         );
     }
+    cur.repeated++;
+    const body = slot(r);
+    cur.repeated--;
     return {
       kind: 'each',
       // React's reconcileChildrenArray (which blocks move is observable through focus).
@@ -1148,7 +1318,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       item,
       ...(index !== undefined ? { index } : {}),
       ...(key ? { key } : {}),
-      body: slot(r),
+      body,
       source: sourceOf(call),
     };
   };
@@ -1200,6 +1370,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     const attrs: { name: string; value: Expr }[] = [];
     const props: { name: string; value: Expr }[] = [];
     const listeners: Listener[] = [];
+    let ref: number | undefined;
     const checkbox =
       name === 'input' &&
       opening.attributes.properties.some(a => {
@@ -1252,7 +1423,10 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         continue;
       }
       if (raw === 'style') fail(attr, 'E_JSX', 'Style objects are planned for a later milestone');
-      if (raw === 'ref') fail(attr, 'E_JSX', 'Element refs are planned for a later M3 step');
+      if (raw === 'ref') {
+        ref = elementRef(attr);
+        continue;
+      }
       const attrName = ATTRS[raw] ?? raw;
       if (attrName !== attrName.toLowerCase() && !attrName.startsWith('aria-'))
         fail(attr, 'E_JSX', `Unsupported prop ${raw}`);
@@ -1293,6 +1467,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           ...(attrs.length ? { attrs } : {}),
           ...(props.length ? { props } : {}),
           ...(listeners.length ? { listeners } : {}),
+          ...(ref !== undefined ? { ref } : {}),
           ...(kids.length ? { children: children(kids) } : {}),
           source: sourceOf(n),
         },
@@ -1358,6 +1533,12 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       const attr = a as ts.JsxAttribute;
       const name = attr.name.getText();
       if (name === 'key') continue;
+      if (name === 'ref')
+        fail(
+          attr,
+          'E_REF',
+          'Passing a ref to a component (ref forwarding) is unsupported; attach refs to elements',
+        );
       const init = attr.initializer;
       const kind = kindOf(name, init);
       if (kind !== 'value') {
@@ -1387,6 +1568,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     const index = instantiate(entry, site, at);
     const target = components[index];
     const declared = slotsOf[index];
+    // Slot content renders wherever (and as often as) the child renders the slot.
+    cur.repeated++;
     const defs = given.map(g => {
       const d = declared.find(x => x.name === g.name);
       if (!d)
@@ -1403,6 +1586,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         );
       return d.call ? renderFunction(g, d, entry.name) : { name: g.name, body: nodeContent(g) };
     });
+    cur.repeated--;
     for (const d of declared)
       if (d.required && !given.some(g => g.name === d.name))
         fail(at, 'E_PROPS', `${entry.name} requires the render prop ${d.name}`);
@@ -1510,6 +1694,74 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     return e && (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) ? e : undefined;
   };
 
+  /**
+   * React never re-renders for a ref and sets element refs only at commit, so
+   * `ref.current` read or written while rendering is not modelled (cells are
+   * set at mount and bindings update only for dirty cells). Reject ref
+   * accesses in code that may run during rendering: templates, initialisers
+   * and the functions they call. Calls of function values there may reach any
+   * closure, and closures passed to built-ins (`items.filter(…)`) run in place.
+   * Then remove the REF_ACCESS marks.
+   */
+  const checkRenderRefs = () => {
+    const reached = new Set<number>();
+    const work: number[] = [];
+    const reach = (fn: number) => {
+      if (!reached.has(fn)) {
+        reached.add(fn);
+        work.push(fn);
+      }
+    };
+    let dynamic = false;
+    const visit = (n: unknown, called: boolean) => {
+      if (Array.isArray(n)) return n.forEach(x => visit(x, called));
+      if (!n || typeof n !== 'object') return;
+      const o = n as Record<string, unknown>;
+      const mark = o[REF_ACCESS];
+      if (typeof mark === 'number')
+        fail(
+          refAccesses[mark],
+          'E_REF',
+          'This ref access may run while rendering (in JSX, an initialiser, a render-time const or a function they call); React does not re-render for refs and sets element refs after rendering, so use refs in event handlers',
+        );
+      if (o.op === 'call') reach(o.function as number);
+      if (o.op === 'call-value') dynamic = true;
+      if (o.op === 'closure' && called) reach(o.function as number);
+      for (const [k, v] of Object.entries(o))
+        // Listeners run on events (their handlers are not visited).
+        if (k !== 'listeners') visit(v, called || (o.op === 'builtin' && k === 'args'));
+    };
+    const closures = (n: unknown, out: Set<number>) => {
+      if (Array.isArray(n)) return n.forEach(x => closures(x, out));
+      if (!n || typeof n !== 'object') return;
+      const o = n as Record<string, unknown>;
+      if (o.op === 'closure') out.add(o.function as number);
+      for (const v of Object.values(o)) closures(v, out);
+    };
+    for (const c of components) {
+      visit(c.template, false);
+      visit(
+        c.cells.map(x => x.init),
+        false,
+      );
+    }
+    let all: Set<number> | undefined;
+    for (;;) {
+      while (work.length) visit(lower.functions[work.pop()!].body, false);
+      if (!dynamic || all) break;
+      all = new Set();
+      closures([lower.functions, components], all);
+      for (const f of all) reach(f);
+    }
+    const strip = (n: unknown) => {
+      if (Array.isArray(n)) return n.forEach(strip);
+      if (!n || typeof n !== 'object') return;
+      delete (n as Record<string, unknown>)[REF_ACCESS];
+      for (const v of Object.values(n)) strip(v);
+    };
+    strip([lower.functions, components]);
+  };
+
   const rootIndex = instantiate(app!, new Map(), rendered);
   for (const c of components[rootIndex].cells)
     if (c.prop && isRequired(c.init))
@@ -1517,6 +1769,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   for (const s of slotsOf[rootIndex])
     if (s.required)
       fail(rendered, 'E_BOOTSTRAP', `The root component requires the render prop ${s.name}`);
+  checkRenderRefs();
   const capabilities = ['dom', 'css', 'window', 'click', 'keyboard'];
   if (components.some(c => c.handlers.some(h => h.event === 'input')))
     capabilities.push('text-input');
