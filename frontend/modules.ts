@@ -30,7 +30,8 @@ export function moduleOrder(graph: ModuleGraph): string[] {
   const visit = (id: string) => {
     if (seen.has(id)) return;
     seen.add(id);
-    for (const edge of graph.modules.get(id)?.imports ?? []) if (graph.modules.has(edge.resolved)) visit(edge.resolved);
+    for (const edge of graph.modules.get(id)?.imports ?? [])
+      if (graph.modules.has(edge.resolved)) visit(edge.resolved);
     order.push(id);
   };
   visit(graph.entry);
@@ -60,30 +61,48 @@ export function lowerModules(
         if (stmt.importClause?.isTypeOnly) continue;
         if (options.frameworkImport?.(spec, stmt)) continue;
         if (!stmt.importClause) {
-          if (!spec.endsWith('.css')) fail(stmt, 'E_IMPORT', 'Only local CSS side-effect imports are supported');
+          if (!spec.endsWith('.css'))
+            fail(stmt, 'E_IMPORT', 'Only local CSS side-effect imports are supported');
           continue;
         }
-        if (!spec.startsWith('.')) fail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+        if (!spec.startsWith('.'))
+          fail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
         const named = stmt.importClause.namedBindings;
-        if (named && ts.isNamespaceImport(named)) fail(named, 'E_IMPORT', 'Namespace imports are planned for M3');
+        if (named && ts.isNamespaceImport(named))
+          fail(named, 'E_IMPORT', 'Namespace imports are planned for M3');
         continue;
       }
       if (ts.isExportDeclaration(stmt)) {
-        if (stmt.exportClause && !ts.isNamedExports(stmt.exportClause)) fail(stmt, 'E_IMPORT', 'Namespace re-exports are planned for M3');
-        if (!stmt.exportClause && stmt.moduleSpecifier) fail(stmt, 'E_IMPORT', 'export * is planned for M3');
+        if (stmt.exportClause && !ts.isNamedExports(stmt.exportClause))
+          fail(stmt, 'E_IMPORT', 'Namespace re-exports are planned for M3');
+        if (!stmt.exportClause && stmt.moduleSpecifier)
+          fail(stmt, 'E_IMPORT', 'export * is planned for M3');
         continue;
       }
-      if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt) || ts.isEmptyStatement(stmt)) continue;
-      if (ts.isExportAssignment(stmt)) fail(stmt, 'E_IMPORT', 'Default exports from modules are planned for M3');
+      if (
+        ts.isTypeAliasDeclaration(stmt) ||
+        ts.isInterfaceDeclaration(stmt) ||
+        ts.isEmptyStatement(stmt)
+      )
+        continue;
+      if (ts.isExportAssignment(stmt))
+        fail(stmt, 'E_IMPORT', 'Default exports from modules are planned for M3');
       if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-        const p = lower.declare(checker.getSymbolAtLocation(stmt.name)!, stmt, stmt.name.text, component);
+        const p = lower.declare(
+          checker.getSymbolAtLocation(stmt.name)!,
+          stmt,
+          stmt.name.text,
+          component,
+        );
         if (p) pending.push(p);
         continue;
       }
       if (ts.isVariableStatement(stmt)) {
-        if (!(stmt.declarationList.flags & ts.NodeFlags.Const)) fail(stmt, 'E_MODULE', 'Mutable module state is unsupported');
+        if (!(stmt.declarationList.flags & ts.NodeFlags.Const))
+          fail(stmt, 'E_MODULE', 'Mutable module state is unsupported');
         for (const d of stmt.declarationList.declarations) {
-          if (!ts.isIdentifier(d.name) || !d.initializer) fail(d, 'E_MODULE', 'Module constants need a name and an initialiser');
+          if (!ts.isIdentifier(d.name) || !d.initializer)
+            fail(d, 'E_MODULE', 'Module constants need a name and an initialiser');
           const sym = checker.getSymbolAtLocation(d.name)!;
           const name = (d.name as ts.Identifier).text;
           const init = skipParens(d.initializer!);
@@ -95,18 +114,30 @@ export function lowerModules(
           // Evaluated in order (a later constant may use an earlier one).
           const type = lower.exprType(init);
           const primitive = type === 'number' || type === 'string' || type === 'boolean';
-          if (primitive) pending.push(() => lower.bindings.set(sym, { kind: 'value', expr: lower.value(init, component, `${name}$module`) }));
+          if (primitive)
+            pending.push(() =>
+              lower.bindings.set(sym, {
+                kind: 'value',
+                expr: lower.value(init, component, `${name}$module`),
+              }),
+            );
           else {
             // A shared instance: a never-written cell initialised once.
             const cell = cells.length;
-            cells.push({ name, type, init: { op: 'undefined', type: { maybe: 'number' } }, tracking: 'identity' });
+            cells.push({
+              name,
+              type,
+              init: { op: 'undefined', type: { maybe: 'number' } },
+              tracking: 'identity',
+            });
             lower.bindings.set(sym, { kind: 'cell', cell });
             pending.push(() => (cells[cell].init = lower.value(init, component, `${name}$module`)));
           }
         }
         continue;
       }
-      if (ts.isClassDeclaration(stmt)) fail(stmt, 'E_TYPE_UNSUPPORTED', 'Classes are planned for a later milestone');
+      if (ts.isClassDeclaration(stmt))
+        fail(stmt, 'E_TYPE_UNSUPPORTED', 'Classes are planned for a later milestone');
       fail(stmt, 'E_MODULE', 'Top-level effects in modules are planned for M4');
     }
   }

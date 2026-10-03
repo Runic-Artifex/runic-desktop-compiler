@@ -15,9 +15,12 @@ const N: Type = 'number';
 const S: Type = 'string';
 const B: Type = 'boolean';
 const isObj = (t: Type, key: string): boolean => typeof t === 'object' && key in t;
-export const maybeInner = (t: Type): Type | undefined => (typeof t === 'object' && 'maybe' in t ? t.maybe : undefined);
-export const arrayElement = (t: Type): Type | undefined => (typeof t === 'object' && 'array' in t ? t.array : undefined);
-export const fnResult = (t: Type): Type | undefined => (typeof t === 'object' && 'fn' in t ? t.fn.result : undefined);
+export const maybeInner = (t: Type): Type | undefined =>
+  typeof t === 'object' && 'maybe' in t ? t.maybe : undefined;
+export const arrayElement = (t: Type): Type | undefined =>
+  typeof t === 'object' && 'array' in t ? t.array : undefined;
+export const fnResult = (t: Type): Type | undefined =>
+  typeof t === 'object' && 'fn' in t ? t.fn.result : undefined;
 
 export function irType(e: Expr, env: TypeEnv): Type {
   switch (e.op) {
@@ -77,7 +80,9 @@ export function irType(e: Expr, env: TypeEnv): Type {
       return e.type;
     case 'get': {
       const t = irType(e.object, env);
-      return typeof t === 'object' && 'record' in t ? env.records[t.record].fields[e.field].type : 'void';
+      return typeof t === 'object' && 'record' in t
+        ? env.records[t.record].fields[e.field].type
+        : 'void';
     }
     case 'index':
       return arrayElement(irType(e.array, env)) ?? 'void';
@@ -109,9 +114,15 @@ export function irType(e: Expr, env: TypeEnv): Type {
 export function builtinType(name: string, args: Type[]): Type | undefined {
   const [ns, method] = name.includes('.') ? (name.split('.', 2) as [string, string]) : ['', name];
   const recv = args[0];
-  if (ns === 'Math' || (ns === 'Number' && !method.startsWith('is'))) return method === 'parseFloat' || method === 'parseInt' ? N : N;
+  if (ns === 'Math' || (ns === 'Number' && !method.startsWith('is')))
+    return method === 'parseFloat' || method === 'parseInt' ? N : N;
   if (ns === 'Number') return B;
-  if (ns === '') return { parseInt: N, parseFloat: N, isNaN: B, isFinite: B, String: S, Number: N, Boolean: B }[name] ?? (name === 'structuredClone' ? recv : undefined);
+  if (ns === '')
+    return (
+      { parseInt: N, parseFloat: N, isNaN: B, isFinite: B, String: S, Number: N, Boolean: B }[
+        name
+      ] ?? (name === 'structuredClone' ? recv : undefined)
+    );
   if (ns === 'number') return S;
   if (ns === 'string') {
     if (['at', 'index'].includes(method)) return { maybe: S };

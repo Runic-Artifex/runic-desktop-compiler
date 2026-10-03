@@ -767,7 +767,7 @@ pub fn validate(p: &Program) -> Result<()> {
             s.check_type(&l.ty, src)?;
         }
         s.check_type(&f.result, src)?;
-        s.block(&f.body)?;
+        s.block(&f.body).map_err(|d| d.or_source(src))?;
     }
     let mut ids = HashSet::new();
     let mut nodes = 0;
@@ -816,7 +816,7 @@ fn validate_component(
     let mut used = vec![false; c.handlers.len()];
     let mut stack = vec![];
     for node in &c.template {
-        validate_node(p, ci, node, 0, ids, nodes, &mut used, &mut stack)?;
+        validate_node(p, ci, node, None, 0, ids, nodes, &mut used, &mut stack)?;
     }
     for (i, h) in c.handlers.iter().enumerate() {
         let src = h.source.as_ref();
@@ -830,7 +830,7 @@ fn validate_component(
         for l in &s.locals {
             s.check_type(&l.ty, src)?;
         }
-        s.block(&h.body)?;
+        s.block(&h.body).map_err(|d| d.or_source(src))?;
     }
     Ok(())
 }
@@ -840,6 +840,7 @@ fn validate_node(
     p: &Program,
     ci: usize,
     node: &Node,
+    parent: Option<&Source>,
     depth: usize,
     ids: &mut HashSet<String>,
     nodes: &mut usize,
@@ -848,7 +849,8 @@ fn validate_node(
 ) -> Result<()> {
     let c = &p.components[ci];
     *nodes += 1;
-    let src = node.source();
+    // Text nodes carry no source; diagnostics use the enclosing element.
+    let src = node.source().or(parent);
     if depth > MAX_DEPTH || *nodes > MAX_NODES {
         return err(
             "E_RESOURCE",
@@ -878,7 +880,7 @@ fn validate_node(
                 return err("E_IR", "Conditional template requires a boolean test", src);
             }
             for n in then.iter().chain(otherwise) {
-                validate_node(p, ci, n, depth + 1, ids, nodes, used, stack)?;
+                validate_node(p, ci, n, src, depth + 1, ids, nodes, used, stack)?;
             }
         }
         Node::Element {
@@ -962,7 +964,7 @@ fn validate_node(
             }
             stack.push(tag);
             for n in children {
-                validate_node(p, ci, n, depth + 1, ids, nodes, used, stack)?;
+                validate_node(p, ci, n, src, depth + 1, ids, nodes, used, stack)?;
             }
             stack.pop();
         }

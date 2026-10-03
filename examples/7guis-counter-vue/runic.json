@@ -1,6 +1,5 @@
 {
   "framework": "vue",
   "entry": "main.js",
-  "title": "7GUIs Counter",
-  "pipeline": 4
+  "title": "7GUIs Counter"
 }

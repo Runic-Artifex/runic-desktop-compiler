@@ -11,7 +11,13 @@ export type Binding =
   | { kind: 'cell'; cell: number }
   | { kind: 'function'; fn: number }
   /** A function with untyped parameters: specialised per call-site argument types. */
-  | { kind: 'generic'; decl: ts.FunctionLikeDeclaration; name: string; component: number | undefined; specs: Map<string, number> }
+  | {
+      kind: 'generic';
+      decl: ts.FunctionLikeDeclaration;
+      name: string;
+      component: number | undefined;
+      specs: Map<string, number>;
+    }
   | { kind: 'derived'; fn: number }
   | { kind: 'value'; expr: Expr }
   /** A Vue ref (`x.value` reads and writes the cell). */
@@ -223,7 +229,8 @@ export class Lowerer {
     }[] = [];
     for (const p of paramDecls) {
       if (p.dotDotDotToken) this.fail(p, 'E_FUNCTION', 'Rest parameters are planned for later');
-      const type = paramTypes?.[pending.length] ?? this.types.map(this.checker.getTypeAtLocation(p), p);
+      const type =
+        paramTypes?.[pending.length] ?? this.types.map(this.checker.getTypeAtLocation(p), p);
       if (!ts.isIdentifier(p.name))
         this.fail(p, 'E_FUNCTION', 'Destructured parameters are planned for later');
       pending.push({
@@ -234,11 +241,15 @@ export class Lowerer {
       });
     }
     const tsResult = sig!.getReturnType();
-    let result: Type = tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) ? 'void' : this.types.map(tsResult, decl);
+    let result: Type =
+      tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+        ? 'void'
+        : this.types.map(tsResult, decl);
     // Body lowering may add captures; params/locals are appended after, so we
     // lower into a staging builder and rebase indices at the end.
     const lowered = this.withParams(b, pending, () => this.functionBody(decl, b));
-    if (tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) result = this.returnType(lowered, b);
+    if (tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+      result = this.returnType(lowered, b);
     const body = remapLocals(lowered, i => b.final(i));
     const fn: Fn = {
       name,
@@ -260,7 +271,9 @@ export class Lowerer {
     const visit = (stmts: Stmt[]) => {
       for (const s of stmts) {
         if (s.op === 'return' && s.value && !found) found = this.irType(s.value, b);
-        for (const v of Object.values(s)) if (Array.isArray(v) && v.length && typeof v[0] === 'object' && v[0] && 'op' in v[0]) visit(v as Stmt[]);
+        for (const v of Object.values(s))
+          if (Array.isArray(v) && v.length && typeof v[0] === 'object' && v[0] && 'op' in v[0])
+            visit(v as Stmt[]);
         if (s.op === 'try') {
           if (s.catch) visit(s.catch.body);
           if (s.finally) visit(s.finally);
@@ -687,7 +700,12 @@ export class Lowerer {
       const declared = this.types.typeOrUndefined(d.name);
       if (declared === undefined) {
         // TypeScript only knows `any`: the initialiser's IR type decides.
-        if (!d.initializer) this.fail(d, 'E_TYPE_UNSUPPORTED', `${d.name.text} needs a type annotation or an initialiser`);
+        if (!d.initializer)
+          this.fail(
+            d,
+            'E_TYPE_UNSUPPORTED',
+            `${d.name.text} needs a type annotation or an initialiser`,
+          );
         const value = this.expr(d.initializer!, b);
         const local = b.local(d.name.text, this.irType(value, b), b.boxed.has(sym));
         this.bindings.set(sym, { kind: 'local', owner: b, local });
@@ -714,7 +732,10 @@ export class Lowerer {
     const value = this.expr(d.initializer!, b);
     const type = this.irType(value, b);
     const tmp = b.local('$destructure', type);
-    return [{ op: 'let', local: tmp, value }, ...this.destructure(d.name, { op: 'local', local: tmp }, type, b)];
+    return [
+      { op: 'let', local: tmp, value },
+      ...this.destructure(d.name, { op: 'local', local: tmp }, type, b),
+    ];
   }
 
   private destructure(pattern: ts.BindingName, source: Expr, type: Type, b: FnBuilder): Stmt[] {
@@ -993,7 +1014,7 @@ export class Lowerer {
         return { op: 'lit', value: Number((e as ts.NumericLiteral).text) };
       case K.StringLiteral:
       case K.NoSubstitutionTemplateLiteral:
-        return { op: 'lit', value: (e as ts.StringLiteral).text };
+        return this.stringLiteral(e, (e as ts.StringLiteral).text);
       case K.TrueKeyword:
         return { op: 'lit', value: true };
       case K.FalseKeyword:
@@ -1002,7 +1023,7 @@ export class Lowerer {
         return { op: 'null', type: this.contextual(e) };
       case K.TemplateExpression: {
         const t = e as ts.TemplateExpression;
-        let out: Expr = { op: 'lit', value: t.head.text };
+        let out: Expr = this.stringLiteral(t.head, t.head.text);
         for (const span of t.templateSpans) {
           out = {
             op: 'concat',
@@ -1010,7 +1031,11 @@ export class Lowerer {
             right: (v => this.stringify(v, this.irType(v, b)))(this.expr(span.expression, b)),
           };
           if (span.literal.text)
-            out = { op: 'concat', left: out, right: { op: 'lit', value: span.literal.text } };
+            out = {
+              op: 'concat',
+              left: out,
+              right: this.stringLiteral(span.literal, span.literal.text),
+            };
         }
         return out;
       }
@@ -1171,6 +1196,12 @@ export class Lowerer {
           'E_EVENT',
           'Event objects are supported only as e.target.value / e.currentTarget.value in input handlers',
         );
+      case 'generic':
+        return this.fail(
+          id,
+          'E_FUNCTION',
+          `${id.text} has untyped parameters, so it can only be called directly; add parameter types to pass it as a value`,
+        );
     }
   }
 
@@ -1210,8 +1241,10 @@ export class Lowerer {
       const rt = this.irType(right, b);
       // The result type: TypeScript's (narrowed) type, or the operands' common type.
       const ts0 = this.types.typeOrUndefined(e);
-      const result: Type = ts0 ?? (sameType(lt, rt) ? lt : maybeInner(lt) && sameType(maybeInner(lt)!, rt) ? rt : rt);
-      if (maybeInner(result) && !maybeInner(rt) && rt !== 'void') right = { op: 'some', value: right };
+      const result: Type =
+        ts0 ?? (sameType(lt, rt) ? lt : maybeInner(lt) && sameType(maybeInner(lt)!, rt) ? rt : rt);
+      if (maybeInner(result) && !maybeInner(rt) && rt !== 'void')
+        right = { op: 'some', value: right };
       if (lt === 'boolean' && rt === 'boolean')
         return { op: op === K.AmpersandAmpersandToken ? 'and' : 'or', left, right };
       // JS value semantics: evaluate the left operand once.
@@ -1357,6 +1390,13 @@ export class Lowerer {
   }
 
   /** The name of a standard-library global that `e` resolves to (a local binding cannot impersonate it). */
+  /** A string literal; IR literals are Unicode text, so lone surrogates are rejected. */
+  private stringLiteral(n: ts.Node, text: string): Expr {
+    if (/\p{Cs}/u.test(text))
+      this.fail(n, 'E_STRING', 'String literals with unpaired surrogates are unsupported');
+    return { op: 'lit', value: text };
+  }
+
   private globalName(e: ts.Expression): string | undefined {
     if (!ts.isIdentifier(e)) return undefined;
     const s = this.symbol(e);
@@ -1528,11 +1568,25 @@ export class Lowerer {
     const object = this.expr(e.expression, b);
     const t = this.irType(object, b);
     const kind = this.receiverKind(t);
-    if (kind === 'array') return { op: 'index', array: object, index: this.expr(e.argumentExpression, b) };
+    if (kind === 'array')
+      return { op: 'index', array: object, index: this.expr(e.argumentExpression, b) };
     if (kind === 'string')
-      return { op: 'builtin', name: 'string.index', args: [object, this.expr(e.argumentExpression, b)], type: { maybe: STRING } };
+      return {
+        op: 'builtin',
+        name: 'string.index',
+        args: [object, this.expr(e.argumentExpression, b)],
+        type: { maybe: STRING },
+      };
     if (kind === 'record' && ts.isStringLiteral(e.argumentExpression))
-      return { op: 'get', object, field: this.types.fieldIndex((t as { record: number }).record, e.argumentExpression.text, e) };
+      return {
+        op: 'get',
+        object,
+        field: this.types.fieldIndex(
+          (t as { record: number }).record,
+          e.argumentExpression.text,
+          e,
+        ),
+      };
     return this.fail(e, 'E_MEMBER', 'Unsupported element access');
   }
 
@@ -1546,9 +1600,25 @@ export class Lowerer {
     }
   }
 
-  private builtinCall(name: string, args: Expr[], b: FnBuilder, ts0: Type | undefined, at: ts.Node): Expr {
-    const type = ts0 ?? builtinType(name, args.map(a => this.irType(a, b)));
-    if (type === undefined) return this.fail(at, 'E_TYPE_UNSUPPORTED', `Cannot determine the result type of ${name}; add a type annotation`);
+  private builtinCall(
+    name: string,
+    args: Expr[],
+    b: FnBuilder,
+    ts0: Type | undefined,
+    at: ts.Node,
+  ): Expr {
+    const type =
+      ts0 ??
+      builtinType(
+        name,
+        args.map(a => this.irType(a, b)),
+      );
+    if (type === undefined)
+      return this.fail(
+        at,
+        'E_TYPE_UNSUPPORTED',
+        `Cannot determine the result type of ${name}; add a type annotation`,
+      );
     return { op: 'builtin', name, args, type };
   }
 
@@ -1559,11 +1629,14 @@ export class Lowerer {
     const args = () => e.arguments.map(a => this.expr(a, b));
     if (ts.isIdentifier(callee)) {
       const global = this.globalName(callee);
-      if (global && GLOBAL_FUNCTIONS.has(global)) return this.builtinCall(global, args(), b, this.tsCallType(e), e);
+      if (global && GLOBAL_FUNCTIONS.has(global))
+        return this.builtinCall(global, args(), b, this.tsCallType(e), e);
       const binding = this.binding(callee);
-      if (binding?.kind === 'function') return { op: 'call', function: binding.fn, args: this.callArgs(e, b) };
+      if (binding?.kind === 'function')
+        return { op: 'call', function: binding.fn, args: this.callArgs(e, b) };
       if (binding?.kind === 'generic') return this.specialise(binding, e, b);
-      if (binding) return { op: 'call-value', callee: this.expr(callee, b), args: this.callArgs(e, b) };
+      if (binding)
+        return { op: 'call-value', callee: this.expr(callee, b), args: this.callArgs(e, b) };
       return this.fail(callee, 'E_UNRESOLVED', `${callee.text} is not a supported function`);
     }
     if (ts.isPropertyAccessExpression(callee)) {
@@ -1571,44 +1644,82 @@ export class Lowerer {
       const global = this.globalName(callee.expression);
       if (global === 'JSON' && method === 'parse') {
         const ctx = this.checker.getContextualType(e);
-        if (!ctx) this.fail(e, 'E_TYPE_UNSUPPORTED', 'JSON.parse needs a declared result type (e.g. const v: Item = JSON.parse(text))');
+        if (!ctx)
+          this.fail(
+            e,
+            'E_TYPE_UNSUPPORTED',
+            'JSON.parse needs a declared result type (e.g. const v: Item = JSON.parse(text))',
+          );
         return { op: 'builtin', name: 'JSON.parse', args: args(), type: this.types.map(ctx!, e) };
       }
-      if (global && STATIC_NAMESPACES.has(global)) return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
+      if (global && STATIC_NAMESPACES.has(global))
+        return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
       if (ts.isIdentifier(callee.expression)) {
         const special = this.binding(callee.expression);
-        if (special?.kind === 'props') return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
+        if (special?.kind === 'props')
+          return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
       }
       const receiver = this.expr(callee.expression, b);
       const kind = this.receiverKind(this.irType(receiver, b));
-      if (kind === 'record') return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
-      if (kind) return this.builtinCall(`${kind}.${method}`, [receiver, ...args()], b, this.tsCallType(e), e);
+      if (kind === 'record')
+        return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
+      if (kind)
+        return this.builtinCall(
+          `${kind}.${method}`,
+          [receiver, ...args()],
+          b,
+          this.tsCallType(e),
+          e,
+        );
     }
     return this.fail(e, 'E_CALL', 'Unsupported call');
   }
 
   /** Call a function with untyped parameters, specialised to the argument types. */
-  private specialise(g: Extract<Binding, { kind: 'generic' }>, e: ts.CallExpression, b: FnBuilder): Expr {
+  private specialise(
+    g: Extract<Binding, { kind: 'generic' }>,
+    e: ts.CallExpression,
+    b: FnBuilder,
+  ): Expr {
     const args = e.arguments.map(a => this.expr(a, b));
     const types = args.map(a => this.irType(a, b));
     if (types.length < g.decl.parameters.length)
-      this.fail(e, 'E_TYPE_UNSUPPORTED', `Untyped ${g.name} needs all ${g.decl.parameters.length} arguments (or type annotations)`);
+      this.fail(
+        e,
+        'E_TYPE_UNSUPPORTED',
+        `Untyped ${g.name} needs all ${g.decl.parameters.length} arguments (or type annotations)`,
+      );
     const key = JSON.stringify(types);
     let index = g.specs.get(key);
     if (index === undefined) {
       index = this.reserve();
       g.specs.set(key, index);
       this.inProgress.add(index);
-      this.function(g.decl, `${g.name}<${types.map(t => JSON.stringify(t)).join(',')}>`, undefined, g.component, index, types);
+      this.function(
+        g.decl,
+        `${g.name}<${types.map(t => JSON.stringify(t)).join(',')}>`,
+        undefined,
+        g.component,
+        index,
+        types,
+      );
       this.inProgress.delete(index);
-    } else if (this.inProgress.has(index)) this.fail(e, 'E_TYPE_UNSUPPORTED', `Recursive untyped ${g.name}: add type annotations`);
+    } else if (this.inProgress.has(index))
+      this.fail(e, 'E_TYPE_UNSUPPORTED', `Recursive untyped ${g.name}: add type annotations`);
     return { op: 'call', function: index, args: args.slice(0, g.decl.parameters.length) };
   }
   private readonly inProgress = new Set<number>();
 
   /** Register a function declaration: typed functions now, untyped ones per call site. */
-  declare(sym: ts.Symbol, decl: ts.FunctionLikeDeclaration, name: string, component: number | undefined): (() => void) | undefined {
-    const untyped = decl.parameters.some(p => !p.type && this.types.typeOrUndefined(p) === undefined);
+  declare(
+    sym: ts.Symbol,
+    decl: ts.FunctionLikeDeclaration,
+    name: string,
+    component: number | undefined,
+  ): (() => void) | undefined {
+    const untyped = decl.parameters.some(
+      p => !p.type && this.types.typeOrUndefined(p) === undefined,
+    );
     if (untyped) {
       this.bindings.set(sym, { kind: 'generic', decl, name, component, specs: new Map() });
       return undefined;
@@ -1619,7 +1730,14 @@ export class Lowerer {
     const sig = this.checker.getSignatureFromDeclaration(decl);
     const ret = sig?.getReturnType();
     if (ret && !(ret.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
-      this.functions[index] = { name, ...(component !== undefined ? { component } : {}), params: [], locals: [], result: this.types.map(ret, decl), body: [] };
+      this.functions[index] = {
+        name,
+        ...(component !== undefined ? { component } : {}),
+        params: [],
+        locals: [],
+        result: this.types.map(ret, decl),
+        body: [],
+      };
     return () => this.function(decl, name, undefined, component, index);
   }
 

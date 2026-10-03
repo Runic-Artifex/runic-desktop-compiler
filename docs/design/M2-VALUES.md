@@ -20,13 +20,13 @@ The driving examples are 7GUIs Counter and Temperature Converter, plus `examples
 | object type with known properties | `{"record": r}` | `Rc<RefCell<Record_r>>` | Reference identity; fields are typed. A record is a structural type deduplicated by property names and types. |
 | `Map<K,V>` / `Set<T>` | `{"map": [K, V]}` / `{"set": T}` | insertion-ordered (`indexmap`) | Keys use SameValueZero; keys are limited to `number`, `string`, `boolean` and reference types (by identity). |
 | function types | `{"fn": {"params": [...], "result": T}}` | `Rc<dyn Fn(...) -> Result<T, Throw>>` | Closures capture variables by reference. Captured and mutated locals are boxed (`Rc<RefCell<_>>`). |
-| `any`, `unknown`, unions not listed above, `symbol`, `bigint`, classes | — | — | `E_TYPE_UNSUPPORTED` (classes are planned within M2 if time permits, otherwise M6) |
+| `any`, `unknown`, unions not listed above, `symbol`, `bigint`, classes | — | — | `E_TYPE_UNSUPPORTED` (classes are deferred to a later milestone) |
 
 Literal union types (`'a' | 'b'`) map to their base type. Discriminated unions of object types are deferred: they become a tagged record family later (M3/M6).
 
 Reference cycles leak under `Rc`. That is acceptable for M2 because UI state rarely forms cycles; it is recorded as a known limitation. A cycle-collecting heap is an M10 option.
 
-**Exceptions.** Every IR function may throw. Generated functions return `Result<T, Throw>`, where `Throw` carries a `JsValue`-like error. M2 supports throwing `Error`/`TypeError`/`RangeError` objects with a message, catching them, and `finally`. An uncaught exception in a handler aborts the handler atomically (cells unchanged), logs an error, and the app continues, matching the browser, where an exception in an event listener does not stop the page. Framework error boundaries arrive in M4.
+**Exceptions.** Every IR function may throw. Generated functions return `Result<T, Throw>`, where `Throw` carries a `JsValue`-like error. M2 supports throwing `Error`/`TypeError`/`RangeError` objects with a message, catching them, and `finally`. An uncaught exception in a handler stops the handler, logs an error, and the app continues, matching the browser, where an exception in an event listener does not stop the page. Writes made before the exception are kept and rendered, as in the frameworks (Svelte and Vue write immediately; React keeps queued updates). Only a rejected control write (a migrated text domain) restores the cells. Framework error boundaries arrive in M4.
 
 ## Reactivity of structured values
 
@@ -35,7 +35,22 @@ Cells can hold any type. The IR records each cell's tracking mode:
 - **`"identity"`** (React `useState`, Vue `shallowRef`, Svelte `$state.raw`): the cell is dirty only when assigned a value that is not SameValue to the old one. Mutating an object held by the cell does not update the UI (React's observable behaviour).
 - **`"deep"`** (Svelte `$state` proxies, Vue `ref`/`reactive`): additionally, any mutation of a heap value during a handler marks every deep cell of a reference type dirty. Bindings then recompute and write only changed DOM values. This over-approximates which cells changed, which is harmless for rendering. It is **not** acceptable for effects, so M4 must refine it (reachability or proxy identity) before effects depend on dirtiness.
 
-Svelte's deep proxies give a proxied object a different identity from the raw object. M2 accepts `$state(...)` initialised with fresh literals, and values flowing in and out of deep state as long as identity comparisons between proxied and raw objects cannot occur; otherwise it emits `E_PROXY_IDENTITY`. `$state.raw` cells must not be mutated through their value (`E_RAW_MUTATION`); reassignment is fine.
+Svelte's deep proxies give a proxied object a different identity from the raw object, and after the proxy has read a property, writes through the raw object are no longer visible through the proxy. Native values have one identity. **M2 does not model this** (a known deviation, see the [M2 results](../../conformance/results/m2.md)): code that keeps a raw reference to an object after storing it into `$state` and then compares or mutates it can behave differently. Static detection cannot be complete (references flow through functions), so M3 models proxy ownership at runtime: a heap value stored into deep state is copied unless it is already owned by deep state, which reproduces both the identity and the visibility rules. `$state.raw` cells are identity-tracked, so mutating their value does not update the UI, as in Svelte.
+
+## Island and bridge boundary
+
+QuickJS islands (M6, D7) and the Runic bridge (M7, D13) exchange values with native code. Because every native value has a static IR type, the boundary is typed marshalling, not dynamic object sharing:
+
+| IR type | Crossing representation |
+|---|---|
+| number, boolean | the value |
+| string | UTF-16 code units (lone surrogates preserved) |
+| `maybe` | `undefined` and `null` stay distinct (an absent bridge property is `undefined`) |
+| record | an object with the declared fields; extra fields are ignored and missing or mistyped ones fail with a typed error at the boundary |
+| array, map, set | arrays, `Map` and `Set` (bridge: arrays and arrays of `[key, value]` pairs) |
+| function | not copied; a callback crosses as a handle that calls back into its owner |
+
+Values are **copied** at the boundary, so identity and later mutation are not shared. This mirrors the bridge's JSON wire contract and the structured-clone rules that apply to workers. A native caller sees an island function as an IR function that may throw: failures and type mismatches become `Throw` values. An island that needs shared mutable state with native code is a design error and is reported with its reason (D7).
 
 ## IR additions (schema 4, additive)
 
@@ -80,7 +95,7 @@ Handlers gain `params`/`locals` the same way; their body may use every statement
 | `Array` | `Array.from` (array/string/set/map), `Array.isArray` (statically known) |
 | `Object` | `keys`, `values`, `entries`, `assign`, spread for records |
 | `JSON` | `stringify` for typed values; `parse` into a declared record/array type with runtime shape checking (`E_JSON_SHAPE` thrown as a `SyntaxError`-like error) |
-| `Map`/`Set` | construction, `get`/`set`/`has`/`delete`/`clear`/`size`, iteration |
+| `Map`/`Set` | construction, `get`/`set`/`has`/`delete`/`clear`/`size`; `for-of` over sets; map `keys()`/`values()` as arrays (entry tuples need heterogeneous tuples, which are outside the value model) |
 | `RegExp` | M5 (needs a JS-compatible engine); `E_REGEXP` until then |
 
 Every built-in has differential tests against Node: vectors generated by `crates/runic-js/tests/vectors.mjs` and committed as JSON.
@@ -95,11 +110,12 @@ Every built-in has differential tests against Node: vectors generated by `crates
 | `frontend/types.ts` | TypeScript checker types → IR types, with records deduplicated per program |
 | `frontend/language.ts` | Shared lowering of TS/JS statements and expressions over a `Scope` that resolves identifiers to locals, cells (through adapter hooks), module bindings, functions or built-ins |
 | `frontend/modules.ts` | Module graph: immutable module constants and functions become IR functions/constants. This replaces `compiler/modules.mjs`. |
-| `frontend/adapters/svelte.ts` | First adapter on the new frontend; React and Vue follow |
+| `frontend/irtype.ts` | IR types of lowered expressions, used where TypeScript only knows `any` (untyped JavaScript) |
+| `frontend/adapters/{svelte,react,vue}.ts` | Framework adapters (Svelte first, then React and Vue) |
 
 Adapters provide only framework semantics: cell declarations and tracking modes, read and write semantics (`snapshot`/`current`, setter queues), derived values, the template and the event-to-handler mapping. All ordinary code goes through `language.ts`.
 
-The old `compiler/adapters/*.mjs` keep serving the existing fixtures until the new adapter for that framework passes the same tests and conformance cases. Then the old adapter and the schema 3 path are deleted. The mapping validator moves onto the interpreter when `ir.mjs` is deleted.
+**Outcome (M2):** all three adapters run on this frontend and every fixture passes the same conformance cases and the differential test. The old `compiler/adapters/*.mjs`, the schema 3 IR (`ir.mjs`) and the schema 3 mapping registry with its discovery tooling were then deleted (they remain at tag `m1`). Built-ins such as `Math.min`/`Math.max` are exact language semantics now, so the clamp mappings had nothing left to map; mapping packs return in M6 for library APIs (D9), validated against the reference interpreter.
 
 ## Work split
 

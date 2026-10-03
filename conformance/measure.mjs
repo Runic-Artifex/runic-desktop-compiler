@@ -2,7 +2,9 @@
 // Startup and size budget: release builds (no probe), stripped binary size and
 // time to first presented frame on a private Xvfb display.
 //
-//   node conformance/measure.mjs [fixture ...] [--runs N] [--renderer cpu|gpu]
+//   node conformance/measure.mjs [app ...] [--runs N]
+//
+// Apps are fixture names or paths; the default is every fixture and example.
 //
 // Two timings per run: `processMs` (spawn to exit after the first frame,
 // including dynamic loading) and `firstFrameMs` (in-process, from `main`).
@@ -21,11 +23,13 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: { runs: { type: 'string', default: '7' } },
 });
+const listed = async dir =>
+  (await readdir(path.join(repo, dir), { withFileTypes: true }))
+    .filter(d => d.isDirectory() && !['unsupported-effect'].includes(d.name))
+    .map(d => path.join(dir, d.name));
 const fixtures = positionals.length
-  ? positionals
-  : (await readdir(path.join(repo, 'fixtures'), { withFileTypes: true }))
-      .filter(d => d.isDirectory() && !['incompatible', 'unsupported-effect'].includes(d.name))
-      .map(d => d.name);
+  ? positionals.map(a => (a.includes('/') ? a : path.join('fixtures', a)))
+  : [...(await listed('fixtures')), ...(await listed('examples'))];
 
 const median = xs => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const display = ':' + (90 + Math.floor(Math.random() * 100));
@@ -34,8 +38,8 @@ await new Promise(r => setTimeout(r, 700));
 const results = [];
 try {
   for (const fixture of fixtures) {
-    const out = path.join(repo, '.cache/conformance/release', fixture);
-    await buildApp(path.join(repo, 'fixtures', fixture), { out, release: true });
+    const out = path.join(repo, '.cache/conformance/release', path.basename(fixture));
+    await buildApp(path.resolve(repo, fixture), { out, release: true });
     const binary = path.join(out, 'runic-app');
     const bytes = (await stat(binary)).size;
     const processMs = [];
@@ -54,7 +58,7 @@ try {
       firstFrameMs.push(Number(m[1]) / 1000);
     }
     const row = {
-      fixture,
+      fixture: path.basename(fixture),
       bytes,
       mib: +(bytes / 1048576).toFixed(2),
       processMs: +median(processMs).toFixed(1),
@@ -62,7 +66,7 @@ try {
       runs: processMs.length,
     };
     results.push(row);
-    console.log(`${fixture.padEnd(18)} ${String(row.mib).padStart(6)} MiB  process ${String(row.processMs).padStart(6)} ms  first frame ${String(row.firstFrameMs).padStart(6)} ms`);
+    console.log(`${row.fixture.padEnd(26)} ${String(row.mib).padStart(6)} MiB  process ${String(row.processMs).padStart(6)} ms  first frame ${String(row.firstFrameMs).padStart(6)} ms`);
   }
 } finally {
   xvfb.kill();

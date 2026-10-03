@@ -77,7 +77,7 @@ const fixtures = positionals.length
   : (await readdir(path.join(repo, 'fixtures'), { withFileTypes: true }))
       .filter(d => d.isDirectory())
       .map(d => d.name)
-      .filter(n => !['incompatible', 'unsupported-effect'].includes(n));
+      .filter(n => !['unsupported-effect'].includes(n));
 const random = rng(Number(values.seed));
 let failures = 0;
 let steps = 0;

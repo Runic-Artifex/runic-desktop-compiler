@@ -20,6 +20,8 @@ export const OPTIONS: ts.CompilerOptions = {
   allowImportingTsExtensions: true,
   jsx: ts.JsxEmit.Preserve,
   types: [],
+  // ES module lexical scope even without import/export (a local `Math` shadows the global).
+  moduleDetection: ts.ModuleDetectionKind.Force,
 };
 
 /** Create a program whose root files are `files` (path → source text). */

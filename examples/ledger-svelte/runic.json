@@ -1,6 +1,5 @@
 {
   "framework": "svelte",
   "entry": "main.js",
-  "title": "Ledger",
-  "pipeline": 4
+  "title": "Ledger"
 }

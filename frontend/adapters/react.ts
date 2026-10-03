@@ -78,6 +78,10 @@ interface Graph {
 }
 
 /** React's JSX text rule: trim lines, drop whitespace-only lines, join with spaces. */
+/** The token at `pos` (an internal TypeScript API, stable across 5.x). */
+const tokenAt = (ts as unknown as { getTokenAtPosition(sf: ts.SourceFile, pos: number): ts.Node })
+  .getTokenAtPosition;
+
 function cleanText(text: string): string {
   const lines = text.replace(/\r/g, '').split('\n');
   const parts = lines.map((s, i) => {
@@ -89,7 +93,7 @@ function cleanText(text: string): string {
   return decodeHTMLStrict(parts.filter(Boolean).join(' '));
 }
 
-export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
+export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   const { root } = graph;
   const files = new Map<string, string>();
   for (const [id, m] of graph.modules)
@@ -112,7 +116,7 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
       throw new Diagnostic(
         'E_PARSE',
         ts.flattenDiagnosticMessageText(d.messageText, '\n'),
-        d.start !== undefined ? sourceOf(ts.getTokenAtPosition(sf, d.start)) : undefined,
+        d.start !== undefined ? sourceOf(tokenAt(sf, d.start)) : undefined,
       );
   }
   const types = new TypeMapper(checker, fail);
@@ -181,9 +185,12 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
   const isUseState = (callee: ts.Expression): boolean => {
     if (!ts.isIdentifier(callee)) return false;
     const decl = symbolOf(callee)?.declarations?.[0];
-    return decl?.getSourceFile().fileName === REACT && (decl as ts.FunctionDeclaration).name?.text === 'useState';
+    return (
+      decl?.getSourceFile().fileName === REACT &&
+      (decl as ts.FunctionDeclaration).name?.text === 'useState'
+    );
   };
-  const isJsx = (n: ts.Node) =>
+  const isJsx = (n: ts.Node): n is ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment =>
     ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n);
   let bootstrap: ts.ExpressionStatement | undefined;
   const componentDecl = (n: ts.Statement): boolean => {
@@ -194,8 +201,13 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
     if (ts.isVariableStatement(n)) {
       const decls = n.declarationList.declarations;
       const fns = decls.map(d => d.initializer && skipParens(d.initializer));
-      if (fns.length && fns.every(i => i && (ts.isArrowFunction(i) || ts.isFunctionExpression(i)) && returnsJsx(i))) {
-        decls.forEach((d, i) => componentDecls.set(checker.getSymbolAtLocation(d.name)!, fns[i] as ts.ArrowFunction));
+      if (
+        fns.length &&
+        fns.every(i => i && (ts.isArrowFunction(i) || ts.isFunctionExpression(i)) && returnsJsx(i))
+      ) {
+        decls.forEach((d, i) =>
+          componentDecls.set(checker.getSymbolAtLocation(d.name)!, fns[i] as ts.ArrowFunction),
+        );
         return true;
       }
     }
@@ -217,7 +229,11 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
         if (named && ts.isNamedImports(named))
           for (const el of named.elements)
             if ((el.propertyName ?? el.name).text !== 'useState')
-              fail(el, 'E_CAPABILITY', `react:${(el.propertyName ?? el.name).text} is planned for M3/M4`);
+              fail(
+                el,
+                'E_CAPABILITY',
+                `react:${(el.propertyName ?? el.name).text} is planned for M3/M4`,
+              );
         return true;
       }
       return spec === 'react-dom/client';
@@ -244,16 +260,21 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
 
   // --- The root component body ---
   const body = appDecl!.body;
-  if (!body || !ts.isBlock(body))
-    fail(appDecl!, 'E_COMPONENT', 'The root component needs a block body');
-  let returned: ts.Expression | undefined;
-  for (const stmt of (body as ts.Block).statements) {
+  if (!body) fail(appDecl!, 'E_COMPONENT', 'The root component needs a body');
+  // An expression body is the returned JSX.
+  let returned: ts.Expression | undefined = ts.isBlock(body!) ? undefined : (body as ts.Expression);
+  for (const stmt of ts.isBlock(body!) ? body.statements : []) {
     if (ts.isReturnStatement(stmt)) {
       returned = stmt.expression;
       break;
     }
     if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      const p = lower.declare(checker.getSymbolAtLocation(stmt.name)!, stmt, stmt.name.text, COMPONENT);
+      const p = lower.declare(
+        checker.getSymbolAtLocation(stmt.name)!,
+        stmt,
+        stmt.name.text,
+        COMPONENT,
+      );
       if (p) pending.push(p);
       continue;
     }
@@ -265,11 +286,7 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
       );
     for (const d of (stmt as ts.VariableStatement).declarationList.declarations) {
       const init = d.initializer && skipParens(d.initializer);
-      if (
-        init &&
-        ts.isCallExpression(init) &&
-        isUseState(init.expression)
-      ) {
+      if (init && ts.isCallExpression(init) && isUseState(init.expression)) {
         if (!ts.isArrayBindingPattern(d.name) || d.name.elements.length !== 2)
           fail(d, 'E_STATE', 'Use const [value, setValue] = useState(initial)');
         const [v, s] = (d.name as ts.ArrayBindingPattern)
@@ -335,11 +352,20 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
 
   // --- JSX ---
   const handlers: Handler[] = [];
+  /** The type of lowered `v`: TypeScript's, or the IR type where TypeScript only knows any. */
+  const typeOf = (e: ts.Expression, v: Expr): Type =>
+    types.typeOrUndefined(e) === undefined ? lower.valueType(v) : lower.exprType(e);
   const display = (e: ts.Expression): Expr | undefined => {
+    if (
+      ts.isCallExpression(e) &&
+      ts.isPropertyAccessExpression(e.expression) &&
+      e.expression.name.text === 'map'
+    )
+      fail(e, 'E_JSX', 'Rendering lists is planned for M3');
     // React renders strings and numbers; booleans, null and undefined render nothing.
-    const t = lower.exprType(e);
-    if (t === 'boolean') return undefined;
     const v = lower.value(e, COMPONENT, 'text');
+    const t = typeOf(e, v);
+    if (t === 'boolean') return undefined;
     if (t === 'string') return v;
     if (t === 'number') return { op: 'to-string', arg: v };
     if (typeof t === 'object' && 'maybe' in t && (t.maybe === 'string' || t.maybe === 'number')) {
@@ -424,7 +450,7 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
           out.push({
             kind: 'if',
             test: test(e.left),
-            then: jsx(skipParens(e.right)),
+            then: jsx(skipParens(e.right) as ts.JsxElement),
             source: sourceOf(e),
           });
         } else if (
@@ -464,7 +490,7 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
   };
   const test = (e: ts.Expression): Expr => {
     const v = lower.value(e, COMPONENT, 'condition');
-    return lower.exprType(e) === 'boolean' ? v : { op: 'to-boolean', arg: v };
+    return typeOf(e, v) === 'boolean' ? v : { op: 'to-boolean', arg: v };
   };
   const inlined = new Set<ts.Node>();
   const jsx = (n: ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment): Node[] => {
@@ -504,12 +530,12 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
         continue;
       }
       if (ts.isStringLiteral(init)) {
-        attrs.push({ name: attrName, value: { op: 'lit', value: init.text } });
+        attrs.push({ name: attrName, value: { op: 'lit', value: decodeHTMLStrict(init.text) } });
         continue;
       }
       const e = (init as ts.JsxExpression).expression!;
-      const t = lower.exprType(e);
       const v = lower.value(e, COMPONENT, attrName);
+      const t = typeOf(e, v);
       if (attrName === 'value' && name === 'input')
         props.push({ name: 'value', value: t === 'string' ? v : { op: 'to-string', arg: v } });
       else if (BOOLEAN_ATTRS.has(attrName))
@@ -553,7 +579,7 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
       const v: Expr = !init
         ? { op: 'lit', value: true }
         : ts.isStringLiteral(init)
-          ? { op: 'lit', value: init.text }
+          ? { op: 'lit', value: decodeHTMLStrict(init.text) }
           : lower.value((init as ts.JsxExpression).expression!, COMPONENT, attr.name.getText());
       values.set(attr.name.getText(), v);
     }
@@ -592,11 +618,7 @@ export async function lowerReact4(graph: Graph): Promise<{ ir: Program }> {
           );
         for (const d of (stmt as ts.VariableStatement).declarationList.declarations) {
           const init = d.initializer && skipParens(d.initializer);
-          if (
-            init &&
-            ts.isCallExpression(init) &&
-            isUseState(init.expression)
-          )
+          if (init && ts.isCallExpression(init) && isUseState(init.expression))
             fail(d, 'E_COMPONENT', 'State in child components is planned for M3');
           if (!ts.isIdentifier(d.name) || !d.initializer)
             fail(d, 'E_COMPONENT', 'Unsupported declaration in a child component');

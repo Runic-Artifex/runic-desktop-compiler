@@ -196,51 +196,14 @@ export async function collect(app) {
           column: rule.source.start.column,
         });
     });
-    // Pipeline 4 builds the DOM without wrapper nodes: structural selectors and
-    // ordinary properties are rendered by Blitz/Stylo and checked by
-    // conformance. Only time-based behaviour stays outside the contract (M10).
-    const relaxed = config.pipeline === 4;
-    if (relaxed)
-      css.walkAtRules('keyframes', rule => {
-        throw new Diagnostic('E_CSS_PROPERTY', '@keyframes animations are planned for M10', {
-          file: path.relative(root, mod.id),
-          line: rule.source.start.line,
-          column: rule.source.start.column,
-        });
-      });
-    css.walkRules(rule => {
-      if (!relaxed && /:empty|:nth|:first-child|:last-child|:only-child|\+|~/.test(rule.selector))
-        throw new Diagnostic(
-          'E_CSS_SELECTOR',
-          'Structural selectors are outside the wrapper-node compatibility contract',
-        );
-    });
+    // The DOM is built without wrapper nodes: selectors and ordinary
+    // properties are rendered by Blitz/Stylo and checked by conformance. Only
+    // time-based behaviour (and @keyframes, above) is outside the contract (M10).
     css.walkDecls(decl => {
-      const allowed = new Set([
-        'font-family',
-        'src',
-        'font-weight',
-        'box-sizing',
-        'margin',
-        'background',
-        'color',
-        'font-size',
-        'padding',
-        'max-width',
-        'border',
-        'border-radius',
-        'line-height',
-        'display',
-        'width',
-        'flex-wrap',
-        'gap',
-        'border-color',
-      ]);
-      const timeBased = /^(-webkit-)?(animation|transition)(-|$)/.test(decl.prop);
-      if (relaxed ? timeBased && decl.prop !== 'src' : !allowed.has(decl.prop) || decl.important)
+      if (/^(-webkit-)?(animation|transition)(-|$)/.test(decl.prop))
         throw new Diagnostic(
           'E_CSS_PROPERTY',
-          `Unsupported CSS declaration ${decl.prop}; animations and external behavior are outside the contract`,
+          `Unsupported CSS declaration ${decl.prop}; animations are planned for M10`,
           {
             file: path.relative(root, mod.id),
             line: decl.source.start.line,

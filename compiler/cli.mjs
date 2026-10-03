@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { spawnSync } from 'node:child_process';
-import { writeFile, mkdir, copyFile, readFile, rename, mkdtemp, rm, open } from 'node:fs/promises';
+import { writeFile, mkdir, copyFile, rename, mkdtemp, rm, open } from 'node:fs/promises';
 import path from 'node:path';
 import { collect, Diagnostic } from './collect.mjs';
 import { lower } from './frontend.mjs';
-import { emit, targetDir } from './codegen.mjs';
-import { discover } from './discovery.mjs';
-import { validateCandidate, accept, repository } from './mappings.mjs';
+import { emit, targetDir, repository } from './codegen.mjs';
 
 const cliEntry = process.argv[1] === new URL(import.meta.url).pathname;
 const { values, positionals } = parseArgs({
@@ -15,29 +13,21 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     out: { type: 'string' },
-    model: { type: 'string' },
-    constraints: { type: 'string' },
-    feedback: { type: 'string' },
     'no-opt': { type: 'boolean' },
-    'no-mappings': { type: 'boolean' },
     probe: { type: 'boolean' },
     release: { type: 'boolean' },
-    replay: { type: 'boolean' },
-    codex: { type: 'boolean' },
-    provider: { type: 'string' },
-    port: { type: 'string' },
     json: { type: 'boolean' },
   },
 });
 const [command, app] = positionals;
 export async function buildApp(app, options = {}) {
   const graph = await collect(app),
-    { ir } = await lower(graph, { registry: !options.noMappings });
-  if (!(ir.assets ?? ir.styles.assets).some(a => a.mime === 'font/woff2'))
+    { ir } = await lower(graph);
+  if (!ir.styles.assets.some(a => a.mime === 'font/woff2'))
     throw new Diagnostic(
       'E_FONT',
       'Native builds require a local bundled WOFF2 font referenced by CSS; system font fallback is outside the contract',
-      ir.ui?.source,
+      undefined,
     );
   const out = path.resolve(
     options.out ?? `artifacts/${path.basename(graph.root)}${options.noOpt ? '-no-opt' : ''}`,
@@ -149,17 +139,7 @@ export async function buildApp(app, options = {}) {
 async function main() {
   if (!command || !app) {
     console.log(
-      'runic-compiler analyze|build|discover <app>\nrunic-compiler scan <project-dir>\nrunic-compiler validate|accept <candidate.json>\nOptions: --out PATH --no-opt --no-mappings --release --probe --replay --codex --model MODEL --constraints FILE --feedback FILE --provider EXEC --port PORT --json',
-    );
-    return;
-  }
-  if (command === 'validate') {
-    console.log(JSON.stringify(await validateCandidate(app), null, 2));
-    return;
-  }
-  if (command === 'accept') {
-    console.log(
-      JSON.stringify(await accept(app, values.out ? path.resolve(values.out) : undefined), null, 2),
+      'runic-compiler analyze|build <app>\nrunic-compiler scan <project-dir>\nOptions: --out PATH --no-opt --release --probe --json',
     );
     return;
   }
@@ -167,13 +147,10 @@ async function main() {
     const r = await buildApp(app, {
       out: values.out,
       noOpt: values['no-opt'],
-      noMappings: values['no-mappings'],
       release: values.release,
       probe: values.probe,
     });
-    console.log(
-      JSON.stringify({ executable: path.join(r.out, 'runic-app'), validation: r.ir.validation }),
-    );
+    console.log(JSON.stringify({ executable: path.join(r.out, 'runic-app') }));
     return;
   }
   if (command === 'scan') {
@@ -183,45 +160,14 @@ async function main() {
     return;
   }
   const graph = await collect(app);
-  if (command === 'discover') {
-    console.log(
-      JSON.stringify(
-        await discover(graph, path.resolve(values.out ?? 'artifacts/discovery'), {
-          replay: values.replay,
-          provider: values.provider,
-          codex: values.codex,
-          model: values.model,
-          registry: !values['no-mappings'],
-          constraints: values.constraints
-            ? JSON.parse(await readFile(values.constraints, 'utf8'))
-            : null,
-          feedback: values.feedback ? JSON.parse(await readFile(values.feedback, 'utf8')) : null,
-        }),
-        null,
-        2,
-      ),
-    );
-    return;
-  }
   if (command === 'analyze') {
-    const { ir } = await lower(graph, { registry: !values['no-mappings'] });
+    const { ir } = await lower(graph);
     const out = values.out ?? `artifacts/analysis/${path.basename(graph.root)}/ir.json`;
     await mkdir(path.dirname(out), { recursive: true });
-    const { irHash, ...schema4 } = ir;
-    await writeFile(out, JSON.stringify(ir.schema === 4 ? schema4 : ir, null, 2) + '\n');
+    const { irHash, ...body } = ir;
+    await writeFile(out, JSON.stringify(body, null, 2) + '\n');
     console.log(
-      JSON.stringify(
-        values.json
-          ? ir
-          : {
-              ir: out,
-              sourceHash: ir.sourceHash,
-              validation: ir.validation,
-              mappings: ir.mappings,
-            },
-        null,
-        2,
-      ),
+      JSON.stringify(values.json ? body : { ir: out, sourceHash: ir.meta.sourceHash }, null, 2),
     );
     return;
   }

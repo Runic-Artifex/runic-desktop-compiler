@@ -1,0 +1,21 @@
+{
+  // Type-check the frontend (run by Node's type stripping): npm run typecheck
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "types": [],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true
+  },
+  "files": ["node-env.d.ts"],
+  "include": ["*.ts", "adapters/*.ts"],
+  "exclude": ["*.d.ts"]
+}

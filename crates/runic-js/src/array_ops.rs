@@ -16,11 +16,6 @@
 //!   with `undefined` for an index that a callback removed; that value cannot
 //!   be represented for every element type, so such indices are skipped.
 //! - `map` creates holes for removed indices; the dense result omits them.
-//! - Methods whose frozen signature lacks `T: Clone` (`findIndex`,
-//!   `findLastIndex`, `some`, `every`, `map`, `flatMap`, `forEach`, `reduce`,
-//!   `reduceRight`) cannot copy the element out, so they hold a shared borrow
-//!   of the array while the callback runs. Such a callback may read the array
-//!   but mutating that same array panics (`RefCell` already borrowed).
 //! - `get_checked` and `set` reject indices the dense value model cannot
 //!   represent with a RangeError (see their documentation).
 //! - `Map.prototype.set`/`Set.prototype.add` store a `-0` key as `+0`; the

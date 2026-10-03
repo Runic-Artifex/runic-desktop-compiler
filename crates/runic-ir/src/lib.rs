@@ -28,6 +28,13 @@ impl Diagnostic {
             source: source.cloned(),
         }
     }
+    /// Attribute a location-less diagnostic to an enclosing construct.
+    pub fn or_source(mut self, source: Option<&Source>) -> Self {
+        if self.source.is_none() {
+            self.source = source.cloned();
+        }
+        self
+    }
 }
 
 impl std::fmt::Display for Diagnostic {

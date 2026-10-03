@@ -1,4 +1,4 @@
-// M2: the TypeScript frontend (pipeline 4) on the shared language layer.
+// M2: the TypeScript frontend on the shared language layer.
 // Each case lowers a small Svelte component, validates it in the Rust
 // backend and runs it in the reference interpreter. Expected values were
 // checked against the real Svelte runtime where noted in the examples'
@@ -29,7 +29,7 @@ async function app(script, markup) {
   );
   await writeFile(
     path.join(root, 'runic.json'),
-    JSON.stringify({ framework: 'svelte', entry: 'main.js', title: 'T', pipeline: 4 }),
+    JSON.stringify({ framework: 'svelte', entry: 'main.js', title: 'T' }),
   );
   await writeFile(
     path.join(root, 'App.svelte'),

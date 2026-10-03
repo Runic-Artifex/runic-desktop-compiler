@@ -4,7 +4,7 @@ A research compiler that turns JavaScript/TypeScript framework applications into
 
 **Purpose:** a WebView-free, fast-starting deployment path for [Runic SDK](/home/viktor/Development/RunicArtifex/runic-sdk) apps. The north star is the SDK's Translations Editor (Svelte 5 + SvelteKit with a C# view model).
 
-**Status (2026-10-03):** React, Vue and Svelte are supported through a deliberately small subset: scalar state, pure expressions, a single text editor, conditionals and shared local modules. See [contract v5](docs/CONTRACT.md). The plan from here to a general compiler is in [docs/ROADMAP.md](docs/ROADMAP.md). The next milestone (M1) moves the IR, code generation and runtime into Rust crates and adds an automated conformance harness.
+**Status (2026-10-03):** M2 is complete. React, Vue and Svelte share a TypeScript frontend that lowers ordinary JavaScript (numbers, strings, objects, arrays, `Map`/`Set`, closures, exceptions and the common built-ins) to a Rust backend; components are still single-component apps with conditionals and text inputs. See [contract v6](docs/CONTRACT.md) and the [M2 results](conformance/results/m2.md). The plan to a general compiler is in [docs/ROADMAP.md](docs/ROADMAP.md); the next milestone (M3) adds components and lists.
 
 ## Quick start
 
@@ -20,11 +20,7 @@ node compiler/cli.mjs build fixtures/settings-wizard --release
 ./artifacts/settings-wizard/runic-app --x11
 ```
 
-Omit `--x11` to use the desktop's default display backend. Other fixtures are `counter-*`, `editor-*` and `modules-*` (for `react`, `vue` and `svelte`), plus `quantity`, `thermostat`, `pricing` and `settings-wizard` (React). `node compiler/cli.mjs analyze <app>` reports diagnostics without building. `fixtures/incompatible` and `fixtures/unsupported-effect` show rejections.
-
-## Mappings and discovery
-
-Normal builds use the pinned, independently validated rules in [`mappings/`](mappings/APPLICABILITY.md) and never call a model. Discovery is a separate explicit operation (`node compiler/cli.mjs discover … --codex`, then `validate` and `accept`). A candidate enters the registry only through `accept`, which reruns the independent validation.
+Omit `--x11` to use the desktop's default display backend. Other fixtures are `counter-*`, `editor-*` and `modules-*` (for `react`, `vue` and `svelte`), plus `quantity`, `thermostat`, `pricing` and `settings-wizard` (React); `examples/` holds 7GUIs Counter, Temperature Converter and a ledger in all three frameworks. `node compiler/cli.mjs analyze <app>` reports diagnostics without building. `fixtures/unsupported-effect` shows a rejection.
 
 ## Repository
 

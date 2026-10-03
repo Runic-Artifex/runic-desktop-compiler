@@ -81,7 +81,7 @@ function locate(text: string, offset: number, file: string) {
   return { file, line: lines.length, column: lines.at(-1)!.length + 1 };
 }
 
-export async function lowerSvelte4(graph: Graph): Promise<{ ir: Program }> {
+export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const { root } = graph;
   const fail = (
     code: string,
@@ -276,7 +276,9 @@ export async function lowerSvelte4(graph: Graph): Promise<{ ir: Program }> {
 
   const statements = [...sf.statements].filter(s => s.getStart(sf) < script.length);
   // Ordinary local modules initialise first (dependencies first).
-  const pending = lowerModules(graph, program, lower, cells, COMPONENT, { skip: f => f === graph.entry });
+  const pending = lowerModules(graph, program, lower, cells, COMPONENT, {
+    skip: f => f === graph.entry,
+  });
   // Pass 1: register bindings (functions are hoisted; cells get indices).
   for (const stmt of statements) {
     if (ts.isImportDeclaration(stmt)) {
@@ -288,13 +290,20 @@ export async function lowerSvelte4(graph: Graph): Promise<{ ir: Program }> {
           'E_CAPABILITY',
           `${spec} imports (lifecycle, context, stores) are planned for M3/M4`,
         );
-      if (spec.endsWith('.svelte')) tsFail(stmt, 'E_TEMPLATE', 'Child components are planned for M3');
-      if (!spec.startsWith('.')) tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+      if (spec.endsWith('.svelte'))
+        tsFail(stmt, 'E_TEMPLATE', 'Child components are planned for M3');
+      if (!spec.startsWith('.'))
+        tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
       continue;
     }
     if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
     if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-      const p = lower.declare(checker.getSymbolAtLocation(stmt.name)!, stmt, stmt.name.text, COMPONENT);
+      const p = lower.declare(
+        checker.getSymbolAtLocation(stmt.name)!,
+        stmt,
+        stmt.name.text,
+        COMPONENT,
+      );
       if (p) pending.push(p);
       continue;
     }
@@ -447,7 +456,11 @@ export async function lowerSvelte4(graph: Graph): Promise<{ ir: Program }> {
         return fail('E_EVENT', 'Event handlers must be functions', loc(where));
       const target = lower.functions[b.fn];
       if (target && target.params.length)
-        return fail('E_EVENT', 'Named handlers with typed parameters: use an inline arrow function', loc(where));
+        return fail(
+          'E_EVENT',
+          'Named handlers with typed parameters: use an inline arrow function',
+          loc(where),
+        );
       h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
     } else return fail('E_EVENT', 'Unsupported event handler expression', loc(where));
     handlers.push({ event, ...h, source: loc(where) });

@@ -1,0 +1,193 @@
+{
+  "schema": 1,
+  "date": "2026-10-03T16:01:22.466Z",
+  "host": "Linux 7.2.8 x86_64",
+  "display": "Xvfb 1024x768x24",
+  "renderer": "cpu",
+  "results": [
+    {
+      "fixture": "counter-react",
+      "bytes": 13861760,
+      "mib": 13.22,
+      "processMs": 30.9,
+      "firstFrameMs": 24.7,
+      "runs": 7
+    },
+    {
+      "fixture": "counter-svelte",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 29.4,
+      "firstFrameMs": 23.4,
+      "runs": 7
+    },
+    {
+      "fixture": "counter-vue",
+      "bytes": 13861760,
+      "mib": 13.22,
+      "processMs": 31.1,
+      "firstFrameMs": 25.3,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-react",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 29.3,
+      "firstFrameMs": 23.8,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-svelte",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 29.6,
+      "firstFrameMs": 24.1,
+      "runs": 7
+    },
+    {
+      "fixture": "editor-vue",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 31.3,
+      "firstFrameMs": 25.1,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-react",
+      "bytes": 13861760,
+      "mib": 13.22,
+      "processMs": 30.3,
+      "firstFrameMs": 23.7,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-svelte",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 30.6,
+      "firstFrameMs": 24.2,
+      "runs": 7
+    },
+    {
+      "fixture": "modules-vue",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 29.9,
+      "firstFrameMs": 23.9,
+      "runs": 7
+    },
+    {
+      "fixture": "pricing",
+      "bytes": 13869952,
+      "mib": 13.23,
+      "processMs": 30.5,
+      "firstFrameMs": 24.6,
+      "runs": 7
+    },
+    {
+      "fixture": "quantity",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 30.5,
+      "firstFrameMs": 24.9,
+      "runs": 7
+    },
+    {
+      "fixture": "settings-wizard",
+      "bytes": 13874048,
+      "mib": 13.23,
+      "processMs": 31.3,
+      "firstFrameMs": 25.7,
+      "runs": 7
+    },
+    {
+      "fixture": "smoke",
+      "bytes": 13849472,
+      "mib": 13.21,
+      "processMs": 31.8,
+      "firstFrameMs": 25.4,
+      "runs": 7
+    },
+    {
+      "fixture": "thermostat",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 30.8,
+      "firstFrameMs": 25.1,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-counter-react",
+      "bytes": 13849472,
+      "mib": 13.21,
+      "processMs": 30.1,
+      "firstFrameMs": 24.1,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-counter-svelte",
+      "bytes": 13849472,
+      "mib": 13.21,
+      "processMs": 29.1,
+      "firstFrameMs": 23.3,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-counter-vue",
+      "bytes": 13849472,
+      "mib": 13.21,
+      "processMs": 31.3,
+      "firstFrameMs": 24.9,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-temperature-react",
+      "bytes": 13861760,
+      "mib": 13.22,
+      "processMs": 31.9,
+      "firstFrameMs": 25.9,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-temperature-svelte",
+      "bytes": 13865856,
+      "mib": 13.22,
+      "processMs": 30.3,
+      "firstFrameMs": 23.9,
+      "runs": 7
+    },
+    {
+      "fixture": "7guis-temperature-vue",
+      "bytes": 13861760,
+      "mib": 13.22,
+      "processMs": 31.1,
+      "firstFrameMs": 24.8,
+      "runs": 7
+    },
+    {
+      "fixture": "ledger-react",
+      "bytes": 13906816,
+      "mib": 13.26,
+      "processMs": 29.7,
+      "firstFrameMs": 24.3,
+      "runs": 7
+    },
+    {
+      "fixture": "ledger-svelte",
+      "bytes": 13906816,
+      "mib": 13.26,
+      "processMs": 31.9,
+      "firstFrameMs": 25.3,
+      "runs": 7
+    },
+    {
+      "fixture": "ledger-vue",
+      "bytes": 13906816,
+      "mib": 13.26,
+      "processMs": 30.2,
+      "firstFrameMs": 24.2,
+      "runs": 7
+    }
+  ]
+}

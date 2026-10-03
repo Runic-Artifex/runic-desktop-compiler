@@ -85,7 +85,7 @@ function locate(text: string, offset: number, file: string) {
   return { file, line: lines.length, column: lines.at(-1)!.length + 1 };
 }
 
-export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
+export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   const { root } = graph;
   const fail = (code: string, message: string, source?: object): never => {
     throw new Diagnostic(code, message, source);
@@ -247,7 +247,9 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
 
   // --- Setup bindings ---
   const statements = [...sf.statements].filter(s => s.getStart(sf) < script.length);
-  const pending = lowerModules(graph, program, lower, cells, COMPONENT, { skip: f => f === graph.entry });
+  const pending = lowerModules(graph, program, lower, cells, COMPONENT, {
+    skip: f => f === graph.entry,
+  });
   const setupBindings = new Map<string, ts.Symbol>();
   for (const stmt of statements) {
     if (ts.isImportDeclaration(stmt)) {
@@ -264,7 +266,8 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
         continue;
       }
       if (spec.endsWith('.vue')) tsFail(stmt, 'E_TEMPLATE', 'Child components are planned for M3');
-      if (!spec.startsWith('.')) tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+      if (!spec.startsWith('.'))
+        tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
       continue;
     }
     if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
@@ -422,7 +425,8 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
       h = lower.handler(e, COMPONENT, event === 'input');
     else if (ts.isIdentifier(e)) {
       const b = lower.binding(e);
-      if (b?.kind !== 'function' && b?.kind !== 'generic') return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
+      if (b?.kind !== 'function' && b?.kind !== 'generic')
+        return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
       // A method handler receives the event: lower its body with that parameter.
       const sym = checker.getSymbolAtLocation(e);
       const decl =
@@ -430,7 +434,8 @@ export async function lowerVue4(graph: Graph): Promise<{ ir: Program }> {
         lower.bindings.get(sym) &&
         (setupDecl(e.text) as ts.FunctionLikeDeclaration | undefined);
       if (decl && decl.parameters.length) h = lower.handler(decl, COMPONENT, event === 'input');
-      else if (b.kind === 'function') h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
+      else if (b.kind === 'function')
+        h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
       else return tsFail(e, 'E_EVENT', 'Unsupported handler');
     } else return tsFail(e, 'E_EVENT', 'Unsupported event handler');
     handlers.push({ event, ...h, source: loc(p) });

@@ -4,7 +4,7 @@ The compiler turns JavaScript/TypeScript framework applications (React, Vue and 
 
 Start here:
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): binding decisions D1–D15.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): binding decisions D1–D16.
 - [docs/ROADMAP.md](docs/ROADMAP.md): the current milestone and its work mode.
 - [docs/WORKING.md](docs/WORKING.md): when to work standalone, delegate to a subagent or propose a workflow, and the resource rules for parallel work.
 - [docs/CONTRACT.md](docs/CONTRACT.md): what is actually implemented. Roadmap items are not supported until a milestone has verified them.
@@ -13,25 +13,24 @@ Start here:
 
 | Path | Content |
 |---|---|
-| `compiler/` | Node-hosted frontend: collector, language layer, framework adapters (`adapters/`), schema 3 IR and mapping validation, `scan`, CLI. `codegen.mjs` bridges to the Rust backend |
+| `compiler/` | Node CLI: Vite collector (`collect.mjs`, framework tooling in `adapters/tooling.mjs`), adapter dispatch (`frontend.mjs`), `scan`, and `codegen.mjs`, the bridge to the Rust backend |
+| `frontend/` | TypeScript frontends run by Node's type stripping: shared language layer (`language.ts`, `types.ts`, `irtype.ts`, `modules.ts`), schema 4 types (`ir.ts`) and framework adapters (`adapters/`) |
 | `crates/` | Rust workspace: `runic-ir` (schema 4 types, validator, migration, reference interpreter), `runic-codegen` (Rust generation, `runic-codegen` binary), `runic-runtime` (library linked by every generated app), `runic-js` (JS value semantics), `runic-blitz-probes` (Blitz behaviour probes) |
 | `fixtures/` | Example and conformance applications per framework, including expected-rejection fixtures |
 | `conformance/` | Harness (`run.mjs`: browser vs native; `differential.mjs`: interpreter vs native; `measure.mjs`: startup/size), case manifests (`cases/`), committed result summaries (`results/`), isolated framework-version environments |
-| `mappings/` | Pinned mapping packs (`accepted/`), their proofs (`proofs/`), `registry.lock.json`, validation corpus |
-| `tests/` | `node --test` suites; `tests/data/` holds frozen inputs |
+| `tests/` | `node --test` suites (`npm test` also type-checks `frontend/`) |
 | `docs/` | Living docs at the top level; `history/` holds the Phases 0–4 record (raw evidence is at tag `baseline/phase4`) |
 
 ## Rules
 
 - **Direction.**
   - Generated application code and native bindings are Rust.
-  - Framework- and version-specific knowledge lives only in adapters and mapping packs; the backend never branches on framework names.
+  - Framework- and version-specific knowledge lives only in adapters (and, from M6, mapping packs); the backend never branches on framework names.
   - Shared language analysis, IR, optimisation and codegen must stay reusable by every frontend.
 - **Rejecting unsupported code.** Reject uncovered behaviour with a source-located diagnostic. Never drop or approximate it.
 - **QuickJS.** It is an opt-in crutch only (D7). Default builds contain no JS engine, and every island must be reported with the reason it could not be lowered.
 - **Deterministic builds.**
-  - Normal builds use pinned validated mappings and make no model calls; model-assisted discovery is an explicit separate operation.
-  - When `compiler/ir.mjs`, `compiler/mappings.mjs` or `mappings/validation-corpus.json` change, re-accept the unchanged candidates with `node compiler/cli.mjs accept mappings/accepted/<file>`. Never bypass `E_REGISTRY_STALE`.
+  - Normal builds are deterministic and make no model calls. Mapping packs (M6) will be pinned and validated; model-assisted discovery stays an explicit separate operation.
 - **Verification honesty.**
   - A missing or unavailable stage is *incomplete*, never passed.
   - Do not force blur, drop cases, widen tolerances or rewrite reference output to manufacture parity.
@@ -55,7 +54,7 @@ node conformance/measure.mjs             # release size and first-frame time (Xv
 node compiler/cli.mjs scan <project>     # feature census against the roadmap
 node compiler/cli.mjs build fixtures/counter-svelte --release
 ./artifacts/counter-svelte/runic-app --x11
-prettier --write "compiler/**/*.mjs" "tests/*.mjs"   # formatting (in dev shell)
+prettier --write "compiler/**/*.mjs" "frontend/**/*.ts" "tests/*.mjs" "conformance/*.mjs"   # formatting (in dev shell)
 cargo fmt
 ```
 

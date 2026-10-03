@@ -1,6 +1,5 @@
 {
   "framework": "react",
   "entry": "main.tsx",
-  "title": "7GUIs Temperature Converter",
-  "pipeline": 4
+  "title": "7GUIs Temperature Converter"
 }

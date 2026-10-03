@@ -139,7 +139,7 @@ export interface Cell {
   name: string;
   type: Type;
   init: Expr;
-  tracking?: 'deep' | 'identity';
+  tracking?: 'deep' | 'identity' | 'none';
   domain?: { kind: 'text'; maxUtf16: number };
   source?: Source;
 }

@@ -1,30 +1,28 @@
+// Framework adapters (frontend/adapters/*.ts) on the shared language layer.
+// Every lowered program is validated by the Rust backend before it is used.
 import { Diagnostic } from './collect.mjs';
-import { lowerReact } from './adapters/react.mjs';
-import { lowerVue } from './adapters/vue.mjs';
-import { lowerSvelte } from './adapters/svelte.mjs';
-export async function lower(graph, options = {}) {
-  // RUNIC_PIPELINE=4 forces the TypeScript frontend (migration testing).
-  if (process.env.RUNIC_PIPELINE) graph.config.pipeline = Number(process.env.RUNIC_PIPELINE);
+import { check } from './codegen.mjs';
+
+export async function lower(graph) {
+  const result = await adapter(graph);
+  check(result.ir);
+  return result;
+}
+
+async function adapter(graph) {
   switch (graph.config.framework ?? 'react') {
-    case 'react':
-      if (graph.config.pipeline === 4) {
-        const { lowerReact4 } = await import('../frontend/adapters/react.ts');
-        return lowerReact4(graph, options);
-      }
-      return lowerReact(graph, options);
-    case 'vue':
-      if (graph.config.pipeline === 4) {
-        const { lowerVue4 } = await import('../frontend/adapters/vue.ts');
-        return lowerVue4(graph, options);
-      }
-      return lowerVue(graph, options);
-    case 'svelte':
-      // Pipeline 4: the TypeScript frontend on the shared language layer (M2).
-      if (graph.config.pipeline === 4) {
-        const { lowerSvelte4 } = await import('../frontend/adapters/svelte.ts');
-        return lowerSvelte4(graph, options);
-      }
-      return lowerSvelte(graph, options);
+    case 'react': {
+      const { lowerReact } = await import('../frontend/adapters/react.ts');
+      return lowerReact(graph);
+    }
+    case 'vue': {
+      const { lowerVue } = await import('../frontend/adapters/vue.ts');
+      return lowerVue(graph);
+    }
+    case 'svelte': {
+      const { lowerSvelte } = await import('../frontend/adapters/svelte.ts');
+      return lowerSvelte(graph);
+    }
     default:
       throw new Diagnostic('E_FRONTEND', 'Unsupported frontend ' + graph.config.framework);
   }

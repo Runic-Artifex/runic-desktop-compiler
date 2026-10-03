@@ -1,12 +1,14 @@
-// Bridge to the Rust backend (crates/runic-codegen). The JS adapters still
-// emit schema 3 IR; `runic-codegen` migrates it to schema 4, validates it and
-// generates the application crate.
+// Bridge to the Rust backend (crates/runic-codegen): it validates schema 4 IR
+// (migrating older schemas), runs the reference interpreter and generates the
+// application crate.
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Diagnostic } from './collect.mjs';
-import { repository } from './mappings.mjs';
+import { fileURLToPath } from 'node:url';
+
+export const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The shared cargo target directory (worktrees may point several trees at one). */
 export const targetDir = path.resolve(
@@ -63,6 +65,11 @@ function withIR(ir, f) {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Validate `ir` in the Rust backend (the authoritative schema); throws its diagnostic. */
+export function check(ir) {
+  return withIR(ir, file => JSON.parse(run(['check', file])));
 }
 
 /** Write the generated application crate for `ir` into `out`. */

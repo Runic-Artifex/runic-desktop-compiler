@@ -1,0 +1,380 @@
+// Framework adapters on the shared language layer: observable semantics
+// (through the reference interpreter) and diagnostics for uncovered input.
+// Behaviour against the real frameworks is checked by conformance/run.mjs;
+// these tests pin adapter decisions and rejection locations.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { collect, hash, Diagnostic } from '../compiler/collect.mjs';
+import { lower } from '../compiler/frontend.mjs';
+import { interpret, generate } from '../compiler/codegen.mjs';
+
+const graphs = new Map();
+const graph = name => {
+  if (!graphs.has(name)) graphs.set(name, collect('fixtures/' + name));
+  return graphs.get(name);
+};
+
+/** The collected fixture with `from` replaced by `to` in `file` (default: the component). */
+async function edit(name, file, from, to) {
+  const g = await graph(name);
+  const id = file
+    ? path.join(g.root, file)
+    : [...g.modules.keys()].find(f => /\.(svelte|vue)$/.test(f));
+  const m = g.modules.get(id);
+  assert.ok(m.code.includes(from), `Replacement must match in ${name}: ${from}`);
+  const code = m.code.replace(from, to);
+  const modules = new Map(g.modules);
+  modules.set(id, { ...m, code });
+  return { ...g, modules, hash: hash(code) };
+}
+
+/** A React app whose entry is `source` followed by the bootstrap. */
+async function react(source, run, files = {}) {
+  await mkdir('.cache/tests', { recursive: true });
+  const root = await mkdtemp(path.resolve('.cache/tests/react-'));
+  try {
+    await writeFile(
+      path.join(root, 'runic.json'),
+      JSON.stringify({ entry: 'main.jsx', title: 'T' }),
+    );
+    await writeFile(
+      path.join(root, 'index.html'),
+      '<!doctype html><html><head></head><body><div id="root"></div><script type="module" src="/main.jsx"></script></body></html>',
+    );
+    await writeFile(
+      path.join(root, 'main.jsx'),
+      `import React,{useState} from 'react';import {createRoot} from 'react-dom/client';${source}\ncreateRoot(document.getElementById('root')).render(<App/>);`,
+    );
+    for (const [file, text] of Object.entries(files)) await writeFile(path.join(root, file), text);
+    return await run(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+const failWith = (code, file) => e =>
+  (e instanceof Diagnostic &&
+    e.code === code &&
+    e.source?.file === file &&
+    e.source.line > 0 &&
+    e.source.column > 0) ||
+  assert.fail(
+    `expected ${code} in ${file}, got ${e.code} ${JSON.stringify(e.source)}: ${e.message}`,
+  );
+
+const flat = nodes => nodes.flatMap(n => (typeof n === 'string' ? [] : [n, ...flat(n.children)]));
+const textOf = n => (typeof n === 'string' ? n : n.children.map(textOf).join(''));
+/** Text of each element id in the DOM after the last action. */
+function texts(steps, ids) {
+  const dom = flat(steps.at(-1).state.dom);
+  return Object.fromEntries(
+    ids.map(id => [
+      id,
+      dom
+        .find(n => n.attrs.id === id)
+        ?.children.map(textOf)
+        .join(''),
+    ]),
+  );
+}
+const run = (ir, actions) => interpret(ir, actions);
+
+test('React reads the render snapshot; Vue and Svelte read the current value', async () => {
+  const actions = [{ kind: 'click', id: 'sequence' }];
+  const r = run((await lower(await graph('counter-react'))).ir, actions);
+  const v = run((await lower(await graph('counter-vue'))).ir, actions);
+  const s = run((await lower(await graph('counter-svelte'))).ir, actions);
+  assert.deepEqual(r.at(-1).state.cells, [3, 1, 1, true]);
+  assert.deepEqual(v.at(-1).state.cells, [3, 1, 3, true]);
+  assert.deepEqual(texts(s, ['value', 'seen', 'observed', 'during', 'initial']), {
+    value: '3',
+    seen: '1',
+    observed: '6',
+    during: '4',
+    initial: '1',
+  });
+  // The backend never sees framework names or reactivity APIs.
+  const rust = generate((await lower(await graph('counter-vue'))).ir).replace(
+    /^(const|static) (TITLE|CSS|IR_HASH)\b.*$/gm,
+    '',
+  );
+  assert.doesNotMatch(rust, /react|vue|svelte|\.value\b|computed\(|\$state/i);
+});
+
+test('editors keep arbitrary UTF-16 content and honour locks in all frameworks', async () => {
+  for (const name of ['editor-react', 'editor-vue', 'editor-svelte']) {
+    const { ir } = await lower(await graph(name));
+    for (const value of ['é', '😀', 'e\u0301', '日本語', '<&"', '😀'.repeat(128)]) {
+      const steps = run(ir, [{ kind: 'input', id: 'editor', value }]);
+      assert.deepEqual(
+        texts(steps, ['preview', 'count']),
+        { preview: value, count: String(value.length) },
+        name,
+      );
+      const cleared = run(ir, [
+        { kind: 'input', id: 'editor', value },
+        { kind: 'click', id: 'clear' },
+      ]);
+      assert.deepEqual(texts(cleared, ['preview', 'count']), { preview: '', count: '0' }, name);
+    }
+    for (const lock of ['lock', 'readonly']) {
+      const steps = run(ir, [
+        { kind: 'input', id: 'editor', value: 'before' },
+        { kind: 'click', id: lock },
+        { kind: 'input', id: 'editor', value: 'after' },
+      ]);
+      assert.equal(texts(steps, ['preview']).preview, 'before', `${name} ${lock}`);
+    }
+  }
+});
+
+test('Svelte inline handlers, getter blocks, else branches and whitespace lower explicitly', async () => {
+  const inline = await lower(
+    await edit(
+      'counter-svelte',
+      null,
+      'onclick={increment}',
+      'onclick={() => { n += 1; n = Math.min(n, 3); }}',
+    ),
+  );
+  assert.deepEqual(texts(run(inline.ir, [{ kind: 'click', id: 'increment' }]), ['value']), {
+    value: '2',
+  });
+  const getter = await lower(
+    await edit('counter-svelte', null, '()=>n*2', '() => { return n*2; }'),
+  );
+  assert.equal(
+    texts(run(getter.ir, [{ kind: 'click', id: 'sequence' }]), ['observed']).observed,
+    '6',
+  );
+  const branches = await lower(
+    await edit(
+      'counter-svelte',
+      null,
+      'Visible</p>{/if}',
+      'Visible</p>{:else}<p id="hidden">Hidden</p>{/if}',
+    ),
+  );
+  assert.equal(
+    texts(run(branches.ir, [{ kind: 'click', id: 'toggle' }]), ['hidden']).hidden,
+    'Hidden',
+  );
+  const spaced = await lower(
+    await edit(
+      'counter-svelte',
+      null,
+      '<p id="value">{label}</p>',
+      '<p id="value">  Count {label} units  </p>',
+    ),
+  );
+  assert.equal(texts(run(spaced.ir, []), ['value']).value, 'Count 1 units');
+  const explicit = await lower(
+    await edit(
+      'editor-svelte',
+      null,
+      'bind:value={text}',
+      'value={text} oninput={(event) => text = event.currentTarget.value}',
+    ),
+  );
+  assert.equal(
+    texts(run(explicit.ir, [{ kind: 'input', id: 'editor', value: 'é😀' }]), ['count']).count,
+    '3',
+  );
+});
+
+test('shared local modules give identical behaviour in all three frameworks', async () => {
+  const actions = [
+    { kind: 'click', id: 'increment' },
+    { kind: 'click', id: 'sequence' },
+    { kind: 'click', id: 'increment' },
+    { kind: 'click', id: 'increment' },
+    { kind: 'click', id: 'toggle' },
+    { kind: 'click', id: 'reset' },
+  ];
+  const ids = ['heading', 'value', 'seen', 'initial', 'flag', 'details'];
+  const traces = [];
+  for (const f of ['react', 'vue', 'svelte']) {
+    const { ir } = await lower(await graph('modules-' + f));
+    traces.push(run(ir, actions).map(s => texts([s], ids)));
+  }
+  assert.deepEqual(traces[0], traces[1]);
+  assert.deepEqual(traces[1], traces[2]);
+  assert.equal(traces[0][0].heading, 'Shared modules');
+  for (const f of ['react', 'vue', 'svelte']) {
+    const { ir } = await lower(await edit('modules-' + f, 'logic.ts', 'starting=0', 'starting=1'));
+    assert.deepEqual(texts(run(ir, []), ['value', 'initial']), { value: '1', initial: '1' }, f);
+  }
+});
+
+test('modules reject mutable state, effects and unsupported import/export forms', async () => {
+  const cases = [
+    ['export const starting=0;', 'export let starting=0;', 'E_MODULE'],
+    ['export const starting=0;', 'console.log(1);export const starting=0;', 'E_MODULE'],
+    ['export const starting=0;', 'export default 0;', 'E_IMPORT'],
+    ['export const starting=0;', 'class A {}\nexport const starting=0;', 'E_TYPE_UNSUPPORTED'],
+    ["export {advance} from './advance.js';", "export * from './advance.js';", 'E_IMPORT'],
+    ['import {LIMIT as maximum}', 'import * as maximum', 'E_IMPORT'],
+    ['export const starting=0;', 'export const starting=Date.now();', 'E_UNRESOLVED'],
+  ];
+  for (const f of ['react', 'vue', 'svelte'])
+    for (const [from, to, code] of cases)
+      await assert.rejects(
+        lower(await edit('modules-' + f, 'logic.ts', from, to)),
+        failWith(code, 'logic.ts'),
+      );
+});
+
+test('every file has ES module scope: a local Math shadows the global', async () => {
+  for (const f of ['vue', 'svelte']) {
+    // A component-local Math is a number; Math.min on it is not a builtin.
+    const component = f === 'vue' ? 'App.vue' : 'App.svelte';
+    const capture = f === 'vue' ? 'const n=ref(starting);' : 'let n=$state(starting);';
+    const shadowed = await edit('modules-' + f, null, capture, 'const Math=0;\n' + capture);
+    await lower(shadowed); // modules-* components do not call Math themselves
+    const g = await edit(
+      'modules-' + f,
+      'base.ts',
+      'export const STEP=1;',
+      'const Math=0;\nexport const STEP=1;',
+    );
+    // base.ts's private Math must not change advance.js's global Math.min.
+    const { ir } = await lower(g);
+    assert.equal(
+      texts(run(ir, [{ kind: 'click', id: 'increment' }]), ['value']).value,
+      '1',
+      component,
+    );
+  }
+  await assert.rejects(
+    lower(await edit('counter-svelte', null, 'const initial=n;', 'const Math=0;const initial=n;')),
+    failWith('E_BUILTIN', 'App.svelte'),
+  );
+  await assert.rejects(
+    lower(await edit('counter-vue', null, 'const n=ref(1);', 'const Math=0;const n=ref(1);')),
+    failWith('E_BUILTIN', 'App.vue'),
+  );
+});
+
+test('Svelte rejects uncovered reactive, component and template behaviour with locations', async () => {
+  const cases = [
+    [
+      'counter-svelte',
+      'const initial=n;',
+      '$effect(() => console.log(n)); const initial=n;',
+      'E_STATEMENT',
+    ],
+    ['counter-svelte', 'n=2;', 'doubled=2;', 'E_ASSIGN'],
+    ['counter-svelte', '()=>n*2', '() => { console.log(n); return n*2; }', 'E_UNRESOLVED'],
+    ['counter-svelte', '<script>', '<script context="module">', 'E_TEMPLATE'],
+    ['counter-svelte', '</script>', '</script><style>p { color:red; }</style>', 'E_TEMPLATE'],
+    ['counter-svelte', 'onclick={toggle}', 'on:click={toggle}', 'E_TEMPLATE'],
+    ['counter-svelte', '<main>', '<main use:action>', 'E_TEMPLATE'],
+    ['counter-svelte', '<main>', '<main class:active={show}>', 'E_TEMPLATE'],
+    [
+      'counter-svelte',
+      '{#if show}<p id="details">Visible</p>{/if}',
+      '{#each [1] as x}<p>{x}</p>{/each}',
+      'E_TEMPLATE',
+    ],
+    [
+      'editor-svelte',
+      'bind:value={text}',
+      'bind:value={() => text, value => text = value}',
+      'E_TEMPLATE',
+    ],
+    [
+      'editor-svelte',
+      'bind:value={text}',
+      'oninput={(e) => text = e.target.value} bind:value={text}',
+      'E_EVENT',
+    ],
+    ['editor-svelte', 'bind:value={text}', 'bind:value={length}', 'E_TEMPLATE'],
+  ];
+  for (const [name, from, to, code] of cases)
+    await assert.rejects(lower(await edit(name, null, from, to)), failWith(code, 'App.svelte'));
+  for (const to of ['mount(Other,', 'new App('])
+    await assert.rejects(
+      lower(await edit('counter-svelte', 'main.js', 'mount(App,', to)),
+      e => failWith('E_BOOTSTRAP', 'main.js')(e) && e.source.line === 4,
+    );
+});
+
+test('Vue rejects setup effects, lifecycle hooks, modifiers and lists with locations', async () => {
+  const cases = [
+    ['const n=ref(1);', "const n=ref(1);console.log('effect');", 'E_STATEMENT'],
+    ['{ref,computed}', '{ref,computed,onMounted}', 'E_CAPABILITY'],
+    ['@click="toggle"', '@click.prevent="toggle"', 'E_TEMPLATE'],
+    ['<p id="details" v-if="show">Visible</p>', '<p v-for="x in [1]">{{x}}</p>', 'E_TEMPLATE'],
+  ];
+  for (const [from, to, code] of cases)
+    await assert.rejects(
+      lower(await edit('counter-vue', null, from, to)),
+      failWith(code, 'App.vue'),
+    );
+  // Booleans interpolate as text in Vue.
+  const { ir } = await lower(await edit('counter-vue', null, '{{label}}', '{{show}}'));
+  assert.equal(texts(run(ir, []), ['value']).value, 'true');
+});
+
+test('React rejects uncovered behaviour with locations', async () => {
+  const cases = [
+    ['function App(){console.log("render");return <p>Hi</p>;}', 'E_COMPONENT'],
+    ['const discarded=Date.now();function App(){return <p>Hi</p>;}', 'E_UNRESOLVED'],
+    ['import {useEffect} from "react";function App(){return <p>Hi</p>;}', 'E_CAPABILITY'],
+    [
+      'function Child(){const[n,set]=useState(1);return <p>{n}</p>;}function App(){const[show,set]=useState(true);return <div>{show&&<Child/>}</div>;}',
+      'E_COMPONENT',
+    ],
+    ['const App=()=> <select><option>one</option></select>;', 'E_JSX'],
+    ['function App(){return <p>{[1,2].map(x=><b>{x}</b>)}</p>;}', 'E_JSX'],
+    ['function App(){return <p style={{color:"red"}}>a</p>;}', 'E_JSX'],
+    ['function App(){return <p onMouseOver={()=>1}>a</p>;}', 'E_EVENT'],
+    [
+      'const helper=x=>{console.log(x);return x;};const App=()=> <p>{helper(1)}</p>;',
+      'E_UNRESOLVED',
+    ],
+    // Found by the Rust validator during analysis.
+    [
+      'const App=()=>{const[x,set]=useState("a");return <button onClick={()=>set(2)}>{x}</button>;}',
+      'E_IR',
+    ],
+    ['function App(){return <p>{Math.random()}</p>;}', 'E_BUILTIN'],
+  ];
+  for (const [source, code] of cases)
+    await react(source, async root =>
+      assert.rejects(collect(root).then(lower), failWith(code, 'main.jsx')),
+    );
+});
+
+test('React untyped props and helpers take the IR types of their values', async () => {
+  await react(
+    `const Price=({total, plan})=><p id="out" title={total}>{plan}: {total}{total>2&&<b id="big">!</b>}</p>;
+     const twice=x=>x*2;
+     function App(){const[n,set]=useState(1);const label='EUR';
+       return <main><Price total={twice(n)} plan={label}/><button id="go" onClick={()=>set(v=>v+1)}>+</button></main>;}`,
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const steps = run(ir, [{ kind: 'click', id: 'go' }]);
+      assert.deepEqual(texts(steps.slice(0, 1), ['out']), { out: 'EUR: 2' });
+      assert.deepEqual(texts(steps, ['out']), { out: 'EUR: 4!' });
+      assert.equal(flat(steps.at(-1).state.dom).find(n => n.attrs.id === 'out').attrs.title, '4');
+    },
+  );
+});
+
+test('JSX entities decode; strings count UTF-16 units; lone surrogate literals are rejected', async () => {
+  await react(
+    'function App(){return <p id="out" title="A &amp; B">Fish &amp; chips &#169; {"😀".length}</p>;}',
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const out = flat(run(ir, [])[0].state.dom).find(n => n.attrs.id === 'out');
+      assert.equal(out.attrs.title, 'A & B');
+      assert.equal(textOf(out), 'Fish & chips © 2');
+    },
+  );
+  await react('function App(){return <p>{"\\ud800"}</p>;}', async root =>
+    assert.rejects(collect(root).then(lower), failWith('E_STRING', 'main.jsx')),
+  );
+});

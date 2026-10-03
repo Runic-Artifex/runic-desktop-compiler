@@ -16,7 +16,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 |---|---|---|---|---|
 | M0 | Repository restructure and plan | — | Standalone | Done 2026-10-03 |
 | M1 | Rust IR, codegen and runtime library; renderer toggle; automated conformance; startup/size measurement | all 15 existing fixtures | Standalone, 2 spikes | Done 2026-10-03 ([results](../conformance/results/m1.md)) |
-| M2 | JS values, statements and functions | 7GUIs Counter, Temperature Converter, ledger example | Standalone design ([M2-VALUES](design/M2-VALUES.md)), then subagents for built-ins | In progress |
+| M2 | JS values, statements and functions | 7GUIs Counter, Temperature Converter, ledger example | Standalone design ([M2-VALUES](design/M2-VALUES.md)), then subagents for built-ins | Done 2026-10-03 ([results](../conformance/results/m2.md)) |
 | M3 | Components, slots and snippets, keyed lists, instance lifetimes | 7GUIs CRUD, TodoMVC (in memory) | Standalone core, then subagents per adapter | Planned |
 | M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone, then a workflow to mine ordering cases | Planned |
 | M5 | Full event model, forms, layout/measurement APIs, host services | 7GUIs Circle Drawer, Cells; a virtualized list | Subagents per service; desktop track standalone | Planned |
@@ -94,6 +94,13 @@ Replace the parts that cannot scale before adding any capability.
 - **Standalone:** the value-model ADR and the language-layer lowering.
 - **Workflow (with user opt-in):** implement built-in families in parallel against Node and test262 excerpts, with independent verifier agents.
 
+**Outcome (done):**
+- The value model (D16) is implemented in `runic-js`, the IR, the interpreter and codegen; the four built-in families were written by parallel subagents against Node-generated vectors.
+- React, Vue and Svelte run on the TypeScript frontend (`frontend/`), which emits schema 4 directly. The old JS adapters, the schema 3 IR and the schema 3 mapping registry with its discovery tooling were deleted (see the decisions log).
+- The three examples run in all three frameworks; with the 14 M1 fixtures that is 55 conformance runs, all passing semantics, geometry and pixels, and no interpreter/codegen mismatch in the differential test.
+- The island and bridge boundary is defined in [M2-VALUES](design/M2-VALUES.md#island-and-bridge-boundary).
+- Moved out: integer range analysis to M10 (integer narrowing); `RegExp`, `Date` and `Math.random` to M5; Svelte proxy identity to M3. Known deviations are listed in the [results](../conformance/results/m2.md).
+
 ## M3: Components and lists
 
 **Scope:**
@@ -101,6 +108,7 @@ Replace the parts that cannot scale before adding any capability.
 - **Lists:** keyed lists (`{#each}`, `map`, `v-for`) with stable identity and moves.
 - **React regions:** spike React Compiler's reactive-scope analysis vs our own.
 - **Refs:** DOM refs (`bind:this`) for focus and measurement.
+- **Svelte deep state ownership:** values stored into `$state` behave like Svelte's proxies (identity and raw-write visibility), replacing the M2 deviation.
 
 **Examples:** 7GUIs CRUD and TodoMVC (in memory).
 
@@ -207,3 +215,5 @@ Solid and further frontends; porting the language layer or adapters to Rust (oxc
 - 2026-10-03: platform order is Linux, then Windows, then macOS, and only after Linux works.
 - 2026-10-03: the renderer is selectable per project (D12).
 - 2026-10-03: Svelte leads (D14), derived from the SDK's web packages and the editor's stack.
+- 2026-10-03 (M2): the schema 3 mapping registry and its model-assisted discovery were retired with the schema 3 IR. Its rules mapped `Math.min`/`Math.max` helper shapes, which the language layer now compiles exactly, and its validator was built on the deleted `ir.mjs`. Mapping packs return in M6 for library APIs (D9), validated against the reference interpreter; the old implementation is at tag `m1`.
+- 2026-10-03 (M2): an uncaught exception in a handler keeps the writes made before it, as the frameworks do; the earlier draft's rollback rule was wrong.
