@@ -67,6 +67,17 @@ declare module 'react' {
   export type PointerEventHandler<T = Element> = EventHandler<PointerEvent<T>>;
   export type KeyboardEventHandler<T = Element> = EventHandler<KeyboardEvent<T>>;
   export type ChangeEventHandler<T = Element> = EventHandler<ChangeEvent<T>>;
+  /**
+   * The props of DOM elements, for components forwarding rest props to one
+   * (`{ variant?: string } & ButtonHTMLAttributes<HTMLButtonElement>`).
+   */
+  export interface HTMLAttributes<T = Element> extends JSX.Attributes {}
+  export interface ButtonHTMLAttributes<T = Element> extends HTMLAttributes<T> {
+    disabled?: boolean;
+  }
+  export interface InputHTMLAttributes<T = Element> extends HTMLAttributes<T> {
+    disabled?: boolean;
+  }
   /** What a component can render: children and render-prop results. */
   export type ReactNode =
     JSX.Element | string | number | boolean | null | undefined | Iterable<ReactNode>;

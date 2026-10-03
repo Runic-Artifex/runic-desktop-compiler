@@ -1,0 +1,10 @@
+{
+  "description": "React DOM's attribute rules for rest props spread onto an element: className to class (undefined removes it, overriding the element's own), aria-* and data-* booleans stringified, booleans on other attributes not set, known boolean attributes present when truthy, numbers stringified, null removing, an own attribute after the spread winning",
+  "fixtures": ["restattrs-react"],
+  "actions": [
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "inc" }
+  ]
+}

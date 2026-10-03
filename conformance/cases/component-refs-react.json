@@ -1,0 +1,11 @@
+{
+  "description": "React 19 ref props passed on through two components to an input: the parent's ref object holds the input while it is mounted (focus through it) and null after it unmounts, as an effect reports",
+  "fixtures": ["refchain-react"],
+  "actions": [
+    { "kind": "click", "id": "focus" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "focus" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "focus" }
+  ]
+}
