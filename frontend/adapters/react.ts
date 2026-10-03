@@ -17,7 +17,10 @@
 // - `useEffect`/`useLayoutEffect` → post/layout effects whose functions read
 //   their render's snapshot, with React's commit schedule (batched cleanups,
 //   passive writes in a later task, the first commit in a task);
-// - controlled checkboxes (`checked` + `onChange` → `change`) and `onKeyDown`;
+// - controlled checkboxes (`checked` + `onChange` → `change`);
+// - event props taking the synthetic event (EVENT_PROPS), checked against
+//   React DOM's root-listener dispatch (checkEvents); component functions
+//   used as listener values are one object per render (checkListenerIdentity);
 // - JSX → IR nodes with React's whitespace and child rendering rules.
 import ts from 'typescript';
 import path from 'node:path';
@@ -30,6 +33,7 @@ import type {
   Expr,
   Handler,
   Listener,
+  Local,
   Node,
   Program,
   Stmt,
@@ -80,6 +84,46 @@ const ATTRS: Record<string, string> = {
   readOnly: 'readonly',
   tabIndex: 'tabindex',
 };
+/**
+ * React event props → IR event kinds (onChange: see `jsx`). React DOM runs
+ * them from one root listener per native event; enter and leave props come
+ * from the out/over events (see checkEvents).
+ */
+const EVENT_PROPS: Record<string, HandlerEvent> = {
+  onClick: 'click',
+  onDoubleClick: 'dblclick',
+  onContextMenu: 'contextmenu',
+  onMouseDown: 'mousedown',
+  onMouseUp: 'mouseup',
+  onMouseMove: 'mousemove',
+  onMouseEnter: 'mouseenter',
+  onMouseLeave: 'mouseleave',
+  onPointerDown: 'pointerdown',
+  onPointerUp: 'pointerup',
+  onPointerMove: 'pointermove',
+  onPointerEnter: 'pointerenter',
+  onPointerLeave: 'pointerleave',
+  onKeyDown: 'keydown',
+  onKeyUp: 'keyup',
+};
+/**
+ * Continuous events: React gives their updates a lower priority and renders
+ * them in a scheduler task after the input (with a later discrete update).
+ */
+const CONTINUOUS = new Set<HandlerEvent>([
+  'mousemove',
+  'mouseenter',
+  'mouseleave',
+  'pointermove',
+  'pointerenter',
+  'pointerleave',
+]);
+const ENTER_LEAVE = new Set<HandlerEvent>([
+  'mouseenter',
+  'mouseleave',
+  'pointerenter',
+  'pointerleave',
+]);
 const BOOLEAN_ATTRS = new Set([
   'disabled',
   'readonly',
@@ -282,6 +326,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     },
   };
   const lower = new Lowerer(program, checker, types, hooks, fail, sourceOf);
+  // Component functions are created on every render: one object per render.
+  lower.hoistFunctionValues = true;
 
   // --- Modules: functions and constants (shared by every component) ---
   const componentDecls = new Map<ts.Symbol, { decl: ts.FunctionLikeDeclaration; name: string }>();
@@ -1167,19 +1213,47 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     else {
       if (readsTemplateLocals(e))
         fail(where, 'E_EVENT', 'Handlers that depend on list items must be inline arrow functions');
-      const callee = lower.value(e, cur.index, 'handler');
-      const t = types.typeOrUndefined(e) ?? lower.valueType(callee);
-      if (typeof t === 'object' && 'fn' in t && t.fn.params.length)
-        fail(where, 'E_EVENT', 'Handlers taking the event object must be inline arrow functions');
+      // A named function, a callback prop or another function value, called
+      // with the event object if it takes one.
       const b = ts.isIdentifier(e) ? lower.binding(e) : undefined;
+      if (b?.kind === 'generic')
+        fail(
+          where,
+          'E_EVENT',
+          `${e.getText()} has an untyped parameter: type the event (JSDoc in JavaScript) or use an inline arrow function`,
+        );
+      const callee = b?.kind === 'function' ? undefined : lower.value(e, cur.index, 'handler');
+      const t =
+        types.typeOrUndefined(e) ??
+        (callee
+          ? lower.valueType(callee)
+          : b?.kind === 'function' && lower.functions[b.fn]
+            ? {
+                fn: {
+                  params: lower.functions[b.fn].params.map(p => p.type),
+                  result: lower.functions[b.fn].result,
+                },
+              }
+            : undefined);
+      if (typeof t !== 'object' || !('fn' in t))
+        return fail(where, 'E_EVENT', 'Event handlers must be functions');
+      const params = t.fn.params;
+      const args: Expr[] | undefined =
+        params.length === 0
+          ? []
+          : params.length === 1 && params[0] === 'event'
+            ? [{ op: 'event' }]
+            : undefined;
+      if (!args)
+        return fail(where, 'E_EVENT', 'Event handlers take no parameter or the event object');
       h = {
         body: [
           {
             op: 'expr',
             value:
               b?.kind === 'function'
-                ? { op: 'call', function: b.fn, args: [] }
-                : { op: 'call-value', callee, args: [] },
+                ? { op: 'call', function: b.fn, args }
+                : { op: 'call-value', callee: callee!, args },
           },
         ],
       };
@@ -1562,23 +1636,42 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       const raw = attr.name.getText();
       const init = attr.initializer;
       if (raw === 'key') continue;
-      if (raw === 'onClick' || raw === 'onKeyDown' || (raw === 'onChange' && name === 'input')) {
+      if (raw in EVENT_PROPS || (raw === 'onChange' && name === 'input')) {
         if (!init || !ts.isJsxExpression(init) || !init.expression)
           fail(attr, 'E_EVENT', 'Event props need a handler expression');
         // React's onChange is the input event on text inputs and the change
         // (dispatched on click) on checkboxes.
         const event: HandlerEvent =
-          raw === 'onClick'
-            ? 'click'
-            : raw === 'onKeyDown'
-              ? 'keydown'
-              : checkbox
-                ? 'change'
-                : 'input';
+          raw === 'onChange' ? (checkbox ? 'change' : 'input') : EVENT_PROPS[raw];
+        // React DOM drops these listeners of disabled controls (getListener),
+        // while Chromium delivers mousemove and mouseenter to them.
+        if (
+          (raw === 'onMouseMove' || raw === 'onMouseEnter') &&
+          (name === 'button' || name === 'input') &&
+          opening.attributes.properties.some(
+            p => ts.isJsxAttribute(p) && p.name.getText() === 'disabled',
+          )
+        )
+          fail(
+            attr,
+            'E_EVENT',
+            `React ignores ${raw} on disabled controls, which still receive the browser event; ${raw} on a control with a disabled prop is unsupported`,
+          );
         listeners.push(handlerFor((init as ts.JsxExpression).expression!, event, attr));
         continue;
       }
-      if (/^on[A-Z]/.test(raw)) fail(attr, 'E_EVENT', `${raw} is planned for M5`);
+      if (raw === 'onWheel')
+        fail(
+          attr,
+          'E_EVENT',
+          "onWheel is unsupported: React's root wheel listener is passive, so preventDefault() has no effect and Chromium scrolls before it dispatches the event, to the element under the pointer after scrolling",
+        );
+      if (/^on[A-Z]/.test(raw))
+        fail(
+          attr,
+          'E_EVENT',
+          `${raw} is unsupported (supported: ${Object.keys(EVENT_PROPS).join(', ')} and onChange on inputs)`,
+        );
       if (checkbox && raw === 'checked') {
         // A controlled checkbox: the live checked property.
         let value: Expr = { op: 'lit', value: true };
@@ -2135,6 +2228,426 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           );
   };
 
+  // --- Events: React DOM semantics the IR models only in part ---
+  type Obj = Record<string, unknown>;
+  /** The types and names of a function's (or handler's) locals, by IR index. */
+  const localsOf = (f: { captures?: Local[]; params?: Local[]; locals?: Local[] }): Local[] => [
+    ...(f.captures ?? []),
+    ...(f.params ?? []),
+    ...(f.locals ?? []),
+  ];
+  /**
+   * Visit the code `roots` may run: the functions they call and the closures
+   * they create (which may run now or later), each node with the component
+   * whose cells it reads and the locals in scope. A function value called
+   * with the event object (`event`: the dispatch's event may reach it) makes
+   * every closure of the program reachable.
+   */
+  const runs = (
+    roots: { body: unknown; component: number | undefined; locals: Local[] }[],
+    visit: (o: Obj, component: number | undefined, locals: Local[]) => void,
+    event = false,
+  ) => {
+    const seen = new Set<number>();
+    let all = false;
+    const enter = (fn: number) => {
+      if (seen.has(fn)) return;
+      seen.add(fn);
+      const f = lower.functions[fn];
+      walk(f.body, f.component, localsOf(f));
+    };
+    const walk = (n: unknown, component: number | undefined, locals: Local[]) => {
+      if (Array.isArray(n)) return n.forEach(x => walk(x, component, locals));
+      if (!n || typeof n !== 'object') return;
+      const o = n as Obj;
+      visit(o, component, locals);
+      if (o.op === 'call' || o.op === 'closure') enter(o.function as number);
+      if (
+        event &&
+        !all &&
+        o.op === 'call-value' &&
+        (o.args as Expr[]).some(
+          a => a.op === 'event' || (a.op === 'local' && locals[a.local]?.type === 'event'),
+        )
+      ) {
+        all = true;
+        const every = new Set<number>();
+        closures([lower.functions, components], every);
+        for (const f of every) enter(f);
+      }
+      for (const [k, v] of Object.entries(o)) if (k !== 'listeners') walk(v, component, locals);
+    };
+    for (const r of roots) walk(r.body, r.component, r.locals);
+  };
+  const handlerRoot = (k: number, h: Handler) => ({
+    body: h.body,
+    component: k,
+    locals: localsOf(h),
+  });
+  const rejectEvent = (source: Handler['source'], message: string): never => {
+    throw new Diagnostic('E_EVENT', message, source);
+  };
+  const eventMember = (o: Obj) =>
+    o.op === 'builtin' && typeof o.name === 'string' && o.name.startsWith('event.')
+      ? o.name.slice(6)
+      : undefined;
+  /** Props of the IR event kinds, for messages. */
+  const propOf = (event: HandlerEvent) =>
+    Object.entries(EVENT_PROPS).find(([, e]) => e === event)?.[0] ?? 'onChange';
+  /**
+   * Template expressions of `nodes`, split into text parts and the rest
+   * (attributes, properties, listener arguments, conditions, lists, props).
+   */
+  const templateExprs = (nodes: Node[], text: Expr[], rest: unknown[]) => {
+    for (const n of nodes)
+      switch (n.kind) {
+        case 'text':
+          text.push(...n.parts);
+          break;
+        case 'element':
+          rest.push(
+            n.attrs ?? [],
+            n.props ?? [],
+            (n.listeners ?? []).map(l => l.args ?? []),
+          );
+          templateExprs(n.children ?? [], text, rest);
+          break;
+        case 'if':
+          rest.push(n.test);
+          templateExprs([...n.then, ...(n.else ?? [])], text, rest);
+          break;
+        case 'each':
+          rest.push(n.items, n.key ?? []);
+          templateExprs([...n.body, ...(n.else ?? [])], text, rest);
+          break;
+        case 'component':
+          rest.push(n.props ?? []);
+          for (const s of n.slots ?? []) templateExprs(s.body, text, rest);
+          break;
+        case 'slot':
+          rest.push(n.args ?? []);
+          templateExprs(n.fallback ?? [], text, rest);
+          break;
+      }
+  };
+  /** Components rendered (at any depth) by the templates `nodes`. */
+  const renderedBy = (nodes: Node[], out: Set<number>) => {
+    for (const n of nodes) {
+      if (n.kind === 'component') {
+        if (!out.has(n.component)) {
+          out.add(n.component);
+          renderedBy(components[n.component].template, out);
+        }
+        for (const s of n.slots ?? []) renderedBy(s.body, out);
+      }
+      if (n.kind === 'element') renderedBy(n.children ?? [], out);
+      if (n.kind === 'if') renderedBy([...n.then, ...(n.else ?? [])], out);
+      if (n.kind === 'each') renderedBy([...n.body, ...(n.else ?? [])], out);
+      if (n.kind === 'slot') renderedBy(n.fallback ?? [], out);
+    }
+  };
+  /** Whether running `roots` may write component state (or call unknown functions). */
+  const writesState = (roots: Parameters<typeof runs>[0]) => {
+    let found = false;
+    runs(roots, (o, component) => {
+      if (o.op === 'call-value') found = true;
+      if (
+        o.op === 'set' &&
+        component !== undefined &&
+        components[component].cells[o.cell as number].tracking !== 'none'
+      )
+        found = true;
+    });
+    return found;
+  };
+
+  const checkEvents = () => {
+    const written = new Map<string, { k: number; cell: number; handler: Handler }>();
+    components.forEach((c, k) =>
+      c.handlers.forEach(h => {
+        const prop = propOf(h.event);
+        const root = handlerRoot(k, h);
+        let micro = false;
+        let current = false;
+        runs(
+          [root],
+          o => {
+            const member = eventMember(o);
+            if (member === 'stopImmediatePropagation')
+              rejectEvent(
+                h.source,
+                "React's synthetic events have no stopImmediatePropagation(); use stopPropagation()",
+              );
+            if (
+              ENTER_LEAVE.has(h.event) &&
+              ['preventDefault', 'stopPropagation', 'target', 'value', 'checked'].includes(
+                member ?? '',
+              )
+            )
+              rejectEvent(
+                h.source,
+                `${prop} uses e.${member === 'value' || member === 'checked' ? 'target' : member}: React dispatches one synthetic ${h.event} event to all entered (or left) elements, whose target is the innermost one and whose propagation and cancellation span them, unlike the browser's events per element`,
+              );
+            if (h.event === 'input' && (member === 'type' || member === 'preventDefault'))
+              rejectEvent(
+                h.source,
+                `onChange of a text input reads e.${member}: React's change event comes from the input event (type "change"; preventDefault() marks it prevented though input events cannot be cancelled)`,
+              );
+            if (
+              h.event === 'change' &&
+              (member === 'preventDefault' || member === 'stopPropagation')
+            )
+              rejectEvent(
+                h.source,
+                `onChange of a checkbox calls e.${member}(): React applies it to the click that produced the change`,
+              );
+            if (member === 'currentTarget') current = true;
+            if (o.op === 'builtin' && /^(microtask|promise)\./.test(o.name as string)) micro = true;
+          },
+          true,
+        );
+        if (current && micro)
+          rejectEvent(
+            h.source,
+            'e.currentTarget in a handler that awaits or queues microtasks: React sets currentTarget to null when the listener returns, before microtasks run',
+          );
+        if (!CONTINUOUS.has(h.event)) return;
+        // Continuous events: React renders their updates after the input,
+        // or with the next discrete update (a click's press after its move),
+        // while the IR renders after each dispatch. Supported where the two
+        // agree: updates of state that is only rendered as text.
+        runs([root], (o, component, locals) => {
+          if (o.op === 'builtin' && /^(timer|microtask|promise|flush)\./.test(o.name as string))
+            rejectEvent(
+              h.source,
+              `${prop} schedules a timer, microtask or promise: React renders updates from continuous events after the input (after such callbacks), which is unsupported`,
+            );
+          if (o.op === 'call-value') {
+            const callee = o.callee as Expr;
+            if (
+              callee.op !== 'closure' &&
+              !(callee.op === 'local' && locals[callee.local]?.name.endsWith('$fn'))
+            )
+              rejectEvent(
+                h.source,
+                `${prop} calls a function value (such as a callback prop): updates from continuous events are supported only for this component's state`,
+              );
+          }
+          if (o.op === 'set' && component !== undefined) {
+            const cell = o.cell as number;
+            if (components[component].cells[cell].tracking !== 'none')
+              written.set(`${component}:${cell}`, { k: component, cell, handler: h });
+          }
+        });
+      }),
+    );
+    // State updated by continuous handlers: rendered as text only, so the
+    // render's timing is not observable.
+    for (const { k, cell, handler } of written.values()) {
+      const c = components[k];
+      const name = c.cells[cell].name;
+      const text: Expr[] = [];
+      const rest: unknown[] = [];
+      templateExprs(c.template, text, rest);
+      const fromText = new Set<number>();
+      runs([{ body: text, component: k, locals: c.templateLocals ?? [] }], (o, component) => {
+        if ((o.op === 'call' || o.op === 'closure') && component === k)
+          fromText.add(o.function as number);
+      });
+      const roots = [
+        { body: rest, component: k, locals: [] as Local[] },
+        { body: c.cells.map(x => x.init), component: k, locals: [] as Local[] },
+        ...(c.effects ?? []).map(e => ({ body: e.deps, component: k, locals: [] as Local[] })),
+        ...c.handlers.map(h => handlerRoot(k, h)),
+        // Functions not only used for text (closures may run anywhere).
+        ...lower.functions
+          .map((f, i) => ({ f, i }))
+          .filter(({ f, i }) => f.component === k && !fromText.has(i))
+          .map(({ f }) => ({ body: f.body, component: k, locals: localsOf(f) })),
+      ];
+      runs(roots, (o, component) => {
+        if (o.op === 'cell' && o.cell === cell && o.read === 'snapshot' && component === k)
+          throw new Diagnostic(
+            'E_EVENT',
+            `${name} is updated by ${propOf(handler.event)}, a continuous event whose updates React renders after the input (or with the next click), while the IR renders after each event; such state may only be rendered as text (it is read elsewhere here)`,
+            c.cells[cell].source,
+          );
+      });
+      const subtree = new Set([k]);
+      renderedBy(c.template, subtree);
+      for (const s of subtree)
+        for (const e of components[s].effects ?? [])
+          if (e.deps.kind === 'always')
+            throw new Diagnostic(
+              'E_EVENT',
+              `${components[s].name} has an effect without dependencies and renders with ${c.name}, whose state ${propOf(handler.event)} updates: React renders updates from continuous events after the input (or together with the next click), the IR after each event, so the effect would run a different number of times`,
+              e.source,
+            );
+    }
+    // Every function and handler: updaters, and window/document listeners.
+    const everything = [
+      ...components.flatMap((c, k) => c.handlers.map(h => handlerRoot(k, h))),
+      ...lower.functions.map(f => ({ body: f.body, component: f.component, locals: localsOf(f) })),
+    ];
+    for (const root of everything) {
+      let statement: Handler['source'];
+      const visit = (n: unknown) => {
+        if (Array.isArray(n)) return n.forEach(visit);
+        if (!n || typeof n !== 'object') return;
+        const o = n as Obj;
+        if (o.source && typeof o.op === 'string') statement = o.source as Handler['source'];
+        if (
+          o.op === 'set' &&
+          (o.value as Obj).op === 'call-value' &&
+          ((o.value as Obj).callee as Obj).op === 'closure'
+        ) {
+          const updater = ((o.value as Obj).callee as Obj).function as number;
+          runs([{ body: lower.functions[updater].body, component: undefined, locals: [] }], x => {
+            const member = eventMember(x);
+            if (member === 'currentTarget' || member === 'defaultPrevented')
+              rejectEvent(
+                o.source as Handler['source'],
+                `A state updater reads e.${member}: React may run updaters while rendering, after the event's dispatch`,
+              );
+          });
+        }
+        if (
+          o.op === 'builtin' &&
+          /^(window|document)\.listen$/.test(o.name as string) &&
+          ['mousemove', 'pointermove', 'wheel'].includes(
+            ((o.args as Obj[])[0].value as string) ?? '',
+          )
+        )
+          rejectEvent(
+            statement,
+            `${(o.name as string).split('.')[0]} listeners for ${(o.args as Obj[])[0].value} are unsupported in React apps (React renders updates from continuous events after the input; wheel listeners on the window and document are passive)`,
+          );
+        for (const v of Object.values(o)) visit(v);
+      };
+      visit(root.body);
+    }
+    // A cancelled checkbox click: React still runs onChange and keeps the
+    // state it sets, while the browser reverts the box.
+    const cancels = (k: number, n: Node & { kind: 'element' }) =>
+      (n.listeners ?? []).some(l => {
+        if (l.event !== 'click') return false;
+        let found = false;
+        runs(
+          [handlerRoot(k, components[k].handlers[l.handler])],
+          o => {
+            if (eventMember(o) === 'preventDefault') found = true;
+          },
+          true,
+        );
+        return found;
+      });
+    const checkboxes = (k: number, nodes: Node[], seen = new Set<number>()): boolean =>
+      nodes.some(n => {
+        switch (n.kind) {
+          case 'element':
+            return (
+              (n.tag === 'input' &&
+                (n.props ?? []).some(p => p.name === 'checked') &&
+                (n.listeners ?? []).some(
+                  l =>
+                    l.event === 'change' &&
+                    writesState([handlerRoot(k, components[k].handlers[l.handler])]),
+                )) ||
+              checkboxes(k, n.children ?? [], seen)
+            );
+          case 'if':
+            return checkboxes(k, [...n.then, ...(n.else ?? [])], seen);
+          case 'each':
+            return checkboxes(k, [...n.body, ...(n.else ?? [])], seen);
+          case 'slot':
+            return checkboxes(k, n.fallback ?? [], seen);
+          case 'component': {
+            const inSlots = (n.slots ?? []).some(s => checkboxes(k, s.body, seen));
+            if (inSlots || seen.has(n.component)) return inSlots;
+            seen.add(n.component);
+            return checkboxes(n.component, components[n.component].template, seen);
+          }
+          default:
+            return false;
+        }
+      });
+    const visitElements = (k: number, nodes: Node[]) => {
+      for (const n of nodes) {
+        if (n.kind === 'element') {
+          if (cancels(k, n) && checkboxes(k, [n]))
+            throw new Diagnostic(
+              'E_EVENT',
+              'A click handler here may cancel the click on a checkbox whose onChange updates state: React still runs onChange (and keeps that state) while the browser reverts the box, which is unsupported; ignore the change in onChange instead',
+              n.source,
+            );
+          visitElements(k, n.children ?? []);
+        }
+        if (n.kind === 'if') visitElements(k, [...n.then, ...(n.else ?? [])]);
+        if (n.kind === 'each') visitElements(k, [...n.body, ...(n.else ?? [])]);
+        if (n.kind === 'slot') visitElements(k, n.fallback ?? []);
+        if (n.kind === 'component') for (const s of n.slots ?? []) visitElements(k, s.body);
+      }
+    };
+    components.forEach((c, k) => visitElements(k, c.template));
+  };
+
+  /**
+   * React creates component functions on every render: an `addEventListener`
+   * and the `removeEventListener` meant to undo it agree only within one
+   * render. The IR creates one object per invocation of the function around
+   * the use (`hoistFunctionValues`), so window and document listeners that
+   * are component functions are supported when one effect (with its cleanup)
+   * adds and removes them.
+   */
+  const checkListenerIdentity = () => {
+    for (const { decl } of componentDecls.values()) {
+      const uses = new Map<number, Set<ts.Node>>();
+      const visit = (n: ts.Node) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isPropertyAccessExpression(n.expression) &&
+          ['addEventListener', 'removeEventListener'].includes(n.expression.name.text) &&
+          ts.isIdentifier(n.expression.expression) &&
+          ['window', 'document'].includes(n.expression.expression.text) &&
+          !lower.binding(n.expression.expression)
+        ) {
+          const listener = n.arguments[1] && skipParens(n.arguments[1]);
+          const b = listener && ts.isIdentifier(listener) ? lower.binding(listener) : undefined;
+          if (b?.kind === 'function' && !b.stable) {
+            // The outermost function around the call inside the component.
+            let root: ts.Node | undefined;
+            for (let p: ts.Node = n.parent; p && p !== decl; p = p.parent)
+              if (ts.isFunctionLike(p)) root = p;
+            const effect =
+              root &&
+              root.parent &&
+              ts.isCallExpression(root.parent) &&
+              root.parent.arguments[0] === root &&
+              ['useEffect', 'useLayoutEffect'].includes(
+                reactFunction(root.parent.expression) ?? '',
+              );
+            if (!effect)
+              fail(
+                n,
+                'E_EVENT',
+                `${listener.getText()} is created on every render: add and remove it as a listener in one effect (and its cleanup), or define the listener in the effect`,
+              );
+            if (!uses.has(b.fn)) uses.set(b.fn, new Set());
+            uses.get(b.fn)!.add(root!);
+            if (uses.get(b.fn)!.size > 1)
+              fail(
+                n,
+                'E_EVENT',
+                `${listener.getText()} is created on every render and added or removed by several effects, whose renders may differ; add and remove it in one effect`,
+              );
+          }
+        }
+        ts.forEachChild(n, visit);
+      };
+      if (decl.body) visit(decl.body);
+    }
+  };
+
   const rootIndex = instantiate(app!, new Map(), rendered);
   for (const c of components[rootIndex].cells)
     if (c.prop && isRequired(c.init))
@@ -2142,6 +2655,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   for (const s of slotsOf[rootIndex])
     if (s.required)
       fail(rendered, 'E_BOOTSTRAP', `The root component requires the render prop ${s.name}`);
+  lower.settleFunctionValues();
+  checkListenerIdentity();
+  checkEvents();
   checkDependencies();
   checkUnmountOrder();
   checkChildrenEffects();

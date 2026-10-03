@@ -571,9 +571,9 @@ test('React rejects uncovered behaviour with locations', async () => {
       'function C({children}){return <p>{children}</p>;}function App(){return <C children={<i>a</i>}><b>x</b></C>;}',
       'E_PROPS',
     ],
-    // Checkboxes are controlled; keyboard events other than keydown are M5.
+    // Checkboxes are controlled; focus events are planned.
     ['function App(){return <input type="checkbox"/>;}', 'E_JSX'],
-    ['function App(){return <input onKeyUp={()=>1}/>;}', 'E_EVENT'],
+    ['function App(){return <input onFocus={()=>1}/>;}', 'E_EVENT'],
     [
       'function App(){const[xs,set]=useState([()=>{}]);return <p>{xs.map(f=><b onClick={f}>a</b>)}</p>;}',
       'E_EVENT',
