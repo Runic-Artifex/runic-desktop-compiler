@@ -275,7 +275,7 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
     [
       'counter-svelte',
       '{#if show}<p id="details">Visible</p>{/if}',
-      '{#key show}<p id="details">Visible</p>{/key}',
+      '{@html "<b>x</b>"}',
       'E_TEMPLATE',
     ],
     [

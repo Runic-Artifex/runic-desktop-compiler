@@ -1,0 +1,17 @@
+{
+  "description": "{#key} remounts its content (resetting child state and focus) only when the key value changes",
+  "fixtures": ["key-svelte"],
+  "actions": [
+    { "kind": "click", "id": "count-keyed" },
+    { "kind": "click", "id": "count-keyed" },
+    { "kind": "click", "id": "count-plain" },
+    { "kind": "click", "id": "same" },
+    { "kind": "focus", "id": "count-keyed" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "count-keyed" },
+    { "kind": "click", "id": "rename" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Enter" }
+  ]
+}

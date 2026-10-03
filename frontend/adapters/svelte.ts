@@ -368,7 +368,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             if (a.type === 'Attribute' && Array.isArray(a.value))
               for (const v of a.value) if (v.type === 'ExpressionTag') expr(v.expression);
         } else if (n.type === 'RenderTag') expr(n.expression);
-        else if (n.type === 'SnippetBlock')
+        else if (n.type === 'KeyBlock') {
+          expr(n.expression);
+          fragment(n.fragment);
+        } else if (n.type === 'SnippetBlock')
           fail(
             'E_TEMPLATE',
             'Snippets are supported as children of a component tag',
@@ -778,9 +781,25 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'RenderTag') {
           flush();
           out.push(render(n));
-        } else if (n.type === 'KeyBlock')
-          fail('E_TEMPLATE', '{#key} blocks are planned for a later milestone', loc(n));
-        else if (n.type === 'AwaitBlock')
+        } else if (n.type === 'KeyBlock') {
+          // {#key v}…{/key} remounts its content when v changes: a keyed list of [v].
+          flush();
+          const e = exprNode(n.expression);
+          const v = value(e);
+          const t = typeOf(e, v);
+          if (typeof t === 'object' && 'fn' in t)
+            fail('E_TEMPLATE', '{#key} needs a value', loc(n));
+          const local = tb.local('$key', t);
+          out.push({
+            kind: 'each',
+            reorder: 'stash',
+            items: { op: 'array', type: { array: t }, items: [v] },
+            item: local,
+            key: { op: 'local', local },
+            body: children(n.fragment),
+            source: loc(n),
+          });
+        } else if (n.type === 'AwaitBlock')
           fail('E_TEMPLATE', 'Await blocks are planned for M4', loc(n));
         else fail('E_TEMPLATE', `Unsupported template node ${n.type}`, loc(n));
       }
