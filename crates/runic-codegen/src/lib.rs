@@ -1516,7 +1516,7 @@ pub fn generate(
          pub trait Inst {\n\
          fn key(&self) -> usize;\n\
          fn json(&self) -> runic_runtime::Json;\n\
-         /// Whether a reactive cell changed in this flush pass.\n\
+         /// Whether a tracked cell changed in this flush pass.\n\
          fn changed(&self) -> bool;\n\
          /// Per effect: (phase 0 pre, 1 layout, 2 post; cleanup after DOM removal; children first at unmount).\n\
          fn fx_meta(&self) -> &'static [(u8, bool, bool)];\n\
