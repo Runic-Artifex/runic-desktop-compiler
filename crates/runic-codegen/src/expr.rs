@@ -328,11 +328,17 @@ impl<'a> FnCtx<'a> {
                     )
                 }
             }
-            Attrs { items } => {
+            Attrs { items, merge } => {
                 let mut code =
                     String::from("{ let mut v: Vec<(JsString, js::AttrValue<Bag>)> = Vec::new(); ");
                 for item in items {
                     match item {
+                        AttrItem::Spread { spread } if *merge => {
+                            let x = self.expr(spread);
+                            code.push_str(&format!(
+                                "{{ let b = {x}; for (n, e) in b.resolved() {{ js::attrs_merge(&mut v, n.clone(), e.clone()); }} }} "
+                            ));
+                        }
                         AttrItem::Spread { spread } => {
                             let x = self.expr(spread);
                             code.push_str(&format!("v.extend({x}.entries().iter().cloned()); "));
@@ -358,7 +364,14 @@ impl<'a> FnCtx<'a> {
                                 }
                                 other => unreachable!("validated bag entry {other:?}"),
                             };
-                            code.push_str(&format!("v.push(({}, {entry})); ", js_str(name)));
+                            if *merge {
+                                code.push_str(&format!(
+                                    "js::attrs_merge(&mut v, {}, {entry}); ",
+                                    js_str(name)
+                                ));
+                            } else {
+                                code.push_str(&format!("v.push(({}, {entry})); ", js_str(name)));
+                            }
                         }
                     }
                 }

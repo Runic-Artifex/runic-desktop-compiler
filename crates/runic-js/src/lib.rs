@@ -20,7 +20,7 @@ pub mod json;
 pub mod string_ops;
 
 pub use array_ops::join_elements;
-pub use attrs::{AttrValue, Attrs};
+pub use attrs::{AttrValue, Attrs, attrs_merge, class_merge};
 pub use classes::{class_compose, class_toggle};
 pub use collections::*;
 pub use element::Element;

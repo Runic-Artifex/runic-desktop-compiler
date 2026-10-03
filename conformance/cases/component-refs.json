@@ -1,6 +1,6 @@
 {
   "description": "Component refs: a child binds its element to a $bindable ref prop (bind:this), the parent binds it (bind:ref) and focuses it; the ref becomes null when the child unmounts; a bindable value through the same child",
-  "fixtures": ["comprefs-svelte"],
+  "fixtures": ["comprefs-svelte", "comprefs-vue"],
   "actions": [
     { "kind": "click", "id": "focus" },
     { "kind": "type", "text": "Ada" },

@@ -887,17 +887,28 @@ impl<'p> Machine<'p> {
             Local { local } => f.get(*local),
             Payload => self.payload.clone().expect("payload context"),
             Event => Val::Event(self.event.clone().expect("event context")),
-            Attrs { items } => {
+            Attrs { items, merge } => {
                 let mut out = vec![];
                 for item in items {
                     match item {
                         AttrItem::Spread { spread } => {
                             if let Val::Attrs(b) = self.eval(spread, f)? {
-                                out.extend(b.iter().cloned());
+                                if *merge {
+                                    for (n, v) in resolve_attrs(&b) {
+                                        merge_attr(&mut out, n.to_owned(), v.clone());
+                                    }
+                                } else {
+                                    out.extend(b.iter().cloned());
+                                }
                             }
                         }
                         AttrItem::Entry { name, value } => {
-                            out.push((name.clone(), self.eval(value, f)?));
+                            let v = self.eval(value, f)?;
+                            if *merge {
+                                merge_attr(&mut out, name.clone(), v);
+                            } else {
+                                out.push((name.clone(), v));
+                            }
                         }
                     }
                 }
@@ -3818,6 +3829,32 @@ fn resolve_attrs(bag: &[(String, Val)]) -> Vec<(&str, &Val)> {
         }
     }
     out
+}
+
+/// Adds an entry to a merging bag (`attrs` with `merge`, as `js::attrs_merge`).
+fn merge_attr(out: &mut Vec<(String, Val)>, name: String, v: Val) {
+    let text = |v: &Val| match v {
+        Val::Str(s) => Some(Some(s.clone())),
+        Val::Undefined | Val::Null => Some(None),
+        _ => None,
+    };
+    let slot = out.iter().position(|(n, _)| *n == name);
+    // A missing `class` merges like an absent one.
+    let prev = match slot {
+        Some(i) => text(&out[i].1),
+        None => Some(None),
+    };
+    let v = match (name == "class", prev, text(&v)) {
+        (true, Some(a), Some(b)) => match js::class_merge(a.as_ref(), b.as_ref()) {
+            Some(s) => Val::Str(s),
+            None => Val::Undefined,
+        },
+        _ => v,
+    };
+    match slot {
+        Some(i) => out[i].1 = v,
+        None => out.push((name, v)),
+    }
 }
 
 /// Outcome of a harness action: whether any listener ran, and the first error.

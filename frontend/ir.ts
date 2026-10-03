@@ -88,8 +88,12 @@ export type Expr =
   | { op: 'payload' }
   /** The event object of the running handler. */
   | { op: 'event' }
-  /** An attribute bag; a later entry of a name wins. */
-  | { op: 'attrs'; items: AttrItem[] }
+  /**
+   * An attribute bag; a later entry of a name wins. With `merge`, an entry
+   * (or a spread bag's resolved entry) combines with an earlier one of its
+   * name in place: `class` values join, other names take the later value.
+   */
+  | { op: 'attrs'; items: AttrItem[]; merge?: true }
   | {
       op:
         | 'not'

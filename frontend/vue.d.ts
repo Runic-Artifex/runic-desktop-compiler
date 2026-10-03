@@ -9,6 +9,8 @@ declare module 'vue' {
   export function computed<T>(getter: () => T): Readonly<Ref<T>>;
   /** A template ref (3.5): set by Vue to the element with `ref="key"` while it is mounted. */
   export function useTemplateRef<T = unknown>(key: string): Readonly<Ref<T | null>>;
+  /** The fallthrough attributes, forwarded with v-bind (reading them by name is unsupported). */
+  export function useAttrs(): Record<string, unknown>;
   export function createApp(component: unknown): { mount(selector: string): void };
 
   // Watchers and lifecycle hooks (docs/design/M4-EFFECTS.md).
@@ -116,6 +118,12 @@ declare function defineModel<T>(
 ): import('vue').Ref<T | undefined>;
 /** `defineSlots<{ name(props: P): any }>()` (type-only; the result is not lowered). */
 declare function defineSlots<T>(): T;
+/** `defineOptions({ inheritAttrs: false })`. */
+declare function defineOptions(options: { inheritAttrs?: boolean }): void;
+/** `defineExpose({ input })`: template refs a parent's component ref reaches. */
+declare function defineExpose<T extends Record<string, unknown>>(exposed: T): void;
+/** An exposed ref as the parent sees it (unwrapped). */
+type __RunicUnref<T> = T extends import('vue').Ref<infer U> ? U : T;
 
 // Template typing of slots: a `<slot>` outlet returns its props from the
 // synthetic template function (so untyped slots infer their props), and slot
