@@ -41,11 +41,12 @@ try {
     const dir = path.join(repo, fixture.includes('/') ? fixture : `fixtures/${fixture}`);
     const b = await browser.run(dir, {
       actions: c.actions,
+      storage: c.storage,
       out: path.join(repo, '.cache/interp-vs-browser', path.basename(fixture)),
     });
     let steps;
     try {
-      steps = interpret((await lower(await collect(dir))).ir, c.actions);
+      steps = interpret((await lower(await collect(dir))).ir, c.actions, { storage: c.storage });
     } catch (e) {
       console.log(`${fixture}: interpreter failed: ${e.code ?? ''} ${e.message}`);
       mismatches++;

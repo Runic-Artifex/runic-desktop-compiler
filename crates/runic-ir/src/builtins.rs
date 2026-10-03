@@ -160,6 +160,20 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &n, "id").map(|_| Void)
         }
         ("clock", "now" | "date") => arity(args, 0, 0).map(|_| n),
+        // localStorage: string keys and values; a missing key reads null.
+        ("storage", "get") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "key").map(|_| Maybe(Box::new(s)))
+        }
+        ("storage", "set") => {
+            arity(args, 2, 2)?;
+            all(args, &s).map(|_| Void)
+        }
+        ("storage", "remove") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "key").map(|_| Void)
+        }
+        ("storage", "clear") => arity(args, 0, 0).map(|_| Void),
         ("microtask", "queue") => {
             arity(args, 1, 1)?;
             match &args[0] {

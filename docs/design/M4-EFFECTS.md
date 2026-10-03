@@ -40,7 +40,11 @@ React's closures over a render's state stay a question for the reactivity model 
 
 ## Host services: localStorage
 
-`localStorage.getItem/setItem/removeItem/clear/key/length` with string values. Native apps persist to a per-app file in the platform data directory, written after each task that changed it; the probe and the interpreter use an in-memory store that a case can seed (`"storage": { … }`), as the browser harness does through `page.addInitScript`. The `storage` event (other windows) is out of scope.
+`localStorage.getItem/setItem/removeItem/clear` with string values, items in insertion order. `key()` and `length` are rejected for now (Chromium orders keys by its own map), as is the `storage` event (other windows).
+
+- **Native apps** keep the items of an app in `$XDG_DATA_HOME/runic/<title>/localStorage.json` (`~/.local/share` by default; the title with other characters than letters, digits, `-` and `_` replaced), written after every change as UTF-16 code units so any string survives.
+- **Probes and the interpreter** keep them in memory, seeded by the case (`"storage": { key: value }`); the browser harness seeds through `page.addInitScript` once per tab. `measure.mjs` runs apps with a fresh data directory.
+- **`reload`** starts the app again on the same storage: the browser reloads the page, the probe and the interpreter create a new app instance. Timers and the clock start again natively, while Chromium's `Date.now()` continues; cases with `reload` must not depend on time.
 
 ## Updates are flushed in a microtask
 

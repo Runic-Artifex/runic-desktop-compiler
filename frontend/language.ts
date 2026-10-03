@@ -1828,6 +1828,18 @@ export class Lowerer {
         return { op: 'builtin', name: 'clock.date', args: [], type: NUMBER };
       if (this.hostName(callee.expression) === 'performance' && method === 'now')
         return { op: 'builtin', name: 'clock.now', args: [], type: NUMBER };
+      if (this.hostName(callee.expression) === 'localStorage') {
+        const name = { getItem: 'get', setItem: 'set', removeItem: 'remove', clear: 'clear' }[
+          method
+        ];
+        if (!name) return this.fail(e, 'E_MEMBER', `localStorage.${method} is unsupported`);
+        return {
+          op: 'builtin',
+          name: `storage.${name}`,
+          args: args(),
+          type: name === 'get' ? { maybe: STRING } : 'void',
+        };
+      }
       if (global && STATIC_NAMESPACES.has(global))
         return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
       if (ts.isIdentifier(callee.expression)) {

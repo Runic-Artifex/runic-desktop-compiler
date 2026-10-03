@@ -13,12 +13,14 @@ mod jobs;
 mod probe;
 pub mod reorder;
 mod shell;
+mod storage;
 mod timers;
 
 pub use blitz_traits::node_id::NodeId;
 pub use dom::{Dom, Event};
 pub use jobs::{CellVersions, Dep, Fx, Job, Jobs, Phase, Versions};
 pub use serde_json::Value as Json;
+pub use storage::{Storage, seed as seed_storage};
 pub use timers::{CLOCK_ORIGIN, CLOCK_START, TimerKind, Timers, clock_origin};
 
 /// JavaScript value semantics shared with the reference interpreter.

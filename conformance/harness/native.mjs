@@ -18,9 +18,10 @@ export async function buildProbe(fixture, { release = false, noOpt = false } = {
 }
 
 /** Run the probe binary; returns { mountUs, steps: [{ action, dom, focused, geometry, ... }] }. */
-export function runProbe(binary, { viewport = { width: 800, height: 600 }, actions = [], out } = {}) {
+export function runProbe(binary, { viewport = { width: 800, height: 600 }, actions = [], out, storage } = {}) {
   const args = ['--probe', '--width', String(viewport.width), '--height', String(viewport.height)];
   if (out) args.push('--out', out);
+  if (storage) args.push('--storage', JSON.stringify(storage));
   const r = spawnSync(binary, args, {
     input: JSON.stringify(actions),
     encoding: 'utf8',
