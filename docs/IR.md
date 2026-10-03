@@ -2,7 +2,7 @@
 
 This is the serialized contract between the frontend adapters and the Rust backend (D1). Its types live in `crates/runic-ir` (`src/lib.rs`), and that crate is the authority whenever this document and the code disagree. The `runic-ir` validator and reference interpreter define its meaning. The code generator in `crates/runic-codegen` must agree with that interpreter (D8).
 
-Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) and in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)). The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
+Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)), and in M4 with scheduling, effects, derived values, promises and host services ([design](design/M4-EFFECTS.md)). The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
 
 ## Program
 
@@ -19,7 +19,16 @@ Schema 4 was introduced in M1 and extended additively in M2 with values, stateme
   "components": [ Component, … ],
   "root": 0,                         // index of the mounted component
   "containerAttrs": { "data-v-app": "" },  // optional: attributes the framework sets on #root at mount
-  "restoreFocus": true               // optional: refocus an element a list move blurred (React DOM)
+  "restoreFocus": true,              // optional: refocus an element a list move blurred (React DOM)
+  "schedule": {                      // optional: the framework's update scheduling (defaults shown)
+    "flush": "microtask",            // or "event-microtask": a default task outside input events
+    "checkpoint": "dispatch",        // or "listener": a microtask checkpoint after each listener
+    "changeWithClick": false,        // a checkbox's change listeners run in the click dispatch
+    "cleanups": "interleaved",       // or "batched": a phase's cleanups (also of destroyed instances) before its effects
+    "postWritesDeferred": false,     // writes from post effects update in a later default task
+    "mount": "microtask",            // when the mount's effects run: "sync" | "microtask" | "task"
+    "cleanupReadsPrevious": false    // cleanups read state as before the running flush
+  }
 }
 ```
 
@@ -41,6 +50,7 @@ Types follow the value model (D16, [M2-VALUES](design/M2-VALUES.md)). Unit types
 | map / set | `{"map": [K, V]}` / `{"set": T}` | insertion-ordered, SameValueZero keys |
 | function | `{"fn": {"params": [T…], "result": T}}` | reference-counted closure (a component function's closure keeps its instance) |
 | element | `"element"` | opaque element handle (refs), identity equality |
+| promise | `{"promise": T}` | `JsPromise<T>`: pending or settled, reactions run as microtasks; identity equality; never a promise of a promise |
 
 Literal values (`lit`) are numbers, strings and booleans. String literals are Unicode text; a literal containing a lone surrogate is rejected by the frontend (`E_STRING`), although computed strings may contain one.
 
@@ -49,11 +59,14 @@ Literal values (`lit`) are numbers, strings and booleans. String literals are Un
 ```jsonc
 { "name": "total", "component": 0,            // optional: the component whose cells it may read and write
   "captures": [Local], "params": [Local], "locals": [Local],
-  "result": "number", "body": [Stmt] }
+  "result": "number", "body": [Stmt],
+  "derived": true }                            // optional: a cached derived value of its component
 Local = { "name": "sum", "type": "number", "boxed": false }
 ```
 
 The local index space of a function is `captures`, then `params`, then `locals`. `boxed` marks a local that a closure captures and mutates, so it is shared by reference; unboxed captures are copied when the closure is created. Module-level functions have no `component`.
+
+A `derived` function (Svelte `$derived`, Vue `computed`; no parameters) is cached per instance: it is recomputed when what it read changed, and a recomputation with the same (SameValue) result keeps its value, so dependents re-run only when its value changed.
 
 ## Components and instances
 
@@ -64,14 +77,18 @@ The local index space of a function is `captures`, then `params`, then `locals`.
   "handlers": [ { "event": "click", "params": [Local], "locals": [Local], "body": [Stmt] } ],
   "template": [ Node ],
   "templateLocals": [Local],                       // list items, slot params, template temporaries
-  "slots": [ { "name": "row", "params": [T…] } ]   // slots the template renders
+  "slots": [ { "name": "row", "params": [T…] } ],  // slots the template renders
+  "effects": [ { "run": 7, "phase": "post", "deps": { "kind": "tracked" },
+                 "unmount": { "removal": "after", "order": "post" } } ]
 }
 ```
 
 - **Instances.** Every component can be instantiated many times; the root has one instance. An instance owns one value per cell, is created when its `component` node mounts (props, then cell initialisers) and destroyed with that node. Instance identity is the parent instance, the node, and the list keys and slot renderers on the path between them. Functions with `component: k` run in an instance of `k`.
 - **Cells** are the instance's reactive state. `init` may only read cells declared earlier. A cell with `prop` receives that prop from the parent (`init` is its default): when the parent's value changes (SameValue) the cell is set and becomes dirty; a write by the child calls the parent's `bind` closure if there is one.
-- **Tracking** decides when a write makes a cell dirty: `identity` (default) when the new value is not SameValue to the old one; `deep` also after any heap mutation during the handler (Vue `ref`); `proxied` (Svelte `$state`) stores proxies of plain objects and arrays (a new identity over the same storage) and is dirty after mutations through proxies; `none` never.
-- **Handlers** run synchronously when an event reaches a listener. Their local index space is `params` (the listener's `args`), then `locals`. The payload is the input value (`input`), the new checked state (`change`, boolean) or `event.key` (`keydown`). After the handler, every live instance's dirty cells update their bindings once.
+- **Tracking** decides when a write makes a cell dirty for bindings: `identity` (default) when the new value is not SameValue to the old one; `deep` also after any heap mutation since the last flush (Vue `ref`; what it holds is marked reactive); `proxied` (Svelte `$state`) stores proxies of plain objects and arrays (a new identity over the same storage) and is dirty after mutations through proxies; `none` never. `readonly` cells (React state and props) must not be mutated in place.
+- **Handlers** run when an event reaches a listener. Their local index space is `params` (the listener's `args`), then `locals`. The payload is the input value (`input`), the new checked state (`change`, boolean) or `event.key` (`keydown`). The listeners of one event share a task unless `schedule.checkpoint` is `listener`.
+- **Flushes.** The first write after a flush queues a flush job (`schedule.flush`). A flush runs passes until effects stop writing: commit the state (render snapshots), update the tree (pre effects run as each instance updates or is created), run cleanups of destroyed instances, then layout and post effects children first. Closures created while a snapshot is current keep it (React reads).
+- **Effects.** `run` is a function of the component returning nothing or a cleanup; with `values` dependencies it may take the new values and the previous ones. `phase` is `pre`, `layout` or `post`; `deps` is `tracked` (the cells, derived values and heap slots the last run read), `once`, `always` (after every update of the instance or an ancestor) or `values` (`{"values": [Expr], "initial": bool}`, compared with `Object.is`). `unmount` places the cleanup at destruction: before or after DOM removal, at the pre- or post-order position of the destroyed subtree.
 - **Domains** (`{ "kind": "text", "maxUtf16": 256 }`) appear only in migrated schema 3 programs; they constrain a text cell on every write.
 
 ## Statements
@@ -114,12 +131,12 @@ Every expression has a statically known type, which the validator infers and che
 | `some {value}`, `unwrap {value}` | Maybe / inner | Wrap into Maybe; unwrap (throws `TypeError` when nullish) |
 | `optional {value, local, then}` | Maybe | `?.`: undefined when `value` is nullish, otherwise `then` with the unwrapped value in `local` |
 | `call {function, args}`, `call-value {callee, args}` | result type | Direct and indirect calls |
-| `closure {function, captures}` | fn | A function value; `captures` are the caller's local indices |
+| `closure {function, captures, stable?}` | fn | A function value; `captures` are the caller's local indices. `stable`: one function object per instance (or program), for script-level functions of Svelte and Vue and module functions |
 | `builtin {name, args, type}` | `type` | A catalogue built-in (below) |
 | `with {local, value, body}` | type of `body` | Bind `value` to `local`, then evaluate `body` |
 | `mapped {rule, guard, fast, reference}` | type of `reference` | Only in migrated schema 3 programs |
 
-**Built-ins** are a catalogue in `runic-ir` (`builtins.rs`) with type rules, interpreter implementations in `runic-js` and Rust spellings in `runic-codegen`. The families are `Math.*` (except `random`), `Number`/number methods, string methods, array methods (including callbacks and in-place mutation), `Array.from`/`Array.isArray`, `Object.keys/values/entries/assign`, `JSON.stringify`/`JSON.parse` into a declared type, `Map`/`Set`, `structuredClone` and the global conversion functions. The full list is in [M2-VALUES](design/M2-VALUES.md); each family has Node-generated test vectors in `crates/runic-js/tests/vectors/`.
+**Built-ins** are a catalogue in `runic-ir` (`builtins.rs`) with type rules, interpreter implementations in `runic-js` and Rust spellings in `runic-codegen`. The families are `Math.*` (except `random`), `Number`/number methods, string methods, array methods (including callbacks and in-place mutation), `Array.from`/`Array.isArray`, `Object.keys/values/entries/assign`, `JSON.stringify`/`JSON.parse` into a declared type, `Map`/`Set`, `structuredClone` and the global conversion functions. The full list is in [M2-VALUES](design/M2-VALUES.md); each family has Node-generated test vectors in `crates/runic-js/tests/vectors/`. M4 adds host operations: `timer.timeout/interval/frame/clear`, `clock.now/date`, `microtask.queue`, `storage.get/set/remove/clear` (localStorage), `promise.new/resolve/reject/then/catch/finally/all` with the internal `promise.pending/fulfil/adopt/fail` of async functions, and `flush.tick` (a microtask running any pending flush, then fulfilling) and `flush.after` (fulfilled when the pending flush ends).
 
 ## Template
 
@@ -147,11 +164,11 @@ Node =
 - **Live properties:** `value` and `checked` are controlled: after every dispatch the runtime re-synchronises them (equal values are left untouched, preserving selection and composition). Checkboxes require `checked`.
 - **Lists:** blocks are matched by `key` (SameValueZero; duplicates throw `RunicKeyError`) or by index. Reused blocks keep their nodes, instances and state; `reorder` names the framework's keyed diff, which decides which blocks move (a moved focused element is blurred, as in Chromium).
 - **Slots:** a component node's slot definitions run in the parent instance with `params` bound to the child's slot arguments; a child without content for a slot renders its `fallback`.
-- **Refs** hold the element while it is mounted and `null` after removal; `element.focus`/`element.blur` are applied after the update.
+- **Refs** hold the element while it is mounted and `null` after removal; `element.focus`/`element.blur` apply in order when the running callback returns (the DOM does not change while it runs).
 
 ## Validation limits
 
-The validator caps a program at 4,096 template nodes, 1,024 cells per component, 1,024 handlers, 4,096 functions, expression and statement depth 96, 2^20 expressions and 4 MiB of CSS. Each limit has a diagnostic. These are resource limits, not semantic assumptions. Diagnostics carry the source location of the statement, cell, handler or element they concern, falling back to the enclosing function or element.
+The validator caps a program at 4,096 template nodes, 1,024 cells per component, 1,024 handlers, 4,096 functions, expression and statement depth 96, 2^20 expressions and 4 MiB of CSS. Each limit has a diagnostic. These are resource limits, not semantic assumptions. Two semantic checks reject what the backend cannot reproduce: in-place mutation of `readonly` cells (`E_READONLY`), and template reads of values that change without making anything dirty (`E_REACTIVITY`: written `none` cells, identity-tracked references mutated in place, maps and sets mutated inside proxied state, mutated globals), which the frameworks would show only when neighbouring state re-renders. Diagnostics carry the source location of the statement, cell, handler or element they concern, falling back to the enclosing function or element.
 
 ## Snapshots
 

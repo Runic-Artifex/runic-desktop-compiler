@@ -141,3 +141,17 @@ Effects observe dirtiness, so the M3 approximations have to go first:
 6. `localStorage`; TodoMVC with persistence in all three frameworks.
 
 Effects come before promises because the Timer and persistence examples need them, while promises matter first for the application bridge (M7).
+
+## Outcome
+
+Implemented as designed, with these changes and findings:
+
+- **Derived values** became cached slots (`derived` functions): recomputed when what they read changed, a changed dependency only when their value changed (Svelte and Vue semantics, case `derived-timing`).
+- **Deep tracking** is per heap slot: objects count writes per record field, array element and array length, and as a whole. Tracked effects and derived values depend on the slots they read through Svelte proxies or on values reachable from Vue deep state (marked reactive when stored there), case `deep-tracking`.
+- **Update granularity** was not modelled. Instead the validator rejects template reads of values that change without notifying the framework (`E_REACTIVITY`), the only situations where re-rendering a whole block or component shows something a precise binding update does not. React state and props are read-only (`E_READONLY`), so React props are tracked by identity.
+- **Stable closures:** script-level functions of Svelte and Vue (and module functions) keep one identity per instance, so passing them as props does not re-run effects.
+- **Schedule policies** grew to `changeWithClick`, `cleanups` (React's batched walk also places destroyed instances' cleanups), `postWritesDeferred`, `mount` and `cleanupReadsPrevious` (Svelte cleanups read the state before the flush).
+- **`tick()` and `nextTick()`** are `flush.tick` and `flush.after`.
+- **The Svelte reference is compiled for production:** Svelte's development build wraps every `await` in `track_reactivity_loss`, which adds microtask hops that generated apps do not (and should not) reproduce.
+- **Rejected rather than modelled** (diagnostics name each case): Vue's watcher queue order when a watcher writes what another watcher reads, Vue's unmount work at the removal point of a patch, React's element-position order of unmount cleanups, Vue `flush: 'post' | 'sync'` watchers and `onUpdated`, `finally` around `await`.
+- **Deviations** (recorded in the M4 results): loop guards (React throws after 50 nested updates and Vue only warns in development; Runic stops after 1000 passes), a raw object captured before it was stored in a Vue `ref` is tracked natively, unhandled rejections are not reported.

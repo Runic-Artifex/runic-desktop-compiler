@@ -18,7 +18,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 | M1 | Rust IR, codegen and runtime library; renderer toggle; automated conformance; startup/size measurement | all 15 existing fixtures | Standalone, 2 spikes | Done 2026-10-03 ([results](../conformance/results/m1.md)) |
 | M2 | JS values, statements and functions | 7GUIs Counter, Temperature Converter, ledger example | Standalone design ([M2-VALUES](design/M2-VALUES.md)), then subagents for built-ins | Done 2026-10-03 ([results](../conformance/results/m2.md)) |
 | M3 | Components, slots and snippets, keyed lists, instance lifetimes | 7GUIs CRUD, TodoMVC (in memory) | Standalone core, then subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m3.md)) |
-| M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone core, ordering research subagent, subagents per adapter | In progress |
+| M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone core, ordering research subagent, subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m4.md)) |
 | M5 | Full event model, forms, layout/measurement APIs, host services | 7GUIs Circle Drawer, Cells; a virtualized list | Subagents per service; desktop track standalone | Planned |
 | M6 | npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | translation-editor sub-screens, corpus apps | Workflows for corpus and packs | Planned |
 | M7 | Runic application bridge to .NET | an SDK sample app with a C# view model | Standalone + spike | Planned |
@@ -142,6 +142,11 @@ Replace the parts that cannot scale before adding any capability.
 - **Standalone:** the event loop and scheduler.
 - **Workflow:** probe apps per framework record effect and flush orders in the original runtime as conformance cases. Verifier agents re-run and cross-check them.
 
+**Outcome (done):**
+- The event loop (tasks, microtasks, flush jobs, default-priority tasks, virtual time in tests), effects with each framework's phases and orders, timers, promises and `async`/`await` (a state machine in the language layer), `localStorage`, `tick`/`nextTick`, cached derived values and slot-level deep tracking run in all three frameworks ([M4-EFFECTS](design/M4-EFFECTS.md#outcome)).
+- 7GUIs Timer and TodoMVC with persistence run in React, Vue and Svelte. The ordering research ([M4-ORDERING](design/M4-ORDERING.md)) became conformance cases for mount, update, unmount, writes from effects, microtask and flush timing, derived values and deep tracking.
+- Update granularity was replaced by a validator check (`E_REACTIVITY`) that rejects the template reads where it would be observable; React state and props are read-only. Vue's watcher queue order and unmount position and React's element-position unmount order are rejected with diagnostics.
+
 ## M5: Events, forms, layout APIs, services
 
 **Scope:**
@@ -232,3 +237,5 @@ Solid and further frontends; porting the language layer or adapters to Rust (oxc
 - 2026-10-03 (M2): an uncaught exception in a handler keeps the writes made before it, as the frameworks do; the earlier draft's rollback rule was wrong.
 - 2026-10-03 (M3): object literals have JavaScript key order (keys are observable), so a literal written in a different order than its declared type is rejected instead of silently reordered.
 - 2026-10-03 (M4): effects come before promises in M4's work order; the Timer and persistence examples need them, while promises matter first for the application bridge (M7).
+- 2026-10-03 (M4): conformance compiles the Svelte reference for production; generated apps implement production semantics, and Svelte's development build changes `await` timing.
+- 2026-10-03 (M4): instead of reproducing each framework's re-render granularity, templates may not read values that change without notifying the framework (`E_REACTIVITY`); granularity is observable only through such reads.
