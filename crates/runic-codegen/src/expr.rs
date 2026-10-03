@@ -212,6 +212,7 @@ impl<'a> FnCtx<'a> {
             Cell { cell, read } => self.cell_read(*cell, *read),
             Global { global } => format!("cx.g{global}.clone()"),
             Local { local } => self.local_read(*local),
+            Event => "cx.event.clone().expect(\"event context\")".into(),
             Payload => match self.payload {
                 Some(Type::Boolean) => {
                     "cx.payload.as_ref().is_some_and(|p| p.to_rust() == \"true\")".into()

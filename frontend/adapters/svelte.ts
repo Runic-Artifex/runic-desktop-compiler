@@ -18,6 +18,7 @@ import type {
   Type,
   Effect,
 } from '../ir.ts';
+import { EVENT_KINDS } from '../ir.ts';
 import { FnBuilder, Lowerer, remapLocals, type HandlerEvent, type Hooks } from '../language.ts';
 import { createProgram, RUNES } from '../program.ts';
 import { TypeMapper } from '../types.ts';
@@ -838,31 +839,31 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         h = lower.handler(e, COMPONENT, event, tb);
       else if (ts.isIdentifier(e)) {
         const b = lower.binding(e);
+        // A named function or a function-valued prop or state (a callback),
+        // called with the event object if it takes one.
+        const eventArgs = (params: Type[]): Expr[] | undefined =>
+          params.length === 0
+            ? []
+            : params.length === 1 && params[0] === 'event'
+              ? [{ op: 'event' }]
+              : undefined;
+        const misfit = 'Event handlers take no parameter or the event object';
         if (b?.kind === 'function') {
           const target = lower.functions[b.fn];
-          if (target && target.params.length)
-            return fail(
-              'E_EVENT',
-              'Named handlers with typed parameters: use an inline arrow function',
-              loc(where),
-            );
-          h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args: [] } }] };
+          const args = eventArgs(target?.params.map(p => p.type) ?? []);
+          if (!args) return fail('E_EVENT', misfit, loc(where));
+          h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args } }] };
         } else if (b?.kind === 'cell') {
-          // A function-valued prop or state (a callback): call it without the event.
           const t = cells[b.cell].type;
           if (typeof t !== 'object' || !('fn' in t))
             return fail('E_EVENT', 'Event handlers must be functions', loc(where));
-          if (t.fn.params.length)
-            return fail(
-              'E_EVENT',
-              'Callbacks taking the event object are planned for M5; use an inline arrow function',
-              loc(where),
-            );
+          const args = eventArgs(t.fn.params);
+          if (!args) return fail('E_EVENT', misfit, loc(where));
           h = {
             body: [
               {
                 op: 'expr',
-                value: { op: 'call-value', callee: { op: 'cell', cell: b.cell }, args: [] },
+                value: { op: 'call-value', callee: { op: 'cell', cell: b.cell }, args },
               },
             ],
           };
@@ -1132,8 +1133,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           const name: string = a.name;
           if (/^on[a-z]+$/.test(name)) {
             const event = name.slice(2);
-            if (!['click', 'input', 'change', 'keydown'].includes(event))
-              fail('E_EVENT', `on${event} handlers are planned for M5`, loc(a));
+            if (!EVENT_KINDS.includes(event as HandlerEvent))
+              fail('E_EVENT', `on${event} handlers are planned for a later milestone`, loc(a));
             if (event === 'change' && !checkbox)
               fail('E_EVENT', 'onchange is supported on checkboxes (text inputs: oninput)', loc(a));
             if (a.value === true || Array.isArray(a.value))

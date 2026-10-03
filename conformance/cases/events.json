@@ -1,0 +1,27 @@
+{
+  "description": "Event objects: bubbling and stopPropagation, target and currentTarget, a cancelled checkbox click, keydown cancelling text insertion, keyup and modifier keys, mousedown keeping focus, pointer enter and leave, double clicks, the context menu, wheel deltas, an event read after its dispatch, and Enter activation cancelled by keydown",
+  "fixtures": ["events-svelte"],
+  "actions": [
+    { "kind": "click", "id": "inner" },
+    { "kind": "click", "id": "stop" },
+    { "kind": "click", "id": "inner" },
+    { "kind": "click", "id": "outer" },
+    { "kind": "click", "id": "agree" },
+    { "kind": "click", "id": "lock" },
+    { "kind": "click", "id": "agree" },
+    { "kind": "type", "id": "field", "text": "axb" },
+    { "kind": "press", "key": "Shift+ArrowLeft" },
+    { "kind": "click", "id": "keep" },
+    { "kind": "type", "text": "c" },
+    { "kind": "hover", "id": "box" },
+    { "kind": "hover", "id": "log" },
+    { "kind": "dblclick", "id": "box" },
+    { "kind": "contextmenu", "id": "box" },
+    { "kind": "wheel", "id": "box", "deltaX": 0, "deltaY": 100 },
+    { "kind": "click", "id": "late" },
+    { "kind": "wait", "ms": 10 },
+    { "kind": "focus", "id": "enter" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "press", "key": "Space" }
+  ]
+}

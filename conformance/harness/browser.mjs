@@ -134,6 +134,20 @@ async function perform(page, action, timeout) {
       await target.click({ force, timeout });
       break;
     }
+    case 'dblclick':
+    case 'contextmenu': {
+      const force = await target.isDisabled({ timeout });
+      if (action.kind === 'dblclick') await target.dblclick({ force, timeout });
+      else await target.click({ button: 'right', force, timeout });
+      break;
+    }
+    case 'hover': // The pointer moves to the element centre.
+      await target.hover({ force: true, timeout });
+      break;
+    case 'wheel': // A wheel turn over the element centre.
+      await target.hover({ force: true, timeout });
+      await page.mouse.wheel(action.deltaX ?? 0, action.deltaY ?? 0);
+      break;
     case 'type': // Trusted key events into the focused element.
       // Plain element.focus(): Playwright's locator.focus() leaves an empty
       // style attribute behind, which would be a harness-made DOM difference.

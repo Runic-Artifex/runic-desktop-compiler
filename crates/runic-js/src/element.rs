@@ -6,7 +6,7 @@ use crate::{
     ArrayElement, JsString, MapKey, StrictEq, ToJsString, ToMapKey, ToNumber, Truthy, TypeOf,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Element(pub u64);
 
 impl Truthy for Element {

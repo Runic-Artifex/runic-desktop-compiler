@@ -37,6 +37,8 @@ struct Scope<'a> {
     locals: Vec<Local>,
     /// The event payload type in handlers.
     payload: Option<Type>,
+    /// In a handler (or a closure in it): `event` is available.
+    handler: bool,
     result: Option<Type>,
     labels: Vec<Option<String>>,
     count: usize,
@@ -54,6 +56,7 @@ impl<'a> Scope<'a> {
             visible: component.map_or(0, |c| program.components[c].cells.len()),
             locals: vec![],
             payload: None,
+            handler: false,
             result: None,
             labels: vec![],
             count: 0,
@@ -169,6 +172,12 @@ impl<'a> Scope<'a> {
                 self.program.globals[*global].ty.clone()
             }
             Local { local } => self.local(*local, src)?.ty.clone(),
+            Event => {
+                if !self.handler {
+                    return err("E_IR", "The event object outside a handler", src);
+                }
+                Type::Event
+            }
             Payload => {
                 let Some(t) = self.payload.clone() else {
                     return err(
@@ -723,6 +732,7 @@ pub fn infer_in(
     let mut s = Scope::new(program, component);
     s.locals = locals.to_vec();
     s.payload = payload;
+    s.handler = true;
     s.infer(e, 0, None).expect("validated expression")
 }
 
@@ -1003,6 +1013,7 @@ fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
         let mut s = Scope::new(p, Some(ci));
         s.locals = h.params.iter().chain(&h.locals).cloned().collect();
         s.payload = h.event.payload();
+        s.handler = true;
         s.result = Some(Type::Void);
         for l in &s.locals {
             s.check_type(&l.ty, src)?;

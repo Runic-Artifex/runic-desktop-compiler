@@ -57,6 +57,14 @@ pub mod js {
     }
 }
 
+/// One listener call of an event dispatch: the listener key, the event and
+/// the element whose listener it is (`currentTarget`, a node id).
+pub struct Delivery {
+    pub listener: u32,
+    pub event: runic_js::Event,
+    pub current: u64,
+}
+
 /// A generated application.
 pub trait App: 'static {
     const TITLE: &'static str;
@@ -71,15 +79,12 @@ pub trait App: 'static {
     fn mount(&mut self, dom: &mut Dom, parent: NodeId);
     /// A checkbox's `change` listener runs in the `click` dispatch.
     const CHANGE_WITH_CLICK: bool = false;
-    /// Dispatch one event: run its listeners `(listener, payload)` in order
-    /// with the framework's microtask checkpoints, then the jobs they queued
-    /// (which update the DOM). On a text-domain error the task's writes are
-    /// rolled back and controlled inputs are re-synchronised.
-    fn dispatch(
-        &mut self,
-        dom: &mut Dom,
-        listeners: &[(u32, Option<String>)],
-    ) -> Result<(), String>;
+    /// Dispatch one event: run its listeners in order (each unless the event's
+    /// propagation was stopped) with the framework's microtask checkpoints,
+    /// then the jobs they queued (which update the DOM). On a text-domain
+    /// error the task's writes are rolled back and controlled inputs are
+    /// re-synchronised.
+    fn dispatch(&mut self, dom: &mut Dom, deliveries: &[Delivery]) -> Result<(), String>;
     fn cells_json(&self) -> Json;
     /// Cells of every other live component instance in tree order, as
     /// `{ "component": name, "cells": [...] }`.

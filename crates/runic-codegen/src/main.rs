@@ -10,7 +10,7 @@
 
 use runic_codegen::{Options, emit};
 use runic_ir::interp::{Machine, Target};
-use runic_ir::{Diagnostic, EventKind, Node};
+use runic_ir::{Diagnostic, Node};
 use serde_json::json;
 use std::path::Path;
 
@@ -109,9 +109,10 @@ fn main() {
             for action in actions.as_array().cloned().unwrap_or_default() {
                 // Targets: an element id, or the n-th element listening for the action's event.
                 let kind = match action["kind"].as_str() {
-                    Some("click") => EventKind::Click,
-                    Some("input") => EventKind::Input,
-                    Some("keydown") => EventKind::Keydown,
+                    Some(
+                        k @ ("click" | "dblclick" | "contextmenu" | "hover" | "input" | "keydown"
+                        | "wheel"),
+                    ) => k,
                     Some("reload") => {
                         // A new program instance on the same localStorage.
                         let storage = m.storage();
@@ -143,9 +144,15 @@ fn main() {
                     (None, Some(n)) => Target::Nth(kind, n as usize),
                     _ => fail(Diagnostic::new("E_INPUT", "action without target", None)),
                 };
+                let wheel = format!(
+                    "{},{}",
+                    action["deltaX"].as_f64().unwrap_or(0.0),
+                    action["deltaY"].as_f64().unwrap_or(0.0)
+                );
                 let data = match kind {
-                    EventKind::Input => action["value"].as_str(),
-                    EventKind::Keydown => action["key"].as_str(),
+                    "input" => action["value"].as_str(),
+                    "keydown" => action["key"].as_str(),
+                    "wheel" => Some(wheel.as_str()),
                     _ => None,
                 };
                 let result = m.fire(target, kind, data);

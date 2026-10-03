@@ -39,12 +39,34 @@ function rng(seed) {
 
 const TEXTS = ['', 'a', 'Hello', 'ünï 😀', 'x'.repeat(256), 'x'.repeat(257), 'line\nbreak', ' ', 'Jell', '100', '-40', '1e3', ' 0x10 ', '3.25', 'NaN', '  milk'];
 
-/** Event kinds that some listener in the program handles (any component). */
+/** The harness action delivering each event kind (as `EventKind::action`). */
+const ACTION = {
+  click: 'click',
+  change: 'click',
+  pointerdown: 'click',
+  pointerup: 'click',
+  mousedown: 'click',
+  mouseup: 'click',
+  dblclick: 'dblclick',
+  contextmenu: 'contextmenu',
+  pointermove: 'hover',
+  pointerenter: 'hover',
+  pointerleave: 'hover',
+  mousemove: 'hover',
+  mouseenter: 'hover',
+  mouseleave: 'hover',
+  input: 'input',
+  keydown: 'keydown',
+  keyup: 'keydown',
+  wheel: 'wheel',
+};
+
+/** Actions that deliver an event some listener in the program handles (any component). */
 function eventKinds(ir) {
   const kinds = new Set();
   const walk = nodes => {
     for (const n of nodes ?? []) {
-      for (const l of n.listeners ?? []) kinds.add(l.event === 'change' ? 'click' : l.event);
+      for (const l of n.listeners ?? []) kinds.add(ACTION[l.event]);
       for (const k of ['children', 'then', 'else', 'body', 'fallback']) walk(n[k]);
       for (const s of n.slots ?? []) walk(s.body);
     }
@@ -91,7 +113,15 @@ for (const fixture of fixtures) {
   const binary = path.join(out, 'runic-app');
   // Targets are chosen from the live DOM: the n-th element listening for the
   // event, resolved identically by the interpreter and the probe.
-  const weights = [['click', 0.6], ['input', 0.3], ['keydown', 0.1]].filter(([k]) => kinds.has(k));
+  const weights = [
+    ['click', 0.6],
+    ['input', 0.3],
+    ['keydown', 0.1],
+    ['dblclick', 0.1],
+    ['contextmenu', 0.1],
+    ['hover', 0.2],
+    ['wheel', 0.1],
+  ].filter(([k]) => kinds.has(k));
   const total = weights.reduce((a, [, w]) => a + w, 0);
   let fixtureFailures = 0;
   for (let t = 0; t < Number(values.traces); t++) {
@@ -102,6 +132,7 @@ for (const fixture of fixtures) {
       const nth = Math.floor(random() * 1000);
       if (kind === 'input') actions.push({ kind, nth, value: TEXTS[Math.floor(random() * TEXTS.length)] });
       else if (kind === 'keydown') actions.push({ kind, nth, key: random() < 0.7 ? 'Enter' : 'Escape' });
+      else if (kind === 'wheel') actions.push({ kind, nth, deltaX: 0, deltaY: random() < 0.5 ? 100 : -40 });
       else actions.push({ kind, nth });
     }
     const expected = interpret(ir, actions);

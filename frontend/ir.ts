@@ -23,9 +23,53 @@ export type Type =
   | { fn: { params: Type[]; result: Type } }
   /** An element handle (DOM ref). */
   | 'element'
+  /** An event object (handlers' `event`). */
+  | 'event'
   | 'void';
 
 export type Literal = boolean | number | string;
+
+/** Event kinds (docs/design/M5-PLATFORM.md). */
+export type EventKind =
+  | 'click'
+  | 'input'
+  | 'change'
+  | 'keydown'
+  | 'keyup'
+  | 'dblclick'
+  | 'contextmenu'
+  | 'pointerdown'
+  | 'pointerup'
+  | 'pointermove'
+  | 'pointerenter'
+  | 'pointerleave'
+  | 'mousedown'
+  | 'mouseup'
+  | 'mousemove'
+  | 'mouseenter'
+  | 'mouseleave'
+  | 'wheel';
+
+export const EVENT_KINDS: readonly EventKind[] = [
+  'click',
+  'input',
+  'change',
+  'keydown',
+  'keyup',
+  'dblclick',
+  'contextmenu',
+  'pointerdown',
+  'pointerup',
+  'pointermove',
+  'pointerenter',
+  'pointerleave',
+  'mousedown',
+  'mouseup',
+  'mousemove',
+  'mouseenter',
+  'mouseleave',
+  'wheel',
+];
 
 export type Read = 'current' | 'snapshot';
 
@@ -37,6 +81,8 @@ export type Expr =
   | { op: 'global'; global: number }
   | { op: 'local'; local: number }
   | { op: 'payload' }
+  /** The event object of the running handler. */
+  | { op: 'event' }
   | {
       op:
         | 'not'
@@ -164,7 +210,7 @@ export interface Global {
 
 export interface Handler {
   name?: string;
-  event: 'click' | 'input' | 'change' | 'keydown';
+  event: EventKind;
   /** Values passed by the listener; the local index space is params, then locals. */
   params?: Local[];
   locals?: Local[];
@@ -214,7 +260,7 @@ export type Node =
     };
 
 export interface Listener {
-  event: 'click' | 'input' | 'change' | 'keydown';
+  event: EventKind;
   handler: number;
   args?: Expr[];
 }

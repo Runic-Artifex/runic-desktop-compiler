@@ -1,16 +1,42 @@
-//! Event delivery with browser DOM semantics on top of Blitz's single event
-//! hook: click bubbling with disabled-control suppression, keyboard
-//! activation of buttons (Enter on key down, Space on key up) and checkboxes
-//! (Space), keydown listeners that bubble from the focused element before any
-//! default action, sequential Tab focus navigation, button focus on pointer
-//! activation, and controlled text inputs and checkboxes.
+//! Event delivery with Chromium's DOM semantics on top of Blitz's single
+//! event hook (docs/design/M5-PLATFORM.md): event objects with propagation
+//! and cancellation, pointer and mouse events (boundary events in Chromium's
+//! order, mouse events suppressed by a cancelled `pointerdown` or a disabled
+//! control), click counting, the context menu on press, keyboard activation
+//! of buttons (Enter on key down, Space on key up) and checkboxes (Space),
+//! sequential Tab focus navigation, button focus on pointer activation, and
+//! controlled text inputs and checkboxes. Cancelling an event skips its
+//! default actions.
 
 use crate::dom::{Dom, Event, Listeners};
-use crate::{App, controls};
+use crate::{App, Delivery, controls};
 use blitz_dom::{BaseDocument, DocGuard, DocGuardMut, Document, EventDriver, EventHandler};
-use blitz_traits::events::{DomEvent, DomEventData, EventState, UiEvent};
+use blitz_traits::events::{
+    BlitzKeyEvent, BlitzPointerEvent, BlitzWheelDelta, DomEvent, DomEventData, EventState,
+    MouseEventButton, UiEvent,
+};
 use blitz_traits::node_id::NodeId;
 use keyboard_types::{Key, Modifiers};
+use runic_js::{Element, EventData};
+
+/// The context menu opens on button press (Linux, macOS) or release (Windows).
+const CONTEXT_MENU_ON_PRESS: bool = !cfg!(windows);
+
+/// Pointer state across Blitz events.
+#[derive(Default)]
+pub(crate) struct Pointer {
+    /// Elements the pointer left and entered (Blitz's boundary events),
+    /// dispatched in Chromium's order before the move that caused them.
+    left: Vec<NodeId>,
+    entered: Vec<NodeId>,
+    /// A cancelled `pointerdown` suppresses mouse events until `mouseup`.
+    suppress_mouse: bool,
+    /// Click count of the last primary press, and when and where it was.
+    clicks: u32,
+    last_press: Option<(std::time::Instant, f32, f32)>,
+    /// The click count of the next press (probes; otherwise by time and distance).
+    pub(crate) next_count: Option<u32>,
+}
 
 /// The native document: Blitz DOM plus the application and its listeners.
 pub(crate) struct Native<A: App> {
@@ -24,6 +50,7 @@ pub(crate) struct Native<A: App> {
     pub nav_start: Option<NodeId>,
     /// Handler outcomes since the last probe observation.
     pub log: Vec<String>,
+    pub pointer: Pointer,
     /// Real-time clock origin of the window (production timers).
     pub started: std::time::Instant,
     /// Clock time of the scheduled wake-up for the next timer.
@@ -68,6 +95,7 @@ impl<A: App> Document for Native<A> {
             space_target: &mut self.space_target,
             nav_start: &mut self.nav_start,
             log: &mut self.log,
+            pointer: &mut self.pointer,
         };
         EventDriver::new(&mut self.doc, handler).handle_ui_event(event);
     }
@@ -104,6 +132,7 @@ impl<A: App> Native<A> {
             space_target: &mut self.space_target,
             nav_start: &mut self.nav_start,
             log: &mut self.log,
+            pointer: &mut self.pointer,
         };
         EventDriver::new(&mut self.doc, handler).handle_dom_event(event);
     }
@@ -115,6 +144,7 @@ struct Handler<'a, A: App> {
     space_target: &'a mut Option<NodeId>,
     nav_start: &'a mut Option<NodeId>,
     log: &'a mut Vec<String>,
+    pointer: &'a mut Pointer,
 }
 
 fn tag(doc: &BaseDocument, id: NodeId) -> Option<&str> {
@@ -191,18 +221,109 @@ fn sequential(doc: &BaseDocument, from: Option<NodeId>, backwards: bool) -> Opti
     candidates.copied().find(|&n| is_focusable(doc, n))
 }
 
+fn is_element(doc: &BaseDocument, id: NodeId) -> bool {
+    doc.get_node(id).is_some_and(|n| n.element_data().is_some())
+}
+
+fn inside_disabled(doc: &BaseDocument, chain: &[NodeId]) -> bool {
+    chain.iter().any(|&n| is_disabled_control(doc, n))
+}
+
+fn modifiers(data: &mut EventData, mods: Modifiers) {
+    data.ctrl = mods.contains(Modifiers::CONTROL);
+    data.shift = mods.contains(Modifiers::SHIFT);
+    data.alt = mods.contains(Modifiers::ALT);
+    data.meta = mods.contains(Modifiers::META);
+}
+
+fn pointer_data(p: &BlitzPointerEvent) -> EventData {
+    let mut d = EventData {
+        client_x: p.coords.client_x as f64,
+        client_y: p.coords.client_y as f64,
+        button: p.button as u8 as f64,
+        buttons: p.buttons.bits() as f64,
+        ..Default::default()
+    };
+    modifiers(&mut d, p.mods);
+    d
+}
+
+fn key_data(k: &BlitzKeyEvent) -> EventData {
+    let mut d = EventData {
+        key: k.key.to_string().as_str().into(),
+        code: k.code.to_string().as_str().into(),
+        repeat: k.is_auto_repeating,
+        ..Default::default()
+    };
+    modifiers(&mut d, k.modifiers);
+    d
+}
+
 impl<A: App> Handler<'_, A> {
-    /// Dispatch one event to `listeners` (`(listener, payload)` in order).
-    fn dispatch(&mut self, doc: &mut BaseDocument, listeners: &[(u32, Option<String>)]) {
-        if listeners.is_empty() {
+    /// Dispatch `kind` at the first element of `chain` (the target and its
+    /// ancestors): the listeners on its path, target first (only the
+    /// target's where the event does not bubble). Returns the event.
+    fn fire(
+        &mut self,
+        doc: &mut BaseDocument,
+        chain: &[NodeId],
+        kind: Event,
+        mut data: EventData,
+    ) -> Option<runic_js::Event> {
+        let elements: Vec<NodeId> = chain
+            .iter()
+            .copied()
+            .filter(|&n| is_element(doc, n))
+            .collect();
+        let target = *elements.first()?;
+        data.kind = kind.name().into();
+        data.target = Element(target.as_u64());
+        data.cancelable = kind.cancelable();
+        if kind != Event::Input {
+            if let Some(v) = controls::value(doc, target) {
+                data.value = v.as_str().into();
+            }
+        }
+        if !matches!(kind, Event::Click | Event::Change) {
+            data.checked = doc
+                .get_node(target)
+                .and_then(|n| n.element_data())
+                .and_then(|e| e.checkbox_input_checked())
+                .unwrap_or_default();
+        }
+        let event = runic_js::Event::new(data);
+        let path = if kind.bubbles() {
+            &elements[..]
+        } else {
+            &elements[..1]
+        };
+        let deliveries: Vec<Delivery> = path
+            .iter()
+            .flat_map(|&n| {
+                let event = &event;
+                self.listeners.all(n, kind).map(move |listener| Delivery {
+                    listener,
+                    event: event.clone(),
+                    current: n.as_u64(),
+                })
+            })
+            .collect();
+        self.dispatch(doc, &deliveries);
+        event.finish();
+        Some(event)
+    }
+
+    /// Run one dispatch of listeners.
+    fn dispatch(&mut self, doc: &mut BaseDocument, deliveries: &[Delivery]) {
+        if deliveries.is_empty() {
             return;
         }
         let mut dom = Dom {
             doc,
             listeners: self.listeners,
         };
-        let ids: Vec<String> = listeners.iter().map(|(h, _)| h.to_string()).collect();
-        let outcome = match self.app.dispatch(&mut dom, listeners) {
+        let ids: Vec<String> = deliveries.iter().map(|d| d.listener.to_string()).collect();
+        let outcome = match self.app.dispatch(&mut dom, deliveries) {
             Ok(()) => format!("handler {}", ids.join(",")),
             Err(reason) => format!("handler {} rejected: {reason}", ids.join(",")),
         };
@@ -213,31 +334,31 @@ impl<A: App> Handler<'_, A> {
         self.log.push(outcome);
     }
 
-    /// Browser click: no dispatch at all when the target is inside a disabled
-    /// control; otherwise every click listener on the path runs, target first.
-    /// Returns the activated button, if any.
-    fn click(&mut self, doc: &mut BaseDocument, chain: &[NodeId]) -> Option<NodeId> {
-        if chain.iter().any(|&n| is_disabled_control(doc, n)) {
-            return None;
-        }
-        let button = chain
-            .iter()
-            .copied()
-            .find(|&n| tag(doc, n) == Some("button"));
-        let handlers: Vec<(u32, Option<String>)> = chain
-            .iter()
-            .filter_map(|&n| self.listeners.get(n, Event::Click))
-            .map(|h| (h, None))
-            .collect();
-        self.dispatch(doc, &handlers);
-        button
+    /// Whether `event` was cancelled.
+    fn cancelled(event: &Option<runic_js::Event>) -> bool {
+        event.as_ref().is_some_and(|e| e.default_prevented())
     }
 
-    /// Keyboard activation of a checkbox: the toggle, click listeners, then
-    /// its `change` event (pointer clicks toggle through Blitz's default action).
-    fn activate_checkbox(&mut self, doc: &mut BaseDocument, id: NodeId) {
+    /// Browser click: no dispatch at all when the target is inside a disabled
+    /// control; otherwise every click listener on the path runs, target
+    /// first. Returns the event (none when suppressed).
+    fn click(
+        &mut self,
+        doc: &mut BaseDocument,
+        chain: &[NodeId],
+        data: EventData,
+    ) -> Option<runic_js::Event> {
+        if inside_disabled(doc, chain) {
+            return None;
+        }
+        self.fire(doc, chain, Event::Click, data)
+    }
+
+    /// Checkbox activation: the toggle, click listeners, then its `change`
+    /// event unless the click was cancelled (the toggle is then reverted).
+    fn activate_checkbox(&mut self, doc: &mut BaseDocument, id: NodeId, data: EventData) {
         let chain = chain_of(doc, id);
-        if chain.iter().any(|&n| is_disabled_control(doc, n)) {
+        if inside_disabled(doc, &chain) {
             return;
         }
         // The toggle precedes the click listeners, as in the browser.
@@ -254,25 +375,114 @@ impl<A: App> Handler<'_, A> {
             listeners: self.listeners,
         }
         .set_checked(id, now);
-        let change = self
-            .listeners
-            .get(id, Event::Change)
-            .map(|h| (h, Some(if now { "true" } else { "false" }.to_owned())));
-        if A::CHANGE_WITH_CLICK {
-            // One dispatch: the click listeners, then `change`.
-            let mut handlers: Vec<(u32, Option<String>)> = chain
-                .iter()
-                .filter_map(|&n| self.listeners.get(n, Event::Click))
-                .map(|h| (h, None))
-                .collect();
-            handlers.extend(change);
-            self.dispatch(doc, &handlers);
+        let click_data = EventData {
+            checked: now,
+            ..data
+        };
+        let change_data = |target: NodeId| EventData {
+            kind: Event::Change.name().into(),
+            target: Element(target.as_u64()),
+            checked: now,
+            ..Default::default()
+        };
+        let click = if A::CHANGE_WITH_CLICK {
+            // One dispatch: the click listeners, then `change` (delivered
+            // with the click, whatever its listeners do).
+            let mut data = click_data;
+            data.kind = Event::Click.name().into();
+            data.target = Element(id.as_u64());
+            data.cancelable = true;
+            let event = runic_js::Event::new(data);
+            let change = runic_js::Event::new(change_data(id));
+            let mut deliveries: Vec<Delivery> = vec![];
+            for &n in &chain {
+                for listener in self.listeners.all(n, Event::Click) {
+                    deliveries.push(Delivery {
+                        listener,
+                        event: event.clone(),
+                        current: n.as_u64(),
+                    });
+                }
+            }
+            for listener in self.listeners.all(id, Event::Change) {
+                deliveries.push(Delivery {
+                    listener,
+                    event: change.clone(),
+                    current: id.as_u64(),
+                });
+            }
+            self.dispatch(doc, &deliveries);
+            event.finish();
+            change.finish();
+            Some(event)
+        } else {
+            self.fire(doc, &chain, Event::Click, click_data)
+        };
+        if Self::cancelled(&click) {
+            if doc.get_node(id).is_some() {
+                Dom {
+                    doc,
+                    listeners: self.listeners,
+                }
+                .set_checked(id, !now);
+            }
             return;
         }
-        self.click(doc, &chain);
-        if let Some(c) = change {
-            self.dispatch(doc, &[c]);
+        if !A::CHANGE_WITH_CLICK {
+            self.fire(doc, &[id], Event::Change, change_data(id));
         }
+    }
+
+    /// The boundary events of a pointer move, in Chromium's order: pointer
+    /// events (leaving innermost first, entering outermost first), then
+    /// mouse events. Elements no longer in the document get none.
+    fn boundary(&mut self, doc: &mut BaseDocument, p: &BlitzPointerEvent) {
+        let mut left = std::mem::take(&mut self.pointer.left);
+        left.reverse();
+        let entered = std::mem::take(&mut self.pointer.entered);
+        let live = |doc: &BaseDocument, n: NodeId| {
+            is_element(doc, n) && doc.get_node(n).is_some_and(|n| n.flags.is_in_document())
+        };
+        let mouse = p.is_mouse();
+        for (leave, enter) in [
+            (Event::Pointerleave, Event::Pointerenter),
+            (Event::Mouseleave, Event::Mouseenter),
+        ] {
+            if leave == Event::Mouseleave && !mouse {
+                break;
+            }
+            for &n in &left {
+                if live(doc, n) {
+                    self.fire(doc, &[n], leave, pointer_data(p));
+                }
+            }
+            for &n in &entered {
+                if live(doc, n) {
+                    self.fire(doc, &[n], enter, pointer_data(p));
+                }
+            }
+        }
+    }
+
+    /// The click count of a primary press at `(x, y)`.
+    fn count_click(&mut self, x: f32, y: f32) -> u32 {
+        let now = std::time::Instant::now();
+        let count = match self.pointer.next_count.take() {
+            Some(n) => n,
+            None => match self.pointer.last_press {
+                Some((t, px, py))
+                    if now.duration_since(t) < std::time::Duration::from_millis(500)
+                        && (px - x).abs() <= 2.0
+                        && (py - y).abs() <= 2.0 =>
+                {
+                    self.pointer.clicks + 1
+                }
+                _ => 1,
+            },
+        };
+        self.pointer.clicks = count;
+        self.pointer.last_press = Some((now, x, y));
+        count
     }
 
     /// A focused element that became disabled loses focus (browser focus
@@ -297,15 +507,46 @@ impl<A: App> EventHandler for Handler<'_, A> {
     ) {
         let mut guard = document.inner_mut();
         let doc: &mut BaseDocument = &mut guard;
-        // Keydown listeners (target first, bubbling) run before default actions.
+        match &event.data {
+            // Boundary events wait for the move that caused them; the
+            // pointer's own `over`/`out` events and Blitz's mouse boundary
+            // events are not delivered (Chromium's order is rebuilt).
+            DomEventData::PointerLeave(_) => {
+                self.pointer.left.push(event.target);
+                return;
+            }
+            DomEventData::PointerEnter(_) => {
+                self.pointer.entered.push(event.target);
+                return;
+            }
+            DomEventData::PointerOver(_)
+            | DomEventData::PointerOut(_)
+            | DomEventData::MouseOver(_)
+            | DomEventData::MouseOut(_)
+            | DomEventData::MouseEnter(_)
+            | DomEventData::MouseLeave(_)
+            // Generated here instead: double clicks by the runtime's click
+            // count, the context menu on press where the platform opens it then.
+            | DomEventData::DoubleClick(_)
+            | DomEventData::Focus(_)
+            | DomEventData::Blur(_)
+            | DomEventData::FocusIn(_)
+            | DomEventData::FocusOut(_) => return,
+            DomEventData::ContextMenu(_) if CONTEXT_MENU_ON_PRESS => return,
+            _ => {}
+        }
+        // Keydown listeners (target first, bubbling) run before default
+        // actions; a cancelled keydown has none (no text insertion,
+        // activation or focus navigation).
         if let DomEventData::KeyDown(k) = &event.data {
-            let key = k.key.to_string();
-            let handlers: Vec<(u32, Option<String>)> = chain
-                .iter()
-                .filter_map(|&n| self.listeners.get(n, Event::Keydown))
-                .map(|h| (h, Some(key.clone())))
-                .collect();
-            self.dispatch(doc, &handlers);
+            let e = self.fire(doc, chain, Event::Keydown, key_data(k));
+            if Self::cancelled(&e) {
+                state.prevent_default();
+                *self.space_target = None;
+                self.fix_focus(doc);
+                doc.shell_provider.request_redraw();
+                return;
+            }
         }
         if controls::blocks_edit(doc, &event.data) || controls::exceeds_maxlength(doc, &event.data)
         {
@@ -316,51 +557,145 @@ impl<A: App> EventHandler for Handler<'_, A> {
         let focused_button = focused.filter(|&f| tag(doc, f) == Some("button"));
         let focused_checkbox = focused.filter(|&f| is_checkbox(doc, f));
         match &event.data {
-            DomEventData::MouseDown(_) => {
-                // Focus moves on mousedown: to the clicked button, nowhere for
-                // non-focusable targets (including disabled controls). Text
-                // inputs keep Blitz's default (focus and caret placement).
-                *self.nav_start = chain.first().copied();
-                let control = chain
-                    .iter()
-                    .copied()
-                    .find(|&n| matches!(tag(doc, n), Some("button" | "input")));
-                match control {
-                    // Checkboxes are focused like buttons; text inputs keep
-                    // Blitz's default (focus and caret placement).
-                    Some(c) if is_checkbox(doc, c) && !is_disabled_control(doc, c) => {
-                        doc.set_focus_to(c);
+            DomEventData::PointerMove(p) => {
+                self.boundary(doc, p);
+                self.fire(doc, chain, Event::Pointermove, pointer_data(p));
+            }
+            DomEventData::PointerDown(p) => {
+                self.boundary(doc, p);
+                self.pointer.suppress_mouse = false;
+                // Cancelling pointerdown suppresses the mouse events up to
+                // mouseup but not the default actions (focus).
+                let e = self.fire(doc, chain, Event::Pointerdown, pointer_data(p));
+                self.pointer.suppress_mouse = Self::cancelled(&e);
+            }
+            DomEventData::PointerUp(p) => {
+                self.boundary(doc, p);
+                self.fire(doc, chain, Event::Pointerup, pointer_data(p));
+            }
+            DomEventData::MouseMove(p) => {
+                if !self.pointer.suppress_mouse {
+                    self.fire(doc, chain, Event::Mousemove, pointer_data(p));
+                }
+            }
+            DomEventData::MouseUp(p) => {
+                // Disabled controls get no mouse button events.
+                if !self.pointer.suppress_mouse && !inside_disabled(doc, chain) {
+                    self.fire(doc, chain, Event::Mouseup, pointer_data(p));
+                }
+                self.pointer.suppress_mouse = false;
+            }
+            DomEventData::MouseDown(p) => {
+                if p.button == MouseEventButton::Main {
+                    self.count_click(p.coords.client_x, p.coords.client_y);
+                }
+                let blocked = inside_disabled(doc, chain);
+                let e = if self.pointer.suppress_mouse || blocked {
+                    None
+                } else {
+                    self.fire(doc, chain, Event::Mousedown, pointer_data(p))
+                };
+                if Self::cancelled(&e) {
+                    // Focus stays where it is (the menu and popover pattern).
+                    state.prevent_default();
+                } else {
+                    // Focus moves on mousedown: to the clicked button, nowhere
+                    // for non-focusable targets (including disabled
+                    // controls). Text inputs keep Blitz's default (focus and
+                    // caret placement).
+                    *self.nav_start = chain.first().copied();
+                    let control = chain
+                        .iter()
+                        .copied()
+                        .find(|&n| matches!(tag(doc, n), Some("button" | "input")));
+                    match control {
+                        // Checkboxes are focused like buttons.
+                        Some(c) if is_checkbox(doc, c) && !is_disabled_control(doc, c) => {
+                            doc.set_focus_to(c);
+                        }
+                        Some(c) if tag(doc, c) == Some("input") && !is_disabled_control(doc, c) => {
+                        }
+                        Some(c) if !is_disabled_control(doc, c) => {
+                            doc.set_focus_to(c);
+                        }
+                        _ => doc.clear_focus(),
                     }
-                    Some(c) if tag(doc, c) == Some("input") && !is_disabled_control(doc, c) => {}
-                    Some(c) if !is_disabled_control(doc, c) => {
-                        doc.set_focus_to(c);
-                    }
-                    _ => doc.clear_focus(),
+                }
+                if CONTEXT_MENU_ON_PRESS && p.button == MouseEventButton::Secondary && !blocked {
+                    self.fire(doc, chain, Event::Contextmenu, pointer_data(p));
+                }
+            }
+            DomEventData::ContextMenu(p) => {
+                if !inside_disabled(doc, chain) {
+                    self.fire(doc, chain, Event::Contextmenu, pointer_data(p));
+                }
+            }
+            DomEventData::Wheel(w) => {
+                // DOM deltas are positive downwards; Blitz scrolls a line by 20 px.
+                let (dx, dy) = match w.delta {
+                    BlitzWheelDelta::Pixels(x, y) => (-x, -y),
+                    BlitzWheelDelta::Lines(x, y) => (-x * 20.0, -y * 20.0),
+                };
+                let mut data = EventData {
+                    client_x: w.coords.client_x as f64,
+                    client_y: w.coords.client_y as f64,
+                    buttons: w.buttons.bits() as f64,
+                    delta_x: dx,
+                    delta_y: dy,
+                    ..Default::default()
+                };
+                modifiers(&mut data, w.mods);
+                let e = self.fire(doc, chain, Event::Wheel, data);
+                if Self::cancelled(&e) {
+                    state.prevent_default();
                 }
             }
             DomEventData::Input(input) => {
                 // Blitz reports checkbox toggles as input events with "true"/"false".
                 let target = chain.first().copied();
-                let kind = match target {
-                    Some(t) if is_checkbox(doc, t) => Event::Change,
-                    _ => Event::Input,
-                };
-                if let Some(h) = target.and_then(|t| self.listeners.get(t, kind)) {
-                    self.dispatch(doc, &[(h, Some(input.value.clone()))]);
+                match target {
+                    Some(t) if is_checkbox(doc, t) => {
+                        let data = EventData {
+                            checked: input.value == "true",
+                            ..Default::default()
+                        };
+                        self.fire(doc, &[t], Event::Change, data);
+                    }
+                    Some(t) => {
+                        let data = EventData {
+                            value: input.value.as_str().into(),
+                            ..Default::default()
+                        };
+                        self.fire(doc, &[t], Event::Input, data);
+                    }
+                    None => {}
                 }
             }
-            DomEventData::Click(_) if chain.first().is_some_and(|&t| is_checkbox(doc, t)) => {
+            DomEventData::Click(p) if chain.first().is_some_and(|&t| is_checkbox(doc, t)) => {
                 // Checkbox activation is handled here rather than by Blitz's
                 // default action, which would touch the checkbox after a
                 // `change` handler may have removed it.
                 state.prevent_default();
-                self.activate_checkbox(doc, chain[0]);
+                let count = self.pointer.clicks;
+                self.activate_checkbox(doc, chain[0], pointer_data(p));
+                if count == 2 && !inside_disabled(doc, chain) {
+                    self.fire(doc, chain, Event::Dblclick, pointer_data(p));
+                }
             }
-            DomEventData::Click(_) => {
-                if self.click(doc, chain).is_some() {
+            DomEventData::Click(p) => {
+                let count = self.pointer.clicks;
+                let button = chain
+                    .iter()
+                    .copied()
+                    .find(|&n| tag(doc, n) == Some("button"));
+                let e = self.click(doc, chain, pointer_data(p));
+                if button.is_some() || Self::cancelled(&e) {
                     // The button was focused on mousedown; Blitz's default
                     // click action would clear focus again.
                     state.prevent_default();
+                }
+                if count == 2 && !inside_disabled(doc, chain) {
+                    self.fire(doc, chain, Event::Dblclick, pointer_data(p));
                 }
             }
             DomEventData::KeyDown(k) if k.key == Key::Tab => {
@@ -384,7 +719,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 state.prevent_default();
                 let button = focused_button.unwrap();
                 let chain = chain_of(doc, button);
-                self.click(doc, &chain);
+                self.click(doc, &chain, EventData::default());
             }
             DomEventData::KeyDown(k)
                 if focused_button.or(focused_checkbox).is_some()
@@ -395,23 +730,24 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     *self.space_target = focused_button.or(focused_checkbox);
                 }
             }
-            DomEventData::KeyUp(k)
-                if focused_button.or(focused_checkbox).is_some()
-                    && k.key == Key::Character(" ".into()) =>
-            {
-                state.prevent_default();
+            DomEventData::KeyDown(_) => {}
+            DomEventData::KeyUp(k) => {
+                let e = self.fire(doc, chain, Event::Keyup, key_data(k));
+                let space = k.key == Key::Character(" ".into());
                 let target = focused_button.or(focused_checkbox);
-                if self.space_target.take() == target {
-                    let target = target.unwrap();
-                    if is_checkbox(doc, target) {
-                        self.activate_checkbox(doc, target);
-                    } else {
-                        let chain = chain_of(doc, target);
-                        self.click(doc, &chain);
+                if space && target.is_some() {
+                    state.prevent_default();
+                    if self.space_target.take() == target && !Self::cancelled(&e) {
+                        let target = target.unwrap();
+                        if is_checkbox(doc, target) {
+                            self.activate_checkbox(doc, target, EventData::default());
+                        } else {
+                            let chain = chain_of(doc, target);
+                            self.click(doc, &chain, EventData::default());
+                        }
                     }
                 }
             }
-            DomEventData::KeyDown(_) => {}
             _ => return,
         }
         self.fix_focus(doc);

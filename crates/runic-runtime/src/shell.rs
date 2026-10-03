@@ -105,6 +105,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         listeners,
         space_target: None,
         nav_start: None,
+        pointer: Default::default(),
         log: vec![],
         started: Instant::now(),
         wake_at: None,

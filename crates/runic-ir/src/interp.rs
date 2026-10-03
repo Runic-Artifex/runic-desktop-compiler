@@ -48,6 +48,7 @@ pub enum Val {
     Set(JsSet<Val>),
     Closure(Rc<Closure>),
     Element(js::Element),
+    Event(js::Event),
     Promise(Promise),
     /// A promise's resolve or reject function.
     Resolver(Rc<Resolver>),
@@ -173,6 +174,7 @@ impl js::StrictEq for Val {
             (Val::Resolver(a), Val::Resolver(b)) => Rc::ptr_eq(a, b),
             (Val::Promise(a), Val::Promise(b)) => a == b,
             (Val::Element(a), Val::Element(b)) => a == b,
+            (Val::Event(a), Val::Event(b)) => a == b,
             _ => false,
         }
     }
@@ -210,6 +212,7 @@ impl js::ToJsString for Val {
             Val::Set(_) => JsString::from("[object Set]"),
             Val::Closure(_) | Val::Resolver(_) => JsString::from("function"),
             Val::Element(e) => e.to_js_string(),
+            Val::Event(e) => e.to_js_string(),
             Val::Promise(_) => JsString::from("[object Promise]"),
         }
     }
@@ -301,6 +304,7 @@ impl ToMapKey for Val {
             Val::Resolver(r) => MapKey::Ref(Rc::as_ptr(r) as *const u8 as usize),
             Val::Promise(p) => MapKey::Ref(p.addr()),
             Val::Element(e) => e.map_key(),
+            Val::Event(e) => e.map_key(),
         }
     }
 }
@@ -373,6 +377,8 @@ pub enum VNode {
         value: Option<String>,
         /// Live checked state of checkboxes.
         checked: Option<bool>,
+        /// Stable identity (element handles, event targets).
+        id: u64,
         listeners: Vec<(EventKind, usize)>,
         children: Vec<VNode>,
     },
@@ -566,14 +572,18 @@ pub struct Machine<'p> {
     /// The instance whose cells expressions read and write.
     current: usize,
     payload: Option<Val>,
+    /// The event of the running handler.
+    event: Option<js::Event>,
+    /// Element ids from the root to the element under the pointer.
+    hovered: Vec<u64>,
     children: HashMap<InstKey, usize>,
     /// Listeners of the last render, indexed by `VNode` listener ids.
     listeners: Vec<ListenerRef>,
     /// Child instances in tree order (last render).
     order: Vec<usize>,
-    /// Stable ids of rendered elements with refs, by identity.
+    /// Stable ids of rendered elements, by identity.
     element_ids: HashMap<(InstKey, usize), u64>,
-    /// Elements with refs rendered by the running render (an element that
+    /// Elements rendered by the running render (an element that
     /// is not rendered loses its id: a remounted element is a new node).
     rendered_elements: HashSet<(InstKey, usize)>,
     next_element: u64,
@@ -688,6 +698,8 @@ impl<'p> Machine<'p> {
             refs: HashMap::new(),
             current: 0,
             payload: None,
+            event: None,
+            hovered: vec![],
             children: HashMap::new(),
             listeners: vec![],
             order: vec![],
@@ -840,6 +852,7 @@ impl<'p> Machine<'p> {
             Global { global } => self.globals[*global].clone(),
             Local { local } => f.get(*local),
             Payload => self.payload.clone().expect("payload context"),
+            Event => Val::Event(self.event.clone().expect("event context")),
             Not { arg } => Val::Bool(!self.eval(arg, f)?.boolean()),
             Neg { arg } => Val::Num(-self.eval(arg, f)?.num()),
             BitNot { arg } => Val::Num(js::bit_not(self.eval(arg, f)?.num())),
@@ -1757,6 +1770,46 @@ impl<'p> Machine<'p> {
             ("clock", "date") => Val::Num(CLOCK_ORIGIN + self.now),
             // Focus has no interpreter observable (the snapshot has no focus).
             ("element", "focus" | "blur") => Val::Undefined,
+            ("event", m) => {
+                let Val::Event(e) = &a[0] else {
+                    panic!("validated event")
+                };
+                let d = e.data();
+                match m {
+                    "type" => Val::Str(d.kind.clone()),
+                    "key" => Val::Str(d.key.clone()),
+                    "code" => Val::Str(d.code.clone()),
+                    "value" => Val::Str(d.value.clone()),
+                    "ctrlKey" => Val::Bool(d.ctrl),
+                    "shiftKey" => Val::Bool(d.shift),
+                    "altKey" => Val::Bool(d.alt),
+                    "metaKey" => Val::Bool(d.meta),
+                    "repeat" => Val::Bool(d.repeat),
+                    "checked" => Val::Bool(d.checked),
+                    "defaultPrevented" => Val::Bool(e.default_prevented()),
+                    "clientX" => Val::Num(d.client_x),
+                    "clientY" => Val::Num(d.client_y),
+                    "button" => Val::Num(d.button),
+                    "buttons" => Val::Num(d.buttons),
+                    "deltaX" => Val::Num(d.delta_x),
+                    "deltaY" => Val::Num(d.delta_y),
+                    "target" => Val::Element(d.target),
+                    "currentTarget" => e.current_target().map_or(Val::Null, Val::Element),
+                    "preventDefault" => {
+                        e.prevent_default();
+                        Val::Undefined
+                    }
+                    "stopPropagation" => {
+                        e.stop_propagation();
+                        Val::Undefined
+                    }
+                    "stopImmediatePropagation" => {
+                        e.stop_immediate_propagation();
+                        Val::Undefined
+                    }
+                    other => panic!("validated event member {other}"),
+                }
+            }
             ("maybe", "is-null") => Val::Bool(matches!(a[0], Val::Null)),
             ("maybe", "is-undefined") => Val::Bool(matches!(a[0], Val::Undefined)),
             ("maybe", "is-nullish") => Val::Bool(matches!(a[0], Val::Undefined | Val::Null)),
@@ -1801,7 +1854,11 @@ impl<'p> Machine<'p> {
     fn to_json(&self, v: &Val) -> Option<js::json::Json> {
         use js::json::Json as J;
         Some(match v {
-            Val::Undefined | Val::Closure(_) | Val::Resolver(_) | Val::Element(_) => return None,
+            Val::Undefined
+            | Val::Closure(_)
+            | Val::Resolver(_)
+            | Val::Element(_)
+            | Val::Event(_) => return None,
             // A promise has no own enumerable properties.
             Val::Promise(_) => J::Object(Default::default()),
             Val::Null => J::Null,
@@ -2149,25 +2206,25 @@ impl<'p> Machine<'p> {
                 reference,
                 ..
             } => {
+                let key = (
+                    InstKey {
+                        parent: self.current,
+                        node: n as *const Node as usize,
+                        path: path.clone(),
+                        via: self.via.clone(),
+                    },
+                    0,
+                );
+                let id = match self.element_ids.get(&key) {
+                    Some(&id) => id,
+                    None => {
+                        self.next_element += 1;
+                        self.element_ids.insert(key.clone(), self.next_element);
+                        self.next_element
+                    }
+                };
+                self.rendered_elements.insert(key);
                 if let Some(cell) = reference {
-                    let key = (
-                        InstKey {
-                            parent: self.current,
-                            node: n as *const Node as usize,
-                            path: path.clone(),
-                            via: self.via.clone(),
-                        },
-                        0,
-                    );
-                    let id = match self.element_ids.get(&key) {
-                        Some(&id) => id,
-                        None => {
-                            self.next_element += 1;
-                            self.element_ids.insert(key.clone(), self.next_element);
-                            self.next_element
-                        }
-                    };
-                    self.rendered_elements.insert(key);
                     let current = self.current;
                     let element = Val::Element(js::Element(id));
                     if !self.instances[current].cells[*cell].same(&element) {
@@ -2225,6 +2282,7 @@ impl<'p> Machine<'p> {
                     attrs: map,
                     value,
                     checked,
+                    id,
                     listeners: refs,
                     children: normalize(kids),
                 });
@@ -2969,10 +3027,17 @@ impl<'p> Machine<'p> {
 
     /// Run handler `h` of instance `instance` with listener arguments (in
     /// the running task).
-    fn run(&mut self, instance: usize, h: usize, args: Vec<Val>, payload: Option<Val>) -> Res<()> {
+    fn run(
+        &mut self,
+        instance: usize,
+        h: usize,
+        args: Vec<Val>,
+        event: Option<js::Event>,
+    ) -> Res<()> {
         let component = self.instances[instance].component;
         let handler = &self.program.components[component].handlers[h];
-        self.payload = payload;
+        self.payload = event.as_ref().and_then(payload_of);
+        self.event = event;
         let frame = Frame::new(handler.params.len() + handler.locals.len());
         for (i, a) in args.into_iter().enumerate() {
             frame.set(i, a);
@@ -2983,6 +3048,7 @@ impl<'p> Machine<'p> {
         self.current = saved;
         self.snap = saved_snap;
         self.payload = None;
+        self.event = None;
         r.map(|_| ())
     }
 
@@ -3066,12 +3132,14 @@ impl<'p> Machine<'p> {
         Val::Num(id as f64)
     }
 
-    pub fn fire(
-        &mut self,
-        target: Target<'_>,
-        event: EventKind,
-        data: Option<&str>,
-    ) -> Result<bool> {
+    /// Perform a harness action on `target` with Chromium's event sequences
+    /// (docs/design/M5-PLATFORM.md): `click`, `dblclick`, `contextmenu`,
+    /// `hover`, `input` (`data`: the new value), `keydown` (`data`: a key
+    /// specification; the key is pressed and released) or `wheel` (`data`:
+    /// `"dx,dy"`). Returns whether any listener ran. The interpreter has no
+    /// layout: pointer events target the element itself rather than the
+    /// element hit at its centre, and carry zero coordinates.
+    pub fn fire(&mut self, target: Target<'_>, action: &str, data: Option<&str>) -> Result<bool> {
         let tree = self.render()?;
         let Some(path) = locate(&tree, &target) else {
             return match target {
@@ -3083,81 +3151,327 @@ impl<'p> Machine<'p> {
                 Target::Nth(..) | Target::Path(_) => Ok(false),
             };
         };
-        let nodes = path_nodes(&tree, &path);
-        let target_node = *nodes.last().expect("element path");
-        let VNode::Element {
-            tag,
-            attrs,
-            checked,
-            ..
-        } = target_node
-        else {
+        let Some(&&VNode::Element { id, .. }) = path_nodes(&tree, &path).last() else {
             unreachable!("paths end at elements")
         };
-        let control = |n: &VNode| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input") && attrs.contains_key("disabled"));
-        let blocked = match event {
-            EventKind::Click => nodes.iter().any(|n| control(n)),
-            EventKind::Input => attrs.contains_key("disabled") || attrs.contains_key("readonly"),
-            EventKind::Change | EventKind::Keydown => attrs.contains_key("disabled"),
-        };
-        if blocked {
-            return Ok(false);
-        }
-        let listeners_of = |n: &VNode, kind: EventKind| -> Option<usize> {
-            match n {
-                VNode::Element { listeners, .. } => {
-                    listeners.iter().find(|(k, _)| *k == kind).map(|(_, l)| *l)
-                }
-                VNode::Text(_) => None,
+        let mut run = Run::default();
+        let s = &mut run;
+        match action {
+            "click" => self.press(id, 0.0, 1, s)?,
+            "dblclick" => {
+                self.press(id, 0.0, 1, s)?;
+                self.press(id, 0.0, 2, s)?;
             }
-        };
-        // (listener, payload, dispatch) in dispatch order: a checkbox's
-        // `change` is a second event after `click` unless the framework
-        // delivers it with the click.
-        let mut queue: Vec<(usize, Option<Val>, usize)> = vec![];
-        match event {
-            EventKind::Click => {
-                for n in nodes.iter().rev() {
-                    if let Some(l) = listeners_of(n, EventKind::Click) {
-                        queue.push((l, None, 0));
-                    }
-                }
-                if let Some(c) = checked {
-                    if let Some(l) = listeners_of(target_node, EventKind::Change) {
-                        let dispatch = usize::from(!self.program.schedule.change_with_click);
-                        queue.push((l, Some(Val::Bool(!c)), dispatch));
-                    }
-                }
+            "contextmenu" => self.press(id, 2.0, 1, s)?,
+            "hover" => self.pointer_move(id, s)?,
+            "wheel" => {
+                let (dx, dy) = data
+                    .and_then(|d| d.split_once(','))
+                    .and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?)))
+                    .unwrap_or((0.0, 0.0));
+                self.pointer_move(id, s)?;
+                let data = js::EventData {
+                    delta_x: dx,
+                    delta_y: dy,
+                    ..Default::default()
+                };
+                self.dispatch(id, EventKind::Wheel, data, None, s)?;
             }
-            EventKind::Input | EventKind::Change => {
-                if let Some(l) = listeners_of(target_node, event) {
-                    let payload = match event {
-                        EventKind::Input => Val::Str(JsString::from(data.unwrap_or_default())),
-                        _ => Val::Bool(data == Some("true")),
+            "input" => {
+                let tree = self.render()?;
+                let locked = chain_nodes(&tree, id).and_then(|n| n.last().copied()).is_some_and(
+                    |n| matches!(n, VNode::Element { attrs, .. } if attrs.contains_key("disabled") || attrs.contains_key("readonly")),
+                );
+                if !locked {
+                    let data = js::EventData {
+                        value: JsString::from(data.unwrap_or_default()),
+                        ..Default::default()
                     };
-                    queue.push((l, Some(payload), 0));
+                    self.dispatch(id, EventKind::Input, data, None, s)?;
                 }
             }
-            EventKind::Keydown => {
-                for n in nodes.iter().rev() {
-                    if let Some(l) = listeners_of(n, EventKind::Keydown) {
-                        let key = Val::Str(JsString::from(data.unwrap_or_default()));
-                        queue.push((l, Some(key), 0));
+            "keydown" => self.key(id, data.unwrap_or_default(), s)?,
+            other => {
+                return Err(Diagnostic::new(
+                    "E_INPUT",
+                    format!("unknown action {other}"),
+                    None,
+                ));
+            }
+        }
+        match run.error {
+            Some(d) => Err(d),
+            None => Ok(run.ran),
+        }
+    }
+
+    /// Whether `target` is (inside) a disabled button or input.
+    fn inside_disabled(&mut self, target: u64) -> Result<bool> {
+        let tree = self.render()?;
+        Ok(chain_nodes(&tree, target).is_some_and(|nodes| {
+            nodes.iter().any(|n| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input") && attrs.contains_key("disabled")))
+        }))
+    }
+
+    /// Move the pointer onto `target`: Chromium's boundary events where the
+    /// hovered elements change (pointer events, then mouse events; leaving
+    /// innermost first, entering outermost first; none for removed
+    /// elements), then `pointermove` and `mousemove`.
+    fn pointer_move(&mut self, target: u64, s: &mut Run) -> Result<()> {
+        let tree = self.render()?;
+        let Some(nodes) = chain_nodes(&tree, target) else {
+            return Ok(());
+        };
+        let new: Vec<u64> = nodes.iter().filter_map(|n| element_id(n)).collect();
+        let old = std::mem::replace(&mut self.hovered, new.clone());
+        let common = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+        let left: Vec<u64> = old[common..]
+            .iter()
+            .rev()
+            .copied()
+            .filter(|&id| chain_nodes(&tree, id).is_some())
+            .collect();
+        let entered = &new[common..];
+        for (leave, enter) in [
+            (EventKind::Pointerleave, EventKind::Pointerenter),
+            (EventKind::Mouseleave, EventKind::Mouseenter),
+        ] {
+            for &id in &left {
+                self.dispatch(id, leave, Default::default(), None, s)?;
+            }
+            for &id in entered {
+                self.dispatch(id, enter, Default::default(), None, s)?;
+            }
+        }
+        self.dispatch(target, EventKind::Pointermove, Default::default(), None, s)?;
+        self.dispatch(target, EventKind::Mousemove, Default::default(), None, s)?;
+        Ok(())
+    }
+
+    /// A button press on `target` as Playwright clicks: the move (before a
+    /// first click), down, up, then the click (main button; `count`: the
+    /// click count) or, after mousedown, the context menu (secondary button,
+    /// as on Linux). Disabled controls get the pointer events only; a
+    /// cancelled `pointerdown` suppresses the mouse events up to `mouseup`.
+    fn press(&mut self, target: u64, button: f64, count: u32, s: &mut Run) -> Result<()> {
+        if count == 1 {
+            self.pointer_move(target, s)?;
+        }
+        let pressed = js::EventData {
+            button,
+            buttons: if button == 2.0 { 2.0 } else { 1.0 },
+            ..Default::default()
+        };
+        let released = js::EventData {
+            button,
+            ..Default::default()
+        };
+        let disabled = self.inside_disabled(target)?;
+        let down = self.dispatch(target, EventKind::Pointerdown, pressed.clone(), None, s)?;
+        let compat = !disabled && !down.is_some_and(|e| e.default_prevented());
+        if compat {
+            self.dispatch(target, EventKind::Mousedown, pressed.clone(), None, s)?;
+        }
+        if button == 2.0 && !disabled {
+            self.dispatch(target, EventKind::Contextmenu, pressed, None, s)?;
+        }
+        self.dispatch(target, EventKind::Pointerup, released.clone(), None, s)?;
+        if compat {
+            self.dispatch(target, EventKind::Mouseup, released, None, s)?;
+        }
+        if button == 0.0 && !self.inside_disabled(target)? {
+            self.click(target, s)?;
+            if count == 2 {
+                self.dispatch(target, EventKind::Dblclick, Default::default(), None, s)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The `click` event on `target` (a pointer click or a keyboard
+    /// activation). A checkbox toggles first; its `change` follows unless the
+    /// click was cancelled (the browser then reverts the toggle), or runs in
+    /// the click's dispatch where the framework delivers it with the click.
+    fn click(&mut self, target: u64, s: &mut Run) -> Result<()> {
+        let tree = self.render()?;
+        let Some(nodes) = chain_nodes(&tree, target) else {
+            return Ok(());
+        };
+        let toggled = match nodes.last() {
+            Some(VNode::Element {
+                checked: Some(c), ..
+            }) => Some(!c),
+            _ => None,
+        };
+        let change = toggled.map(|checked| js::EventData {
+            checked,
+            ..Default::default()
+        });
+        let with_click = self.program.schedule.change_with_click;
+        let data = js::EventData {
+            checked: toggled.unwrap_or_default(),
+            ..Default::default()
+        };
+        let with = change
+            .clone()
+            .filter(|_| with_click)
+            .map(|d| (EventKind::Change, d));
+        let click = self.dispatch(target, EventKind::Click, data, with, s)?;
+        if let Some(d) = change.filter(|_| !with_click) {
+            if !click.is_some_and(|e| e.default_prevented()) {
+                self.dispatch(target, EventKind::Change, d, None, s)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A key pressed and released on `target` (modifiers pressed before and
+    /// released after it), with the activation behaviour of buttons (Enter
+    /// on keydown, Space after keyup) and checkboxes (Space after keyup)
+    /// unless a listener cancelled it.
+    fn key(&mut self, target: u64, spec: &str, s: &mut Run) -> Result<()> {
+        let Some(k) = js::parse_key_spec(spec) else {
+            return Err(Diagnostic::new(
+                "E_INPUT",
+                format!("unsupported key {spec}"),
+                None,
+            ));
+        };
+        if self.inside_disabled(target)? {
+            return Ok(());
+        }
+        let mods: Vec<(&str, &str)> = js::MODIFIER_KEYS
+            .iter()
+            .copied()
+            .filter(|(m, _)| match *m {
+                "Shift" => k.shift,
+                "Control" => k.ctrl,
+                "Alt" => k.alt,
+                _ => k.meta,
+            })
+            .collect();
+        let mut held = js::KeySpec::default();
+        let data = |key: &str, code: &str, held: &js::KeySpec| js::EventData {
+            key: JsString::from(key),
+            code: JsString::from(code),
+            ctrl: held.ctrl,
+            shift: held.shift,
+            alt: held.alt,
+            meta: held.meta,
+            ..Default::default()
+        };
+        let hold = |held: &mut js::KeySpec, m: &str, on: bool| match m {
+            "Shift" => held.shift = on,
+            "Control" => held.ctrl = on,
+            "Alt" => held.alt = on,
+            _ => held.meta = on,
+        };
+        for (m, code) in &mods {
+            hold(&mut held, m, true);
+            self.dispatch(target, EventKind::Keydown, data(m, code, &held), None, s)?;
+        }
+        let down = self.dispatch(
+            target,
+            EventKind::Keydown,
+            data(&k.key, &k.code, &held),
+            None,
+            s,
+        )?;
+        let cancelled = down.is_some_and(|e| e.default_prevented());
+        let tree = self.render()?;
+        let (button, checkbox) = match chain_nodes(&tree, target).and_then(|n| n.last().copied()) {
+            Some(VNode::Element { tag, checked, .. }) => {
+                (tag == "button", tag == "input" && checked.is_some())
+            }
+            _ => (false, false),
+        };
+        if !cancelled && button && k.key == "Enter" {
+            self.click(target, s)?;
+        }
+        let up = self.dispatch(
+            target,
+            EventKind::Keyup,
+            data(&k.key, &k.code, &held),
+            None,
+            s,
+        )?;
+        if !cancelled
+            && !up.is_some_and(|e| e.default_prevented())
+            && (button || checkbox)
+            && k.key == " "
+        {
+            self.click(target, s)?;
+        }
+        for (m, code) in mods.iter().rev() {
+            hold(&mut held, m, false);
+            self.dispatch(target, EventKind::Keyup, data(m, code, &held), None, s)?;
+        }
+        Ok(())
+    }
+
+    /// Dispatch one event at the element `target` if it is rendered: the
+    /// listeners on its path (target first, then the ancestors where the
+    /// event bubbles) and the target's listeners for `with` (a second event
+    /// delivered in the same dispatch), as one task or one task per listener.
+    fn dispatch(
+        &mut self,
+        target: u64,
+        kind: EventKind,
+        mut data: js::EventData,
+        with: Option<(EventKind, js::EventData)>,
+        s: &mut Run,
+    ) -> Result<Option<js::Event>> {
+        let tree = self.render()?;
+        let Some(nodes) = chain_nodes(&tree, target) else {
+            return Ok(None);
+        };
+        let target_node = *nodes.last().expect("element chain");
+        let fill = |data: &mut js::EventData, kind: EventKind| {
+            data.kind = JsString::from(kind.name());
+            data.target = js::Element(target);
+            data.cancelable = kind.cancelable();
+            if let VNode::Element { value, checked, .. } = target_node {
+                if kind != EventKind::Input {
+                    data.value = JsString::from(value.as_deref().unwrap_or_default());
+                }
+                if !matches!(kind, EventKind::Click | EventKind::Change) {
+                    data.checked = checked.unwrap_or_default();
+                }
+            }
+        };
+        fill(&mut data, kind);
+        let event = js::Event::new(data);
+        let path: Vec<&VNode> = if kind.bubbles() {
+            nodes.iter().rev().copied().collect()
+        } else {
+            vec![target_node]
+        };
+        let mut entries: Vec<(usize, js::Event, u64)> = vec![];
+        for n in path {
+            if let VNode::Element { id, listeners, .. } = n {
+                for &(k, l) in listeners {
+                    if k == kind {
+                        entries.push((l, event.clone(), *id));
                     }
                 }
             }
         }
-        let activate = event == EventKind::Keydown
-            && match (tag.as_str(), data) {
-                ("button", Some("Enter" | " ")) => true,
-                ("input", Some(" ")) => checked.is_some(),
-                _ => false,
-            };
-        let id = attrs.get("id").cloned();
-        let ran = !queue.is_empty();
-        let refs: Vec<(ListenerRef, Option<Val>, usize)> = queue
+        let mut second = None;
+        if let Some((k2, mut d2)) = with {
+            fill(&mut d2, k2);
+            let e2 = js::Event::new(d2);
+            if let VNode::Element { listeners, .. } = target_node {
+                for &(k, l) in listeners {
+                    if k == k2 {
+                        entries.push((l, e2.clone(), target));
+                    }
+                }
+            }
+            second = Some(e2);
+        }
+        let refs: Vec<(ListenerRef, js::Event, u64)> = entries
             .into_iter()
-            .map(|(l, p, d)| {
+            .map(|(l, e, current)| {
                 let r = std::mem::replace(
                     &mut self.listeners[l],
                     ListenerRef {
@@ -3166,25 +3480,23 @@ impl<'p> Machine<'p> {
                         args: vec![],
                     },
                 );
-                (r, p, d)
+                (r, e, current)
             })
             .collect();
+        s.ran |= !refs.is_empty();
         // One task per event, or per listener where each listener ends with a
         // microtask checkpoint; an exception does not stop later listeners.
-        let per_listener = self.program.schedule.checkpoint == Checkpoint::Listener;
-        let mut tasks: Vec<Vec<(ListenerRef, Option<Val>)>> = vec![];
-        let mut last = None;
-        for (r, p, d) in refs {
-            if per_listener || last != Some(d) {
-                tasks.push(vec![]);
-            }
-            last = Some(d);
-            tasks.last_mut().expect("task").push((r, p));
-        }
-        let mut first_error = None;
+        let tasks: Vec<Vec<(ListenerRef, js::Event, u64)>> =
+            if self.program.schedule.checkpoint == Checkpoint::Listener {
+                refs.into_iter().map(|r| vec![r]).collect()
+            } else if refs.is_empty() {
+                vec![]
+            } else {
+                vec![refs]
+            };
         for listeners in tasks {
             let source = {
-                let (r, _) = &listeners[0];
+                let (r, ..) = &listeners[0];
                 let c = self.instances[r.instance].component;
                 self.program.components[c].handlers[r.handler]
                     .source
@@ -3192,8 +3504,11 @@ impl<'p> Machine<'p> {
             };
             let result = self.task(source.as_ref(), true, |m| {
                 let mut error = None;
-                for (r, payload) in listeners {
-                    if let Err(t) = m.run(r.instance, r.handler, r.args, payload) {
+                for (r, event, current) in listeners {
+                    if !event.enter(js::Element(current)) {
+                        continue;
+                    }
+                    if let Err(t) = m.run(r.instance, r.handler, r.args, Some(event)) {
                         if t.name.to_rust() == "RunicDomainError" {
                             return Err(t);
                         }
@@ -3203,33 +3518,70 @@ impl<'p> Machine<'p> {
                 error.map_or(Ok(()), Err)
             });
             if let Err(d) = result {
-                first_error.get_or_insert(d);
+                s.error.get_or_insert(d);
             }
         }
-        if let Some(d) = first_error {
-            return Err(d);
+        event.finish();
+        if let Some(e2) = second {
+            e2.finish();
         }
-        if activate {
-            // The activated element is found again after the keydown handlers.
-            let again = match &id {
-                Some(id) => Target::Id(id),
-                None => Target::Path(&path),
-            };
-            if locate(&self.render()?, &again).is_some() {
-                return Ok(self.fire(again, EventKind::Click, None)? || ran);
-            }
-        }
-        Ok(ran)
+        Ok(Some(event))
     }
 }
 
+/// Outcome of a harness action: whether any listener ran, and the first error.
+#[derive(Default)]
+struct Run {
+    ran: bool,
+    error: Option<Diagnostic>,
+}
+
+/// The `payload` of a handler running for `event` (the per-kind shorthand).
+fn payload_of(event: &js::Event) -> Option<Val> {
+    let d = event.data();
+    match d.kind.to_rust().as_str() {
+        "input" => Some(Val::Str(d.value.clone())),
+        "change" => Some(Val::Bool(d.checked)),
+        "keydown" => Some(Val::Str(d.key.clone())),
+        _ => None,
+    }
+}
+
+fn element_id(n: &VNode) -> Option<u64> {
+    match n {
+        VNode::Element { id, .. } => Some(*id),
+        VNode::Text(_) => None,
+    }
+}
+
+/// The nodes from the root to the element with id `id`.
+fn chain_nodes(tree: &[VNode], id: u64) -> Option<Vec<&VNode>> {
+    fn walk<'t>(nodes: &'t [VNode], id: u64, out: &mut Vec<&'t VNode>) -> bool {
+        for n in nodes {
+            if let VNode::Element {
+                id: here, children, ..
+            } = n
+            {
+                out.push(n);
+                if *here == id || walk(children, id, out) {
+                    return true;
+                }
+                out.pop();
+            }
+        }
+        false
+    }
+    let mut out = vec![];
+    walk(tree, id, &mut out).then_some(out)
+}
+
 /// An event target: an element id (the first in tree order), the n-th
-/// element (in tree order, modulo their number) listening for an event kind
-/// (clicks also select checkboxes listening for `change`), or a child-index path.
+/// element (in tree order, modulo their number) listening for an event the
+/// action delivers ([`EventKind::action`]), or a child-index path.
 #[derive(Clone, Copy, Debug)]
 pub enum Target<'a> {
     Id(&'a str),
-    Nth(EventKind, usize),
+    Nth(&'a str, usize),
     Path(&'a [usize]),
 }
 
@@ -3261,11 +3613,11 @@ fn locate(tree: &[VNode], target: &Target<'_>) -> Option<Vec<usize>> {
             matches!(n, VNode::Element { attrs, .. } if attrs.get("id").map(String::as_str) == Some(*id))
         })
         .then_some(path),
-        Target::Nth(kind, k) => {
+        Target::Nth(action, k) => {
             let listens = |n: &VNode| match n {
-                VNode::Element { listeners, .. } => listeners.iter().any(|(e, _)| {
-                    *e == *kind || (*kind == EventKind::Click && *e == EventKind::Change)
-                }),
+                VNode::Element { listeners, .. } => {
+                    listeners.iter().any(|(e, _)| e.action() == *action)
+                }
                 VNode::Text(_) => false,
             };
             let mut all = vec![];
@@ -3340,6 +3692,7 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Promise(_) => json!("promise"),
         // Element ids differ between the interpreter and the native app.
         Val::Element(_) => json!("element"),
+        Val::Event(_) => json!("event"),
     }
 }
 

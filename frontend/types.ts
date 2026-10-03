@@ -117,6 +117,8 @@ export class TypeMapper {
   private object(t: ts.ObjectType, at: ts.Node): Type {
     // DOM elements (frontend/dom.d.ts) are opaque handles.
     if (t.getProperty('__runicElement')) return 'element';
+    // Event objects (frontend/dom.d.ts) are opaque values read through built-ins.
+    if (t.getProperty('__runicEvent')) return 'event';
     const name = t.symbol?.name ?? t.aliasSymbol?.name;
     const args = (t as ts.TypeReference).target
       ? this.checker.getTypeArguments(t as ts.TypeReference)
@@ -157,7 +159,7 @@ export class TypeMapper {
         this.fail(at, 'E_TYPE_UNSUPPORTED', 'Promises of promises are unsupported');
       return { promise: inner };
     }
-    if (name && ['Date', 'RegExp', 'Error', 'HTMLElement', 'Event'].includes(name))
+    if (name && ['Date', 'RegExp', 'Error', 'HTMLElement'].includes(name))
       this.fail(at, 'E_TYPE_UNSUPPORTED', `${name} values are planned for a later milestone`);
     return { record: this.record(t, at) };
   }

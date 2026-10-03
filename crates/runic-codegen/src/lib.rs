@@ -695,12 +695,8 @@ impl Gen<'_> {
                     }
                 }
                 for l in listeners {
-                    let ev = match l.event {
-                        EventKind::Click => "Event::Click",
-                        EventKind::Input => "Event::Input",
-                        EventKind::Change => "Event::Change",
-                        EventKind::Keydown => "Event::Keydown",
-                    };
+                    // The runtime's event kinds mirror the IR's.
+                    let ev = format!("Event::{:?}", l.event);
                     let mut cx = self.ctx(k);
                     let mut args = String::new();
                     let mut names = String::new();
@@ -1173,6 +1169,9 @@ fn probe_json(t: &Type, v: &str) -> String {
         // Element ids differ between the interpreter and the native app.
         Type::Element => {
             format!("{{ let _ = &{v}; runic_runtime::Json::String(\"element\".into()) }}")
+        }
+        Type::Event => {
+            format!("{{ let _ = &{v}; runic_runtime::Json::String(\"event\".into()) }}")
         }
     }
 }
@@ -1678,10 +1677,10 @@ pub fn generate(
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub payload: Option<JsString>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub payload: Option<JsString>, pub event: Option<js::Event>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub focus: Vec<(u64, bool)>, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ payload: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ payload: None, event: None, listeners: Vec::new(), free: Vec::new(), focus: Vec::new(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -1860,13 +1859,13 @@ pub fn generate(
          {mount_timing}\n\
          self.checkpoint(dom);\n\
          while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n}}\n\
-         fn dispatch(&mut self, dom: &mut Dom, listeners: &[(u32, Option<String>)]) -> Result<(), String> {{\n\
+         fn dispatch(&mut self, dom: &mut Dom, deliveries: &[runic_runtime::Delivery]) -> Result<(), String> {{\n\
          // Listeners are resolved before any runs (a flush may free and reuse their slots).\n\
-         let resolved: Vec<(Lst, Option<JsString>)> = listeners.iter().filter_map(|(l, p)| self.cx.listeners.get(*l as usize).cloned().flatten().map(|f| (f, p.as_deref().map(JsString::from)))).collect();\n\
-         let groups: Vec<Vec<(Lst, Option<JsString>)>> = if {per_listener} {{ resolved.into_iter().map(|l| vec![l]).collect() }} else {{ vec![resolved] }};\n\
+         let resolved: Vec<(Lst, js::Event, u64)> = deliveries.iter().filter_map(|d| self.cx.listeners.get(d.listener as usize).cloned().flatten().map(|f| (f, d.event.clone(), d.current))).collect();\n\
+         let groups: Vec<Vec<(Lst, js::Event, u64)>> = if {per_listener} {{ resolved.into_iter().map(|l| vec![l]).collect() }} else {{ vec![resolved] }};\n\
          let mut first: Option<String> = None;\n\
          for group in groups {{\n\
-         let r = self.task(dom, true, |cx| {{ let mut err = None; for (f, p) in group {{ cx.payload = p; if let Err(e) = f(cx) {{ if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }} err.get_or_insert(e); }} }} cx.payload = None; err.map_or(Ok(()), Err) }});\n\
+         let r = self.task(dom, true, |cx| {{ let mut err = None; for (f, ev, current) in group {{ if !ev.enter(js::Element(current)) {{ continue; }} cx.payload = ev.payload(); cx.event = Some(ev); let r = f(cx); cx.event = None; if let Err(e) = r {{ if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }} err.get_or_insert(e); }} }} cx.payload = None; err.map_or(Ok(()), Err) }});\n\
          if let Err(e) = r {{ first.get_or_insert(e.to_string()); }}\n}}\n\
          first.map_or(Ok(()), Err)\n}}\n\
          fn advance(&mut self, dom: &mut Dom, to: f64) {{\n\

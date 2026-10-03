@@ -3,9 +3,9 @@
 // semantics of their reactive bindings through `Hooks`.
 import ts from 'typescript';
 import path from 'node:path';
-import type { Expr, Fn, Global, Local, Place, Stmt, Type } from './ir.ts';
+import type { EventKind, Expr, Fn, Global, Local, Place, Stmt, Type } from './ir.ts';
 import { sameType, TypeMapper, type Fail } from './types.ts';
-import { builtinType, irType, maybeInner } from './irtype.ts';
+import { builtinType, EVENT_MEMBERS, irType, maybeInner } from './irtype.ts';
 import { DOM } from './program.ts';
 import { asyncBody, isAsync } from './async.ts';
 
@@ -52,7 +52,7 @@ export interface Hooks {
 }
 
 /** Builds one IR function (or handler body) and its local index space. */
-export type HandlerEvent = 'click' | 'input' | 'change' | 'keydown';
+export type HandlerEvent = EventKind;
 
 export class FnBuilder {
   readonly captures: Local[] = [];
@@ -77,10 +77,10 @@ export class FnBuilder {
   readonly component: number | undefined;
   /** Symbols captured and mutated somewhere: their locals are boxed. */
   readonly boxed: Set<ts.Symbol>;
-  /** The event of a handler builder (its payload: input value, checked state, key). */
+  /** The event of a handler builder. */
   readonly event: HandlerEvent | undefined;
-  /** A local holding the payload, for closures inside the handler that read it. */
-  payloadLocal: number | undefined;
+  /** A local holding the event object, for the handler and closures inside it. */
+  eventLocal: number | undefined;
 
   constructor(
     name: string,
@@ -467,8 +467,8 @@ export class Lowerer {
     // A handler's value is discarded: `() => items.push(x)` runs for its effect.
     if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return')
       body = body[0].value ? [{ op: 'expr', value: body[0].value }] : [];
-    if (b.payloadLocal !== undefined)
-      body.unshift({ op: 'let', local: b.payloadLocal, value: { op: 'payload' } });
+    if (b.eventLocal !== undefined)
+      body.unshift({ op: 'let', local: b.eventLocal, value: { op: 'event' } });
     if (!b.captures.length) return { locals: b.locals, body };
     return {
       params: b.captures,
@@ -1004,7 +1004,11 @@ export class Lowerer {
     const compound = COMPOUND[operator];
     const current = () => this.expr(target, b);
     const rhs = () => ('expr' in valueNode ? valueNode.expr : this.expr(valueNode, b));
-    const rhsType = () => ('expr' in valueNode ? valueNode.type : this.typeOfNode(valueNode));
+    // TypeScript's type of the value, or its IR type where TypeScript only knows `any`.
+    const rhsType = (lowered: Expr) =>
+      'expr' in valueNode
+        ? valueNode.type
+        : (this.types.typeOrUndefined(valueNode) ?? this.irType(lowered, b));
     let value: Expr;
     if (operator === ts.SyntaxKind.EqualsToken) value = rhs();
     else if (operator === ts.SyntaxKind.QuestionQuestionEqualsToken)
@@ -1014,16 +1018,17 @@ export class Lowerer {
       operator === ts.SyntaxKind.AmpersandAmpersandEqualsToken
     )
       return this.fail(target, 'E_ASSIGN', 'Logical assignment operators are planned for later');
-    else if (compound)
+    else if (compound) {
+      const right = rhs();
       value = this.binary(
         compound,
         current(),
         this.targetType(target, b),
-        rhs(),
-        rhsType(),
+        right,
+        rhsType(right),
         target,
       );
-    else return this.fail(target, 'E_ASSIGN', 'Unsupported assignment operator');
+    } else return this.fail(target, 'E_ASSIGN', 'Unsupported assignment operator');
     return this.writeTo(target, value, b);
   }
 
@@ -1347,11 +1352,7 @@ export class Lowerer {
           `Refs are supported through .${binding.kind === 'ref' ? refField(binding) : 'value'} (passing ref objects is planned for a later milestone)`,
         );
       case 'event':
-        return this.fail(
-          id,
-          'E_EVENT',
-          'Event objects are supported only as e.target.value / e.currentTarget.value in input handlers',
-        );
+        return this.eventValue(binding.handler, b);
       case 'generic':
         return this.fail(
           id,
@@ -1536,6 +1537,7 @@ export class Lowerer {
     if (t === 'number') return 'number';
     if (t === 'boolean') return 'boolean';
     if (t === 'element') return 'element';
+    if (t === 'event') return 'event';
     if (typeof t === 'object') {
       if ('array' in t) return 'array';
       if ('map' in t) return 'map';
@@ -1590,11 +1592,10 @@ export class Lowerer {
     return { op: 'lit', value: text };
   }
 
-  /** The payload of `handler`'s event, read in `b` (the handler or a closure inside it). */
-  private payload(handler: FnBuilder, b: FnBuilder): Expr {
-    if (b === handler) return { op: 'payload' };
-    handler.payloadLocal ??= handler.local('event', handler.event === 'change' ? BOOLEAN : STRING);
-    return { op: 'local', local: b.resolve(handler, handler.payloadLocal) };
+  /** The event object of `handler`, read in `b` (the handler or a closure inside it). */
+  private eventValue(handler: FnBuilder, b: FnBuilder): Expr {
+    handler.eventLocal ??= handler.local('event', 'event');
+    return { op: 'local', local: b.resolve(handler, handler.eventLocal) };
   }
 
   private globalName(e: ts.Expression): string | undefined {
@@ -1687,32 +1688,51 @@ export class Lowerer {
     const global = this.globalName(e.expression);
     if (global === 'Math' || global === 'Number')
       return { op: 'builtin', name: `${global}.${name}`, args: [], type: NUMBER };
-    const EVENTS =
-      'Event objects are supported as e.target.value (input), e.target.checked (change) and e.key (keydown), also through currentTarget';
-    const eventOf = (x: ts.Expression) => {
-      const binding = ts.isIdentifier(x) ? this.binding(x) : undefined;
-      return binding?.kind === 'event' ? binding.handler : undefined;
-    };
-    const direct = eventOf(e.expression);
-    if (direct) {
-      if (name === 'key' && direct.event === 'keydown') return this.payload(direct, b);
-      return this.fail(e, 'E_EVENT', EVENTS);
-    }
-    const viaTarget = ts.isPropertyAccessExpression(e.expression)
-      ? eventOf(e.expression.expression)
-      : undefined;
-    if (viaTarget && ts.isPropertyAccessExpression(e.expression)) {
-      if (
-        ['target', 'currentTarget'].includes(e.expression.name.text) &&
-        ((name === 'value' && viaTarget.event === 'input') ||
-          (name === 'checked' && viaTarget.event === 'change'))
-      )
-        return this.payload(viaTarget, b);
-      return this.fail(e, 'E_EVENT', EVENTS);
+    // The target control's value and checked state (at dispatch) through an
+    // event: e.target.value, (e.target as HTMLInputElement).checked, and
+    // e.currentTarget.value where the listener is on the target.
+    let control: ts.Expression = e.expression;
+    while (
+      ts.isParenthesizedExpression(control) ||
+      ts.isAsExpression(control) ||
+      ts.isNonNullExpression(control)
+    )
+      control = control.expression;
+    if (
+      (name === 'value' || name === 'checked') &&
+      ts.isPropertyAccessExpression(control) &&
+      ['target', 'currentTarget'].includes(control.name.text) &&
+      ts.isIdentifier(control.expression)
+    ) {
+      const ev = this.expr(control.expression, b);
+      if (this.irType(ev, b) === 'event') {
+        if (control.name.text === 'currentTarget') {
+          const binding = this.binding(control.expression);
+          const onTarget =
+            binding?.kind === 'event' && ['input', 'change'].includes(binding.handler.event ?? '');
+          if (!onTarget)
+            this.fail(
+              e,
+              'E_EVENT',
+              `e.currentTarget.${name} is supported in input and change handlers; use e.target.${name}`,
+            );
+        }
+        return { op: 'builtin', name: `event.${name}`, args: [ev], type: EVENT_MEMBERS[name] };
+      }
     }
     const object = this.expr(e.expression, b);
     const t = this.irType(object, b);
     const kind = this.receiverKind(t);
+    if (kind === 'event') {
+      const type = EVENT_MEMBERS[name];
+      if (type === undefined || type === 'void' || name === 'value' || name === 'checked')
+        return this.fail(
+          e,
+          'E_EVENT',
+          'Event objects support type, key, code, ctrlKey/shiftKey/altKey/metaKey, repeat, clientX/clientY, button/buttons, deltaX/deltaY, target, currentTarget, defaultPrevented, target.value/checked, preventDefault(), stopPropagation() and stopImmediatePropagation()',
+        );
+      return { op: 'builtin', name: `event.${name}`, args: [object], type };
+    }
     if (kind === 'record')
       return {
         op: 'get',

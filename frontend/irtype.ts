@@ -36,6 +36,8 @@ export function irType(e: Expr, env: TypeEnv): Type {
       return env.globals[e.global].type;
     case 'local':
       return env.local(e.local);
+    case 'event':
+      return 'event';
     case 'payload':
     case 'to-string':
     case 'typeof':
@@ -114,6 +116,32 @@ export function irType(e: Expr, env: TypeEnv): Type {
  * The result type of a builtin from its argument types (subset mirrored from
  * builtins.rs, for calls whose TypeScript result type is `any`).
  */
+/** Event object members (`event.*` built-ins) and their types. */
+export const EVENT_MEMBERS: Record<string, Type> = {
+  type: S,
+  key: S,
+  code: S,
+  ctrlKey: B,
+  shiftKey: B,
+  altKey: B,
+  metaKey: B,
+  repeat: B,
+  clientX: N,
+  clientY: N,
+  button: N,
+  buttons: N,
+  deltaX: N,
+  deltaY: N,
+  defaultPrevented: B,
+  target: 'element',
+  currentTarget: { maybe: 'element' },
+  value: S,
+  checked: B,
+  preventDefault: 'void',
+  stopPropagation: 'void',
+  stopImmediatePropagation: 'void',
+};
+
 export function builtinType(name: string, args: Type[]): Type | undefined {
   const [ns, method] = name.includes('.') ? (name.split('.', 2) as [string, string]) : ['', name];
   const recv = args[0];
@@ -127,6 +155,7 @@ export function builtinType(name: string, args: Type[]): Type | undefined {
       ] ?? (name === 'structuredClone' ? recv : undefined)
     );
   if (ns === 'number') return S;
+  if (ns === 'event') return EVENT_MEMBERS[method];
   if (ns === 'string') {
     if (['at', 'index'].includes(method)) return { maybe: S };
     if (method === 'codePointAt') return { maybe: N };

@@ -4,14 +4,97 @@ use blitz_dom::{BaseDocument, LocalName, Namespace, QualName, ns};
 use blitz_traits::node_id::NodeId;
 use std::collections::HashMap;
 
+/// Event kinds (the IR's `EventKind`, docs/design/M5-PLATFORM.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     Click,
     Input,
-    /// Checkbox toggle (payload "true"/"false").
+    /// Checkbox toggle.
     Change,
-    /// Key press (payload: `KeyboardEvent.key`), bubbling from the focused element.
+    /// Key press, bubbling from the focused element.
     Keydown,
+    Keyup,
+    Dblclick,
+    Contextmenu,
+    Pointerdown,
+    Pointerup,
+    Pointermove,
+    Pointerenter,
+    Pointerleave,
+    Mousedown,
+    Mouseup,
+    Mousemove,
+    Mouseenter,
+    Mouseleave,
+    Wheel,
+}
+
+impl Event {
+    /// `event.type`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Event::Click => "click",
+            Event::Input => "input",
+            Event::Change => "change",
+            Event::Keydown => "keydown",
+            Event::Keyup => "keyup",
+            Event::Dblclick => "dblclick",
+            Event::Contextmenu => "contextmenu",
+            Event::Pointerdown => "pointerdown",
+            Event::Pointerup => "pointerup",
+            Event::Pointermove => "pointermove",
+            Event::Pointerenter => "pointerenter",
+            Event::Pointerleave => "pointerleave",
+            Event::Mousedown => "mousedown",
+            Event::Mouseup => "mouseup",
+            Event::Mousemove => "mousemove",
+            Event::Mouseenter => "mouseenter",
+            Event::Mouseleave => "mouseleave",
+            Event::Wheel => "wheel",
+        }
+    }
+
+    pub fn bubbles(self) -> bool {
+        !matches!(
+            self,
+            Event::Pointerenter | Event::Pointerleave | Event::Mouseenter | Event::Mouseleave
+        )
+    }
+
+    pub fn cancelable(self) -> bool {
+        !matches!(
+            self,
+            Event::Input
+                | Event::Change
+                | Event::Pointerenter
+                | Event::Pointerleave
+                | Event::Mouseenter
+                | Event::Mouseleave
+        )
+    }
+
+    /// The probe action that delivers the event (as `EventKind::action`).
+    pub fn action(self) -> &'static str {
+        match self {
+            Event::Click
+            | Event::Change
+            | Event::Pointerdown
+            | Event::Pointerup
+            | Event::Mousedown
+            | Event::Mouseup => "click",
+            Event::Dblclick => "dblclick",
+            Event::Contextmenu => "contextmenu",
+            Event::Pointermove
+            | Event::Pointerenter
+            | Event::Pointerleave
+            | Event::Mousemove
+            | Event::Mouseenter
+            | Event::Mouseleave => "hover",
+            Event::Input => "input",
+            Event::Keydown | Event::Keyup => "keydown",
+            Event::Wheel => "wheel",
+        }
+    }
 }
 
 /// Listener registrations: element → (event, listener key of the app).
@@ -42,12 +125,22 @@ impl Listeners {
         });
     }
 
-    pub(crate) fn get(&self, node: NodeId, event: Event) -> Option<u32> {
+    /// The listeners of `node` for `event`, in registration order.
+    pub(crate) fn all(&self, node: NodeId, event: Event) -> impl Iterator<Item = u32> + '_ {
         self.map
-            .get(&node)?
-            .iter()
-            .find(|(e, _)| *e == event)
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .filter(move |(e, _)| *e == event)
             .map(|(_, h)| *h)
+    }
+
+    /// Whether `node` has a listener for an event `action` delivers.
+    #[cfg(feature = "probe")]
+    pub(crate) fn listens(&self, node: NodeId, action: &str) -> bool {
+        self.map
+            .get(&node)
+            .is_some_and(|l| l.iter().any(|(e, _)| e.action() == action))
     }
 }
 

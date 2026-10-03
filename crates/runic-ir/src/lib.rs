@@ -266,6 +266,8 @@ pub enum Type {
     Element,
     /// A promise of a value (never itself a promise), compared by identity.
     Promise(Box<Type>),
+    /// An event object (handlers' `event`), compared by identity.
+    Event,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -289,6 +291,7 @@ impl Type {
             Type::Set(t) => format!("Set<{}>", t.name()),
             Type::Element => "element".into(),
             Type::Promise(t) => format!("Promise<{}>", t.name()),
+            Type::Event => "event".into(),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params
@@ -607,15 +610,101 @@ pub enum EventKind {
     Change,
     /// Key press on the focused element (bubbles); the payload is `event.key`.
     Keydown,
+    Keyup,
+    Dblclick,
+    Contextmenu,
+    Pointerdown,
+    Pointerup,
+    Pointermove,
+    Pointerenter,
+    Pointerleave,
+    Mousedown,
+    Mouseup,
+    Mousemove,
+    Mouseenter,
+    Mouseleave,
+    Wheel,
 }
 
 impl EventKind {
     /// The type of the `payload` expression in handlers of this event.
     pub fn payload(self) -> Option<Type> {
         match self {
-            EventKind::Click => None,
             EventKind::Input | EventKind::Keydown => Some(Type::String),
             EventKind::Change => Some(Type::Boolean),
+            _ => None,
+        }
+    }
+
+    /// Whether the event bubbles to the target's ancestors.
+    pub fn bubbles(self) -> bool {
+        !matches!(
+            self,
+            EventKind::Pointerenter
+                | EventKind::Pointerleave
+                | EventKind::Mouseenter
+                | EventKind::Mouseleave
+        )
+    }
+
+    /// Whether `preventDefault` has an effect.
+    pub fn cancelable(self) -> bool {
+        !matches!(
+            self,
+            EventKind::Input
+                | EventKind::Change
+                | EventKind::Pointerenter
+                | EventKind::Pointerleave
+                | EventKind::Mouseenter
+                | EventKind::Mouseleave
+        )
+    }
+
+    /// The harness action that delivers the event (click, dblclick,
+    /// contextmenu, hover, input, keydown, wheel).
+    pub fn action(self) -> &'static str {
+        match self {
+            EventKind::Click
+            | EventKind::Change
+            | EventKind::Pointerdown
+            | EventKind::Pointerup
+            | EventKind::Mousedown
+            | EventKind::Mouseup => "click",
+            EventKind::Dblclick => "dblclick",
+            EventKind::Contextmenu => "contextmenu",
+            EventKind::Pointermove
+            | EventKind::Pointerenter
+            | EventKind::Pointerleave
+            | EventKind::Mousemove
+            | EventKind::Mouseenter
+            | EventKind::Mouseleave => "hover",
+            EventKind::Input => "input",
+            EventKind::Keydown | EventKind::Keyup => "keydown",
+            EventKind::Wheel => "wheel",
+        }
+    }
+
+    /// `event.type`.
+    pub fn name(self) -> &'static str {
+        match self {
+            EventKind::Click => "click",
+            EventKind::Input => "input",
+            EventKind::Change => "change",
+            EventKind::Keydown => "keydown",
+            EventKind::Keyup => "keyup",
+            EventKind::Dblclick => "dblclick",
+            EventKind::Contextmenu => "contextmenu",
+            EventKind::Pointerdown => "pointerdown",
+            EventKind::Pointerup => "pointerup",
+            EventKind::Pointermove => "pointermove",
+            EventKind::Pointerenter => "pointerenter",
+            EventKind::Pointerleave => "pointerleave",
+            EventKind::Mousedown => "mousedown",
+            EventKind::Mouseup => "mouseup",
+            EventKind::Mousemove => "mousemove",
+            EventKind::Mouseenter => "mouseenter",
+            EventKind::Mouseleave => "mouseleave",
+            EventKind::Wheel => "wheel",
         }
     }
 }
@@ -779,6 +868,8 @@ pub enum Expr {
         local: usize,
     },
     Payload,
+    /// The event object of the running handler.
+    Event,
     Not {
         arg: Box<Expr>,
     },
@@ -995,6 +1086,7 @@ impl Expr {
             | Global { .. }
             | Local { .. }
             | Payload
+            | Event
             | Closure { .. } => vec![],
             Not { arg }
             | Neg { arg }

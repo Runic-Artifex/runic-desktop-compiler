@@ -348,6 +348,36 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         // before any update (the DOM does not change while it runs).
         ("element", "focus") => format!("{{ cx.focus.push(({}.0, true)); }}", t[0]),
         ("element", "blur") => format!("{{ cx.focus.push(({}.0, false)); }}", t[0]),
+        ("event", m) => {
+            let e = &t[0];
+            match m {
+                "type" => format!("{e}.data().kind.clone()"),
+                "key" => format!("{e}.data().key.clone()"),
+                "code" => format!("{e}.data().code.clone()"),
+                "value" => format!("{e}.data().value.clone()"),
+                "ctrlKey" => format!("{e}.data().ctrl"),
+                "shiftKey" => format!("{e}.data().shift"),
+                "altKey" => format!("{e}.data().alt"),
+                "metaKey" => format!("{e}.data().meta"),
+                "repeat" => format!("{e}.data().repeat"),
+                "checked" => format!("{e}.data().checked"),
+                "clientX" => format!("{e}.data().client_x"),
+                "clientY" => format!("{e}.data().client_y"),
+                "button" => format!("{e}.data().button"),
+                "buttons" => format!("{e}.data().buttons"),
+                "deltaX" => format!("{e}.data().delta_x"),
+                "deltaY" => format!("{e}.data().delta_y"),
+                "target" => format!("{e}.data().target"),
+                "currentTarget" => {
+                    format!("{e}.current_target().map_or(Maybe::Null, Maybe::Some)")
+                }
+                "defaultPrevented" => format!("{e}.default_prevented()"),
+                "preventDefault" => format!("{{ {e}.prevent_default(); }}"),
+                "stopPropagation" => format!("{{ {e}.stop_propagation(); }}"),
+                "stopImmediatePropagation" => format!("{{ {e}.stop_immediate_propagation(); }}"),
+                other => unreachable!("validated event member {other}"),
+            }
+        }
         ("maybe", m) => {
             let is_maybe = matches!(types[0], Type::Maybe(_));
             match (m, is_maybe) {

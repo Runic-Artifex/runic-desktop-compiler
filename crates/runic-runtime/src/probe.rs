@@ -3,14 +3,13 @@
 //! real Blitz UI events, and prints a trace in the browser harness's snapshot
 //! format (`conformance/harness/browser.mjs`).
 
-use crate::dom::Event;
 use crate::events::{Native, tree_order};
 use crate::{App, controls, shell};
 use anyrender::ImageRenderer;
 use blitz_dom::{BaseDocument, Document};
 use blitz_traits::events::{
-    BlitzKeyEvent, BlitzPointerEvent, BlitzPointerId, KeyState, MouseEventButton,
-    MouseEventButtons, PointerCoords, PointerDetails, UiEvent,
+    BlitzKeyEvent, BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent, KeyState,
+    MouseEventButton, MouseEventButtons, PointerCoords, PointerDetails, UiEvent,
 };
 use blitz_traits::node_id::NodeId;
 use keyboard_types::{Code, Key, Location, Modifiers};
@@ -169,61 +168,59 @@ fn key_event(key: Key, code: Code, mods: Modifiers, text: Option<&str>, up: bool
     }
 }
 
-/// Playwright key names (e.g. `Tab`, `Shift+Tab`, `Enter`, `Space`, `Backspace`).
-fn parse_key(spec: &str) -> (Key, Code, Modifiers, Option<String>) {
-    let mut mods = Modifiers::empty();
-    let mut name = spec;
-    while let Some((m, rest)) = name.split_once('+').filter(|(_, r)| !r.is_empty()) {
-        mods |= match m {
-            "Shift" => Modifiers::SHIFT,
-            "Control" => Modifiers::CONTROL,
-            "Alt" => Modifiers::ALT,
-            "Meta" => Modifiers::META,
-            other => panic!("unknown modifier {other}"),
-        };
-        name = rest;
-    }
-    let (key, code, text) = match name {
-        "Tab" => (Key::Tab, Code::Tab, None),
-        "Enter" => (Key::Enter, Code::Enter, None),
-        "Space" | " " => (
-            Key::Character(" ".into()),
-            Code::Space,
-            Some(" ".to_owned()),
-        ),
-        "Backspace" => (Key::Backspace, Code::Backspace, None),
-        "Delete" => (Key::Delete, Code::Delete, None),
-        "ArrowLeft" => (Key::ArrowLeft, Code::ArrowLeft, None),
-        "ArrowRight" => (Key::ArrowRight, Code::ArrowRight, None),
-        "Home" => (Key::Home, Code::Home, None),
-        "End" => (Key::End, Code::End, None),
-        "Escape" => (Key::Escape, Code::Escape, None),
-        c if c.chars().count() == 1 => (
-            Key::Character(c.into()),
-            Code::Unidentified,
-            Some(c.to_owned()),
-        ),
-        other => panic!("unsupported key {other}"),
-    };
-    (key, code, mods, text)
-}
-
+/// A key as Playwright presses it (`Tab`, `Shift+Tab`, `Enter`, `Space`, `a`):
+/// the modifiers go down first and come up last, each a key of its own.
 fn press<A: App>(native: &mut Native<A>, spec: &str) {
-    let (key, code, mods, text) = parse_key(spec);
+    // A character outside the US layout is typed with an unidentified code.
+    let k = runic_js::parse_key_spec(spec)
+        .or_else(|| {
+            (spec.chars().count() == 1).then(|| runic_js::KeySpec {
+                key: spec.into(),
+                code: "Unidentified".into(),
+                ..Default::default()
+            })
+        })
+        .unwrap_or_else(|| panic!("unsupported key {spec}"));
+    let flags = [
+        (k.shift, Modifiers::SHIFT),
+        (k.ctrl, Modifiers::CONTROL),
+        (k.alt, Modifiers::ALT),
+        (k.meta, Modifiers::META),
+    ];
+    let mods: Vec<(&str, &str, Modifiers)> = runic_js::MODIFIER_KEYS
+        .iter()
+        .zip(flags)
+        .filter(|(_, (on, _))| *on)
+        .map(|(&(name, code), (_, flag))| (name, code, flag))
+        .collect();
+    let key_of = |name: &str| -> Key {
+        if name.chars().count() == 1 {
+            Key::Character(name.into())
+        } else {
+            name.parse().expect("named key")
+        }
+    };
+    let mut held = Modifiers::empty();
+    for &(name, code, flag) in &mods {
+        held |= flag;
+        let e = key_event(key_of(name), code.parse().expect("code"), held, None, false);
+        native.handle_ui_event(UiEvent::KeyDown(e));
+    }
+    let text = (k.key.chars().count() == 1).then_some(k.key.as_str());
+    let (key, code) = (key_of(&k.key), k.code.parse::<Code>().expect("code"));
     native.handle_ui_event(UiEvent::KeyDown(key_event(
         key.clone(),
         code,
-        mods,
-        text.as_deref(),
+        held,
+        text,
         false,
     )));
-    native.handle_ui_event(UiEvent::KeyUp(key_event(
-        key,
-        code,
-        mods,
-        text.as_deref(),
-        true,
-    )));
+    native.handle_ui_event(UiEvent::KeyUp(key_event(key, code, held, text, true)));
+    for &(name, code, flag) in mods.iter().rev() {
+        held -= flag;
+        let e = key_event(key_of(name), code.parse().expect("code"), held, None, true);
+        native.handle_ui_event(UiEvent::KeyUp(e));
+    }
 }
 
 fn utf16_to_byte(text: &str, units: usize) -> usize {
@@ -237,23 +234,17 @@ fn utf16_to_byte(text: &str, units: usize) -> usize {
     text.len()
 }
 
-/// The n-th element (tree order, modulo their number) listening for the
-/// action's event; clicks also select checkboxes listening for `change`
-/// (the interpreter resolves `nth` targets the same way).
+/// The n-th element (tree order, modulo their number) listening for an
+/// event the action delivers (the interpreter resolves `nth` targets the
+/// same way).
 fn nth<A: App>(native: &Native<A>, kind: &str, n: u64) -> Option<NodeId> {
-    let events: &[Event] = match kind {
-        "click" => &[Event::Click, Event::Change],
-        "input" => &[Event::Input],
-        "keydown" => &[Event::Keydown],
-        _ => &[],
-    };
     let root = native.doc.get_element_by_id("root")?;
     let order = tree_order(&native.doc);
     let start = order.iter().position(|&x| x == root)?;
     let all: Vec<NodeId> = order[start + 1..]
         .iter()
         .copied()
-        .filter(|&x| events.iter().any(|&e| native.listeners.get(x, e).is_some()))
+        .filter(|&x| native.listeners.listens(x, kind))
         .collect();
     (!all.is_empty()).then(|| all[(n as usize) % all.len()])
 }
@@ -280,22 +271,69 @@ fn perform<A: App>(native: &mut Native<A>, action: &Value) {
     perform_on(native, action, target);
 }
 
+/// The centre of a rendered element.
+fn centre<A: App>(native: &Native<A>, id: NodeId) -> (f32, f32) {
+    let r = native
+        .doc
+        .get_client_bounding_rect(id)
+        .expect("rendered pointer target");
+    ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32)
+}
+
+/// A button press and release at `(x, y)` with click count `count`.
+fn press_button<A: App>(
+    native: &mut Native<A>,
+    x: f32,
+    y: f32,
+    button: MouseEventButton,
+    count: u32,
+) {
+    let pressed = match button {
+        MouseEventButton::Secondary => MouseEventButtons::Secondary,
+        _ => MouseEventButtons::Primary,
+    };
+    native.pointer.next_count = Some(count);
+    let mut down = pointer(x, y, pressed);
+    down.button = button;
+    native.handle_ui_event(UiEvent::PointerDown(down));
+    let mut up = pointer(x, y, MouseEventButtons::None);
+    up.button = button;
+    native.handle_ui_event(UiEvent::PointerUp(up));
+}
+
 fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<NodeId>) {
     match action["kind"].as_str().expect("action kind") {
-        "click" => {
-            let id = target.expect("click target");
-            let r = native
-                .doc
-                .get_client_bounding_rect(id)
-                .expect("rendered click target");
-            let (x, y) = ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32);
+        // Pointer input at the element centre, as Playwright's click,
+        // dblclick, right click (`contextmenu`), hover and wheel.
+        kind @ ("click" | "dblclick" | "contextmenu") => {
+            let (x, y) = centre(native, target.expect("pointer target"));
             native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
-            native.handle_ui_event(UiEvent::PointerDown(pointer(
-                x,
-                y,
-                MouseEventButtons::Primary,
-            )));
-            native.handle_ui_event(UiEvent::PointerUp(pointer(x, y, MouseEventButtons::None)));
+            if kind == "contextmenu" {
+                press_button(native, x, y, MouseEventButton::Secondary, 1);
+            } else {
+                press_button(native, x, y, MouseEventButton::Main, 1);
+                if kind == "dblclick" {
+                    press_button(native, x, y, MouseEventButton::Main, 2);
+                }
+            }
+        }
+        "hover" => {
+            let (x, y) = centre(native, target.expect("hover target"));
+            native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
+        }
+        "wheel" => {
+            let (x, y) = centre(native, target.expect("wheel target"));
+            native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
+            // Blitz's deltas point the other way from the DOM's.
+            let dx = action["deltaX"].as_f64().unwrap_or(0.0);
+            let dy = action["deltaY"].as_f64().unwrap_or(0.0);
+            native.handle_ui_event(UiEvent::Wheel(BlitzWheelEvent {
+                delta: BlitzWheelDelta::Pixels(-dx, -dy),
+                coords: pointer(x, y, MouseEventButtons::None).coords,
+                buttons: MouseEventButtons::None,
+                mods: Modifiers::empty(),
+                element: Default::default(),
+            }));
         }
         "type" => {
             if let Some(id) = target {

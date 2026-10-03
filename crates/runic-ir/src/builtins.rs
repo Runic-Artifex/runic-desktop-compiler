@@ -342,6 +342,22 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // pending flush, then fulfils; `after` fulfils when the pending (or
         // running) flush ends, or is fulfilled already.
         ("flush", "tick" | "after") => arity(args, 0, 0).map(|_| Promise(Box::new(Void))),
+        // Event objects (docs/design/M5-PLATFORM.md).
+        ("event", m) => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Event, "event")?;
+            match m {
+                "type" | "key" | "code" | "value" => Ok(s),
+                "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "checked"
+                | "defaultPrevented" => Ok(b),
+                "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" => Ok(n),
+                "target" => Ok(Element),
+                // Null once the dispatch is over.
+                "currentTarget" => Ok(Maybe(Box::new(Element))),
+                "preventDefault" | "stopPropagation" | "stopImmediatePropagation" => Ok(Void),
+                other => Err(format!("unknown event member {other}")),
+            }
+        }
         ("microtask", "queue") => {
             arity(args, 1, 1)?;
             match &args[0] {
