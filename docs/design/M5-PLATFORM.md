@@ -136,3 +136,22 @@ Both adapters implement the event model; the shared cases `events` and `shortcut
 | 3. Forms | `textarea` and `label` done (case `forms`); `select` and radio buttons to do (a select needs a runtime-drawn control and popup) |
 | 4. Document element, `matchMedia` | Done (case `theme`, crate `runic-css`); layout reads, scrolling, `ResizeObserver` and media change events to do |
 | 5–7 | To do |
+
+## Synchronous DOM access (steps 4 and 6)
+
+Some host operations act on the document while a script runs, in Chromium:
+- `getBoundingClientRect()`, `offsetWidth`, `scrollTop` force layout and read it;
+- `scrollTo()` and `scrollIntoView()` scroll at once;
+- `el.focus()` and `el.blur()` move focus and dispatch `blur`, `focusout`, `focus` and `focusin` before they return. Those listeners run nested, with no microtask checkpoint, since the script stack is not empty.
+
+M3 queued focus requests until the callback returned, which is not observable while no focus listeners exist. With focus events it is.
+
+**Design.**
+- While the runtime runs app code (a task, a job, the mount), the generated context holds a handle to the document (`cx.host`), cleared afterwards.
+- Layout reads resolve layout first, then read Blitz's boxes.
+- Focus changes go through one runtime function used by every source: mousedown, Tab, label activation, script, a disabled or removed focused element. It returns the focus events in Chromium's order, as deliveries.
+  - Script-initiated changes run those listeners nested, inside the built-in call.
+  - User-initiated ones dispatch them as ordinary events.
+- The interpreter has no layout. Programs that read layout are compared browser against native only: the differential harness reports them as not comparable rather than passing them. Focus events, which need no layout, are modelled in the interpreter too.
+
+`scroll` events and `ResizeObserver` callbacks run in Chromium's rendering steps (scroll events before `requestAnimationFrame` callbacks, resize observations after layout). They need the frame model, which the probe gains with them.
