@@ -1,0 +1,20 @@
+@font-face { font-family: RunicExample; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eef0ea; color: #22302a; font-family: RunicExample; font-size: 16px; }
+body { padding: 24px; }
+main { max-width: 620px; margin: 0 auto; padding: 24px; background: #fbfbf7; border: 1px solid #b9c0b4; border-radius: 10px; }
+h1 { margin: 0 0 16px; font-size: 24px; font-weight: 400; }
+.grid { display: flex; flex-wrap: wrap; gap: 16px; }
+.list { flex: 1 1 220px; min-height: 180px; margin: 0; padding: 4px; list-style: none; border: 1px solid #4f6357; border-radius: 6px; background: #ffffff; }
+.list button { display: block; width: 100%; padding: 4px 8px; border: 0; border-radius: 4px; background: transparent; color: #22302a; font-family: RunicExample; font-size: 15px; text-align: left; }
+.list button.selected { background: #4f6357; color: #ffffff; }
+.fields { flex: 1 1 220px; }
+.field { display: block; margin: 0 0 12px; font-size: 14px; }
+.field input { display: block; width: 100%; margin-top: 4px; }
+input { font-family: RunicExample; font-size: 15px; line-height: 18px; padding: 8px 10px; border: 1px solid #4f6357; border-radius: 6px; background: #ffffff; color: #22302a; }
+input:focus { outline: none; border-color: #22302a; }
+.row { display: flex; gap: 8px; margin-top: 16px; }
+.row button { width: 96px; font-family: RunicExample; font-size: 15px; padding: 8px 0; border: 1px solid #4f6357; border-radius: 6px; background: #e3e9e0; color: #22302a; }
+button:disabled { background: #ececea; color: #8a8d88; border-color: #c2c4bd; }
+.filter { margin-bottom: 12px; }
+@media (max-width: 480px) { body { padding: 8px; } main { padding: 16px; } }
