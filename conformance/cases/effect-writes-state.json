@@ -1,0 +1,12 @@
+{
+  "description": "An effect writes state derived from other state: the final state and how often the dependent effect runs (React renders the write in a later task, so only the outcome is asserted)",
+  "fixtures": ["effect-writes-state-react"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

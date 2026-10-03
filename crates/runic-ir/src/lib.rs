@@ -148,7 +148,11 @@ pub enum Cleanups {
     /// Each cleanup right before its own effect re-runs.
     #[default]
     Interleaved,
-    /// All cleanups of the phase first, then all effects.
+    /// All cleanups of the phase first, then all effects. The cleanups
+    /// follow one walk, children first; cleanups of instances destroyed by
+    /// the update join it in their phase: at each instance the subtrees
+    /// destroyed under it (each in its `unmount.order`), then its live
+    /// children, then its own cleanups (`interp::Machine::batched_cleanups`).
     Batched,
 }
 

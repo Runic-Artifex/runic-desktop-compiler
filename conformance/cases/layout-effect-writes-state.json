@@ -1,0 +1,11 @@
+{
+  "description": "A layout effect writes state: the re-render, its layout effect and the passive effects of both commits run before a microtask queued by the handler",
+  "fixtures": ["layout-effect-writes-state-react"],
+  "actions": [
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "dump" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "dump" }
+  ]
+}

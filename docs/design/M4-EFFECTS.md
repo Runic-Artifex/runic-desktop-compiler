@@ -88,8 +88,8 @@ An effect is a component function that runs after (or before) an update when its
   - `values`: runs when an expression's value changed by `Object.is` (React dependency arrays, Vue `watch` sources). `initial: false` skips the mount run (Vue `watch` without `immediate`). Callbacks that receive the new and old values get them as parameters.
 - **Cleanup** is the function the previous run returned. Whether cleanups interleave with re-runs is a program policy, `schedule.cleanups`:
   - `interleaved` (Vue, Svelte): each cleanup runs right before its own effect re-runs.
-  - `batched` (React): all cleanups of a phase run first, children first, then all effects.
-- **`unmount`** says when an effect's cleanup runs as its instance is destroyed:
+  - `batched` (React): all cleanups of a phase run first, then all effects. The cleanups follow one walk of the live tree, children first. Cleanups of instances destroyed by the same update join this walk in their phase: at each instance, the subtrees destroyed under it come first (previous tree order, each subtree in its effects' `unmount.order`), then its live children, then its own cleanups. This is React's commit walk (`recursivelyTraverseMutationEffects` for layout effects, `recursivelyTraversePassiveUnmountEffects` for passive effects in react-dom), verified by the `effects-swap` case. The phase is current while these cleanups run, so state they set follows `postWritesDeferred`. React walks fibers, not instances: a deletion runs where its parent element or fragment begins. The React adapter therefore rejects conditionals and lists that can unmount components with cleanups if they follow other such components outside their own parent element or fragment, and in children content.
+- **`unmount`** says when an effect's cleanup runs as its instance is destroyed (under `batched`, only for `pre` effects; layout and post cleanups run in their phase's walk, and `removal` documents what they observe):
   - `removal`: before or after the DOM is removed.
   - `order`: in the pre-order or post-order position of a walk of the destroyed instances.
 

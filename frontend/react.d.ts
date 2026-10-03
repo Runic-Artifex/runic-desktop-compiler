@@ -10,6 +10,15 @@ declare module 'react' {
   export function useRef<T>(initial: T): RefObject<T>;
   export function useRef<T>(initial: T | null): RefObject<T | null>;
   export function useRef<T = undefined>(initial?: undefined): RefObject<T | undefined>;
+  /** An effect function: returns nothing or a cleanup function. */
+  export type EffectCallback = () => void | (() => void);
+  export type DependencyList = readonly unknown[];
+  export function useEffect(effect: EffectCallback, deps?: DependencyList): void;
+  export function useLayoutEffect(effect: EffectCallback, deps?: DependencyList): void;
+  // Declared so their uses are rejected with a diagnostic rather than a type error.
+  export function useInsertionEffect(effect: EffectCallback, deps?: DependencyList): void;
+  export function useMemo<T>(factory: () => T, deps: DependencyList): T;
+  export function useCallback<T extends Function>(callback: T, deps: DependencyList): T;
   /** What a component can render: children and render-prop results. */
   export type ReactNode =
     JSX.Element | string | number | boolean | null | undefined | Iterable<ReactNode>;
