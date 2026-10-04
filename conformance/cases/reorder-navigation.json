@@ -5,7 +5,7 @@
     "reorder-vue"
   ],
   "knownGaps": {
-    "semantics": "After a move-induced blur, the native runtime continues navigation after the moved element instead of Chromium's collapsed detach position (M5)"
+    "semantics": "After a move-induced blur, the native runtime continues navigation after the moved element instead of Chromium's collapsed detach position (M8)"
   },
   "actions": [
     {
