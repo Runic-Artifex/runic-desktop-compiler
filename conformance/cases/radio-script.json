@@ -1,0 +1,13 @@
+{
+  "description": "Radio buttons checked by script: checking one unchecks the others of its group without events, so when the script's states conflict the later write wins; clicks then check as usual",
+  "fixtures": ["radio-script-svelte"],
+  "actions": [
+    { "kind": "click", "id": "toggle-a" },
+    { "kind": "click", "id": "toggle-a" },
+    { "kind": "click", "id": "toggle-c" },
+    { "kind": "click", "id": "a" },
+    { "kind": "click", "id": "all" },
+    { "kind": "click", "id": "toggle-a" },
+    { "kind": "click", "id": "b" }
+  ]
+}

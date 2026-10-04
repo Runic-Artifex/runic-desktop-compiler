@@ -664,6 +664,8 @@ pub struct Machine<'p> {
     /// Elements of blocks the last render moved (Chromium blurs a focused
     /// element when it is detached to be moved).
     moved: HashSet<u64>,
+    /// Radio buttons checked by the current render, in order.
+    checked_radios: Vec<u64>,
     next_element: u64,
     /// Ref cells set by the last render: (instance, cell) → element id.
     refs: HashMap<(usize, usize), u64>,
@@ -873,6 +875,7 @@ impl<'p> Machine<'p> {
             rendered_elements: HashSet::new(),
             list_keys: HashMap::new(),
             moved: HashSet::new(),
+            checked_radios: vec![],
             next_element: 0,
             refs: HashMap::new(),
             current: 0,
@@ -2612,7 +2615,19 @@ impl<'p> Machine<'p> {
             keep
         });
         result.map_err(throw_diag)?;
-        let tree = normalize(out);
+        let mut tree = normalize(out);
+        // A radio button checked by this render unchecks the others of its
+        // group, in render order (the later one wins, as in Chromium).
+        for radio in std::mem::take(&mut self.checked_radios) {
+            self.live_checked.insert(radio, true);
+            set_tree_checked(&mut tree, radio, true);
+            for (other, _) in radio_group(&tree, radio) {
+                if other != radio {
+                    self.live_checked.insert(other, false);
+                    set_tree_checked(&mut tree, other, false);
+                }
+            }
+        }
         // Focus is lost with its element: Chromium dispatches `blur` and
         // `focusout` at once when the element (or an ancestor) is removed,
         // while it is still in the document, so on the previous tree with
@@ -3082,6 +3097,15 @@ impl<'p> Machine<'p> {
                             if restore || cache.1 != Some(v) {
                                 cache.1 = Some(v);
                                 self.live_checked.insert(id, v);
+                                // Checking a radio button unchecks its group
+                                // (after this render, which knows the group).
+                                let radio = tag == "input"
+                                    && map
+                                        .get("type")
+                                        .is_some_and(|t| t.eq_ignore_ascii_case("radio"));
+                                if v && radio {
+                                    self.checked_radios.push(id);
+                                }
                             }
                             checked = self.live_checked.get(&id).copied();
                             // A checkbox's value property defaults to "on".
@@ -5555,4 +5579,26 @@ fn element_ids(nodes: &[VNode], out: &mut HashSet<u64>) {
             element_ids(children, out);
         }
     }
+}
+
+/// Set the live checked state of element `id` in a rendered tree.
+fn set_tree_checked(nodes: &mut [VNode], id: u64, on: bool) -> bool {
+    for n in nodes {
+        if let VNode::Element {
+            id: i,
+            checked,
+            children,
+            ..
+        } = n
+        {
+            if *i == id {
+                *checked = Some(on);
+                return true;
+            }
+            if set_tree_checked(children, id, on) {
+                return true;
+            }
+        }
+    }
+    false
 }

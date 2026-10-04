@@ -396,7 +396,7 @@ fn input_type(doc: &BaseDocument, id: NodeId, kind: &str) -> bool {
             .is_some_and(|t| t.eq_ignore_ascii_case(kind))
 }
 
-fn is_radio(doc: &BaseDocument, id: NodeId) -> bool {
+pub(crate) fn is_radio(doc: &BaseDocument, id: NodeId) -> bool {
     input_type(doc, id, "radio")
 }
 
@@ -414,7 +414,7 @@ fn checked(doc: &BaseDocument, id: NodeId) -> bool {
 
 /// The radio buttons of `radio`'s group (the same non-empty name; itself
 /// alone without one), in tree order.
-fn radio_group(doc: &BaseDocument, radio: NodeId) -> Vec<NodeId> {
+pub(crate) fn radio_group(doc: &BaseDocument, radio: NodeId) -> Vec<NodeId> {
     let name = doc
         .get_node(radio)
         .and_then(|n| n.attr("name".into()))
@@ -423,15 +423,45 @@ fn radio_group(doc: &BaseDocument, radio: NodeId) -> Vec<NodeId> {
     let Some(name) = name else {
         return vec![radio];
     };
-    tree_order(doc)
+    // The same tree: the document, or the detached subtree a template is
+    // being built in.
+    let mut root = radio;
+    while let Some(p) = doc.get_node(root).and_then(|n| n.parent) {
+        root = p;
+    }
+    subtree_order(doc, root)
         .into_iter()
         .filter(|&n| {
             is_radio(doc, n)
-                && doc.get_node(n).is_some_and(|x| {
-                    x.flags.is_in_document() && x.attr("name".into()) == Some(name.as_str())
-                })
+                && doc
+                    .get_node(n)
+                    .is_some_and(|x| x.attr("name".into()) == Some(name.as_str()))
         })
         .collect()
+}
+
+/// The nodes of the subtree at `root`, in tree order.
+pub(crate) fn subtree_order(doc: &BaseDocument, root: NodeId) -> Vec<NodeId> {
+    let mut out = vec![];
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        let Some(node) = doc.get_node(id) else {
+            continue;
+        };
+        out.push(id);
+        stack.extend(node.children.iter().rev());
+    }
+    out
+}
+
+/// Set a checkbox's or radio button's checkedness (no events).
+pub(crate) fn set_checked_state(doc: &mut BaseDocument, node: NodeId, on: bool) {
+    doc.snapshot_node_and(node, style_dom::ElementState::CHECKED, |n| {
+        if let Some(el) = n.element_data_mut() {
+            el.set_checkbox_input_checked(on);
+        }
+        n.mark_ancestors_dirty();
+    });
 }
 
 fn is_disabled_control(doc: &BaseDocument, id: NodeId) -> bool {

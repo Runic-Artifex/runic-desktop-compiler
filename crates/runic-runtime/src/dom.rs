@@ -540,6 +540,7 @@ impl Dom<'_> {
 
     pub fn append(&mut self, parent: NodeId, child: NodeId) {
         self.doc.mutate().append_children(parent, &[child]);
+        self.radios_connected(&[child]);
     }
 
     /// Insert `child` into `parent` before `before`, or append.
@@ -549,6 +550,8 @@ impl Dom<'_> {
             Some(anchor) => m.insert_nodes_before(anchor, &[child]),
             None => m.append_children(parent, &[child]),
         }
+        drop(m);
+        self.radios_connected(&[child]);
     }
 
     /// Detach and free a subtree, dropping its listener registrations.
@@ -618,6 +621,8 @@ impl Dom<'_> {
             Some(anchor) => m.insert_nodes_before(anchor, nodes),
             None => m.append_children(parent, nodes),
         }
+        drop(m);
+        self.radios_connected(nodes);
     }
 
     /// Apply an element's attribute bag: attributes it no longer holds are
@@ -819,21 +824,66 @@ impl Dom<'_> {
     /// control, the state is given by the presence of the `checked` attribute,
     /// which Blitz uses to initialise it.
     pub fn set_checked(&mut self, node: NodeId, on: bool) {
+        // Checking a radio button unchecks the others of its group (no events).
+        if on && crate::events::is_radio(self.doc, node) {
+            for other in crate::events::radio_group(self.doc, node) {
+                if other != node {
+                    self.set_checked_one(other, false);
+                }
+            }
+        }
+        self.set_checked_one(node, on);
+    }
+
+    /// The checkedness of a checkbox or radio button (its `checked`
+    /// attribute until Blitz has created the live state).
+    fn is_checked(&self, node: NodeId) -> bool {
+        self.doc.get_node(node).is_some_and(|n| {
+            n.element_data()
+                .and_then(|e| e.checkbox_input_checked())
+                .unwrap_or_else(|| n.attr("checked".into()).is_some())
+        })
+    }
+
+    /// Checked radio buttons that become connected uncheck the others of
+    /// their group (HTML: "the element becomes connected"; Chromium connects
+    /// them one by one in tree order).
+    fn radios_connected(&mut self, inserted: &[NodeId]) {
+        let mut radios = vec![];
+        for &n in inserted {
+            if !self
+                .doc
+                .get_node(n)
+                .is_some_and(|x| x.flags.is_in_document())
+            {
+                continue;
+            }
+            for d in crate::events::subtree_order(self.doc, n) {
+                if crate::events::is_radio(self.doc, d) && self.is_checked(d) {
+                    radios.push(d);
+                }
+            }
+        }
+        // Each connects in turn: a checked one unchecks those before it, so
+        // the last checked one in tree order stays checked.
+        for radio in radios {
+            self.set_checked_one(radio, true);
+            for other in crate::events::radio_group(self.doc, radio) {
+                if other != radio && self.is_checked(other) {
+                    self.set_checked_one(other, false);
+                }
+            }
+        }
+    }
+
+    fn set_checked_one(&mut self, node: NodeId, on: bool) {
         let live = self
             .doc
             .get_node(node)
             .and_then(|n| n.element_data())
             .and_then(|e| e.checkbox_input_checked());
         match live {
-            Some(current) if current != on => {
-                self.doc
-                    .snapshot_node_and(node, style_dom::ElementState::CHECKED, |n| {
-                        if let Some(el) = n.element_data_mut() {
-                            el.set_checkbox_input_checked(on);
-                        }
-                        n.mark_ancestors_dirty();
-                    });
-            }
+            Some(current) if current != on => crate::events::set_checked_state(self.doc, node, on),
             Some(_) => {}
             None => self.set_bool_attr(node, "checked", on),
         }
