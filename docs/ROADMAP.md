@@ -33,7 +33,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 
 - **Startup and size budget.** From M1 on, the harness records cold-start time to first frame and stripped binary size for every example. Each milestone reports both. A regression needs a stated reason.
 - **Desktop input.** OS keyboard, IME, Wayland resize and accessibility on Linux. This needs real compositor sessions, so it is done standalone with computer use. It never blocks compiler milestones, but M8 requires it complete for the editor.
-- **Blitz upstream.** Report and fix renderer and control bugs upstream and keep the pin current (D11).
+- **Blitz upstream.** Report and fix renderer and control bugs upstream and keep the pin current (D11). Known gaps and the fork assessment: [BLITZ-GAPS.md](BLITZ-GAPS.md).
 - **Native coverage.** From M6 on, island count and native-coverage % of the editor and corpus apps are tracked per milestone and must not regress.
 
 ## M0: Restructure (done)
