@@ -22,16 +22,35 @@ import type {
   Effect,
 } from '../ir.ts';
 import { EVENT_KINDS } from '../ir.ts';
-import { FnBuilder, Lowerer, remapLocals, type HandlerEvent, type Hooks } from '../language.ts';
+import {
+  FnBuilder,
+  Lowerer,
+  remapLocals,
+  skipParens,
+  type HandlerEvent,
+  type Hooks,
+} from '../language.ts';
 import { createProgram, RUNES } from '../program.ts';
 import { TypeMapper } from '../types.ts';
 import { lowerModules, ModuleResolver } from '../modules.ts';
+import {
+  annotate,
+  displayPath,
+  DTS_PREFIX,
+  implementationOf,
+  inferFields,
+  reachedPackageModules,
+  type PackageModule,
+} from '../package-modules.ts';
 import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domains.ts';
 import { valueSet } from '../packs/choice.ts';
-import { arrayElement, upcastTo } from '../irtype.ts';
+import { BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
+import { packageBindings } from '../package-bindings.ts';
+import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import {
   bindPackImport,
   packExport,
+  packFor,
   packMappings,
   PackError,
   usePack,
@@ -86,6 +105,12 @@ const TAGS = new Set([
   'hr',
   ...SVG_TAGS,
 ]);
+/** The exports of Svelte's modules that component scripts may import. */
+const SVELTE_EXPORTS = {
+  svelte: ['onMount', 'onDestroy', 'tick', 'untrack'],
+  'svelte/events': ['on'],
+};
+
 /** HTML boolean attributes that Svelte sets as properties (present iff truthy). */
 const BOOLEAN_ATTRS = new Set([
   'disabled',
@@ -106,7 +131,10 @@ interface Graph {
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
   config: { title: string; renderer?: 'cpu' | 'gpu' };
-  modules: Map<string, { code: string; imports: Edge[] }>;
+  modules: Map<
+    string,
+    { code: string; imports: Edge[]; package?: { name: string; version: string; dir: string } }
+  >;
   tooling: {
     packages: Record<string, string>;
     compiler: { parse: (src: string, opts: object) => SNode };
@@ -158,7 +186,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const fail = (code: string, message: string, source?: Source): never => {
     throw new Diagnostic(code, message, source);
   };
-  const rel = (f: string) => path.relative(root, f);
+  const rel = (f: string) => displayPath(root, f.replace(/\.__runic\.ts$/, ''));
+  /** A module of a package compiled from source (frontend/sources.ts). */
+  const isPackageModule = (f: string) => !!graph.modules.get(f)?.package;
 
   // --- Bootstrap: mount(App, { target: document.getElementById('root') }) ---
   const entryCode = graph.modules.get(graph.entry)!.code;
@@ -319,7 +349,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           if (e instanceof PackError) fail(e.code, e.message, loc(n));
           throw e;
         }
-      } else fail('E_TEMPLATE', `${n.name} is not an imported component`, loc(n));
+      } else {
+        // `<Namespace.Name>` of a package that is neither packed nor compiled
+        // from source (at this version): the package's own diagnostic.
+        const head = n.name.includes('.')
+          ? resolver.dotted(u.file, n.name.slice(0, n.name.indexOf('.')))
+          : undefined;
+        if (head?.kind === 'package' && head.edge.package)
+          try {
+            packFor(head.edge.package);
+          } catch (e) {
+            if (e instanceof PackError) fail(e.code, e.message, loc(n));
+            throw e;
+          }
+        fail('E_TEMPLATE', `${n.name} is not an imported component`, loc(n));
+      }
     });
   };
   const visit = (file: string, stack: string[], from?: Source) => {
@@ -377,57 +421,52 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         }
     decls.set(u.file, d);
   }
-  const restKeys = new Map<string, Set<string>>();
-  for (const [file, d] of decls) if (d.rest) restKeys.set(file, new Set());
-  const forwards: { from: string; to: string; at: Source }[] = [];
-  for (const u of order) {
-    const rest = decls.get(u.file)!.rest;
+  // Snippets a component receives through its rest props: content or
+  // `{#snippet}` blocks a site passes to a component that does not declare
+  // them (shadcn-svelte's wrappers pass bits-ui's `children` and `child` on
+  // with `{...restProps}`), also through spreads of rest props onto
+  // components that do not declare them either. They are slots of the
+  // component, forwarded where its rest props are spread onto a component.
+  const restSlots = new Map<string, Set<string>>();
+  for (const [file, d] of decls) if (d.rest) restSlots.set(file, new Set());
+  /** The snippets a site passes (`children` for content). */
+  const snippetsPassed = (n: SNode): string[] => {
+    const out: string[] = n.fragment.nodes
+      .filter((c: SNode) => c.type === 'SnippetBlock')
+      .map((c: SNode) => c.expression.name);
+    if (
+      n.fragment.nodes.some(
+        (c: SNode) => c.type !== 'SnippetBlock' && !(c.type === 'Text' && !c.data.trim()),
+      )
+    )
+      out.push('children');
+    return out;
+  };
+  /** Whether attribute `a` spreads the rest props of the component `file`. */
+  const spreadsRest = (file: string, a: SNode) =>
+    a.type === 'SpreadAttribute' &&
+    a.expression.type === 'Identifier' &&
+    a.expression.name === decls.get(file)?.rest;
+  const slotForwards: { from: string; to: string }[] = [];
+  for (const u of order)
     walkTemplate(u.ast.fragment, n => {
-      if (n.type !== 'Component' && n.type !== 'RegularElement' && n.type !== 'SvelteElement')
-        return;
-      for (const a of n.attributes ?? []) {
-        if (a.type === 'SpreadAttribute') {
-          if (!rest || a.expression.type !== 'Identifier' || a.expression.name !== rest)
-            fail(
-              'E_TEMPLATE',
-              'Spread attributes are supported for rest props ({...rest}); other spreads are planned for later',
-              locate(u.original, a.start, u.rel),
-            );
-          if (n.type === 'Component') {
-            const to = u.children.get(n.name);
-            if (to) forwards.push({ from: u.file, to, at: locate(u.original, a.start, u.rel) });
-          }
-        } else if (
-          n.type === 'Component' &&
-          (a.type === 'Attribute' || a.type === 'BindDirective')
-        ) {
-          const to = u.children.get(n.name);
-          const keys = to && restKeys.get(to);
-          if (keys && !decls.get(to)!.declared.has(a.name)) keys.add(a.name);
-        }
-      }
+      if (n.type !== 'Component') return;
+      const to = u.children.get(n.name);
+      if (!to) return;
+      for (const s of snippetsPassed(n))
+        if (!decls.get(to)!.declared.has(s)) restSlots.get(to)?.add(s);
+      if (n.attributes.some((a: SNode) => spreadsRest(u.file, a)))
+        slotForwards.push({ from: u.file, to });
     });
-  }
   for (let changed = true; changed;) {
     changed = false;
-    for (const { from, to, at } of forwards) {
-      const into = restKeys.get(to);
-      if (!into) fail('E_PROPS', 'The component takes no rest props', at);
-      for (const k of restKeys.get(from)!)
-        if (!into!.has(k)) {
-          into!.add(k);
+    for (const { from, to } of slotForwards)
+      for (const s of restSlots.get(from) ?? [])
+        if (!decls.get(to)!.declared.has(s) && restSlots.get(to) && !restSlots.get(to)!.has(s)) {
+          restSlots.get(to)!.add(s);
           changed = true;
         }
-    }
   }
-  for (const { from, to, at } of forwards)
-    for (const k of restKeys.get(from)!)
-      if (decls.get(to)!.declared.has(k))
-        fail(
-          'E_PROPS',
-          `The rest props may hold ${k}, which the receiving component declares; pass ${k} explicitly`,
-          at,
-        );
 
   // The props type each component exports to its parents' virtual modules.
   /** The local name of a child's props type in a virtual module (`Card.Root` → `__RunicProps_Card$Root`). */
@@ -454,6 +493,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     return 'Record<string, never>';
   };
 
+  /** Parameters of snippets passed to components, by their start in a virtual module. */
+  const snippetParams: {
+    virtual: string;
+    start: number;
+    unit: Unit;
+    node: SNode;
+    name: string;
+    index: number;
+  }[] = [];
   // Virtual modules: the module script, the instance script, then the
   // template as typed statements. Components that are not reached only
   // provide their scripts' declarations and types.
@@ -596,7 +644,18 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               const first = sn.parameters[0].start;
               const base = s.length;
               copy(first, sn.parameters.at(-1).end);
-              for (const param of sn.parameters) u.starts.set(param, base + (param.start - first));
+              sn.parameters.forEach((param: SNode, index: number) => {
+                const start = base + (param.start - first);
+                u.starts.set(param, start);
+                snippetParams.push({
+                  virtual: u.virtual,
+                  start,
+                  unit: u,
+                  node: n,
+                  name: sn.expression.name,
+                  index,
+                });
+              });
             }
             s += ') => {\n';
             fragment(sn.body);
@@ -638,26 +697,64 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     s += `export type __RunicProps = ${propsType(u)};\n`;
     u.synthetic = s;
   }
-  const files = new Map<string, string>();
-  for (const u of units.values()) files.set(u.virtual, u.synthetic);
-  for (const [id, m] of graph.modules)
-    if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep)) files.set(id, m.code);
-  // Imports resolve as the collector resolved them (aliases included); a
-  // component file stands for its virtual module.
-  const program = createProgram(files, [RUNES], (specifier, containing) => {
-    const from = containing.endsWith('.__runic.ts')
-      ? containing.slice(0, -'.__runic.ts'.length)
-      : containing;
-    const edge = graph.modules.get(from)?.imports.find(i => i.specifier === specifier);
-    if (!edge || edge.package) return undefined;
-    const target = units.get(edge.resolved)?.virtual ?? edge.resolved;
-    // A module only imported for its types is not collected; TypeScript reads it.
-    return files.has(target) || (/\.(ts|js|mjs)$/.test(target) && existsSync(target))
-      ? target
-      : undefined;
-  });
+  // Modules of packages compiled from source that the program reaches
+  // (frontend/package-modules.ts): typed virtual modules of their JavaScript.
+  const packageModules = new Map<string, PackageModule>();
+  {
+    const roots = [...units.keys()];
+    for (const id of graph.modules.keys())
+      if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep) && !isPackageModule(id))
+        roots.push(id);
+    for (const f of reachedPackageModules(resolver, roots, isPackageModule))
+      packageModules.set(f, annotate(f, graph.modules.get(f)!.code));
+  }
+  const buildProgram = () => {
+    const files = new Map<string, string>();
+    for (const u of units.values()) files.set(u.virtual, u.synthetic);
+    for (const [id, m] of graph.modules)
+      if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep) && !isPackageModule(id))
+        files.set(id, m.code);
+    for (const m of packageModules.values()) files.set(m.virtual, m.text);
+    // Imports resolve as the collector resolved them (aliases included); a
+    // component file stands for its virtual module, a reached package module
+    // for its typed virtual module. Other package modules (barrels, packs)
+    // are read by TypeScript from their declaration files.
+    return createProgram(files, [RUNES], (specifier, containing) => {
+      if (specifier.startsWith(DTS_PREFIX)) return specifier.slice(DTS_PREFIX.length);
+      // A package's declaration files name the modules the program reaches
+      // by their typed virtual modules (one class, one constant, everywhere).
+      if (/\.d\.m?ts$/.test(containing) && specifier.startsWith('.')) {
+        const js = path.resolve(path.dirname(containing), specifier);
+        const reached = packageModules.get(js);
+        if (reached) return reached.virtual;
+        return undefined;
+      }
+      const from = containing.endsWith('.__runic.ts')
+        ? containing.slice(0, -'.__runic.ts'.length)
+        : containing;
+      const edge = graph.modules.get(from)?.imports.find(i => i.specifier === specifier);
+      if (!edge) return undefined;
+      // Modules of packages, also uncollected ones (imported for types only).
+      const source = isPackageModule(edge.resolved) || /[\\/]node_modules[\\/]/.test(edge.resolved);
+      if (edge.package && !source) return undefined;
+      const target =
+        units.get(edge.resolved)?.virtual ??
+        packageModules.get(edge.resolved)?.virtual ??
+        (source ? undefined : edge.resolved);
+      if (target === undefined) return undefined;
+      // A module only imported for its types is not collected; TypeScript reads it.
+      return files.has(target) || (/\.(ts|js|mjs)$/.test(target) && existsSync(target))
+        ? target
+        : undefined;
+    });
+  };
+  let program = buildProgram();
+  // Class fields of package modules typed from what the classes assign.
+  if (inferFields(packageModules, program).length) program = buildProgram();
   const unitOf = new Map<ts.SourceFile, Unit>();
   for (const u of units.values()) unitOf.set(program.getSourceFile(u.virtual)!, u);
+  const packageOf = new Map<ts.SourceFile, PackageModule>();
+  for (const m of packageModules.values()) packageOf.set(program.getSourceFile(m.virtual)!, m);
   const sourceAt = (u: Unit, pos: number): Source => {
     const seg = u.segments.find(s => pos >= s.synth && pos <= s.synth + s.length);
     return seg
@@ -668,6 +765,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const f = n.getSourceFile();
     const u = unitOf.get(f);
     if (!u) {
+      const m = packageOf.get(f);
+      if (m) {
+        const pos = n.getStart(f);
+        const seg = m.segments.find(s => pos >= s.synth && pos <= s.synth + s.length);
+        const code = graph.modules.get(m.file)!.code;
+        return seg
+          ? locate(code, seg.orig + (pos - seg.synth), rel(m.file))
+          : { file: rel(m.file), line: 1, column: 1 };
+      }
       const p = f.getLineAndCharacterOfPosition(n.getStart(f));
       return { file: rel(f.fileName), line: p.line + 1, column: p.character + 1 };
     }
@@ -703,6 +809,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       );
     }
   }
+  for (const m of packageModules.values()) {
+    const d = program.getSyntacticDiagnostics(program.getSourceFile(m.virtual)!)[0];
+    if (d)
+      fail(
+        'E_INTERNAL',
+        `The typed module of ${rel(m.file)} does not parse: ${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`,
+      );
+  }
   const tsFail = (n: ts.Node, code: string, message: string): never =>
     fail(code, message, sourceOf(n));
   const checker = program.getTypeChecker();
@@ -711,23 +825,92 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // --- Lowering state (one component at a time) ---
   let cells: Cell[] = [];
   /** The name a binding imported from 'svelte' has there (`undefined` for other bindings). */
-  const svelteImport = (id: ts.Identifier): string | undefined => {
+  const svelteImport = (id: ts.Identifier, module = 'svelte'): string | undefined => {
     const decl = checker.getSymbolAtLocation(id)?.declarations?.[0];
     if (!decl || !ts.isImportSpecifier(decl)) return undefined;
     const from = decl.parent.parent.parent.moduleSpecifier;
-    return ts.isStringLiteral(from) && from.text === 'svelte'
+    return ts.isStringLiteral(from) && from.text === module
       ? (decl.propertyName ?? decl.name).text
       : undefined;
   };
+  /** Whether runes are compiled in the file of `n` (components and `.svelte.js` modules). */
+  const runeFile = (n: ts.Node) =>
+    /\.svelte(\.__runic\.ts|\.ts|\.js|\.js\.__runic\.ts)$/.test(n.getSourceFile().fileName);
   const hooks: Hooks = {
     readCell: cell => ({ op: 'cell', cell, read: 'current' }),
     cellType: cell => cells[cell].type,
     writeCell: (cell, value) => [{ op: 'set', cell, value }],
-    call(node, _ctx, lower) {
+    call(node, ctx, lower) {
       // tick(): a microtask that runs any pending flush, then fulfils.
       if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'tick') {
         if (node.arguments.length) return tsFail(node, 'E_CALL', 'tick takes no arguments');
         return { op: 'builtin', name: 'flush.tick', args: [], type: { promise: 'void' } };
+      }
+      // untrack(fn): fn's result, its reads not tracked by the running effect or derived value.
+      if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'untrack') {
+        const [fn] = node.arguments;
+        const f = fn && lower.expr(fn, ctx);
+        const t = f && lower.irType(f, ctx);
+        if (
+          !f ||
+          node.arguments.length !== 1 ||
+          typeof t !== 'object' ||
+          !('fn' in t) ||
+          t.fn.params.length
+        )
+          return tsFail(node, 'E_CALL', 'untrack takes a function without parameters');
+        return { op: 'builtin', name: 'reactive.untrack-call', args: [f], type: t.fn.result };
+      }
+      // on(element, type, handler) from svelte/events: an element listener and its remover.
+      if (
+        ts.isIdentifier(node.expression) &&
+        svelteImport(node.expression, 'svelte/events') === 'on'
+      )
+        return svelteOn(node, ctx, lower);
+      // $effect and $effect.pre outside a component's top level (class
+      // constructors, functions run while an instance is created): effects of
+      // that instance (docs/IR.md, `effect.pre`/`effect.post`).
+      const rune = runeName(node);
+      if ((rune === '$effect' || rune === '$effect.pre') && runeFile(node)) {
+        const [fn] = node.arguments;
+        if (
+          !fn ||
+          node.arguments.length !== 1 ||
+          !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ||
+          fn.parameters.length
+        )
+          return tsFail(
+            node,
+            'E_EFFECT',
+            `${rune} takes one synchronous function without parameters`,
+          );
+        const f = lower.expr(fn, ctx);
+        const t = lower.irType(f, ctx) as { fn: { params: Type[]; result: Type } };
+        const r = t.fn.result;
+        const cleanup = (x: Type) =>
+          typeof x === 'object' && 'fn' in x && !x.fn.params.length && x.fn.result === 'void';
+        if (
+          r !== 'void' &&
+          !cleanup(r) &&
+          !(typeof r === 'object' && 'maybe' in r && cleanup(r.maybe))
+        )
+          tsFail(fn, 'E_EFFECT', `${rune} functions return nothing or a cleanup function`);
+        return {
+          op: 'builtin',
+          name: rune === '$effect' ? 'effect.post' : 'effect.pre',
+          args: [f],
+          type: 'void',
+        };
+      }
+      // $props.id(): an id unique in the program (`c1`, `c2`, … in creation order).
+      if (rune === '$props.id') {
+        if (node.arguments.length) tsFail(node, 'E_RUNE', '$props.id takes no arguments');
+        return {
+          op: 'builtin',
+          name: 'uid.next',
+          args: [{ op: 'lit', value: 'c' }],
+          type: 'string',
+        };
       }
       if (
         ts.isIdentifier(node.expression) &&
@@ -742,9 +925,81 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       return undefined;
     },
   };
+  /**
+   * `on(element, type, handler)` (svelte/events): adds the listener and
+   * returns its remover. Covered for `beforematch` only, which the native
+   * runtime never fires (Chromium fires it for find-in-page and for
+   * fragment navigations into `hidden="until-found"` content, neither of
+   * which the runtime has: element fragments are rejected, `until-found` is
+   * reported when a spread sets it).
+   */
+  const svelteOn = (node: ts.CallExpression, b: FnBuilder, l: Lowerer): Expr => {
+    const [el, type, handler, options] = node.arguments;
+    if (!el || !type || !handler || options || !ts.isStringLiteralLike(type))
+      return tsFail(node, 'E_EVENT', 'on(element, "event", handler) takes a literal event name');
+    if (type.text !== 'beforematch')
+      return tsFail(
+        type,
+        'E_EVENT',
+        `Element listeners added with on() are supported for beforematch (never fired natively: there is no find-in-page), not ${type.text}`,
+      );
+    const e = l.expr(el, b);
+    if (l.irType(e, b) !== 'element') return tsFail(el, 'E_EVENT', 'on() takes an element');
+    const f = l.expr(handler, b);
+    const ft = l.irType(f, b);
+    if (
+      typeof ft !== 'object' ||
+      !('fn' in ft) ||
+      !(ft.fn.params.length === 0 || (ft.fn.params.length === 1 && ft.fn.params[0] === 'event'))
+    )
+      return tsFail(handler, 'E_EVENT', 'on() takes a listener taking the event or nothing');
+    const args = (): Expr[] => [
+      { op: 'local', local: 0 },
+      { op: 'lit', value: type.text },
+      { op: 'local', local: 1 },
+    ];
+    const remove = l.reserve();
+    l.functions[remove] = {
+      name: 'on$remove',
+      captures: [
+        { name: 'element', type: 'element' },
+        { name: 'handler', type: ft },
+      ],
+      params: [],
+      locals: [],
+      result: 'void',
+      body: [
+        {
+          op: 'expr',
+          value: { op: 'builtin', name: 'element.unlisten', args: args(), type: 'void' },
+        },
+      ],
+    };
+    const add = l.reserve();
+    l.functions[add] = {
+      name: 'on',
+      params: [
+        { name: 'element', type: 'element' },
+        { name: 'handler', type: ft },
+      ],
+      locals: [],
+      result: { fn: { params: [], result: 'void' } },
+      body: [
+        {
+          op: 'expr',
+          value: { op: 'builtin', name: 'element.listen', args: args(), type: 'void' },
+        },
+        { op: 'return', value: { op: 'closure', function: remove, captures: [0, 1] } },
+      ],
+    };
+    return { op: 'call', function: add, args: [e, f] };
+  };
   const lower = new Lowerer(program, checker, types, hooks, tsFail, sourceOf);
   // The script runs once per instance: its functions keep their identity.
   lower.stableFunctions = true;
+  // Declarations of package modules are lowered when the program reaches them.
+  lower.lazy = packageBindings(lower, graph.modules, packageModules);
+  lower.implementation = implementationOf(program, packageModules);
   const runeName = (e: ts.Expression | undefined): string | undefined => {
     if (!e || !ts.isCallExpression(e)) return undefined;
     const callee = e.expression;
@@ -797,6 +1052,141 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         for (const d of stmt.declarationList.declarations)
           if (!runeName(d.initializer)) lower.isPackConstant(d);
     }
+
+  // Attribute bags (frontend/bags.ts): the names the rest props of each
+  // component may hold (from its sites, through forwarding), and the names
+  // snippet parameters receive from the snippet's render sites.
+  const restShape = new Map<string, Shape>();
+  for (const [file, d] of decls) if (d.rest) restShape.set(file, emptyShape());
+  const restOf = new Map<ts.Symbol, string>();
+  for (const u of order)
+    for (const stmt of instanceStatements(u))
+      if (ts.isVariableStatement(stmt))
+        for (const d of stmt.declarationList.declarations)
+          if (runeName(d.initializer) === '$props' && ts.isObjectBindingPattern(d.name))
+            for (const el of d.name.elements)
+              if (el.dotDotDotToken && ts.isIdentifier(el.name)) {
+                const sym = checker.getSymbolAtLocation(el.name);
+                if (sym) restOf.set(sym, u.file);
+              }
+  /** The local name of snippet prop `name` of component `file`. */
+  const snippetLocal = (file: string, name: string): string | undefined => {
+    const u = units.get(file)!;
+    for (const stmt of instanceStatements(u))
+      if (ts.isVariableStatement(stmt))
+        for (const d of stmt.declarationList.declarations)
+          if (runeName(d.initializer) === '$props' && ts.isObjectBindingPattern(d.name))
+            for (const el of d.name.elements)
+              if (
+                !el.dotDotDotToken &&
+                ((el.propertyName ?? el.name) as ts.Identifier).text === name &&
+                ts.isIdentifier(el.name)
+              )
+                return el.name.text;
+    return undefined;
+  };
+  /**
+   * The arguments the snippet `name` passed to component `file` receives:
+   * at the component's `{@render name(…)}` tags, or where it forwards its
+   * rest props (holding the snippet) onto a component.
+   */
+  const renderArgs = (file: string, name: string, seen = new Set<string>()): ts.Expression[][] => {
+    const key = `${file}\0${name}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    const u = units.get(file);
+    if (!u?.reached) return [];
+    const out: ts.Expression[][] = [];
+    if (decls.get(file)?.declared.has(name)) {
+      const local = snippetLocal(file, name);
+      walkTemplate(u.ast.fragment, n => {
+        if (n.type !== 'RenderTag') return;
+        let call = nodeIn(u, n.expression) as ts.Expression;
+        while (ts.isParenthesizedExpression(call)) call = call.expression;
+        if (!ts.isCallExpression(call)) return;
+        const callee = call.expression;
+        if (ts.isIdentifier(callee) && callee.text === local) out.push([...call.arguments]);
+      });
+    } else if (restSlots.get(file)?.has(name))
+      walkTemplate(u.ast.fragment, n => {
+        if (n.type !== 'Component' || !n.attributes.some((a: SNode) => spreadsRest(file, a)))
+          return;
+        const to = u.children.get(n.name);
+        if (to) out.push(...renderArgs(to, name, seen));
+      });
+    return out;
+  };
+  /** The bag a snippet argument's field `field` holds (`{ props }` destructured). */
+  const argField = (arg: ts.Expression, field: string): Shape => {
+    const e = skipParens(arg);
+    if (!ts.isObjectLiteralExpression(e)) return openShape();
+    for (const p of [...e.properties].reverse()) {
+      if (ts.isPropertyAssignment(p) && shapes.propertyName(p.name) === field)
+        return shapes.of(p.initializer);
+      if (ts.isShorthandPropertyAssignment(p) && p.name.text === field) return shapes.of(p.name);
+      if (ts.isSpreadAssignment(p)) return openShape();
+    }
+    return openShape();
+  };
+  const shapes: BagShapes = new BagShapes(lower, {
+    binding(sym) {
+      const rest = restOf.get(sym);
+      if (rest) return restShape.get(rest);
+      // A field of a destructured snippet parameter.
+      const decl = sym.valueDeclaration;
+      if (!decl || !ts.isBindingElement(decl)) return undefined;
+      let param: ts.Node = decl;
+      while (param.parent && !ts.isParameter(param)) param = param.parent;
+      if (!ts.isParameter(param) || decl.parent.parent !== param) return undefined;
+      const site = snippetParams.find(
+        p => p.virtual === param.getSourceFile().fileName && p.start === param.getStart(),
+      );
+      if (!site) return undefined;
+      const to = site.unit.children.get(site.node.name);
+      if (!to) return openShape();
+      const field = ((decl.propertyName ?? decl.name) as ts.Identifier).text;
+      return union(
+        ...renderArgs(to, site.name).map(args =>
+          args[site.index] ? argField(args[site.index], field) : emptyShape(),
+        ),
+      );
+    },
+  });
+  /** What site `n` (a component node of `u`) passes into the rest props of `to`. */
+  const siteRestShape = (u: Unit, n: SNode, to: string): Shape => {
+    const declared = decls.get(to)!.declared;
+    const out = emptyShape();
+    for (const a of n.attributes) {
+      if ((a.type === 'Attribute' || a.type === 'BindDirective') && !declared.has(a.name))
+        out.keys.add(a.name);
+      if (a.type === 'SpreadAttribute') {
+        const s = shapes.of(nodeIn(u, a.expression) as ts.Expression);
+        for (const k of s.keys) if (!declared.has(k)) out.keys.add(k);
+        out.open ||= s.open;
+      }
+    }
+    return out;
+  };
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const u of order)
+      walkTemplate(u.ast.fragment, n => {
+        if (n.type !== 'Component') return;
+        const to = u.children.get(n.name);
+        const into = to && restShape.get(to);
+        if (!into) return;
+        const s = siteRestShape(u, n, to!);
+        for (const k of s.keys)
+          if (!into.keys.has(k)) {
+            into.keys.add(k);
+            changed = true;
+          }
+        if (s.open && !into.open) {
+          into.open = true;
+          changed = true;
+        }
+      });
+  }
 
   // Prop domains (frontend/domains.ts): what every instantiation site
   // passes for each declared prop; a component with several sites gets a
@@ -851,6 +1241,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           );
         else if (a.type === 'BindDirective')
           values.set(a.name, { expr: nodeIn(u, a.expression) as ts.Expression });
+        else if (a.type === 'SpreadAttribute') {
+          // A spread may set the declared props its bag may hold (later attributes win).
+          const s = shapes.of(nodeIn(u, a.expression) as ts.Expression);
+          for (const key of decls.get(child)!.declared)
+            if (mayHold(s, key)) values.set(key, { open: true });
+        }
       }
       const site: Site = {
         component: units.get(child)!.index,
@@ -939,9 +1335,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     /** Local names of the lifecycle functions imported from 'svelte'. */
     const lifecycle = new Map<string, string>();
     const snippetOf = new Map<ts.Symbol, string>();
+    /** Slots received through the rest props (forwarded where they are spread). */
+    const forwardedSlots = new Set<string>();
     /** Parameter types of a `Snippet<[A, B]>` prop, or undefined for other props. */
-    const snippetParams = (node: ts.Node): Type[] | undefined => {
-      const t = checker.getNonNullableType(checker.getTypeAtLocation(node));
+    const snippetParams = (node: ts.Node, type?: ts.Type): Type[] | undefined => {
+      const t = checker.getNonNullableType(type ?? checker.getTypeAtLocation(node));
       const sym = t.aliasSymbol ?? t.getSymbol();
       const file = sym?.declarations?.[0]?.getSourceFile().fileName ?? '';
       if (sym?.name !== 'Snippet' || !/[\\/]svelte[\\/]/.test(file)) return undefined;
@@ -1019,11 +1417,35 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           fallback = (fallback as ts.CallExpression).arguments[0];
         if (fallback) {
           const f = fallback;
+          // A parent passing undefined gets the default too, as with $props().
+          cells[cell].undefinedDefault = true;
           pending.push(() => {
             const v = lower.value(f, COMPONENT, `${name}$default`);
-            cells[cell].init = coerceInit(v, lower.valueType(v), type, lower.types.records);
+            const t = lower.valueType(v);
+            // A function taking fewer parameters (`onOpenChange = noop`).
+            cells[cell].init =
+              lower.adaptFunction(v, t, type) ?? coerceInit(v, t, type, lower.types.records);
           });
         }
+      }
+      // Snippets received through the rest props (frontend: `restSlots`):
+      // slots of this component, typed by its props type.
+      const propsType = d.type
+        ? checker.getTypeFromTypeNode(d.type)
+        : checker.getTypeAtLocation(d.initializer!);
+      for (const name of restSlots.get(u.file) ?? []) {
+        if (slots.some(s => s.name === name)) continue;
+        const p = checker.getPropertyOfType(propsType, name);
+        const params =
+          p && snippetParams(p.valueDeclaration ?? d, checker.getTypeOfSymbolAtLocation(p, d));
+        if (!params)
+          tsFail(
+            d,
+            'E_PROPS',
+            `${name} reaches the rest props, but the props type has no snippet ${name}`,
+          );
+        slots.push({ name, ...(params!.length ? { params: params! } : {}) });
+        forwardedSlots.add(name);
       }
     };
 
@@ -1117,14 +1539,23 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             tsFail(stmt, 'E_CAPABILITY', 'Import onMount and onDestroy from svelte by name');
           for (const el of (named as ts.NamedImports).elements) {
             const imported = (el.propertyName ?? el.name).text;
-            if (!['onMount', 'onDestroy', 'tick'].includes(imported))
+            if (!SVELTE_EXPORTS.svelte.includes(imported))
               tsFail(
                 el,
                 'E_CAPABILITY',
-                `svelte's ${imported} is planned for a later milestone (onMount and onDestroy are supported)`,
+                `svelte's ${imported} is planned for a later milestone (${SVELTE_EXPORTS.svelte.join(', ')} are supported)`,
               );
             lifecycle.set(el.name.text, imported);
           }
+          continue;
+        }
+        if (spec === 'svelte/events') {
+          const named = stmt.importClause?.namedBindings;
+          for (const el of named && ts.isNamedImports(named) ? named.elements : [])
+            if (!SVELTE_EXPORTS['svelte/events'].includes((el.propertyName ?? el.name).text))
+              tsFail(el, 'E_CAPABILITY', `svelte/events supports on`);
+          if (stmt.importClause?.name || !named || !ts.isNamedImports(named))
+            tsFail(stmt, 'E_CAPABILITY', 'Import on from svelte/events by name');
           continue;
         }
         if (spec.startsWith('svelte/'))
@@ -1182,12 +1613,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                 lower.functions[index].derivedStrict = true;
               } else {
                 const v = lower.value(call.arguments[0], COMPONENT, `${name}$derived`);
+                // An attribute bag (`mergeProps(…)`) whatever its TypeScript type.
+                const bag = lower.valueType(v) === 'attrs';
                 lower.functions[index] = {
                   name,
                   component: COMPONENT,
                   params: [],
                   locals: [],
-                  result: types.of(d.name),
+                  result: bag ? 'attrs' : types.of(d.name),
                   body: [{ op: 'return', value: v }],
                   derived: true,
                   derivedStrict: true,
@@ -1201,12 +1634,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             if (p) pending.push(p);
             continue;
           }
-          if (rune && !['$state', '$state.raw'].includes(rune))
+          if (rune && !['$state', '$state.raw', '$props.id'].includes(rune))
             tsFail(
               init!,
               'E_RUNE',
               `${rune} is planned for a later milestone (see docs/ROADMAP.md)`,
             );
+          if (rune === '$props.id' && !isConst)
+            tsFail(init!, 'E_RUNE', '$props.id() initialises a const');
           const cell = cells.length;
           let type = types.of(d.name) as Type;
           // An element (bind:this) is undefined until mounted and null after removal.
@@ -1224,7 +1659,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           lower.bindings.set(sym, { kind: 'cell', cell });
           pending.push(() => {
             let value: ts.Expression | undefined = init;
-            if (rune) value = (init as ts.CallExpression).arguments[0];
+            if (rune && rune !== '$props.id') value = (init as ts.CallExpression).arguments[0];
             if (!value) {
               cells[cell].init = { op: 'undefined', type };
               return;
@@ -1371,10 +1806,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'IfBlock') {
           flush();
           const testNode = exprNode(n.test);
-          const tv = value(testNode);
+          // `{#if child}` on a snippet prop: whether the parent provides it.
+          const snippet =
+            ts.isIdentifier(testNode) && snippetOf.get(checker.getSymbolAtLocation(testNode)!);
+          const tv: Expr = snippet ? { op: 'slot-provided', name: snippet } : value(testNode);
           out.push({
             kind: 'if',
-            test: typeOf(testNode, tv) === 'boolean' ? tv : { op: 'to-boolean', arg: tv },
+            test:
+              snippet || typeOf(testNode, tv) === 'boolean' ? tv : { op: 'to-boolean', arg: tv },
             then: children(n.consequent),
             ...(n.alternate ? { else: children(n.alternate) } : {}),
             source: loc(n),
@@ -1555,7 +1994,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const decl = slots.find(d => d.name === name)!;
       const args = (call as ts.CallExpression).arguments.map((a, i) => {
         const v = value(a);
-        return coerceInit(v, typeOf(a, v), decl.params![i], lower.types.records);
+        // Object literal arguments take the snippet parameter's type (their context).
+        const own = ts.isObjectLiteralExpression(skipParens(a))
+          ? lower.irType(v, tb)
+          : typeOf(a, v);
+        return coerceInit(v, own, decl.params![i], lower.types.records);
       });
       return { kind: 'slot', name, ...(args.length ? { args } : {}), source: loc(n) };
     };
@@ -1584,6 +2027,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const v = value(e);
       const t = typeOf(e, v);
       const kind = /^on([a-z]+)$/.exec(name)?.[1];
+      // A callback the receiving component (or one it forwards to) declares
+      // (`onOpenChange`): a function entry, never an attribute.
+      if (!kind && typeof t === 'object' && 'fn' in t) return { name, value: v };
       if (kind) {
         const listener =
           EVENT_KINDS.includes(kind as HandlerEvent) &&
@@ -1673,16 +2119,67 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (cell < 0) fail('E_PROPS', `${n.name} has no prop ${a.name}`, loc(a));
         return cell;
       };
+      // Spreads of attribute bags (frontend/bags.ts): a bag sets the declared
+      // props it holds (a later attribute or spread wins, as Svelte merges
+      // props) and the rest go into the child's rest props. Each declared
+      // prop a bag may hold is read from it at the site.
+      const spreads: { expr: ts.Expression; shape: Shape; rest: boolean; at: SNode }[] = [];
+      /** The writers of declared props a spread may hold, in source order. */
+      const writers = new Map<string, ({ explicit: Expr } | { spread: number })[]>();
       for (const a of n.attributes) {
         if (a.type === 'SpreadAttribute') {
-          if (restCell < 0) fail('E_PROPS', `${n.name} takes no rest props`, loc(a));
-          bag.push({ spread: value(exprNode(a.expression)) });
+          const e = exprNode(a.expression);
+          const v = value(e);
+          if (lower.irType(v, tb) !== 'attrs')
+            fail(
+              'E_TEMPLATE',
+              'Spread attributes take attribute bags (rest props, props objects)',
+              loc(a),
+            );
+          const shape = shapes.of(e);
+          const index = spreads.length;
+          spreads.push({ expr: e, shape, rest: spreadsRest(u.file, a), at: a });
+          const held: string[] = [];
+          for (const c of target.cells)
+            if (c.prop && c.prop !== '...' && c.prop !== '$site' && mayHold(shape, c.prop)) {
+              held.push(c.prop);
+              const w = writers.get(c.prop) ?? [];
+              // An earlier explicit value is the fallback of the spread's.
+              const earlier = passed.findIndex(p => p.name === c.prop);
+              if (earlier >= 0) {
+                if (passed[earlier].bind)
+                  fail('E_TEMPLATE', `A spread after bind:${c.prop} may hold ${c.prop}`, loc(a));
+                w.push({ explicit: passed[earlier].value });
+                passed.splice(earlier, 1);
+              }
+              w.push({ spread: index });
+              writers.set(c.prop, w);
+            }
+          if (restCell >= 0)
+            bag.push({
+              spread: held.length
+                ? {
+                    op: 'builtin',
+                    name: 'attrs.without',
+                    args: [v, ...held.map(k => ({ op: 'lit', value: k }) as Expr)],
+                    type: 'attrs',
+                  }
+                : v,
+            });
+          else if (shape.open || [...shape.keys].some(k => !declared(k)))
+            fail(
+              'E_PROPS',
+              `${n.name} takes no rest props, and the spread may hold other names`,
+              loc(a),
+            );
           continue;
         }
         if (a.type === 'Attribute' && restCell >= 0 && !declared(a.name)) {
           bag.push(restEntry(a));
           continue;
         }
+        if (a.type === 'BindDirective' && writers.has(a.name))
+          fail('E_TEMPLATE', `bind:${a.name} after a spread that may hold ${a.name}`, loc(a));
         if (a.type === 'Attribute') {
           const want = target.cells[propCell(a)].type;
           let v: Expr;
@@ -1701,9 +2198,18 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           } else {
             const e = exprNode(a.value.expression);
             v = value(e);
-            v = coerceInit(v, typeOf(e, v), want, lower.types.records);
+            // A function of a compatible type (fewer parameters, a result
+            // where none is expected) is adapted to the prop's.
+            const from = typeOf(e, v);
+            const fn = maybeInner(want) ?? want;
+            const adapted = lower.adaptFunction(v, from, fn);
+            v = adapted
+              ? coerceInit(adapted, fn, want, lower.types.records)
+              : coerceInit(v, from, want, lower.types.records);
           }
-          passed.push({ name: a.name, value: v });
+          const w = writers.get(a.name);
+          if (w) w.push({ explicit: v });
+          else passed.push({ name: a.name, value: v });
         } else if (a.type === 'BindDirective') {
           const want = target.cells[propCell(a)].type;
           const e = exprNode(a.expression);
@@ -1727,6 +2233,46 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           });
         } else fail('E_TEMPLATE', `${a.type} on components is planned for a later M3 step`, loc(a));
       }
+      // Declared props a spread may set: the last writer that holds the
+      // prop gives it; undefined (absent everywhere) takes the child's default.
+      for (const [key, ws] of writers) {
+        const last = ws.at(-1)!;
+        if ('explicit' in last) {
+          passed.push({ name: key, value: last.explicit });
+          continue;
+        }
+        const cell = target.cells.find(c => c.prop === key)!;
+        const inner =
+          typeof cell.type === 'object' && 'maybe' in cell.type ? cell.type.maybe : cell.type;
+        if (!(typeof cell.type === 'object' && 'maybe' in cell.type) && !cell.undefinedDefault)
+          fail(
+            'E_PROPS',
+            `${n.name}'s prop ${key} has no default, but a spread may leave it unset`,
+            loc(n),
+          );
+        const want: Type = { maybe: inner };
+        let acc: Expr = { op: 'undefined', type: want };
+        for (const w of ws) {
+          if ('explicit' in w) {
+            acc = coerceInit(w.explicit, lower.irType(w.explicit, tb), want, lower.types.records);
+            continue;
+          }
+          const bagValue = value(spreads[w.spread].expr);
+          const name: Expr = { op: 'lit', value: key };
+          acc = {
+            op: 'cond',
+            test: { op: 'builtin', name: 'attrs.has', args: [bagValue, name], type: 'boolean' },
+            then: {
+              op: 'builtin',
+              name: 'attrs.get',
+              args: [value(spreads[w.spread].expr), name],
+              type: want,
+            },
+            else: acc,
+          };
+        }
+        passed.push({ name: key, value: acc });
+      }
       if (bag.length) passed.push({ name: '...', value: { op: 'attrs', items: bag } });
       // The index of this instantiation site (frontend/domains.ts).
       if (siteCells.has(child.index)) {
@@ -1738,7 +2284,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
           fail('E_PROPS', `${n.name} requires the prop ${c.prop}`, loc(n));
       // Snippets and children: parent-owned content for the child's slots.
-      const defs: { name: string; params?: number[]; body: Node[] }[] = [];
+      const defs: { name: string; params?: number[]; body: Node[]; when?: Expr }[] = [];
       const declOf = (name: string, at: SNode) =>
         target.slots?.find(d => d.name === name) ??
         fail('E_PROPS', `${n.name} has no snippet prop ${name}`, loc(at));
@@ -1754,9 +2300,28 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         const params = sn.parameters.map((param: SNode, i: number) => {
           let id = nodeAt(param);
           if (ts.isParameter(id)) id = id.name;
+          const t = decl.params![i];
+          if (ts.isObjectBindingPattern(id)) {
+            // `{#snippet child({ props })}`: fields of the argument record.
+            const local = tb.local(`$snippet${i}`, t);
+            if (typeof t !== 'object' || !('record' in t))
+              fail('E_TEMPLATE', 'Snippet parameters destructure into object fields', loc(param));
+            for (const el of id.elements) {
+              if (el.dotDotDotToken || el.initializer || !ts.isIdentifier(el.name))
+                fail('E_TEMPLATE', 'Snippet parameter patterns are plain field names', loc(param));
+              const key = ((el.propertyName ?? el.name) as ts.Identifier).text;
+              lower.bindings.set(checker.getSymbolAtLocation(el.name)!, {
+                kind: 'member',
+                owner: tb,
+                local,
+                path: [types.fieldIndex((t as { record: number }).record, key, el)],
+              });
+            }
+            return local;
+          }
           if (!ts.isIdentifier(id))
-            fail('E_TEMPLATE', 'Destructured snippet parameters are planned for later', loc(param));
-          const local = tb.local((id as ts.Identifier).text, decl.params![i]);
+            fail('E_TEMPLATE', 'Destructured snippet parameters are object patterns', loc(param));
+          const local = tb.local((id as ts.Identifier).text, t);
           lower.bindings.set(checker.getSymbolAtLocation(id)!, { kind: 'local', owner: tb, local });
           return local;
         });
@@ -1767,6 +2332,35 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         declOf('children', n);
         defs.push({ name: 'children', body: children({ nodes: content }) });
       }
+      // Snippets this component received through its rest props, forwarded
+      // where it spreads them: provided to the child when they were to this
+      // component.
+      if (spreads.some(s => s.rest))
+        for (const name of forwardedSlots) {
+          const decl = target.slots?.find(d => d.name === name);
+          if (!decl) continue;
+          if (defs.some(d => d.name === name))
+            fail(
+              'E_TEMPLATE',
+              `${name} is passed both explicitly and through the rest props`,
+              loc(n),
+            );
+          const params = (decl.params ?? []).map((t, i) => tb.local(`$${name}${i}`, t));
+          defs.push({
+            name,
+            ...(params.length ? { params } : {}),
+            body: [
+              {
+                kind: 'slot',
+                name,
+                ...(params.length
+                  ? { args: params.map(p => ({ op: 'local', local: p }) as Expr) }
+                  : {}),
+              },
+            ],
+            when: { op: 'slot-provided', name },
+          });
+        }
       return {
         kind: 'component',
         component: child.index,
@@ -1783,13 +2377,16 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
      */
     const linkTargets = (n: SNode) => {
       const at = n.attributes.find((a: SNode) => a.type === 'Attribute' && a.name === 'href');
-      const spread = n.attributes.some((a: SNode) => a.type === 'SpreadAttribute');
-      if (spread && restKeys.get(u.file)?.has('href'))
-        fail(
-          'E_TEMPLATE',
-          'A link whose href comes from rest props is not supported; pass href explicitly',
-          loc(n),
-        );
+      for (const a of n.attributes)
+        if (
+          a.type === 'SpreadAttribute' &&
+          mayHold(shapes.of(nodeIn(u, a.expression) as ts.Expression), 'href')
+        )
+          fail(
+            'E_TEMPLATE',
+            'A link whose href may come from spread attributes is not supported; pass href explicitly',
+            loc(n),
+          );
       if (!at) return;
       const values: unknown[] | undefined =
         at.value === true
@@ -1837,7 +2434,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       let bound: { event: HandlerEvent; handler: ReturnType<Lowerer['bindHandler']> } | undefined;
       const styles: { name: string; value: Expr }[] = [];
       const classes: { name: string; value: Expr }[] = [];
-      let spread: { at: number; value: Expr } | undefined;
+      let spread: { at: number; value: Expr; shape: Shape } | undefined;
       let reference: number | undefined;
       for (const a of n.attributes) {
         if (a.type === 'Attribute') {
@@ -2046,7 +2643,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           });
         } else if (a.type === 'SpreadAttribute') {
           if (spread) fail('E_TEMPLATE', 'One spread per element is supported', loc(a));
-          spread = { at: n.attributes.indexOf(a), value: value(exprNode(a.expression)) };
+          const e = exprNode(a.expression);
+          const v = value(e);
+          if (lower.irType(v, tb) !== 'attrs')
+            fail(
+              'E_TEMPLATE',
+              'Spread attributes take attribute bags (rest props, props objects)',
+              loc(a),
+            );
+          spread = { at: n.attributes.indexOf(a), value: v, shape: shapes.of(e) };
         } else fail('E_TEMPLATE', `${a.type} is planned for a later milestone`, loc(a));
       }
       // A dynamic style, or any style with style: directives, is managed
@@ -2070,25 +2675,25 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (i >= 0 && lower.irType(attrs[i].value, tb) !== 'string')
           fail('E_TEMPLATE', 'With class: directives, class must be a string', loc(n));
       }
-      // With a spread of rest props, the element's own attributes that the
-      // bag may also hold join it in source order (a later one wins).
+      // With a spread, the element's own attributes that the bag may also
+      // hold (frontend/bags.ts) join it in source order (a later one wins).
       let bag: Expr | undefined;
       if (spread) {
-        const keys = restKeys.get(u.file)!;
+        const shape = spread.shape;
         const position = (name: string) =>
           n.attributes.findIndex((a: SNode) => a.type === 'Attribute' && a.name === name);
         const before: AttrItem[] = [];
         const after: AttrItem[] = [];
         for (const a of [...attrs])
-          if (keys.has(a.name)) {
+          if (mayHold(shape, a.name)) {
             (position(a.name) < spread.at ? before : after).push({ name: a.name, value: a.value });
             attrs.splice(attrs.indexOf(a), 1);
           }
         for (const l of listeners)
-          if (keys.has(`on${l.event}`))
+          if (mayHold(shape, `on${l.event}`))
             fail(
               'E_TEMPLATE',
-              `on${l.event} is both on the element and possibly in the spread rest props`,
+              `on${l.event} is both on the element and possibly in the spread attributes`,
               loc(n),
             );
         bag =
@@ -2125,7 +2730,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ...(props.length ? { props } : {}),
         ...(listeners.length ? { listeners } : {}),
         ...(reference !== undefined ? { ref: reference } : {}),
-        ...(bag ? { spread: bag } : {}),
+        ...(bag ? { spread: bag, spreadBooleanText: true as const } : {}),
         ...(classes.length ? { classes } : {}),
         ...(styleText ? { styleText } : {}),
         ...(styles.length ? { styles } : {}),

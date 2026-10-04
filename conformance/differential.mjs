@@ -43,6 +43,10 @@ const LAYOUT_ELEMENT = new Set([
   'scrollTo',
   'scrollBy',
   'scrollIntoView',
+  // Inline styles and running animations need the native style engine (M6).
+  'style-get',
+  'style-set',
+  'getAnimations',
 ]);
 const LAYOUT_WINDOW = new Set(['innerWidth', 'innerHeight', 'scrollX', 'scrollY', 'scrollTo', 'scrollBy']);
 function layoutBuiltin(v) {
@@ -50,6 +54,8 @@ function layoutBuiltin(v) {
   if (v.op === 'builtin') {
     const [ns, m] = v.name.split('.');
     if ((ns === 'element' && LAYOUT_ELEMENT.has(m)) || (ns === 'window' && LAYOUT_WINDOW.has(m))) return v.name;
+    // MutationObservers are reported unsupported when they observe.
+    if (v.name === 'mutation.observe') return v.name;
     // Scroll events come from layout (scrolling) too.
     if (m === 'listen' && v.args[0]?.value === 'scroll') return `${v.name} scroll`;
   }

@@ -71,6 +71,9 @@ pub enum Val {
     Promise(Promise),
     /// A promise's resolve or reject function.
     Resolver(Rc<Resolver>),
+    /// Event listeners composed by `attrs.merge-props` (svelte-toolbelt's
+    /// `composeHandlers`): each runs with the event unless it was cancelled.
+    Listeners(Rc<Vec<Val>>),
     RegExp(js::RegExp),
     MediaQuery(js::MediaQueryList),
     Date(js::Date),
@@ -201,6 +204,7 @@ impl js::StrictEq for Val {
             (Val::Set(a), Val::Set(b)) => JsRef::ptr_eq(a, b),
             (Val::Closure(a), Val::Closure(b)) => Rc::ptr_eq(a, b),
             (Val::Resolver(a), Val::Resolver(b)) => Rc::ptr_eq(a, b),
+            (Val::Listeners(a), Val::Listeners(b)) => Rc::ptr_eq(a, b),
             (Val::Promise(a), Val::Promise(b)) => a == b,
             (Val::Element(a), Val::Element(b)) => a == b,
             (Val::Event(a), Val::Event(b)) => a == b,
@@ -248,7 +252,7 @@ impl js::ToJsString for Val {
             Val::Record(r) => r.to_js_string(),
             Val::Map(_) => JsString::from("[object Map]"),
             Val::Set(_) => JsString::from("[object Set]"),
-            Val::Closure(_) | Val::Resolver(_) => JsString::from("function"),
+            Val::Closure(_) | Val::Resolver(_) | Val::Listeners(_) => JsString::from("function"),
             Val::Element(e) => e.to_js_string(),
             Val::Event(e) => e.to_js_string(),
             Val::RegExp(r) => r.to_js_string(),
@@ -328,7 +332,7 @@ impl js::TypeOf for Val {
             Val::Bool(_) => "boolean",
             Val::Num(_) => "number",
             Val::Str(_) => "string",
-            Val::Closure(_) | Val::Resolver(_) => "function",
+            Val::Closure(_) | Val::Resolver(_) | Val::Listeners(_) => "function",
             _ => "object",
         }
     }
@@ -348,6 +352,7 @@ impl ToMapKey for Val {
             Val::Set(s) => s.map_key(),
             Val::Closure(c) => MapKey::Ref(Rc::as_ptr(c) as *const u8 as usize),
             Val::Resolver(r) => MapKey::Ref(Rc::as_ptr(r) as *const u8 as usize),
+            Val::Listeners(l) => MapKey::Ref(Rc::as_ptr(l) as *const u8 as usize),
             Val::Promise(p) => MapKey::Ref(p.addr()),
             Val::Element(e) => e.map_key(),
             Val::Event(e) => e.map_key(),
@@ -513,6 +518,12 @@ pub struct Instance<'p> {
     derived: HashMap<usize, DerivedSlot>,
     /// Runs of the component's render effect (its re-renders).
     renders: u64,
+    /// Effects created while the instance was created (`effect.pre`,
+    /// `effect.post`), after the component's own: their metadata and run
+    /// functions.
+    dynamic: Vec<(Effect, Val)>,
+    /// Contexts this instance set, by key.
+    contexts: HashMap<String, Val>,
 }
 
 #[derive(Clone)]
@@ -736,6 +747,31 @@ pub struct Machine<'p> {
     storage: Vec<(JsString, JsString)>,
     /// Host services in probe mode (docs/design/M5-PLATFORM.md).
     host: HostState,
+    /// Attachment keys created so far (each bag `attach` item makes one).
+    attachment_keys: u64,
+    /// Ids `uid.next` handed out so far.
+    uids: u64,
+    /// The instance whose cells are being initialised (effects and contexts
+    /// created now belong to it).
+    creating: Option<usize>,
+    /// Attachments applied to rendered elements: per element, the bag key,
+    /// the function, its cleanup once it ran, and the instance rendering it.
+    attached: HashMap<u64, Vec<Attached>>,
+    /// Cleanups of attachments the last render removed (run after it).
+    detached: Vec<Val>,
+    /// Elements the running render rendered.
+    rendered_ids: HashSet<u64>,
+}
+
+use js::BOOLEAN_PROPERTIES;
+
+/// An attachment of a rendered element (docs/IR.md "Attribute bags").
+struct Attached {
+    key: String,
+    function: Val,
+    /// Set once the attachment ran (it runs with its instance's post effects).
+    cleanup: Option<Option<Val>>,
+    owner: usize,
 }
 
 /// The environment a probe starts with (the case manifest's `storage`,
@@ -965,6 +1001,12 @@ impl<'p> Machine<'p> {
                 seed,
                 tasks: VecDeque::new(),
             },
+            attachment_keys: 0,
+            uids: 0,
+            creating: None,
+            attached: HashMap::new(),
+            detached: vec![],
+            rendered_ids: HashSet::new(),
         };
         for g in &program.globals {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
@@ -1011,12 +1053,24 @@ impl<'p> Machine<'p> {
                 .collect(),
             derived: HashMap::new(),
             renders: 0,
+            dynamic: vec![],
+            contexts: HashMap::new(),
         });
         let saved = std::mem::replace(&mut self.current, id);
+        let creating = self.creating.replace(id);
         let result = (|| -> Res<()> {
             for (i, cell) in comp.cells.iter().enumerate() {
                 let passed = props.iter().find(|(c, _, _)| *c == i);
                 let v = match passed {
+                    // Undefined takes the prop's default (Svelte's $props()).
+                    Some((_, Val::Undefined, _)) if cell.undefined_default => {
+                        self.eval(&cell.init, &Frame::new(0))?
+                    }
+                    Some((_, Val::Null, _))
+                        if cell.undefined_default && !matches!(cell.ty, Type::Maybe(_)) =>
+                    {
+                        return Err(null_prop(&cell.name));
+                    }
                     Some((_, v, _)) => v.clone(),
                     // Initial proxied state is proxied (props are passed as is).
                     None if cell.tracking == Tracking::Proxied && cell.prop.is_none() => {
@@ -1044,6 +1098,7 @@ impl<'p> Machine<'p> {
             Ok(())
         })();
         self.current = saved;
+        self.creating = creating;
         result?;
         // Pre effects run when their instance is created.
         for e in 0..self.program.components[component].effects.len() {
@@ -1129,9 +1184,19 @@ impl<'p> Machine<'p> {
                                 out.push((name.clone(), v));
                             }
                         }
+                        // An attachment under a key of its own (a fresh symbol).
+                        AttrItem::Attach { attach } => {
+                            let v = self.eval(attach, f)?;
+                            self.attachment_keys += 1;
+                            out.push((format!("{}{}", js::ATTACHMENT, self.attachment_keys), v));
+                        }
                     }
                 }
                 Val::Attrs(Rc::new(out))
+            }
+            SlotProvided { name } => {
+                let decl = self.comp().slot(name).expect("validated slot");
+                Val::Bool(self.inst().slots[decl].is_some())
             }
             Not { arg } => Val::Bool(!self.eval(arg, f)?.boolean()),
             Neg { arg } => Val::Num(-self.eval(arg, f)?.num()),
@@ -1427,6 +1492,18 @@ impl<'p> Machine<'p> {
                 } else {
                     self.resolve_promise(&r.promise, v);
                 }
+            }
+            return Ok(Val::Undefined);
+        }
+        // Composed listeners: each in turn, none once the event is cancelled.
+        if let Val::Listeners(list) = callee {
+            for h in list.iter() {
+                if let Some(Val::Event(e)) = args.first() {
+                    if e.default_prevented() {
+                        break;
+                    }
+                }
+                self.call_value(h, args.clone())?;
             }
             return Ok(Val::Undefined);
         }
@@ -2492,6 +2569,88 @@ impl<'p> Machine<'p> {
                 }
                 Val::Undefined
             }
+            // Libraries compiled from source (M6).
+            ("element", "isConnected") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                Val::Bool(chain_nodes(&self.last_tree, e.0).is_some())
+            }
+            ("element", "hasAttribute") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let name = a[1].string().to_rust().to_ascii_lowercase();
+                Val::Bool(
+                    chain_nodes(&self.last_tree, e.0)
+                        .and_then(|n| match n.last() {
+                            Some(VNode::Element { attrs, .. }) => Some(attrs.contains_key(&name)),
+                            _ => None,
+                        })
+                        .unwrap_or(false),
+                )
+            }
+            // `beforematch` listeners: the runtime never fires the event.
+            ("element", "listen" | "unlisten") => Val::Undefined,
+            // An observer that never observed has nothing to disconnect.
+            ("mutation", "disconnect") => Val::Undefined,
+            ("effect", phase @ ("pre" | "post")) => {
+                let phase = if phase == "pre" {
+                    EffectPhase::Pre
+                } else {
+                    EffectPhase::Post
+                };
+                self.create_effect(phase, a[0].clone())?;
+                Val::Undefined
+            }
+            ("reactive", "untrack-call") => {
+                let outer = self.tracking.take();
+                let heap_outer = js::begin_heap_reads(None);
+                let r = self.call_value(&a[0], a[1..].to_vec());
+                js::end_heap_reads(heap_outer);
+                self.tracking = outer;
+                r?
+            }
+            ("context", "set") => {
+                let Some(i) = self.creating else {
+                    return Err(Throw::new(
+                        "RunicContextError",
+                        "contexts are set while a component instance is created",
+                    ));
+                };
+                self.instances[i]
+                    .contexts
+                    .insert(a[0].string().to_rust(), a[1].clone());
+                a[1].clone()
+            }
+            ("context", "get") => {
+                let key = a[0].string().to_rust();
+                let mut at = self.creating;
+                if at.is_none() {
+                    return Err(Throw::new(
+                        "RunicContextError",
+                        "contexts are read while a component instance is created",
+                    ));
+                }
+                let mut found = Val::Undefined;
+                while let Some(i) = at {
+                    if let Some(v) = self.instances[i].contexts.get(&key) {
+                        found = v.clone();
+                        break;
+                    }
+                    at = self.instances[i].parent;
+                }
+                found
+            }
+            ("uid", "next") => {
+                self.uids += 1;
+                Val::Str(JsString::from(format!(
+                    "{}{}",
+                    a[0].string().to_rust(),
+                    self.uids
+                )))
+            }
+            ("attrs", m) => self.attrs_builtin(m, &a, ty)?,
             ("root", m) => {
                 let arg = |i: usize| a[i].string().to_rust();
                 let dom_error =
@@ -2672,12 +2831,74 @@ impl<'p> Machine<'p> {
         Ok(v)
     }
 
+    /// Attribute bag built-ins (M6, docs/IR.md "Attribute bags").
+    fn attrs_builtin(&self, m: &str, a: &[Val], ty: &Type) -> Res<Val> {
+        let bag = |v: &Val| -> Rc<Vec<(String, Val)>> {
+            match v {
+                Val::Attrs(b) => b.clone(),
+                other => panic!("validated bag, found {other:?}"),
+            }
+        };
+        Ok(match m {
+            "has" => {
+                let name = a[1].string().to_rust();
+                Val::Bool(bag(&a[0]).iter().any(|(n, _)| *n == name))
+            }
+            "get" => {
+                let name = a[1].string().to_rust();
+                let b = bag(&a[0]);
+                let v = resolve_attrs(&b)
+                    .into_iter()
+                    .find(|(n, _)| *n == name)
+                    .map_or(Val::Undefined, |(_, v)| v.clone());
+                let Type::Maybe(inner) = ty else {
+                    panic!("validated attrs.get type")
+                };
+                let fits = match (&v, &**inner) {
+                    (Val::Undefined | Val::Null, _) => true,
+                    (Val::Str(_), Type::String) | (Val::Bool(_), Type::Boolean) => true,
+                    (Val::Closure(_) | Val::Listeners(_), Type::Fn(_)) => true,
+                    _ => false,
+                };
+                if !fits {
+                    return Err(Throw::type_error(format!(
+                        "RunicAttrsError: the spread passes {name} a value of another type than the prop's"
+                    )));
+                }
+                v
+            }
+            "without" => {
+                let names: Vec<String> = a[1..].iter().map(|n| n.string().to_rust()).collect();
+                let b = bag(&a[0]);
+                Val::Attrs(Rc::new(
+                    b.iter()
+                        .filter(|(n, _)| !names.contains(n))
+                        .cloned()
+                        .collect(),
+                ))
+            }
+            "merge-props" => {
+                let bags: Vec<Vec<(String, Val)>> = a.iter().map(|v| (*bag(v)).clone()).collect();
+                let merged = js::merge_props(
+                    &bags,
+                    &MergeVals {
+                        program: self.program,
+                    },
+                )
+                .map_err(|m| Throw::new("RunicUnsupportedError", m))?;
+                Val::Attrs(Rc::new(merged))
+            }
+            other => panic!("validated attrs built-in {other}"),
+        })
+    }
+
     fn to_json(&self, v: &Val) -> Option<js::json::Json> {
         use js::json::Json as J;
         Some(match v {
             Val::Undefined
             | Val::Closure(_)
             | Val::Resolver(_)
+            | Val::Listeners(_)
             | Val::Element(_)
             | Val::Event(_)
             | Val::RegExp(_)
@@ -2807,10 +3028,25 @@ impl<'p> Machine<'p> {
         let mut out = vec![];
         let previous = std::mem::take(&mut self.refs);
         self.rendered_elements.clear();
+        self.rendered_ids.clear();
         let result = self.render_instance(0, &mut out, &mut visited);
         self.restore_due = false;
         let rendered = std::mem::take(&mut self.rendered_elements);
         self.element_ids.retain(|k, _| rendered.contains(k));
+        // Attachments of elements no longer rendered are cleaned up.
+        let gone: Vec<u64> = self
+            .attached
+            .keys()
+            .copied()
+            .filter(|e| !self.rendered_ids.contains(e))
+            .collect();
+        for e in gone {
+            for a in self.attached.remove(&e).unwrap_or_default() {
+                if let Some(Some(c)) = a.cleanup {
+                    self.detached.push(c);
+                }
+            }
+        }
         // Refs of elements that are no longer rendered become null.
         for ((inst, cell), id) in previous {
             if !self.refs.contains_key(&(inst, cell))
@@ -2898,6 +3134,9 @@ impl<'p> Machine<'p> {
             }
         }
         let saved = std::mem::replace(&mut self.current, id);
+        // The instance's own template is outside the slot content that
+        // created it: its children's parent is the instance.
+        let via = std::mem::take(&mut self.via);
         let comp = self.comp();
         let frame = Frame::new(comp.template_locals.len());
         let mut path = vec![];
@@ -2906,6 +3145,7 @@ impl<'p> Machine<'p> {
             .iter()
             .try_for_each(|n| self.render_node(n, &frame, &mut path, out, visited));
         self.current = saved;
+        self.via = via;
         r
     }
 
@@ -3030,7 +3270,10 @@ impl<'p> Machine<'p> {
                         for (&l, v) in pv.def.params.iter().zip(values) {
                             inner.set(l, v);
                         }
-                        let child = self.current;
+                        // Content renders in the component that renders it: content
+                        // forwarded by slot content renders where that content renders
+                        // (Svelte calls the same snippet function there).
+                        let child = self.via.last().copied().unwrap_or(self.current);
                         self.via.push(child);
                         let saved = std::mem::replace(&mut self.current, pv.parent);
                         let mut inner_path = path.clone();
@@ -3068,17 +3311,20 @@ impl<'p> Machine<'p> {
                 let values: Vec<Val> = (0..self.comp().template_locals.len())
                     .map(|i| frame.get(i))
                     .collect();
-                let provided: Vec<Option<Provided<'p>>> = child
-                    .slots
-                    .iter()
-                    .map(|d| {
-                        slots.iter().find(|s| s.name == d.name).map(|def| Provided {
-                            parent: self.current,
-                            def,
-                            values: values.clone(),
-                        })
-                    })
-                    .collect();
+                let mut provided: Vec<Option<Provided<'p>>> = vec![];
+                for d in &child.slots {
+                    let def = slots.iter().find(|s| s.name == d.name);
+                    // Forwarded content counts while its condition holds.
+                    let given = match def.and_then(|def| def.when.as_ref()) {
+                        Some(when) => self.eval(when, frame)?.boolean(),
+                        None => def.is_some(),
+                    };
+                    provided.push(def.filter(|_| given).map(|def| Provided {
+                        parent: self.current,
+                        def,
+                        values: values.clone(),
+                    }));
+                }
                 let id = match self.children.get(&key) {
                     Some(&id) => {
                         for (cell, v, b) in args {
@@ -3090,6 +3336,23 @@ impl<'p> Machine<'p> {
                             inst.binds[cell] = b;
                             if changed {
                                 inst.passed[cell] = Some(v.clone());
+                                // Undefined takes the prop's default (Svelte's $props()).
+                                let decl = &child.cells[cell];
+                                if decl.undefined_default
+                                    && matches!(v, Val::Null)
+                                    && !matches!(decl.ty, Type::Maybe(_))
+                                {
+                                    return Err(null_prop(&decl.name));
+                                }
+                                let v = if decl.undefined_default && matches!(v, Val::Undefined) {
+                                    let saved = std::mem::replace(&mut self.current, id);
+                                    let d = self.eval(&decl.init, &Frame::new(0));
+                                    self.current = saved;
+                                    d?
+                                } else {
+                                    v
+                                };
+                                let inst = &mut self.instances[id];
                                 inst.cells[cell] = v.clone();
                                 Rc::make_mut(&mut inst.snapshot)[cell] = v;
                                 self.bump(id, cell);
@@ -3117,6 +3380,7 @@ impl<'p> Machine<'p> {
                 children,
                 reference,
                 spread,
+                spread_boolean_text,
                 classes,
                 style_text,
                 styles,
@@ -3256,7 +3520,52 @@ impl<'p> Machine<'p> {
                     let Val::Attrs(bag) = self.eval(bag, frame)? else {
                         panic!("validated attribute bag")
                     };
+                    let mut attachments = vec![];
                     for (name, v) in resolve_attrs(&bag) {
+                        if name.starts_with(js::ATTACHMENT) {
+                            attachments.push((name.to_owned(), v.clone()));
+                            continue;
+                        }
+                        // Values Svelte's spread sets otherwise (M6).
+                        match (name, v) {
+                            ("style", Val::Str(s)) => {
+                                // Through the CSSOM (`style.cssText`), when the value changed.
+                                let (mut state, current) =
+                                    self.style_states.remove(&id).unwrap_or_default();
+                                let current =
+                                    match state.apply(current.as_deref(), Some(s.to_rust()), &[]) {
+                                        Ok(next) => next,
+                                        Err(()) => current,
+                                    };
+                                match &current {
+                                    Some(c) => map.insert("style".into(), c.clone()),
+                                    None => map.remove("style"),
+                                };
+                                self.style_states.insert(id, (state, current));
+                                continue;
+                            }
+                            ("style", Val::Record(_)) => {
+                                return Err(Throw::new(
+                                    "RunicUnsupportedError",
+                                    "a style object spread onto an element (set as the string [object Object])",
+                                ));
+                            }
+                            ("hidden", Val::Str(s))
+                                if s.to_rust().eq_ignore_ascii_case("until-found") =>
+                            {
+                                return Err(Throw::new(
+                                    "RunicUnsupportedError",
+                                    "hidden=\"until-found\" (Blitz has no find-in-page and hides the content)",
+                                ));
+                            }
+                            (n, Val::Bool(b))
+                                if *spread_boolean_text && !BOOLEAN_PROPERTIES.contains(&n) =>
+                            {
+                                map.insert(n.to_owned(), b.to_string());
+                                continue;
+                            }
+                            _ => {}
+                        }
                         match name.strip_prefix("on").and_then(EventKind::parse) {
                             Some(kind) => {
                                 refs.push((kind, self.listeners.len()));
@@ -3280,7 +3589,9 @@ impl<'p> Machine<'p> {
                             },
                         }
                     }
+                    self.note_attachments(id, attachments);
                 }
+                self.rendered_ids.insert(id);
                 let mut value = None;
                 let mut checked = None;
                 // Controlled values: applied always (restore) or when they change.
@@ -3655,6 +3966,19 @@ impl<'p> Machine<'p> {
         )))
     }
 
+    /// A promise reaction threw: its derived promise rejects. A limitation
+    /// of the interpreter (no layout, an unsupported shape) is also reported
+    /// as uncaught, so that a run never passes on it silently.
+    fn reaction_failed(&mut self, derived: &Promise, t: Throw) {
+        if matches!(
+            t.name.to_rust().as_str(),
+            "RunicLayoutError" | "RunicUnsupportedError"
+        ) {
+            self.uncaught.push(t.clone());
+        }
+        self.settle_promise(derived, Err(t));
+    }
+
     fn promise_job(&mut self, job: PJob) {
         match job {
             PJob::Adopt { promise, thenable } => {
@@ -3677,7 +4001,7 @@ impl<'p> Machine<'p> {
                             let arg = arg.unwrap_or_else(|t| self.error_value(t));
                             match self.call_value(&h, vec![arg]) {
                                 Ok(v) => self.resolve_promise(&derived, v),
-                                Err(t) => self.settle_promise(&derived, Err(t)),
+                                Err(t) => self.reaction_failed(&derived, t),
                             }
                         }
                     }
@@ -3685,7 +4009,7 @@ impl<'p> Machine<'p> {
                 // thenFinally/catchFinally: run the callback, then settle with
                 // the original outcome once its result settles.
                 PHandler::Finally(f) => match self.call_value(&f, vec![]) {
-                    Err(t) => self.settle_promise(&derived, Err(t)),
+                    Err(t) => self.reaction_failed(&derived, t),
                     Ok(r) => {
                         let p = match r {
                             Val::Promise(p) => p,
@@ -3888,6 +4212,8 @@ impl<'p> Machine<'p> {
             .filter(|&i| !self.instances[i].alive)
             .collect();
         let batched = self.program.schedule.cleanups == Cleanups::Batched;
+        // Attachments the render removed are cleaned up as Svelte destroys them.
+        self.run_detached();
         // Batched cleanups of destroyed instances join their phase's walk
         // below; the rest run at removal.
         self.teardown(&destroyed, &before, batched);
@@ -3898,6 +4224,11 @@ impl<'p> Machine<'p> {
         let destroyed: HashSet<usize> = destroyed.into_iter().collect();
         for phase in [EffectPhase::Layout, EffectPhase::Post] {
             self.phase = Some(phase);
+            if batched && phase == EffectPhase::Post {
+                for &i in &post {
+                    self.run_attachments(i);
+                }
+            }
             if batched {
                 let all: Vec<(usize, usize)> = post
                     .iter()
@@ -3926,6 +4257,10 @@ impl<'p> Machine<'p> {
                 }
             } else {
                 for &i in &post {
+                    // New attachments of the instance's elements run first.
+                    if phase == EffectPhase::Post {
+                        self.run_attachments(i);
+                    }
                     self.run_phase_at(i, phase, &updated);
                 }
             }
@@ -3941,10 +4276,138 @@ impl<'p> Machine<'p> {
     }
 
     fn effects_of(&self, i: usize, phase: EffectPhase) -> Vec<usize> {
-        let comp = &self.program.components[self.instances[i].component];
-        (0..comp.effects.len())
-            .filter(|&e| comp.effects[e].phase == phase)
+        (0..self.instances[i].effects.len())
+            .filter(|&e| self.effect_at(i, e).phase == phase)
             .collect()
+    }
+
+    /// The attachments a spread gives element `element` in this render:
+    /// those with the same key and function stay; the others are cleaned up
+    /// after the render; new ones run with the post effects of the instance
+    /// rendering the element (Svelte runs attachments as effects).
+    fn note_attachments(&mut self, element: u64, now: Vec<(String, Val)>) {
+        let mut old = self.attached.remove(&element).unwrap_or_default();
+        let mut next = vec![];
+        for (key, function) in now {
+            match old
+                .iter()
+                .position(|a| a.key == key && a.function.same(&function))
+            {
+                Some(i) => next.push(old.remove(i)),
+                None => next.push(Attached {
+                    key,
+                    function,
+                    cleanup: None,
+                    owner: self.current,
+                }),
+            }
+        }
+        for a in old {
+            if let Some(Some(c)) = a.cleanup {
+                self.detached.push(c);
+            }
+        }
+        if !next.is_empty() {
+            self.attached.insert(element, next);
+        }
+    }
+
+    /// Run the new attachments of the elements instance `i` renders, in
+    /// element order (untracked; the result is the cleanup).
+    fn run_attachments(&mut self, i: usize) {
+        let mut elements: Vec<u64> = self
+            .attached
+            .iter()
+            .filter(|(_, l)| l.iter().any(|a| a.owner == i && a.cleanup.is_none()))
+            .map(|(e, _)| *e)
+            .collect();
+        elements.sort_unstable();
+        for e in elements {
+            let n = self.attached.get(&e).map_or(0, Vec::len);
+            for k in 0..n {
+                let Some(a) = self.attached.get(&e).and_then(|l| l.get(k)) else {
+                    break;
+                };
+                if a.owner != i || a.cleanup.is_some() {
+                    continue;
+                }
+                let f = a.function.clone();
+                let outer = self.tracking.take();
+                let heap_outer = js::begin_heap_reads(None);
+                let r = self.call_value(&f, vec![Val::Element(js::Element(e))]);
+                js::end_heap_reads(heap_outer);
+                self.tracking = outer;
+                let cleanup = match r {
+                    Ok(Val::Closure(c)) => Some(Val::Closure(c)),
+                    Ok(_) => None,
+                    Err(t) => {
+                        self.uncaught.push(t);
+                        None
+                    }
+                };
+                if let Some(a) = self.attached.get_mut(&e).and_then(|l| l.get_mut(k)) {
+                    a.cleanup = Some(cleanup);
+                }
+            }
+        }
+    }
+
+    /// Run the cleanups of attachments the last render removed.
+    fn run_detached(&mut self) {
+        for c in std::mem::take(&mut self.detached) {
+            if let Err(t) = self.call_value(&c, vec![]) {
+                self.uncaught.push(t);
+            }
+        }
+    }
+
+    /// Effect `e` of instance `i`: the component's own, then those the
+    /// instance created (`effect.pre`, `effect.post`).
+    fn effect_at(&self, i: usize, e: usize) -> std::borrow::Cow<'p, Effect> {
+        let comp = &self.program.components[self.instances[i].component];
+        match comp.effects.get(e) {
+            Some(effect) => std::borrow::Cow::Borrowed(effect),
+            None => {
+                std::borrow::Cow::Owned(self.instances[i].dynamic[e - comp.effects.len()].0.clone())
+            }
+        }
+    }
+
+    /// `effect.pre(run)` / `effect.post(run)`: an effect of the instance being
+    /// created, tracking what it reads. A pre effect runs at once (Svelte
+    /// runs `$effect.pre` when it is created); a post effect with the
+    /// instance's post effects. Cleanups run when the instance is destroyed
+    /// (after its DOM is removed; pre effects parent first).
+    fn create_effect(&mut self, phase: EffectPhase, run: Val) -> Res<()> {
+        let Some(i) = self.creating else {
+            return Err(Throw::new(
+                "RunicEffectError",
+                "effects are created while a component instance is created",
+            ));
+        };
+        let order = if phase == EffectPhase::Pre {
+            TreeOrder::Pre
+        } else {
+            TreeOrder::Post
+        };
+        let meta = Effect {
+            run: usize::MAX,
+            phase,
+            deps: EffectDeps::Tracked,
+            unmount: Unmount {
+                removal: Removal::After,
+                order,
+            },
+            render: false,
+            source: None,
+        };
+        self.instances[i].dynamic.push((meta, run));
+        self.instances[i].effects.push(EffectState::default());
+        if phase == EffectPhase::Pre {
+            let e = self.instances[i].effects.len() - 1;
+            self.run_effect(i, e);
+        }
+        Ok(())
     }
 
     /// Run the due effects of `phase` of instance `i`, each checked when
@@ -3967,7 +4430,7 @@ impl<'p> Machine<'p> {
 
     /// Whether effect `e` of instance `i` runs now; records `values`.
     fn effect_due(&mut self, i: usize, e: usize, updated: &[bool]) -> bool {
-        let effect = &self.program.components[self.instances[i].component].effects[e];
+        let effect = self.effect_at(i, e);
         let started = self.instances[i].effects[e].started;
         match &effect.deps {
             EffectDeps::Once => !started,
@@ -4022,14 +4485,18 @@ impl<'p> Machine<'p> {
 
     /// Run effect `e` of instance `i` (its cleanup already ran).
     fn run_effect(&mut self, i: usize, e: usize) {
-        let comp = self.instances[i].component;
-        let effect = &self.program.components[comp].effects[e];
+        let effect = self.effect_at(i, e);
         if effect.render {
             self.instances[i].renders += 1;
         }
-        let func = &self.program.functions[effect.run];
+        // An effect the instance created runs its function value.
+        let statics = self.program.components[self.instances[i].component]
+            .effects
+            .len();
+        let dynamic = (e >= statics).then(|| self.instances[i].dynamic[e - statics].1.clone());
         let mut args = vec![];
         if let EffectDeps::Values { values, .. } = &effect.deps {
+            let func = &self.program.functions[effect.run];
             let saved = std::mem::replace(&mut self.current, i);
             let new: Vec<Val> = values
                 .iter()
@@ -4056,7 +4523,10 @@ impl<'p> Machine<'p> {
         let heap_outer = js::begin_heap_reads(tracked.then_some(self.tracks_owned));
         let saved = std::mem::replace(&mut self.current, i);
         let saved_snap = self.snap.take();
-        let result = self.call(effect.run, vec![], args);
+        let result = match &dynamic {
+            Some(run) => self.call_value(run, vec![]),
+            None => self.call(effect.run, vec![], args),
+        };
         self.current = saved;
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);
@@ -4151,11 +4621,12 @@ impl<'p> Machine<'p> {
         set: &HashSet<usize>,
         order: &[usize],
     ) {
-        let comp = self.instances[i].component;
-        let effects = &self.program.components[comp].effects;
         let at = |o: TreeOrder| -> Vec<usize> {
-            (0..effects.len())
-                .filter(|&e| which(&effects[e]) && effects[e].unmount.order == o)
+            (0..self.instances[i].effects.len())
+                .filter(|&e| {
+                    let effect = self.effect_at(i, e);
+                    which(&effect) && effect.unmount.order == o
+                })
                 .collect()
         };
         let (pre, post) = (at(TreeOrder::Pre), at(TreeOrder::Post));
@@ -5343,6 +5814,14 @@ impl<'p> Machine<'p> {
 
 /// The entries of a bag that apply: the last of each name, in the order
 /// of their first occurrence.
+/// Null passed to a prop that takes its default when undefined and is not
+/// nullable: the value model cannot hold it (generated code throws alike).
+fn null_prop(name: &str) -> Throw {
+    Throw::type_error(format!(
+        "RunicPropsError: null passed to prop {name}, which is not nullable"
+    ))
+}
+
 fn resolve_attrs(bag: &[(String, Val)]) -> Vec<(&str, &Val)> {
     let mut out: Vec<(&str, &Val)> = vec![];
     for (name, v) in bag {
@@ -5352,6 +5831,56 @@ fn resolve_attrs(bag: &[(String, Val)]) -> Vec<(&str, &Val)> {
         }
     }
     out
+}
+
+/// Bag values for `js::merge_props` (`attrs.merge-props`).
+struct MergeVals<'p> {
+    program: &'p Program,
+}
+
+impl js::MergeOps<Val> for MergeVals<'_> {
+    fn kind(&self, v: &Val) -> js::MergeKind {
+        match v {
+            Val::Undefined => js::MergeKind::Undefined,
+            Val::Null => js::MergeKind::Null,
+            Val::Str(s) => js::MergeKind::Text(s.clone()),
+            Val::Bool(b) => js::MergeKind::Flag(*b),
+            Val::Closure(_) | Val::Listeners(_) => js::MergeKind::Function,
+            // A style object: a record of nullable property values.
+            Val::Record(r) => {
+                let data = r.peek();
+                let rec = &self.program.records[data.record];
+                js::MergeKind::Style(
+                    rec.fields
+                        .iter()
+                        .zip(&data.fields)
+                        .map(|(f, v)| {
+                            (
+                                f.name.clone(),
+                                match v {
+                                    Val::Str(s) => Some(s.clone()),
+                                    _ => None,
+                                },
+                            )
+                        })
+                        .collect(),
+                )
+            }
+            other => panic!("validated bag value, found {other:?}"),
+        }
+    }
+    fn text(&self, s: JsString) -> Val {
+        Val::Str(s)
+    }
+    fn compose(&self, listeners: Vec<Val>) -> Val {
+        Val::Listeners(Rc::new(listeners))
+    }
+    fn listeners(&self, v: &Val) -> Vec<Val> {
+        match v {
+            Val::Listeners(l) => l.to_vec(),
+            other => vec![other.clone()],
+        }
+    }
 }
 
 /// Adds an entry to a merging bag (`attrs` with `merge`, as `js::attrs_merge`).
@@ -5831,7 +6360,7 @@ pub fn cell_json(v: &Val) -> Json {
             None => json!("[Circular]"),
             Some(_v) => Json::Array(s.borrow().entries.values().map(cell_json).collect()),
         },
-        Val::Closure(_) | Val::Resolver(_) => json!("function"),
+        Val::Closure(_) | Val::Resolver(_) | Val::Listeners(_) => json!("function"),
         Val::Promise(_) => json!("promise"),
         // Element ids differ between the interpreter and the native app.
         Val::Element(_) => json!("element"),

@@ -1,0 +1,29 @@
+{
+  "description": "bits-ui's Collapsible compiled from its published source (M6 source packages, docs/design/M6-LIBRARIES.md steps 5 and 6) through shadcn-svelte's unmodified collapsible wrapper and demo: the demo's trigger is shadcn's Button rendered by a `child` snippet with the trigger's merged props (aria-expanded, aria-controls, data-state, the composed click and keydown handlers, the attachment that registers the node); the second collapsible uses bits-ui's own elements with explicit ids, `bind:open` and onOpenChange. Opened and closed by clicks on the triggers (the demo's trigger at its position in the demo, which has no id of its own), by Enter and Space on the focused triggers (the trigger's keydown handler toggles and cancels the key's click), and from outside through the bound value (which calls no onOpenChange). On the fake clock, each change is seen at once (data-starting-style or data-ending-style while the presence waits for animation frames) and settled after the frames (closed content hidden, the content measured into its --bits-collapsible-content-height and -width)",
+  "fixtures": ["bits-collapsible-svelte"],
+  "actions": [
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "demo", "position": { "x": 318, "y": 16 } },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "faq-trigger" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "faq-trigger" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "hover", "id": "faq-trigger" }
+  ]
+}

@@ -513,6 +513,8 @@ struct Gen<'a> {
     reads: Vec<Option<BTreeSet<usize>>>,
     /// Per function: whether it may read a reactive class field.
     reactive: Vec<bool>,
+    /// Whether instances may create effects at run time (`effect.pre`, `effect.post`).
+    dynamic_fx: bool,
 }
 
 #[derive(Default)]
@@ -761,6 +763,7 @@ impl Gen<'_> {
                     listeners,
                     reference,
                     spread,
+                    spread_boolean_text,
                     classes,
                     style_text,
                     styles,
@@ -951,17 +954,22 @@ impl Gen<'_> {
                     let listen = "&mut |f: Bag| -> u32 { cx.listen(Rc::new(move |cx: &mut Cx| { let e = cx.event.clone().expect(\"event context\"); f(cx, e) })) }";
                     o.fields
                         .push((format!("sp{key}"), "runic_runtime::Spread<Bag>".into()));
+                    // Its attachments run with the post effects of the
+                    // instance rendering the element.
+                    o.fields.push((format!("att{key}"), "Vec<Attached>".into()));
+                    let owner = "Rc::as_ptr(inst) as *const u8 as usize";
                     let _ = writeln!(
                         o.mount,
-                        "let mut sp{key} = runic_runtime::Spread::default(); {{ let v = {value}; dom.spread(n{key}, &v, &mut sp{key}, {listen}); }}"
+                        "let mut sp{key} = runic_runtime::Spread::default(); let mut att{key}: Vec<Attached> = Vec::new(); {{ let v = {value}; if let Some(now) = dom.spread(n{key}, &v, &mut sp{key}, {listen}, {spread_boolean_text}) {{ cx.attach_diff({owner}, n{key}, &mut att{key}, now); }} }}"
                     );
                     if !self.is_static(k, &[bag]) {
                         let guard = self.guard(k, &[bag]);
                         let _ = writeln!(
                             o.update,
-                            "if {guard} {{ let v = {value}; dom.spread(s.n{key}, &v, &mut s.sp{key}, {listen}); }}"
+                            "if {guard} {{ let v = {value}; if let Some(now) = dom.spread(s.n{key}, &v, &mut s.sp{key}, {listen}, {spread_boolean_text}) {{ cx.attach_diff({owner}, s.n{key}, &mut s.att{key}, now); }} }}"
                         );
                     }
+                    let _ = writeln!(o.dispose, "for a in &s.att{key} {{ cx.detach(a); }}");
                 }
                 // Controlled values: restored at every sync (restore), or
                 // applied when they differ from the value last applied.
@@ -1113,7 +1121,8 @@ impl Gen<'_> {
                 let key = *key;
                 let (c, root) = (*c, *root);
                 let child = &self.p.components[c];
-                let has_pre = child.effects.iter().any(|e| e.phase == EffectPhase::Pre);
+                let has_pre =
+                    self.dynamic_fx || child.effects.iter().any(|e| e.phase == EffectPhase::Pre);
                 // Pre effects run when the instance is created.
                 let created = if has_pre {
                     format!("fx_phase_i{c}(cx, &ci{key}, 0, true);\n")
@@ -1130,9 +1139,16 @@ impl Gen<'_> {
                         .enumerate()
                         .map(|(i, l)| format!("v.l{l} = a.a{i}.clone(); "))
                         .collect();
+                    // Forwarded content counts while its condition holds
+                    // (whether this instance was given the slot: fixed
+                    // once it is created).
+                    let (when_open, when_close) = match &def.when {
+                        Some(w) => (format!("if {} {{ ", self.ctx(k).expr(w)), " }".to_string()),
+                        None => (String::new(), String::new()),
+                    };
                     let _ = writeln!(
                         providers,
-                        "{{ let inst = Rc::clone(inst); let t = Rc::clone(t); let p: P{c}_{decl} = Rc::new(move |cx: &mut Cx, dom: &mut Dom, a: A{c}_{decl}, parent: NodeId, before: Option<NodeId>| -> JsResult<Box<dyn Block<A{c}_{decl}>>> {{ let t2: Rc<RefCell<T{k}>> = Rc::new(RefCell::new({{ let mut v = t.borrow().clone(); {params}v }})); let s = mount_s{body}(cx, dom, &inst, &t2, parent, before)?; Ok(Box::new(SB{body} {{ inst: Rc::clone(&inst), outer: Rc::clone(&t), t: t2, s }})) }}); ci{key}.borrow_mut().s{decl} = Some(p); }}"
+                        "{{ {when_open}let inst = Rc::clone(inst); let t = Rc::clone(t); let p: P{c}_{decl} = Rc::new(move |cx: &mut Cx, dom: &mut Dom, a: A{c}_{decl}, parent: NodeId, before: Option<NodeId>| -> JsResult<Box<dyn Block<A{c}_{decl}>>> {{ let t2: Rc<RefCell<T{k}>> = Rc::new(RefCell::new({{ let mut v = t.borrow().clone(); {params}v }})); let s = mount_s{body}(cx, dom, &inst, &t2, parent, before)?; Ok(Box::new(SB{body} {{ inst: Rc::clone(&inst), outer: Rc::clone(&t), t: t2, s }})) }}); ci{key}.borrow_mut().s{decl} = Some(p);{when_close} }}"
                     );
                     let _ = writeln!(
                         o.extra,
@@ -1164,19 +1180,62 @@ impl Gen<'_> {
                         Some(b) => format!("let b = {}; ", cx.expr(b)),
                         None => String::new(),
                     };
-                    let _ = writeln!(
-                        pass,
-                        "{{ let v = {v}; {b}let mut st = ci{key}.borrow_mut(); st.p{cell} = Some(v.clone()); st.c.c{cell} = v; {bind} }}"
-                    );
-                    // Update: a changed prop sets the child's cell and dirty bit; it is
-                    // part of this render, not a change the next flush sees (`before`).
-                    let ty = &child.cells[cell].ty;
-                    let same = same_expr(ty, "(*o)", "v");
+                    let decl = &child.cells[cell];
+                    let ty = &decl.ty;
                     let guard = self.guard(k, &[&a.value]);
-                    let _ = writeln!(
-                        o.update,
-                        "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); st.before.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
-                    );
+                    if decl.undefined_default {
+                        // Passed undefined, the prop takes its default
+                        // (Svelte's `$props()`); null where the prop is not
+                        // nullable is outside the value model.
+                        let pt = passed_type(decl);
+                        let v = if cx.ty(&a.value) == pt {
+                            v
+                        } else {
+                            format!("Maybe::Some({v})")
+                        };
+                        let null = format!(
+                            "return Err(js::Throw::type_error(\"RunicPropsError: null passed to prop {}, which is not nullable\"))",
+                            decl.name.escape_default()
+                        );
+                        let (mount_value, update_value) = if matches!(ty, Type::Maybe(_)) {
+                            (
+                                format!("if !v.is_undefined() {{ st.c.c{cell} = v; }}"),
+                                format!(
+                                    "let nv = if v.is_undefined() {{ dflt_i{c}_{cell}(cx, &s.ci{key})? }} else {{ v }};"
+                                ),
+                            )
+                        } else {
+                            (
+                                format!(
+                                    "match v {{ Maybe::Some(x) => st.c.c{cell} = x, Maybe::Null => {null}, Maybe::Undefined => {{}} }}"
+                                ),
+                                format!(
+                                    "let nv = match v {{ Maybe::Some(x) => x, Maybe::Undefined => dflt_i{c}_{cell}(cx, &s.ci{key})?, Maybe::Null => {null} }};"
+                                ),
+                            )
+                        };
+                        let _ = writeln!(
+                            pass,
+                            "{{ let v = {v}; {b}let mut st = ci{key}.borrow_mut(); st.p{cell} = Some(v.clone()); {mount_value} {bind} }}"
+                        );
+                        let same = same_expr(&pt, "(*o)", "v");
+                        let _ = writeln!(
+                            o.update,
+                            "if {guard} {{ let v = {v}; let changed = match &s.ci{key}.borrow().p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ s.ci{key}.borrow_mut().p{cell} = Some(v.clone()); {update_value} let mut st = s.ci{key}.borrow_mut(); st.c.c{cell} = nv.clone(); st.before.c{cell} = nv.clone(); Rc::make_mut(&mut st.snap).c{cell} = nv; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
+                        );
+                    } else {
+                        let _ = writeln!(
+                            pass,
+                            "{{ let v = {v}; {b}let mut st = ci{key}.borrow_mut(); st.p{cell} = Some(v.clone()); st.c.c{cell} = v; {bind} }}"
+                        );
+                        // Update: a changed prop sets the child's cell and dirty bit; it is
+                        // part of this render, not a change the next flush sees (`before`).
+                        let same = same_expr(ty, "(*o)", "v");
+                        let _ = writeln!(
+                            o.update,
+                            "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); st.before.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
+                        );
+                    }
                     if let Some(b) = &a.bind {
                         let guard = self.guard(k, &[b]);
                         let bv = self.ctx(k).expr(b);
@@ -1188,7 +1247,7 @@ impl Gen<'_> {
                 }
                 let _ = writeln!(
                     o.mount,
-                    "let ci{key} = new_i{c}(cx);\n{pass}{providers}init_i{c}(cx, &ci{key})?;\n{created}let ct{key}: Rc<RefCell<T{c}>> = Rc::new(RefCell::new(T{c}::default()));\nlet cs{key} = mount_s{root}(cx, dom, &ci{key}, &ct{key}, {mp}, {mb})?;"
+                    "let ci{key} = {{ let pc = cx.via.last().cloned().unwrap_or_else(|| Rc::clone(&inst.borrow().ctx)); new_i{c}(cx, Some(pc)) }};\n{pass}{providers}init_i{c}(cx, &ci{key})?;\n{created}let ct{key}: Rc<RefCell<T{c}>> = Rc::new(RefCell::new(T{c}::default()));\nlet cs{key} = {{ let via = std::mem::take(&mut cx.via); let r = mount_s{root}(cx, dom, &ci{key}, &ct{key}, {mp}, {mb}); cx.via = via; r? }};"
                 );
                 let anchor = first_of(following, tail);
                 // Pre effects of the child run before it updates (after its props).
@@ -1201,7 +1260,7 @@ impl Gen<'_> {
                 };
                 let _ = writeln!(
                     o.update,
-                    "{pre}{{ let anchor = {anchor}; update_s{root}(&mut s.cs{key}, cx, dom, &s.ci{key}, &s.ct{key}, false, {up}, anchor)?; }}"
+                    "{pre}{{ let anchor = {anchor}; let via = std::mem::take(&mut cx.via); let r = update_s{root}(&mut s.cs{key}, cx, dom, &s.ci{key}, &s.ct{key}, false, {up}, anchor); cx.via = via; r?; }}"
                 );
                 let _ = writeln!(
                     o.sync,
@@ -1239,13 +1298,13 @@ impl Gen<'_> {
                 let _ = writeln!(
                     o.mount,
                     "let p = {{ let p = inst.borrow().s{decl}.clone(); p }};\n\
-                     let (sl{key}, fb{key}): (Option<Box<dyn Block<A{k}_{decl}>>>, Option<Box<S{fb}>>) = match p {{ Some(p) => {{ let a = {make}; (Some(p(cx, dom, a, {mp}, {mb})?), None) }} None => (None, Some(mount_s{fb}(cx, dom, inst, t, {mp}, {mb})?)) }};"
+                     let (sl{key}, fb{key}): (Option<Box<dyn Block<A{k}_{decl}>>>, Option<Box<S{fb}>>) = match p {{ Some(p) => {{ let a = {make}; {{ let c = cx.via.last().cloned().unwrap_or_else(|| Rc::clone(&inst.borrow().ctx)); cx.via.push(c); }} let r = p(cx, dom, a, {mp}, {mb}); cx.via.pop(); (Some(r?), None) }} None => (None, Some(mount_s{fb}(cx, dom, inst, t, {mp}, {mb})?)) }};"
                 );
                 let anchor = first_of(following, tail);
                 let _ = writeln!(
                     o.update,
                     "{{ let anchor = {anchor};\n\
-                     if let Some(b) = s.sl{key}.as_mut() {{ let a = {make}; b.update(cx, dom, a, {up}, anchor)?; }}\n\
+                     if let Some(b) = s.sl{key}.as_mut() {{ let a = {make}; {{ let c = cx.via.last().cloned().unwrap_or_else(|| Rc::clone(&inst.borrow().ctx)); cx.via.push(c); }} let r = b.update(cx, dom, a, {up}, anchor); cx.via.pop(); r?; }}\n\
                      if let Some(b) = s.fb{key}.as_mut() {{ update_s{fb}(b, cx, dom, inst, t, tl, {up}, anchor)?; }} }}"
                 );
                 let _ = writeln!(
@@ -1584,6 +1643,24 @@ fn probe_json(t: &Type, v: &str) -> String {
     }
 }
 
+/// The type of the value a parent passes to a prop cell: a prop taking its
+/// default when undefined may be passed nullable.
+fn passed_type(cell: &Cell) -> Type {
+    match &cell.ty {
+        Type::Maybe(_) => cell.ty.clone(),
+        t if cell.undefined_default => Type::maybe(t.clone()),
+        t => t.clone(),
+    }
+}
+
+/// Whether the program calls one of the built-ins `names`.
+fn uses_builtin(p: &Program, names: &[&str]) -> bool {
+    let s = serde_json::to_string(p).unwrap_or_default();
+    names
+        .iter()
+        .any(|n| s.contains(&format!("\"name\":{}", rust_str(n))))
+}
+
 /// Per-component state types and instance lifecycle functions.
 fn component_state(p: &Program, k: usize, out: &mut String) {
     let c = &p.components[k];
@@ -1633,7 +1710,8 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
     }
     for (i, cell) in c.cells.iter().enumerate() {
         if cell.prop.is_some() {
-            let t = rust_type(&cell.ty);
+            // A prop taking its default when undefined keeps the value passed.
+            let t = rust_type(&passed_type(cell));
             let f = rust_type(&Type::Fn(FnType {
                 params: vec![cell.ty.clone()],
                 result: Box::new(Type::Void),
@@ -1674,14 +1752,15 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
          /// Template locals of component {name}.\n#[derive(Clone)]\npub struct T{k} {{ {locals}}}\n\
          impl Default for T{k} {{ fn default() -> Self {{ T{k} {{ {local_defaults}}} }} }}\n\
          /// An instance of {name}: current, snapshot and pre-handler cells, dirty bits and props.\n\
-         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub prev: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub changed: bool, pub ver: [u64; {n}], pub fx: Vec<runic_runtime::Fx<Lst, Cx>>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub renders: u64, {props}{fx_values}}}\n\
+         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub prev: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub changed: bool, pub ver: [u64; {n}], pub fx: Vec<runic_runtime::Fx<Lst, Cx>>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub renders: u64, pub ctx: Rc<Contexts>, pub dfx: Vec<(bool, Dfx)>, {props}{fx_values}}}\n\
          pub type I{k} = Rc<RefCell<St{k}>>;\n\
-         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), prev: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], changed: false, ver: [0; {n}], fx: (0..{m}).map(|_| runic_runtime::Fx::default()).collect(), stable: std::collections::HashMap::new(), renders: 0, {prop_defaults}{fx_value_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
+         fn new_i{k}(cx: &mut Cx, parent: Option<Rc<Contexts>>) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), prev: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], changed: false, ver: [0; {n}], fx: (0..{m}).map(|_| runic_runtime::Fx::default()).collect(), stable: std::collections::HashMap::new(), renders: 0, ctx: Rc::new(Contexts {{ parent, map: RefCell::new(Vec::new()) }}), dfx: Vec::new(), {prop_defaults}{fx_value_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
          fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); let stable = std::mem::take(&mut inst.borrow_mut().stable); drop(stable); clear_derived_i{k}(inst); }}",
         name = c.name.replace('\n', " "),
     );
     // Initialisation: passed props keep their value; other cells evaluate `init`.
     let mut init = String::new();
+    let mut defaults_fns = String::new();
     for (i, cell) in c.cells.iter().enumerate() {
         let mut cx = FnCtx::new(p, Some(k), vec![], None, Type::Void);
         cx.init = true;
@@ -1701,7 +1780,18 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
             ""
         };
         let assign = format!("{{ let v = {v}; {check}{own}inst.borrow_mut().c.c{i} = v; }}");
-        if cell.prop.is_some() {
+        if cell.prop.is_some() && cell.undefined_default {
+            // Passed undefined: the default (Svelte's `$props()`).
+            let _ = writeln!(
+                init,
+                "if !matches!(&inst.borrow().p{i}, Some(m) if !m.is_undefined()) {assign}"
+            );
+            let _ = writeln!(
+                defaults_fns,
+                "#[allow(unused_variables)]\nfn dflt_i{k}_{i}(cx: &mut Cx, inst: &I{k}) -> JsResult<{}> {{ Ok({v}) }}",
+                rust_type(&cell.ty)
+            );
+        } else if cell.prop.is_some() {
             let _ = writeln!(init, "if inst.borrow().p{i}.is_none() {assign}");
         } else {
             let _ = writeln!(init, "{assign}");
@@ -1729,7 +1819,13 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
         .collect();
     let _ = writeln!(
         out,
-        "#[allow(unused_variables)]\nfn init_i{k}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n{init}let mut st = inst.borrow_mut(); st.snap = Rc::new(st.c.clone()); st.prev = Rc::clone(&st.snap); st.before = st.c.clone();\nOk(())\n}}\n\
+        "#[allow(unused_variables)]\nfn init_i{k}(cx: &mut Cx, inst: &I{k}) -> JsResult<()> {{\n\
+         // Effects and contexts created now belong to the instance.\n\
+         cx.creating.push(Rc::new(H{k}(Rc::clone(inst))));\n\
+         let r = (|cx: &mut Cx| -> JsResult<()> {{\n{init}Ok(()) }})(cx);\n\
+         cx.creating.pop();\n\
+         r?;\n\
+         let mut st = inst.borrow_mut(); st.snap = Rc::new(st.c.clone()); st.prev = Rc::clone(&st.snap); st.before = st.c.clone();\nOk(())\n}}\n{defaults_fns}\
          fn begin_i{k}(st: &mut St{k}) {{ st.before = st.c.clone(); }}\n\
          #[allow(unused_variables)]\nfn end_i{k}(st: &mut St{k}, deep: bool, owned: bool, optimize: bool) {{ let dirty: [bool; {n}] = [{dirty}]; st.changed = dirty.iter().any(|d| *d); st.dirty = if optimize {{ dirty }} else {{ [true; {n}] }}; st.prev = std::mem::replace(&mut st.snap, Rc::new(st.c.clone())); }}\n\
          #[allow(unused_variables)]\nfn cells_json_i{k}(inst: &I{k}) -> runic_runtime::Json {{ let st = inst.borrow(); runic_runtime::Json::Array(vec![{cells_json}]) }}\n"
@@ -1780,6 +1876,101 @@ impl Cx {
             self.host_tasks.push_back(HostTask::HashChange);
         }
         Ok(())
+    }
+}
+"#;
+
+/// Services for code that runs while an instance is created (contexts,
+/// effects created at run time) and attachments of spread elements; the
+/// reference interpreter implements the same model (`runic_ir::interp`).
+const INSTANCE_SERVICES: &str = r#"impl Cx {
+    /// `context.set`: a context of the instance being created.
+    fn context_set(&mut self, key: JsString, v: Rc<dyn std::any::Any>) -> JsResult<()> {
+        let Some(i) = self.creating.last() else {
+            return Err(js::Throw::new("RunicContextError", "contexts are set while a component instance is created"));
+        };
+        i.contexts().set(key, v);
+        Ok(())
+    }
+    /// `context.get`: the nearest context of the key from the instance being created up its parents.
+    fn context_get(&mut self, key: &JsString) -> JsResult<Option<Rc<dyn std::any::Any>>> {
+        let Some(i) = self.creating.last() else {
+            return Err(js::Throw::new("RunicContextError", "contexts are read while a component instance is created"));
+        };
+        Ok(i.contexts().get(key))
+    }
+    /// `effect.pre` / `effect.post`: an effect of the instance being created.
+    fn create_effect(&mut self, pre: bool, f: Dfx) -> JsResult<()> {
+        let Some(i) = self.creating.last().cloned() else {
+            return Err(js::Throw::new("RunicEffectError", "effects are created while a component instance is created"));
+        };
+        i.add_effect(self, pre, f);
+        Ok(())
+    }
+    /// The attachments a spread gives element `node` now: those with the same key and function stay;
+    /// the others are cleaned up after the render; new ones run with the post effects of `owner`.
+    fn attach_diff(&mut self, owner: usize, node: NodeId, old: &mut Vec<Attached>, now: Vec<(JsString, Rc<dyn std::any::Any>)>) {
+        let mut prev = std::mem::take(old);
+        for (key, f) in now {
+            match prev.iter().position(|a| a.key == key && std::ptr::addr_eq(Rc::as_ptr(&a.f), Rc::as_ptr(&f))) {
+                Some(i) => old.push(prev.remove(i)),
+                None => {
+                    let state = Rc::new(RefCell::new(AttState::Pending));
+                    self.attach_queue.push((owner, node, Rc::clone(&f), Rc::clone(&state)));
+                    old.push(Attached { key, f, state });
+                }
+            }
+        }
+        for a in &prev {
+            self.detach(a);
+        }
+    }
+    /// An attachment removed: its cleanup runs after the render (none if it never ran).
+    fn detach(&mut self, a: &Attached) {
+        if let AttState::Ran(Some(c)) = std::mem::replace(&mut *a.state.borrow_mut(), AttState::Gone) {
+            self.detached.push(c);
+        }
+    }
+    /// Run the new attachments of the elements instance `owner` renders, in order (untracked).
+    fn run_attachments(&mut self, owner: usize) {
+        let (mine, mut rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.attach_queue).into_iter().partition(|a| a.0 == owner);
+        // Attachments removed before they ran are dropped.
+        rest.retain(|a| matches!(*a.3.borrow(), AttState::Pending));
+        self.attach_queue = rest;
+        for (_, node, f, state) in mine {
+            if !matches!(*state.borrow(), AttState::Pending) {
+                continue;
+            }
+            let f = f.downcast_ref::<Att>().expect("attachment").clone();
+            let outer = self.tracking.take();
+            let heap_outer = js::begin_heap_reads(None);
+            let r = f(self, js::Element(node.as_u64()));
+            js::end_heap_reads(heap_outer);
+            self.tracking = outer;
+            let cleanup = match r {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("runic: uncaught exception in an attachment: {e}");
+                    None
+                }
+            };
+            let mut s = state.borrow_mut();
+            if matches!(*s, AttState::Pending) {
+                *s = AttState::Ran(cleanup);
+            } else if let Some(c) = cleanup {
+                // Removed while it ran: cleaned up after this render.
+                drop(s);
+                self.detached.push(c);
+            }
+        }
+    }
+    /// Run the cleanups of attachments the last render removed.
+    fn run_detached(&mut self) {
+        for c in std::mem::take(&mut self.detached) {
+            if let Err(e) = c(self) {
+                eprintln!("runic: uncaught exception in an attachment cleanup: {e}");
+            }
+        }
     }
 }
 "#;
@@ -1917,7 +2108,7 @@ fn component_derived(p: &Program, k: usize, out: &mut String) {
 /// Effects of component `k`: the `Inst` view of its instances (tree
 /// walks, dirtiness, effect metadata) and its effects' dependency checks,
 /// runs and cleanups (docs/design/M4-EFFECTS.md).
-fn component_effects(p: &Program, k: usize, out: &mut String) {
+fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) {
     let c = &p.components[k];
     let meta: String = c
         .effects
@@ -2040,6 +2231,28 @@ fn component_effects(p: &Program, k: usize, out: &mut String) {
     } else {
         ("", "")
     };
+    // Effects the instance created (`effect.pre`, `effect.post`) follow the
+    // component's own: tracked; cleaned up after DOM removal, pre effects
+    // parent first and post effects children first.
+    let statics = c.effects.len();
+    let (fx_meta, dynamic_due, dynamic_run) = if dynamic_fx {
+        (
+            format!(
+                "std::borrow::Cow::Owned(FX{k}.iter().copied().chain(self.0.borrow().dfx.iter().map(|(pre, _)| if *pre {{ (0u8, true, false) }} else {{ (2u8, true, true) }})).collect())"
+            ),
+            "_ if e >= S => { !started || { let deps = inst.borrow().fx[e].deps.clone(); deps.iter().any(|d| d.changed(cx)) } }\n".to_string(),
+            format!(
+                "_ if e >= S => {{ let f = Rc::clone(&inst.borrow().dfx[e - S].1); let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({})); let r = f(cx); let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); {{ let mut st = inst.borrow_mut(); st.fx[e].deps = deps; st.fx[e].started = true; }} match r {{ Ok(Some(c)) => inst.borrow_mut().fx[e].cleanup = Some(c), Ok(None) => {{}} Err(err) => eprintln!(\"runic: uncaught exception in an effect: {{err}}\"), }} }}\n",
+                owned_only(p)
+            ),
+        )
+    } else {
+        (
+            format!("std::borrow::Cow::Borrowed(FX{k})"),
+            String::new(),
+            String::new(),
+        )
+    };
     let _ = writeln!(
         out,
         "impl runic_runtime::CellVersions for St{k} {{ fn versions(&self) -> &[u64] {{ &self.ver }} }}\n\
@@ -2049,15 +2262,17 @@ fn component_effects(p: &Program, k: usize, out: &mut String) {
          fn key(&self) -> usize {{ Rc::as_ptr(&self.0) as *const u8 as usize }}\n\
          fn json(&self) -> runic_runtime::Json {{ runic_runtime::Json::Object([(\"component\".to_string(), runic_runtime::Json::String({name_str}.into())), (\"cells\".to_string(), cells_json_i{k}(&self.0))].into_iter().collect()) }}\n\
          fn changed(&self) -> bool {{ self.0.borrow().changed }}\n\
-         fn fx_meta(&self) -> &'static [(u8, bool, bool)] {{ FX{k} }}\n\
+         fn fx_meta(&self) -> std::borrow::Cow<'static, [(u8, bool, bool)]> {{ {fx_meta} }}\n\
          fn fx_due(&self, cx: &mut Cx, e: usize, updated: bool) -> bool {{ fx_due_i{k}(cx, &self.0, e, updated) }}\n\
          fn fx_cleanup(&self, cx: &mut Cx, e: usize) {{ let c = self.0.borrow_mut().fx[e].cleanup.take(); if let Some(c) = c {{ {set}let r = c(cx); {unset}if let Err(err) = r {{ eprintln!(\"runic: uncaught exception in a cleanup: {{err}}\"); }} }} }}\n\
          fn fx_run(&self, cx: &mut Cx, e: usize) {{ fx_run_i{k}(cx, &self.0, e) }}\n\
+         fn contexts(&self) -> Rc<Contexts> {{ Rc::clone(&self.0.borrow().ctx) }}\n\
+         fn add_effect(&self, cx: &mut Cx, pre: bool, f: Dfx) {{ let e = {{ let mut st = self.0.borrow_mut(); st.dfx.push((pre, f)); st.fx.push(runic_runtime::Fx::default()); st.fx.len() - 1 }}; if pre {{ fx_run_i{k}(cx, &self.0, e); }} }}\n\
          }}\n\
-         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_due_i{k}(cx: &mut Cx, inst: &I{k}, e: usize, updated: bool) -> bool {{\nlet started = inst.borrow().fx.get(e).is_some_and(|f| f.started);\nmatch e {{\n{due}_ => false,\n}}\n}}\n\
-         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_run_i{k}(cx: &mut Cx, inst: &I{k}, e: usize) {{\nmatch e {{\n{run}_ => {{}}\n}}\n}}\n\
+         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_due_i{k}(cx: &mut Cx, inst: &I{k}, e: usize, updated: bool) -> bool {{\nconst S: usize = {statics};\nlet started = inst.borrow().fx.get(e).is_some_and(|f| f.started);\nmatch e {{\n{due}{dynamic_due}_ => false,\n}}\n}}\n\
+         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_run_i{k}(cx: &mut Cx, inst: &I{k}, e: usize) {{\nconst S: usize = {statics};\nmatch e {{\n{run}{dynamic_run}_ => {{}}\n}}\n}}\n\
          /// Run the due effects of `phase` of an instance of {name}, each cleanup right before its effect.\n\
-         fn fx_phase_i{k}(cx: &mut Cx, inst: &I{k}, phase: u8, updated: bool) {{ let h = H{k}(Rc::clone(inst)); for (e, m) in FX{k}.iter().enumerate() {{ if m.0 == phase && h.fx_due(cx, e, updated) {{ h.fx_cleanup(cx, e); h.fx_run(cx, e); }} }} }}",
+         fn fx_phase_i{k}(cx: &mut Cx, inst: &I{k}, phase: u8, updated: bool) {{ let h = H{k}(Rc::clone(inst)); let meta = h.fx_meta(); for (e, m) in meta.iter().enumerate() {{ if m.0 == phase && h.fx_due(cx, e, updated) {{ h.fx_cleanup(cx, e); h.fx_run(cx, e); }} }} }}",
         name = c.name.replace('\n', " "),
         name_str = rust_str(&c.name),
         set = previous.0,
@@ -2075,11 +2290,13 @@ pub fn generate(
     options: &Options,
 ) -> Result<String> {
     let reads = function_reads(p);
+    let dynamic_fx = uses_builtin(p, &["effect.pre", "effect.post"]);
     let g = Gen {
         p,
         optimize: options.optimize,
         reads,
         reactive: function_reactive_reads(p),
+        dynamic_fx,
     };
     let mut planner = Planner::new(p);
     let root = planner.root(p.root);
@@ -2110,7 +2327,7 @@ pub fn generate(
         MountTiming::Microtask => "self.cx.jobs.queue_mount(false);",
         MountTiming::Task => "self.cx.jobs.queue_mount(true);",
     };
-    let (root_pre, root_update_pre) = if p.components[p.root].effects.is_empty() {
+    let (root_pre, root_update_pre) = if p.components[p.root].effects.is_empty() && !dynamic_fx {
         (String::new(), String::new())
     } else {
         (
@@ -2155,10 +2372,41 @@ pub fn generate(
          /// Whether a tracked cell changed in this flush pass.\n\
          fn changed(&self) -> bool;\n\
          /// Per effect: (phase 0 pre, 1 layout, 2 post; cleanup after DOM removal; children first at unmount).\n\
-         fn fx_meta(&self) -> &'static [(u8, bool, bool)];\n\
+         fn fx_meta(&self) -> std::borrow::Cow<'static, [(u8, bool, bool)]>;\n\
          fn fx_due(&self, cx: &mut Cx, e: usize, updated: bool) -> bool;\n\
          fn fx_cleanup(&self, cx: &mut Cx, e: usize);\n\
          fn fx_run(&self, cx: &mut Cx, e: usize);\n\
+         /// The contexts the instance sets (and those it sees through its parents).\n\
+         fn contexts(&self) -> Rc<Contexts>;\n\
+         /// An effect created while the instance is created (`pre`: it runs at once).\n\
+         fn add_effect(&self, cx: &mut Cx, pre: bool, f: Dfx);\n\
+         }\n\
+         /// Contexts of an instance, by key, and its parent's (the instance rendering it).\n\
+         pub struct Contexts { parent: Option<Rc<Contexts>>, map: RefCell<Vec<(JsString, Rc<dyn std::any::Any>)>> }\n\
+         impl Contexts {\n\
+         fn get(&self, key: &JsString) -> Option<Rc<dyn std::any::Any>> { if let Some((_, v)) = self.map.borrow().iter().find(|(k, _)| k == key) { return Some(Rc::clone(v)); } self.parent.as_ref().and_then(|p| p.get(key)) }\n\
+         fn set(&self, key: JsString, v: Rc<dyn std::any::Any>) { let mut m = self.map.borrow_mut(); match m.iter_mut().find(|(k, _)| *k == key) { Some(slot) => slot.1 = v, None => m.push((key, v)) } }\n\
+         }\n\
+         /// An effect function created at run time: its cleanup, if any.\n\
+         pub type Dfx = Rc<dyn Fn(&mut Cx) -> JsResult<Option<Lst>>>;\n\
+         /// An attachment: called with the element, gives its cleanup, if any.\n\
+         pub type Att = Rc<dyn Fn(&mut Cx, js::Element) -> JsResult<Option<Lst>>>;\n\
+         /// A callback passed through an attribute bag, type-erased (`attrs.get` adapts it).\n\
+         pub type Erased = Rc<dyn Fn(&mut Cx, Vec<Rc<dyn std::any::Any>>) -> JsResult<Rc<dyn std::any::Any>>>;\n\
+         fn erased_mismatch() -> js::Throw { js::Throw::type_error(\"RunicAttrsError: a callback passed through an attribute bag is called with values of other types than it takes or gives\") }\n\
+         fn erased_arg<T: Clone + 'static>(args: &[Rc<dyn std::any::Any>], i: usize) -> JsResult<T> { args.get(i).and_then(|a| a.downcast_ref::<T>()).cloned().ok_or_else(erased_mismatch) }\n\
+         fn erased_opt<T: Clone + 'static>(args: &[Rc<dyn std::any::Any>], i: usize) -> JsResult<Maybe<T>> { match args.get(i) { None => Ok(Maybe::Undefined), Some(a) => match (a.downcast_ref::<Maybe<T>>(), a.downcast_ref::<T>()) { (Some(v), _) => Ok(v.clone()), (_, Some(v)) => Ok(Maybe::Some(v.clone())), _ => Err(erased_mismatch()) } } }\n\
+         fn erased_result<T: Clone + 'static>(r: Rc<dyn std::any::Any>) -> JsResult<T> { r.downcast_ref::<T>().cloned().ok_or_else(erased_mismatch) }\n\
+         /// An attachment applied to an element: its key, function and state.\n\
+         pub struct Attached { key: JsString, f: Rc<dyn std::any::Any>, state: Rc<RefCell<AttState>> }\n\
+         pub enum AttState { Pending, Ran(Option<Lst>), Gone }\n\
+         /// Bag values for `js::merge_props` (`attrs.merge-props`).\n\
+         struct MergeBags;\n\
+         impl js::MergeOps<js::AttrValue<Bag>> for MergeBags {\n\
+         fn kind(&self, v: &js::AttrValue<Bag>) -> js::MergeKind { match v { js::AttrValue::Text(s) => js::MergeKind::Text(s.clone()), js::AttrValue::Absent => js::MergeKind::Undefined, js::AttrValue::Null => js::MergeKind::Null, js::AttrValue::Flag(b) => js::MergeKind::Flag(*b), js::AttrValue::Style(s) => js::MergeKind::Style(s.clone()), js::AttrValue::Listener(..) | js::AttrValue::Callback(..) | js::AttrValue::Attach(_) => js::MergeKind::Function } }\n\
+         fn text(&self, s: JsString) -> js::AttrValue<Bag> { js::AttrValue::Text(s) }\n\
+         fn compose(&self, listeners: Vec<js::AttrValue<Bag>>) -> js::AttrValue<Bag> { let fs: Vec<Bag> = listeners.into_iter().filter_map(|l| match l { js::AttrValue::Listener(_, f) => Some(f), _ => None }).collect(); let b: Bag = Rc::new(move |cx: &mut Cx, e: js::Event| { for f in &fs { if e.default_prevented() { break; } f(cx, e.clone())?; } Ok(()) }); let id = Rc::as_ptr(&b) as *const () as usize; js::AttrValue::Listener(id, b) }\n\
+         fn listeners(&self, v: &js::AttrValue<Bag>) -> Vec<js::AttrValue<Bag>> { vec![v.clone()] }\n\
          }\n\
          /// Instances of a tree walk (pre-order, with parent keys) with every instance after its children.\n\
          fn post_order(tree: &[(Rc<dyn Inst>, usize)]) -> Vec<Rc<dyn Inst>> {\n\
@@ -2190,7 +2438,7 @@ pub fn generate(
     );
     for k in 0..p.components.len() {
         component_state(p, k, &mut out);
-        component_effects(p, k, &mut out);
+        component_effects(p, k, dynamic_fx, &mut out);
         component_derived(p, k, &mut out);
     }
     // The context: event payload, listener closures and live instances.
@@ -2249,14 +2497,15 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
     out.push_str(HOST_SERVICES);
+    out.push_str(INSTANCE_SERVICES);
     derived_fields(p, &mut out);
     // Functions.
     let mut errors = vec![];
@@ -2417,14 +2666,17 @@ pub fn generate(
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.free(dom);\n\
          let destroyed: std::collections::HashSet<usize> = self.cx.destroyed.drain(..).map(|i| i.key()).collect();\n\
+         // Attachments the render removed are cleaned up as their elements go.\n\
+         self.cx.run_detached();\n\
          teardown(&mut self.cx, &tree, &destroyed, {batched});\n\
          let after = self.walk();\n\
          let post = post_order(&after);\n\
          let keys: std::collections::HashSet<usize> = after.iter().map(|(i, _)| i.key()).collect();\n\
          for (phase, p) in [(1u8, runic_runtime::Phase::Layout), (2u8, runic_runtime::Phase::Post)] {{\n\
          self.cx.jobs.phase = Some(p);\n\
+         if {batched} && phase == 2 {{ for i in &post {{ self.cx.run_attachments(i.key()); }} }}\n\
          let mut due = Vec::new();\n\
-         for i in &post {{ let u = self.cx.updated.get(&i.key()).copied().unwrap_or(true); for (e, m) in i.fx_meta().iter().enumerate() {{ if m.0 != phase {{ continue; }} if {batched} {{ if i.fx_due(&mut self.cx, e, u) {{ due.push((Rc::clone(i), e)); }} }} else if i.fx_due(&mut self.cx, e, u) {{ i.fx_cleanup(&mut self.cx, e); i.fx_run(&mut self.cx, e); }} }} }}\n\
+         for i in &post {{ let u = self.cx.updated.get(&i.key()).copied().unwrap_or(true); if !{batched} && phase == 2 {{ self.cx.run_attachments(i.key()); }} let meta = i.fx_meta(); for (e, m) in meta.iter().enumerate() {{ if m.0 != phase {{ continue; }} if {batched} {{ if i.fx_due(&mut self.cx, e, u) {{ due.push((Rc::clone(i), e)); }} }} else if i.fx_due(&mut self.cx, e, u) {{ i.fx_cleanup(&mut self.cx, e); i.fx_run(&mut self.cx, e); }} }} }}\n\
          if {batched} {{ for (r, p) in &after {{ if !keys.contains(p) {{ batched_cleanups(&mut self.cx, r, phase, &due, &after, &destroyed, &tree); }} }} }}\n\
          for (i, e) in &due {{ i.fx_run(&mut self.cx, *e); }}\n\
          }}\n\
@@ -2437,7 +2689,7 @@ pub fn generate(
          const ASSETS: &'static [(&'static str, &'static [u8])] = &[{assets}];\n\
          const IR_HASH: &'static str = {hash};\n\
          const CHANGE_WITH_CLICK: bool = {change_with_click};\n\
-         fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
+         fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx, None);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          {container}match mount_s{root}(&mut self.cx, dom, &self.inst, &self.t, parent, None) {{\n\

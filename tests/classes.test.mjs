@@ -1049,3 +1049,65 @@ export function result(): string {
     '3 6.5 | true false true | base=3 other=42 doubler=6.5 | doubler true',
   ]);
 });
+
+test('late fields in base classes and subclasses, nullable base fields narrowed through class references', async () => {
+  const script = `import { result } from './m';
+     let out = $state('');
+     function go() { out = result(); }`;
+  const files = {
+    'm.ts': `class Label {
+  constructor(private read: () => string) {}
+  text(): string { return this.read(); }
+}
+class Base {
+  name: string;
+  tag: Label;
+  constructor(name: string) {
+    this.name = name;
+    this.tag = new Label(() => 'tag of ' + this.name);
+  }
+  who(): string { return 'base ' + this.name; }
+}
+class Plain extends Base {
+  who(): string { return 'plain ' + this.tag.text(); }
+}
+class Root {
+  name: string;
+  opt?: number;
+  constructor(name: string) { this.name = name; }
+}
+class Leaf extends Root {
+  label: Label;
+  constructor(name: string) {
+    super(name);
+    this.label = new Label(() => this.name + '?');
+    this.opt = 2;
+  }
+}
+export function result(): string {
+  const bs: Base[] = [new Base('a'), new Plain('b')];
+  const rs: Root[] = [new Root('c'), new Leaf('d')];
+  let s = bs.map(b => \`\${b.who()}/\${b.tag.text()}\`).join(' ');
+  for (const r of rs) {
+    if (r.opt !== undefined) s += \` \${r.name}:\${r.opt + 1}\`;
+    else s += \` \${r.name}:none\`;
+    if (r instanceof Leaf) s += \` \${r.label.text()}\`;
+  }
+  return s;
+}
+`,
+  };
+  // Base.tag and Leaf.label are set after the instance exists: nullable in
+  // the records (Plain's starts with Base's), unwrapped when read.
+  const ir = await lowered(script, files);
+  const field = (record, name) =>
+    ir.records.find(r => r.name === record).fields.find(f => f.name === name).type;
+  for (const [record, name] of [
+    ['Base', 'tag'],
+    ['Plain', 'tag'],
+    ['Leaf', 'label'],
+  ])
+    assert.ok(field(record, name).maybe, `${record}.${name} is late`);
+  const out = await run(script, files);
+  assert.deepEqual(out, ['', 'base a/tag of a plain tag of b/tag of b c:none d:3 d?']);
+});

@@ -109,6 +109,25 @@ fn element(doc: &BaseDocument, node: NodeId) -> Option<&blitz_dom::Node> {
     doc.get_node(node).filter(|n| n.element_data().is_some())
 }
 
+/// Whether an element is rendered with boxes: it has boxes of its own (in
+/// the document, not `display: none` or `contents`) and no ancestor is
+/// `display: none`. Others have an empty rectangle at the origin.
+pub(crate) fn rendered(doc: &BaseDocument, node: NodeId) -> bool {
+    let Some(n) = element(doc, node).filter(|n| n.has_boxes()) else {
+        return false;
+    };
+    let mut current = n.parent.and_then(|p| doc.get_node(p));
+    while let Some(a) = current {
+        if a.primary_styles()
+            .is_some_and(|s| s.clone_display().is_none())
+        {
+            return false;
+        }
+        current = a.parent.and_then(|p| doc.get_node(p));
+    }
+    true
+}
+
 /// The node's border box position relative to the document, ignoring
 /// scrolling (layout coordinates).
 fn layout_position(doc: &BaseDocument, node: NodeId) -> (f64, f64) {
@@ -225,7 +244,7 @@ fn untransformed_rect(doc: &BaseDocument, node: NodeId) -> Option<blitz_dom::Bou
 /// (layout units, relative to the viewport).
 pub(crate) fn rect(doc: &mut BaseDocument, node: NodeId) -> [f64; 8] {
     resolve(doc);
-    let r = client_rect(doc, node).filter(|_| element(doc, node).is_some_and(|n| n.has_boxes()));
+    let r = client_rect(doc, node).filter(|_| rendered(doc, node));
     let (x, y, w, h) = r.map_or((0.0, 0.0, 0.0, 0.0), |r| (r.x, r.y, r.width, r.height));
     [x, y, w, h, y, x + w, y + h, x]
 }

@@ -25,7 +25,30 @@ interface HTMLElement {
   scrollBy(options?: ScrollToOptions): void;
   scrollBy(x: number, y: number): void;
   scrollIntoView(arg?: boolean | ScrollIntoViewOptions): void;
+  // M6 (bits-ui): attributes, connection, inline style properties through
+  // the CSSOM, and the element's running CSS animations and transitions.
+  hasAttribute(name: string): boolean;
+  readonly isConnected: boolean;
+  readonly style: ElementInlineStyle;
+  getAnimations(): Animation[];
 }
+/** An element's inline style: CSS properties by their camelCase names. */
+interface ElementInlineStyle {
+  [property: string]: string;
+}
+/** A running CSS animation or transition (`element.getAnimations()`). */
+interface Animation {
+  readonly pending: boolean;
+  readonly playState: 'idle' | 'running' | 'paused' | 'finished';
+  readonly finished: Promise<Animation>;
+}
+/** A MutationObserver watching attributes (its callback receives no records here). */
+interface MutationObserver {
+  readonly __runicMutationObserver: true;
+  observe(target: HTMLElement, options: { attributes?: boolean; attributeFilter?: string[] }): void;
+  disconnect(): void;
+}
+declare var MutationObserver: { new (callback: () => void): MutationObserver };
 interface DOMRect {
   readonly x: number;
   readonly y: number;
@@ -58,6 +81,15 @@ interface HTMLUListElement extends HTMLElement {}
 interface HTMLHeadingElement extends HTMLElement {}
 interface Element extends HTMLElement {}
 interface EventTarget {}
+/**
+ * An attribute bag (docs/IR.md `attrs`): attribute values, listeners and
+ * attachments by name. Object literals that build one (computed keys in
+ * package modules, frontend/package-modules.ts) are typed with it.
+ */
+interface RunicAttrs {
+  readonly __runicAttrs: true;
+  readonly [name: string]: unknown;
+}
 
 // Event objects: opaque values whose members lower to `event.*` built-ins.
 interface Event {

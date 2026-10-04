@@ -11,7 +11,11 @@ import { bindPackImport, bindPackReexport, bindPackWrapper, type Edge } from './
 export interface ModuleGraph {
   root: string;
   entry: string;
-  modules: Map<string, { code: string; imports: Edge[] }>;
+  /** `package`: the package compiled from source a module belongs to (frontend/sources.ts). */
+  modules: Map<
+    string,
+    { code: string; imports: Edge[]; package?: { name: string; version: string; dir: string } }
+  >;
 }
 
 export interface ModuleOptions {
@@ -83,9 +87,17 @@ export class ModuleResolver {
     return this.graph.modules.get(file)?.imports.find(i => i.specifier === specifier);
   }
 
+  /**
+   * Whether `edge` leads into a package compiled from source
+   * (frontend/sources.ts): the collector collected the module it resolved to.
+   */
+  intoSource(edge: Edge): boolean {
+    return !!edge.package && !!this.graph.modules.get(edge.resolved)?.package;
+  }
+
   /** What `imported` names when imported through `edge`. */
   imported(edge: Edge, imported: string, seen = new Set<string>()): ModuleRef | undefined {
-    if (edge.package) return { kind: 'package', edge, name: imported };
+    if (edge.package && !this.intoSource(edge)) return { kind: 'package', edge, name: imported };
     return imported === '*'
       ? { kind: 'namespace', file: edge.resolved }
       : this.export(edge.resolved, imported, seen);

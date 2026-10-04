@@ -114,6 +114,7 @@ export function irType(e: Expr, env: TypeEnv): Type {
     case 'concat':
       return S;
     case 'not':
+    case 'slot-provided':
     case 'to-boolean':
     case 'eq':
     case 'ne':
