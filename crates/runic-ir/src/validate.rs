@@ -55,7 +55,7 @@ const SVG_PAINT: &[&str] = &[
 /// `display`, `style`, …) are not accepted.
 fn svg_attrs(tag: &str) -> &'static [&'static str] {
     match tag {
-        "svg" => &["xmlns", "width", "height", "viewBox", "class", "id"],
+        "svg" => &["xmlns", "width", "height", "viewBox", "class", "id", "role"],
         "g" => &["class", "opacity", "transform"],
         "path" => &["class", "opacity", "transform", "d"],
         "circle" => &["class", "opacity", "transform", "cx", "cy", "r"],

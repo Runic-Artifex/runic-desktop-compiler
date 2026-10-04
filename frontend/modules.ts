@@ -6,11 +6,12 @@
 import ts from 'typescript';
 import path from 'node:path';
 import { skipParens, type Lowerer } from './language.ts';
+import { bindPackImport, type Edge } from './packs.ts';
 
 export interface ModuleGraph {
   root: string;
   entry: string;
-  modules: Map<string, { code: string; imports: { specifier: string; resolved: string }[] }>;
+  modules: Map<string, { code: string; imports: Edge[] }>;
 }
 
 export interface ModuleOptions {
@@ -62,8 +63,9 @@ export function lowerModules(
             fail(stmt, 'E_IMPORT', 'Only local CSS side-effect imports are supported');
           continue;
         }
-        if (!spec.startsWith('.'))
-          fail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+        // Packages lower through their mapping packs (frontend/packs.ts).
+        const edge = graph.modules.get(file)?.imports.find(i => i.specifier === spec);
+        if (bindPackImport(stmt, edge, lower)) continue;
         const named = stmt.importClause.namedBindings;
         if (named && ts.isNamespaceImport(named))
           fail(named, 'E_IMPORT', 'Namespace imports are planned for M3');

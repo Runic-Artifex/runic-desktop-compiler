@@ -16,6 +16,6 @@
     "skipLibCheck": true
   },
   "files": ["node-env.d.ts"],
-  "include": ["*.ts", "adapters/*.ts"],
+  "include": ["*.ts", "adapters/*.ts", "packs/*.ts"],
   "exclude": ["*.d.ts"]
 }

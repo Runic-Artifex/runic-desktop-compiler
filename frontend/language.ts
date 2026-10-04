@@ -54,7 +54,16 @@ export type Binding =
   /** A component's props object (inlined components): member reads are values. */
   | { kind: 'props'; values: Map<string, Expr> }
   /** A handler's event parameter. */
-  | { kind: 'event'; handler: FnBuilder };
+  | { kind: 'event'; handler: FnBuilder }
+  /**
+   * An export of a mapping pack (frontend/packs.ts): calls lower through the
+   * pack; other uses (and components, which templates expand) are rejected.
+   */
+  | {
+      kind: 'pack';
+      label: string;
+      call?: (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr;
+    };
 
 /** The member of a ref object that holds its value (`value` unless the binding names one). */
 const refField = (b: { field?: string }): string => b.field ?? 'value';
@@ -1331,6 +1340,10 @@ export class Lowerer {
   // Expressions
 
   binding(id: ts.Identifier): Binding | undefined {
+    // Package imports are bound by their import symbol (frontend/packs.ts).
+    const own = this.checker.getSymbolAtLocation(id);
+    const pack = own && this.bindings.get(own);
+    if (pack?.kind === 'pack') return pack;
     const s = this.symbol(id);
     return s ? this.bindings.get(s) : undefined;
   }
@@ -1607,6 +1620,14 @@ export class Lowerer {
         );
       case 'event':
         return this.eventValue(binding.handler, b);
+      case 'pack':
+        return this.fail(
+          id,
+          'E_PACK',
+          binding.call
+            ? `${binding.label} is supported in direct calls only`
+            : `${binding.label} is a component: use it as a template tag`,
+        );
       case 'generic':
         return this.fail(
           id,
@@ -2543,6 +2564,7 @@ export class Lowerer {
       if (global && GLOBAL_FUNCTIONS.has(global))
         return this.builtinCall(global, args(), b, this.tsCallType(e), e);
       const binding = this.binding(callee);
+      if (binding?.kind === 'pack' && binding.call) return binding.call(e, b, this);
       if (binding?.kind === 'function')
         return { op: 'call', function: binding.fn, args: this.callArgs(e, b) };
       if (binding?.kind === 'generic') return this.specialise(binding, e, b);
