@@ -1,0 +1,26 @@
+{
+  "description": "The north star (docs/ROADMAP.md, M7): upstream sources at pinned commits, fetched into .cache/corpus by fetch.mjs and never committed here (all MIT).",
+  "sources": [
+    {
+      "name": "shadcn-svelte",
+      "repository": "https://github.com/huntabyte/shadcn-svelte",
+      "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+      "target": "docs",
+      "scope": "the documentation site as a whole SvelteKit app"
+    },
+    {
+      "name": "shadcn-ui",
+      "repository": "https://github.com/shadcn-ui/ui",
+      "commit": "295a1f114a138f23b5dfee0e0c6812394dfeb90c",
+      "target": "apps/v4",
+      "scope": "component examples and blocks (registry, examples), each in a Vite host page"
+    },
+    {
+      "name": "shadcn-vue",
+      "repository": "https://github.com/unovue/shadcn-vue",
+      "commit": "b251d9fd92aa496495e127137a7734704fb34a29",
+      "target": "apps",
+      "scope": "component examples, each in a Vite host page"
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+2792 files, 106871 lines in .cache/corpus/shadcn-svelte/docs
+
+M1    13 features   5784 occurrences
+M2    28 features   9185 occurrences
+M3    18 features  24257 occurrences
+M4     8 features    193 occurrences
+M5    26 features   1178 occurrences
+M6     7 features   1676 occurrences
+
+Features (milestone, count, first locations):
+  M1   svelte:dynamic-attr               3364  src/lib/components/announcement.svelte:7, src/lib/components/block-viewer-code.svelte:28
+  M1   js:arrow-function                  515  src/lib/colors.ts:47, src/lib/colors.ts:54
+  M1   svelte:$state                      488  src/lib/components/block-viewer.svelte:34, src/lib/components/block-viewer.svelte:49
+  M1   svelte:if                          332  src/lib/components/active-theme.svelte:29, src/lib/components/block-viewer-code.svelte:15
+  M1   svelte:bind:value                  268  src/lib/components/block-viewer-toolbar.svelte:35, src/lib/components/cards/appearance-settings.svelte:94
+  M1   svelte:$derived                    245  src/lib/components/active-theme.svelte:12, src/lib/components/active-theme.svelte:21
+  M1   js:interface-or-type               215  src/lib/blocks.ts:4, src/lib/blocks.ts:21
+  M1   svelte:event:click                 161  src/lib/components/block-viewer-copy-code-button.svelte:17, src/lib/components/block-viewer-toolbar.svelte:89
+  M1   js:ternary                         100  src/lib/colors.ts:87, src/lib/colors.ts:92
+  M1   api:Math                            66  src/lib/colors.ts:87, src/lib/components/cards/activity-goal.svelte:63
+  M1   svelte:$derived.by                  22  src/lib/components/command-menu/command-menu.svelte:64, src/lib/components/component-source.svelte:83
+  M1   svelte:event:input                   5  src/lib/components/cards/appearance-settings.svelte:98, src/lib/registry/examples/create/chatgpt/create-project-form.svelte:108
+  M1   import:css                           3  src/routes/(app)/(layout)/(create)/+layout@(app).svelte:3, src/routes/(app)/preview/+layout.svelte:3
+  M2   js:object-literal                 4645  src/lib/blocks.ts:10, src/lib/blocks.ts:14
+  M2   js:let-mutation                   1221  src/lib/components/block-viewer-iframe.svelte:5, src/lib/components/block-viewer-tree.svelte:13
+  M2   js:array-literal                   844  src/lib/components/cards/activity-goal.svelte:11, src/lib/components/cards/chat.svelte:14
+  M2   js:new                             767  src/lib/components/block-viewer-copy-code-button.svelte:12, src/lib/components/block-viewer-toolbar.svelte:21
+  M2   js:destructuring                   753  src/lib/colors.ts:47, src/lib/colors.ts:83
+  M2   js:closure                         226  src/lib/colors.ts:47, src/lib/colors.ts:54
+  M2   js:optional-chaining               155  src/lib/components/active-theme.svelte:23, src/lib/components/block-viewer-code.svelte:8
+  M2   js:template-literal                128  src/lib/colors.ts:35, src/lib/colors.ts:40
+  M2   js:nullish-coalescing              109  src/lib/components/active-theme.svelte:15, src/lib/components/block-viewer-code.svelte:10
+  M2   js:spread                           81  src/lib/colors.ts:58, src/lib/components/colors/colors.ts:53
+  M2   js:for-loop                         50  src/lib/components/block-viewer.svelte:39, src/lib/components/colors/colors.ts:97
+  M2   svelte:const                        45  src/lib/components/cards/notion-prompt-form.svelte:199, src/lib/components/chart-tooltip-demo-item.svelte:66
+  M2   api:Object                          29  src/lib/colors.ts:46, src/lib/components/active-theme.svelte:15
+  M2   api:Array                           28  src/lib/colors.ts:48, src/lib/components/colors/colors.ts:43
+  M2   js:typeof                           21  src/lib/components/colors/colors.ts:101, src/lib/components/colors/colors.ts:129
+  M2   js:regex                            19  src/lib/colors.ts:55, src/lib/colors.ts:64
+  M2   js:instanceof                       16  src/lib/components/command-menu/command-menu.svelte:194, src/lib/components/command-menu/command-menu.svelte:195
+  M2   api:Number                           7  src/lib/colors.ts:83, src/lib/components/colors/colors.ts:77
+  M2   api:Set                              7  src/lib/components/docs-sidebar.svelte:26, src/lib/components/docs-sidebar.svelte:34
+  M2   js:try-catch                         7  src/lib/components/github-link.svelte:9, src/lib/components/icon-placeholder/icon-loader.ts:28
+  M2   js:class                             7  src/lib/features/design-system/components/design-system-provider-state.svelte.ts:63, src/lib/hooks/use-clipboard.svelte.ts:30
+  M2   js:throw                             5  src/lib/fonts.ts:7, src/lib/package-manager.ts:27
+  M2   api:Map                              4  src/lib/components/icon-placeholder/icon-loader.ts:21, src/lib/docs.ts:102
+  M2   js:switch                            4  src/lib/components/icons/icons.ts:8, src/lib/registry/blocks/chart-area-interactive.svelte:108
+  M2   api:JSON                             3  src/lib/registry/examples/form-demo.svelte:21, src/lib/user-config.svelte.ts:48
+  M2   api:RegExp                           2  src/lib/components/theme-customizer.svelte:73, src/lib/components/theme-customizer.svelte:84
+  M2   api:String                           1  src/lib/components/theme-customizer.svelte:85
+  M2   svelte:$state.raw                    1  src/lib/user-config.svelte.ts:74
+  M3   svelte:component                 18161  src/lib/components/announcement.svelte:8, src/lib/components/block-viewer-code.svelte:20
+  M3   import:svelte-component           2062  src/lib/components/block-viewer-code.svelte:2, src/lib/components/block-viewer-code.svelte:3
+  M3   svelte:spread                     1015  src/lib/components/block-viewer-tree.svelte:44, src/lib/components/callout.svelte:19
+  M3   svelte:snippet                     714  src/lib/components/block-viewer-tree.svelte:43, src/lib/components/blocks-nav.svelte:7
+  M3   svelte:$props                      645  src/lib/components/block-viewer-iframe.svelte:5, src/lib/components/block-viewer-tree.svelte:13
+  M3   svelte:each-keyed                  539  src/lib/components/block-viewer-file-tree.svelte:16, src/lib/components/block-viewer-tree.svelte:53
+  M3   svelte:$bindable                   428  src/lib/components/chart-tooltip-demo-item.svelte:8, src/lib/components/command-menu/command-menu-item.svelte:8
+  M3   svelte:render                      378  src/lib/components/block-viewer-view-mobile.svelte:19, src/lib/components/block-viewer.svelte:103
+  M3   svelte:bind:this                   168  src/lib/components/block-viewer-view.svelte:21, src/lib/components/chart-tooltip-demo-item.svelte:54
+  M3   svelte:style-attr                   59  src/lib/components/block-viewer-tree.svelte:19, src/lib/components/block-viewer-tree.svelte:40
+  M3   svelte:module-script                44  src/lib/components/block-viewer.svelte:1, src/lib/components/cards/payments.svelte:1
+  M3   host:focus()                        25  src/lib/registry/examples/combobox-basic.svelte:20, src/lib/registry/examples/combobox-custom.svelte:44
+  M3   svelte:context                       9  src/lib/registry/ui/carousel/context.ts:1, src/lib/registry/ui/chart/chart-utils.ts:1
+  M3   svelte:key                           4  src/lib/components/block-viewer-iframe.svelte:12, src/lib/registry/examples/shimmer-once.svelte:8
+  M3   svelte:style-directive               2  src/lib/registry/blocks/chart-pie-interactive.svelte:49, src/lib/registry/examples/create/preview-02/cards/roller-shades.svelte:35
+  M3   svelte:element                       2  src/lib/registry/ui/badge/badge.svelte:40, src/lib/registry/ui/chart/chart-style.svelte:33
+  M3   svelte:slot                          1  src/lib/components/mdsx/blueprint.svelte:40
+  M3   svelte:each                          1  src/lib/registry/examples/carousel-demo.svelte:8
+  M4   js:await                            48  src/lib/components/colors/color-card.svelte:50, src/lib/components/docs-copy-page.svelte:37
+  M4   js:async-function                   38  src/lib/components/colors/color-card.svelte:45, src/lib/components/docs-copy-page.svelte:36
+  M4   svelte:lifecycle                    32  src/lib/components/github-link.svelte:2, src/lib/components/mdsx/pre.svelte:2
+  M4   api:Promise                         21  src/lib/components/icon-placeholder/icon-loader.ts:11, src/lib/docs.ts:28
+  M4   host:requestAnimationFrame          20  src/lib/components/command-menu/command-menu.svelte:105, src/lib/components/command-menu/command-menu.svelte:111
+  M4   svelte:$effect                      15  src/lib/components/chart-toolbar.svelte:24, src/lib/components/command-menu/command-menu.svelte:99
+  M4   host:setTimeout                     12  src/lib/components/colors/color-card.svelte:54, src/lib/components/command-menu/command-menu.svelte:104
+  M4   svelte:await                         7  src/lib/components/icon-placeholder/hugeicons-icon.svelte:32, src/lib/components/icon-placeholder/lucide-icon.svelte:27
+  M5   api:Date                           613  src/lib/docs.ts:40, src/lib/docs.ts:51
+  M5   svelte:bind:other                  363  src/lib/components/cards/chat.svelte:146, src/lib/components/cards/notion-prompt-form.svelte:151
+  M5   svelte:bind:checked                 49  src/lib/registry/blocks/dashboard-01/components/data-table-checkbox.svelte:13, src/lib/registry/examples/context-menu-checkboxes.svelte:18
+  M5   host:document                       31  src/lib/components/chart-toolbar.svelte:33, src/lib/components/component-code-viewer/component-code-viewer-code.svelte:28
+  M5   svelte:event:keyboard               15  src/lib/components/command-menu/command-menu.svelte:228, src/lib/components/component-code-viewer/component-code-viewer-code.svelte:39
+  M5   host:window                         15  src/lib/components/component-code-viewer/component-code-viewer-code.svelte:31, src/lib/components/ethical.svelte:15
+  M5   host:fetch                          15  src/lib/components/docs-copy-page.svelte:37, src/lib/components/github-link.svelte:10
+  M5   host:history                        14  src/lib/registry/examples/create/elevenlabs/live-waveform.svelte:58, src/lib/registry/examples/create/elevenlabs/live-waveform.svelte:159
+  M5   svelte:event:submit                  8  src/lib/components/cards/chat.svelte:118, src/lib/registry/blocks/dashboard-01/components/data-table-limit.svelte:13
+  M5   svelte:transition                    6  src/lib/components/colors/color-card.svelte:6, src/lib/components/colors/color-card.svelte:107
+  M5   host:navigator                       6  src/lib/components/colors/color-card.svelte:50, src/lib/components/theme-customizer.svelte:197
+  M5   svelte:event:change                  6  src/lib/registry/examples/data-table-demo.svelte:201, src/lib/registry/ui/calendar/calendar-caption.svelte:48
+  M5   host:URL                             5  src/routes/(app)/(layout)/(create)/components/copy-preset.svelte:16, src/routes/(app)/(layout)/(create)/components/share.svelte:18
+  M5   api:Intl                             4  src/lib/components/cards/payments.svelte:122, src/lib/registry/examples/create/preview/cards/invoice.svelte:18
+  M5   host:clipboard                       4  src/lib/components/colors/color-card.svelte:50, src/lib/components/theme-customizer.svelte:197
+  M5   svelte:document                      4  src/lib/components/command-menu/command-menu.svelte:228, src/lib/components/component-code-viewer/component-code-viewer-code.svelte:39
+  M5   svelte:window                        3  src/lib/features/design-system/components/design-system-provider.svelte:195, src/lib/registry/ui/sidebar/sidebar-provider.svelte:38
+  M5   host:getBoundingClientRect           3  src/lib/registry/examples/create/elevenlabs/live-waveform.svelte:78, src/lib/registry/examples/create/elevenlabs/live-waveform.svelte:112
+  M5   svelte:action                        3  src/lib/registry/examples/form-demo.svelte:31, src/lib/registry/ui/carousel/carousel-content.svelte:20
+  M5   host:CustomEvent                     3  src/lib/registry/ui/carousel/carousel.svelte:69, src/lib/registry/ui/carousel/context.ts:11
+  M5   host:console                         2  src/lib/components/github-link.svelte:14, src/routes/(app)/(layout)/docs/[...slug]/+page.ts:8
+  M5   svelte:event:pointer                 2  src/lib/registry/examples/carousel-plugin.svelte:12, src/lib/registry/examples/carousel-plugin.svelte:13
+  M5   host:IntersectionObserver            1  src/lib/components/docs-toc.svelte:7
+  M5   host:addEventListener                1  src/lib/registry/examples/combobox-responsive.svelte:48
+  M5   host:ResizeObserver                  1  src/lib/registry/examples/create/elevenlabs/live-waveform.svelte:76
+  M5   host:scrollTo                        1  src/lib/registry/ui/carousel/carousel.svelte:49
+  M6   import:package                    1585  src/lib/blocks.ts:1, src/lib/colors.ts:1
+  M6   kit:route-file                      48  src/routes/(app)/(layout)/(create)/create/+layout.svelte:1, src/routes/(app)/(layout)/(create)/create/+page.server.ts:1
+  M6   kit:$app                            31  src/lib/components/blocks-nav.svelte:2, src/lib/components/charts-nav.svelte:2
+  M6   svelte:html                          4  src/lib/components/active-theme.svelte:32, src/lib/components/block-viewer-code.svelte:46
+  M6   api:Symbol                           4  src/lib/registry/ui/carousel/context.ts:30, src/lib/registry/ui/chart/chart-utils.ts:60
+  M6   svelte:head                          2  src/lib/components/active-theme.svelte:28, src/lib/components/metadata.svelte:40
+  M6   host:MutationObserver                2  src/lib/features/design-system/menu-color.ts:55, src/routes/(app)/(layout)/examples/playground/(components)/model-item.svelte:18
+
+Packages: @lucide/svelte (764), bits-ui (222), @tabler/icons-svelte (119), layerchart (100), d3-scale (75), @internationalized/date (63), d3-shape (47), @tanstack/svelte-table (26), svelte-sonner (21), tailwind-variants (20), shadcn-svelte (16), mode-watcher (14), @sveltejs/kit (14), zod (10), runed (9), vaul-svelte (9), formsnap (8), paneforge (6), sveltekit-superforms (5), $content (4), @hugeicons/svelte (4), @dnd-kit-svelte/svelte (4), package-manager-detector (3), @hugeicons/core-free-icons (3), node:path (3), shiki (2), chrono-node (2), little-date (2), @dnd-kit/abstract (2), @dnd-kit/helpers (2), embla-carousel-svelte (2), lodash (1), embla-carousel-autoplay (1), qrcode (1), @shadcn-svelte/parity (1)
