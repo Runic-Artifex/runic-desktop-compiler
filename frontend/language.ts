@@ -506,7 +506,7 @@ export class Lowerer {
     return body;
   }
 
-  private functionBody(decl: ts.FunctionLikeDeclaration, b: FnBuilder): Stmt[] {
+  functionBody(decl: ts.FunctionLikeDeclaration, b: FnBuilder): Stmt[] {
     if (!decl.body) this.fail(decl, 'E_FUNCTION', 'Function without body');
     if (ts.isBlock(decl.body!)) return this.block(decl.body.statements, b);
     // Expression-bodied arrow.

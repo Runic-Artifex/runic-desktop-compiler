@@ -395,6 +395,45 @@ pub struct Field {
     pub name: String,
     #[serde(rename = "type")]
     pub ty: Type,
+    /// A reactive class field (M6 stage B, Svelte's `$state`, `$state.raw`
+    /// and `$derived` fields): reads are dependencies of the running tracked
+    /// computation, writes notify (docs/IR.md, "Reactive class fields").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reactive: Option<Reactive>,
+    /// For a `derived` field: the function computing it from the instance
+    /// (one parameter, the instance; the field's type as result).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derived: Option<usize>,
+}
+
+impl Field {
+    pub fn is_derived(&self) -> bool {
+        self.reactive == Some(Reactive::Derived)
+    }
+}
+
+/// How a reactive class field behaves (docs/IR.md, "Reactive class fields").
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Reactive {
+    /// `$state`: plain objects and arrays stored into it become proxies; a
+    /// write notifies when the new value is not `===` the old one.
+    State,
+    /// `$state.raw`: stored as is; a write notifies when not `===`.
+    Raw,
+    /// `$derived`: computed from the instance when read, cached until what
+    /// the computation read changes; a recomputation `===` to the cached
+    /// value keeps it. Not assignable, and absent from `record` construction.
+    Derived,
+}
+
+impl Program {
+    /// Whether some class record has reactive fields (M6 stage B).
+    pub fn has_reactive_fields(&self) -> bool {
+        self.records
+            .iter()
+            .any(|r| r.fields.iter().any(|f| f.reactive.is_some()))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

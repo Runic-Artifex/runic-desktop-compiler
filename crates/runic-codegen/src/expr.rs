@@ -138,6 +138,19 @@ impl<'a> FnCtx<'a> {
         }
     }
 
+    /// A reactive class field read or written through `object`: its record,
+    /// its kind and (derived fields) its function.
+    fn record_field(&self, object: &Expr, field: usize) -> Option<(usize, Reactive, usize)> {
+        if !self.p.has_reactive_fields() {
+            return None;
+        }
+        let Type::Record(r) = self.ty(object) else {
+            return None;
+        };
+        let f = &self.p.records[r].fields[field];
+        f.reactive.map(|k| (r, k, f.derived.unwrap_or(0)))
+    }
+
     /// The render snapshot passed to component functions.
     fn snap_ref(&self) -> &'static str {
         if self.snap {
@@ -380,10 +393,21 @@ impl<'a> FnCtx<'a> {
             }
             Record { record, fields } => {
                 let (code, names) = self.temps(fields);
-                let inits: String = names
+                // Derived class fields start uncomputed; `$state` fields
+                // proxy plain objects and arrays (M6 stage B).
+                let mut given = names.iter();
+                let inits: String = self.p.records[*record]
+                    .fields
                     .iter()
                     .enumerate()
-                    .map(|(i, n)| format!("f{i}: {n}, "))
+                    .map(|(i, f)| match f.reactive {
+                        Option::Some(Reactive::Derived) => format!("f{i}: None, "),
+                        Option::Some(Reactive::State) => format!(
+                            "f{i}: js::Own::own({}), ",
+                            given.next().expect("validated field")
+                        ),
+                        _ => format!("f{i}: {}, ", given.next().expect("validated field")),
+                    })
                     .collect();
                 format!("{{ {code}JsRef::new(R{record} {{ {inits}}}) }}")
             }
@@ -408,8 +432,25 @@ impl<'a> FnCtx<'a> {
                 code
             }
             Get { object, field } => {
+                let fd = self.record_field(object, *field);
                 let o = self.expr(object);
-                format!("{{ let o = {o}; let v = o.read_slot({field}).f{field}.clone(); v }}")
+                match fd {
+                    Option::Some((r, Reactive::Derived, d)) => {
+                        let inst = if self.p.functions[d].component.is_some() {
+                            format!(", inst, {}", self.snap_ref())
+                        } else {
+                            String::new()
+                        };
+                        let call = self.q(&format!("dfield_{r}_{field}(cx{inst}, &o)"));
+                        format!("{{ let o = {o}; {call} }}")
+                    }
+                    Option::Some(_) => format!(
+                        "{{ let o = {o}; let v = o.read_signal({field}).f{field}.clone(); v }}"
+                    ),
+                    Option::None => format!(
+                        "{{ let o = {o}; let v = o.read_slot({field}).f{field}.clone(); v }}"
+                    ),
+                }
             }
             Index { array, index } => {
                 let (code, n) = self.temps(&[(**array).clone(), (**index).clone()]);
@@ -646,12 +687,32 @@ impl<'a> FnCtx<'a> {
                     let _ = writeln!(out, "{{ let v = {v}; {write}}}");
                 }
                 Place::Field { object, field } => {
+                    let fd = self.record_field(object, *field);
                     let o = self.expr(object);
                     let v = self.expr(value);
-                    let _ = writeln!(
-                        out,
-                        "{{ let o = {o}; let v = {v}; let v = js::own_into(&o, v); o.write_slots(&[{field}]).f{field} = v; }}"
-                    );
+                    match fd {
+                        // A reactive class field: `$state` proxies plain objects
+                        // and arrays; a value `===` the old one changes nothing.
+                        Option::Some((r, kind, _)) => {
+                            let ty = &self.p.records[r].fields[*field].ty;
+                            let own = if kind == Reactive::State {
+                                "let v = js::Own::own(v); "
+                            } else {
+                                ""
+                            };
+                            let same = crate::strict_expr(ty, &format!("b.f{field}"), "v");
+                            let _ = writeln!(
+                                out,
+                                "{{ let o = {o}; let v = {v}; {own}let same = {{ let b = o.peek(); {same} }}; if !same {{ o.write_signal({field}).f{field} = v; cx.jobs.queue_flush(); }} }}"
+                            );
+                        }
+                        Option::None => {
+                            let _ = writeln!(
+                                out,
+                                "{{ let o = {o}; let v = {v}; let v = js::own_into(&o, v); o.write_slots(&[{field}]).f{field} = v; }}"
+                            );
+                        }
+                    }
                 }
                 Place::Index { array, index } => {
                     let a = self.expr(array);

@@ -76,6 +76,137 @@ fn function_reads(p: &Program) -> Vec<Option<BTreeSet<usize>>> {
     reads
 }
 
+/// Whether `e` (typed in `component` with `locals`) reads a reactive class
+/// field itself; the functions it calls are added to `calls`.
+fn reactive_refs(
+    p: &Program,
+    component: Option<usize>,
+    locals: &[Local],
+    e: &Expr,
+    calls: &mut BTreeSet<usize>,
+) -> bool {
+    let mut found = false;
+    match e {
+        Expr::Get { object, field } => {
+            if let Type::Record(r) =
+                runic_ir::validate::infer_in(p, component, locals, None, object)
+            {
+                found = p.records[r].fields[*field].reactive.is_some();
+            }
+        }
+        Expr::Call { function, .. } => {
+            calls.insert(*function);
+        }
+        _ => {}
+    }
+    for c in e.children() {
+        found |= reactive_refs(p, component, locals, c, calls);
+    }
+    found
+}
+
+/// Whether each function may read a reactive class field, directly or
+/// through the functions it calls (calls through function values make a
+/// binding's dependencies unknown anyway).
+fn function_reactive_reads(p: &Program) -> Vec<bool> {
+    let n = p.functions.len();
+    if !p.has_reactive_fields() {
+        return vec![false; n];
+    }
+    let mut direct = vec![];
+    for f in &p.functions {
+        let locals: Vec<Local> = f
+            .captures
+            .iter()
+            .chain(&f.params)
+            .chain(&f.locals)
+            .cloned()
+            .collect();
+        let mut exprs = vec![];
+        for s in &f.body {
+            stmt_exprs(s, &mut exprs);
+        }
+        let mut calls = BTreeSet::new();
+        let mut found = false;
+        for e in exprs {
+            found |= reactive_refs(p, f.component, &locals, e, &mut calls);
+        }
+        direct.push((found, calls));
+    }
+    let mut reads: Vec<bool> = direct.iter().map(|d| d.0).collect();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for i in 0..n {
+            if !reads[i] && direct[i].1.iter().any(|&c| reads[c]) {
+                reads[i] = true;
+                changed = true;
+            }
+        }
+    }
+    reads
+}
+
+/// The expressions of a statement (assignment targets included).
+fn stmt_exprs<'a>(s: &'a Stmt, out: &mut Vec<&'a Expr>) {
+    match s {
+        Stmt::Set { value, .. } | Stmt::Expr { value, .. } | Stmt::Throw { value, .. } => {
+            out.push(value)
+        }
+        Stmt::Let { value, .. } | Stmt::Return { value, .. } => out.extend(value.as_ref()),
+        Stmt::Assign { target, value, .. } => {
+            out.push(value);
+            match target {
+                Place::Field { object, .. } => out.push(object),
+                Place::Index { array, index } => {
+                    out.push(array);
+                    out.push(index)
+                }
+                _ => {}
+            }
+        }
+        Stmt::If {
+            test,
+            then,
+            otherwise,
+            ..
+        } => {
+            out.push(test);
+            for s in then.iter().chain(otherwise) {
+                stmt_exprs(s, out);
+            }
+        }
+        Stmt::While {
+            test, body, update, ..
+        } => {
+            out.push(test);
+            for s in body.iter().chain(update) {
+                stmt_exprs(s, out);
+            }
+        }
+        Stmt::ForOf { iterable, body, .. } => {
+            out.push(iterable);
+            for s in body {
+                stmt_exprs(s, out);
+            }
+        }
+        Stmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            for s in body
+                .iter()
+                .chain(catch.iter().flat_map(|c| &c.body))
+                .chain(finally.iter().flatten())
+            {
+                stmt_exprs(s, out);
+            }
+        }
+        Stmt::Break { .. } | Stmt::Continue { .. } => {}
+    }
+}
+
 fn expr_refs(
     e: &Expr,
     cells: &mut BTreeSet<usize>,
@@ -380,6 +511,8 @@ struct Gen<'a> {
     p: &'a Program,
     optimize: bool,
     reads: Vec<Option<BTreeSet<usize>>>,
+    /// Per function: whether it may read a reactive class field.
+    reactive: Vec<bool>,
 }
 
 #[derive(Default)]
@@ -430,9 +563,24 @@ impl Gen<'_> {
         Some(cells)
     }
 
-    /// The update condition of a binding: a dirty cell it reads, or changed
-    /// template locals (`tl`).
-    fn guard(&self, exprs: &[&Expr]) -> String {
+    /// Whether template expressions of component `k` may read a reactive
+    /// class field, directly or through the functions they call.
+    fn reads_reactive(&self, k: usize, exprs: &[&Expr]) -> bool {
+        if !self.p.has_reactive_fields() {
+            return false;
+        }
+        let locals = &self.p.components[k].template_locals;
+        exprs.iter().any(|e| {
+            let mut calls = BTreeSet::new();
+            reactive_refs(self.p, Some(k), locals, e, &mut calls)
+                || calls.iter().any(|&f| self.reactive[f])
+        })
+    }
+
+    /// The update condition of a binding: a dirty cell it reads, changed
+    /// template locals (`tl`), or a reactive class field written since the
+    /// last flush pass (`cx.rh`) when it may read one.
+    fn guard(&self, k: usize, exprs: &[&Expr]) -> String {
         if !self.optimize {
             return "true".into();
         }
@@ -444,6 +592,9 @@ impl Gen<'_> {
                 if locals {
                     parts.push("tl".into());
                 }
+                if self.reads_reactive(k, exprs) {
+                    parts.push("cx.rh".into());
+                }
                 if parts.is_empty() {
                     "false".into()
                 } else {
@@ -453,8 +604,10 @@ impl Gen<'_> {
         }
     }
 
-    fn is_static(&self, exprs: &[&Expr]) -> bool {
-        self.deps(exprs).is_some_and(|d| d.is_empty()) && !exprs.iter().any(|e| reads_locals(e))
+    fn is_static(&self, k: usize, exprs: &[&Expr]) -> bool {
+        self.deps(exprs).is_some_and(|d| d.is_empty())
+            && !exprs.iter().any(|e| reads_locals(e))
+            && !self.reads_reactive(k, exprs)
     }
 
     /// Bind the template locals of `component` from `t` (an `Rc<RefCell<T{k}>>`).
@@ -579,7 +732,7 @@ impl Gen<'_> {
                 o.fields.push((format!("n{key}"), "NodeId".into()));
                 let value = self.text_value(k, parts);
                 let refs: Vec<&Expr> = parts.iter().collect();
-                if self.is_static(&refs) {
+                if self.is_static(k, &refs) {
                     let _ = writeln!(o.mount, "let n{key} = dom.text(&{value});");
                 } else {
                     o.fields.push((format!("v{key}"), "String".into()));
@@ -587,7 +740,7 @@ impl Gen<'_> {
                         o.mount,
                         "let v{key} = {value};\nlet n{key} = dom.text(&v{key});"
                     );
-                    let guard = self.guard(&refs);
+                    let guard = self.guard(k, &refs);
                     let _ = writeln!(
                         o.update,
                         "if {guard} {{ let v = {value}; if v != s.v{key} {{ dom.set_text(s.n{key}, &v); s.v{key} = v; }} }}"
@@ -697,8 +850,8 @@ impl Gen<'_> {
                         .iter()
                         .chain(styles.iter().map(|p| &p.value))
                         .collect();
-                    if !self.is_static(&exprs) {
-                        let guard = self.guard(&exprs);
+                    if !self.is_static(k, &exprs) {
+                        let guard = self.guard(k, &exprs);
                         let _ = writeln!(
                             o.update,
                             "if {guard} {}",
@@ -727,8 +880,8 @@ impl Gen<'_> {
                         .map(|a| &a.value)
                         .chain(classes.iter().map(|t| &t.value))
                         .collect();
-                    if !self.is_static(&exprs) {
-                        let guard = self.guard(&exprs);
+                    if !self.is_static(k, &exprs) {
+                        let guard = self.guard(k, &exprs);
                         let _ = writeln!(
                             o.update,
                             "if {guard} {{ let v = {value}; dom.classes(s.n{key}, v, &[{toggles}], &mut s.cl{key}); }}"
@@ -770,7 +923,7 @@ impl Gen<'_> {
                                 }),
                             ),
                         };
-                    if self.is_static(&[&a.value]) {
+                    if self.is_static(k, &[&a.value]) {
                         let _ = writeln!(
                             o.mount,
                             "{{ let v = {value}; {} }}",
@@ -784,7 +937,7 @@ impl Gen<'_> {
                             "let {cache} = {value};\n{}",
                             write(&format!("n{key}"), &cache)
                         );
-                        let guard = self.guard(&[&a.value]);
+                        let guard = self.guard(k, &[&a.value]);
                         let _ = writeln!(
                             o.update,
                             "if {guard} {{ let v = {value}; if v != s.{cache} {{ {} s.{cache} = v; }} }}",
@@ -802,8 +955,8 @@ impl Gen<'_> {
                         o.mount,
                         "let mut sp{key} = runic_runtime::Spread::default(); {{ let v = {value}; dom.spread(n{key}, &v, &mut sp{key}, {listen}); }}"
                     );
-                    if !self.is_static(&[bag]) {
-                        let guard = self.guard(&[bag]);
+                    if !self.is_static(k, &[bag]) {
+                        let guard = self.guard(k, &[bag]);
                         let _ = writeln!(
                             o.update,
                             "if {guard} {{ let v = {value}; dom.spread(s.n{key}, &v, &mut s.sp{key}, {listen}); }}"
@@ -834,8 +987,8 @@ impl Gen<'_> {
                             o.mount,
                             "{{ let v = {v}.to_rust(); dom.set_default_value(n{key}, &v); }}"
                         );
-                        if !self.is_static(&[&p.value]) {
-                            let guard = self.guard(&[&p.value]);
+                        if !self.is_static(k, &[&p.value]) {
+                            let guard = self.guard(k, &[&p.value]);
                             let _ = writeln!(
                                 o.update,
                                 "if {guard} {{ let v = {v}.to_rust(); dom.set_default_value(s.n{key}, &v); }}"
@@ -920,7 +1073,7 @@ impl Gen<'_> {
                      let else{key} = if t{key} {{ None }} else {{ Some(mount_s{el}(cx, dom, inst, t, {mp}, {mb})?) }};"
                 );
                 let anchor = first_of(following, tail);
-                let guard = self.guard(&[test]);
+                let guard = self.guard(k, &[test]);
                 let _ = writeln!(
                     o.update,
                     "{{\n\
@@ -1019,13 +1172,13 @@ impl Gen<'_> {
                     // part of this render, not a change the next flush sees (`before`).
                     let ty = &child.cells[cell].ty;
                     let same = same_expr(ty, "(*o)", "v");
-                    let guard = self.guard(&[&a.value]);
+                    let guard = self.guard(k, &[&a.value]);
                     let _ = writeln!(
                         o.update,
                         "if {guard} {{ let v = {v}; let mut st = s.ci{key}.borrow_mut(); let changed = match &st.p{cell} {{ Some(o) => !{same}, None => true }}; if changed {{ st.p{cell} = Some(v.clone()); st.c.c{cell} = v.clone(); st.before.c{cell} = v.clone(); Rc::make_mut(&mut st.snap).c{cell} = v; st.dirty[{cell}] = true; st.ver[{cell}] = cx.jobs.version(); }} }}"
                     );
                     if let Some(b) = &a.bind {
-                        let guard = self.guard(&[b]);
+                        let guard = self.guard(k, &[b]);
                         let bv = self.ctx(k).expr(b);
                         let _ = writeln!(
                             o.update,
@@ -1160,7 +1313,7 @@ impl Gen<'_> {
                      let else{key} = if e{key}.is_empty() {{ Some(mount_s{el}(cx, dom, inst, t, {mp}, {mb})?) }} else {{ None }};"
                 );
                 let anchor = first_of(following, tail);
-                let guard = self.guard(&[items]);
+                let guard = self.guard(k, &[items]);
                 let _ = writeln!(
                     o.update,
                     "{{\n\
@@ -1224,24 +1377,41 @@ impl Gen<'_> {
 fn records(p: &Program) -> String {
     let mut out = String::new();
     for (r, rec) in p.records.iter().enumerate() {
+        // A derived class field holds its cache (M6 stage B).
         let fields: String = rec
             .fields
             .iter()
             .enumerate()
-            .map(|(i, f)| format!("pub f{i}: {}, ", rust_type(&f.ty)))
+            .map(|(i, f)| match f.is_derived() {
+                true => format!(
+                    "pub f{i}: Option<runic_runtime::Derived<{}, Cx>>, ",
+                    rust_type(&f.ty)
+                ),
+                false => format!("pub f{i}: {}, ", rust_type(&f.ty)),
+            })
             .collect();
         let defaults: String = rec
             .fields
             .iter()
             .enumerate()
-            .map(|(i, f)| format!("f{i}: {}, ", default_value(&f.ty, p)))
+            .map(|(i, f)| match f.is_derived() {
+                true => format!("f{i}: None, "),
+                false => format!("f{i}: {}, ", default_value(&f.ty, p)),
+            })
             .collect();
-        let owns: String = (0..rec.fields.len())
-            .map(|i| format!("self.f{i} = js::Own::own(self.f{i}.clone()); "))
+        let values = || {
+            rec.fields
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| !f.is_derived())
+        };
+        let owns: String = values()
+            .map(|(i, _)| format!("self.f{i} = js::Own::own(self.f{i}.clone()); "))
             .collect();
-        let marks: String = (0..rec.fields.len())
-            .map(|i| format!("js::Own::mark(&self.f{i}); "))
+        let marks: String = values()
+            .map(|(i, _)| format!("js::Own::mark(&self.f{i}); "))
             .collect();
+        let derived = rec.fields.iter().any(|f| f.is_derived());
         // Class instances are never proxied (Svelte proxies plain objects only).
         let proxied = !rec.class;
         let _ = writeln!(
@@ -1254,7 +1424,8 @@ fn records(p: &Program) -> String {
             rec.name.replace('\n', " "),
             rust_str(&rec.name)
         );
-        if rec.fields.iter().all(|f| builtins_json_ok(&f.ty, p)) {
+        // Class instances are not plain data (JSON rejects them).
+        if !derived && rec.fields.iter().all(|f| builtins_json_ok(&f.ty, p)) {
             let members: String = rec
                 .fields
                 .iter()
@@ -1294,18 +1465,23 @@ fn records(p: &Program) -> String {
             .fields
             .iter()
             .enumerate()
-            .map(|(i, f)| {
-                format!(
+            .map(|(i, f)| match f.is_derived() {
+                true => format!("f{i}: None, "),
+                false => format!(
                     "f{i}: {}, ",
                     builtins::deep_clone(&f.ty, &format!("b.f{i}"), p)
-                )
+                ),
             })
             .collect();
+        // Derived class fields show as null (their caches are not program state).
         let probes: String = rec
             .fields
             .iter()
             .enumerate()
-            .map(|(i, f)| format!("{}, ", probe_json(&f.ty, &format!("b.f{i}"))))
+            .map(|(i, f)| match f.is_derived() {
+                true => "runic_runtime::Json::Null, ".to_string(),
+                false => format!("{}, ", probe_json(&f.ty, &format!("b.f{i}"))),
+            })
             .collect();
         let _ = writeln!(
             out,
@@ -1578,7 +1754,71 @@ fn owned_only(p: &Program) -> bool {
         c.cells
             .iter()
             .any(|cell| cell.tracking == Tracking::Proxied)
-    })
+    }) || p.has_reactive_fields()
+}
+
+/// Strict equality (`===`) of two values of type `t`, as Svelte compares
+/// the values written to signals.
+fn strict_expr(t: &Type, a: &str, b: &str) -> String {
+    match t {
+        Type::Number | Type::Boolean => format!("({a} == {b})"),
+        Type::Fn(_) => format!("Rc::ptr_eq(&{a}, &{b})"),
+        Type::Promise(_) => format!("({a} == {b})"),
+        Type::Void => "true".into(),
+        Type::Maybe(inner) if matches!(**inner, Type::Fn(_) | Type::Promise(_)) => format!(
+            "(match (&{a}, &{b}) {{ (Maybe::Some(x), Maybe::Some(y)) => {}, (Maybe::Undefined, Maybe::Undefined) | (Maybe::Null, Maybe::Null) => true, _ => false }})",
+            strict_expr(inner, "(*x)", "(*y)")
+        ),
+        _ => format!("js::StrictEq::strict_eq(&{a}, &{b})"),
+    }
+}
+
+/// Derived class fields (docs/IR.md, "Reactive class fields"): `dfresh`
+/// recomputes field `i` of an instance of record `r` when it was never
+/// computed or what it read changed, keeping the value and its version when
+/// the result is `===` to it; `dfield` reads it (a dependency of a running
+/// tracked effect or derived value). The computation runs in the calling
+/// instance when its function belongs to a component.
+fn derived_fields(p: &Program, out: &mut String) {
+    for (r, rec) in p.records.iter().enumerate() {
+        for (i, f) in rec.fields.iter().enumerate() {
+            let Some(d) = f.derived else { continue };
+            let t = rust_type(&f.ty);
+            let (sig, args, capture, captured) = match p.functions[d].component {
+                Some(k) => (
+                    format!(", inst: &I{k}, snap: &Rc<Cells{k}>"),
+                    ", inst, snap",
+                    "let ki = Rc::clone(inst); let ks = Rc::clone(snap); ",
+                    ", &ki, &ks",
+                ),
+                None => (String::new(), "", "", ""),
+            };
+            let same = strict_expr(&f.ty, "d.cached", "v");
+            let _ = writeln!(
+                out,
+                "#[allow(unused_variables)]\nfn dfresh_{r}_{i}(cx: &mut Cx{sig}, o: &JsRef<R{r}>) -> JsResult<()> {{\n\
+                 let deps = o.peek().f{i}.as_ref().map(|d| d.deps.clone());\n\
+                 let stale = match deps {{ None => true, Some(ds) => ds.iter().any(|d| d.changed(cx)) }};\n\
+                 if !stale {{ return Ok(()); }}\n\
+                 let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new()));\n\
+                 let heap_outer = js::begin_heap_reads(Some(true));\n\
+                 let r = f{d}(cx{args}, o.clone());\n\
+                 let heap = js::end_heap_reads(heap_outer);\n\
+                 let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default();\n\
+                 let v: {t} = r?;\n\
+                 deps.extend(runic_runtime::Dep::heap(heap));\n\
+                 let same = o.peek().f{i}.as_ref().is_some_and(|d| {same});\n\
+                 if same {{ if let Some(d) = o.peek_mut().f{i}.as_mut() {{ d.deps = deps; }} }}\n\
+                 else {{ let version = cx.jobs.version(); o.peek_mut().f{i} = Some(runic_runtime::Derived {{ cached: v, deps, version }}); }}\n\
+                 Ok(())\n}}\n\
+                 #[allow(unused_variables)]\nfn dfield_{r}_{i}(cx: &mut Cx{sig}, o: &JsRef<R{r}>) -> JsResult<{t}> {{\n\
+                 dfresh_{r}_{i}(cx{args}, o)?;\n\
+                 let (v, version) = {{ let b = o.peek(); let d = b.f{i}.as_ref().expect(\"derived field\"); (d.cached.clone(), d.version) }};\n\
+                 if let Some(t) = cx.tracking.as_mut() {{ let w = o.downgrade(); {capture}t.push(runic_runtime::Dep {{ cells: None, cell: 0, refresh: Some(Rc::new(move |cx: &mut Cx| match w.upgrade() {{ Some(o) => {{ let _ = dfresh_{r}_{i}(cx{captured}, &o); let b = o.peek(); let v = b.f{i}.as_ref().map_or(u64::MAX, |d| d.version); v }} None => u64::MAX }})), version, heap: None }}); }}\n\
+                 Ok(v)\n}}"
+            );
+        }
+    }
 }
 
 /// Derived values of component `k` (docs/design/M4-EFFECTS.md): `dget` reads
@@ -1792,6 +2032,7 @@ pub fn generate(
         p,
         optimize: options.optimize,
         reads,
+        reactive: function_reactive_reads(p),
     };
     let mut planner = Planner::new(p);
     let root = planner.root(p.root);
@@ -1810,7 +2051,11 @@ pub fn generate(
             .iter()
             .any(|c| c.cells.iter().any(|cell| cell.tracking == t))
     };
-    let (tracks_deep, tracks_owned) = (tracked(Tracking::Deep), tracked(Tracking::Proxied));
+    // Reactive class fields hold proxied deep state (M6 stage B).
+    let (tracks_deep, tracks_owned) = (
+        tracked(Tracking::Deep),
+        tracked(Tracking::Proxied) || p.has_reactive_fields(),
+    );
     let post_deferred = p.schedule.post_writes_deferred;
     let batched = p.schedule.cleanups == Cleanups::Batched;
     let mount_timing = match p.schedule.mount {
@@ -1957,14 +2202,15 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
     out.push_str(HOST_SERVICES);
+    derived_fields(p, &mut out);
     // Functions.
     let mut errors = vec![];
     for f in 0..p.functions.len() {
@@ -2106,6 +2352,8 @@ pub fn generate(
          fn flush_pass(&mut self, dom: &mut Dom) {{\n\
          self.cx.jobs.phase = Some(runic_runtime::Phase::Pre);\n\
          let (deep, owned) = self.cx.jobs.take_mutated();\n\
+         // Signal fields of class instances (or deep state through proxies) written since the last pass: bindings that may read them re-evaluate.\n\
+         self.cx.rh = js::take_signal_writes();\n\
          {end}\
          {begin}\
          let tree = self.walk();\n\
