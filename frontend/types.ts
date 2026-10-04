@@ -11,8 +11,13 @@ export class TypeMapper {
 
   private checker: ts.TypeChecker;
   private fail: Fail;
-  /** The record of a class instance type (set by the class lowering). */
-  classRecord?: (cls: ts.Symbol, t: ts.Type, at: ts.Node) => number;
+  /**
+   * The IR type of a class instance type (set by the class lowering): its
+   * record, or a class reference when the class has subclasses.
+   */
+  classType?: (cls: ts.Symbol, t: ts.Type, at: ts.Node) => Type;
+  /** The IR type of a union of class instance types (a class reference). */
+  classUnion?: (parts: ts.Type[], at: ts.Node) => Type;
 
   constructor(checker: ts.TypeChecker, fail: Fail) {
     this.checker = checker;
@@ -107,6 +112,8 @@ export class TypeMapper {
       base = 'string';
     else if (rest.every(p => p.flags & (F.Number | F.NumberLiteral))) base = 'number';
     else if (rest.length === 1) base = this.map(rest[0], at);
+    else if (this.classUnion && rest.every(p => this.sourceClass(p)))
+      base = this.classUnion(rest, at);
     else {
       const mapped = rest.map(p => this.map(p, at));
       const first = JSON.stringify(mapped[0]);
@@ -209,11 +216,22 @@ export class TypeMapper {
           'E_CLASS',
           `The class ${cls.name} is not a value (construct it with new, or use its static members)`,
         );
-      if (!this.classRecord)
+      if (!this.classType)
         this.fail(at, 'E_CLASS', `Class ${cls.name} instances are unsupported here`);
-      return { record: this.classRecord!(cls, t, at) };
+      return this.classType!(cls, t, at);
     }
     return { record: this.record(t, at) };
+  }
+
+  /** Whether `t` is the instance type of a class compiled from source. */
+  private sourceClass(t: ts.Type): boolean {
+    return (
+      !!(t.flags & ts.TypeFlags.Object) &&
+      !!t.symbol &&
+      !!(t.symbol.flags & ts.SymbolFlags.Class) &&
+      !t.getConstructSignatures().length &&
+      !this.fromLib(t)
+    );
   }
 
   /** Whether `t` is declared by TypeScript's standard library. */

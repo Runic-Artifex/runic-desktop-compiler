@@ -1,29 +1,45 @@
-// Plain JavaScript/TypeScript classes (M6 step 4, stage A;
-// docs/design/M6-LIBRARIES.md, "Classes are records with methods").
+// JavaScript/TypeScript classes (M6 step 4: stage A, plain classes; stage
+// B, reactive fields; inheritance and class unions.
+// docs/design/M6-LIBRARIES.md, "Classes are records with methods" and
+// "Inheritance and class unions").
 //
 // A class instance is a nominal IR record (`class: true`): one field per
 // instance field, `#private` ones included (named `#x`), plus the fields a
 // constructor creates by assignment (`this.f = …`, also bound methods
-// `this.m = this.m.bind(this)`). Methods, getters and setters are IR
-// functions taking the instance as their first parameter, dispatched
-// statically: an instance's class is its IR type, and there is no
-// inheritance. The constructor is a function returning the instance:
+// `this.m = this.m.bind(this)`). A subclass's record starts with its base's
+// fields (`extends`), so a field has one index in a whole hierarchy. Methods,
+// getters and setters are IR functions taking the instance as their first
+// parameter. The constructor of a class is a function returning the
+// instance; for a subclass it runs the whole chain in JavaScript's order:
 //
-// 1. field initialisers run in declaration order into temporaries, as do
-//    the leading `this.f = …` statements of the constructor;
-// 2. the record is built from them;
-// 3. the rest of the constructor runs with `this` bound to the record.
+// 1. the statements before each `super(…)` call, from the class up to the
+//    root, each followed by its arguments;
+// 2. from the root down, each class's parameter properties, field
+//    initialisers and the statements after its `super(…)`, into
+//    temporaries, as long as they do not need the instance;
+// 3. the record is built from them;
+// 4. the rest of the constructors runs with `this` bound to the record.
 //
 // Before the record exists, `this` may only be read as an earlier field
 // (`this.f`, from its temporary), inside an arrow function stored whole in
 // a field, or as `this.m.bind(this)`: those closures capture a boxed
 // `maybe` local that is set once the record is built, and read it when they
-// run. Static methods are functions, static fields program globals (module
-// constants). Everything else is rejected with E_CLASS.
+// run. A class whose constructor needs the instance before a subclass's
+// fields exist is rejected for that subclass (JavaScript runs the
+// subclass's field initialisers after `super(…)` returns).
+//
+// Types: an instance of a class without subclasses has its record type;
+// a value TypeScript types as a class with subclasses, or as a union of
+// classes, is a class reference (`{class}`, `{classes}`), which carries the
+// instance's class. Members are resolved statically when every class the
+// value can have resolves them alike, and otherwise by a `match-class` over
+// those classes (the closed world: every class of the program's sources is
+// known). Static methods are functions, static fields program globals
+// (module constants). Everything else is rejected with E_CLASS.
 import ts from 'typescript';
 import type { Expr, Local, Stmt, Type } from './ir.ts';
 import { FnBuilder, remapLocals, skipParens, type Lowerer } from './language.ts';
-import { maybeInner } from './irtype.ts';
+import { classMembers, concreteMembers, fitType, maybeInner } from './irtype.ts';
 
 /** A method, accessor or constructor. */
 interface Callable {
@@ -36,8 +52,13 @@ interface Callable {
 }
 
 interface Field {
+  /** The source name (`#x` for private fields). */
   name: string;
+  /** The record field's name (a private name a base class uses too is qualified). */
+  key: string;
   type: Type;
+  /** The class declaring it. */
+  owner: ClassInfo;
   /** Where the field is declared (or first assigned). */
   node: ts.Node;
   /** A TypeScript parameter property. */
@@ -60,11 +81,20 @@ interface Member {
   method?: Callable;
   get?: Callable;
   set?: Callable;
+  /** An abstract method or property: implemented by the subclasses. */
+  abstract?: ts.ClassElement;
 }
 
 type Static =
   | { kind: 'method'; method: Callable }
   | { kind: 'field'; global: number; decl: ts.PropertyDeclaration };
+
+/** What a member name means on an instance of one class. */
+type Target =
+  | { kind: 'field'; field: Field }
+  | { kind: 'method'; method: Callable; owner: ClassInfo }
+  | { kind: 'accessor'; get?: Callable; set?: Callable; owner: ClassInfo }
+  | { kind: 'abstract'; owner: ClassInfo };
 
 export interface ClassInfo {
   name: string;
@@ -72,21 +102,26 @@ export interface ClassInfo {
   symbol: ts.Symbol;
   /** The instance record. */
   record: number;
-  /** Instance fields in record order. */
+  /** The class it extends (M6 inheritance). */
+  base?: ClassInfo;
+  /** Its direct subclasses (every class of the program's sources). */
+  subclasses: ClassInfo[];
+  abstract: boolean;
+  /** The fields it declares, after its base's in record order. */
+  own: Field[];
+  /** Instance fields in record order (the base's first). */
   fields: Field[];
-  /** Instance methods and accessors by name (`#name` for private ones). */
+  /** The methods and accessors it declares by name (`#name` for private ones). */
   members: Map<string, Member>;
   statics: Map<string, Static>;
   ctor?: ts.ConstructorDeclaration;
-  /** The constructor (an implicit one has no declaration). */
+  /** The constructor (an implicit one without parameters has no declaration). */
   construct?: Callable | { fn: number };
   /** The component whose script declares the class (its members may read the component's state). */
   component?: number;
   declared: boolean;
   /** Construction creates closures holding `this` (arrow fields, bound methods). */
   rawThis: boolean;
-  /** Bound-method functions by method name and receiver form. */
-  bound: Map<string, number>;
 }
 
 const RUNES = /^\$(state|derived)(\.|$)/;
@@ -102,6 +137,10 @@ export class Classes {
   private readonly inProgress = new Set<number>();
   /** `f.bind(x)` wrappers by function type. */
   private readonly valueWrappers = new Map<string, number>();
+  /** Bound-method functions by method and receiver type. */
+  private readonly bound = new Map<string, number>();
+  /** Subclass declarations by base class symbol (the program's sources). */
+  private subclassIndex?: Map<ts.Symbol, ts.ClassDeclaration[]>;
 
   constructor(lower: Lowerer) {
     this.lower = lower;
@@ -109,6 +148,10 @@ export class Classes {
 
   private fail(n: ts.Node, message: string): never {
     return this.lower.fail(n, 'E_CLASS', message);
+  }
+
+  private get records() {
+    return this.lower.types.records;
   }
 
   /**
@@ -146,23 +189,242 @@ export class Classes {
     return text as Rune;
   }
 
-  /** The class whose instances have IR type `t`, if any. */
+  // -------------------------------------------------------------------------
+  // Types
+
+  /** The exact class whose instances have IR record type `t`, if any. */
   of(t: Type | undefined): ClassInfo | undefined {
     return t !== undefined && typeof t === 'object' && 'record' in t
       ? this.byRecord.get(t.record)
       : undefined;
   }
 
-  /** The record of the instances of class `cls` (TypeMapper hook). */
-  record(cls: ts.Symbol, t: ts.Type, at: ts.Node): number {
+  /** The classes a value of class type `t` (a class record or reference) can have; undefined for other types. */
+  classesOf(t: Type | undefined): ClassInfo[] | undefined {
+    if (t === undefined) return undefined;
+    return concreteMembers(t, this.records)?.map(r => this.byRecord.get(r)!);
+  }
+
+  /**
+   * Whether TypeScript types `e` as an instance of source classes (one, or
+   * a union of them), not nullable; decided without mapping the type.
+   */
+  private tsClass(e: ts.Expression): boolean {
+    const checker = this.lower.checker;
+    let t = checker.getTypeAtLocation(e);
+    if (t.flags & ts.TypeFlags.TypeParameter && (t as { isThisType?: boolean }).isThisType)
+      t = checker.getBaseConstraintOfType(t) ?? t;
+    const parts = t.isUnion() ? t.types : [t];
+    return parts.every(p => {
+      const sym = p.symbol;
+      const decl = sym?.valueDeclaration ?? sym?.declarations?.[0];
+      return (
+        !!(p.flags & ts.TypeFlags.Object) &&
+        !!sym &&
+        !!(sym.flags & ts.SymbolFlags.Class) &&
+        !p.getConstructSignatures().length &&
+        !!decl &&
+        !decl.getSourceFile().isDeclarationFile
+      );
+    });
+  }
+
+  /** Whether `t` is a class type: a class record or a class reference. */
+  isClass(t: Type | undefined): boolean {
+    return t !== undefined && classMembers(t, this.records) !== undefined;
+  }
+
+  /** The type of the instances of `info` and its subclasses. */
+  selfType(info: ClassInfo): Type {
+    return info.subclasses.length ? { class: info.record } : { record: info.record };
+  }
+
+  /** The IR type of class instance type `t` (TypeMapper hook). */
+  typeOf(cls: ts.Symbol, t: ts.Type, at: ts.Node): Type {
     const checker = this.lower.checker;
     if ((t as ts.TypeReference).target && checker.getTypeArguments(t as ts.TypeReference).length)
       this.fail(at, `Generic classes (${cls.name}) are planned for later`);
-    return this.layout(cls, at).record;
+    return this.selfType(this.layout(cls, at));
+  }
+
+  /** The IR type of a union of class instance types (TypeMapper hook). */
+  unionOf(parts: ts.Type[], at: ts.Node): Type {
+    return this.canonical(
+      parts.map(p => {
+        this.typeOf(p.symbol, p, at);
+        return this.layout(p.symbol, at);
+      }),
+    );
+  }
+
+  /** The type of the instances of any of `classes` (and their subclasses). */
+  private canonical(classes: ClassInfo[]): Type {
+    const set = [...new Set(classes)];
+    const roots = set.filter(c => !set.some(o => o !== c && this.extendsClass(c, o)));
+    if (roots.length === 1) return this.selfType(roots[0]);
+    return { classes: roots.map(c => c.record).sort((a, b) => a - b) };
+  }
+
+  private extendsClass(c: ClassInfo, base: ClassInfo): boolean {
+    for (let x: ClassInfo | undefined = c; x; x = x.base) if (x === base) return true;
+    return false;
+  }
+
+  private members(t: Type): number[] | undefined {
+    return classMembers(t, this.records);
+  }
+
+  /**
+   * `v` (of type `have`) where a value of type `want` is expected: a Maybe
+   * wraps it, a class instance widens to a class reference (`upcast`).
+   * Other values are returned as they are.
+   */
+  fit(v: Expr, have: Type, want: Type): Expr {
+    return fitType(v, have, want, this.records);
+  }
+
+  /**
+   * `fit` at `at`, where an array, set, map, promise or function of one
+   * class type is used as one of another (it keeps its identity, so no
+   * conversion exists): rejected.
+   */
+  fitAt(v: Expr, have: Type, want: Type, at: ts.Node): Expr {
+    const out = this.fit(v, have, want);
+    if (out === v && this.nestedMismatch(have, want))
+      this.fail(
+        at,
+        'A collection or function of one class type is used as one of another class type; arrays, maps, sets and functions keep their identity, so create this one with the expected element types',
+      );
+    return out;
+  }
+
+  /** Whether `a` and `b` differ only in class types inside collections or functions. */
+  private nestedMismatch(a: Type, b: Type, nested = false): boolean {
+    if (JSON.stringify(a) === JSON.stringify(b)) return false;
+    if (typeof a !== 'object' || typeof b !== 'object') return false;
+    if (this.isClass(a) && this.isClass(b)) return nested;
+    const pair = <K extends string>(k: K) => k in a && k in b;
+    if (pair('maybe'))
+      return this.nestedMismatch(
+        (a as { maybe: Type }).maybe,
+        (b as { maybe: Type }).maybe,
+        nested,
+      );
+    for (const k of ['array', 'set', 'promise'] as const)
+      if (pair(k))
+        return this.nestedMismatch(
+          (a as Record<string, Type>)[k],
+          (b as Record<string, Type>)[k],
+          true,
+        );
+    if ('map' in a && 'map' in b)
+      return (
+        this.nestedMismatch(a.map[0], b.map[0], true) ||
+        this.nestedMismatch(a.map[1], b.map[1], true)
+      );
+    if ('fn' in a && 'fn' in b)
+      return (
+        this.nestedMismatch(a.fn.result, b.fn.result, true) ||
+        a.fn.params.some((p, i) => b.fn.params[i] && this.nestedMismatch(p, b.fn.params[i], true))
+      );
+    return false;
+  }
+
+  /** `v` of class type `have` as class type `want` (wider: upcast; narrower: downcast). */
+  private convert(v: Expr, have: Type, want: Type, at: ts.Node): Expr {
+    if (JSON.stringify(have) === JSON.stringify(want)) return v;
+    const hm = this.members(maybeInner(have) ?? have);
+    const wm = this.members(maybeInner(want) ?? want);
+    if (hm && wm && hm.every(r => wm.includes(r))) return { op: 'upcast', value: v, type: want };
+    if (hm && wm && wm.every(r => hm.includes(r))) return { op: 'downcast', value: v, type: want };
+    return this.fail(
+      at,
+      `Internal: cannot convert ${JSON.stringify(have)} to ${JSON.stringify(want)}`,
+    );
+  }
+
+  /**
+   * `e` (of class type `have`, read where TypeScript narrowed it to `want`,
+   * by `instanceof` or a discriminant): downcast to the narrower class type.
+   */
+  narrow(e: Expr, have: Type, want: Type | undefined): Expr {
+    if (want === undefined || JSON.stringify(have) === JSON.stringify(want)) return e;
+    const maybe = maybeInner(have) !== undefined;
+    if (maybe !== (maybeInner(want) !== undefined)) return e;
+    const hm = this.members(maybeInner(have) ?? have);
+    const wm = this.members(maybeInner(want) ?? want);
+    if (!hm || !wm || hm.length === 1 || !wm.every(r => hm.includes(r))) return e;
+    return { op: 'downcast', value: e, type: want };
+  }
+
+  /** The common type of two class types (for `===`), if both are. */
+  join(a: Type, b: Type): Type | undefined {
+    const ai = maybeInner(a) ?? a;
+    const bi = maybeInner(b) ?? b;
+    const am = this.classesOf(ai);
+    const bm = this.classesOf(bi);
+    if (!am || !bm || !this.isClass(ai) || !this.isClass(bi)) return undefined;
+    const roots = (t: Type) => {
+      if (typeof t === 'object' && 'classes' in t) return t.classes.map(r => this.byRecord.get(r)!);
+      const r = typeof t === 'object' && 'class' in t ? t.class : (t as { record: number }).record;
+      return [this.byRecord.get(r)!];
+    };
+    const joined = this.canonical([...roots(ai), ...roots(bi)]);
+    return maybeInner(a) !== undefined || maybeInner(b) !== undefined ? { maybe: joined } : joined;
   }
 
   // -------------------------------------------------------------------------
   // Declarations
+
+  /** Direct subclass declarations of the class `sym` among the program's sources. */
+  private subclassDecls(sym: ts.Symbol): ts.ClassDeclaration[] {
+    if (!this.subclassIndex) {
+      const index = new Map<ts.Symbol, ts.ClassDeclaration[]>();
+      for (const sf of this.lower.program.getSourceFiles()) {
+        if (sf.isDeclarationFile || /[\\/]node_modules[\\/]/.test(sf.fileName)) continue;
+        for (const s of sf.statements) {
+          if (!ts.isClassDeclaration(s) || !s.name) continue;
+          const base = this.baseExpression(s);
+          if (!base || !ts.isIdentifier(base)) continue;
+          const b = this.lower.symbol(base);
+          if (!b) continue;
+          index.set(b, [...(index.get(b) ?? []), s]);
+        }
+      }
+      this.subclassIndex = index;
+    }
+    return this.subclassIndex.get(sym) ?? [];
+  }
+
+  private baseExpression(decl: ts.ClassDeclaration): ts.Expression | undefined {
+    const h = decl.heritageClauses?.find(h => h.token === ts.SyntaxKind.ExtendsKeyword);
+    return h?.types[0]?.expression;
+  }
+
+  /** The class declaration `decl` extends, checked: a class compiled from source. */
+  private baseDecl(decl: ts.ClassDeclaration): ts.ClassDeclaration | undefined {
+    const h = decl.heritageClauses?.find(h => h.token === ts.SyntaxKind.ExtendsKeyword);
+    if (!h) return undefined;
+    const type = h.types[0];
+    if (type.typeArguments?.length)
+      this.fail(type, 'Extending a generic class is planned for later');
+    const e = type.expression;
+    if (!ts.isIdentifier(e))
+      this.fail(e, 'extends needs a class name (mixins and other expressions are unsupported)');
+    const sym = this.lower.symbol(e);
+    if (sym?.declarations?.some(d => d.getSourceFile().isDeclarationFile))
+      return this.fail(
+        e,
+        `${e.getText()} is a library class; extending library classes is unsupported (mapping packs will provide them)`,
+      );
+    const base = sym?.valueDeclaration ?? sym?.declarations?.[0];
+    if (!base || !ts.isClassDeclaration(base))
+      return this.fail(
+        e,
+        `${e.getText()} is not a class declaration (class expressions are unsupported)`,
+      );
+    return base;
+  }
 
   private layout(sym: ts.Symbol, at: ts.Node): ClassInfo {
     const known = this.bySymbol.get(sym);
@@ -175,11 +437,42 @@ export class Classes {
         at,
         `${sym.name} is a library class; its instances are unsupported (only classes compiled from source are)`,
       );
+    // A hierarchy is laid out as a whole, from its root down.
+    let root = decl;
+    const seen = new Set<ts.ClassDeclaration>([decl]);
+    for (let b = this.baseDecl(root); b; b = this.baseDecl(root)) {
+      if (seen.has(b)) return this.fail(at, `${sym.name}: its base classes form a cycle`);
+      seen.add(b);
+      root = b;
+    }
+    const infos: ClassInfo[] = [];
+    const visit = (d: ts.ClassDeclaration, base?: ClassInfo) => {
+      const s = d === decl ? sym : this.lower.checker.getSymbolAtLocation(d.name!)!;
+      const info = this.declareShape(d, s, base);
+      infos.push(info);
+      for (const sub of this.subclassDecls(s)) visit(sub, info);
+    };
+    visit(root);
+    // Fields are typed once every class of the hierarchy has its record.
+    for (const info of infos) for (const f of info.own) f.type = this.fieldType(f, info);
+    for (const info of infos) this.assemble(info);
+    return this.bySymbol.get(sym)!;
+  }
+
+  /** Register class `decl` (extending `base`): its record, members and own field names. */
+  private declareShape(
+    decl: ts.ClassDeclaration,
+    sym: ts.Symbol,
+    base: ClassInfo | undefined,
+  ): ClassInfo {
     this.check(decl);
     const types = this.lower.types;
     const record = types.records.length;
     // Registered before the fields are typed, so recursive types terminate.
     types.records.push({ name: sym.name, fields: [], class: true });
+    if (base) types.records[record].extends = base.record;
+    const abstract = modifier(decl, ts.SyntaxKind.AbstractKeyword);
+    if (abstract) types.records[record].abstract = true;
     const ctor = decl.members.find(
       (m): m is ts.ConstructorDeclaration => ts.isConstructorDeclaration(m) && !!m.body,
     );
@@ -188,14 +481,18 @@ export class Classes {
       decl,
       symbol: sym,
       record,
+      ...(base ? { base } : {}),
+      subclasses: [],
+      abstract,
+      own: [],
       fields: [],
       members: new Map(),
       statics: new Map(),
       ...(ctor ? { ctor } : {}),
       declared: false,
       rawThis: false,
-      bound: new Map(),
     };
+    base?.subclasses.push(info);
     this.bySymbol.set(sym, info);
     this.byRecord.set(record, info);
     // Methods and accessors.
@@ -204,20 +501,47 @@ export class Classes {
       if (ts.isMethodDeclaration(m) || ts.isGetAccessor(m) || ts.isSetAccessor(m)) {
         const name = memberName(m.name!);
         const entry = info.members.get(name) ?? {};
-        const callable: Callable = { decl: m, name: `${sym.name}.${name}` };
-        if (ts.isMethodDeclaration(m)) entry.method = callable;
-        else if (ts.isGetAccessor(m)) entry.get = { ...callable, name: `${sym.name}.get ${name}` };
-        else entry.set = { ...callable, name: `${sym.name}.set ${name}` };
+        if (modifier(m, ts.SyntaxKind.AbstractKeyword)) entry.abstract = m;
+        else {
+          const callable: Callable = { decl: m, name: `${sym.name}.${name}` };
+          if (ts.isMethodDeclaration(m)) entry.method = callable;
+          else if (ts.isGetAccessor(m))
+            entry.get = { ...callable, name: `${sym.name}.get ${name}` };
+          else entry.set = { ...callable, name: `${sym.name}.set ${name}` };
+        }
         info.members.set(name, entry);
-      }
+      } else if (ts.isPropertyDeclaration(m) && modifier(m, ts.SyntaxKind.AbstractKeyword))
+        info.members.set(memberName(m.name), { abstract: m });
     }
+    // A name the base classes give a field or a member (abstract properties
+    // are implemented by the subclasses' fields).
+    const inherited = (name: string) => {
+      if (name.startsWith('#')) return false;
+      for (let b = base; b; b = b.base) {
+        const m = b.members.get(name);
+        if (b.own.some(f => f.name === name) || m?.method || m?.get || m?.set) return true;
+      }
+      return false;
+    };
+    const inheritedField = (name: string) => {
+      if (name.startsWith('#')) return false;
+      for (let b = base; b; b = b.base) if (b.own.some(f => f.name === name)) return true;
+      return false;
+    };
     // Fields: parameter properties, declarations, then fields the
     // constructor creates by assignment (the instance's own properties in
     // order; their order is not observable, as keys and spreads of
     // instances are rejected).
     const fields: Field[] = [];
-    const add = (f: Omit<Field, 'type'>) => {
-      if (!fields.some(x => x.name === f.name)) fields.push({ ...f, type: 'void' });
+    const add = (f: Omit<Field, 'type' | 'owner' | 'key'>) => {
+      if (fields.some(x => x.name === f.name)) return;
+      if (inheritedField(f.name) && (f.param || f.decl))
+        this.fail(
+          f.node,
+          `${sym.name} redeclares the field ${f.name} of a base class; assign it in the constructor instead`,
+        );
+      if (inherited(f.name)) return;
+      fields.push({ ...f, type: 'void', owner: info, key: f.name });
     };
     for (const p of ctor?.parameters ?? [])
       if (ts.isParameterPropertyDeclaration(p, ctor!)) {
@@ -225,7 +549,11 @@ export class Classes {
         add({ name: (p.name as ts.Identifier).text, node: p, param: p });
       }
     for (const m of decl.members)
-      if (ts.isPropertyDeclaration(m) && !isStatic(m))
+      if (
+        ts.isPropertyDeclaration(m) &&
+        !isStatic(m) &&
+        !modifier(m, ts.SyntaxKind.AbstractKeyword)
+      )
         add({ name: memberName(m.name), node: m, decl: m });
     for (const s of ctor?.body?.statements ?? []) {
       const target = thisAssignment(s);
@@ -276,30 +604,35 @@ export class Classes {
         field.rune = { kind, call: skipParens(rhs) as ts.CallExpression, container: ctor! };
       }
     }
-    for (const f of fields) f.type = this.fieldType(f, info);
-    info.fields = fields;
-    types.records[record].fields = fields.map(f => ({
-      name: f.name,
-      type: f.type,
-      ...(f.rune ? { reactive: reactiveKind(f.rune.kind) } : {}),
-    }));
-    info.rawThis = this.capturesThis(info);
+    info.own = fields;
     return info;
   }
 
-  /** Structural checks: what stage A supports. */
+  /** The record of `info`: its base's fields, then its own (typed). */
+  private assemble(info: ClassInfo) {
+    const base = info.base?.fields ?? [];
+    const keys = new Set(base.map(f => f.key));
+    for (const f of info.own) {
+      // A private name a base class also declares: qualified by the class.
+      let key = f.name;
+      for (let n = 1; keys.has(key); n++) key = `${info.name}${f.name}${n > 1 ? `$${n}` : ''}`;
+      f.key = key;
+      keys.add(key);
+    }
+    info.fields = [...base, ...info.own];
+    this.records[info.record].fields = info.fields.map(f => ({
+      name: f.key,
+      type: f.type,
+      ...(f.rune ? { reactive: reactiveKind(f.rune.kind) } : {}),
+    }));
+    info.rawThis = this.capturesThis(info) || !!info.base?.rawThis;
+  }
+
+  /** Structural checks: what the class lowering supports. */
   private check(decl: ts.ClassDeclaration) {
     if (decl.typeParameters?.length)
       this.fail(decl.typeParameters[0], 'Generic classes are planned for later');
-    for (const h of decl.heritageClauses ?? [])
-      if (h.token === ts.SyntaxKind.ExtendsKeyword)
-        this.fail(
-          h,
-          'Inheritance (extends) is unsupported: classes have no inheritance until a reached source needs it',
-        );
     if (ts.getDecorators(decl)?.length) this.fail(decl, 'Decorators are unsupported');
-    if (modifier(decl, ts.SyntaxKind.AbstractKeyword))
-      this.fail(decl, 'Abstract classes are unsupported');
     if (!decl.name) this.fail(decl, 'Anonymous classes are unsupported (name the class)');
     if (modifier(decl, ts.SyntaxKind.DefaultKeyword))
       this.fail(decl, 'Default-exported classes are unsupported (export the class by name)');
@@ -311,8 +644,9 @@ export class Classes {
       if (ts.isSemicolonClassElement(m)) continue;
       if (ts.canHaveDecorators(m) && ts.getDecorators(m)?.length)
         this.fail(m, 'Decorators are unsupported');
-      if (modifier(m, ts.SyntaxKind.AbstractKeyword))
-        this.fail(m, 'Abstract members are unsupported');
+      const abstract = modifier(m, ts.SyntaxKind.AbstractKeyword);
+      if (abstract && !modifier(decl, ts.SyntaxKind.AbstractKeyword))
+        this.fail(m, 'Abstract members belong to abstract classes');
       if (modifier(m, ts.SyntaxKind.DeclareKeyword))
         this.fail(m, 'declare fields are unsupported (declare the field with a type)');
       if (modifier(m, ts.SyntaxKind.AccessorKeyword))
@@ -327,11 +661,13 @@ export class Classes {
           'Class members need a plain or #private name (computed and quoted names are unsupported)',
         );
       if (ts.isMethodDeclaration(m)) {
-        if (!m.body) this.fail(m, 'Method overloads are unsupported');
+        if (!m.body && !abstract) this.fail(m, 'Method overloads are unsupported');
         if (m.asteriskToken) this.fail(m, 'Generator methods are unsupported');
       }
       if ((ts.isGetAccessor(m) || ts.isSetAccessor(m)) && isStatic(m))
         this.fail(m, 'Static accessors are unsupported');
+      if ((ts.isGetAccessor(m) || ts.isSetAccessor(m)) && abstract)
+        this.fail(m, 'Abstract accessors are unsupported (declare an abstract property)');
       // Methods and accessors may share a name (get/set pairs); fields not.
       const key = `${isStatic(m) ? 'static ' : ''}${memberName(name!)}`;
       const other = seen.get(key);
@@ -347,7 +683,7 @@ export class Classes {
     }
   }
 
-  private fieldType(f: Omit<Field, 'type'>, info: ClassInfo): Type {
+  private fieldType(f: Field, info: ClassInfo): Type {
     const checker = this.lower.checker;
     let t: ts.Type;
     if (f.param) t = checker.getTypeAtLocation(f.param.name);
@@ -391,6 +727,19 @@ export class Classes {
     return found;
   }
 
+  /** The classes from the root of `info`'s hierarchy down to `info`. */
+  private chain(info: ClassInfo): ClassInfo[] {
+    const out: ClassInfo[] = [];
+    for (let x: ClassInfo | undefined = info; x; x = x.base) out.unshift(x);
+    return out;
+  }
+
+  /** The nearest declared constructor of `info` or its base classes. */
+  private explicitCtor(info: ClassInfo | undefined): ts.ConstructorDeclaration | undefined {
+    for (let x = info; x; x = x.base) if (x.ctor) return x.ctor;
+    return undefined;
+  }
+
   /**
    * Declare `decl` (a statement of a module, `component` undefined, or of a
    * component script): bind its name and reserve its functions. Returns the
@@ -402,28 +751,49 @@ export class Classes {
     const sym = lower.checker.getSymbolAtLocation(decl.name!)!;
     const info = this.layout(sym, decl);
     if (info.declared) return [];
+    if (info.base) {
+      if (!info.base.declared)
+        this.fail(
+          this.baseExpression(decl)!,
+          `${info.base.name} must be declared before ${info.name} (classes are not hoisted)`,
+        );
+      if (info.base.component !== component)
+        this.fail(
+          this.baseExpression(decl)!,
+          `${info.name} and its base class ${info.base.name} must be declared in the same module or component script`,
+        );
+    }
     info.declared = true;
     if (component !== undefined) info.component = component;
     lower.bindings.set(sym, { kind: 'class', cls: info });
-    const self: Type = { record: info.record };
+    const self = this.selfType(info);
     const pending: (() => void)[] = [];
-    // The constructor.
-    if (info.ctor) {
-      const c = this.callable(info.ctor, `${info.name}.constructor`, info, false);
-      info.construct = c;
-      if (c.fn !== undefined) pending.push(() => this.lowerConstructor(info, c.fn!));
-    } else {
-      const fn = lower.reserve();
-      lower.functions[fn] = this.placeholder(`${info.name}.constructor`, info, [], self);
-      info.construct = { fn };
-      pending.push(() => this.lowerConstructor(info, fn));
+    // The constructor (abstract classes are never constructed).
+    if (!info.abstract) {
+      const ctor = this.explicitCtor(info);
+      if (ctor) {
+        const c = this.callable(ctor, `${info.name}.constructor`, info, false);
+        info.construct = c;
+        if (c.fn !== undefined) pending.push(() => this.lowerConstructor(info, c.fn!));
+      } else {
+        const fn = lower.reserve();
+        lower.functions[fn] = this.placeholder(`${info.name}.constructor`, info, [], {
+          record: info.record,
+        });
+        info.construct = { fn };
+        pending.push(() => this.lowerConstructor(info, fn));
+      }
     }
     // Derived fields: functions of the instance, computed when read (M6 stage B).
-    info.fields.forEach((f, i) => {
-      if (!isDerived(f)) return;
+    for (const f of info.own) {
+      if (!isDerived(f)) continue;
       const fn = lower.reserve();
       f.derived = fn;
-      lower.types.records[info.record].fields[i].derived = fn;
+      // Subclass records share the field (and its function).
+      for (const x of this.subtree(info)) {
+        const i = x.fields.indexOf(f);
+        this.records[x.record].fields[i].derived = fn;
+      }
       lower.functions[fn] = this.placeholder(
         `${info.name}.${f.name}$derived`,
         info,
@@ -431,7 +801,7 @@ export class Classes {
         f.type,
       );
       pending.push(() => this.lowerDerived(info, f, fn));
-    });
+    }
     // Methods and accessors.
     for (const [, member] of info.members)
       for (const kind of ['method', 'get', 'set'] as const) {
@@ -486,6 +856,11 @@ export class Classes {
     return pending;
   }
 
+  /** `info` and every class below it. */
+  private subtree(info: ClassInfo): ClassInfo[] {
+    return [info, ...info.subclasses.flatMap(s => this.subtree(s))];
+  }
+
   /** Whether code assigns static field `name` of `info` (`C.name = …`). */
   private assignedStatic(info: ClassInfo, name: string): boolean {
     let found = false;
@@ -500,7 +875,7 @@ export class Classes {
           ts.isPropertyAccessExpression(t) &&
           t.name.text === name &&
           ts.isIdentifier(t.expression) &&
-          this.lower.symbol(t.expression) === info.symbol
+          this.subtree(info).some(c => this.lower.symbol(t.expression) === c.symbol)
         )
           found = true;
       }
@@ -533,7 +908,7 @@ export class Classes {
           ? lower.types.map(ret, decl)
           : 'void';
     const params: Local[] = [
-      ...(self ? [{ name: 'this', type: { record: info.record } as Type }] : []),
+      ...(self ? [{ name: 'this', type: this.selfType(info) }] : []),
       ...decl.parameters.map(p => ({
         name: ts.isIdentifier(p.name) ? p.name.text : 'arg',
         type: lower.types.map(lower.checker.getTypeAtLocation(p), p),
@@ -572,7 +947,7 @@ export class Classes {
           info.component,
           index,
           types,
-          isStatic(c.decl) ? undefined : { self: { record: info.record } },
+          isStatic(c.decl) ? undefined : { self: this.selfType(info) },
         );
       this.inProgress.delete(index);
     } else if (this.inProgress.has(index))
@@ -621,16 +996,18 @@ export class Classes {
   private lowerConstructor(info: ClassInfo, index: number, paramTypes?: Type[]) {
     const lower = this.lower;
     const self: Type = { record: info.record };
-    if (info.ctor) {
+    const ctor = this.explicitCtor(info);
+    if (ctor) {
       lower.function(
-        info.ctor,
+        ctor,
         `${info.name}.constructor`,
         undefined,
         info.component,
         index,
         paramTypes,
         {
-          body: b => this.constructorBody(info, b),
+          body: b => this.constructorBody(info, b, ctor),
+          result: self,
         },
       );
       return;
@@ -642,7 +1019,7 @@ export class Classes {
       new Set(),
       false,
     );
-    const body = this.constructorBody(info, b);
+    const body = this.constructorBody(info, b, undefined);
     body.unshift(...lower.hoistedLets(b));
     const source = lower.sourceOf(info.decl);
     lower.functions[index] = {
@@ -664,7 +1041,7 @@ export class Classes {
    */
   private lowerDerived(info: ClassInfo, f: Field, index: number) {
     const lower = this.lower;
-    const self: Type = { record: info.record };
+    const self = this.selfType(info);
     const name = `${info.name}.${f.name}$derived`;
     const { call, kind, container } = f.rune!;
     const arg = call.arguments[0];
@@ -745,48 +1122,156 @@ export class Classes {
     visit(e);
   }
 
-  private constructorBody(info: ClassInfo, b: FnBuilder): Stmt[] {
+  /** The top-level `super(…)` statement of the constructor of subclass `x`. */
+  private superStatement(x: ClassInfo): { index: number; call: ts.CallExpression } {
+    const statements = x.ctor!.body!.statements;
+    let found: { index: number; call: ts.CallExpression } | undefined;
+    statements.forEach((s, index) => {
+      if (
+        ts.isExpressionStatement(s) &&
+        ts.isCallExpression(s.expression) &&
+        s.expression.expression.kind === ts.SyntaxKind.SuperKeyword
+      ) {
+        if (found) this.fail(s, 'super(…) is called once');
+        found = { index, call: s.expression };
+      }
+    });
+    if (!found)
+      return this.fail(
+        x.ctor!,
+        `The constructor of ${x.name} must call super(…) as a statement at its top level`,
+      );
+    // Elsewhere (in a condition, a callback) it would run conditionally.
+    const visit = (n: ts.Node) => {
+      if (
+        ts.isCallExpression(n) &&
+        n.expression.kind === ts.SyntaxKind.SuperKeyword &&
+        n !== found!.call
+      )
+        this.fail(n, 'super(…) is supported as a statement at the top level of the constructor');
+      ts.forEachChild(n, visit);
+    };
+    visit(x.ctor!.body!);
+    return found;
+  }
+
+  /** Bind the parameters of base constructor `ctor` to the arguments of a `super(…)` call. */
+  private bindParams(ctor: ts.ConstructorDeclaration, args: Expr[], b: FnBuilder): Stmt[] {
+    const lower = this.lower;
+    const checker = lower.checker;
+    const out: Stmt[] = [];
+    ctor.parameters.forEach((p, i) => {
+      if (p.dotDotDotToken) this.fail(p, 'Rest parameters are planned for later');
+      if (!ts.isIdentifier(p.name))
+        this.fail(p, 'Destructured constructor parameters are planned for later');
+      const name = (p.name as ts.Identifier).text;
+      const symbol = ts.isParameterPropertyDeclaration(p, ctor)
+        ? checker.getSymbolsOfParameterPropertyDeclaration(p, name)[0]
+        : checker.getSymbolAtLocation(p.name);
+      const untyped = !p.type && lower.types.typeOrUndefined(p) === undefined;
+      const arg = args[i];
+      if (!arg) return this.fail(p, `super(…) passes no argument for ${name}`);
+      const type = untyped
+        ? lower.irType(arg, b)
+        : lower.types.map(checker.getTypeAtLocation(p), p);
+      if (untyped && symbol) lower.types.override(symbol, type);
+      const local = b.local(name, type, !!symbol && b.boxed.has(symbol));
+      out.push({ op: 'let', local, value: arg });
+      if (symbol) lower.bindings.set(symbol, { kind: 'local', owner: b, local });
+      if (p.initializer)
+        out.push({
+          op: 'if',
+          test: {
+            op: 'builtin',
+            name: 'maybe.is-undefined',
+            args: [{ op: 'local', local }],
+            type: 'boolean',
+          },
+          then: [
+            {
+              op: 'assign',
+              target: { place: 'local', local },
+              value: lower.expr(p.initializer, b),
+            },
+          ],
+        });
+    });
+    return out;
+  }
+
+  /** The own field of the exact class `info` named by `name` (private names by their declaring class). */
+  private fieldNamed(info: ClassInfo, name: ts.MemberName | string): Field | undefined {
+    const text = typeof name === 'string' ? name : name.text;
+    if (typeof name !== 'string' && ts.isPrivateIdentifier(name)) {
+      const owner = this.privateOwner(name);
+      return owner?.own.find(f => f.name === text);
+    }
+    return info.fields.find(f => f.name === text);
+  }
+
+  private constructorBody(
+    info: ClassInfo,
+    b: FnBuilder,
+    top: ts.ConstructorDeclaration | undefined,
+  ): Stmt[] {
     const lower = this.lower;
     const self: Type = { record: info.record };
+    const chain = this.chain(info);
     const out: Stmt[] = [];
     const local = (l: number): Expr => ({ op: 'local', local: l });
+    const src = (n: ts.Node) => {
+      const s = lower.sourceOf(n);
+      return s ? { source: s } : {};
+    };
+    // Captured and mutated variables of the base constructors are boxed too.
+    for (const x of chain)
+      if (x.ctor && x.ctor !== top) for (const s of lower.analyseCaptures(x.ctor)) b.boxed.add(s);
     // `this` before the record exists: closures created meanwhile read it later.
     const early = b.local('this?', { maybe: self }, true);
     out.push({ op: 'let', local: early, value: { op: 'undefined', type: { maybe: self } } });
-    const containers: ts.Node[] = info.decl.members.filter(
-      m => ts.isPropertyDeclaration(m) && !isStatic(m),
-    );
-    if (info.ctor) containers.push(info.ctor);
-    for (const c of containers) lower.thisBindings.set(c, { owner: b, local: early, maybe: true });
+    for (const x of chain) {
+      const containers: ts.Node[] = x.decl.members.filter(
+        m => ts.isPropertyDeclaration(m) && !isStatic(m),
+      );
+      if (x.ctor) containers.push(x.ctor);
+      for (const c of containers)
+        lower.thisBindings.set(c, {
+          owner: b,
+          local: early,
+          maybe: true,
+          ...(chain.length > 1 ? { cls: info } : {}),
+        });
+    }
     /** Field → the temporary holding its value until the record is built. */
-    const temps = new Map<string, number>();
+    const temps = new Map<Field, number>();
     const assign = (field: Field, value: Expr, at: ts.Node) => {
-      const have = lower.irType(value, b);
-      if (maybeInner(field.type) && !maybeInner(have) && have !== 'void')
-        value = { op: 'some', value };
-      const known = temps.get(field.name);
+      value = this.fit(value, lower.irType(value, b), field.type);
+      const known = temps.get(field);
       if (known !== undefined) {
         out.push({ op: 'assign', target: { place: 'local', local: known }, value, ...src(at) });
         return;
       }
       const t = b.local(field.name, field.type);
-      temps.set(field.name, t);
+      temps.set(field, t);
       out.push({ op: 'let', local: t, value, ...src(at) });
     };
-    const src = (n: ts.Node) => {
-      const s = lower.sourceOf(n);
-      return s ? { source: s } : {};
-    };
-    // 1. Parameter properties, then field initialisers in declaration order.
-    for (const f of info.fields)
-      if (f.param) {
-        const name = (f.param.name as ts.Identifier).text;
-        const binding = lower.bindings.get(
-          lower.checker.getSymbolsOfParameterPropertyDeclaration(f.param as never, name)[0],
-        );
-        if (binding?.kind !== 'local') return this.fail(f.param, 'Unresolved parameter property');
-        assign(f, local(binding.local), f.param);
+    // 1. From the class up to the root: the statements before each
+    //    `super(…)` (which cannot use `this`), then its arguments.
+    for (let i = chain.length - 1; i > 0; i--) {
+      const x = chain[i];
+      if (!x.ctor) continue; // implicit: super(...args) passes them on
+      const sc = this.superStatement(x);
+      for (const s of x.ctor.body!.statements.slice(0, sc.index)) {
+        this.noReturn(s);
+        if (mentionsThis(s))
+          this.fail(s, 'this and super are used before super(…) (JavaScript throws)');
+        out.push(...lower.statement(s, b));
       }
+      const target = this.explicitCtor(x.base);
+      const args = lower.callArgs(sc.call, b);
+      if (target) out.push(...this.bindParams(target, args, b));
+      else for (const a of args) out.push({ op: 'expr', value: a });
+    }
     /** The initial value of a `$state`/`$state.raw` field (`undefined` without an argument). */
     const runeValue = (f: Field, where: 'initialiser' | 'constructor'): Expr => {
       const arg = f.rune!.call.arguments[0];
@@ -794,66 +1279,99 @@ export class Classes {
         this.fail(f.rune!.call, `${f.rune!.kind} takes at most one argument`);
       return arg ? this.early(arg, b, info, temps, where) : { op: 'undefined', type: f.type };
     };
-    for (const f of info.fields)
-      if (f.decl?.initializer) {
-        // Derived fields are functions of the instance, computed when read.
-        if (isDerived(f)) continue;
-        assign(
-          f,
-          f.rune
-            ? runeValue(f, 'initialiser')
-            : this.early(f.decl.initializer, b, info, temps, 'initialiser'),
-          f.decl,
-        );
-      }
-    // 2. Leading `this.f = …` statements and statements that do not use `this`.
-    const statements = info.ctor?.body?.statements ?? [];
+    /** The statements of `x`'s constructor after its `super(…)` call. */
+    const after = (x: ClassInfo): readonly ts.Statement[] => {
+      const statements = x.ctor?.body?.statements ?? [];
+      return x.base && x.ctor ? statements.slice(this.superStatement(x).index + 1) : statements;
+    };
     /** Whether `s` assigns a reactive field its rune. */
     const runeStatement = (s: ts.Statement) => {
       const target = thisAssignment(s);
-      const field = target && info.fields.find(f => f.name === target.name.text);
+      const field = target && this.fieldNamed(info, target.name);
       const rhs = target && ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right;
       return field?.rune && rhs && field.rune.call === skipParens(rhs) ? field : undefined;
     };
-    let i = 0;
-    for (; i < statements.length; i++) {
-      const s = statements[i];
-      this.noReturn(s);
-      const reactive = runeStatement(s);
-      if (reactive) {
-        if (isDerived(reactive)) continue;
-        const arg = reactive.rune!.call.arguments[0];
-        if (arg && !this.earlyForm(arg, info, temps)) break;
-        assign(reactive, runeValue(reactive, 'constructor'), s);
-        continue;
+    // 2. From the root down: parameter properties, field initialisers in
+    //    declaration order, then the leading `this.f = …` statements and
+    //    statements that do not use `this`.
+    let broke: { cls: ClassInfo; rest: readonly ts.Statement[] } | undefined;
+    let k = 0;
+    for (; k < chain.length && !broke; k++) {
+      const x = chain[k];
+      for (const f of x.own)
+        if (f.param) {
+          const name = (f.param.name as ts.Identifier).text;
+          const binding = lower.bindings.get(
+            lower.checker.getSymbolsOfParameterPropertyDeclaration(f.param as never, name)[0],
+          );
+          if (binding?.kind !== 'local') return this.fail(f.param, 'Unresolved parameter property');
+          assign(f, local(binding.local), f.param);
+        }
+      for (const f of x.own)
+        if (f.decl?.initializer) {
+          // Derived fields are functions of the instance, computed when read.
+          if (isDerived(f)) continue;
+          assign(
+            f,
+            f.rune
+              ? runeValue(f, 'initialiser')
+              : this.early(f.decl.initializer, b, info, temps, 'initialiser'),
+            f.decl,
+          );
+        }
+      const statements = after(x);
+      let i = 0;
+      for (; i < statements.length; i++) {
+        const s = statements[i];
+        this.noReturn(s);
+        const reactive = runeStatement(s);
+        if (reactive) {
+          if (isDerived(reactive)) continue;
+          const arg = reactive.rune!.call.arguments[0];
+          if (arg && !this.earlyForm(arg, info, temps)) break;
+          assign(reactive, runeValue(reactive, 'constructor'), s);
+          continue;
+        }
+        const target = thisAssignment(s);
+        const field = target && this.fieldNamed(info, target.name);
+        if (target && field) {
+          const rhs = ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right;
+          if (!this.earlyForm(rhs, info, temps)) break;
+          assign(field, this.early(rhs, b, info, temps, 'constructor'), s);
+          continue;
+        }
+        if (mentionsThis(s)) break;
+        out.push(...lower.statement(s, b));
       }
-      const target = thisAssignment(s);
-      const field = target && info.fields.find(f => f.name === target.name.text);
-      if (target && field) {
-        const rhs = ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right;
-        if (!this.earlyForm(rhs, info, temps)) break;
-        assign(field, this.early(rhs, b, info, temps, 'constructor'), s);
-        continue;
-      }
-      if (mentionsThis(s)) break;
-      out.push(...lower.statement(s, b));
+      if (i < statements.length) broke = { cls: x, rest: statements.slice(i) };
     }
-    for (let j = i; j < statements.length; j++)
-      if (runeStatement(statements[j]))
+    // The classes below one whose constructor uses the instance declare no
+    // fields: JavaScript would initialise them only after that code ran.
+    const later = chain.slice(k);
+    if (broke)
+      for (const y of later)
+        if (y.own.length)
+          this.fail(
+            y.own[0].node,
+            `${y.name} declares fields, but the constructor of its base class ${broke.cls.name} uses this before they exist (JavaScript initialises them after super(…) returns); move that code out of the constructor, or the fields into ${broke.cls.name}`,
+          );
+    const rest = [...(broke?.rest ?? []), ...later.flatMap(y => [...after(y)])];
+    for (const s of rest)
+      if (runeStatement(s))
         this.fail(
-          statements[j],
+          s,
           'Assign reactive fields ($state, $derived) at the start of the constructor, before it otherwise uses this',
         );
     // 3. The record (derived fields have no value: they are computed when read).
     const fields: Expr[] = info.fields
       .filter(f => !isDerived(f))
       .map(f => {
-        const t = temps.get(f.name);
+        const t = temps.get(f);
         if (t !== undefined) return local(t);
         if (maybeInner(f.type)) return { op: 'undefined', type: f.type };
         return this.fail(
           f.node,
-          `${info.name}.${f.name} is not set before the constructor otherwise uses this: give it an initialiser, assign it at the start of the constructor, or make it optional`,
+          `${f.owner.name}.${f.name} is not set before the constructor otherwise uses this: give it an initialiser, assign it at the start of the constructor, or make it optional`,
         );
       });
     const instance = b.local('this', self);
@@ -863,11 +1381,17 @@ export class Classes {
       target: { place: 'local', local: early },
       value: { op: 'some', value: local(instance) },
     });
-    // 4. The rest of the constructor, with `this` the instance.
-    if (info.ctor) lower.thisBindings.set(info.ctor, { owner: b, local: instance });
-    for (; i < statements.length; i++) {
-      this.noReturn(statements[i]);
-      out.push(...lower.statement(statements[i], b));
+    // 4. The rest of the constructors, with `this` the instance.
+    for (const x of chain)
+      if (x.ctor)
+        lower.thisBindings.set(x.ctor, {
+          owner: b,
+          local: instance,
+          ...(chain.length > 1 ? { cls: info } : {}),
+        });
+    for (const s of rest) {
+      this.noReturn(s);
+      out.push(...lower.statement(s, b));
     }
     out.push({ op: 'return', value: local(instance) });
     return out;
@@ -887,13 +1411,14 @@ export class Classes {
   }
 
   /** Whether `e` can be evaluated before the record exists (see `early`). */
-  private earlyForm(e: ts.Expression, info: ClassInfo, temps: Map<string, number>): boolean {
+  private earlyForm(e: ts.Expression, info: ClassInfo, temps: Map<Field, number>): boolean {
     const inner = skipParens(e);
-    if (ts.isArrowFunction(inner) || this.ownBind(inner, info, temps)) return true;
+    if (ts.isArrowFunction(inner) || this.methodToBind(inner, info, temps)) return true;
     let ok = true;
     const visit = (n: ts.Node, nested: boolean) => {
       if (n.kind === ts.SyntaxKind.ThisKeyword && !this.earlyRead(n, nested, info, temps))
         ok = false;
+      if (n.kind === ts.SyntaxKind.SuperKeyword) ok = false;
       ts.forEachChild(n, c => visit(c, nested || ts.isFunctionLike(n)));
     };
     visit(inner, false);
@@ -905,12 +1430,12 @@ export class Classes {
     n: ts.Node,
     nested: boolean,
     info: ClassInfo,
-    temps: Map<string, number>,
+    temps: Map<Field, number>,
   ): Field | undefined {
     const p = n.parent;
     if (nested || !ts.isPropertyAccessExpression(p) || p.expression !== n) return undefined;
-    const field = info.fields.find(f => f.name === p.name.text);
-    if (!field || !temps.has(field.name)) return undefined;
+    const field = this.fieldNamed(info, p.name);
+    if (!field || !temps.has(field)) return undefined;
     const fnType = (t: Type | undefined) => typeof t === 'object' && 'fn' in t;
     if (fnType(field.type) || fnType(maybeInner(field.type))) return undefined;
     const g = p.parent;
@@ -936,7 +1461,7 @@ export class Classes {
     e: ts.Expression,
     b: FnBuilder,
     info: ClassInfo,
-    temps: Map<string, number>,
+    temps: Map<Field, number>,
     where: 'initialiser' | 'constructor',
   ): Expr {
     const lower = this.lower;
@@ -947,10 +1472,12 @@ export class Classes {
         'A rune here is unsupported: reactive fields are declared by a rune that is the whole field initialiser or constructor assignment',
       );
     if (ts.isArrowFunction(inner)) return lower.expr(e, b);
-    if (ts.isCallExpression(inner) && this.ownBind(inner, info, temps))
+    if (ts.isCallExpression(inner) && this.methodToBind(inner, info, temps))
       return this.bind(inner, b, temps)!;
     const overrides = new Map<ts.Node, { expr: Expr; type: Type }>();
     const visit = (n: ts.Node, nested: boolean) => {
+      if (n.kind === ts.SyntaxKind.SuperKeyword)
+        this.fail(n, 'super is used before the instance is complete');
       if (n.kind === ts.SyntaxKind.ThisKeyword) {
         const field = this.earlyRead(n, nested, info, temps);
         if (!field)
@@ -966,7 +1493,7 @@ export class Classes {
             'A field initialiser reading a parameter property depends on the TypeScript emit order; read the constructor parameter in the constructor instead',
           );
         overrides.set(n.parent, {
-          expr: { op: 'local', local: temps.get(field.name)! },
+          expr: { op: 'local', local: temps.get(field)! },
           type: field.type,
         });
         return;
@@ -978,13 +1505,11 @@ export class Classes {
   }
 
   // -------------------------------------------------------------------------
-  // `this` and members
+  // `this`, `super` and members
 
-  /** `this` in a class member (or an arrow function inside one). */
-  thisValue(node: ts.Expression, b: FnBuilder): Expr {
-    const lower = this.lower;
+  /** The innermost function-like or field declaration whose `this` `node` sees (arrow functions see through). */
+  private thisContainer(node: ts.Node): { container?: ts.Node; deferred: boolean } {
     let deferred = false;
-    let container: ts.Node | undefined;
     for (let p = node.parent; p; p = p.parent) {
       if (ts.isArrowFunction(p)) {
         deferred = true;
@@ -994,11 +1519,16 @@ export class Classes {
         ts.isFunctionLike(p) ||
         ts.isPropertyDeclaration(p) ||
         ts.isClassStaticBlockDeclaration(p)
-      ) {
-        container = p;
-        break;
-      }
+      )
+        return { container: p, deferred };
     }
+    return { deferred };
+  }
+
+  /** `this` in a class member (or an arrow function inside one). */
+  thisValue(node: ts.Expression, b: FnBuilder): Expr {
+    const lower = this.lower;
+    const { container, deferred } = this.thisContainer(node);
     const binding = container && lower.thisBindings.get(container);
     if (!binding) {
       if (container && ts.isClassElement(container) && isStatic(container))
@@ -1022,58 +1552,248 @@ export class Classes {
     return binding.maybe ? { op: 'unwrap', value: local } : local;
   }
 
-  /** The class of the instances `e` evaluates to (by TypeScript's type), if any. */
-  private classOfNode(e: ts.Expression): ClassInfo | undefined {
-    const checker = this.lower.checker;
-    let t = checker.getNonNullableType(checker.getTypeAtLocation(e));
-    if (t.flags & ts.TypeFlags.TypeParameter && (t as { isThisType?: boolean }).isThisType)
-      t = checker.getBaseConstraintOfType(t) ?? t;
-    const sym = t.symbol;
-    if (!sym || !(sym.flags & ts.SymbolFlags.Class) || t.getConstructSignatures().length)
-      return undefined;
-    const it = this.lower.typeAt(e);
-    return this.of(maybeInner(it) ?? it);
+  /** The class whose declaration directly contains member `m`. */
+  private classOfMember(m: ts.Node): ClassInfo | undefined {
+    const decl = m.parent;
+    if (!decl || !ts.isClassDeclaration(decl) || !decl.name) return undefined;
+    const sym = this.lower.checker.getSymbolAtLocation(decl.name);
+    return sym && this.bySymbol.get(sym);
   }
 
-  private fieldIndex(info: ClassInfo, name: string): number {
-    return info.fields.findIndex(f => f.name === name);
+  /** The class a `super` keyword refers to the base of, and whether it is in a static member. */
+  private superContext(node: ts.Node): { cls: ClassInfo; base: ClassInfo; isStatic: boolean } {
+    const { container } = this.thisContainer(node);
+    const cls = container && this.classOfMember(container);
+    if (!container || !cls) return this.fail(node, 'super is supported in class members');
+    if (!cls.base) return this.fail(node, `${cls.name} has no base class`);
+    return { cls, base: cls.base, isStatic: ts.isClassElement(container) && isStatic(container) };
   }
 
-  /** `obj.name` on an instance. */
-  read(info: ClassInfo, object: Expr, e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
-    this.declaredOnly(info, e);
+  /** `super.name` read: a base getter, called with this. */
+  superRead(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
+    const { base, isStatic: inStatic } = this.superContext(e.expression);
     const name = e.name.text;
-    const field = this.fieldIndex(info, name);
-    // A derived field of a component-script class computes in that component.
-    if (
-      field >= 0 &&
-      isDerived(info.fields[field]) &&
-      info.component !== undefined &&
-      info.component !== b.component
-    )
+    if (inStatic) return this.staticRead(base, e, b);
+    const target = this.resolve(base, name, this.privateOwner(e.name));
+    if (target?.kind === 'accessor' && target.get) {
+      const recv = this.thisValue(e.expression, b);
+      return {
+        op: 'call',
+        function: target.get.fn!,
+        args: [this.receiver(recv, b, target.owner, e)],
+      };
+    }
+    if (target?.kind === 'field')
       return this.fail(
         e,
-        `${info.name}.${name} is a derived field of a class declared in a component script; read it in that component (or declare the class in a .svelte.ts module)`,
+        `super.${name} reads the base class's prototype, which has no field ${name} (fields belong to the instance: use this.${name})`,
       );
-    if (field >= 0) return { op: 'get', object, field };
-    const member = info.members.get(name);
-    if (member?.get) return { op: 'call', function: member.get.fn!, args: [object] };
-    if (member?.set)
-      return this.fail(
-        e,
-        `${info.name}.${name} has a setter but no getter: reading it gives undefined`,
-      );
-    if (member?.method)
-      return this.fail(
-        e,
-        `${info.name}.${name} is a method used as a value; its this would be undefined when called. Bind it (this.${name} = this.${name}.bind(this) in the constructor), use an arrow function field, or call it`,
-      );
-    return this.lower.fail(e, 'E_MEMBER', `${info.name} has no member ${name}`);
+    if (target?.kind === 'method')
+      return this.fail(e, `super.${name} is a method used as a value; call it (super.${name}(…))`);
+    if (target?.kind === 'abstract')
+      return this.fail(e, `${base.name}.${name} is abstract; super cannot call it`);
+    return this.lower.fail(e, 'E_MEMBER', `${base.name} has no member ${name}`);
   }
 
-  /** `obj.name(…)` on an instance. */
+  /** `super.name(…)`: the base class's method, called with this (statically). */
+  superCall(callee: ts.PropertyAccessExpression, e: ts.CallExpression, b: FnBuilder): Expr {
+    const lower = this.lower;
+    const { base, isStatic: inStatic } = this.superContext(callee.expression);
+    const name = callee.name.text;
+    if (inStatic) return this.callStatic(base, callee, e, b);
+    const target = this.resolve(base, name, this.privateOwner(callee.name));
+    if (target?.kind === 'abstract')
+      return this.fail(e, `${base.name}.${name} is abstract; super cannot call it`);
+    if (target?.kind === 'field')
+      return this.fail(
+        callee,
+        `super.${name} reads the base class's prototype, which has no field ${name}`,
+      );
+    const recv = this.thisValue(callee.expression, b);
+    if (target?.kind === 'method') {
+      const method = target.method;
+      if (method.fn !== undefined)
+        return {
+          op: 'call',
+          function: method.fn,
+          args: [this.receiver(recv, b, target.owner, e), ...lower.callArgs(e, b)],
+        };
+      const self = this.selfType(target.owner);
+      const tmp = b.local('$receiver', self);
+      const { fn, args } = this.untypedCall(method, target.owner, e, b);
+      return {
+        op: 'with',
+        local: tmp,
+        value: this.receiver(recv, b, target.owner, e),
+        body: { op: 'call', function: fn, args: [{ op: 'local', local: tmp }, ...args] },
+      };
+    }
+    if (target?.kind === 'accessor' && target.get)
+      return {
+        op: 'call-value',
+        callee: {
+          op: 'call',
+          function: target.get.fn!,
+          args: [this.receiver(recv, b, target.owner, e)],
+        },
+        args: lower.callArgs(e, b),
+      };
+    return lower.fail(e, 'E_MEMBER', `${base.name} has no method ${name}`);
+  }
+
+  /** `recv` (an instance in the running code) as the `this` of a member declared by `owner`. */
+  private receiver(recv: Expr, b: FnBuilder, owner: ClassInfo, at: ts.Node): Expr {
+    return this.convert(recv, this.lower.irType(recv, b), this.selfType(owner), at);
+  }
+
+  /** The class declaring the private name `name` (`#x`). */
+  private privateOwner(name: ts.MemberName): ClassInfo | undefined {
+    if (!ts.isPrivateIdentifier(name)) return undefined;
+    const decl = this.lower.checker.getSymbolAtLocation(name)?.valueDeclaration;
+    return decl && this.classOfMember(decl);
+  }
+
+  /**
+   * What `name` means on an instance of exactly `cls`: a field (the
+   * instance's own properties shadow its prototype), else the member of the
+   * nearest class declaring it. Private names are those of `owner`.
+   */
+  private resolve(cls: ClassInfo, name: string, owner?: ClassInfo): Target | undefined {
+    const member = (m: Member, o: ClassInfo): Target | undefined => {
+      if (m.method) return { kind: 'method', method: m.method, owner: o };
+      if (m.get || m.set)
+        return {
+          kind: 'accessor',
+          ...(m.get ? { get: m.get } : {}),
+          ...(m.set ? { set: m.set } : {}),
+          owner: o,
+        };
+      if (m.abstract) return { kind: 'abstract', owner: o };
+      return undefined;
+    };
+    if (name.startsWith('#')) {
+      if (!owner || !this.extendsClass(cls, owner)) return undefined;
+      const f = owner.own.find(f => f.name === name);
+      if (f) return { kind: 'field', field: f };
+      const m = owner.members.get(name);
+      return m ? member(m, owner) : undefined;
+    }
+    const f = cls.fields.find(f => f.name === name);
+    if (f) return { kind: 'field', field: f };
+    for (let x: ClassInfo | undefined = cls; x; x = x.base) {
+      const m = x.members.get(name);
+      if (m) return member(m, x);
+    }
+    return undefined;
+  }
+
+  /** Whether two targets are the same member. */
+  private sameTarget(a: Target, b: Target): boolean {
+    if (a.kind !== b.kind) return false;
+    if (a.kind === 'field') return a.field === (b as typeof a).field;
+    if (a.kind === 'method') return a.method === (b as typeof a).method;
+    if (a.kind === 'accessor')
+      return a.get === (b as typeof a).get && a.set === (b as typeof a).set;
+    return a.owner === (b as typeof a).owner;
+  }
+
+  /**
+   * The member `name` on a receiver of class type `t`: the classes it can
+   * have and their targets, and the target they share, if any.
+   */
+  private targets(
+    t: Type,
+    name: string,
+    nameNode: ts.MemberName,
+    at: ts.Node,
+  ): { classes: ClassInfo[]; targets: Target[]; shared?: Target } {
+    const owner = this.privateOwner(nameNode);
+    const classes = this.classesOf(t) ?? [];
+    for (const c of classes) this.declaredOnly(c, at);
+    const targets = classes.map(c => {
+      const target = this.resolve(c, name, owner);
+      if (!target) return this.lower.fail(at, 'E_MEMBER', `${c.name} has no member ${name}`);
+      return target;
+    });
+    if (!targets.length)
+      return this.fail(at, `No class of this value can be constructed (its classes are abstract)`);
+    const shared = targets.every(x => this.sameTarget(x, targets[0])) ? targets[0] : undefined;
+    return { classes, targets, ...(shared ? { shared } : {}) };
+  }
+
+  /** A match over the classes of `value`: case `c` evaluates `body(local, c, target)`. */
+  private matchClasses(
+    value: Expr,
+    classes: ClassInfo[],
+    targets: Target[],
+    b: FnBuilder,
+    body: (local: Expr, c: ClassInfo, target: Target) => Expr,
+  ): Expr {
+    return {
+      op: 'match-class',
+      value,
+      cases: classes.map((c, i) => {
+        const local = b.local(`$${c.name}`, { record: c.record });
+        return { record: c.record, local, body: body({ op: 'local', local }, c, targets[i]) };
+      }),
+    };
+  }
+
+  /** `obj.name` on an instance (of a class record or class reference type `t`). */
+  read(t: Type, object: Expr, e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
+    const lower = this.lower;
+    const name = e.name.text;
+    const { classes, targets, shared } = this.targets(t, name, e.name, e);
+    const one = (recv: Expr, c: ClassInfo, target: Target): Expr => {
+      switch (target.kind) {
+        case 'field': {
+          const f = target.field;
+          // A derived field of a component-script class computes in that component.
+          if (isDerived(f) && f.owner.component !== undefined && f.owner.component !== b.component)
+            return this.fail(
+              e,
+              `${f.owner.name}.${name} is a derived field of a class declared in a component script; read it in that component (or declare the class in a .svelte.ts module)`,
+            );
+          return { op: 'get', object: recv, field: c.fields.indexOf(f) };
+        }
+        case 'accessor':
+          if (target.get)
+            return {
+              op: 'call',
+              function: target.get.fn!,
+              args: [this.receiver(recv, b, target.owner, e)],
+            };
+          return this.fail(
+            e,
+            `${target.owner.name}.${name} has a setter but no getter: reading it gives undefined`,
+          );
+        case 'method':
+          return this.fail(
+            e,
+            `${target.owner.name}.${name} is a method used as a value; its this would be undefined when called. Bind it (this.${name} = this.${name}.bind(this) in the constructor), use an arrow function field, or call it`,
+          );
+        case 'abstract':
+          return this.fail(e, `${target.owner.name}.${name} is abstract`);
+      }
+    };
+    let out: Expr;
+    if (shared) out = one(object, classes[0], shared);
+    else {
+      const want = lower.types.of(e);
+      out = this.matchClasses(object, classes, targets, b, (local, c, target) => {
+        const v = one(local, c, target);
+        return this.fit(v, lower.irType(v, b), want);
+      });
+    }
+    // Narrowed by TypeScript where it is read (`this.state instanceof C`).
+    const have = lower.irType(out, b);
+    if (!this.isClass(maybeInner(have) ?? have)) return out;
+    return this.narrow(out, have, lower.types.typeOrUndefined(e));
+  }
+
+  /** `obj.name(…)` on an instance (of class type `t`). */
   callMethod(
-    info: ClassInfo,
+    t: Type,
     receiver: Expr,
     callee: ts.PropertyAccessExpression,
     e: ts.CallExpression,
@@ -1081,39 +1801,108 @@ export class Classes {
   ): Expr {
     const lower = this.lower;
     const name = callee.name.text;
-    const field = this.fieldIndex(info, name);
-    this.declaredOnly(info, e);
-    if (field >= 0)
-      return {
-        op: 'call-value',
-        callee: { op: 'get', object: receiver, field },
-        args: lower.callArgs(e, b),
-      };
-    const member = info.members.get(name);
-    const method = member?.method;
-    if (method) {
-      if (method.fn !== undefined)
-        return { op: 'call', function: method.fn, args: [receiver, ...lower.callArgs(e, b)] };
-      // Untyped parameters: the receiver is bound first (evaluated before the arguments).
-      const tmp = b.local('$receiver', { record: info.record });
-      const { fn, args } = this.untypedCall(method, info, e, b);
-      return {
-        op: 'with',
-        local: tmp,
-        value: receiver,
-        body: { op: 'call', function: fn, args: [{ op: 'local', local: tmp }, ...args] },
-      };
+    const { classes, targets, shared } = this.targets(t, name, callee.name, e);
+    if (shared) {
+      const c = classes[0];
+      switch (shared.kind) {
+        case 'field':
+          return {
+            op: 'call-value',
+            callee: { op: 'get', object: receiver, field: c.fields.indexOf(shared.field) },
+            args: lower.callArgs(e, b),
+          };
+        case 'method': {
+          const method = shared.method;
+          const recv = this.receiver(receiver, b, shared.owner, e);
+          if (method.fn !== undefined)
+            return { op: 'call', function: method.fn, args: [recv, ...lower.callArgs(e, b)] };
+          // Untyped parameters: the receiver is bound first (evaluated before the arguments).
+          const tmp = b.local('$receiver', this.selfType(shared.owner));
+          const { fn, args } = this.untypedCall(method, shared.owner, e, b);
+          return {
+            op: 'with',
+            local: tmp,
+            value: recv,
+            body: { op: 'call', function: fn, args: [{ op: 'local', local: tmp }, ...args] },
+          };
+        }
+        case 'accessor':
+          if (shared.get)
+            return {
+              op: 'call-value',
+              callee: {
+                op: 'call',
+                function: shared.get.fn!,
+                args: [this.receiver(receiver, b, shared.owner, e)],
+              },
+              args: lower.callArgs(e, b),
+            };
+          break;
+        case 'abstract':
+          return this.fail(e, `${shared.owner.name}.${name} is abstract`);
+      }
+      return lower.fail(e, 'E_MEMBER', `${c.name} has no method ${name}`);
     }
-    if (member?.get)
-      return {
-        op: 'call-value',
-        callee: { op: 'call', function: member.get.fn!, args: [receiver] },
-        args: lower.callArgs(e, b),
-      };
-    return lower.fail(e, 'E_MEMBER', `${info.name} has no method ${name}`);
+    // Dispatch by class: the receiver, then the arguments, are evaluated once.
+    const recvLocal = b.local('$receiver', lower.irType(receiver, b));
+    const args = lower.callArgs(e, b);
+    const argLocals = args.map(a => b.local('$arg', lower.irType(a, b)));
+    const want = lower.types.of(e);
+    let body: Expr = this.matchClasses(
+      { op: 'local', local: recvLocal },
+      classes,
+      targets,
+      b,
+      (local, c, target) => {
+        const argValues = argLocals.map((l): Expr => ({ op: 'local', local: l }));
+        let call: Expr;
+        if (target.kind === 'method') {
+          const fn = target.method.fn;
+          if (fn === undefined)
+            return this.fail(
+              e,
+              `${target.method.name} has untyped parameters and is overridden; add parameter types`,
+            );
+          const params = lower.functions[fn].params;
+          call = {
+            op: 'call',
+            function: fn,
+            args: [
+              this.receiver(local, b, target.owner, e),
+              ...argValues.map((v, i) =>
+                this.fit(v, lower.irType(v, b), params[i + 1]?.type ?? lower.irType(v, b)),
+              ),
+            ],
+          };
+        } else if (target.kind === 'field')
+          call = {
+            op: 'call-value',
+            callee: { op: 'get', object: local, field: c.fields.indexOf(target.field) },
+            args: argValues,
+          };
+        else if (target.kind === 'accessor' && target.get)
+          call = {
+            op: 'call-value',
+            callee: {
+              op: 'call',
+              function: target.get.fn!,
+              args: [this.receiver(local, b, target.owner, e)],
+            },
+            args: argValues,
+          };
+        else return lower.fail(e, 'E_MEMBER', `${c.name} has no method ${name}`);
+        return this.fit(call, lower.irType(call, b), want);
+      },
+    );
+    for (let i = args.length - 1; i >= 0; i--)
+      body = { op: 'with', local: argLocals[i], value: args[i], body };
+    return { op: 'with', local: recvLocal, value: receiver, body };
   }
 
-  /** `obj.name = value` on an instance or `C.name = value`; undefined for plain fields. */
+  /**
+   * `obj.name = value` on an instance or `C.name = value`, as statements;
+   * undefined for objects that are not class instances.
+   */
   write(target: ts.PropertyAccessExpression, value: Expr, b: FnBuilder): Stmt[] | undefined {
     const lower = this.lower;
     const name = target.name.text;
@@ -1125,51 +1914,141 @@ export class Classes {
           'Static fields are module constants; assigning them is unsupported',
         );
     }
-    const info = this.classOfNode(target.expression);
-    const field = info ? this.fieldIndex(info, name) : -1;
-    if (info && field >= 0 && isDerived(info.fields[field]))
-      return this.fail(
-        target,
-        `${info.name}.${name} is a $derived field; assigning it (overriding a derived value, Svelte 5.25+) is unsupported`,
-      );
-    if (!info || field >= 0) return undefined;
-    this.declaredOnly(info, target);
-    const member = info.members.get(name);
     const source = lower.sourceOf(target);
-    if (member?.set) {
-      const want = lower.functions[member.set.fn!].params[1]?.type;
-      const have = lower.irType(value, b);
-      if (want && maybeInner(want) && !maybeInner(have) && have !== 'void')
-        value = { op: 'some', value };
+    const src = source ? { source } : {};
+    if (target.expression.kind === ts.SyntaxKind.SuperKeyword) {
+      const { base, isStatic: inStatic } = this.superContext(target.expression);
+      if (inStatic)
+        return this.fail(
+          target,
+          'Static fields are module constants; assigning them is unsupported',
+        );
+      const t = this.resolve(base, name, this.privateOwner(target.name));
+      if (t?.kind !== 'accessor' || !t.set)
+        return this.fail(
+          target,
+          `super.${name} = … calls a setter of ${base.name}; it has none (assign this.${name})`,
+        );
+      const recv = this.thisValue(target.expression, b);
+      const want = lower.functions[t.set.fn!].params[1]?.type;
       return [
         {
           op: 'expr',
           value: {
             op: 'call',
-            function: member.set.fn!,
-            args: [lower.expr(target.expression, b), value],
+            function: t.set.fn!,
+            args: [
+              this.receiver(recv, b, t.owner, target),
+              want ? this.fit(value, lower.irType(value, b), want) : value,
+            ],
           },
-          ...(source ? { source } : {}),
+          ...src,
         },
       ];
     }
-    if (member?.get)
+    if (!this.tsClass(target.expression)) return undefined;
+    const object = lower.expr(target.expression, b);
+    const t = lower.irType(object, b);
+    if (!this.isClass(t)) return undefined;
+    const { classes, targets, shared } = this.targets(t, name, target.name, target);
+    const one = (recv: Expr, c: ClassInfo, x: Target, v: Expr): Stmt[] => {
+      switch (x.kind) {
+        case 'field': {
+          if (isDerived(x.field))
+            return this.fail(
+              target,
+              `${x.field.owner.name}.${name} is a $derived field; assigning it (overriding a derived value, Svelte 5.25+) is unsupported`,
+            );
+          return [
+            {
+              op: 'assign',
+              target: { place: 'field', object: recv, field: c.fields.indexOf(x.field) },
+              value: this.fit(v, lower.irType(v, b), x.field.type),
+              ...src,
+            },
+          ];
+        }
+        case 'accessor': {
+          if (!x.set)
+            return this.fail(
+              target,
+              `${x.owner.name}.${name} has a getter but no setter: assigning it throws a TypeError`,
+            );
+          const want = lower.functions[x.set.fn!].params[1]?.type;
+          return [
+            {
+              op: 'expr',
+              value: {
+                op: 'call',
+                function: x.set.fn!,
+                args: [
+                  this.receiver(recv, b, x.owner, target),
+                  want ? this.fit(v, lower.irType(v, b), want) : v,
+                ],
+              },
+              ...src,
+            },
+          ];
+        }
+        case 'method':
+          return this.fail(
+            target,
+            `Assigning method ${x.owner.name}.${name} is supported only at the start of the constructor (this.${name} = this.${name}.bind(this))`,
+          );
+        case 'abstract':
+          return this.fail(
+            target,
+            `${x.owner.name}.${name} is abstract; assign it through a subclass type`,
+          );
+      }
+    };
+    if (shared) return one(object, classes[0], shared, value);
+    // Setters dispatched by class (fields declared by each class separately cannot be).
+    if (targets.some(x => x.kind !== 'accessor'))
       return this.fail(
         target,
-        `${info.name}.${name} has a getter but no setter: assigning it throws a TypeError`,
+        `${name} is declared separately by the classes this value can have; assigning it through their common type is unsupported (narrow it first)`,
       );
-    if (member?.method)
-      return this.fail(
-        target,
-        `Assigning method ${info.name}.${name} is supported only at the start of the constructor (this.${name} = this.${name}.bind(this))`,
-      );
+    const recvLocal = b.local('$receiver', t);
+    const valueLocal = b.local('$value', lower.irType(value, b));
+    const dispatch = this.matchClasses(
+      { op: 'local', local: recvLocal },
+      classes,
+      targets,
+      b,
+      (local, c, x) => {
+        const [s] = one(local, c, x, { op: 'local', local: valueLocal });
+        return (s as { value: Expr }).value;
+      },
+    );
+    return [
+      {
+        op: 'expr',
+        value: {
+          op: 'with',
+          local: recvLocal,
+          value: object,
+          body: { op: 'with', local: valueLocal, value, body: dispatch },
+        },
+        ...src,
+      },
+    ];
+  }
+
+  /** The static member `name` of `info` or its base classes. */
+  private findStatic(info: ClassInfo, name: string): { s: Static; owner: ClassInfo } | undefined {
+    for (let x: ClassInfo | undefined = info; x; x = x.base) {
+      const s = x.statics.get(name);
+      if (s) return { s, owner: x };
+    }
     return undefined;
   }
 
   /** `C.name` */
   staticRead(info: ClassInfo, e: ts.PropertyAccessExpression, _b: FnBuilder): Expr {
     this.ensureDeclared(info, e);
-    const s = info.statics.get(e.name.text);
+    const found = this.findStatic(info, e.name.text);
+    const s = found?.s;
     if (s?.kind === 'field') return { op: 'global', global: s.global };
     if (s?.kind === 'method') {
       if (s.method.fn === undefined)
@@ -1193,11 +2072,12 @@ export class Classes {
   ): Expr {
     const lower = this.lower;
     this.ensureDeclared(info, e);
-    const s = info.statics.get(callee.name.text);
+    const found = this.findStatic(info, callee.name.text);
+    const s = found?.s;
     if (s?.kind === 'method') {
       if (s.method.fn !== undefined)
         return { op: 'call', function: s.method.fn, args: lower.callArgs(e, b) };
-      const { fn, args } = this.untypedCall(s.method, info, e, b);
+      const { fn, args } = this.untypedCall(s.method, found!.owner, e, b);
       return { op: 'call', function: fn, args };
     }
     if (s?.kind === 'field')
@@ -1213,6 +2093,7 @@ export class Classes {
   construct(info: ClassInfo, e: ts.NewExpression, b: FnBuilder): Expr {
     const lower = this.lower;
     this.ensureDeclared(info, e);
+    if (info.abstract) return this.fail(e, `${info.name} is abstract; it cannot be constructed`);
     const c = info.construct!;
     if (!('decl' in c)) {
       if (e.arguments?.length)
@@ -1224,7 +2105,11 @@ export class Classes {
     return { op: 'call', function: fn, args };
   }
 
-  /** `x instanceof C`: decided by the static type of `x` (no inheritance, no unions). */
+  /**
+   * `x instanceof C`: decided by the static type of `x` where it can be (a
+   * class record, or a class reference whose classes all are or all are
+   * not `C` or a subclass), else by a match over its classes.
+   */
   instanceOf(info: ClassInfo, left: ts.Expression, b: FnBuilder): Expr {
     const lower = this.lower;
     this.ensureDeclared(info, left.parent);
@@ -1236,35 +2121,104 @@ export class Classes {
     const v = lower.expr(left, b);
     const t = lower.irType(v, b);
     const inner = maybeInner(t) ?? t;
-    const same = typeof inner === 'object' && 'record' in inner && inner.record === info.record;
-    if (same && maybeInner(t))
+    const classes = this.classesOf(inner) ?? [];
+    const yes = classes.filter(c => this.extendsClass(c, info));
+    const maybe = maybeInner(t) !== undefined;
+    if (classes.length && yes.length === classes.length && maybe)
       return {
         op: 'not',
         arg: { op: 'builtin', name: 'maybe.is-nullish', args: [v], type: 'boolean' },
       };
-    // Evaluated for its effects; the answer is static.
+    if (!yes.length || yes.length === classes.length) {
+      // Evaluated for its effects; the answer is static.
+      const tmp = b.local('$instanceof', t);
+      return { op: 'with', local: tmp, value: v, body: { op: 'lit', value: yes.length > 0 } };
+    }
+    const test = (value: Expr): Expr => ({
+      op: 'match-class',
+      value,
+      cases: yes.map(c => ({
+        record: c.record,
+        local: b.local(`$${c.name}`, { record: c.record }),
+        body: { op: 'lit', value: true },
+      })),
+      else: { op: 'lit', value: false },
+    });
+    if (!maybe) return test(v);
     const tmp = b.local('$instanceof', t);
-    return { op: 'with', local: tmp, value: v, body: { op: 'lit', value: same } };
+    const read: Expr = { op: 'local', local: tmp };
+    return {
+      op: 'with',
+      local: tmp,
+      value: v,
+      body: {
+        op: 'cond',
+        test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: 'boolean' },
+        then: { op: 'lit', value: false },
+        else: test({ op: 'unwrap', value: read }),
+      },
+    };
   }
 
   // -------------------------------------------------------------------------
   // bind
 
-  /** `X.m.bind(…)` where `m` is a method of `X`'s class (not a field holding a function). */
-  private ownBind(e: ts.Expression, info?: ClassInfo, temps?: Map<string, number>): boolean {
-    if (!ts.isCallExpression(e) || !ts.isPropertyAccessExpression(e.expression)) return false;
-    if (e.expression.name.text !== 'bind') return false;
+  /** The exact class being constructed where `this` (node) is read, if any. */
+  private constructedClass(node: ts.Node): ClassInfo | undefined {
+    const { container } = this.thisContainer(node);
+    return container ? this.lower.thisBindings.get(container)?.cls : undefined;
+  }
+
+  /**
+   * `X.m.bind(…)` where `m` is a method of `X`'s classes (not a field holding
+   * a function): the method, its declaring class and the receiver's
+   * classes. With `info` (a constructor's early part), only when `X` is
+   * its `this`.
+   */
+  private methodToBind(
+    e: ts.Expression,
+    info?: ClassInfo,
+    temps?: Map<Field, number>,
+  ): { method: Callable; owner: ClassInfo; classes: ClassInfo[] } | undefined {
+    if (!ts.isCallExpression(e) || !ts.isPropertyAccessExpression(e.expression)) return undefined;
+    if (e.expression.name.text !== 'bind') return undefined;
     const target = skipParens(e.expression.expression);
-    if (!ts.isPropertyAccessExpression(target)) return false;
-    const cls = this.classOfNode(target.expression);
-    if (!cls || (info && cls !== info)) return false;
+    if (!ts.isPropertyAccessExpression(target)) return undefined;
+    const recv = skipParens(target.expression);
+    const exact = recv.kind === ts.SyntaxKind.ThisKeyword ? this.constructedClass(recv) : undefined;
+    let classes: ClassInfo[] | undefined;
+    if (info && recv.kind === ts.SyntaxKind.ThisKeyword) classes = [info];
+    else if (exact) classes = [exact];
+    else if (this.tsClass(recv)) classes = this.classesOf(this.lower.types.of(recv));
+    if (!classes?.length) return undefined;
+    if (info && classes.some(c => c !== info)) return undefined;
+    const name = target.name.text;
+    const owner = this.privateOwner(target.name);
     // A method also bound into a field of its name (`this.m = this.m.bind(this)`)
     // is read from the prototype only until that field is set.
-    const name = target.name.text;
-    return (
-      !!cls.members.get(name)?.method &&
-      (this.fieldIndex(cls, name) < 0 || (temps !== undefined && !temps.has(name)))
-    );
+    let found: { method: Callable; owner: ClassInfo } | undefined;
+    for (const c of classes) {
+      const field = this.fieldNamed(c, target.name);
+      if (field && (temps === undefined || temps.has(field))) return undefined;
+      let m: { method: Callable; owner: ClassInfo } | undefined;
+      if (name.startsWith('#')) {
+        const method = owner?.members.get(name)?.method;
+        m = method && owner ? { method, owner } : undefined;
+      } else
+        for (let x: ClassInfo | undefined = c; x && !m; x = x.base) {
+          const member = x.members.get(name);
+          if (member?.method) m = { method: member.method, owner: x };
+          else if (member) break;
+        }
+      if (!m) return undefined;
+      if (found && found.method !== m.method)
+        return this.fail(
+          e,
+          `${name} is overridden by the classes this value can have; binding it through their common type is unsupported (bind it in the constructor, or use an arrow function field)`,
+        );
+      found = m;
+    }
+    return found && { ...found, classes };
   }
 
   /**
@@ -1272,14 +2226,14 @@ export class Classes {
    * `f.bind(x)` for a function value (a new closure calling `f`; an arrow
    * function ignores `x`). Undefined for other `bind` calls.
    */
-  bind(e: ts.CallExpression, b: FnBuilder, temps?: Map<string, number>): Expr | undefined {
+  bind(e: ts.CallExpression, b: FnBuilder, temps?: Map<Field, number>): Expr | undefined {
     const lower = this.lower;
     if (!ts.isPropertyAccessExpression(e.expression) || e.expression.name.text !== 'bind')
       return undefined;
     const target = skipParens(e.expression.expression);
     if (e.arguments.length !== 1) {
       const t = lower.types.typeOrUndefined(target);
-      if (this.ownBind(e, undefined, temps) || (typeof t === 'object' && 'fn' in t))
+      if (this.methodToBind(e, undefined, temps) || (typeof t === 'object' && 'fn' in t))
         return this.fail(
           e,
           'bind takes exactly the this value (partial application is unsupported)',
@@ -1287,10 +2241,10 @@ export class Classes {
       return undefined;
     }
     const thisArg = skipParens(e.arguments[0]);
-    if (this.ownBind(e, undefined, temps)) {
+    const bound = this.methodToBind(e, undefined, temps);
+    if (bound) {
       const access = target as ts.PropertyAccessExpression;
-      const info = this.classOfNode(access.expression)!;
-      const method = info.members.get(access.name.text)!.method!;
+      const { method, owner } = bound;
       if (method.fn === undefined)
         return this.fail(
           e,
@@ -1302,28 +2256,38 @@ export class Classes {
           access.expression,
           'The receiver of a bound method must be this, a variable or a property',
         );
-      const thisType = lower.typeAt(thisArg);
-      if (this.of(thisType) !== info)
-        return this.fail(
-          thisArg,
-          `${info.name}.${access.name.text} must be bound to a ${info.name} instance`,
-        );
       // `this` while the instance is being built: the boxed early local.
       if (thisArg.kind === ts.SyntaxKind.ThisKeyword) {
         const early = this.earlyThis(thisArg);
-        if (early)
+        if (early) {
+          const exact = early.cls ?? bound.classes[0];
           return {
             op: 'closure',
-            function: this.boundMethod(info, method, true),
+            function: this.boundMethod({ record: exact.record }, method, owner, true, thisArg),
             captures: [b.resolve(early.owner, early.local)],
           };
+        }
       }
-      const tmp = b.local('$bound', { record: info.record });
+      const value = lower.expr(thisArg, b);
+      const thisType = lower.irType(value, b);
+      const ok =
+        this.isClass(thisType) &&
+        (this.classesOf(thisType) ?? []).every(c => this.extendsClass(c, owner));
+      if (!ok)
+        return this.fail(
+          thisArg,
+          `${owner.name}.${access.name.text} must be bound to a ${owner.name} instance`,
+        );
+      const tmp = b.local('$bound', thisType);
       return {
         op: 'with',
         local: tmp,
-        value: lower.expr(thisArg, b),
-        body: { op: 'closure', function: this.boundMethod(info, method, false), captures: [tmp] },
+        value,
+        body: {
+          op: 'closure',
+          function: this.boundMethod(thisType, method, owner, false, thisArg),
+          captures: [tmp],
+        },
       };
     }
     const t = lower.types.typeOrUndefined(target);
@@ -1362,18 +2326,25 @@ export class Classes {
     return undefined;
   }
 
-  /** A function calling method `m` with its captured receiver (a `maybe` one for `early`). */
-  private boundMethod(info: ClassInfo, m: Callable, early: boolean): number {
+  /** A function calling method `m` (declared by `owner`) with its captured receiver of type `recv` (a `maybe` one for `early`). */
+  private boundMethod(
+    recv: Type,
+    m: Callable,
+    owner: ClassInfo,
+    early: boolean,
+    at: ts.Node,
+  ): number {
     const lower = this.lower;
-    const key = `${m.name}${early ? '?' : ''}`;
-    const known = info.bound.get(key);
+    const plain = this.of(recv) === owner && !owner.subclasses.length;
+    const key = `${m.name}${early ? '?' : ''}${plain ? '' : ` ${JSON.stringify(recv)}`}`;
+    const known = this.bound.get(key);
     if (known !== undefined) return known;
     const target = lower.functions[m.fn!];
-    const self: Type = { record: info.record };
     const params = target.params.slice(1);
-    const receiver: Expr = early
+    const read: Expr = early
       ? { op: 'unwrap', value: { op: 'local', local: 0 } }
       : { op: 'local', local: 0 };
+    const receiver = this.convert(read, recv, this.selfType(owner), at);
     const call: Expr = {
       op: 'call',
       function: m.fn!,
@@ -1382,9 +2353,9 @@ export class Classes {
     const index = lower.reserve();
     lower.functions[index] = {
       name: `${m.name} (bound)`,
-      ...(info.component !== undefined ? { component: info.component } : {}),
+      ...(owner.component !== undefined ? { component: owner.component } : {}),
       captures: [
-        { name: 'this', type: early ? { maybe: self } : self, ...(early ? { boxed: true } : {}) },
+        { name: 'this', type: early ? { maybe: recv } : recv, ...(early ? { boxed: true } : {}) },
       ],
       params: params.map(p => ({ name: p.name, type: p.type })),
       locals: [],
@@ -1392,7 +2363,7 @@ export class Classes {
       body:
         target.result === 'void' ? [{ op: 'expr', value: call }] : [{ op: 'return', value: call }],
     };
-    info.bound.set(key, index);
+    this.bound.set(key, index);
     return index;
   }
 
@@ -1432,10 +2403,14 @@ export class Classes {
     if ('set' in t) return this.holdsClass(t.set, seen);
     if ('promise' in t) return this.holdsClass(t.promise, seen);
     if ('map' in t) return this.holdsClass(t.map[0], seen) ?? this.holdsClass(t.map[1], seen);
+    if ('class' in t || 'classes' in t) {
+      const [r] = this.members(t) ?? [];
+      return r !== undefined ? this.records[r].name : undefined;
+    }
     if ('record' in t) {
       if (seen.has(t.record)) return undefined;
       seen.add(t.record);
-      const r = this.lower.types.records[t.record];
+      const r = this.records[t.record];
       if (r.class) return r.name;
       for (const f of r.fields) {
         const found = this.holdsClass(f.type, seen);
@@ -1468,11 +2443,18 @@ export class Classes {
     if ('array' in t) return this.rawThis(t.array, seen);
     if ('set' in t) return this.rawThis(t.set, seen);
     if ('map' in t) return this.rawThis(t.map[0], seen) ?? this.rawThis(t.map[1], seen);
+    if ('class' in t || 'classes' in t) {
+      for (const r of this.members(t) ?? []) {
+        const found = this.rawThis({ record: r }, seen);
+        if (found) return found;
+      }
+      return undefined;
+    }
     if ('record' in t && !seen.has(t.record)) {
       seen.add(t.record);
       const info = this.byRecord.get(t.record);
       if (info?.rawThis) return info.name;
-      for (const f of this.lower.types.records[t.record].fields) {
+      for (const f of this.records[t.record].fields) {
         const found = this.rawThis(f.type, seen);
         if (found) return found;
       }

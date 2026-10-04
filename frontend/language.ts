@@ -242,7 +242,8 @@ export class Lowerer {
     this.fail = fail;
     this.sourceOf = sourceOf;
     this.classes = new Classes(this);
-    types.classRecord = (cls, t, at) => this.classes.record(cls, t, at);
+    types.classType = (cls, t, at) => this.classes.typeOf(cls, t, at);
+    types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
   }
 
   /** Classes (frontend/classes.ts). */
@@ -252,7 +253,16 @@ export class Lowerer {
    * constructor, field initialiser): a local of `owner`, a `maybe` one while
    * the constructor has not yet built the instance.
    */
-  readonly thisBindings = new Map<ts.Node, { owner: FnBuilder; local: number; maybe?: boolean }>();
+  readonly thisBindings = new Map<
+    ts.Node,
+    {
+      owner: FnBuilder;
+      local: number;
+      maybe?: boolean;
+      /** In a constructor: the exact class being constructed (M6 inheritance). */
+      cls?: ClassInfo;
+    }
+  >();
 
   /** Lower with `overrides` substituted for the given nodes. */
   withOverrides<T>(overrides: Map<ts.Node, { expr: Expr; type: Type }>, f: () => T): T {
@@ -330,6 +340,8 @@ export class Lowerer {
       self?: Type;
       /** Lower the body with this instead of the declaration's statements (constructors). */
       body?: (b: FnBuilder) => Stmt[];
+      /** The result type (a constructor returns its exact class). */
+      result?: Type;
     },
   ): { index: number; builder: FnBuilder } {
     const boxed = this.analyseCaptures(decl);
@@ -419,6 +431,7 @@ export class Lowerer {
     const voidContext =
       expected?.length === 1 && !!(expected[0].getReturnType().flags & ts.TypeFlags.Void);
     if (voidContext) result = 'void';
+    if (options?.result) result = options.result;
     // Body lowering may add captures; params/locals are appended after, so we
     // lower into a staging builder and rebase indices at the end.
     if (voidContext || !(tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
@@ -741,6 +754,9 @@ export class Lowerer {
       // `T | undefined` results: a returned T is wrapped.
       const inner = b.result && maybeInner(b.result);
       if (value && inner && sameType(this.irType(value, b), inner)) value = { op: 'some', value };
+      // A class instance returned as a class reference.
+      else if (value && b.result)
+        value = this.classes.fitAt(value, this.irType(value, b), b.result, s);
       return [{ op: 'return', ...(value ? { value } : {}), ...this.src(s) }];
     }
     if (ts.isThrowStatement(s))
@@ -1044,11 +1060,13 @@ export class Lowerer {
         (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
       )
         return [{ op: 'let', local, value: this.closure(d.initializer, b, d.name.text) }];
+      const init = d.initializer && this.expr(d.initializer, b);
       return [
         {
           op: 'let',
           local,
-          ...(d.initializer ? { value: this.expr(d.initializer, b) } : {}),
+          // A class instance initialises a class reference.
+          ...(init ? { value: this.classes.fitAt(init, this.irType(init, b), type, d) } : {}),
           ...this.src(d),
         },
       ];
@@ -1340,10 +1358,10 @@ export class Lowerer {
       const member = this.classes.write(target, value, b);
       if (member) return member;
     }
-    // T is widened into a nullable target (Maybe<T>).
+    // T is widened into a nullable target (Maybe<T>), a class instance into a class reference.
     const want = this.targetType(target, b);
     const have = this.irType(value, b);
-    if (maybeInner(want) && !maybeInner(have) && have !== 'void') value = { op: 'some', value };
+    value = this.classes.fitAt(value, have, want, target);
     if (ts.isIdentifier(target)) {
       const binding = this.binding(target);
       if (binding?.kind === 'local')
@@ -1461,10 +1479,16 @@ export class Lowerer {
       if (link) return this.optionalChain(e, link, b);
     }
     switch (e.kind) {
-      case K.ParenthesizedExpression:
       case K.AsExpression:
+      case K.TypeAssertionExpression: {
+        const v = this.expr((e as ts.AsExpression).expression, b);
+        // A class reference asserted to be of some of its classes: checked (a TypeError where it is not).
+        const t = this.irType(v, b);
+        if (!this.classes.isClass(maybeInner(t) ?? t)) return v;
+        return this.classes.narrow(v, t, this.types.typeOrUndefined(e));
+      }
+      case K.ParenthesizedExpression:
       case K.SatisfiesExpression:
-      case K.TypeAssertionExpression:
         return this.expr((e as ts.ParenthesizedExpression).expression, b);
       case K.NonNullExpression: {
         const inner = (e as ts.NonNullExpression).expression;
@@ -1510,7 +1534,11 @@ export class Lowerer {
       case K.ThisKeyword:
         return this.classes.thisValue(e, b);
       case K.SuperKeyword:
-        return this.fail(e, 'E_CLASS', 'super is unsupported (classes have no inheritance)');
+        return this.fail(
+          e,
+          'E_CLASS',
+          'super is supported in member accesses and calls (super.m(…), super.x) and as the super(…) statement of a constructor',
+        );
       case K.PrefixUnaryExpression:
         return this.prefix(e as ts.PrefixUnaryExpression, b);
       case K.BinaryExpression:
@@ -1580,18 +1608,10 @@ export class Lowerer {
     return this.types.of(e);
   }
 
-  /** Lower `e` and widen it to `target` (e.g. T into Maybe<T>). */
+  /** Lower `e` and widen it to `target` (T into Maybe<T>, a class instance into a class reference). */
   coerce(e: ts.Expression, b: FnBuilder, target: Type): Expr {
     const v = this.expr(e, b);
-    const t = this.irType(v, b);
-    if (
-      typeof target === 'object' &&
-      'maybe' in target &&
-      !(typeof t === 'object' && 'maybe' in t) &&
-      t !== 'void'
-    )
-      return { op: 'some', value: v };
-    return v;
+    return this.classes.fitAt(v, this.irType(v, b), target, e);
   }
 
   private contextual(e: ts.Expression): Type {
@@ -1640,12 +1660,14 @@ export class Lowerer {
     const narrow = (e: Expr, declared: Type): Expr => {
       here ??= this.types.typeOrUndefined(id);
       if (here === undefined) return e;
-      return typeof declared === 'object' &&
+      const unwrap =
+        typeof declared === 'object' &&
         'maybe' in declared &&
         !(typeof here === 'object' && 'maybe' in here) &&
-        here !== 'void'
-        ? { op: 'unwrap', value: e }
-        : e;
+        here !== 'void';
+      const out: Expr = unwrap ? { op: 'unwrap', value: e } : e;
+      // A class reference narrowed to some of its classes (instanceof, discriminants).
+      return this.classes.narrow(out, unwrap ? maybeInner(declared)! : declared, here);
     };
     switch (binding.kind) {
       case 'local': {
@@ -1857,6 +1879,14 @@ export class Lowerer {
       return { op: 'builtin', name, args: [value], type: BOOLEAN };
     }
     if (sameType(lt, rt)) return { op: 'eq', left, right };
+    // Class instances compare as their common class type.
+    const joined = this.classes.join(lt, rt);
+    if (joined)
+      return {
+        op: 'eq',
+        left: this.classes.fit(left, lt, joined),
+        right: this.classes.fit(right, rt, joined),
+      };
     const base = (t: Type) => (typeof t === 'object' && 'maybe' in t ? t.maybe : t);
     if (sameType(base(lt), base(rt))) {
       // Maybe<T> vs T: compare as Maybe.
@@ -1894,6 +1924,7 @@ export class Lowerer {
       if ('set' in t) return 'set';
       if ('maybe' in t) return 'maybe';
       if ('record' in t) return 'record';
+      if ('class' in t || 'classes' in t) return 'class';
       if ('promise' in t) return 'promise';
     }
     return undefined;
@@ -2224,6 +2255,7 @@ export class Lowerer {
 
   private property(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
     const name = e.name.text;
+    if (e.expression.kind === ts.SyntaxKind.SuperKeyword) return this.classes.superRead(e, b);
     // `collator.compare` as a function value; other members of Intl constants.
     const intl = this.intlObject(e.expression);
     if (intl) {
@@ -2372,8 +2404,7 @@ export class Lowerer {
         );
       return { op: 'builtin', name: `event.${name}`, args: [object], type };
     }
-    if (kind === 'record' && this.classes.of(t))
-      return this.classes.read(this.classes.of(t)!, object, e, b);
+    if (this.classes.isClass(t)) return this.classes.read(t, object, e, b);
     if (kind === 'record')
       return {
         op: 'get',
@@ -2561,7 +2592,8 @@ export class Lowerer {
       const here = this.types.typeOrUndefined(e);
       if (maybeInner(el) && here !== undefined && !maybeInner(here))
         return this.captureRead(e, object, index, b);
-      return { op: 'index', array: object, index };
+      // An element of a class reference type narrowed by TypeScript (`xs[0] instanceof C`).
+      return this.classes.narrow({ op: 'index', array: object, index }, el, here);
     }
     if (kind === 'string')
       return {
@@ -2626,6 +2658,17 @@ export class Lowerer {
     if (custom) return custom;
     const callee = e.expression;
     const args = () => e.arguments.map(a => this.expr(a, b));
+    if (callee.kind === ts.SyntaxKind.SuperKeyword)
+      return this.fail(
+        e,
+        'E_CLASS',
+        'super(…) is supported as a statement at the top level of a constructor',
+      );
+    if (
+      ts.isPropertyAccessExpression(callee) &&
+      callee.expression.kind === ts.SyntaxKind.SuperKeyword
+    )
+      return this.classes.superCall(callee, e, b);
     if (ts.isIdentifier(callee)) {
       const host = this.hostName(callee);
       const hosted = host && this.hostCall(host, e, b);
@@ -2818,14 +2861,8 @@ export class Lowerer {
         this.types.typeOrUndefined(e.arguments[0]) === 'regexp'
       )
         return this.stringRegexp(method, receiver, e, b);
-      if (kind === 'record' && this.classes.of(this.irType(receiver, b)))
-        return this.classes.callMethod(
-          this.classes.of(this.irType(receiver, b))!,
-          receiver,
-          callee,
-          e,
-          b,
-        );
+      if (this.classes.isClass(this.irType(receiver, b)))
+        return this.classes.callMethod(this.irType(receiver, b), receiver, callee, e, b);
       if (kind === 'record')
         return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
       if (kind === 'element') return this.elementMethod(method, receiver, e, b);

@@ -58,6 +58,7 @@ import type {
   Program,
   Stmt,
   Type,
+  RecordType,
 } from '../ir.ts';
 import { EVENT_KINDS } from '../ir.ts';
 import {
@@ -73,7 +74,7 @@ import { createProgram, VUE } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
 import { bindPackImport, packMappings, type Edge } from '../packs.ts';
-import { arrayElement, maybeInner } from '../irtype.ts';
+import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2216,6 +2217,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         lower.value(value, COMPONENT, `${name}$default`),
         lower.exprType(value),
         type,
+        lower.types.records,
       );
     };
 
@@ -2856,7 +2858,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               if (!arg) return;
               // The IR type of the lowered value (a bare `null` takes the ref's type).
               const v = lower.value(arg, COMPONENT, `${name}$init`);
-              cells[cell].init = coerceInit(v, lower.valueType(v), type);
+              cells[cell].init = coerceInit(v, lower.valueType(v), type, lower.types.records);
             });
             continue;
           }
@@ -5195,15 +5197,19 @@ function mergeParts(list: Part[]): Part {
 }
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */
-function coerceInit(v: Expr, from: Type, to: Type): Expr {
-  if (maybeInner(to) && !maybeInner(from)) return { op: 'some', value: v };
-  return v;
+function coerceInit(v: Expr, from: Type, to: Type, records: RecordType[]): Expr {
+  if (maybeInner(to) && !maybeInner(from))
+    return upcastTo({ op: 'some', value: v }, { maybe: from }, to, records);
+  // A class instance where a class reference is expected.
+  return upcastTo(v, from, to, records);
 }
 
 const isReference = (t: Type): boolean =>
   typeof t === 'object' &&
   ('array' in t ||
     'record' in t ||
+    'class' in t ||
+    'classes' in t ||
     'map' in t ||
     'set' in t ||
     ('maybe' in t && isReference(t.maybe)));

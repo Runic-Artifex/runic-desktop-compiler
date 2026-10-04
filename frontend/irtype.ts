@@ -23,6 +23,74 @@ export const arrayElement = (t: Type): Type | undefined =>
 export const fnResult = (t: Type): Type | undefined =>
   typeof t === 'object' && 'fn' in t ? t.fn.result : undefined;
 
+/** Whether class record `r` is `c` or one of its subclasses (M6 inheritance). */
+export function extendsClass(r: number, c: number, records: RecordType[]): boolean {
+  for (let x: number | undefined = r, n = 0; x !== undefined && n <= records.length; n++) {
+    if (x === c) return true;
+    x = records[x].extends;
+  }
+  return false;
+}
+
+/**
+ * The class records a value of type `t` can be an instance of (abstract ones
+ * included), ascending; undefined for types that are not class-typed
+ * (mirrors `Program::class_members`).
+ */
+export function classMembers(t: Type, records: RecordType[]): number[] | undefined {
+  if (typeof t !== 'object') return undefined;
+  const subtree = (c: number) => records.map((_, r) => r).filter(r => extendsClass(r, c, records));
+  if ('record' in t) return records[t.record]?.class ? [t.record] : undefined;
+  if ('class' in t) return subtree(t.class);
+  if ('classes' in t) return [...new Set(t.classes.flatMap(subtree))].sort((a, b) => a - b);
+  return undefined;
+}
+
+/** The classes a value of type `t` can have (not abstract). */
+export function concreteMembers(t: Type, records: RecordType[]): number[] | undefined {
+  return classMembers(t, records)?.filter(r => !records[r].abstract);
+}
+
+/** A record describing the fields `get` reads on a value of type `t` (a class reference: its first member). */
+export function fieldRecord(t: Type, records: RecordType[]): number | undefined {
+  if (typeof t !== 'object') return undefined;
+  if ('record' in t) return t.record;
+  if ('class' in t || 'classes' in t) return classMembers(t, records)?.[0];
+  return undefined;
+}
+
+/**
+ * `v` (of type `have`) where a value of type `want` is expected: a Maybe
+ * wraps it, a class instance widens to a class reference (`upcast`). Other
+ * values are returned as they are.
+ */
+export function fitType(v: Expr, have: Type, want: Type, records: RecordType[]): Expr {
+  if (JSON.stringify(have) === JSON.stringify(want)) return v;
+  const wi = maybeInner(want);
+  const hi = maybeInner(have);
+  if (wi !== undefined && hi === undefined && have !== 'void')
+    return { op: 'some', value: fitType(v, have, wi, records) };
+  const [h, w] = wi !== undefined && hi !== undefined ? [hi, wi] : [have, want];
+  const hm = classMembers(h, records);
+  const wm = classMembers(w, records);
+  if (
+    hm &&
+    wm &&
+    typeof w === 'object' &&
+    ('class' in w || 'classes' in w) &&
+    hm.every(r => wm.includes(r))
+  )
+    return { op: 'upcast', value: v, type: want };
+  return v;
+}
+
+/** `v` (of type `have`) widened to class type `want` where it is a narrower class type; otherwise `v`. */
+export function upcastTo(v: Expr, have: Type, want: Type, records: RecordType[]): Expr {
+  const strip = (t: Type) => maybeInner(t) ?? t;
+  if (!classMembers(strip(want), records) || !classMembers(strip(have), records)) return v;
+  return fitType(v, have, want, records);
+}
+
 export function irType(e: Expr, env: TypeEnv): Type {
   switch (e.op) {
     case 'lit':
@@ -86,11 +154,14 @@ export function irType(e: Expr, env: TypeEnv): Type {
     case 'array':
       return e.type;
     case 'get': {
-      const t = irType(e.object, env);
-      return typeof t === 'object' && 'record' in t
-        ? env.records[t.record].fields[e.field].type
-        : 'void';
+      const r = fieldRecord(irType(e.object, env), env.records);
+      return r !== undefined ? env.records[r].fields[e.field].type : 'void';
     }
+    case 'upcast':
+    case 'downcast':
+      return e.type;
+    case 'match-class':
+      return e.cases.length ? irType(e.cases[0].body, env) : irType(e.else!, env);
     case 'index':
       return arrayElement(irType(e.array, env)) ?? 'void';
     case 'some':
