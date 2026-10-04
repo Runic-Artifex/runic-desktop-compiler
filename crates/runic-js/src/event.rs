@@ -27,6 +27,9 @@ pub struct EventData {
     pub buttons: f64,
     pub delta_x: f64,
     pub delta_y: f64,
+    /// `detail`: a mouse button event's click count (0 for keyboard and
+    /// simulated clicks and other events).
+    pub detail: f64,
     /// The target control's value and checked state at dispatch.
     pub value: JsString,
     pub checked: bool,

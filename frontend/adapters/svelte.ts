@@ -150,6 +150,13 @@ function locate(text: string, offset: number, file: string): Source {
   return { file, line: lines.length, column: lines.at(-1)!.length + 1 };
 }
 
+/**
+ * The component as svelte types it, the default export of its virtual module
+ * (`ComponentProps<typeof Label>` in shadcn's Field.Label).
+ */
+const COMPONENT_EXPORT =
+  'declare const __RunicComponent: import("svelte").Component<__RunicProps>;\nexport default __RunicComponent;\n';
+
 /** A `.svelte` file and its virtual TypeScript module. */
 interface Unit {
   file: string;
@@ -519,6 +526,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     if (!u.reached) {
       u.statementsEnd = s.length;
       s += `export type __RunicProps = ${propsType(u)};\n`;
+      s += COMPONENT_EXPORT;
       u.synthetic = s;
       continue;
     }
@@ -695,6 +703,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     for (const [name, file] of u.children)
       s += `import type { __RunicProps as ${propsAlias(name)} } from ${JSON.stringify(units.get(file)!.virtual)};\n`;
     s += `export type __RunicProps = ${propsType(u)};\n`;
+    s += COMPONENT_EXPORT;
     u.synthetic = s;
   }
   // Modules of packages compiled from source that the program reaches
@@ -1194,6 +1203,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const propDecls: PropDecl[] = [];
   const sites: Site[] = [];
   const siteOfNode = new Map<string, Site>();
+  /** Each component's rest props binding (spreads of it pass what its sites pass). */
+  const restComponent = new Map<ts.Symbol, number>();
   for (const u of order) {
     const sf = program.getSourceFile(u.virtual)!;
     const bound = new Set<string>();
@@ -1206,9 +1217,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       for (const d of stmt.declarationList.declarations) {
         if (runeName(d.initializer) !== '$props' || !ts.isObjectBindingPattern(d.name)) continue;
         for (const el of d.name.elements) {
-          if (el.dotDotDotToken || !ts.isIdentifier(el.name)) continue;
+          if (!ts.isIdentifier(el.name)) continue;
           const symbol = checker.getSymbolAtLocation(el.name);
           if (!symbol) continue;
+          if (el.dotDotDotToken) {
+            restComponent.set(symbol, u.index);
+            continue;
+          }
           let fallback = el.initializer;
           if (fallback && runeName(fallback) === '$bindable')
             fallback = (fallback as ts.CallExpression).arguments[0];
@@ -1244,8 +1259,16 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         else if (a.type === 'SpreadAttribute') {
           // A spread may set the declared props its bag may hold (later attributes win).
           const s = shapes.of(nodeIn(u, a.expression) as ts.Expression);
+          const spread = nodeIn(u, a.expression) as ts.Expression;
+          const own = ts.isIdentifier(spread) ? checker.getSymbolAtLocation(spread) : undefined;
+          const rest = own && restComponent.get(own);
           for (const key of decls.get(child)!.declared)
-            if (mayHold(s, key)) values.set(key, { open: true });
+            if (mayHold(s, key))
+              values.set(key, {
+                open: true,
+                spread,
+                ...(rest !== undefined ? { restOf: rest } : {}),
+              });
         }
       }
       const site: Site = {
@@ -1350,6 +1373,37 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       return checker.getTypeArguments(tuple as ts.TypeReference).map(x => types.map(x, node));
     };
 
+    /**
+     * The IR type of a prop typed wider than the value model (svelte/elements'
+     * `value?: any`) whose values are open: the one type, apart from
+     * nullishness, of what its sites pass (through spreads, the bag's
+     * property type), nullable when a site may pass nothing and the prop has
+     * no default. Undefined when they differ or one is unknown.
+     */
+    const typeOfSites = (sym: ts.Symbol, el: ts.BindingElement): Type | undefined => {
+      const passed = domains.siteTypes(sym);
+      if (!passed?.length) return undefined;
+      let base: Type | undefined;
+      let nullable = false;
+      for (const t of passed) {
+        if (!t) {
+          nullable = true;
+          continue;
+        }
+        const mapped = types.tryMap(t, el);
+        if (!mapped || mapped === 'void') return undefined;
+        const inner = maybeInner(mapped) ?? mapped;
+        nullable ||= inner !== mapped;
+        if (base && JSON.stringify(base) !== JSON.stringify(inner)) return undefined;
+        base = inner;
+      }
+      if (!base) return undefined;
+      let fallback = el.initializer;
+      if (fallback && runeName(fallback) === '$bindable')
+        fallback = (fallback as ts.CallExpression).arguments[0];
+      return nullable && !fallback ? { maybe: base } : base;
+    };
+
     /** `let { a, b = 1, c = $bindable() }: Props = $props()` → prop cells. */
     const props = (d: ts.VariableDeclaration) => {
       if (!ts.isObjectBindingPattern(d.name))
@@ -1387,7 +1441,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           // A prop typed wider than the value model (svelte/elements'
           // `class?: ClassValue`) takes the type of the values its sites pass.
           const values = domains.values(sym);
-          const t = values && typeOfValues(values);
+          const t = (values && typeOfValues(values)) ?? typeOfSites(sym, el);
           if (!t) {
             const why = domains.explain(sym);
             if (why)
@@ -1420,6 +1474,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           // A parent passing undefined gets the default too, as with $props().
           cells[cell].undefinedDefault = true;
           pending.push(() => {
+            // `name = undefined` (a prop typed wider than the value model takes its type from its sites).
+            if (ts.isIdentifier(f) && f.text === 'undefined' && maybeInner(type)) {
+              cells[cell].init = { op: 'undefined', type };
+              return;
+            }
             const v = lower.value(f, COMPONENT, `${name}$default`);
             const t = lower.valueType(v);
             // A function taking fewer parameters (`onOpenChange = noop`).
@@ -1454,6 +1513,34 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
      * effects tracking what they read, or running once; Svelte tears effects
      * down after removing the DOM, pre effects before the component's children.
      */
+    /** Whether a top-level expression statement calls a rune or a function imported from svelte. */
+    const isEffect = (stmt: ts.ExpressionStatement) => {
+      const call = stmt.expression;
+      if (!ts.isCallExpression(call)) return false;
+      return (
+        runeName(call) !== undefined ||
+        (ts.isIdentifier(call.expression) && lifecycle.has(call.expression.text))
+      );
+    };
+    /**
+     * Another top-level statement (bits-ui's `State.create(…)` called for its
+     * effect, `watch.pre(…)`, an `if`): it runs while the instance is
+     * created, in order with the declarations around it, as the initialiser
+     * of a hidden cell.
+     */
+    const topLevel = (stmt: ts.Statement) => {
+      const cell = cells.length;
+      cells.push({
+        name: '$statement',
+        type: 'boolean',
+        init: { op: 'lit', value: true },
+        tracking: 'none',
+        source: sourceOf(stmt),
+      });
+      pending.push(() => {
+        cells[cell].init = lower.statementValue(stmt, COMPONENT, '$statement');
+      });
+    };
     const effect = (stmt: ts.ExpressionStatement) => {
       const call = stmt.expression;
       const kind = ts.isCallExpression(call)
@@ -1671,8 +1758,16 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         }
         continue;
       }
+      if (ts.isExpressionStatement(stmt) && !isEffect(stmt)) {
+        topLevel(stmt);
+        continue;
+      }
       if (ts.isExpressionStatement(stmt)) {
         effect(stmt);
+        continue;
+      }
+      if (ts.isIfStatement(stmt)) {
+        topLevel(stmt);
         continue;
       }
       if (ts.isClassDeclaration(stmt)) {
@@ -2011,7 +2106,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const restEntry = (a: SNode): AttrItem => {
       const name: string = a.name;
       if (a.value === true)
-        return { name, value: { op: 'lit', value: BOOLEAN_ATTRS.has(name) ? true : '' } };
+        // A bare attribute passes `true` (written "true" where it reaches an element).
+        return { name, value: { op: 'lit', value: true } };
       if (Array.isArray(a.value)) {
         let joined: Expr | undefined;
         for (const part of a.value) {
@@ -2133,7 +2229,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       for (const a of n.attributes) {
         if (a.type === 'SpreadAttribute') {
           const e = exprNode(a.expression);
-          const v = value(e);
+          // A bag, or a plain record spread as its fields (bits-ui's
+          // `inputState.props`, typed by its declaration file).
+          const v = lower.bagValue(e, tb);
           if (lower.irType(v, tb) !== 'attrs')
             fail(
               'E_TEMPLATE',
@@ -2261,7 +2359,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             acc = coerceInit(w.explicit, lower.irType(w.explicit, tb), want, lower.types.records);
             continue;
           }
-          const bagValue = value(spreads[w.spread].expr);
+          const bagValue = lower.bagValue(spreads[w.spread].expr, tb);
           const name: Expr = { op: 'lit', value: key };
           acc = {
             op: 'cond',
@@ -2269,7 +2367,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             then: {
               op: 'builtin',
               name: 'attrs.get',
-              args: [value(spreads[w.spread].expr), name],
+              args: [lower.bagValue(spreads[w.spread].expr, tb), name],
               type: want,
             },
             else: acc,
@@ -2593,16 +2691,27 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           if (ts.isArrowFunction(target) || ts.isFunctionExpression(target))
             fail('E_TEMPLATE', `bind:${a.name} needs an assignable ${kind} value`, loc(a));
           const read = value(target);
-          if (JSON.stringify(typeOf(target, read)) !== JSON.stringify(kind))
+          const select = n.name === 'select';
+          // A text control bound to a nullable string shows `value ?? ''`
+          // and writes strings (Svelte's bind_value; bits-ui's hidden input).
+          const nullable =
+            kind === 'string' &&
+            !select &&
+            JSON.stringify(typeOf(target, read)) === JSON.stringify({ maybe: 'string' });
+          if (!nullable && JSON.stringify(typeOf(target, read)) !== JSON.stringify(kind))
             fail('E_TEMPLATE', `bind:${a.name} needs an assignable ${kind} value`, loc(a));
-          props.push({ name: a.name, value: read });
+          props.push({
+            name: a.name,
+            value: nullable ? { op: 'nullish', left: read, right: { op: 'lit', value: '' } } : read,
+          });
           // A select's value binding follows its change event (Svelte's
           // bind_select_value), reading the chosen option's value.
-          const select = n.name === 'select';
           const event: HandlerEvent = kind === 'string' && !select ? 'input' : 'change';
           const written: Expr | undefined = select
             ? { op: 'builtin', name: 'event.value', args: [{ op: 'event' }], type: 'string' }
-            : undefined;
+            : nullable
+              ? { op: 'some', value: { op: 'payload' } }
+              : undefined;
           bound = { event, handler: lower.bindHandler(target, COMPONENT, event, tb, written) };
         } else if (a.type === 'StyleDirective') {
           if (a.modifiers?.length)
@@ -2648,7 +2757,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (a.type === 'SpreadAttribute') {
           if (spread) fail('E_TEMPLATE', 'One spread per element is supported', loc(a));
           const e = exprNode(a.expression);
-          const v = value(e);
+          // A bag, or a plain record spread as its fields (bits-ui's
+          // `inputState.props`, typed by its declaration file).
+          const v = lower.bagValue(e, tb);
           if (lower.irType(v, tb) !== 'attrs')
             fail(
               'E_TEMPLATE',

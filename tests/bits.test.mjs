@@ -127,6 +127,37 @@ test('Separator and Progress: props through rest bags, values as Svelte spreads 
   assert.equal(bar(progress[1]).children[0].attrs.style, 'transform: translateX(-100%);');
 });
 
+test("svelte-toolbelt's srOnlyStyles in the pack is the package's", async () => {
+  const { SR_ONLY_STYLES } = await import('../frontend/packs/svelte-toolbelt-0.10.6.ts');
+  const { srOnlyStyles } =
+    await import('../node_modules/svelte-toolbelt/dist/utils/sr-only-styles.js');
+  assert.deepEqual(Object.entries(SR_ONLY_STYLES), Object.entries(srOnlyStyles));
+});
+
+test('Checkbox and Label: label activation, double clicks (e.detail), the hidden input', async () => {
+  const { ir } = await lowered('fixtures/bits-checkbox-svelte');
+  const steps = interpret(ir, [
+    { kind: 'click', id: 'bound' },
+    { kind: 'click', id: 'bound-label' },
+    { kind: 'dblclick', id: 'bound-label' },
+    { kind: 'click', id: 'toggle-checkbox' },
+  ]);
+  // checked, indeterminate, onCheckedChange calls: the first click clears
+  // indeterminate and checks; the label's click toggles the button; a
+  // double click toggles twice; the disabled box ignores clicks.
+  assert.deepEqual(
+    steps.map(s => text(byId(s, 'state')).trim()),
+    ['false true 0', 'true false 1', 'false false 2', 'false false 4', 'false false 4'],
+  );
+  // The hidden input: checked as a property (no attribute), srOnlyStyles.
+  const button = byId(steps[1], 'bound');
+  assert.equal(button.attrs['aria-checked'], 'true');
+  const input = flat(steps[1].state.dom).find(n => n.tag === 'input' && n.attrs.name === 'bound');
+  assert.equal(input.attrs.checked, undefined);
+  assert.equal(input.checked, true);
+  assert.match(input.attrs.style, /^position: absolute; width: 1px;.* top: 0px; left: 0px;$/);
+});
+
 test('another version of a package compiled from source is rejected', async () => {
   await withApp(
     {

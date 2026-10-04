@@ -362,7 +362,12 @@ export class TypeMapper {
       const order = this.keyOrder(literal, placeholder.fields);
       placeholder.fields.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
     }
-    const declarations = (t.aliasSymbol ?? t.symbol)?.declarations ?? [];
+    // (An intersection, such as bits-ui's snippet props, by its members.)
+    const declarations =
+      (t.aliasSymbol ?? t.symbol)?.declarations ??
+      (t.isIntersection() && t.types.every(m => (m.aliasSymbol ?? m.symbol)?.declarations?.length)
+        ? t.types.flatMap(m => (m.aliasSymbol ?? m.symbol)!.declarations!)
+        : []);
     if (
       declarations.length &&
       declarations.every(

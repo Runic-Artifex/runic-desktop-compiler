@@ -51,8 +51,19 @@ export interface PropDecl {
 export type SiteValue =
   | { expr: ts.Expression }
   | { value: unknown }
-  /** Values the analysis cannot see (a spread, text mixed with expressions). */
-  | { open: true };
+  /**
+   * Values the analysis cannot see (a spread, text mixed with expressions);
+   * a spread names the bag expression whose property supplies the value.
+   */
+  | {
+      open: true;
+      spread?: ts.Expression;
+      /**
+       * The spread is the rest props of this component (the site's own
+       * component): it passes what that component's sites pass.
+       */
+      restOf?: number;
+    };
 
 /** One place that instantiates a component, with the values it passes by prop name. */
 export interface Site {
@@ -106,6 +117,81 @@ export class PropDomains implements DomainHook {
       list.push(s);
     }
     this.read = read;
+  }
+
+  /**
+   * The TypeScript types the sites pass for prop `sym` (a site passing
+   * nothing contributes undefined, a spread the type of its bag's property),
+   * for a prop typed wider than the value model whose values are open;
+   * undefined when a site's type is unknown (text mixed with expressions).
+   */
+  siteTypes(sym: ts.Symbol): (ts.Type | undefined)[] | undefined {
+    const d = this.decls.get(sym);
+    if (!d) return undefined;
+    const out: (ts.Type | undefined)[] = [];
+    for (const site of this.byComponent.get(d.component) ?? []) {
+      const types = this.passedTypes(site.values.get(d.key), d.key, new Set());
+      if (!types) return undefined;
+      out.push(...types);
+    }
+    return out;
+  }
+
+  /** The TypeScript types a site's passed value can have (undefined: unknown). */
+  private passedTypes(
+    passed: SiteValue | undefined,
+    key: string,
+    seen: Set<number>,
+  ): (ts.Type | undefined)[] | undefined {
+    const checker = this.lower.checker;
+    if (!passed) return [undefined];
+    if ('expr' in passed) return [checker.getTypeAtLocation(passed.expr)];
+    if ('value' in passed)
+      return typeof passed.value === 'string'
+        ? [checker.getStringType()]
+        : typeof passed.value === 'boolean'
+          ? [checker.getBooleanType()]
+          : undefined;
+    if (passed.restOf !== undefined) {
+      if (seen.has(passed.restOf)) return undefined;
+      seen.add(passed.restOf);
+      const out: (ts.Type | undefined)[] = [];
+      for (const site of this.byComponent.get(passed.restOf) ?? []) {
+        const types = this.passedTypes(site.values.get(key), key, seen);
+        if (!types) return undefined;
+        out.push(...types);
+      }
+      seen.delete(passed.restOf);
+      return out;
+    }
+    if (passed.spread) {
+      const bag = checker.getTypeAtLocation(passed.spread);
+      const prop = checker.getPropertyOfType(bag, key);
+      return prop ? [checker.getTypeOfSymbolAtLocation(prop, passed.spread)] : undefined;
+    }
+    return undefined;
+  }
+
+  /** The values a site's passed value can take (undefined: open). */
+  private passedValues(
+    passed: SiteValue | undefined,
+    key: string,
+    seen: Set<number>,
+  ): unknown[] | undefined {
+    if (!passed) return [undefined];
+    if ('value' in passed) return [passed.value];
+    if ('expr' in passed)
+      return valueSet({ lower: this.lower, label: 'prop domains' }, passed.expr);
+    if (passed.restOf === undefined || seen.has(passed.restOf)) return undefined;
+    seen.add(passed.restOf);
+    let out: unknown[] | undefined = [];
+    for (const site of this.byComponent.get(passed.restOf) ?? []) {
+      const v = this.passedValues(site.values.get(key), key, seen);
+      out = v && out && [...out, ...v];
+      if (!out) break;
+    }
+    seen.delete(passed.restOf);
+    return out;
   }
 
   /** The index of `site` among its component's sites. */
@@ -174,11 +260,7 @@ export class PropDomains implements DomainHook {
     try {
       const site = this.byComponent.get(d.component)![index];
       const passed = site.values.get(d.key);
-      let values: unknown[] | undefined;
-      if (!passed) values = [undefined];
-      else if ('open' in passed) values = undefined;
-      else if ('value' in passed) values = [passed.value];
-      else values = valueSet({ lower: this.lower, label: 'prop domains' }, passed.expr);
+      let values = this.passedValues(passed, d.key, new Set([d.component]));
       // An absent or undefined value takes the fallback.
       if (values && d.fallback && values.includes(undefined)) {
         const fallback = valueSet({ lower: this.lower, label: 'prop domains' }, d.fallback);

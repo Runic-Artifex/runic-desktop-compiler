@@ -518,7 +518,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 "type" | "key" | "code" | "value" => Ok(s),
                 "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "checked"
                 | "defaultPrevented" | "matches" => Ok(b),
-                "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" => Ok(n),
+                "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" | "detail" => Ok(n),
                 "target" => Ok(Element),
                 "relatedTarget" => Ok(Maybe(Box::new(Element))),
                 // Null once the dispatch is over.
@@ -601,6 +601,22 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("element", "isConnected") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| b)
+        }
+        // `instanceof HTMLElement`: not in the SVG namespace.
+        ("element", "isHTML") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| b)
+        }
+        // The nearest inclusive ancestor with a tag name (a literal).
+        ("element", "closest") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "tag name").map(|_| Maybe(Box::new(Element)))
+        }
+        // Form submission is not modelled (no form element can be rendered).
+        ("element", "requestSubmit") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Void)
         }
         ("element", "style-get") => {
             arity(args, 2, 2)?;

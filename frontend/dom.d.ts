@@ -31,7 +31,14 @@ interface HTMLElement {
   readonly isConnected: boolean;
   readonly style: ElementInlineStyle;
   getAnimations(): Animation[];
+  // M6 (bits-ui's checkbox): the nearest ancestor with a tag name, and a
+  // form's submission (no form element can be rendered: reported
+  // unsupported if it ever ran).
+  closest(tagName: string): HTMLElement | null;
+  requestSubmit(): void;
 }
+/** M6 (bits-ui's isHTMLElement): `x instanceof HTMLElement` of element values. */
+declare var HTMLElement: { prototype: HTMLElement };
 /** An element's inline style: CSS properties by their camelCase names. */
 interface ElementInlineStyle {
   [property: string]: string;

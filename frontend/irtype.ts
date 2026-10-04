@@ -224,6 +224,7 @@ export const EVENT_MEMBERS: Record<string, Type> = {
   buttons: N,
   deltaX: N,
   deltaY: N,
+  detail: N,
   defaultPrevented: B,
   target: 'element',
   relatedTarget: { maybe: 'element' },

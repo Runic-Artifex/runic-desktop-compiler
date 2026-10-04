@@ -61,11 +61,13 @@ interface Declared {
       accessors: Set<string>;
     }
   >;
+  /** Constants (`export declare const X: T`). */
+  variables: Set<string>;
 }
 
 function declarations(dts: string): Declared {
   const sf = ts.createSourceFile(dts, readFileSync(dts, 'utf8'), ts.ScriptTarget.Latest, true);
-  const out: Declared = { functions: new Map(), classes: new Map() };
+  const out: Declared = { functions: new Map(), classes: new Map(), variables: new Set() };
   const isStatic = (m: ts.Node) =>
     ts.canHaveModifiers(m) &&
     !!ts.getModifiers(m)?.some(x => x.kind === ts.SyntaxKind.StaticKeyword);
@@ -86,6 +88,9 @@ function declarations(dts: string): Declared {
           },
         ],
       });
+    } else if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && d.type) out.variables.add(d.name.text);
     } else if (ts.isClassDeclaration(stmt) && stmt.name) {
       const c = {
         generic: !!stmt.typeParameters?.length,
@@ -156,7 +161,9 @@ export function annotate(
 ): PackageModule {
   const virtual = file + '.__runic.ts';
   const dts = declarationFile(file);
-  const declared: Declared = dts ? declarations(dts) : { functions: new Map(), classes: new Map() };
+  const declared: Declared = dts
+    ? declarations(dts)
+    : { functions: new Map(), classes: new Map(), variables: new Set() };
   const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const inserts: { at: number; text: string }[] = [];
   const add = (at: number, text: string) => inserts.push({ at, text });
@@ -174,13 +181,23 @@ export function annotate(
     if (at !== undefined && !decl.type) add(at, `: ${type}`);
   };
   for (const stmt of sf.statements) {
+    // Exported constants take their declared types (runed `Context<T>` keys).
+    if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && !d.type && declared.variables.has(d.name.text))
+          add(d.name.end, `: typeof __dts.${d.name.text}`);
+      continue;
+    }
     if (ts.isFunctionDeclaration(stmt) && stmt.name && stmt.body) {
       const d = declared.functions.get(stmt.name.text);
       if (!d || d.generic) continue;
       if (d.signatures === 1) {
         const f = `typeof __dts.${stmt.name.text}`;
         params(stmt, i => `Parameters<${f}>[${i}]`);
-        result(stmt, `ReturnType<${f}>`);
+        // A type predicate (`element is HTMLElement`) narrows at call sites.
+        const predicate = /^(\w+) is /.exec(d.overloads[0].result);
+        const named = predicate && stmt.parameters.some(p => p.name.getText(sf) === predicate[1]);
+        result(stmt, named ? d.overloads[0].result : `ReturnType<${f}>`);
         continue;
       }
       // Overloads (`createId(uid)`, `createId(prefix, uid)`): each parameter

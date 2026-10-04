@@ -27,11 +27,13 @@
 // - `afterTick(fn)` (dist/utils/after-tick.js): `tick().then(fn)`.
 // - `onDestroyEffect(fn)` (dist/utils/on-destroy-effect.svelte.js): an
 //   effect of the instance being created whose cleanup calls `fn`.
+// - `srOnlyStyles` (dist/utils/sr-only-styles.js): a constant style object,
+//   folded where it is spread into a bag's style object.
 //
 // Other exports and argument shapes are rejected (E_PACK).
 import ts from 'typescript';
 import type { Expr, Fn, Local, Stmt, Type } from '../ir.ts';
-import type { FnBuilder, Lowerer } from '../language.ts';
+import { skipParens, type FnBuilder, type Lowerer } from '../language.ts';
 import type { Pack } from '../packs.ts';
 import { emptyShape, union } from '../bags.ts';
 import { maybeInner } from '../irtype.ts';
@@ -139,15 +141,82 @@ function functionArg(e: ts.Expression, b: FnBuilder, lower: Lowerer, want: Type)
   return v;
 }
 
+/**
+ * `srOnlyStyles` (dist/utils/sr-only-styles.js): a style object, spread into
+ * the style objects of attribute bags (bits-ui's hidden inputs).
+ * tests/bits.test.mjs checks it against the package.
+ */
+export const SR_ONLY_STYLES: Readonly<Record<string, string>> = Object.freeze({
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: '0',
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  borderWidth: '0',
+  transform: 'translateX(-100%)',
+});
+
 /** `boxWith(getter, setter?)`. */
 function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const [getter, setter] = node.arguments;
   if (!getter || node.arguments.length > 2 || node.arguments.some(ts.isSpreadElement))
     return lower.fail(node, 'E_PACK', `${LABEL}: boxWith takes a getter and an optional setter`);
-  const box = lower.types.of(node);
+  // A box of a value TypeScript types `any` (a prop typed wider than the
+  // value model, typed from its sites): the getter's result type.
+  const current = lower.checker.getTypeAtLocation(node).getProperty('current');
+  const untyped =
+    current &&
+    lower.checker.getTypeOfSymbolAtLocation(current, node).flags &
+      (ts.TypeFlags.Any | ts.TypeFlags.Unknown);
+  let box: Type;
+  if (untyped) {
+    const g = lower.expr(getter, b);
+    const gt = lower.irType(g, b);
+    if (typeof gt !== 'object' || !('fn' in gt) || gt.fn.params.length)
+      return lower.fail(getter, 'E_PACK', `${LABEL}: boxWith takes a getter`);
+    box = { record: boxRecord(lower, gt.fn.result) };
+  } else box = lower.types.of(node);
   const t = boxValue(lower, box);
   if (t === undefined) return lower.fail(node, 'E_PACK', `${LABEL}: boxWith's type is not a box`);
   const get = functionArg(getter, b, lower, fnType([], t));
+  // A readable box where one of the nullable type is expected (bits-ui's
+  // `value: boxWith(() => value)` for an option `ReadableBox<string |
+  // undefined>`): the box of the nullable type, its getter wrapping the value.
+  const context = lower.checker.getContextualType(node);
+  const wanted = context && lower.types.tryMap(context, node);
+  const wt = wanted && boxValue(lower, wanted);
+  if (!setter && wt && maybeInner(wt) && JSON.stringify(maybeInner(wt)) === JSON.stringify(t)) {
+    const getType = fnType([], t);
+    const widen = define(lower, {
+      name: 'boxWith$widen',
+      captures: [{ name: 'get', type: getType }],
+      params: [],
+      result: wt,
+      body: [
+        {
+          op: 'return',
+          value: { op: 'some', value: { op: 'call-value', callee: local(0), args: [] } },
+        },
+      ],
+    });
+    const tmp = b.local('$get', getType);
+    return {
+      op: 'with',
+      local: tmp,
+      value: get,
+      body: {
+        op: 'record',
+        record: (wanted as { record: number }).record,
+        fields: [
+          { op: 'closure', function: widen, captures: [tmp] },
+          { op: 'undefined', type: { maybe: fnType([wt], 'void') } },
+        ],
+      },
+    };
+  }
   const set: Expr = setter
     ? { op: 'some', value: functionArg(setter, b, lower, fnType([t], 'void')) }
     : { op: 'undefined', type: { maybe: fnType([t], 'void') } };
@@ -158,6 +227,9 @@ function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
 function mergeProps(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const args = node.arguments.map(a => {
     if (ts.isSpreadElement(a)) return lower.fail(a, 'E_PACK', `${LABEL}: spread arguments`);
+    // An object literal is a bag of its entries (`{ type }`, `{ ...restProps }`).
+    const literal = skipParens(a);
+    if (ts.isObjectLiteralExpression(literal)) return lower.bagLiteral(literal, b);
     const v = lower.expr(a, b);
     if (lower.irType(v, b) !== 'attrs')
       lower.fail(a, 'E_PACK', `${LABEL}: mergeProps takes attribute bags (props objects)`);
@@ -336,8 +408,10 @@ export const svelteToolbeltPack: Pack = {
         return { kind: 'function', call: afterTick };
       case 'onDestroyEffect':
         return { kind: 'function', call: onDestroyEffect };
+      case 'srOnlyStyles':
+        return { kind: 'constant', value: SR_ONLY_STYLES };
     }
-    return `${LABEL} covers boxWith, mergeProps, attachRef, afterTick and onDestroyEffect, not ${imported}`;
+    return `${LABEL} covers boxWith, mergeProps, attachRef, afterTick, onDestroyEffect and srOnlyStyles, not ${imported}`;
   },
   type(t, at, lower) {
     // ReadableBox<T> and WritableBox<T> (dist/box/box-extras.svelte.d.ts):

@@ -1,0 +1,91 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/checkbox-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/checkbox-demo.svelte",
+      "sha256": "070e3c68c2f30d3a7e6b5310aa34dac534406826554b37c8c688b76764910217"
+    },
+    "src/lib/registry/examples/label-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/label-demo.svelte",
+      "sha256": "5f57ffc8f80cf0483af10e2fc457cf4fad8aead9fde3d069619af30a680aee5b"
+    },
+    "src/lib/registry/ui/checkbox/checkbox.svelte": {
+      "upstream": "docs/src/lib/registry/ui/checkbox/checkbox.svelte",
+      "sha256": "bd2d4c2164defe806872b17bddfdb565a5eee349e16008d7dcb3e891e6f2697f"
+    },
+    "src/lib/registry/ui/checkbox/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/checkbox/index.ts",
+      "sha256": "39b322ab4a26c63f60c64588ff4b18552c8b596e8472b9261fb68429b8cff1d6"
+    },
+    "src/lib/registry/ui/field/field-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-content.svelte",
+      "sha256": "340d9cceb0e4ed43b24dd4bb4e29492e49975b750711baf119d13a26e7dcda6f"
+    },
+    "src/lib/registry/ui/field/field-description.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-description.svelte",
+      "sha256": "08e9666ecf336a78dc07f745237e5d084a43d0994a9ccac4f0e5ec4ec62e6c17"
+    },
+    "src/lib/registry/ui/field/field-error.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-error.svelte",
+      "sha256": "427bde3419c1204fd2b64173ed6c4658860c47b97ba37d30bb2f82fc56a39651"
+    },
+    "src/lib/registry/ui/field/field-group.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-group.svelte",
+      "sha256": "5e21006bd999d94e31e859c1ee19f1000fa414658de80b84926c3f9c24651a2f"
+    },
+    "src/lib/registry/ui/field/field-label.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-label.svelte",
+      "sha256": "efa1a4a38bddb7aa4ad24e0daef3f90b21da109dade9ce2b6d48b311c49714d1"
+    },
+    "src/lib/registry/ui/field/field-legend.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-legend.svelte",
+      "sha256": "d9ecf087687e65887901d858eb0b89543f2e21c6d202cb198205cb4449b31c6a"
+    },
+    "src/lib/registry/ui/field/field-separator.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-separator.svelte",
+      "sha256": "9354b3887533409a3607490eda6988104167fa9219f77cabf75a006236807e48"
+    },
+    "src/lib/registry/ui/field/field-set.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-set.svelte",
+      "sha256": "aee3c01d7afb5608b13c2b4841d4627304b7cddb45a577093d8208481411342d"
+    },
+    "src/lib/registry/ui/field/field-title.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field-title.svelte",
+      "sha256": "c726e04191ceedba874935b5e03655992e45cd54c3707f96a7a868c3e4ea4498"
+    },
+    "src/lib/registry/ui/field/field.svelte": {
+      "upstream": "docs/src/lib/registry/ui/field/field.svelte",
+      "sha256": "fd4129b81a05a7a9284e1c38672bdf4e6f2668f3ee0f1bdcd95e699da96d451d"
+    },
+    "src/lib/registry/ui/field/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/field/index.ts",
+      "sha256": "f23a9216b464c2d979b5994b8088e915e4ae8b69d1ee8eaa611ea336a8971e05"
+    },
+    "src/lib/registry/ui/label/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/label/index.ts",
+      "sha256": "ea17621b03066fc6c0ab811ec97aac0cb2de4b504c0a1fc3f480c8fc4bef12f1"
+    },
+    "src/lib/registry/ui/label/label.svelte": {
+      "upstream": "docs/src/lib/registry/ui/label/label.svelte",
+      "sha256": "9ffcff650f61f1c19aae78b92c6af88d3b97eaf007a18b9020fc02c069605d05"
+    },
+    "src/lib/registry/ui/separator/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/separator/index.ts",
+      "sha256": "beeaaaab286f1aeff1e43a8ef1c02a60de5e6349780d12af73e9646c6db98bf6"
+    },
+    "src/lib/registry/ui/separator/separator.svelte": {
+      "upstream": "docs/src/lib/registry/ui/separator/separator.svelte",
+      "sha256": "6640a4c992ec62329efe8d5aa499c39d3b1163b50f4f2bee0edebf5a4f49a9db"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

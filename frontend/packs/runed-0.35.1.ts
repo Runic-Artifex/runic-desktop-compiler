@@ -144,6 +144,61 @@ function contextConstant(
         }
         return { op: 'call', function: getter, args: [] };
       },
+      // `getOr(fallback)`: the value, or the fallback when none is set.
+      getOr(n, b, l) {
+        if (n.arguments.length !== 1) l.fail(n, 'E_PACK', `${LABEL}: getOr takes the fallback`);
+        const t = valueType(n);
+        const found = b.local('$context', { maybe: t });
+        const arg = skipParens(n.arguments[0]);
+        // A nullish fallback makes the result nullable.
+        const literal: Expr | undefined =
+          arg.kind === ts.SyntaxKind.NullKeyword
+            ? { op: 'null', type: { maybe: t } }
+            : ts.isIdentifier(arg) && arg.text === 'undefined'
+              ? { op: 'undefined', type: { maybe: t } }
+              : undefined;
+        const nullable =
+          literal !== undefined || maybeInner(l.types.of(n.arguments[0])) !== undefined;
+        const result: Type = nullable ? { maybe: t } : t;
+        const read: Expr = local(found);
+        return {
+          op: 'with',
+          local: found,
+          value: {
+            op: 'builtin',
+            name: 'context.get',
+            args: [{ op: 'lit', value: key }],
+            type: { maybe: t },
+          },
+          body: {
+            op: 'cond',
+            test: { op: 'builtin', name: 'maybe.is-undefined', args: [read], type: 'boolean' },
+            then: literal ?? l.coerce(n.arguments[0], b, result),
+            else: nullable ? read : { op: 'unwrap', value: read },
+          },
+        } as Expr;
+      },
+      // `exists()`: whether a value is set.
+      exists(n, _b, l) {
+        if (n.arguments.length) l.fail(n, 'E_PACK', `${LABEL}: exists takes no arguments`);
+        const t = valueType(n);
+        return {
+          op: 'not',
+          arg: {
+            op: 'builtin',
+            name: 'maybe.is-undefined',
+            args: [
+              {
+                op: 'builtin',
+                name: 'context.get',
+                args: [{ op: 'lit', value: key }],
+                type: { maybe: t },
+              },
+            ],
+            type: 'boolean',
+          },
+        };
+      },
     },
   };
 }

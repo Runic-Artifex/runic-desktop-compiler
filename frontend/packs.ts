@@ -98,7 +98,17 @@ export interface PackComponent {
   ): Node;
 }
 
-export type PackExport = PackFunction | PackComponent;
+/**
+ * A constant export: a plain value the package defines (svelte-toolbelt's
+ * `srOnlyStyles`), folded where it is used as build-time constants are
+ * (`Lowerer.constantMember`, spreads into style objects).
+ */
+export interface PackConstant {
+  kind: 'constant';
+  value: unknown;
+}
+
+export type PackExport = PackFunction | PackComponent | PackConstant;
 
 export interface Pack {
   name: string;
@@ -259,10 +269,7 @@ export function bindPackImport(
     if (!sym) return lower.fail(id, 'E_PACK', `Cannot bind ${id.text}`);
     const { pack, value } = found;
     const label = `${imported === 'default' ? spec : `${imported} of ${spec}`} (${pack.name}@${pack.version})`;
-    lower.bindings.set(
-      sym,
-      value.kind === 'function' ? functionBinding(pack, label, value) : { kind: 'pack', label },
-    );
+    lower.bindings.set(sym, exportBinding(lower, pack, label, value));
   }
   return true;
 }
@@ -321,12 +328,19 @@ export function bindPackReexport(
     if (!sym) return lower.fail(el, 'E_PACK', `Cannot bind ${el.name.text}`);
     const { pack, value } = found;
     const label = `${imported} of ${spec} (${pack.name}@${pack.version})`;
-    lower.bindings.set(
-      sym,
-      value.kind === 'function' ? functionBinding(pack, label, value) : { kind: 'pack', label },
-    );
+    lower.bindings.set(sym, exportBinding(lower, pack, label, value));
   }
   return true;
+}
+
+/** The binding of a pack export. */
+function exportBinding(lower: Lowerer, pack: Pack, label: string, value: PackExport): Binding {
+  if (value.kind === 'function') return functionBinding(pack, label, value);
+  if (value.kind === 'constant') {
+    usePack(lower, pack);
+    return { kind: 'constant', label, value: value.value };
+  }
+  return { kind: 'pack', label };
 }
 
 /** The binding of a pack function: its uses record the pack. */

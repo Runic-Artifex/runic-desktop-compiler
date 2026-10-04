@@ -265,7 +265,7 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
       'E_STATEMENT',
     ],
     ['counter-svelte', 'const initial=n;', '$effect(async () => {}); const initial=n;', 'E_EFFECT'],
-    ['counter-svelte', 'const initial=n;', 'n; const initial=n;', 'E_STATEMENT'],
+    ['counter-svelte', 'const initial=n;', 'while (n) {} const initial=n;', 'E_STATEMENT'],
     ['counter-svelte', 'n=2;', 'doubled=2;', 'E_ASSIGN'],
     // A derived value using a host service (M5).
     ['counter-svelte', '()=>n*2', '() => { console.log(n); return n*2; }', 'E_REACTIVITY'],

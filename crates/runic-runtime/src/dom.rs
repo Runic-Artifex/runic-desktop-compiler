@@ -277,6 +277,8 @@ pub struct Spread<L> {
     /// The inline style a `style` entry manages, and whether one does.
     style: runic_css::StyleState,
     styled: bool,
+    /// The `checked` a Svelte spread last assigned to an input's property.
+    checked: Option<bool>,
 }
 
 impl<L> Default for Spread<L> {
@@ -287,6 +289,7 @@ impl<L> Default for Spread<L> {
             listeners: Vec::new(),
             style: Default::default(),
             styled: false,
+            checked: None,
         }
     }
 }
@@ -335,6 +338,30 @@ impl Host {
                 .get_node(NodeId::from_u64(node))
                 .is_some_and(|n| n.flags.is_in_document())
         })
+    }
+
+    /// `element instanceof HTMLElement`: an element outside the SVG namespace.
+    pub fn is_html(&self, node: u64) -> bool {
+        self.dom().is_none_or(|dom| {
+            dom.doc
+                .get_node(NodeId::from_u64(node))
+                .and_then(|n| n.element_data())
+                .is_none_or(|e| &*e.name.ns != "http://www.w3.org/2000/svg")
+        })
+    }
+
+    /// `element.closest(tag)`: the nearest inclusive ancestor element with
+    /// that tag name.
+    pub fn closest(&self, node: u64, tag: &str) -> Option<u64> {
+        let dom = self.dom()?;
+        let mut at = dom.doc.get_node(NodeId::from_u64(node));
+        while let Some(n) = at {
+            if n.element_data().is_some_and(|e| *e.name.local == *tag) {
+                return Some(NodeId::from(n.id).as_u64());
+            }
+            at = n.parent.and_then(|p| dom.doc.get_node(p));
+        }
+        None
     }
 
     /// `element.hasAttribute(name)`.
@@ -737,6 +764,14 @@ impl Dom<'_> {
         self.radios_connected(nodes);
     }
 
+    /// Whether `node` is an element with tag `tag`.
+    fn tag_is(&self, node: NodeId, tag: &str) -> bool {
+        self.doc
+            .get_node(node)
+            .and_then(|n| n.element_data())
+            .is_some_and(|e| &*e.name.local == tag)
+    }
+
     /// Apply an element's attribute bag: attributes it no longer holds are
     /// removed and listener registrations follow its `on<event>` entries
     /// (`listen` registers a listener with the app and gives its key).
@@ -760,6 +795,7 @@ impl Dom<'_> {
         let mut wanted: Vec<(Event, usize, L)> = vec![];
         let mut attachments = vec![];
         let mut style = false;
+        let mut checked = false;
         for (name_js, value) in bag.resolved() {
             let name = name_js.to_rust();
             if name.starts_with(runic_js::ATTACHMENT) {
@@ -804,6 +840,16 @@ impl Dom<'_> {
                     crate::unsupported(
                         "hidden=\"until-found\" (Blitz has no find-in-page and hides the content)",
                     );
+                    continue;
+                }
+                // Svelte's set_attributes assigns an input's `checked` to its
+                // property (live state, no attribute), when it changed.
+                ("checked", AttrValue::Flag(b)) if boolean_text && self.tag_is(node, "input") => {
+                    if applied.checked != Some(*b) {
+                        applied.checked = Some(*b);
+                        self.set_checked(node, *b);
+                    }
+                    checked = true;
                     continue;
                 }
                 // Svelte's set_attributes assigns a defined `value` to the
@@ -856,6 +902,10 @@ impl Dom<'_> {
             applied.style = Default::default();
         }
         applied.styled = style;
+        // A `checked` the bag no longer holds: Svelte assigns null (false).
+        if !checked && applied.checked.take() == Some(true) {
+            self.set_checked(node, false);
+        }
         // Listeners: keep registrations of the same function, drop the
         // others, register the new ones.
         let mut kept = vec![];

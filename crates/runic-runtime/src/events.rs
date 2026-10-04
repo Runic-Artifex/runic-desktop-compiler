@@ -809,6 +809,18 @@ fn pointer_data(p: &BlitzPointerEvent) -> EventData {
     d
 }
 
+/// A mouse button event's data with its `detail`: the click count of
+/// main button presses (one for a press of another button).
+fn counted(p: &BlitzPointerEvent, clicks: u32) -> EventData {
+    let mut d = pointer_data(p);
+    d.detail = if p.button == MouseEventButton::Main {
+        clicks as f64
+    } else {
+        1.0
+    };
+    d
+}
+
 fn key_data(k: &BlitzKeyEvent) -> EventData {
     let mut d = EventData {
         key: k.key.to_string().as_str().into(),
@@ -1509,7 +1521,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
             DomEventData::MouseUp(p) => {
                 // Disabled controls get no mouse button events.
                 if !self.pointer.suppress_mouse && !inside_disabled(doc, chain) {
-                    self.fire(doc, chain, Event::Mouseup, pointer_data(p));
+                    self.fire(doc, chain, Event::Mouseup, counted(p, self.pointer.clicks));
                 }
                 self.pointer.suppress_mouse = false;
             }
@@ -1521,7 +1533,12 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 let e = if self.pointer.suppress_mouse || blocked {
                     None
                 } else {
-                    self.fire(doc, chain, Event::Mousedown, pointer_data(p))
+                    self.fire(
+                        doc,
+                        chain,
+                        Event::Mousedown,
+                        counted(p, self.pointer.clicks),
+                    )
                 };
                 if Self::cancelled(&e) {
                     // Focus stays where it is (the menu and popover pattern).
@@ -1611,14 +1628,14 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 // `change` handler may have removed it.
                 state.prevent_default();
                 let count = self.pointer.clicks;
-                self.activate_checkbox(doc, chain[0], pointer_data(p));
+                self.activate_checkbox(doc, chain[0], counted(p, count));
                 if count == 2 && !inside_disabled(doc, chain) {
-                    self.fire(doc, chain, Event::Dblclick, pointer_data(p));
+                    self.fire(doc, chain, Event::Dblclick, counted(p, 2));
                 }
             }
             DomEventData::Click(p) => {
                 let count = self.pointer.clicks;
-                let e = self.click(doc, chain, pointer_data(p));
+                let e = self.click(doc, chain, counted(p, count));
                 // Focus moved on mousedown; Blitz's default click action would
                 // clear it again without focus events. The click's default
                 // actions of the supported elements are done here (checkboxes
@@ -1649,7 +1666,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     }
                 }
                 if count == 2 && !inside_disabled(doc, chain) {
-                    self.fire(doc, chain, Event::Dblclick, pointer_data(p));
+                    self.fire(doc, chain, Event::Dblclick, counted(p, 2));
                 }
             }
             DomEventData::KeyDown(k) if k.key == Key::Tab => {
