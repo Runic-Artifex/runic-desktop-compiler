@@ -1,0 +1,22 @@
+{
+  "description": "Plain classes (M6 stage A) as a model: a private field behind a clamping getter and setter, a static factory and a static constant, a bound method and an arrow function field used as click listeners, an arrow function field added as a window keydown listener and removed by identity, an immutable class held in framework state and read through getters, and a class declared in the component script (Svelte and Vue)",
+  "fixtures": ["class-model-svelte", "class-model-react", "class-model-vue"],
+  "actions": [
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "decrement" },
+    { "kind": "press", "key": "+" },
+    { "kind": "click", "id": "push" },
+    { "kind": "press", "key": "+" },
+    { "kind": "click", "id": "push" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "increment" },
+    { "kind": "click", "id": "push" },
+    { "kind": "click", "id": "pop" },
+    { "kind": "press", "key": "-" },
+    { "kind": "click", "id": "push" },
+    { "kind": "click", "id": "reset" },
+    { "kind": "click", "id": "decrement" },
+    { "kind": "click", "id": "pop" }
+  ]
+}
