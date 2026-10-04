@@ -31,6 +31,8 @@ import { arrayElement } from '../irtype.ts';
 type SNode = any;
 
 const TAGS = new Set([
+  'select',
+  'option',
   'textarea',
   'label',
   'div',
@@ -964,7 +966,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (typeof t === 'object' && 'maybe' in t) return maybeText(lower, v, t);
       return { op: 'to-string', arg: v };
     };
-    const clean = (fragment: SNode): SNode[] => {
+    const clean = (fragment: SNode, parent?: string): SNode[] => {
       // Comments, <svelte:window> and <svelte:document> leave no node;
       // the text around them joins.
       const list: SNode[] = [];
@@ -985,6 +987,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           if (list[i + 1]?.type !== 'ExpressionTag')
             list[i].data = list[i].data.replace(/\s+$/, ' ');
         }
+      // Elements whose whitespace-only text Svelte drops (it would not render).
+      const drops = ['select', 'tr', 'table', 'tbody', 'thead', 'tfoot', 'colgroup', 'datalist'];
+      if (parent && drops.includes(parent))
+        return list.filter(n => !(n.type === 'Text' && n.data === ' '));
       return list;
     };
     const handlerFor = (v: SNode, event: HandlerEvent, where: SNode): Listener => {
@@ -1033,14 +1039,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       handlers.push({ event, ...rest, source: loc(where) });
       return { event, handler: handlers.length - 1, ...(args?.length ? { args } : {}) };
     };
-    const children = (fragment: SNode): Node[] => {
+    const children = (fragment: SNode, parent?: string): Node[] => {
       const out: Node[] = [];
       let parts: Expr[] = [];
       const flush = () => {
         if (parts.length) out.push({ kind: 'text', parts });
         parts = [];
       };
-      for (const n of clean(fragment)) {
+      for (const n of clean(fragment, parent)) {
         if (n.type === 'Text') {
           if (n.data) parts.push({ op: 'lit', value: n.data });
         } else if (n.type === 'ExpressionTag') parts.push(display(exprNode(n.expression)));
@@ -1357,8 +1363,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             const event = name.slice(2);
             if (!EVENT_KINDS.includes(event as HandlerEvent))
               fail('E_EVENT', `on${event} handlers are planned for a later milestone`, loc(a));
-            if (event === 'change' && !checkbox)
-              fail('E_EVENT', 'onchange is supported on checkboxes (text inputs: oninput)', loc(a));
+            if (event === 'change' && !checkbox && n.name !== 'select')
+              fail(
+                'E_EVENT',
+                'onchange is supported on checkboxes and selects (text inputs: oninput)',
+                loc(a),
+              );
             if (a.value === true || Array.isArray(a.value))
               fail('E_EVENT', 'Event attributes need a handler expression', loc(a));
             listeners.push(handlerFor(a.value.expression, event as HandlerEvent, a));
@@ -1394,7 +1404,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             const e = exprNode(values[0].expression);
             const v = value(e);
             const t = typeOf(e, v);
-            if (name === 'value' && (n.name === 'input' || n.name === 'textarea') && !checkbox) {
+            if (name === 'value' && ['input', 'textarea', 'select'].includes(n.name) && !checkbox) {
               props.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
             } else if (name === 'class' && t === 'string') {
               // Svelte 5 resolves class values with clsx and omits an empty class.
@@ -1455,7 +1465,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           reference = (b as { cell: number }).cell;
         } else if (a.type === 'BindDirective') {
           const kind =
-            a.name === 'value' && (n.name === 'input' || n.name === 'textarea') && !checkbox
+            a.name === 'value' && ['input', 'textarea', 'select'].includes(n.name) && !checkbox
               ? 'string'
               : a.name === 'checked' && checkbox
                 ? 'boolean'
@@ -1476,8 +1486,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           if (JSON.stringify(typeOf(target, read)) !== JSON.stringify(kind))
             fail('E_TEMPLATE', `bind:${a.name} needs an assignable ${kind} value`, loc(a));
           props.push({ name: a.name, value: read });
-          const event: HandlerEvent = kind === 'string' ? 'input' : 'change';
-          bound = { event, handler: lower.bindHandler(target, COMPONENT, event, tb) };
+          // A select's value binding follows its change event (Svelte's
+          // bind_select_value), reading the chosen option's value.
+          const select = n.name === 'select';
+          const event: HandlerEvent = kind === 'string' && !select ? 'input' : 'change';
+          const written: Expr | undefined = select
+            ? { op: 'builtin', name: 'event.value', args: [{ op: 'event' }], type: 'string' }
+            : undefined;
+          bound = { event, handler: lower.bindHandler(target, COMPONENT, event, tb, written) };
         } else if (a.type === 'StyleDirective') {
           if (a.modifiers?.length)
             fail(
@@ -1604,7 +1620,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ...(classes.length ? { classes } : {}),
         ...(styleText ? { styleText } : {}),
         ...(styles.length ? { styles } : {}),
-        ...(n.fragment.nodes.length ? { children: children(n.fragment) } : {}),
+        ...(n.fragment.nodes.length ? { children: children(n.fragment, n.name) } : {}),
         source: loc(n),
       };
     };

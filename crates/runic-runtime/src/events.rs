@@ -123,6 +123,34 @@ impl<A: App> Native<A> {
         self.doc.shell_provider.request_redraw();
     }
 
+    /// Pick an option of a select as the user does (probe `choose`): the
+    /// option is shown, then `input` and `change` are dispatched.
+    #[cfg(feature = "probe")]
+    pub(crate) fn choose(&mut self, select: NodeId, value: &str) {
+        self.listeners.settle(&mut self.doc);
+        let mut dom = Dom {
+            doc: &mut self.doc,
+            listeners: &mut self.listeners,
+        };
+        dom.choose_option(select, value);
+        let mut handler = Handler {
+            app: &mut self.app,
+            listeners: &mut self.listeners,
+            space_target: &mut self.space_target,
+            nav_start: &mut self.nav_start,
+            log: &mut self.log,
+            pointer: &mut self.pointer,
+        };
+        let chain = chain_of(&self.doc, select);
+        let data = EventData {
+            value: value.into(),
+            ..Default::default()
+        };
+        handler.fire(&mut self.doc, &chain, Event::Input, data.clone());
+        handler.fire(&mut self.doc, &chain, Event::Change, data);
+        self.doc.shell_provider.request_redraw();
+    }
+
     /// Move focus as a user action would (probe focus actions), with the
     /// focus events.
     #[cfg(feature = "probe")]
@@ -177,10 +205,12 @@ fn is_checkbox(doc: &BaseDocument, id: NodeId) -> bool {
 }
 
 fn is_disabled_control(doc: &BaseDocument, id: NodeId) -> bool {
-    matches!(tag(doc, id), Some("button" | "input" | "textarea"))
-        && doc
-            .get_node(id)
-            .is_some_and(|n| n.attr("disabled".into()).is_some())
+    matches!(
+        tag(doc, id),
+        Some("button" | "input" | "textarea" | "select")
+    ) && doc
+        .get_node(id)
+        .is_some_and(|n| n.attr("disabled".into()).is_some())
 }
 
 /// The focused element; Blitz reports the root element when nothing is focused.
@@ -190,7 +220,10 @@ pub(crate) fn focused_element(doc: &BaseDocument) -> Option<NodeId> {
 }
 
 fn is_labelable(doc: &BaseDocument, id: NodeId) -> bool {
-    matches!(tag(doc, id), Some("button" | "input" | "textarea"))
+    matches!(
+        tag(doc, id),
+        Some("button" | "input" | "textarea" | "select")
+    )
 }
 
 /// The control a click on a label activates: none when the click is on
@@ -251,7 +284,10 @@ fn tab_index(doc: &BaseDocument, id: NodeId) -> Option<i32> {
 }
 
 fn is_control(doc: &BaseDocument, id: NodeId) -> bool {
-    matches!(tag(doc, id), Some("button" | "input" | "textarea"))
+    matches!(
+        tag(doc, id),
+        Some("button" | "input" | "textarea" | "select")
+    )
 }
 
 /// Focusable by the mouse and by script: an enabled control or an element
@@ -389,7 +425,9 @@ impl<A: App> Handler<'_, A> {
         data.target = Element(target.as_u64());
         data.cancelable = kind.cancelable();
         if kind != Event::Input {
-            if let Some(v) = controls::value(doc, target) {
+            if let Some(v) =
+                controls::value(doc, target).or_else(|| crate::select::value(doc, target))
+            {
                 data.value = v.as_str().into();
             }
         }
@@ -715,6 +753,33 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 self.fix_focus(doc);
                 doc.shell_provider.request_redraw();
                 return;
+            }
+        }
+        // A focused closed select changes its option with the keyboard.
+        if let DomEventData::KeyDown(k) = &event.data {
+            if let Some(select) = focused_element(doc).filter(|&f| crate::select::is_select(doc, f))
+            {
+                if is_disabled_control(doc, select) {
+                } else if let Some(value) =
+                    crate::select::key_target(doc, select, &k.key.to_string())
+                {
+                    state.prevent_default();
+                    Dom {
+                        doc,
+                        listeners: self.listeners,
+                    }
+                    .choose_option(select, &value);
+                    let chain = chain_of(doc, select);
+                    let data = EventData {
+                        value: value.as_str().into(),
+                        ..Default::default()
+                    };
+                    self.fire(doc, &chain, Event::Input, data.clone());
+                    self.fire(doc, &chain, Event::Change, data);
+                    self.fix_focus(doc);
+                    doc.shell_provider.request_redraw();
+                    return;
+                }
             }
         }
         if controls::blocks_edit(doc, &event.data) || controls::exceeds_maxlength(doc, &event.data)

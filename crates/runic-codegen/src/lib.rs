@@ -1959,7 +1959,7 @@ pub fn generate(
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.cx.dom = Default::default();\n\
          result\n}}\n\
-         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} }}\n\
+         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} dom.settle_selects(); }}\n\
          fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          match job {{\n\

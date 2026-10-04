@@ -111,7 +111,7 @@ fn main() {
                 let kind = match action["kind"].as_str() {
                     Some(
                         k @ ("click" | "dblclick" | "contextmenu" | "hover" | "input" | "keydown"
-                        | "wheel"),
+                        | "wheel" | "choose"),
                     ) => k,
                     Some("reload") => {
                         // A new program instance on the same localStorage.
@@ -150,7 +150,7 @@ fn main() {
                     action["deltaY"].as_f64().unwrap_or(0.0)
                 );
                 let data = match kind {
-                    "input" => action["value"].as_str(),
+                    "input" | "choose" => action["value"].as_str(),
                     "keydown" => action["key"].as_str(),
                     "wheel" => Some(wheel.as_str()),
                     _ => None,

@@ -541,9 +541,11 @@ export class Lowerer {
     component: number,
     event: HandlerEvent,
     parent: FnBuilder,
+    /** The value written (default: the event payload). */
+    value: Expr = { op: 'payload' },
   ): { params?: Local[]; locals: Local[]; body: Stmt[]; args?: Expr[] } {
     const b = new FnBuilder('bind', parent, component, new Set(), event);
-    const body = this.writeTo(target, { op: 'payload' }, b);
+    const body = this.writeTo(target, value, b);
     if (!b.captures.length) return { locals: b.locals, body };
     return {
       params: b.captures,

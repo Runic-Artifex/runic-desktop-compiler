@@ -17,7 +17,7 @@ pub const MAX_EXPRESSIONS: usize = 1 << 20;
 pub const TAGS: &[&str] = &[
     "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button", "input", "main", "article",
     "section", "header", "footer", "nav", "aside", "ul", "ol", "li", "strong", "em", "small", "b",
-    "i", "code", "pre", "br", "hr", "textarea", "label",
+    "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option",
 ];
 
 pub const CAPABILITIES: &[&str] = &["dom", "css", "window", "click", "keyboard", "text-input"];
@@ -1465,7 +1465,9 @@ impl<'p> NodeCx<'_, 'p> {
                     });
                 for prop in props {
                     let want = match (prop.name.as_str(), tag, checkbox) {
-                        ("value", "input", false) | ("value", "textarea", _) => Type::String,
+                        ("value", "input", false) | ("value", "textarea" | "select", _) => {
+                            Type::String
+                        }
                         ("checked", "input", true) => Type::Boolean,
                         _ => {
                             return err(
@@ -1499,12 +1501,16 @@ impl<'p> NodeCx<'_, 'p> {
                         );
                     }
                     if l.event == EventKind::Input
-                        && !((tag == "input" && !checkbox) || tag == "textarea")
+                        && !((tag == "input" && !checkbox) || tag == "textarea" || tag == "select")
                     {
                         return err("E_IR", "Input listeners require a text input", src);
                     }
-                    if l.event == EventKind::Change && !checkbox {
-                        return err("E_IR", "Change listeners require a checkbox", src);
+                    if l.event == EventKind::Change && !checkbox && tag != "select" {
+                        return err(
+                            "E_IR",
+                            "Change listeners require a checkbox or a select",
+                            src,
+                        );
                     }
                     if l.args.len() != h.params.len() {
                         return err(

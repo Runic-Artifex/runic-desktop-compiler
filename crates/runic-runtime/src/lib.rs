@@ -13,6 +13,7 @@ mod jobs;
 mod probe;
 pub mod promises;
 pub mod reorder;
+mod select;
 mod shell;
 mod storage;
 mod timers;

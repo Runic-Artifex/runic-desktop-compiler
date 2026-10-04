@@ -158,6 +158,9 @@ async function perform(page, action, timeout) {
       if (action.id) await target.evaluate(e => e.focus());
       await page.keyboard.type(action.text);
       break;
+    case 'choose': // Pick an option (input and change are dispatched).
+      await target.selectOption(action.value, { timeout });
+      break;
     case 'press':
       await page.keyboard.press(action.key);
       break;

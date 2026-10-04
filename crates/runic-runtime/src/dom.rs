@@ -156,6 +156,8 @@ pub(crate) struct Listeners {
     /// Inputs whose value was set by script before their editor existed: the
     /// caret moves to the end once the editor is created (as `input.value = v`).
     pending_caret: Vec<NodeId>,
+    /// Selects and the value they are controlled to (none: uncontrolled).
+    selects: HashMap<NodeId, Option<String>>,
 }
 
 impl Listeners {
@@ -335,9 +337,42 @@ fn attr(name: &str) -> QualName {
 
 impl Dom<'_> {
     pub fn element(&mut self, tag: &str) -> NodeId {
-        self.doc
+        let id = self
+            .doc
             .mutate()
-            .create_element(QualName::new(None, ns!(html), LocalName::from(tag)), vec![])
+            .create_element(QualName::new(None, ns!(html), LocalName::from(tag)), vec![]);
+        if tag == "select" {
+            self.listeners.selects.insert(id, None);
+        }
+        id
+    }
+
+    /// The user picks an option: it is shown, and stays shown (a controlled
+    /// select keeps it until its value is applied again).
+    pub(crate) fn choose_option(&mut self, select: NodeId, value: &str) {
+        if let Some(desired) = self.listeners.selects.get_mut(&select) {
+            if desired.is_some() {
+                *desired = Some(value.to_owned());
+            }
+        }
+        crate::select::set_value(self, select, value);
+    }
+
+    /// Show each select's option after the DOM changed (call after updates).
+    pub fn settle_selects(&mut self) {
+        let selects: Vec<(NodeId, Option<String>)> = self
+            .listeners
+            .selects
+            .iter()
+            .map(|(k, v)| (*k, v.clone()))
+            .collect();
+        for (id, desired) in selects {
+            if self.doc.get_node(id).is_none() {
+                self.listeners.selects.remove(&id);
+                continue;
+            }
+            crate::select::settle(self, id, desired.as_deref());
+        }
     }
 
     pub fn text(&mut self, text: &str) -> NodeId {
@@ -621,7 +656,10 @@ impl Dom<'_> {
     /// the editor, the value is provided through the `value` attribute, which
     /// Blitz uses to initialise it.
     pub fn set_value(&mut self, node: NodeId, value: &str) {
-        if crate::controls::has_editor(self.doc, node) {
+        if crate::select::is_select(self.doc, node) {
+            self.listeners.selects.insert(node, Some(value.to_owned()));
+            crate::select::set_value(self, node, value);
+        } else if crate::controls::has_editor(self.doc, node) {
             crate::controls::live_value(self.doc, node, value);
         } else if self
             .doc

@@ -31,7 +31,7 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
         .attrs()
         .iter()
         .map(|a| (a.name.local.to_string(), a.value.to_string()))
-        .filter(|(k, _)| !(checkbox && k == "checked"))
+        .filter(|(k, _)| !(checkbox && k == "checked") && k != crate::select::MARK)
         .collect();
     attrs.sort();
     if let Some((_, v)) = attrs.iter().find(|(k, _)| k == "id") {
@@ -43,8 +43,10 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
             Value::Object(attrs.into_iter().map(|(k, v)| (k, json!(v))).collect()),
         );
     }
-    let disabled = matches!(tag.as_str(), "button" | "input" | "textarea")
-        && node.attr("disabled".into()).is_some();
+    let disabled = matches!(
+        tag.as_str(),
+        "button" | "input" | "textarea" | "select" | "option"
+    ) && node.attr("disabled".into()).is_some();
     if disabled {
         out.insert("disabled".into(), json!(true));
     }
@@ -57,6 +59,11 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
         out.insert(
             "checked".into(),
             json!(el.checkbox_input_checked() == Some(true)),
+        );
+    } else if tag == "select" {
+        out.insert(
+            "value".into(),
+            json!(crate::select::value(doc, id).unwrap_or_default()),
         );
     } else if tag == "input" || tag == "textarea" {
         let value = controls::value(doc, id)
@@ -367,6 +374,10 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
             }
         }
         "press" => press(native, action["key"].as_str().expect("key")),
+        "choose" => {
+            let id = target.expect("choose target");
+            native.choose(id, action["value"].as_str().expect("value"));
+        }
         "wait" => {
             // Virtual time: run every timer and frame due within the wait.
             let to = native.app.now() + action["ms"].as_f64().expect("ms");

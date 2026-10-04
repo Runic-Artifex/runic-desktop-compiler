@@ -1,0 +1,81 @@
+{
+  "description": "Selects: the closed control's size and look, a bound value with options from a list and a conditional option, a one-way value with a change handler, a disabled option, an uncontrolled select (option values from collapsed text), programmatic values, a value no option has, keyboard changes on a focused closed select (arrows skipping disabled options, Home, End, typeahead), a controlled select nothing writes keeping the user's choice across an update",
+  "fixtures": [
+    "select-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "choose",
+      "id": "unit",
+      "value": "minute"
+    },
+    {
+      "kind": "choose",
+      "id": "kind",
+      "value": "markup"
+    },
+    {
+      "kind": "choose",
+      "id": "free",
+      "value": "Beta gamma"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "choose",
+      "id": "unit",
+      "value": "week"
+    },
+    {
+      "kind": "click",
+      "id": "bad"
+    },
+    {
+      "kind": "click",
+      "id": "reset"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "focus",
+      "id": "kind"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowUp"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowDown"
+    },
+    {
+      "kind": "press",
+      "key": "s"
+    },
+    {
+      "kind": "press",
+      "key": "Home"
+    },
+    {
+      "kind": "choose",
+      "id": "fixed",
+      "value": "c"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "focus",
+      "id": "unit"
+    },
+    {
+      "kind": "press",
+      "key": "End"
+    }
+  ]
+}

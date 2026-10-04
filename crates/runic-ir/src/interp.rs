@@ -2576,6 +2576,41 @@ impl<'p> Machine<'p> {
                 for c in children {
                     self.render_node(c, frame, path, &mut kids, visited)?;
                 }
+                // A select's value is its shown option's: the controlled value
+                // if an option has it (else none: ""); uncontrolled, the chosen
+                // option while it is there, else the first enabled one.
+                if tag == "select" {
+                    let options: Vec<(String, bool)> = kids
+                        .iter()
+                        .filter_map(|k| match k {
+                            VNode::Element {
+                                tag,
+                                attrs,
+                                children,
+                                ..
+                            } if tag == "option" => Some((
+                                attrs.get("value").cloned().unwrap_or_else(|| {
+                                    collapse_ascii_whitespace(
+                                        &children.iter().map(text_of).collect::<String>(),
+                                    )
+                                }),
+                                attrs.contains_key("disabled"),
+                            )),
+                            _ => None,
+                        })
+                        .collect();
+                    let has = |v: &str| options.iter().any(|(o, _)| o == v);
+                    let shown = match value.take() {
+                        Some(v) => has(&v).then_some(v),
+                        None => self
+                            .live_values
+                            .get(&id)
+                            .filter(|v| has(v))
+                            .cloned()
+                            .or_else(|| options.iter().find(|o| !o.1).map(|o| o.0.clone())),
+                    };
+                    value = Some(shown.unwrap_or_default());
+                }
                 out.push(VNode::Element {
                     tag: tag.clone(),
                     attrs: map,
@@ -3481,6 +3516,19 @@ impl<'p> Machine<'p> {
                 };
                 self.dispatch(id, EventKind::Wheel, data, None, s)?;
             }
+            "choose" => {
+                // Picking an option: it is shown, then input and change.
+                if !self.inside_disabled(id)? {
+                    let v = data.unwrap_or_default().to_owned();
+                    self.live_values.insert(id, v.clone());
+                    let data = js::EventData {
+                        value: JsString::from(v.as_str()),
+                        ..Default::default()
+                    };
+                    self.dispatch(id, EventKind::Input, data.clone(), None, s)?;
+                    self.dispatch(id, EventKind::Change, data, None, s)?;
+                }
+            }
             "input" => {
                 let tree = self.render()?;
                 let locked = chain_nodes(&tree, id).and_then(|n| n.last().copied()).is_some_and(
@@ -3515,7 +3563,7 @@ impl<'p> Machine<'p> {
     fn inside_disabled(&mut self, target: u64) -> Result<bool> {
         let tree = self.render()?;
         Ok(chain_nodes(&tree, target).is_some_and(|nodes| {
-            nodes.iter().any(|n| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea") && attrs.contains_key("disabled")))
+            nodes.iter().any(|n| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea" | "select") && attrs.contains_key("disabled")))
         }))
     }
 
@@ -3706,6 +3754,19 @@ impl<'p> Machine<'p> {
             s,
         )?;
         let cancelled = down.is_some_and(|e| e.default_prevented());
+        let tree = self.render()?;
+        // A focused closed select changes its option with the keyboard.
+        if !cancelled {
+            if let Some(value) = select_key_target(&tree, target, &k.key) {
+                self.live_values.insert(target, value.clone());
+                let data = js::EventData {
+                    value: JsString::from(value.as_str()),
+                    ..Default::default()
+                };
+                self.dispatch(target, EventKind::Input, data.clone(), None, s)?;
+                self.dispatch(target, EventKind::Change, data, None, s)?;
+            }
+        }
         let tree = self.render()?;
         let (button, checkbox) = match chain_nodes(&tree, target).and_then(|n| n.last().copied()) {
             Some(VNode::Element { tag, checked, .. }) => {
@@ -4083,11 +4144,11 @@ fn payload_of(event: &js::Event) -> Option<Val> {
 /// disabled control or there is none.
 fn focus_target(nodes: &[&VNode]) -> Option<u64> {
     let found = nodes.iter().rev().find(|n| {
-        matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea") || attrs.contains_key("tabindex"))
+        matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea" | "select") || attrs.contains_key("tabindex"))
     })?;
     match found {
         VNode::Element { tag, attrs, id, .. } => {
-            let disabled = matches!(tag.as_str(), "button" | "input" | "textarea")
+            let disabled = matches!(tag.as_str(), "button" | "input" | "textarea" | "select")
                 && attrs.contains_key("disabled");
             (!disabled).then_some(*id)
         }
@@ -4096,7 +4157,7 @@ fn focus_target(nodes: &[&VNode]) -> Option<u64> {
 }
 
 fn labelable(n: &VNode) -> bool {
-    matches!(n, VNode::Element { tag, .. } if matches!(tag.as_str(), "button" | "input" | "textarea"))
+    matches!(n, VNode::Element { tag, .. } if matches!(tag.as_str(), "button" | "input" | "textarea" | "select"))
 }
 
 /// The control a click on `target` activates through a label: none when
@@ -4145,6 +4206,81 @@ fn labelled_control(tree: &[VNode], target: u64) -> Option<u64> {
         }),
         None => first(children, &labelable),
     }
+}
+
+/// The option a key moves a closed select to (Linux Chromium; see the
+/// runtime's select module): arrows to the previous/next enabled option,
+/// Home/End to the first/last enabled one, a character to the next option
+/// starting with it (wrapping). None when the selection does not change.
+fn select_key_target(tree: &[VNode], select: u64, key: &str) -> Option<String> {
+    let nodes = chain_nodes(tree, select)?;
+    let VNode::Element {
+        tag,
+        value,
+        children,
+        ..
+    } = nodes.last()?
+    else {
+        return None;
+    };
+    if tag != "select" {
+        return None;
+    }
+    let options: Vec<(String, bool, String)> = children
+        .iter()
+        .filter_map(|k| match k {
+            VNode::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } if tag == "option" => {
+                let text: String = children.iter().map(text_of).collect();
+                Some((
+                    attrs
+                        .get("value")
+                        .cloned()
+                        .unwrap_or_else(|| collapse_ascii_whitespace(&text)),
+                    !attrs.contains_key("disabled"),
+                    text,
+                ))
+            }
+            _ => None,
+        })
+        .collect();
+    let current = options.iter().position(|o| Some(&o.0) == value.as_ref());
+    let n = options.len();
+    let found = match key {
+        "ArrowDown" => (current.map_or(0, |c| c + 1)..n).find(|&i| options[i].1),
+        "ArrowUp" => (0..current?).rev().find(|&i| options[i].1),
+        "Home" => (0..n).find(|&i| options[i].1),
+        "End" => (0..n).rev().find(|&i| options[i].1),
+        k if k.chars().count() == 1 && k != " " => {
+            let c = k.to_lowercase();
+            let start = current.map_or(0, |c| c + 1);
+            (0..n)
+                .map(|d| (start + d) % n)
+                .find(|&i| options[i].1 && options[i].2.trim_start().to_lowercase().starts_with(&c))
+        }
+        _ => None,
+    }?;
+    (Some(found) != current).then(|| options[found].0.clone())
+}
+
+/// The text of a node.
+fn text_of(n: &VNode) -> String {
+    match n {
+        VNode::Text(t) => t.clone(),
+        VNode::Element { children, .. } => children.iter().map(text_of).collect(),
+    }
+}
+
+/// HTML's "strip and collapse ASCII whitespace".
+fn collapse_ascii_whitespace(s: &str) -> String {
+    s.split([' ', '\t', '\n', '\x0c', '\r'])
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn element_id(n: &VNode) -> Option<u64> {

@@ -65,6 +65,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     // Chromium user-agent defaults that Blitz's stylesheet lacks at the pinned
     // revision (form controls use `font: -webkit-small-control`).
     doc.add_user_agent_stylesheet(UA_PARITY);
+    doc.add_user_agent_stylesheet(crate::select::UA);
     #[cfg(feature = "probe")]
     doc.add_user_agent_stylesheet(PROBE_UA);
     let root = doc.root_node().id;
