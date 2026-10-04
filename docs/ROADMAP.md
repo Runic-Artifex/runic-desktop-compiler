@@ -20,7 +20,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 | M3 | Components, slots and snippets, keyed lists, instance lifetimes | 7GUIs CRUD, TodoMVC (in memory) | Standalone core, then subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m3.md)) |
 | M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone core, ordering research subagent, subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m4.md)) |
 | M5 | Full event model, forms, layout/measurement APIs, host services | 7GUIs Circle Drawer, Cells; a virtualized list | Subagents per service; desktop track standalone | Done 2026-10-04 ([results](../conformance/results/m5.md)) |
-| M6 | npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | translation-editor sub-screens, corpus apps | Workflows for corpus and packs | Planned |
+| M6 | Blitz fork; npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | translation-editor sub-screens, corpus apps | Workflows for corpus and packs | In progress |
 | M7 | Runic application bridge to .NET | an SDK sample app with a C# view model | Standalone + spike | Planned |
 | M8 | **North star on Linux:** Translations Editor compiled, verified and packaged | Runic Translations Editor | Workflow for triage, standalone integration | Planned |
 | M9 | Angular adapter | 7GUIs + TodoMVC in Angular, an SDK Angular sample | Standalone design, subagents for cases | Planned |
@@ -165,7 +165,7 @@ Replace the parts that cannot scale before adding any capability.
 - Window title and size: to M8 packaging. The title comes from `runic.json`; no app sets either at run time.
 - Accessibility through AccessKit: to the desktop-input track. It needs a real OS session to verify.
 - Sequential navigation from a live range after a move-induced blur (case `reorder-navigation`): to M8. Modelling it exactly needs each framework's exact sequence of DOM moves, in the generated code and in the interpreter, and only Tab presses right after the focused item is reordered can observe it.
-- Placeholders: with the Blitz fork ([BLITZ-GAPS.md](BLITZ-GAPS.md)), once its location and base are decided.
+- Placeholders: with the Blitz fork in M6 ([BLITZ-GAPS.md](BLITZ-GAPS.md)).
 - `Intl.PluralRules` and `Intl.DisplayNames`: to M6. The editor uses both.
 - Console reports of unhandled promise rejections (an M4 deviation): to M6. No example relies on them.
 - React virtualized lists: React renders scroll-driven updates after the frame (continuous priority), which the IR does not model yet; to M6.
@@ -178,7 +178,7 @@ Replace the parts that cannot scale before adding any capability.
 **Outcome (done):**
 - The DOM event model, forms (`textarea`, `label`, `select` with a runtime-drawn popup, radio groups), the focus model, layout reads and scrolling with `scroll` events, media query lists, the window `resize` event and the host services (console, clipboard, history, `Date`/`Intl`, `RegExp`, randomness) run in React, Vue and Svelte ([M5-PLATFORM](design/M5-PLATFORM.md)); inline SVG icons render from an allow-listed subset.
 - 7GUIs Flight Booker, Circle Drawer and Cells run in all three frameworks, and the virtualized 10,000-row list in Svelte and Vue. 291 conformance runs over 78 cases pass with pixels, optimised and `--no-opt`, except the declared `reorder-navigation` and `ownership-cycles` gaps; the differential test covers 97 fixtures and 29 examples without mismatch.
-- The Blitz gaps found on the way and the fork assessment are in [BLITZ-GAPS](BLITZ-GAPS.md); the fork's location and base await a decision.
+- The Blitz gaps found on the way and the fork assessment are in [BLITZ-GAPS](BLITZ-GAPS.md); the fork is the first M6 step.
 
 ## M6: Libraries, CSS pipeline, SvelteKit, islands
 
@@ -188,6 +188,8 @@ Replace the parts that cannot scale before adding any capability.
 - **CSS pipeline:** accept plugin-generated CSS (Tailwind 4 via Vite), and audit Blitz/Stylo support for its output (`@layer`, custom properties, `oklch`, `color-mix`, nesting).
 - **SvelteKit:** a static SPA subset (`adapter-static`, layouts/pages, the `$app`/`$lib` modules the editor uses).
 - **Corpus and islands:** `runic scan` over a corpus of 20–50 open-source Svelte, React and Vue apps; QuickJS islands (D7), opt-in, with island and coverage reports; model-assisted discovery generalised to library packs.
+- **Blitz fork** (decided 2026-10-04, the first step): [`Runic-Artifex/blitz`](https://github.com/Runic-Artifex/blitz), based on upstream main. Move the pin to it (AnyRender 0.14, Taffy and Parley updates, a full conformance rerun), then carry one commit per gap in the order of [BLITZ-GAPS](BLITZ-GAPS.md#fork-assessment), each with the conformance case that shows it and offered upstream; fixture workarounds are removed as their gaps close. Placeholders come with it.
+- **Carried from M5:** `ResizeObserver`, `Intl.PluralRules`/`DisplayNames`, React's continuous lane (scroll-driven updates rendered after the frame, for the React virtualized list), console reports of unhandled promise rejections.
 
 **Exit:** the editor's non-bridge screens render from source, the corpus coverage report is committed, and island counts are recorded as the baseline to reduce from.
 

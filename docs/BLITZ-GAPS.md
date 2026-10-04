@@ -91,6 +91,8 @@ Neither is urgent.
 
 **What needs no fork.** UA defaults (radio and checkbox metrics, control fonts and colours) are fixed from the runtime's UA parity sheet.
 
+**Decision (2026-10-04).** The fork is [`Runic-Artifex/blitz`](https://github.com/Runic-Artifex/blitz), based on upstream main; the patches live on its `runic` branch. It is the first step of M6 ([roadmap](ROADMAP.md#m6-libraries-css-pipeline-sveltekit-islands)).
+
 **Recommendation.** Carry a thin fork:
 - **Commits.** One commit per gap, each with the conformance case that shows it, each offered upstream. A patch is dropped when the pin moves past an upstream fix.
 - **Wiring.** Cargo `[patch]` on the Blitz git URL.
