@@ -380,6 +380,13 @@ impl Value {
 pub struct RecordType {
     pub name: String,
     pub fields: Vec<Field>,
+    /// A class instance record (nominal, M6): never shared with a
+    /// structurally equal record, never proxied by deep state (Svelte's
+    /// `$state` proxies plain objects and arrays only), and not plain data
+    /// (`JSON.stringify`, `JSON.parse`, `structuredClone` and
+    /// `Object.keys`/`values` reject it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub class: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

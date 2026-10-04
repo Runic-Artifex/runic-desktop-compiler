@@ -293,6 +293,11 @@ pub trait Own: Sized {
 pub trait OwnFields {
     /// Whether values of this kind are proxied (false for maps and sets).
     const PROXIED: bool;
+    /// Whether this value is proxied (`PROXIED`, unless the value says
+    /// otherwise: the interpreter's class instance records).
+    fn proxied(&self) -> bool {
+        Self::PROXIED
+    }
     /// Proxy the reference values held by this value.
     fn own_fields(&mut self) {}
     /// Mark the reference values held by this value as reactive.
@@ -310,6 +315,15 @@ impl<T: OwnFields> Own for JsRef<T> {
     }
     fn own(self) -> Self {
         if !T::PROXIED || self.is_owned() {
+            return self;
+        }
+        if !self
+            .0
+            .storage
+            .value
+            .try_borrow()
+            .map_or(true, |v| v.proxied())
+        {
             return self;
         }
         let p = self.proxy();
@@ -367,4 +381,46 @@ pub fn own_into<C, T: Own>(container: &JsRef<C>, v: T) -> T {
         v.mark();
     }
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A record-like value that may opt out of proxying (class instances).
+    struct Item {
+        class: bool,
+        inner: JsRef<Vec<f64>>,
+    }
+
+    impl OwnFields for Item {
+        const PROXIED: bool = true;
+        fn proxied(&self) -> bool {
+            !self.class
+        }
+        fn own_fields(&mut self) {
+            self.inner = self.inner.clone().own();
+        }
+    }
+
+    #[test]
+    fn values_that_opt_out_are_not_proxied() {
+        let plain = JsRef::new(Item {
+            class: false,
+            inner: array(vec![1.0]),
+        });
+        let owned = plain.clone().own();
+        assert!(owned.is_owned() && owned != plain);
+        // Nested values of a proxy are proxied in place.
+        assert!(owned.borrow().inner.is_owned());
+
+        let instance = JsRef::new(Item {
+            class: true,
+            inner: array(vec![1.0]),
+        });
+        let stored = instance.clone().own();
+        // Stored as is: same identity, and what it holds stays raw.
+        assert!(!stored.is_owned() && stored == instance);
+        assert!(!stored.borrow().inner.is_owned());
+    }
 }
