@@ -113,6 +113,17 @@ const TAGS = new Set([
   'label',
   'select',
   'option',
+  // Inline SVG (runic-ir's SVG_TAGS): runtime-dom sets their attributes and
+  // class with setAttribute (patchAttr, patchClass).
+  'svg',
+  'g',
+  'path',
+  'circle',
+  'ellipse',
+  'line',
+  'polyline',
+  'polygon',
+  'rect',
 ]);
 const BOOLEAN_ATTRS = new Set([
   'disabled',

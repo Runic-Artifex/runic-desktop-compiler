@@ -1,0 +1,14 @@
+{
+  "description": "Inline SVG icons (lucide-style): stroke and fill, currentColor inherited from a parent whose color changes on click, a child colored by CSS with its own currentColor attribute (docs/BLITZ-GAPS.md), sizes from attributes and from CSS, icons in buttons, all accepted paint attributes, opacity and transform on a group, a dynamic stroke width and size, a conditional child, a list and whitespace between elements inside an svg",
+  "fixtures": ["icons-svelte", "icons-react", "icons-vue"],
+  "actions": [
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "done" },
+    { "kind": "click", "id": "weight" },
+    { "kind": "click", "id": "size" },
+    { "kind": "click", "id": "dot" },
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "done" },
+    { "kind": "click", "id": "size" }
+  ]
+}
