@@ -26,7 +26,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 | M5 | Full event model, forms, layout/measurement APIs, host services | 7GUIs Circle Drawer, Cells; a virtualized list | Subagents per service; desktop track standalone | Done 2026-10-04 ([results](../conformance/results/m5.md)) |
 | M6 | Blitz fork; npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | shadcn-svelte component examples, corpus apps | Workflows for corpus and packs | In progress |
 | M7 | **North star on Linux:** the shadcn-svelte site, and the shadcn/ui and shadcn-vue examples, compiled, verified and packaged | shadcn-svelte, shadcn/ui, shadcn-vue | Workflow for triage, standalone integration | Planned |
-| M8 | Runic application bridge to .NET; the Translations Editor compiled, verified and packaged | an SDK sample app, then the Runic Translations Editor | Standalone + spike | Planned |
+| M8 | Embedding: a host-agnostic embedder interface, a Godot host first, then the Runic application bridge to .NET and the Translations Editor | a Godot sample, an SDK sample app, then the Runic Translations Editor | Standalone + spike | Planned |
 | M9 | Angular adapter | 7GUIs + TodoMVC in Angular, an SDK Angular sample | Standalone design, subagents for cases | Planned |
 | M10 | Optimisation: startup, size, compile time, dev loop | M8 app | Standalone with measured experiments | Planned |
 | M11 | Windows | M8 app on Windows | Standalone | Planned |
@@ -214,19 +214,23 @@ The apps are packaged for Linux (Nix closure, then AppImage or Flatpak), startup
 - **Workflow:** triage the remaining blockers from the scan, one agent per blocker cluster with verification.
 - **Standalone:** integration and packaging.
 
-## M8: Runic application bridge and the Translations Editor
+## M8: Embedding: Godot, then the Runic application bridge
 
-**Scope (D13):**
-- **Recognition:** recognise the SDK's generated bridge client (generator identity and contract metadata) and lower calls to a native `runic-bridge` client.
-- **Process model:** decide between an in-process NativeAOT .NET library over a C ABI and a separate process over IPC, by measuring startup latency and robustness. Implement the chosen model. The embedder interface stays host-agnostic, so other hosts (a Godot UI) can use it.
-- **SDK hosting:** the desktop host in `Runic.Desktop` gains a "native UI" mode next to its WebView hosts. This change lives in the SDK repository and is coordinated with the user.
+Compiled UIs run inside other programs. The embedder interface is designed once, host-agnostic, and proven with Godot before the Runic SDK depends on it (user decision 2026-10-04: Godot first, then the SDK).
+
+**Scope:**
+- **Embedder interface:** the generated app as a library: a C ABI to create, drive (input events, frames, resize) and render it into a host-provided surface or texture, and a typed message channel between the UI and the host. Process model (in-process library or separate process over IPC) decided by a measured spike.
+- **Godot host:** a GDExtension that shows a compiled UI in a Godot scene (rendered into a texture, input forwarded from Godot), with a sample project whose game state talks to the UI through the message channel.
+- **Runic application bridge (D13):**
+  - **Recognition:** recognise the SDK's generated bridge client (generator identity and contract metadata) and lower calls to a native `runic-bridge` client over the embedder interface.
+  - **SDK hosting:** the desktop host in `Runic.Desktop` gains a "native UI" mode next to its WebView hosts. This change lives in the SDK repository and is coordinated with the user.
 - **The Translations Editor** compiles from its unmodified source and passes conformance against its WebView build; it is packaged for Linux and compared with the WebKitGTK build.
 
-**Examples:** a minimal SDK sample app with a C# view model, then the editor.
+**Examples:** a Godot sample scene, a minimal SDK sample app with a C# view model, then the editor.
 
 **Work mode:**
-- **Standalone:** cross-language ABI design.
-- **Subagent spike:** survey the SDK's `CsWebUiBridge` generator and contract format, and the archived initiative's C ABI.
+- **Standalone:** the embedder interface and the cross-language ABI.
+- **Subagent spikes:** Godot's GDExtension rendering and input integration; the SDK's `CsWebUiBridge` generator and contract format, and the archived initiative's C ABI.
 - **User checkpoint:** before any change in the SDK repository.
 
 ## M9: Angular
@@ -272,3 +276,4 @@ Solid and further frontends; porting the language layer or adapters to Rust (oxc
 - 2026-10-04 (M6): the Blitz fork is `Runic-Artifex/blitz`, based on upstream main (user decision); its patches are listed in [BLITZ-GAPS](BLITZ-GAPS.md).
 - 2026-10-04 (M6): CSS transitions and animations move from M10 into M6 as far as the editor needs them, driven by the runtime's clock and compared with Chromium's fake clock; the editor's components animate their open and closed states and bits-ui awaits `getAnimations()`, and stripping them would be an approximation ([M6 design](design/M6-LIBRARIES.md)).
 - 2026-10-04: the north star is the shadcn sites (user decision): the whole shadcn-svelte documentation site, and the shadcn/ui (React) and shadcn-vue component examples, from pinned GitHub commits (M7). They are more diverse than one application and keep verification independent of Runic; the compiler is also meant for hosts other than Runic (a Godot UI). The Runic application bridge and the Translations Editor move to M8.
+- 2026-10-04: M8 starts with a host-agnostic embedder interface proven by a Godot host, then the Runic bridge and the Translations Editor (user suggestion). Claude works autonomously until a change to the Runic SDK repository is needed.
