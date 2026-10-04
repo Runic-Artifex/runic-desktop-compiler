@@ -95,6 +95,35 @@ async function packageOf(specifier, resolved) {
   return undefined;
 }
 
+/**
+ * Imports and re-exports of types only, which TypeScript erases (`import
+ * type`, or named lists whose every name is `type`): they load no module,
+ * and their specifiers may name type-only package exports (`svelte/elements`).
+ */
+function typeOnly(stmt) {
+  if (ts.isImportDeclaration(stmt)) {
+    const clause = stmt.importClause;
+    if (!clause) return false;
+    if (clause.isTypeOnly) return true;
+    const named = clause.namedBindings;
+    return (
+      !clause.name &&
+      !!named &&
+      ts.isNamedImports(named) &&
+      named.elements.length > 0 &&
+      named.elements.every(e => e.isTypeOnly)
+    );
+  }
+  if (stmt.isTypeOnly) return true;
+  const clause = stmt.exportClause;
+  return (
+    !!clause &&
+    ts.isNamedExports(clause) &&
+    clause.elements.length > 0 &&
+    clause.elements.every(e => e.isTypeOnly)
+  );
+}
+
 // This plugin sees original application modules before Vite's JSX transform.
 // Collection is deliberately independent of the React lowering adapter.
 export function collectionPlugin(root, modules, tooling, onDiagnostic) {
@@ -129,8 +158,8 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic) {
             );
             for (const stmt of ast.statements) {
               if (
-                ts.isImportDeclaration(stmt) ||
-                (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier)
+                (ts.isImportDeclaration(stmt) && !typeOnly(stmt)) ||
+                (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier && !typeOnly(stmt))
               ) {
                 const specifier = stmt.moduleSpecifier.text;
                 const resolved = await this.resolve(specifier, id);
