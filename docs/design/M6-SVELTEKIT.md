@@ -62,6 +62,18 @@ Decisions for compiling SvelteKit apps: the Translations Editor (Kit 3.0.0, hash
    - cookies and `PersistedState`;
    - external links opened in the OS browser.
 
+### Status
+
+Phase 1's core landed on Kit **2.70.1** (the site's pin) rather than 3.0.0: Kit 3's optional TypeScript ^6 peer conflicts with the pinned TypeScript 5.9.3, so 3.0.0 and its `vite.config` router configuration wait for that upgrade. Done ([contract](../CONTRACT.md#sveltekit), cases `kit-hash`, `kit-routes`, `kit-routes-missing`):
+
+- `runic.json` `"kit": true`; `svelte.config.js` read as literals; `app.html` attributes and container; `$lib` and `kit.alias`.
+- The manifest from the app's Kit, its files pinned by SHA-256.
+- The hash and path routers, nested layouts with kept instances, universal loads with Kit's tracking, `error()`/`redirect()`/`+error.svelte`/404 with `handleError`, `$app/state` `page`, `goto`, `beforeNavigate`/`afterNavigate`, scroll, focus reset, the announcer and the title.
+
+Refinement of "the native router is the runtime's": the router is Kit's own client (`client.js` of 2.70.1) ported to the compiled language and generated per app (route table, loads, data merges, error-page variants, the composition tree), so it follows Kit's ordering, tracking and error routing line by line. The runtime adds only generic host primitives (history entry state, `document.title`, focus reset and starting point, origin-less URL resolution, a host reply task, element attributes and parents), keeping the backend free of framework knowledge (D10).
+
+Open: Kit 3 and the editor's `#lib` imports and bridge scripts; build-time server data and endpoints; `page.data`/`page.state`, shallow routing, `invalidate`, `navigating`; render errors routed to `+error.svelte`; reload scroll restoration.
+
 ## Versions
 
 Kit versions join the checked identities like the frameworks: 2.70.x for the site, 3.0.0 for the editor. Svelte 5.54.0 and Vite 8.1.5, the site's pins, need their own version environments in conformance (as `conformance/svelte-5.49.2` is), and those must run in the campaign, not just exist.
