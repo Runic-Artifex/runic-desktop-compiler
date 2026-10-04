@@ -276,58 +276,71 @@ export async function collect(app) {
       line: 1,
       column: 1,
     });
-  const entry = path.resolve(root, config.entry);
-  if (!entry.startsWith(root + path.sep))
-    throw new Diagnostic('E_ENTRY', 'Entry must be inside the application');
-  const htmlSource = await readFile(path.join(root, 'index.html'), 'utf8');
-  const document = parseHTML(htmlSource, { sourceCodeLocationInfo: true });
-  const htmlNodes = [];
-  const visit = n => {
-    htmlNodes.push(n);
-    (n.childNodes ?? []).forEach(visit);
-  };
-  visit(document);
-  const scripts = htmlNodes.filter(n => n.tagName === 'script');
-  const htmlAttr = (n, name) => n.attrs?.find(a => a.name === name)?.value;
-  if (
-    scripts.length !== 1 ||
-    htmlAttr(scripts[0], 'type') !== 'module' ||
-    htmlAttr(scripts[0], 'src') !== '/' + config.entry ||
-    scripts[0].childNodes.some(n => n.value?.trim())
-  )
-    throw new Diagnostic(
-      'E_HTML',
-      'index.html must load exactly the configured module entry; inline/extra scripts are unsupported',
-    );
-  // The document element's attributes (lang, dir, class, data-*).
-  const htmlElement = htmlNodes.find(n => n.tagName === 'html');
-  const documentAttrs = Object.fromEntries((htmlElement?.attrs ?? []).map(a => [a.name, a.value]));
-  const body = htmlNodes.find(n => n.tagName === 'body');
-  const content = body.childNodes.filter(n => n.nodeName !== '#text' || n.value.trim());
-  if (
-    content.length !== 2 ||
-    content[0].tagName !== 'div' ||
-    htmlAttr(content[0], 'id') !== 'root' ||
-    content[0].attrs.length !== 1 ||
-    content[0].childNodes.length ||
-    content[1] !== scripts[0]
-  )
-    throw new Diagnostic(
-      'E_HTML',
-      'Body must contain an empty div#root followed by the module script',
-    );
-  if (
-    htmlNodes.some(
-      n =>
-        ['style', 'link', 'iframe', 'base'].includes(n.tagName) ||
-        n.attrs?.some(a => a.name.startsWith('on')),
-    )
-  )
-    throw new Diagnostic(
-      'E_HTML',
-      'HTML styles, resource links, base URLs and event attributes require an adapter',
-    );
   const tooling = await frontendTooling(root, config);
+  // A SvelteKit app (compiler/adapters/kit.mjs): its entry, HTML template
+  // and modules are generated from the route manifest.
+  const kit =
+    config.kit !== undefined
+      ? await (await import('./adapters/kit-app.mjs')).kitApp(root, config, tooling.compiler)
+      : undefined;
+  let entry, htmlSource, documentAttrs;
+  if (kit) {
+    entry = kit.entry;
+    htmlSource = await readFile(path.join(root, 'src', 'app.html'), 'utf8');
+    documentAttrs = kit.html.documentAttrs;
+  } else {
+    entry = path.resolve(root, config.entry);
+    if (!entry.startsWith(root + path.sep))
+      throw new Diagnostic('E_ENTRY', 'Entry must be inside the application');
+    htmlSource = await readFile(path.join(root, 'index.html'), 'utf8');
+    const document = parseHTML(htmlSource, { sourceCodeLocationInfo: true });
+    const htmlNodes = [];
+    const visit = n => {
+      htmlNodes.push(n);
+      (n.childNodes ?? []).forEach(visit);
+    };
+    visit(document);
+    const scripts = htmlNodes.filter(n => n.tagName === 'script');
+    const htmlAttr = (n, name) => n.attrs?.find(a => a.name === name)?.value;
+    if (
+      scripts.length !== 1 ||
+      htmlAttr(scripts[0], 'type') !== 'module' ||
+      htmlAttr(scripts[0], 'src') !== '/' + config.entry ||
+      scripts[0].childNodes.some(n => n.value?.trim())
+    )
+      throw new Diagnostic(
+        'E_HTML',
+        'index.html must load exactly the configured module entry; inline/extra scripts are unsupported',
+      );
+    // The document element's attributes (lang, dir, class, data-*).
+    const htmlElement = htmlNodes.find(n => n.tagName === 'html');
+    documentAttrs = Object.fromEntries((htmlElement?.attrs ?? []).map(a => [a.name, a.value]));
+    const body = htmlNodes.find(n => n.tagName === 'body');
+    const content = body.childNodes.filter(n => n.nodeName !== '#text' || n.value.trim());
+    if (
+      content.length !== 2 ||
+      content[0].tagName !== 'div' ||
+      htmlAttr(content[0], 'id') !== 'root' ||
+      content[0].attrs.length !== 1 ||
+      content[0].childNodes.length ||
+      content[1] !== scripts[0]
+    )
+      throw new Diagnostic(
+        'E_HTML',
+        'Body must contain an empty div#root followed by the module script',
+      );
+    if (
+      htmlNodes.some(
+        n =>
+          ['style', 'link', 'iframe', 'base'].includes(n.tagName) ||
+          n.attrs?.some(a => a.name.startsWith('on')),
+      )
+    )
+      throw new Diagnostic(
+        'E_HTML',
+        'HTML styles, resource links, base URLs and event attributes require an adapter',
+      );
+  }
   const modules = new Map();
   let bundled, collectionError;
   try {
@@ -336,12 +349,18 @@ export async function collect(app) {
       configFile: false,
       logLevel: 'silent',
       plugins: [
+        ...(kit ? [kit.plugin] : []),
         collectionPlugin(root, modules, tooling, e => {
           collectionError = new Diagnostic(e.code, e.message, e.source);
         }),
         ...tooling.plugins,
       ],
-      build: { write: false, minify: false, assetsInlineLimit: 0 },
+      build: {
+        write: false,
+        minify: false,
+        assetsInlineLimit: 0,
+        ...(kit ? { rollupOptions: { input: entry } } : {}),
+      },
       esbuild: { jsx: 'transform' },
     });
   } catch (e) {
@@ -476,6 +495,7 @@ export async function collect(app) {
     css: orderedCSS,
     assets: uniqueAssets,
     documentAttrs,
+    ...(kit ? { kit } : {}),
     manifest,
     hash: hash({ manifest, assets: uniqueAssets, html: hash(htmlSource), config }),
   };

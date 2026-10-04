@@ -305,8 +305,42 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 (Some(u), Some(_)) => format!("match &{u} {{ Maybe::Some(u) => Some(u), _ => None }}"),
                 _ => "None".into(),
             };
-            format!("runic_runtime::history::{m}({url})?")
+            let state = match t.get(1) {
+                Some(s) => format!("match &{s} {{ Maybe::Some(s) => Some(s), _ => None }}"),
+                None => "None".into(),
+            };
+            format!("runic_runtime::history::{m}({url}, {state})?")
         }
+        ("history", "state") => "(match runic_runtime::history::state() { Some(s) => Maybe::Some(s), None => Maybe::Null })".into(),
+        // The document (M6).
+        ("document", "title") => "runic_runtime::history::title()".into(),
+        ("document", "set-title") => format!("{{ runic_runtime::history::set_title(&{}); }}", t[0]),
+        ("document", "getElementById") => format!(
+            "(match cx.dom.element_by_id(&{}.to_rust()) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
+            t[0]
+        ),
+        ("focus", "current") => "(match cx.dom.focused() { Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null })".into(),
+        ("focus", "start") => format!("{{ cx.dom.focus_start({}.0); }}", t[0]),
+        ("focus", "reset") => "{ let events = cx.dom.reset_focus(); run_nested(cx, events); }".into(),
+        ("url", "resolve") => format!(
+            "(match js::history::Session::resolve_against(&{}, &{}) {{ Some(u) => Maybe::Some(JsString::from(u)), None => Maybe::Undefined }})",
+            t[0], t[1]
+        ),
+        ("url", "query-pairs") => format!(
+            "js::array(js::uri::query_pairs(&{}).into_iter().map(|(k, v)| js::array(vec![k, v])).collect())",
+            t[0]
+        ),
+        ("host", "reply") => "cx.host_reply()".into(),
+        ("host", "unsupported") => q(
+            cx,
+            format!(
+                "{{ let what = {}.to_rust(); runic_runtime::unsupported(&what); Err::<(), _>(js::Throw::new(\"RunicUnsupportedError\", what)) }}",
+                t[0]
+            ),
+        ),
+        ("", "encodeURIComponent") => q(cx, format!("js::uri::encode_uri_component(&{})", t[0])),
+        ("", "decodeURIComponent") => q(cx, format!("js::uri::decode_uri_component(&{})", t[0])),
+        ("", "decodeURI") => q(cx, format!("js::uri::decode_uri(&{})", t[0])),
         ("history", "length") => "runic_runtime::history::length()".into(),
         ("location", m @ ("pathname" | "search" | "hash")) => {
             format!("runic_runtime::history::{m}()")
@@ -449,6 +483,15 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("element", "hasAttribute") => {
             format!("cx.dom.has_attribute({}.0, &{}.to_rust())", t[0], t[1])
         }
+        ("element", "getAttribute") => format!(
+            "(match cx.dom.get_attribute({}.0, &{}.to_rust()) {{ Some(v) => Maybe::Some(JsString::from(v)), None => Maybe::Null }})",
+            t[0], t[1]
+        ),
+        ("element", "localName") => format!("JsString::from(cx.dom.local_name({}.0))", t[0]),
+        ("element", "parent") => format!(
+            "(match cx.dom.parent_element({}.0) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
+            t[0]
+        ),
         ("element", "style-get") => format!(
             "JsString::from(cx.dom.style_get({}.0, &{}.to_rust()))",
             t[0], t[1]

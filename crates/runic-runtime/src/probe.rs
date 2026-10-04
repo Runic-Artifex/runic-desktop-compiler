@@ -103,7 +103,7 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
 fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
     let doc = &native.doc;
     let focused = doc.get_focussed_node_id();
-    let root = doc.get_element_by_id("root").expect("#root");
+    let root = native.listeners.container.expect("the mount container");
     let mut geometry = Map::new();
     let mut stack = vec![root];
     while let Some(id) = stack.pop() {
@@ -178,12 +178,16 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
     if let Some(text) = crate::clipboard::text().filter(|t| !t.is_empty()) {
         host.insert("clipboard".into(), text_json(&text));
     }
-    let (href, length) = crate::history::state();
+    let (href, length) = crate::history::location_state();
     if href != "/" {
         host.insert("href".into(), json!(href));
     }
     if length != 1 {
         host.insert("historyLength".into(), json!(length));
+    }
+    let title = crate::history::title();
+    if !title.is_empty() {
+        host.insert("title".into(), text_json(&title));
     }
     if !host.is_empty() {
         state["host"] = Value::Object(host);
@@ -314,7 +318,7 @@ fn utf16_to_byte(text: &str, units: usize) -> usize {
 /// event the action delivers (the interpreter resolves `nth` targets the
 /// same way).
 fn nth<A: App>(native: &Native<A>, kind: &str, n: u64) -> Option<NodeId> {
-    let root = native.doc.get_element_by_id("root")?;
+    let root = native.listeners.container?;
     let order = tree_order(&native.doc);
     let start = order.iter().position(|&x| x == root)?;
     let all: Vec<NodeId> = order[start + 1..]

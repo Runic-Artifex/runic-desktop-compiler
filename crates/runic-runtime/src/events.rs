@@ -208,6 +208,9 @@ impl<A: App> Native<A> {
         if let Some(b) = self.listeners.blurred.take() {
             self.nav_start = Some(b);
         }
+        if let Some(start) = self.listeners.set_navigation.take() {
+            self.nav_start = start;
+        }
         self.doc.shell_provider.request_redraw();
     }
 
@@ -986,6 +989,10 @@ impl<A: App> Handler<'_, A> {
         // A focused element detached by a list move stays the navigation start.
         if let Some(b) = self.listeners.blurred.take() {
             *self.nav_start = Some(b);
+        }
+        // A focus reset (the router) starts the navigation at the document start.
+        if let Some(start) = self.listeners.set_navigation.take() {
+            *self.nav_start = start;
         }
         self.log.push(outcome);
     }

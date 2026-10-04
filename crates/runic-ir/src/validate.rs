@@ -192,7 +192,8 @@ fn err<T>(code: &str, message: impl Into<String>, source: Option<&Source>) -> Re
 ///   arguments uses it as a format string: Chromium converts the arguments
 ///   of `%d`/`%i`/`%f`/`%s` in its message text while DevTools substitutes
 ///   them, so the first argument must then be a literal without `%`;
-/// - `history.go` takes a non-zero integer literal (`go(0)` reloads).
+/// - a literal `history.go` delta is a non-zero integer (`go(0)` reloads);
+///   a computed one is checked when it runs (M6).
 fn check_host_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Result<()> {
     if name.starts_with("console.") && args.len() > 1 {
         let format = match &args[0] {
@@ -212,7 +213,13 @@ fn check_host_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Resul
         }
     }
     if name == "history.go" {
-        let ok = matches!(args.first(), Some(Expr::Lit { value: Value::Number(n) }) if *n != 0.0 && n.fract() == 0.0 && n.abs() < 1e9);
+        let ok = match args.first() {
+            Some(Expr::Lit {
+                value: Value::Number(n),
+            }) => *n != 0.0 && n.fract() == 0.0 && n.abs() < 1e9,
+            Some(Expr::Lit { .. }) => false,
+            _ => true,
+        };
         if !ok {
             return err(
                 "E_BUILTIN",
@@ -2488,6 +2495,9 @@ fn host_service(name: &str) -> Option<&'static str> {
         "console" => Some("The console"),
         "clipboard" => Some("The clipboard"),
         "history" | "location" => Some("The session history (history, location)"),
+        "document" => Some("The document (its title, elements by id)"),
+        "focus" => Some("Focus (the focused element)"),
+        "host" => Some("Host work"),
         "random" => Some("Randomness (Math.random, crypto.randomUUID)"),
         _ => None,
     }

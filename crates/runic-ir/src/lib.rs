@@ -91,6 +91,14 @@ pub struct Program {
     /// The document element's initial attributes (index.html's `<html>`).
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub document: std::collections::BTreeMap<String, String>,
+    /// `<body>`'s attributes in the app's HTML template (M6, SvelteKit's
+    /// `app.html`).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub body: std::collections::BTreeMap<String, String>,
+    /// The attributes of the element the app mounts in, from the app's HTML
+    /// template (M6); absent: `<div id="root">`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<std::collections::BTreeMap<String, String>>,
     /// After each update, an element that lost focus because a list move
     /// detached it is focused again if it is still in the document (React DOM
     /// restores the focused element around every commit).

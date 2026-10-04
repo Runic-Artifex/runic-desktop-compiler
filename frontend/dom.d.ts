@@ -29,6 +29,9 @@ interface HTMLElement {
   // the CSSOM, and the element's running CSS animations and transitions.
   hasAttribute(name: string): boolean;
   readonly isConnected: boolean;
+  // M6 (the SvelteKit router): attribute values and the tag name.
+  getAttribute(name: string): string | null;
+  readonly localName: string;
   readonly style: ElementInlineStyle;
   getAnimations(): Animation[];
 }
@@ -224,8 +227,10 @@ declare const navigator: {
 };
 declare const history: {
   readonly length: number;
-  pushState(data: null, unused: string, url?: string | null): void;
-  replaceState(data: null, unused: string, url?: string | null): void;
+  /** The current entry's state: a string (M6) or null. */
+  readonly state: string | null;
+  pushState(data: string | null, unused: string, url?: string | null): void;
+  replaceState(data: string | null, unused: string, url?: string | null): void;
   back(): void;
   forward(): void;
   go(delta: number): void;
@@ -240,7 +245,35 @@ declare const crypto: { randomUUID(): string };
 // The document element (theming): attributes, class list, inline style.
 interface HostDocument extends HostEventTarget {
   readonly documentElement: HostRootElement;
+  /** The document title (M6). */
+  title: string;
+  getElementById(id: string): HTMLElement | null;
 }
+
+/**
+ * Runic intrinsics for framework support code the compiler generates (the
+ * SvelteKit router, frontend/kit): not part of the web platform.
+ */
+declare const __runic: {
+  /** The parent element inside the app's DOM (null for its top-level elements). */
+  parent(element: HTMLElement): HTMLElement | null;
+  /** The focused element (null when the body has focus). */
+  focused(): HTMLElement | null;
+  /** Focus moves to the body; Tab then starts at the start of the document. */
+  resetFocus(): void;
+  /** The sequential focus navigation starting point moves to the element (a fragment navigation to it). */
+  focusStart(element: HTMLElement): void;
+  /** `new URL(input, base)` without the origin (undefined for other origins and absolute URLs). */
+  resolve(input: string, base: string): string | undefined;
+  /** The name-value pairs of a query, as `URLSearchParams` parses them. */
+  queryPairs(search: string): string[][];
+  /** A promise fulfilled in a host task after the running one (an I/O round trip). */
+  hostReply(): Promise<void>;
+  /** A value as Svelte renders it in text (nullish: empty). */
+  text(value: unknown): string;
+  /** Report a runtime shape the native model does not cover (probes stop). */
+  unsupported(what: string): void;
+};
 interface HostRootElement {
   readonly dataset: { [name: string]: string | undefined };
   readonly classList: {

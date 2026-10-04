@@ -448,6 +448,12 @@ export interface Program {
   components: Component[];
   root: number;
   containerAttrs?: Record<string, string>;
+  /** The document element's initial attributes (index.html's or app.html's `<html>`). */
+  document?: Record<string, string>;
+  /** `<body>`'s attributes in the app's HTML template (SvelteKit's app.html, M6). */
+  body?: Record<string, string>;
+  /** The mount container's attributes from the app's HTML template (M6); absent: `div#root`. */
+  container?: Record<string, string>;
   /** Refocus an element blurred by a list move after each update (React DOM). */
   restoreFocus?: boolean;
   /** When updates run relative to tasks and microtasks (default: microtask flush, one checkpoint per event). */

@@ -20,6 +20,8 @@ export class TypeMapper {
   classUnion?: (parts: ts.Type[], at: ts.Node) => Type;
   /** The IR type a mapping pack gives a package type (frontend/packs.ts), if any. */
   packType?: (t: ts.Type, at: ts.Node) => Type | undefined;
+  /** The record of Error values (`{ name, message }`), from the language layer. */
+  errorType?: () => number;
   /** The record of MutationObservers, once a program uses one. */
   mutationObserver?: number;
   /**
@@ -292,6 +294,7 @@ export class TypeMapper {
         'E_INTL',
         `Intl.${name} objects are supported as constants used through their methods (const f = new Intl.DateTimeFormat(…); f.format(d)), not as values`,
       );
+    if (name === 'Error' && this.fromLib(t) && this.errorType) return { record: this.errorType() };
     if (name && ['Error', 'HTMLElement'].includes(name))
       this.fail(at, 'E_TYPE_UNSUPPORTED', `${name} values are planned for a later milestone`);
     // Class instances are nominal records (frontend/classes.ts).

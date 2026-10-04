@@ -19,6 +19,7 @@ import {
 } from './ir.ts';
 import { sameType, TypeMapper, type Fail } from './types.ts';
 import {
+  arrayElement,
   builtinType,
   ELEMENT_METRICS,
   EVENT_MEMBERS,
@@ -275,6 +276,8 @@ export class Lowerer {
     types.classType = (cls, t, at) => this.classes.typeOf(cls, t, at);
     types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
     types.packType = (t, at) => packType(t, at, this);
+    // Error objects are the Error records thrown values are (catch bindings, rejections).
+    types.errorType = () => this.errorRecord();
   }
 
   /** Classes (frontend/classes.ts). */
@@ -403,6 +406,7 @@ export class Lowerer {
       type: Type;
       name: string;
       initializer?: ts.Expression;
+      pattern?: ts.BindingPattern;
     }[] = [];
     for (const p of paramDecls) {
       if (p.dotDotDotToken) this.fail(p, 'E_FUNCTION', 'Rest parameters are planned for later');
@@ -429,8 +433,16 @@ export class Lowerer {
       }
       const type =
         paramTypes?.[pending.length] ?? this.types.map(this.checker.getTypeAtLocation(p), p);
-      if (!ts.isIdentifier(p.name))
-        this.fail(p, 'E_FUNCTION', 'Destructured parameters are planned for later');
+      // A destructured parameter: an unnamed parameter, destructured on entry.
+      if (ts.isObjectBindingPattern(p.name) || ts.isArrayBindingPattern(p.name)) {
+        pending.push({
+          type,
+          name: `$param${pending.length}`,
+          initializer: p.initializer,
+          pattern: p.name,
+        });
+        continue;
+      }
       // An overridden parameter type also holds where the parameter is read.
       const given = paramTypes?.[pending.length];
       // A parameter property (class constructors) also declares a field: the body reads the parameter.
@@ -522,7 +534,13 @@ export class Lowerer {
   /** Params are registered as locals of the builder before the body is lowered. */
   withParams(
     b: FnBuilder,
-    pending: { symbol?: ts.Symbol; type: Type; name: string; initializer?: ts.Expression }[],
+    pending: {
+      symbol?: ts.Symbol;
+      type: Type;
+      name: string;
+      initializer?: ts.Expression;
+      pattern?: ts.BindingPattern;
+    }[],
     lower: () => Stmt[],
   ): Stmt[] {
     // Lower once to discover captures without registering anything else.
@@ -554,6 +572,9 @@ export class Lowerer {
         });
       }
     }
+    for (const { index, p } of params)
+      if (p.pattern)
+        body.push(...this.destructure(p.pattern, { op: 'local', local: index }, p.type, b));
     body.push(...lower());
     return body;
   }
@@ -1157,6 +1178,12 @@ export class Lowerer {
         const key = (el.propertyName ?? el.name) as ts.Identifier;
         if (!ts.isIdentifier(key))
           this.fail(el, 'E_DESTRUCTURE', 'Computed destructuring keys are unsupported');
+        // A class instance: its fields and getters by name.
+        if (this.types.records[record].class) {
+          const read = this.classes.readMember(type, source, key, el, el.name, b);
+          bind(el.name, read, this.irType(read, b), el.initializer);
+          continue;
+        }
         const field = this.types.fieldIndex(record, key.text, el);
         bind(
           el.name,
@@ -1329,6 +1356,21 @@ export class Lowerer {
         {
           op: 'expr',
           value: { op: 'builtin', name: 'location.set-hash', args: [text], type: 'void' },
+          ...this.src(target),
+        },
+      ];
+    }
+    if (
+      ts.isPropertyAccessExpression(target) &&
+      target.name.text === 'title' &&
+      this.hostName(skipParens(target.expression)) === 'document'
+    ) {
+      const text: Expr =
+        this.irType(value, b) === 'string' ? value : { op: 'to-string', arg: value };
+      return [
+        {
+          op: 'expr',
+          value: { op: 'builtin', name: 'document.set-title', args: [text], type: 'void' },
           ...this.src(target),
         },
       ];
@@ -2411,12 +2453,19 @@ export class Lowerer {
           (skipParens(n).kind === ts.SyntaxKind.NullKeyword ||
             (ts.isIdentifier(skipParens(n)) &&
               (skipParens(n) as ts.Identifier).text === 'undefined'));
-        if (!nullish(state))
-          this.fail(
-            state ?? e,
-            'E_HOST',
-            `history.${method} state objects are unsupported: pass null (history.state and popstate's state are untyped structured clones)`,
-          );
+        // States are null or strings (M6); objects are untyped structured clones.
+        let stateArg: Expr | undefined;
+        if (!nullish(state)) {
+          const v = state && this.expr(state, b);
+          const t = v && this.irType(v, b);
+          if (!v || (t !== STRING && maybeInner(t!) !== STRING))
+            this.fail(
+              state ?? e,
+              'E_HOST',
+              `history.${method} states are null or strings (state objects are untyped structured clones)`,
+            );
+          stateArg = t === STRING ? { op: 'some', value: v! } : v;
+        }
         if (!title || !ts.isStringLiteralLike(skipParens(title)))
           this.fail(
             title ?? e,
@@ -2432,6 +2481,10 @@ export class Lowerer {
             this.fail(url, 'E_HOST', `history.${method} takes a string URL`);
           args.push(v);
         }
+        if (stateArg) {
+          if (!args.length) args.push({ op: 'undefined', type: { maybe: STRING } });
+          args.push(stateArg);
+        }
         return builtin(`history.${method === 'pushState' ? 'push' : 'replace'}`, args, 'void');
       }
       if (method === 'back' || method === 'forward') {
@@ -2441,6 +2494,14 @@ export class Lowerer {
       if (method === 'go') {
         const arg = e.arguments[0] && skipParens(e.arguments[0]);
         let delta: number | undefined;
+        // A computed delta (M6): checked when it runs (0 reloads, unsupported).
+        if (
+          arg &&
+          e.arguments.length === 1 &&
+          !ts.isNumericLiteral(arg) &&
+          !(ts.isPrefixUnaryExpression(arg) && ts.isNumericLiteral(arg.operand))
+        )
+          return builtin('history.go', [this.coerce(arg, b, NUMBER)], 'void');
         if (arg && ts.isNumericLiteral(arg)) delta = Number(arg.text);
         else if (
           arg &&
@@ -2470,7 +2531,74 @@ export class Lowerer {
         'E_HOST',
         `location.${method} navigates to another document, which is unsupported (assign location.hash or use history.pushState)`,
       );
+    if (host === 'document' && method === 'getElementById') {
+      if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'getElementById takes an id');
+      return builtin('document.getElementById', [this.coerce(e.arguments[0], b, STRING)], {
+        maybe: 'element',
+      });
+    }
+    if (host === '__runic') return this.intrinsic(method, e, b);
     return undefined;
+  }
+
+  /** Runic intrinsics of compiler-generated support code (frontend/dom.d.ts `__runic`). */
+  private intrinsic(method: string, e: ts.CallExpression, b: FnBuilder): Expr {
+    const arg = (i: number, t: Type): Expr => {
+      const a = e.arguments[i];
+      if (!a) return this.fail(e, 'E_CALL', `__runic.${method} takes more arguments`);
+      return this.coerce(a, b, t);
+    };
+    const builtin = (name: string, args: Expr[], type: Type): Expr => ({
+      op: 'builtin',
+      name,
+      args,
+      type,
+    });
+    switch (method) {
+      case 'parent':
+        return builtin('element.parent', [arg(0, 'element')], { maybe: 'element' });
+      case 'focused':
+        return builtin('focus.current', [], { maybe: 'element' });
+      case 'resetFocus':
+        return builtin('focus.reset', [], 'void');
+      case 'focusStart':
+        return builtin('focus.start', [arg(0, 'element')], 'void');
+      case 'resolve':
+        return builtin('url.resolve', [arg(0, STRING), arg(1, STRING)], { maybe: STRING });
+      case 'queryPairs':
+        return builtin('url.query-pairs', [arg(0, STRING)], { array: { array: STRING } });
+      case 'hostReply':
+        return builtin('host.reply', [], { promise: 'void' });
+      case 'unsupported':
+        return builtin('host.unsupported', [arg(0, STRING)], 'void');
+      // A value as Svelte renders it in text: nullish as empty, others as String(v).
+      case 'text': {
+        const v = this.expr(e.arguments[0], b);
+        const t = this.irType(v, b);
+        if (t === STRING) return v;
+        const inner = maybeInner(t);
+        if (!inner) return { op: 'to-string', arg: v };
+        const local = b.local('$text', t);
+        const value: Expr = { op: 'unwrap', value: { op: 'local', local } };
+        return {
+          op: 'with',
+          local,
+          value: v,
+          body: {
+            op: 'cond',
+            test: {
+              op: 'builtin',
+              name: 'maybe.is-nullish',
+              args: [{ op: 'local', local }],
+              type: BOOLEAN,
+            },
+            then: { op: 'lit', value: '' },
+            else: inner === STRING ? value : { op: 'to-string', arg: value },
+          },
+        };
+      }
+    }
+    return this.fail(e, 'E_MEMBER', `__runic.${method} is unknown`);
   }
 
   /** Reads of host-service properties: `history.length`, `location.*`. */
@@ -2481,11 +2609,7 @@ export class Lowerer {
       if (name === 'length')
         return { op: 'builtin', name: 'history.length', args: [], type: NUMBER };
       if (name === 'state')
-        return this.fail(
-          e,
-          'E_HOST',
-          'history.state is unsupported: state objects are untyped structured clones (keep the state in the URL)',
-        );
+        return { op: 'builtin', name: 'history.state', args: [], type: { maybe: STRING } };
       return this.fail(e, 'E_MEMBER', `history.${name} is unsupported`);
     }
     if (host === 'location') {
@@ -2501,6 +2625,8 @@ export class Lowerer {
     }
     if (host === 'navigator' || host === 'console' || host === 'crypto')
       return this.fail(e, 'E_MEMBER', `${host}.${name} is unsupported here; call its methods`);
+    if (host === 'document' && name === 'title')
+      return { op: 'builtin', name: 'document.title', args: [], type: STRING };
     return undefined;
   }
 
@@ -2656,6 +2782,8 @@ export class Lowerer {
         );
       return { op: 'builtin', name: 'media-query.matches', args: [object], type: 'boolean' };
     }
+    if (kind === 'element' && name === 'localName')
+      return { op: 'builtin', name: 'element.localName', args: [object], type: STRING };
     if (kind === 'element' && name === 'isConnected')
       return { op: 'builtin', name: 'element.isConnected', args: [object], type: 'boolean' };
     if (kind === 'element') {
@@ -2925,6 +3053,18 @@ export class Lowerer {
           );
       }
     }
+    // Items added to an array of nullable elements (TypeScript narrowed the
+    // value): wrapped into the element type.
+    if ((name === 'array.push' || name === 'array.unshift') && args.length > 1) {
+      const element = arrayElement(this.irType(args[0], b));
+      const inner = element && maybeInner(element);
+      if (inner)
+        args = args.map((a, i) =>
+          i > 0 && JSON.stringify(this.irType(a, b)) === JSON.stringify(inner)
+            ? { op: 'some', value: a }
+            : a,
+        );
+    }
     const type =
       ts0 ??
       builtinType(
@@ -3124,6 +3264,14 @@ export class Lowerer {
       if (global === 'Promise') {
         if (!['resolve', 'reject', 'all'].includes(method))
           return this.fail(e, 'E_BUILTIN', `Promise.${method} is planned for later`);
+        // Promise.resolve(): fulfilled with undefined.
+        if (method === 'resolve' && !e.arguments.length)
+          return {
+            op: 'builtin',
+            name: 'promise.resolve',
+            args: [{ op: 'undefined', type: 'void' }],
+            type: { promise: 'void' },
+          };
         return this.builtinCall(`promise.${method}`, args(), b, this.tsCallType(e), e);
       }
       if (ts.isIdentifier(callee.expression)) {
@@ -3266,6 +3414,9 @@ export class Lowerer {
       case 'hasAttribute':
         if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'hasAttribute takes a name');
         return call(method, [this.coerce(e.arguments[0], b, STRING)], BOOLEAN);
+      case 'getAttribute':
+        if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'getAttribute takes a name');
+        return call(method, [this.coerce(e.arguments[0], b, STRING)], { maybe: STRING });
       case 'getAnimations': {
         if (e.arguments.length)
           this.fail(e, 'E_CALL', 'getAnimations options (subtree) are unsupported');
@@ -4807,6 +4958,7 @@ const GLOBAL_FUNCTIONS = new Set([
   'structuredClone',
   'encodeURIComponent',
   'decodeURIComponent',
+  'decodeURI',
 ]);
 const STATIC_NAMESPACES = new Set(['Math', 'Number', 'String', 'Array', 'Object', 'JSON']);
 /** Built-ins over plain data, which class instances are not (frontend/classes.ts). */

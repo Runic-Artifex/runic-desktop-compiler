@@ -20,7 +20,7 @@
 
 import ts from 'typescript';
 import type { Expr, Fn, Stmt, Type } from './ir.ts';
-import { COMPOUND, FnBuilder, Lowerer, remapLocals } from './language.ts';
+import { COMPOUND, FnBuilder, Lowerer, remapLocals, skipParens } from './language.ts';
 
 const NUMBER: Type = 'number';
 const BOOLEAN: Type = 'boolean';
@@ -158,6 +158,16 @@ export function asyncBody(
   s.asyncReturn = (e, node) => {
     if (!e) return settle('fulfil', { op: 'undefined', type: VOID });
     if (containsAwait(e)) return fail(node, 'await inside a return value is planned for later');
+    // `return undefined`: the contextual type is `T | PromiseLike<T>`; the value is the result's.
+    const bare = skipParens(e);
+    if (
+      ts.isIdentifier(bare) &&
+      bare.text === 'undefined' &&
+      !lower.binding(bare) &&
+      typeof value === 'object' &&
+      'maybe' in value
+    )
+      return settle('fulfil', { op: 'undefined', type: value });
     const v = lower.expr(e, s);
     const t = lower.irType(v, s);
     if (typeof t === 'object' && 'promise' in t) return settle('adopt', v);

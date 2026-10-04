@@ -40,7 +40,7 @@ fn push_state_urls() {
     for case in v["push"].as_array().unwrap() {
         let mut s = at(case["base"].as_str().unwrap());
         let input = units(&case["input"]);
-        let got = match s.push(Some(&input)) {
+        let got = match s.push(Some(&input), None) {
             Ok(()) => location(&s),
             Err(e) => {
                 assert_eq!(e.name.to_rust(), "RunicHistoryError");
@@ -85,9 +85,9 @@ fn traversal_hashchange() {
     let v = vectors();
     for case in v["traverse"].as_array().unwrap() {
         let mut s = at("/");
-        s.push(Some(&JsString::from(case["from"].as_str().unwrap())))
+        s.push(Some(&JsString::from(case["from"].as_str().unwrap())), None)
             .unwrap();
-        s.push(Some(&JsString::from(case["to"].as_str().unwrap())))
+        s.push(Some(&JsString::from(case["to"].as_str().unwrap())), None)
             .unwrap();
         let t = s.traverse(-1).unwrap().expect("traversed");
         assert_eq!(case["popstate"], 1);

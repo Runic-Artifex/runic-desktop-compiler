@@ -125,6 +125,8 @@ const BOOLEAN_ATTRS = new Set([
 
 interface Graph {
   root: string;
+  /** A SvelteKit app (compiler/adapters/kit-app.mjs). */
+  kit?: KitGraph;
   entry: string;
   hash: string;
   css: string;
@@ -142,6 +144,16 @@ interface Graph {
 }
 
 type Source = { file: string; line: number; column: number };
+
+/** What the Svelte adapter uses of a SvelteKit app (compiler/adapters/kit-app.mjs). */
+interface KitGraph {
+  hash: boolean;
+  generated: string;
+  routeModules: Set<string>;
+  routeComponents: Set<string>;
+  typeFiles: Map<string, string>;
+  resolveType: (specifier: string, from: string) => string | undefined;
+}
 
 /** Source location in the original file for an offset. */
 function locate(text: string, offset: number, file: string): Source {
@@ -548,6 +560,36 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         s += `) satisfies (event: ${map}[${event}]) => void;\n$effect.pre(() => { ${target}.addEventListener(${event}, ${name}); return () => ${target}.removeEventListener(${event}, ${name}); });\n`;
       }
     }
+    // <svelte:head>: a <title> sets document.title in an effect created
+    // with the template (Svelte's deferred_template_effect), its parts as
+    // Svelte renders text. Other head elements have no native meaning yet.
+    for (const n of u.ast.fragment.nodes) {
+      if (n.type !== 'SvelteHead') continue;
+      for (const c of n.fragment.nodes) {
+        if (c.type === 'Comment' || (c.type === 'Text' && !c.data.trim())) continue;
+        if (c.type !== 'TitleElement' || c.attributes.length)
+          fail(
+            'E_TEMPLATE',
+            '<svelte:head> supports <title> (other head elements have no native meaning yet)',
+            locate(u.original, c.start, u.rel),
+          );
+        s += '$effect(() => {\n  document.title = `';
+        for (const part of c.fragment.nodes) {
+          if (part.type === 'Text') s += part.data.replace(/[`\\$]/g, (ch: string) => '\\' + ch);
+          else if (part.type === 'ExpressionTag') {
+            s += '$' + '{__runic.text(';
+            copy(part.expression.start, part.expression.end);
+            s += ')}';
+          } else
+            fail(
+              'E_TEMPLATE',
+              'A <title> holds text and expressions',
+              locate(u.original, part.start, u.rel),
+            );
+        }
+        s += '`;\n});\n';
+      }
+    }
     u.statementsEnd = s.length;
     s += 'function __runic_template() {\n';
     const inline = (e: SNode) => {
@@ -715,6 +757,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep) && !isPackageModule(id))
         files.set(id, m.code);
     for (const m of packageModules.values()) files.set(m.virtual, m.text);
+    // A SvelteKit app's generated modules that are imported for types only.
+    for (const [f, code] of graph.kit?.typeFiles ?? []) if (!files.has(f)) files.set(f, code);
     // Imports resolve as the collector resolved them (aliases included); a
     // component file stands for its virtual module, a reached package module
     // for its typed virtual module. Other package modules (barrels, packs)
@@ -733,7 +777,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ? containing.slice(0, -'.__runic.ts'.length)
         : containing;
       const edge = graph.modules.get(from)?.imports.find(i => i.specifier === specifier);
-      if (!edge) return undefined;
+      if (!edge) return graph.kit?.resolveType(specifier, from);
       // Modules of packages, also uncollected ones (imported for types only).
       const source = isPackageModule(edge.resolved) || /[\\/]node_modules[\\/]/.test(edge.resolved);
       if (edge.package && !source) return undefined;
@@ -841,6 +885,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     cellType: cell => cells[cell].type,
     writeCell: (cell, value) => [{ op: 'set', cell, value }],
     call(node, ctx, lower) {
+      // settled(): fulfilled when the pending flush ends (Svelte's batch commits).
+      if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'settled') {
+        if (node.arguments.length) return tsFail(node, 'E_CALL', 'settled takes no arguments');
+        return { op: 'builtin', name: 'flush.after', args: [], type: { promise: 'void' } };
+      }
       // tick(): a microtask that runs any pending flush, then fulfils.
       if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'tick') {
         if (node.arguments.length) return tsFail(node, 'E_CALL', 'tick takes no arguments');
@@ -1029,6 +1078,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // functions shared by every instance.
   for (const p of lowerModules(graph, program, lower, {
     skip: f => f === graph.entry,
+    // 'svelte''s tick, untrack and settled in modules lower where they are called.
+    frameworkImport(spec, stmt) {
+      if (spec !== 'svelte') return false;
+      const named = stmt.importClause?.namedBindings;
+      if (stmt.importClause?.name || !named || !ts.isNamedImports(named))
+        tsFail(stmt, 'E_CAPABILITY', 'Import tick, untrack and settled from svelte by name');
+      for (const el of (named as ts.NamedImports).elements)
+        if (!['tick', 'untrack', 'settled'].includes((el.propertyName ?? el.name).text))
+          tsFail(
+            el,
+            'E_CAPABILITY',
+            `svelte's ${(el.propertyName ?? el.name).text} is unsupported in modules (tick, untrack and settled are)`,
+          );
+      return true;
+    },
     componentModule: f => {
       const u = units.get(f);
       return u?.moduleLength ? moduleStatements(u) : undefined;
@@ -1707,7 +1771,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       // the text around them joins.
       const list: SNode[] = [];
       for (const n of fragment.nodes) {
-        if (['Comment', 'SvelteWindow', 'SvelteDocument'].includes(n.type)) continue;
+        if (['Comment', 'SvelteWindow', 'SvelteDocument', 'SvelteHead'].includes(n.type)) continue;
         const last = list.at(-1);
         if (n.type === 'Text' && last?.type === 'Text') last.data += n.data;
         else list.push({ ...n });

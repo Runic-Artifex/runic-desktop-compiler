@@ -10,6 +10,9 @@ use std::cell::RefCell;
 
 thread_local! {
     static SESSION: RefCell<Option<Session>> = const { RefCell::new(None) };
+    /// `document.title` (M6): empty when a document starts (the window's
+    /// title stays runic.json's).
+    static TITLE: RefCell<JsString> = RefCell::new(JsString::new());
     /// The probe's start URL.
     static START: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -36,6 +39,7 @@ fn with<R>(f: impl FnOnce(&mut Session) -> R) -> R {
 /// A document starts loading (the app is created): the first one at the
 /// start URL, later ones (reloads) at the current entry.
 pub(crate) fn begin_document() {
+    TITLE.with(|t| *t.borrow_mut() = JsString::new());
     let fresh = SESSION.with(|s| s.borrow().is_none());
     with(|s| {
         if !fresh {
@@ -49,12 +53,27 @@ pub(crate) fn loaded() {
     with(Session::loaded);
 }
 
-pub fn push(url: Option<&JsString>) -> JsResult<()> {
-    with(|s| s.push(url))
+pub fn push(url: Option<&JsString>, state: Option<&JsString>) -> JsResult<()> {
+    with(|s| s.push(url, state))
 }
 
-pub fn replace(url: Option<&JsString>) -> JsResult<()> {
-    with(|s| s.replace(url))
+pub fn replace(url: Option<&JsString>, state: Option<&JsString>) -> JsResult<()> {
+    with(|s| s.replace(url, state))
+}
+
+/// `history.state` of the current entry.
+pub fn state() -> Option<JsString> {
+    with(|s| s.state())
+}
+
+/// `document.title`.
+pub fn title() -> JsString {
+    TITLE.with(|t| t.borrow().clone())
+}
+
+/// `document.title = value`.
+pub fn set_title(value: &JsString) {
+    TITLE.with(|t| *t.borrow_mut() = value.clone());
 }
 
 /// `location.hash = value`; whether it navigated (`popstate` fires at once,
@@ -91,6 +110,6 @@ pub fn hash() -> JsString {
 
 /// `location.href` without the origin, and `history.length` (probe snapshots).
 #[cfg(feature = "probe")]
-pub(crate) fn state() -> (String, usize) {
+pub(crate) fn location_state() -> (String, usize) {
     with(|s| (s.href(), s.length()))
 }
