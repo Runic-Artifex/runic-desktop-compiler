@@ -1,0 +1,26 @@
+{
+  "description": "CSS transitions and keyframe animations on virtual time (M6): a hover colour transition (linear) and its reversal, a transform transition (ease-in-out) toggled by clicks and reversed mid-way, keyframe enter animations on mount (one delayed with backwards fill), an infinite spinner and pulse; settled states and frames sampled mid-animation",
+  "fixtures": ["animations-svelte", "animations-react", "animations-vue"],
+  "pixelRegions": ["badges", "tint", "stage", "loaders", "panels"],
+  "actions": [
+    { "kind": "wait", "ms": 125 },
+    { "kind": "wait", "ms": 250 },
+    { "kind": "hover", "id": "tint" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "click", "id": "move" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "wait", "ms": 120 },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "click", "id": "open" },
+    { "kind": "wait", "ms": 30 },
+    { "kind": "wait", "ms": 170 },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "click", "id": "move" },
+    { "kind": "wait", "ms": 90 },
+    { "kind": "click", "id": "move" },
+    { "kind": "wait", "ms": 50 },
+    { "kind": "wait", "ms": 500 }
+  ]
+}
