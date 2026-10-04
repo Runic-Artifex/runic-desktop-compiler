@@ -31,7 +31,9 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
         .attrs()
         .iter()
         .map(|a| (a.name.local.to_string(), a.value.to_string()))
-        .filter(|(k, _)| !(checkbox && k == "checked") && k != crate::select::MARK)
+        .filter(|(k, _)| {
+            !(checkbox && k == "checked") && k != crate::select::MARK && k != crate::select::SHOWN
+        })
         .collect();
     attrs.sort();
     if let Some((_, v)) = attrs.iter().find(|(k, _)| k == "id") {

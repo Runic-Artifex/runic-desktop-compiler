@@ -18,9 +18,11 @@
       <option value="input" disabled>Input</option>
       <option value="markup">Semantic markup</option>
     </select>
-    <select id="free" aria-label="Free" onchange={(e) => log.push(`free:${e.currentTarget.value}`)}>
+    <select id="free" aria-label="Free" onchange={(e) => log.push(`free:${e.currentTarget.value}`)} onclick={() => log.push('free-click')}>
       <option>Alpha</option>
+      <option disabled>Off</option>
       <option>  Beta   gamma </option>
+      <option>Gamma</option>
     </select>
     <select id="fixed" aria-label="Fixed" value={fixed}>
       <option value="a">A</option>

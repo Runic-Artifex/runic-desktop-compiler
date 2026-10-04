@@ -12,3 +12,4 @@ input[type='text'] { width: 220px; line-height: 16px; }
 input:focus { outline: none; border-color: #101010; }
 #log { font-size: 12px; overflow-wrap: anywhere; }
 select { font-family: RunicFixture; font-size: 14px; padding: 6px 10px; border: 1px solid #52665b; border-radius: 6px; background: #ffffff; color: #252c28; }
+.row { flex-wrap: wrap; }

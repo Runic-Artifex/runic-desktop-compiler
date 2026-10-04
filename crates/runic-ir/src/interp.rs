@@ -590,6 +590,8 @@ pub struct Machine<'p> {
     hovered: Vec<u64>,
     /// The focused element.
     focused: Option<u64>,
+    /// An open select popup: the select and the highlighted option index.
+    popup: Option<(u64, Option<usize>)>,
     /// The tree of the last render (what script sees between renders).
     last_tree: Vec<VNode>,
     /// Live values of uncontrolled text inputs (no `value` prop), by element id.
@@ -734,6 +736,7 @@ impl<'p> Machine<'p> {
             event: None,
             hovered: vec![],
             focused: None,
+            popup: None,
             last_tree: vec![],
             live_values: HashMap::new(),
             live_checked: HashMap::new(),
@@ -3611,6 +3614,9 @@ impl<'p> Machine<'p> {
         if count == 1 {
             self.pointer_move(target, s)?;
         }
+        // A press closes an open select popup, committing its highlight.
+        let closed_popup = self.popup.is_some();
+        self.close_popup(false, s)?;
         let pressed = js::EventData {
             button,
             buttons: if button == 2.0 { 2.0 } else { 1.0 },
@@ -3634,6 +3640,21 @@ impl<'p> Machine<'p> {
             let tree = self.render()?;
             let next = chain_nodes(&tree, target).and_then(|n| focus_target(&n));
             self.move_focus(next, s)?;
+            // A press on a closed select opens its popup.
+            if button == 0.0 && !closed_popup && !disabled {
+                let tree = self.render()?;
+                let select = chain_nodes(&tree, target).and_then(|nodes| {
+                    nodes.iter().rev().find_map(|n| match n {
+                        VNode::Element { tag, id, .. } if tag == "select" => Some(*id),
+                        _ => None,
+                    })
+                });
+                if let Some(select) = select {
+                    let shown = select_options(&tree, select)
+                        .and_then(|(o, v)| o.iter().position(|x| Some(&x.0) == v.as_ref()));
+                    self.popup = Some((select, shown));
+                }
+            }
         }
         if button == 2.0 && !disabled {
             self.dispatch(target, EventKind::Contextmenu, pressed, None, s)?;
@@ -3725,6 +3746,11 @@ impl<'p> Machine<'p> {
         }
         // The key goes to the target, focused first (as the probe does).
         self.move_focus(Some(target), s)?;
+        // An open select popup takes the key downs (Tab closes it, then acts).
+        if self.popup.is_some() && k.key == "Tab" {
+            self.close_popup(false, s)?;
+        }
+        let popup_keys = self.popup.is_some();
         let mods = k.modifiers.clone();
         let mut held = js::KeySpec::default();
         let data = |key: &str, code: &str, held: &js::KeySpec| js::EventData {
@@ -3742,6 +3768,35 @@ impl<'p> Machine<'p> {
             "Alt" => held.alt = on,
             _ => held.meta = on,
         };
+        if popup_keys {
+            for (m, _) in &mods {
+                hold(&mut held, m, true);
+            }
+            match k.key.as_str() {
+                "Enter" => self.close_popup(true, s)?,
+                "Escape" => self.close_popup(false, s)?,
+                key => {
+                    if let Some((select, from)) = self.popup {
+                        let tree = self.render()?;
+                        if let Some(i) = popup_key(&tree, select, from, key) {
+                            self.popup = Some((select, Some(i)));
+                        }
+                    }
+                }
+            }
+            self.dispatch(
+                target,
+                EventKind::Keyup,
+                data(&k.key, &k.code, &held),
+                None,
+                s,
+            )?;
+            for (m, code) in mods.iter().rev() {
+                hold(&mut held, m, false);
+                self.dispatch(target, EventKind::Keyup, data(m, code, &held), None, s)?;
+            }
+            return Ok(());
+        }
         for (m, code) in &mods {
             hold(&mut held, m, true);
             self.dispatch(target, EventKind::Keydown, data(m, code, &held), None, s)?;
@@ -3794,6 +3849,34 @@ impl<'p> Machine<'p> {
         for (m, code) in mods.iter().rev() {
             hold(&mut held, m, false);
             self.dispatch(target, EventKind::Keyup, data(m, code, &held), None, s)?;
+        }
+        Ok(())
+    }
+
+    /// Close the select popup: the highlighted option becomes the select's
+    /// (`input`, `change` when it changes), then for Enter a `click`.
+    fn close_popup(&mut self, click: bool, s: &mut Run) -> Result<()> {
+        let Some((select, highlighted)) = self.popup.take() else {
+            return Ok(());
+        };
+        let tree = self.render()?;
+        let Some((options, value)) = select_options(&tree, select) else {
+            return Ok(());
+        };
+        if let Some(i) = highlighted {
+            if value.as_ref() != options.get(i).map(|o| &o.0) {
+                let v = options[i].0.clone();
+                self.live_values.insert(select, v.clone());
+                let data = js::EventData {
+                    value: JsString::from(v.as_str()),
+                    ..Default::default()
+                };
+                self.dispatch(select, EventKind::Input, data.clone(), None, s)?;
+                self.dispatch(select, EventKind::Change, data, None, s)?;
+            }
+        }
+        if click {
+            self.click(select, s)?;
         }
         Ok(())
     }
@@ -4213,6 +4296,49 @@ fn labelled_control(tree: &[VNode], target: u64) -> Option<u64> {
 /// Home/End to the first/last enabled one, a character to the next option
 /// starting with it (wrapping). None when the selection does not change.
 fn select_key_target(tree: &[VNode], select: u64, key: &str) -> Option<String> {
+    let (options, value) = select_options(tree, select)?;
+    let current = options.iter().position(|o| Some(&o.0) == value.as_ref());
+    let found = option_key(&options, current, key)?;
+    (Some(found) != current).then(|| options[found].0.clone())
+}
+
+/// Where a key moves an open popup's highlight (by option index).
+fn popup_key(tree: &[VNode], select: u64, from: Option<usize>, key: &str) -> Option<usize> {
+    let (options, _) = select_options(tree, select)?;
+    option_key(&options, from, key)
+}
+
+/// The option a key leads to from `current`: arrows to the previous/next
+/// enabled option, Home/End to the first/last enabled one, a character to
+/// the next option starting with it (wrapping).
+fn option_key(
+    options: &[(String, bool, String)],
+    current: Option<usize>,
+    key: &str,
+) -> Option<usize> {
+    let n = options.len();
+    match key {
+        "ArrowDown" => (current.map_or(0, |c| c + 1)..n).find(|&i| options[i].1),
+        "ArrowUp" => (0..current?).rev().find(|&i| options[i].1),
+        "Home" => (0..n).find(|&i| options[i].1),
+        "End" => (0..n).rev().find(|&i| options[i].1),
+        k if k.chars().count() == 1 && k != " " => {
+            let c = k.to_lowercase();
+            let start = current.map_or(0, |c| c + 1);
+            (0..n)
+                .map(|d| (start + d) % n)
+                .find(|&i| options[i].1 && options[i].2.trim_start().to_lowercase().starts_with(&c))
+        }
+        _ => None,
+    }
+}
+
+/// A select's options (value, enabled, text) and its value.
+#[allow(clippy::type_complexity)]
+fn select_options(
+    tree: &[VNode],
+    select: u64,
+) -> Option<(Vec<(String, bool, String)>, Option<String>)> {
     let nodes = chain_nodes(tree, select)?;
     let VNode::Element {
         tag,
@@ -4226,7 +4352,7 @@ fn select_key_target(tree: &[VNode], select: u64, key: &str) -> Option<String> {
     if tag != "select" {
         return None;
     }
-    let options: Vec<(String, bool, String)> = children
+    let options = children
         .iter()
         .filter_map(|k| match k {
             VNode::Element {
@@ -4248,23 +4374,7 @@ fn select_key_target(tree: &[VNode], select: u64, key: &str) -> Option<String> {
             _ => None,
         })
         .collect();
-    let current = options.iter().position(|o| Some(&o.0) == value.as_ref());
-    let n = options.len();
-    let found = match key {
-        "ArrowDown" => (current.map_or(0, |c| c + 1)..n).find(|&i| options[i].1),
-        "ArrowUp" => (0..current?).rev().find(|&i| options[i].1),
-        "Home" => (0..n).find(|&i| options[i].1),
-        "End" => (0..n).rev().find(|&i| options[i].1),
-        k if k.chars().count() == 1 && k != " " => {
-            let c = k.to_lowercase();
-            let start = current.map_or(0, |c| c + 1);
-            (0..n)
-                .map(|d| (start + d) % n)
-                .find(|&i| options[i].1 && options[i].2.trim_start().to_lowercase().starts_with(&c))
-        }
-        _ => None,
-    }?;
-    (Some(found) != current).then(|| options[found].0.clone())
+    Some((options, value.clone()))
 }
 
 /// The text of a node.

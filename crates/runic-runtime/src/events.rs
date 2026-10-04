@@ -36,6 +36,10 @@ pub(crate) struct Pointer {
     last_press: Option<(std::time::Instant, f32, f32)>,
     /// The click count of the next press (probes; otherwise by time and distance).
     pub(crate) next_count: Option<u32>,
+    /// An open select popup.
+    popup: Option<crate::select::Popup>,
+    /// The current press closed a popup (it does not open one again).
+    closed_popup: bool,
 }
 
 /// The native document: Blitz DOM plus the application and its listeners.
@@ -539,6 +543,93 @@ impl<A: App> Handler<'_, A> {
         }
     }
 
+    /// Open the popup of `select` (drawn in windowed runs; Chromium's popup
+    /// is not page content, so probes do not draw it).
+    fn open_popup(&mut self, doc: &mut BaseDocument, select: NodeId) {
+        let highlighted = crate::select::shown_index(doc, select);
+        let mut dom = Dom {
+            doc,
+            listeners: self.listeners,
+        };
+        // Headless Chromium draws its popup into the page, so probes draw it too.
+        let list = crate::select::draw_popup(&mut dom, select, highlighted);
+        self.pointer.popup = Some(crate::select::Popup {
+            select,
+            highlighted,
+            list,
+        });
+    }
+
+    /// Move the popup's highlight.
+    fn highlight(&mut self, doc: &mut BaseDocument, to: usize) {
+        let Some(popup) = self.pointer.popup.as_mut() else {
+            return;
+        };
+        popup.highlighted = Some(to);
+        let select = popup.select;
+        crate::select::show_index(
+            &mut Dom {
+                doc,
+                listeners: self.listeners,
+            },
+            select,
+            Some(to),
+        );
+        if let Some(list) = self.pointer.popup.as_mut().and_then(|p| p.list.take()) {
+            let mut dom = Dom {
+                doc,
+                listeners: self.listeners,
+            };
+            dom.remove(list);
+            let _ = dom.take_freed();
+            let list = crate::select::draw_popup(&mut dom, select, Some(to));
+            if let Some(p) = self.pointer.popup.as_mut() {
+                p.list = list;
+            }
+        }
+    }
+
+    /// Close the popup: the highlighted option becomes the select's
+    /// (`input`, `change` when it changes), then for Enter a `click`.
+    fn close_popup(&mut self, doc: &mut BaseDocument, click: bool) {
+        let Some(popup) = self.pointer.popup.take() else {
+            return;
+        };
+        let select = popup.select;
+        if let Some(list) = popup.list {
+            let mut dom = Dom {
+                doc,
+                listeners: self.listeners,
+            };
+            dom.remove(list);
+            let _ = dom.take_freed();
+        }
+        if doc.get_node(select).is_none() {
+            return;
+        }
+        let chain = chain_of(doc, select);
+        if let Some(i) = popup.highlighted {
+            if crate::select::shown_index(doc, select) != Some(i) {
+                if let Some(value) = crate::select::value_at(doc, select, i) {
+                    Dom {
+                        doc,
+                        listeners: self.listeners,
+                    }
+                    .choose_option(select, &value);
+                    let data = EventData {
+                        value: value.as_str().into(),
+                        ..Default::default()
+                    };
+                    self.fire(doc, &chain, Event::Input, data.clone());
+                    self.fire(doc, &chain, Event::Change, data);
+                }
+            }
+        }
+        if click {
+            self.click(doc, &chain, EventData::default());
+        }
+    }
+
     /// Whether `event` was cancelled.
     fn cancelled(event: &Option<runic_js::Event>) -> bool {
         event.as_ref().is_some_and(|e| e.default_prevented())
@@ -742,6 +833,35 @@ impl<A: App> EventHandler for Handler<'_, A> {
             DomEventData::ContextMenu(_) if CONTEXT_MENU_ON_PRESS => return,
             _ => {}
         }
+        // An open select popup takes the keyboard (key downs do not reach the
+        // page) and closes, committing its highlight, on any press.
+        if let Some(popup) = self.pointer.popup.as_ref() {
+            let (select, from) = (popup.select, popup.highlighted);
+            match &event.data {
+                // Tab closes the popup, then moves focus as usual.
+                DomEventData::KeyDown(k) if k.key == Key::Tab => self.close_popup(doc, false),
+                DomEventData::KeyDown(k) => {
+                    state.prevent_default();
+                    let key = k.key.to_string();
+                    match key.as_str() {
+                        "Enter" => self.close_popup(doc, true),
+                        "Escape" => self.close_popup(doc, false),
+                        _ => {
+                            if let Some(i) = crate::select::popup_key(doc, select, from, &key) {
+                                self.highlight(doc, i);
+                            }
+                        }
+                    }
+                    doc.shell_provider.request_redraw();
+                    return;
+                }
+                DomEventData::PointerDown(_) => {
+                    self.close_popup(doc, false);
+                    self.pointer.closed_popup = true;
+                }
+                _ => {}
+            }
+        }
         // Keydown listeners (target first, bubbling) run before default
         // actions; a cancelled keydown has none (no text insertion,
         // activation or focus navigation).
@@ -804,6 +924,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 self.pointer.suppress_mouse = Self::cancelled(&e);
             }
             DomEventData::PointerUp(p) => {
+                self.pointer.closed_popup = false;
                 self.boundary(doc, p);
                 self.fire(doc, chain, Event::Pointerup, pointer_data(p));
             }
@@ -845,6 +966,19 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     let next = candidate.filter(|&c| !is_disabled_control(doc, c));
                     // Text controls then get Blitz's caret placement.
                     self.move_focus(doc, next);
+                    // A press on a closed select opens its popup.
+                    let select = chain
+                        .iter()
+                        .copied()
+                        .find(|&n| crate::select::is_select(doc, n));
+                    if let Some(select) = select {
+                        if p.button == MouseEventButton::Main
+                            && !self.pointer.closed_popup
+                            && !is_disabled_control(doc, select)
+                        {
+                            self.open_popup(doc, select);
+                        }
+                    }
                 }
                 if CONTEXT_MENU_ON_PRESS && p.button == MouseEventButton::Secondary && !blocked {
                     self.fire(doc, chain, Event::Contextmenu, pointer_data(p));

@@ -8,13 +8,16 @@
 use blitz_dom::BaseDocument;
 use blitz_traits::node_id::NodeId;
 
-/// The marker of the option a select shows.
+/// The marker of the selected option (the select's value).
 pub(crate) const MARK: &str = "runic-selected";
+/// The marker of the option the closed control shows (the highlighted one
+/// while the popup is open).
+pub(crate) const SHOWN: &str = "runic-shown";
 
 pub(crate) const UA: &str = "select { display: inline-grid; position: relative; align-items: center; \
 border: 1px solid #767676; padding: 0; background-color: #ffffff; color: #000000; }\n\
 select > option { display: block; grid-area: 1 / 1; visibility: hidden; padding: 1px 16px 1px 4px; white-space: nowrap; }\n\
-select > option[runic-selected] { visibility: visible; }\n\
+select > option[runic-shown] { visibility: visible; }\n\
 select::after { content: \"\"; position: absolute; right: 7px; top: 50%; width: 5px; height: 5px; \
 margin-top: -5px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }";
 
@@ -74,7 +77,7 @@ pub(crate) fn value(doc: &BaseDocument, select: NodeId) -> Option<String> {
     )
 }
 
-/// Show `option` (none: no option).
+/// Select `option` (none: no option), which the control then shows.
 fn mark(dom: &mut crate::Dom, select: NodeId, option: Option<NodeId>) {
     for o in options(dom.doc, select) {
         let want = Some(o) == option;
@@ -82,6 +85,27 @@ fn mark(dom: &mut crate::Dom, select: NodeId, option: Option<NodeId>) {
             dom.set_bool_attr(o, MARK, want);
         }
     }
+    show(dom, select, option);
+}
+
+/// The closed control shows `option`.
+fn show(dom: &mut crate::Dom, select: NodeId, option: Option<NodeId>) {
+    for o in options(dom.doc, select) {
+        let want = Some(o) == option;
+        let shown = dom
+            .doc
+            .get_node(o)
+            .is_some_and(|n| n.attr(SHOWN.into()).is_some());
+        if shown != want {
+            dom.set_bool_attr(o, SHOWN, want);
+        }
+    }
+}
+
+/// While the popup is open the control shows the highlighted option.
+pub(crate) fn show_index(dom: &mut crate::Dom, select: NodeId, i: Option<usize>) {
+    let option = i.and_then(|i| options(dom.doc, select).get(i).copied());
+    show(dom, select, option);
 }
 
 /// `select.value = v`: the first option with that value, or none.
@@ -158,4 +182,121 @@ pub(crate) fn key_target(doc: &BaseDocument, select: NodeId, key: &str) -> Optio
         _ => None,
     }
     .filter(|v| current.map(|c| option_value(doc, options[c])) != Some(v.clone()))
+}
+
+/// An open select popup: the select and the highlighted option.
+pub(crate) struct Popup {
+    pub select: NodeId,
+    pub highlighted: Option<usize>,
+    /// The drawn list (none in probes: Chromium's popup is not page content).
+    pub list: Option<NodeId>,
+}
+
+/// The index of the shown option.
+pub(crate) fn shown_index(doc: &BaseDocument, select: NodeId) -> Option<usize> {
+    options(doc, select)
+        .into_iter()
+        .position(|o| marked(doc, o))
+}
+
+/// The value of option `i`.
+pub(crate) fn value_at(doc: &BaseDocument, select: NodeId, i: usize) -> Option<String> {
+    options(doc, select).get(i).map(|&o| option_value(doc, o))
+}
+
+/// Where a key moves the highlight of an open popup (as \`key_target\`, by index).
+pub(crate) fn popup_key(
+    doc: &BaseDocument,
+    select: NodeId,
+    from: Option<usize>,
+    key: &str,
+) -> Option<usize> {
+    let options = options(doc, select);
+    let enabled: Vec<bool> = options
+        .iter()
+        .map(|&o| {
+            doc.get_node(o)
+                .is_some_and(|n| n.attr("disabled".into()).is_none())
+        })
+        .collect();
+    let n = options.len();
+    match key {
+        "ArrowDown" => (from.map_or(0, |c| c + 1)..n).find(|&i| enabled[i]),
+        "ArrowUp" => (0..from?).rev().find(|&i| enabled[i]),
+        "Home" => (0..n).find(|&i| enabled[i]),
+        "End" => (0..n).rev().find(|&i| enabled[i]),
+        k if k.chars().count() == 1 && k != " " => {
+            let c = k.to_lowercase();
+            let start = from.map_or(0, |c| c + 1);
+            (0..n).map(|d| (start + d) % n).find(|&i| {
+                enabled[i]
+                    && doc.get_node(options[i]).is_some_and(|o| {
+                        o.text_content().trim_start().to_lowercase().starts_with(&c)
+                    })
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Draw the popup list under the select (windowed runs).
+pub(crate) fn draw_popup(
+    dom: &mut crate::Dom,
+    select: NodeId,
+    highlighted: Option<usize>,
+) -> Option<NodeId> {
+    let rect = dom.doc.get_client_bounding_rect(select)?;
+    let body = dom.doc.query_selector("body").ok().flatten()?;
+    let font = dom.doc.resolved_style_value(select, "font");
+    let color = dom.doc.resolved_style_value(select, "color");
+    let pad = |side: &str| {
+        dom.doc
+            .resolved_style_value(select, side)
+            .trim_end_matches("px")
+            .parse::<f64>()
+            .unwrap_or(0.0)
+    };
+    let (left, right) = (pad("padding-left") + 4.0, pad("padding-right") + 4.0);
+    let list = dom.element("div");
+    dom.set_attr(
+        list,
+        "style",
+        &format!(
+            "position: fixed; left: {}px; top: {}px; min-width: {}px; box-sizing: border-box; margin: 0; z-index: 2147483647; background: #ffffff; color: {color}; border: 1px solid #767676; font: {font}; padding: 0;",
+            rect.x,
+            rect.y + rect.height,
+            rect.width
+        ),
+    );
+    for (i, o) in options(dom.doc, select).into_iter().enumerate() {
+        let item = dom.element("div");
+        let disabled = dom
+            .doc
+            .get_node(o)
+            .is_some_and(|n| n.attr("disabled".into()).is_some());
+        let colors = if Some(i) == highlighted {
+            "background: #1967d2; color: #ffffff;"
+        } else if disabled {
+            "color: #808080;"
+        } else {
+            ""
+        };
+        dom.set_attr(
+            item,
+            "style",
+            &format!(
+                "margin: 0; padding: 4px {right}px 4px {left}px; white-space: nowrap; {colors}"
+            ),
+        );
+        let text = dom
+            .doc
+            .get_node(o)
+            .map(|n| n.text_content())
+            .unwrap_or_default();
+        let t = dom.text(text.trim());
+        dom.append(item, t);
+        dom.append(list, item);
+    }
+    dom.append(body, list);
+    Some(list)
 }

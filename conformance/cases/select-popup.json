@@ -1,0 +1,19 @@
+{
+  "description": "A select's popup, opened by a press: arrows move its highlight past disabled options without events (key downs do not reach the page), Enter commits (input, change, then a click on the select), Escape commits, typeahead moves the highlight, a press on the select commits and closes it",
+  "fixtures": ["select-svelte"],
+  "actions": [
+    { "kind": "click", "id": "free" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "click", "id": "free" },
+    { "kind": "press", "key": "ArrowUp" },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "click", "id": "free" },
+    { "kind": "press", "key": "a" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "click", "id": "free" },
+    { "kind": "press", "key": "Tab" }
+  ]
+}
