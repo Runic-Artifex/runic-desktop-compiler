@@ -588,6 +588,27 @@ impl Component {
             .iter()
             .position(|c| c.prop.as_deref() == Some(name))
     }
+
+    /// Whether the template, or slot content it passes, has an `<svg>`.
+    pub fn uses_svg(&self) -> bool {
+        fn any(nodes: &[Node]) -> bool {
+            nodes.iter().any(|n| match n {
+                Node::Element { tag, children, .. } => tag == "svg" || any(children),
+                Node::Text { .. } => false,
+                Node::If {
+                    then, otherwise, ..
+                }
+                | Node::Each {
+                    body: then,
+                    otherwise,
+                    ..
+                } => any(then) || any(otherwise),
+                Node::Component { slots, .. } => slots.iter().any(|s| any(&s.body)),
+                Node::Slot { fallback, .. } => any(fallback),
+            })
+        }
+        any(&self.template)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
