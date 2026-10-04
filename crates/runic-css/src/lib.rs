@@ -45,11 +45,12 @@ pub fn css_text(css: &str) -> String {
 
 /// `style.setProperty(name, value, priority)` on the declarations `css`:
 /// the new serialization, or `None` when the value is invalid (nothing
-/// changes). An empty value removes the property.
+/// changes). An empty value removes the property; a value of whitespace is
+/// parsed like any other, as in Chromium.
 pub fn set_property(css: &str, name: &str, value: &str, important: bool) -> Option<String> {
     let id = PropertyId::parse_enabled_for_all_content(name).ok()?;
     let mut block = block(css);
-    if value.trim().is_empty() {
+    if value.is_empty() {
         if let Some(first) = block.first_declaration_to_remove(&id) {
             block.remove_property(&id, first);
         }
@@ -82,37 +83,9 @@ pub fn set_property(css: &str, name: &str, value: &str, important: bool) -> Opti
     Some(text(&block))
 }
 
-/// `style.setProperty(name, value)` exactly as the CSSOM defines it (and
-/// Chromium does): the empty string removes the property; any other value is
-/// parsed as given, so a whitespace-only value is an empty custom property
-/// and invalid for other properties. `None`: invalid, nothing changes.
-pub fn set_property_value(css: &str, name: &str, value: &str) -> Option<String> {
-    let id = PropertyId::parse_enabled_for_all_content(name).ok()?;
-    let mut block = block(css);
-    if value.is_empty() {
-        if let Some(first) = block.first_declaration_to_remove(&id) {
-            block.remove_property(&id, first);
-        }
-    } else {
-        let mut source = SourcePropertyDeclaration::default();
-        parse_one_declaration_into(
-            &mut source,
-            id,
-            value,
-            Origin::Author,
-            &url_data(),
-            None,
-            ParsingMode::DEFAULT,
-            QuirksMode::NoQuirks,
-            CssRuleType::Style,
-        )
-        .ok()?;
-        let mut updates = SourcePropertyDeclarationUpdate::default();
-        if block.prepare_for_update(&source, Importance::Normal, &mut updates) {
-            block.update(source.drain(), Importance::Normal, &mut updates);
-        }
-    }
-    Some(text(&block))
+/// Whether `name` is a CSS property (or a custom property).
+pub fn is_property(name: &str) -> bool {
+    PropertyId::parse_enabled_for_all_content(name).is_ok()
 }
 
 /// Whether the declarations `css` hold `name` (also with an empty value).
@@ -178,6 +151,8 @@ pub use media::{MediaEnv, matches as media_matches};
 pub mod root;
 pub use root::Root;
 pub mod compose;
+pub mod replace;
+pub use replace::ReplaceState;
 
 /// The inline style of an element as Svelte's `set_style` manages it: when
 /// the style value changes, the value composed with the properties is set
@@ -236,7 +211,7 @@ impl StyleState {
     /// An inline style of properties only, as React DOM's
     /// `setValueForStyles` manages it: each property whose value changed
     /// (initially: each property) is set through the CSSOM
-    /// ([`set_property_value`]); an absent value removes it. Returns the new
+    /// ([`set_property`]); an absent value removes it. Returns the new
     /// `style` attribute, or `Err(())` when it does not change.
     pub fn apply_properties(
         &mut self,
@@ -252,7 +227,7 @@ impl StyleState {
             let base = css.as_deref().unwrap_or("");
             match v.as_deref().filter(|v| !v.is_empty()) {
                 Some(v) => {
-                    if let Some(next) = set_property_value(base, name, v) {
+                    if let Some(next) = set_property(base, name, v, false) {
                         css = Some(next);
                         changed = true;
                     }

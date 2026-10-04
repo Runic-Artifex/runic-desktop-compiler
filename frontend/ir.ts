@@ -263,6 +263,13 @@ export type Node =
        */
       styleText?: Expr;
       styles?: Attr[];
+      /**
+       * `replace` (Vue's patchStyle): a style text set through cssText when it
+       * changes, or properties all set again in order when one changes.
+       */
+      styleUpdate?: 'compose' | 'replace';
+      /** `render`: live properties are also applied at each re-render of the instance. */
+      restore?: 'render';
       children?: Node[];
       source?: Source;
     }
@@ -318,6 +325,8 @@ export interface Effect {
   deps:
     { kind: 'tracked' | 'once' | 'always' } | { kind: 'values'; values: Expr[]; initial?: boolean };
   unmount: { removal: 'before' | 'after'; order: 'pre' | 'post' };
+  /** The instance's render (Vue's render effect): each run is a re-render. */
+  render?: boolean;
   source?: Source;
 }
 

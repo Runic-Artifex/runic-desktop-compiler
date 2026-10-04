@@ -1,6 +1,6 @@
 {
   "description": "The document element as the editor themes it: matchMedia preferences and width, dataset attributes, a custom property set and removed through the CSSOM, classList.toggle with force, style.colorScheme, and the CSS that reacts to them",
-  "fixtures": ["theme-svelte", "theme-react"],
+  "fixtures": ["theme-svelte", "theme-react", "theme-vue"],
   "actions": [
     { "kind": "click", "id": "mode" },
     { "kind": "click", "id": "mode" },

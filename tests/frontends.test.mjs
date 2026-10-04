@@ -489,7 +489,8 @@ test('Vue rejects uncovered component behaviour with locations', async () => {
     ],
     ['App.vue', '<Editor v-if="showEditor" v-model="name" />', '<Other />', 'E_TEMPLATE'],
     ['Editor.vue', 'edits++', 'edits = value.length', 'E_MODEL'],
-    ['Editor.vue', ':value="value"', 'v-model="value"', 'E_TEMPLATE'],
+    // v-model listens separately from @input (a microtask checkpoint between them).
+    ['Editor.vue', ':value="value"', 'v-model="value"', 'E_EVENT'],
     [
       'Editor.vue',
       "defineModel<string>({ default: '' })",
@@ -1116,7 +1117,7 @@ test('Vue rejects uncovered checkbox, key and slot behaviour with locations', as
       todo,
       'App.vue',
       ':value="draft" @input="draft = $event.target.value"',
-      'v-model="draft"',
+      'v-model.lazy="draft"',
       'E_TEMPLATE',
     ],
     [todo, 'App.vue', ':checked="left === 0"', '', 'E_TEMPLATE'],

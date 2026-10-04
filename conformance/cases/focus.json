@@ -1,6 +1,6 @@
 {
   "description": "The focus model: focus, blur, focusin and focusout with relatedTarget in Chromium's order on clicks, focus() from a click handler (its listeners run nested, before the handler continues), an element with tabindex, sequential navigation leaving the document and coming back",
-  "fixtures": ["focus-svelte", "focus-react"],
+  "fixtures": ["focus-svelte", "focus-react", "focus-vue"],
   "actions": [
     { "kind": "click", "id": "a" },
     { "kind": "click", "id": "plain" },

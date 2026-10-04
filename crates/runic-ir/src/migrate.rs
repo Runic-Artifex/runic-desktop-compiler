@@ -258,6 +258,8 @@ fn node(v: &Json, handlers: &[Json]) -> Result<Node> {
                 classes: vec![],
                 style_text: None,
                 styles: vec![],
+                style_update: StyleUpdate::Compose,
+                restore: None,
                 children: children(v)?,
                 source: source(v),
             })

@@ -637,6 +637,36 @@ impl Dom<'_> {
         }
     }
 
+    /// Manage the inline style from a style text in `replace` mode (Vue's
+    /// `patchStyle`).
+    pub fn style_text_replace(
+        &mut self,
+        node: NodeId,
+        value: Option<String>,
+        state: &mut runic_css::ReplaceState,
+    ) {
+        if let Ok(next) = state.apply_text(value) {
+            self.set_opt_attr(node, "style", next.as_deref());
+        }
+    }
+
+    /// Manage the inline style from style properties in `replace` mode.
+    pub fn style_properties_replace(
+        &mut self,
+        node: NodeId,
+        properties: &[(&str, Option<String>)],
+        state: &mut runic_css::ReplaceState,
+    ) {
+        let current = self
+            .doc
+            .get_node(node)
+            .and_then(|n| n.attr("style".into()))
+            .map(str::to_owned);
+        if let Ok(next) = state.apply_properties(current.as_deref(), properties) {
+            self.set_opt_attr(node, "style", next.as_deref());
+        }
+    }
+
     /// Remove one listener registration; its key is released like those of
     /// removed elements.
     pub fn unlisten(&mut self, node: NodeId, key: u32) {

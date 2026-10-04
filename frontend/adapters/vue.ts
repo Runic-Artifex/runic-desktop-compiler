@@ -32,7 +32,15 @@
 //   emits and models is the child's attrs (an attribute bag, rest props),
 //   applied to its single root (unless `inheritAttrs: false`) and where it
 //   binds `v-bind="$attrs"` (or the `useAttrs()` object), merged with the
-//   element's own attributes as `mergeProps` does (class values join).
+//   element's own attributes as `mergeProps` does (class values join);
+// - `:class` objects, arrays and strings with a static `class` → the string
+//   normalizeClass builds (Vue sets className); `:style` objects, arrays and
+//   strings with a static `style` → the IR's `replace` inline style
+//   (runtime-dom patchStyle), static styles of content the compiler
+//   stringifies → their HTML text;
+// - text inputs and text areas with `:value` or `v-model` → a value Vue
+//   patches at every re-render, through a render effect reading what the
+//   template reads (`restore: render`); `<label>`, focus events.
 import ts from 'typescript';
 import path from 'node:path';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
@@ -100,6 +108,8 @@ const TAGS = new Set([
   'pre',
   'br',
   'hr',
+  'textarea',
+  'label',
 ]);
 const BOOLEAN_ATTRS = new Set([
   'disabled',
@@ -220,6 +230,7 @@ const MOUSE_EVENTS = new Set([
   'mouseleave',
   'wheel',
 ]);
+const FOCUS_EVENTS = new Set(['focus', 'blur', 'focusin', 'focusout']);
 /** The DOM interface (frontend/dom.d.ts) of an event's object, typing `$event`. */
 const eventInterface = (event: string): string =>
   KEYBOARD_EVENTS.has(event)
@@ -230,7 +241,9 @@ const eventInterface = (event: string): string =>
         ? 'PointerEvent'
         : MOUSE_EVENTS.has(event)
           ? 'MouseEvent'
-          : 'Event';
+          : FOCUS_EVENTS.has(event)
+            ? 'FocusEvent'
+            : 'Event';
 /** Globals Vue templates can read (@vue/shared GLOBALS_ALLOWED); others resolve on the instance. */
 const TEMPLATE_GLOBALS = new Set(
   'Infinity,undefined,NaN,isFinite,isNaN,parseFloat,parseInt,decodeURI,decodeURIComponent,encodeURI,encodeURIComponent,Math,Number,Date,Array,Object,Boolean,String,RegExp,Map,Set,JSON,Intl,BigInt,console,Error,Symbol'.split(
@@ -260,7 +273,11 @@ interface Graph {
   modules: Map<string, { code: string; imports: { specifier: string; resolved: string }[] }>;
   tooling: {
     packages: Record<string, string>;
-    compiler: { parse: (src: string, opts: object) => { descriptor: VNode; errors: unknown[] } };
+    compiler: {
+      parse: (src: string, opts: object) => { descriptor: VNode; errors: unknown[] };
+      compileScript: (descriptor: VNode, opts: object) => { bindings?: object };
+      compileTemplate: (opts: object) => { ast?: VNode; errors: unknown[] };
+    };
   };
 }
 
@@ -328,6 +345,8 @@ interface Unit {
   /** Child components by local name. */
   children: Map<string, string>;
   macros: Macros;
+  /** Elements that stay virtual nodes in the development and production builds (by offset). */
+  vnodeElements?: [Set<number>, Set<number>];
 }
 
 /** Members of a props/emits type: a type literal, intersection or local interface/alias. */
@@ -1687,7 +1706,11 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
    * rejected until the IR can express Vue's queue.
    */
   function rejectWatcherWrites(c: Component) {
-    const watchers = (c.effects ?? []).filter(e => e.phase === 'pre' && e.deps.kind !== 'once');
+    // The render effect writes nothing, and Vue renders after the watchers
+    // (it re-renders for their writes, as the effect re-runs).
+    const watchers = (c.effects ?? []).filter(
+      e => e.phase === 'pre' && e.deps.kind !== 'once' && !e.render,
+    );
     const info = watchers.map(e => {
       const run = access([lower.functions[e.run].body], c.cells);
       const deps = e.deps.kind === 'values' ? access(e.deps.values).reads : run.reads;
@@ -1742,14 +1765,17 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       const key = `${k}:${flag}`;
       if (memo.has(key)) return memo.get(key)!;
       memo.set(key, false);
+      // The render effect only reads (it runs nothing observable).
       const own = (components[k].effects ?? []).some(e =>
-        flag === 'before'
-          ? // onBeforeUnmount, or a watcher that registers cleanups
-            e.unmount.removal === 'before' &&
-            (e.phase === 'post' || lower.functions[e.run].result !== 'void')
-          : flag === 'create'
-            ? e.phase === 'pre' && !(e.deps.kind === 'values' && e.deps.initial === false)
-            : e.phase === 'pre',
+        e.render
+          ? false
+          : flag === 'before'
+            ? // onBeforeUnmount, or a watcher that registers cleanups
+              e.unmount.removal === 'before' &&
+              (e.phase === 'post' || lower.functions[e.run].result !== 'void')
+            : flag === 'create'
+              ? e.phase === 'pre' && !(e.deps.kind === 'values' && e.deps.initial === false)
+              : e.phase === 'pre',
       );
       const result = own || has(components[k].template, flag);
       memo.set(key, result);
@@ -1881,6 +1907,46 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       }
     });
     drain();
+  }
+
+  /**
+   * Elements Vue renders as static HTML (compiler-dom's stringifyStatic):
+   * the offsets of the elements that remain virtual nodes, in the
+   * development build (plugin-vue's dev server) and the production build
+   * (the template inlined into the script). A stringified element carries
+   * its style as text instead of setting it through the CSSOM.
+   */
+  function liveElements(u: Unit): [Set<number>, Set<number>] {
+    if (u.vnodeElements) return u.vnodeElements;
+    const c = graph.tooling.compiler;
+    const { bindings } = c.compileScript(u.descriptor, { id: 'runic' });
+    const base: number = u.descriptor.template.loc.start.offset;
+    const live = (inline: boolean) => {
+      const r = c.compileTemplate({
+        source: u.descriptor.template.content,
+        filename: u.file,
+        id: 'runic',
+        compilerOptions: { bindingMetadata: bindings, inline },
+      });
+      if (r.errors.length || !r.ast)
+        fail('E_PARSE', String(r.errors[0] ?? 'template'), { file: u.rel, line: 1, column: 1 });
+      const out = new Set<number>();
+      const walk = (n: VNode) => {
+        if (!n) return;
+        if (n.type === ELEMENT) {
+          // compiler-core: a cached createStaticVNode call (JS_CACHE_EXPRESSION
+          // holding a JS_CALL_EXPRESSION) replaces a stringified chunk.
+          if (n.codegenNode?.type === 20 && n.codegenNode.value?.type === 14) return;
+          out.add(base + n.loc.start.offset);
+        }
+        for (const x of n.children ?? []) walk(x);
+        for (const x of n.branches ?? []) walk(x);
+      };
+      walk(r.ast);
+      return out;
+    };
+    u.vnodeElements = [live(false), live(true)];
+    return u.vnodeElements;
   }
 
   function lowerComponent(u: Unit): Component {
@@ -2928,6 +2994,10 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     // --- Template ---
     const tb: FnBuilder = lower.template(COMPONENT);
     const handlers: Handler[] = [];
+    /** Text controls whose value Vue patches at every re-render. */
+    const restoreElements: VNode[] = [];
+    /** Nesting of slot content being lowered. */
+    let slotDepth = 0;
     /** The TS node of a template expression by its synthetic span. */
     const nodeAt = (key: VNode): ts.Node => {
       const span = u.starts.get(key);
@@ -3363,24 +3433,10 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           fail('E_ATTRS', 'hidden="until-found" is unsupported', loc(p));
         return { name, value: { op: 'lit', value: flag ? true : text } };
       }
+      // `:class` compiles to normalizeClass.
+      if (name === 'class') return { name, value: classOf(exprNode(p.exp)) };
       const v = value(exprNode(p.exp));
       const t = typeOf(v);
-      if (name === 'class') {
-        // `:class` compiles to normalizeClass: strings trimmed, nullish → ''.
-        const s: Expr | undefined =
-          t === 'string'
-            ? v
-            : maybeInner(t) === 'string'
-              ? { op: 'nullish', left: v, right: { op: 'lit', value: '' } }
-              : undefined;
-        if (!s)
-          fail(
-            'E_TEMPLATE',
-            `:class with ${JSON.stringify(t)} (class objects and arrays are planned for later)`,
-            loc(p),
-          );
-        return { name, value: { op: 'builtin', name: 'string.trim', args: [s!], type: 'string' } };
-      }
       if (flag) {
         if (t !== 'boolean')
           fail(
@@ -3426,6 +3482,15 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           (p.type === ATTRIBUTE || p.name === 'bind' || p.name === 'on') &&
           !declares(child, key)
         ) {
+          const merged = classProps(n);
+          if (key === 'class' && merged.length > 1) {
+            // A static and a dynamic class: one normalizeClass of both, in source order.
+            if (p === merged[0]) {
+              fallEntry(merged.find((q: VNode) => q.type === DIRECTIVE) ?? p, key, child);
+              bag.push({ name: 'class', value: classValue(merged) });
+            }
+            continue;
+          }
           if (bag.some(b => 'name' in b && b.name === bagName(key)))
             fail('E_ATTRS', `${key} is passed twice`, loc(p));
           bag.push(fallEntry(p, key, child));
@@ -3623,7 +3688,10 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             `${name} has fallback content for slot ${slot}, which Vue also renders when this content renders nothing (only v-if or v-for); add an unconditional element or text`,
             loc(at),
           );
-        defs.push({ name: slot, ...(params.length ? { params } : {}), body: children(body) });
+        slotDepth++;
+        const content = children(body);
+        slotDepth--;
+        defs.push({ name: slot, ...(params.length ? { params } : {}), body: content });
       };
       const own = dir(n, 'slot');
       const templates = slotTemplates(n);
@@ -3667,6 +3735,321 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         source: loc(n),
       };
     };
+    const lit = (value: string): Expr => ({ op: 'lit', value });
+    const concat = (left: Expr, right: Expr): Expr =>
+      left.op === 'lit' && left.value === '' ? right : { op: 'concat', left, right };
+    const trimmed = (v: Expr): Expr => ({
+      op: 'builtin',
+      name: 'string.trim',
+      args: [v],
+      type: 'string',
+    });
+    /** The value of a shorthand member (`{ on }`): the binding it names. */
+    const shorthand = (p: ts.ShorthandPropertyAssignment): Expr => {
+      const sym = checker.getShorthandAssignmentValueSymbol(p);
+      const b = sym && lower.bindings.get(sym);
+      return b
+        ? lower.bindingExpr(b, p.name, tb, lower.typeOfNode(p.name))
+        : tsFail(p, 'E_UNRESOLVED', `${p.name.text} is not a supported binding`);
+    };
+    /** The static key and value of an object literal member, or a diagnostic. */
+    const member = (p: ts.ObjectLiteralElementLike, what: string): [string, Expr] => {
+      let key: string | undefined;
+      let v: Expr | undefined;
+      if (ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) {
+        key = p.name.text;
+        v = value(p.initializer);
+      } else if (ts.isShorthandPropertyAssignment(p)) {
+        key = p.name.text;
+        v = shorthand(p);
+      } else
+        return tsFail(
+          p,
+          'E_TEMPLATE',
+          `${what} objects support members with static names (name: value, 'name': value, shorthand)`,
+        );
+      // Object enumeration puts array-index keys first.
+      if (isIndexKey(key)) tsFail(p, 'E_TEMPLATE', `${what} keys that are numbers are unsupported`);
+      return [key, v];
+    };
+    /**
+     * normalizeClass (@vue/shared) of a template value: a string trimmed
+     * (nullish: ''); an object the names of its truthy values; an array its
+     * items' non-empty normalized values, each followed by a space; trimmed.
+     */
+    const classOf = (e: ts.Expression): Expr => {
+      const x = skipParens(e);
+      if (ts.isObjectLiteralExpression(x)) {
+        let out = lit('');
+        const seen = new Set<string>();
+        for (const p of x.properties) {
+          const [key, v] = member(p, ':class');
+          if (seen.has(key)) tsFail(p, 'E_TEMPLATE', `:class names ${key} twice`);
+          seen.add(key);
+          out = concat(out, {
+            op: 'cond',
+            test: lower.truthy(v, typeOf(v)),
+            then: lit(key + ' '),
+            else: lit(''),
+          });
+        }
+        return trimmed(out);
+      }
+      if (ts.isArrayLiteralExpression(x)) {
+        let out = lit('');
+        for (const el of x.elements) {
+          if (ts.isSpreadElement(el) || ts.isOmittedExpression(el))
+            tsFail(el, 'E_TEMPLATE', ':class arrays with spreads or holes are unsupported');
+          out = concat(out, classPiece(classOf(el as ts.Expression)));
+        }
+        return trimmed(out);
+      }
+      if (x.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(x) && x.text === 'undefined'))
+        return lit('');
+      const v = value(x);
+      const t = typeOf(v);
+      if (t === 'string') return trimmed(v);
+      if (maybeInner(t) === 'string') return trimmed({ op: 'nullish', left: v, right: lit('') });
+      return tsFail(
+        x,
+        'E_TEMPLATE',
+        `:class with ${JSON.stringify(t)}: write objects and arrays in the template (class values by reference are planned for later)`,
+      );
+    };
+    /** A normalized class within an array: followed by a space unless empty. */
+    const classPiece = (v: Expr): Expr => {
+      if (v.op === 'lit') return lit(v.value === '' ? '' : `${v.value} `);
+      const l = tb.local('$class', 'string');
+      return {
+        op: 'with',
+        local: l,
+        value: v,
+        body: {
+          op: 'cond',
+          test: { op: 'eq', left: L(l), right: lit('') },
+          then: lit(''),
+          else: { op: 'concat', left: L(l), right: lit(' ') },
+        },
+      };
+    };
+    /**
+     * The class of an element or component tag: a static `class` (the
+     * parser condensed it) as it is, or with `:class` the compiler's
+     * normalizeClass of the values in source order.
+     */
+    const classProps = (n: VNode): VNode[] =>
+      n.props.filter(
+        (p: VNode) =>
+          (p.type === ATTRIBUTE && p.name === 'class') ||
+          (p.type === DIRECTIVE &&
+            p.name === 'bind' &&
+            p.arg?.isStatic &&
+            p.arg.content === 'class'),
+      );
+    const classValue = (list: VNode[]): Expr => {
+      if (list.length === 1 && list[0].type === ATTRIBUTE) return lit(list[0].value?.content ?? '');
+      for (const p of list)
+        if (p.type === DIRECTIVE && p.modifiers?.length)
+          fail('E_TEMPLATE', 'Directive modifiers on :class are unsupported', loc(p));
+      const items = list.map(p =>
+        p.type === ATTRIBUTE ? lit((p.value?.content ?? '').trim()) : classOf(exprNode(p.exp)),
+      );
+      if (items.length === 1) return items[0];
+      return trimmed(items.map(classPiece).reduce(concat, lit('')));
+    };
+    /**
+     * A style key as runtime-dom's setStyle resolves it (autoPrefix): a
+     * custom property as is, otherwise the CSS property of its camelCase
+     * form. Vendor prefixes and keys that are not property names (Vue then
+     * sets an expando or a prefixed alias) are rejected.
+     */
+    const styleProperty = (key: string, tag: string, at: Source): string => {
+      if (key.startsWith('--')) return key;
+      const c = camelize(key);
+      if (!/^[a-z][a-zA-Z]*$/.test(c) || /^(webkit|moz|ms)[A-Z]/.test(c))
+        fail(
+          'E_TEMPLATE',
+          `Style key ${JSON.stringify(key)} is not a CSS property name in kebab-case or camelCase (Vue would set it through a vendor prefix or as an expando)`,
+          at,
+        );
+      if (tag === 'textarea' && (key === 'width' || key === 'height'))
+        fail(
+          'E_TEMPLATE',
+          `Vue keeps an unchanged ${key} style of a text area (user resizing); this is planned for later`,
+          at,
+        );
+      if (c === 'filter')
+        fail(
+          'E_TEMPLATE',
+          'Vue sets the filter style through the WebkitFilter alias (an !important value then sets nothing); this is unsupported',
+          at,
+        );
+      return hyphenate(c);
+    };
+    /** A style object value: a string (nullish removes), numbers as text. */
+    const styleText = (v: Expr, at: ts.Node): Expr => {
+      const t = typeOf(v);
+      if (t === 'string' || maybeInner(t) === 'string') return v;
+      if (t === 'number') return { op: 'to-string', arg: v };
+      if (maybeInner(t) === 'number') {
+        const l = tb.local('$style', t);
+        return {
+          op: 'with',
+          local: l,
+          value: v,
+          body: {
+            op: 'cond',
+            test: { op: 'builtin', name: 'maybe.is-nullish', args: [L(l)], type: 'boolean' },
+            then: { op: 'undefined', type: { maybe: 'string' } },
+            else: { op: 'some', value: { op: 'to-string', arg: { op: 'unwrap', value: L(l) } } },
+          },
+        };
+      }
+      return tsFail(
+        at,
+        'E_TEMPLATE',
+        `Style values are strings or numbers, not ${JSON.stringify(t)}`,
+      );
+    };
+    type Declarations = Map<string, { value: Expr; at: Source }>;
+    /**
+     * normalizeStyle (@vue/shared) of a template value: a string stays a
+     * text; an object is its declarations; an array merges its items'
+     * declarations (strings parsed by parseStringStyle), a later key
+     * winning in place.
+     */
+    const styleOf = (e: ts.Expression): Expr | Declarations => {
+      const x = skipParens(e);
+      if (ts.isObjectLiteralExpression(x)) {
+        const out: Declarations = new Map();
+        for (const p of x.properties) {
+          const [key, v] = member(p, ':style');
+          out.set(key, { value: styleText(v, p), at: sourceOf(p) });
+        }
+        return out;
+      }
+      if (ts.isArrayLiteralExpression(x)) {
+        const out: Declarations = new Map();
+        for (const el of x.elements) {
+          if (ts.isSpreadElement(el) || ts.isOmittedExpression(el))
+            tsFail(el, 'E_TEMPLATE', ':style arrays with spreads or holes are unsupported');
+          const item = skipParens(el as ts.Expression);
+          if (item.kind === ts.SyntaxKind.NullKeyword) continue;
+          if (ts.isIdentifier(item) && item.text === 'undefined') continue;
+          const parsed =
+            ts.isStringLiteral(item) || ts.isNoSubstitutionTemplateLiteral(item)
+              ? staticDeclarations(item.text, sourceOf(item))
+              : styleOf(item);
+          if (!(parsed instanceof Map))
+            tsFail(
+              item,
+              'E_TEMPLATE',
+              'A dynamic style text in a :style array (Vue parses it into declarations at run time) is planned for later',
+            );
+          for (const [k, v] of parsed as Declarations) out.set(k, v);
+        }
+        return out;
+      }
+      const v = value(x);
+      const t = typeOf(v);
+      if (t === 'string' || maybeInner(t) === 'string') return v;
+      return tsFail(
+        x,
+        'E_TEMPLATE',
+        `:style with ${JSON.stringify(t)}: write a string, or objects and arrays in the template (style objects by reference are planned for later)`,
+      );
+    };
+    const staticDeclarations = (text: string, at: Source): Declarations => {
+      const out: Declarations = new Map();
+      for (const [k, v] of parseStringStyle(text)) {
+        if (isIndexKey(k)) fail('E_TEMPLATE', `Style keys that are numbers are unsupported`, at);
+        out.set(k, { value: lit(v), at });
+      }
+      return out;
+    };
+    /**
+     * The inline style of an element (runtime-dom patchStyle, docs/IR.md
+     * `replace`): a static `style` (parsed at build time) and `:style`, merged
+     * in source order as the compiler does. A stringified element carries
+     * its static style as HTML text.
+     */
+    const elementStyle = (
+      n: VNode,
+    ):
+      | { attr: string }
+      | { styleText: Expr; styleUpdate: 'replace' }
+      | { styles: { name: string; value: Expr }[]; styleUpdate: 'replace' }
+      | undefined => {
+      const list: VNode[] = n.props.filter(
+        (p: VNode) =>
+          (p.type === ATTRIBUTE && p.name === 'style') ||
+          (p.type === DIRECTIVE &&
+            p.name === 'bind' &&
+            p.arg?.isStatic &&
+            p.arg.content === 'style'),
+      );
+      if (!list.length) return undefined;
+      const at = n.loc.start.offset;
+      const [dev, prod] = liveElements(u);
+      if (dev.has(at) !== prod.has(at))
+        fail(
+          'E_TEMPLATE',
+          'Vue renders this element as static HTML in one build mode and not in the other, which sets its style differently',
+          loc(n),
+        );
+      if (!dev.has(at)) {
+        // Static HTML: the compiler's text of a static style.
+        if (list.length !== 1 || list[0].type !== ATTRIBUTE)
+          fail(
+            'E_TEMPLATE',
+            'A constant :style in content Vue renders as static HTML is unsupported',
+            loc(list[0]),
+          );
+        return {
+          attr: stringifyStyle(
+            new Map(
+              [...staticDeclarations(list[0].value?.content ?? '', loc(list[0]))].map(([k, v]) => [
+                k,
+                (v.value as { value: string }).value,
+              ]),
+            ),
+          ),
+        };
+      }
+      let style: Expr | Declarations;
+      if (list.length === 1)
+        style =
+          list[0].type === ATTRIBUTE
+            ? staticDeclarations(list[0].value?.content ?? '', loc(list[0]))
+            : styleOf(exprNode(list[0].exp));
+      else {
+        style = new Map();
+        for (const p of list) {
+          if (p.type === DIRECTIVE && p.modifiers?.length)
+            fail('E_TEMPLATE', 'Directive modifiers on :style are unsupported', loc(p));
+          const part =
+            p.type === ATTRIBUTE
+              ? staticDeclarations(p.value?.content ?? '', loc(p))
+              : styleOf(exprNode(p.exp));
+          if (!(part instanceof Map))
+            fail(
+              'E_TEMPLATE',
+              'A dynamic style text with a static style (Vue parses it into declarations at run time) is planned for later',
+              loc(p),
+            );
+          for (const [k, v] of part as Declarations) style.set(k, v);
+        }
+      }
+      if (!(style instanceof Map)) return { styleText: style, styleUpdate: 'replace' };
+      if (!style.size) return undefined;
+      return {
+        styles: [...style].map(([k, v]) => ({
+          name: styleProperty(k, n.tag, v.at),
+          value: v.value,
+        })),
+        styleUpdate: 'replace',
+      };
+    };
     const element = (n: VNode, listed: boolean): Node => {
       if (n.tagType !== PLAIN || !TAGS.has(n.tag))
         fail(
@@ -3685,9 +4068,14 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           (p: VNode) =>
             p.type === ATTRIBUTE && p.name === 'type' && p.value?.content === 'checkbox',
         );
+      /** Text inputs and text areas: Vue patches their value at every re-render. */
+      const typeAttr = n.props.find((p: VNode) => p.type === ATTRIBUTE && p.name === 'type');
+      const textControl = (n.tag === 'input' && !checkbox) || n.tag === 'textarea';
+      let restoreRender = false;
       /** Listener parts per event, in Vue's call order. */
       const parts = new Map<HandlerEvent, Part[]>();
       let model: Part | undefined;
+      let modelEvent: HandlerEvent = 'change';
       /** The prop index of v-bind="$attrs". */
       let spreadAt: number | undefined;
       const checked = (v: Expr, at: VNode) => {
@@ -3695,7 +4083,18 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           fail('E_TEMPLATE', 'checked is set twice (checked, :checked, v-model)', loc(at));
         props.push({ name: 'checked', value: v });
       };
+      const classes = classProps(n);
+      const style = elementStyle(n);
       for (const p of n.props) {
+        // class and style: below.
+        if (classes.includes(p) || (p.name === 'style' && p.type === ATTRIBUTE)) continue;
+        if (
+          p.type === DIRECTIVE &&
+          p.name === 'bind' &&
+          p.arg?.isStatic &&
+          p.arg.content === 'style'
+        )
+          continue;
         if (p.type === ATTRIBUTE) {
           if (p.name === 'ref') continue; // a reserved prop: the template ref (refOf)
           if (checkbox && p.name === 'checked') {
@@ -3743,7 +4142,41 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         }
         if (!p.exp) fail('E_TEMPLATE', `v-${p.name} needs an expression`, loc(p));
         if (p.modifiers?.length)
-          fail('E_TEMPLATE', `Directive modifiers are planned for M5`, loc(p));
+          fail(
+            'E_TEMPLATE',
+            p.name === 'model'
+              ? `v-model modifiers (.${modifierNames(p).join(', .')}) are planned for a later milestone`
+              : `Directive modifiers are planned for a later milestone`,
+            loc(p),
+          );
+        if (p.name === 'bind' && p.arg?.isStatic && textControl && p.arg.content === 'value') {
+          // patchProp: el.value = String(value) (nullish: ''), forced at every
+          // re-render where it differs from the live value; the attribute too.
+          const v = value(exprNode(p.exp));
+          const t = typeOf(v);
+          if (props.some(q => q.name === 'value'))
+            fail('E_TEMPLATE', 'value is set twice (:value, v-model)', loc(p));
+          if (t !== 'string' && t !== 'number' && maybeInner(t) !== 'string')
+            fail(
+              'E_TEMPLATE',
+              `:value takes a string or a number, not ${JSON.stringify(t)}`,
+              loc(p),
+            );
+          props.push({
+            name: 'value',
+            value:
+              t === 'string'
+                ? v
+                : t === 'number'
+                  ? { op: 'to-string', arg: v }
+                  : { op: 'nullish', left: v, right: lit('') },
+          });
+          // The attribute is compared for text areas (inputs show their live value).
+          if (n.tag === 'textarea')
+            attrs.push({ name: 'value', value: t === 'number' ? { op: 'to-string', arg: v } : v });
+          restoreRender = true;
+          continue;
+        }
         if (p.name === 'bind' && p.arg?.isStatic && checkbox && p.arg.content === 'checked') {
           // Vue sets the checked DOM property; '' would be true and null false.
           const v = value(exprNode(p.exp));
@@ -3766,27 +4199,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           const name: string = p.arg.content;
           const v = value(exprNode(p.exp));
           const t = typeOf(v);
-          if (name === 'class') {
-            // The compiler wraps :class in normalizeClass: strings trimmed, nullish → ''.
-            const s: Expr | undefined =
-              t === 'string'
-                ? v
-                : maybeInner(t) === 'string'
-                  ? { op: 'nullish', left: v, right: { op: 'lit', value: '' } }
-                  : undefined;
-            if (!s)
-              fail(
-                'E_TEMPLATE',
-                `:class with ${JSON.stringify(t)} (class objects and arrays are planned for later)`,
-                loc(p),
-              );
-            attrs.push({
-              name,
-              value: { op: 'builtin', name: 'string.trim', args: [s!], type: 'string' },
-            });
-          } else if (name === 'value' && n.tag === 'input')
-            props.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
-          else if (BOOLEAN_ATTRS.has(name))
+          if (BOOLEAN_ATTRS.has(name))
             attrs.push({ name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } });
           else if (maybeInner(t) === 'string') attrs.push({ name, value: v });
           else if (t === 'string' || t === 'number' || t === 'boolean')
@@ -3799,13 +4212,54 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             );
           continue;
         }
-        if (p.name === 'model') {
-          if (!checkbox)
+        if (p.name === 'model' && textControl) {
+          // vModelText: an input listener assigns el.value (added when the
+          // directive is created); before every re-render the value is set
+          // where it differs. Composition (IME) defers the assignment to
+          // compositionend; the native runtime receives no input events while
+          // composing either (Blitz reports the committed text).
+          const type = typeAttr?.value?.content;
+          if (n.tag === 'input' && type !== undefined && type !== 'text')
             fail(
               'E_TEMPLATE',
-              'v-model on elements other than checkboxes is planned for M5 (IME composition); use :value and @input',
+              `v-model on <input type="${type}"> is planned for a later milestone`,
               loc(p),
             );
+          if (
+            n.props.some(
+              (q: VNode) => q.type === DIRECTIVE && q.name === 'bind' && q.arg?.content === 'type',
+            )
+          )
+            fail('E_TEMPLATE', 'v-model with a dynamic type is unsupported', loc(p));
+          if (props.some(q => q.name === 'value'))
+            fail('E_TEMPLATE', 'value is set twice (:value, v-model)', loc(p));
+          const target = skipParens(exprNode(p.exp));
+          if (ts.isIdentifier(target) && lower.binding(target)?.kind === 'local')
+            fail(
+              'E_TEMPLATE',
+              'v-model cannot assign a v-for or slot scope variable (Vue rejects it)',
+              loc(p),
+            );
+          const read = value(target);
+          const t = typeOf(read);
+          if (t !== 'string' && maybeInner(t) !== 'string')
+            fail(
+              'E_TEMPLATE',
+              `v-model on a text control needs a string target, not ${JSON.stringify(t)}`,
+              loc(p),
+            );
+          props.push({
+            name: 'value',
+            value: t === 'string' ? read : { op: 'nullish', left: read, right: lit('') },
+          });
+          model = { ...lower.bindHandler(target, COMPONENT, 'input', tb), source: loc(p) };
+          modelEvent = 'input';
+          restoreRender = true;
+          continue;
+        }
+        if (p.name === 'model') {
+          if (!checkbox)
+            fail('E_TEMPLATE', 'v-model on this element is planned for a later milestone', loc(p));
           if (
             n.props.some(
               (q: VNode) => q.type === ATTRIBUTE && ['true-value', 'false-value'].includes(q.name),
@@ -3837,15 +4291,44 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         }
         fail('E_TEMPLATE', `v-${p.name} is planned for a later milestone`, loc(p));
       }
+      if (classes.length) {
+        // With v-bind="$attrs", the compiler merges the class values on each side of it separately.
+        const side = (p: VNode) => spreadAt !== undefined && n.props.indexOf(p) > spreadAt;
+        if (classes.some(side) && !classes.every(side))
+          fail(
+            'E_ATTRS',
+            'class on both sides of v-bind="$attrs" is unsupported; write the classes together',
+            loc(classes[0]),
+          );
+        attrs.push({ name: 'class', value: classValue(classes) });
+      }
+      if (style && 'attr' in style) attrs.push({ name: 'style', value: lit(style.attr) });
       if (checkbox && !props.some(q => q.name === 'checked'))
         fail(
           'E_TEMPLATE',
           'Checkboxes need :checked or v-model (uncontrolled checkboxes are planned for later)',
           loc(n),
         );
-      // v-model's change listener is added when the directive is created,
-      // before Vue patches the element's props (and its @change listener).
-      if (model) parts.set('change', [model, ...(parts.get('change') ?? [])]);
+      // v-model's listener is added when the directive is created, before
+      // Vue patches the element's props (and its @change listener). A text
+      // model's input listener is a native listener of its own (a microtask
+      // checkpoint follows it), so it cannot merge with an @input.
+      if (model && modelEvent === 'input' && parts.has('input'))
+        fail(
+          'E_EVENT',
+          'v-model and @input on one text control are planned for later (Vue runs them as separate listeners, with a microtask checkpoint between them)',
+          loc(n),
+        );
+      if (model) parts.set(modelEvent, [model, ...(parts.get(modelEvent) ?? [])]);
+      if (restoreRender) {
+        restoreElements.push(n);
+        if (slotDepth)
+          fail(
+            'E_TEMPLATE',
+            'A text control with :value or v-model in slot content is planned for later (Vue patches it when the child re-renders)',
+            loc(n),
+          );
+      }
       for (const [event, list] of parts) {
         // Vue's invoker skips the rest of an element's listeners for an event
         // after stopImmediatePropagation(); the merged handler cannot.
@@ -3901,11 +4384,160 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         ...(listeners.length ? { listeners } : {}),
         ...(refOf.has(n) ? { ref: refOf.get(n)! } : {}),
         ...(spread ? { spread } : {}),
+        ...(style && !('attr' in style) ? style : {}),
+        ...(restoreRender ? { restore: 'render' as const } : {}),
         ...(n.children.length ? { children: children(n.children) } : {}),
         source: loc(n),
       };
     };
+    /**
+     * Vue's render effect, for a component whose text controls it re-patches
+     * at every re-render (docs/IR.md `restore`): a tracked pre effect that
+     * reads what the template reads, in its structure (branches as rendered,
+     * every list item), after the props and the attrs (a parent passing a
+     * changed one re-renders the child). It runs after the component's
+     * watchers, as Vue renders after its pre-flush jobs; its runs are the
+     * re-renders.
+     */
+    const renderEffect = (template: Node[]): Effect => {
+      const at = loc(restoreElements[0]);
+      const planned = (why: string, where = at): never =>
+        fail(
+          'E_TEMPLATE',
+          `A text control with :value or v-model ${why} is planned for later`,
+          where,
+        );
+      if (slotDecls.size)
+        planned('in a component that renders slots (the content is part of its render)');
+      const body: Stmt[] = [];
+      const declared = new Set([
+        ...(u.macros.props?.names ?? []),
+        ...u.macros.models.map(m => m.prop),
+      ]);
+      cells.forEach((c, i) => {
+        if (c.prop === '...') {
+          const listeners = [...plan.keys.keys()].filter(k => /^on/.test(k));
+          if (listeners.length)
+            planned(
+              `in a component whose fallthrough attributes may hold listeners (${listeners.join(', ')}; Vue re-renders it when a parent passes a new listener function)`,
+            );
+        } else if (!c.prop || !declared.has(c.prop)) return;
+        else if (!primitive(c.type))
+          planned(
+            `in a component with a prop ${c.prop} of type ${JSON.stringify(c.type)} (Vue re-renders it whenever its parent passes a new object)`,
+            c.source ?? at,
+          );
+        body.push({ op: 'expr', value: { op: 'cell', cell: i, read: 'current' } });
+      });
+      const check = (e: Expr, where: Source | undefined) => {
+        if (!pure(e))
+          planned('in a component whose template calls functions with side effects', where ?? at);
+      };
+      const read = (e: Expr | undefined, out: Stmt[], where: Source | undefined) => {
+        if (!e) return;
+        check(e, where);
+        out.push({ op: 'expr', value: e });
+      };
+      const reads = (nodes: Node[], out: Stmt[]) => {
+        for (const n of nodes)
+          switch (n.kind) {
+            case 'text':
+              for (const p of n.parts) read(p, out, n.source);
+              break;
+            case 'element':
+              for (const a of [...(n.attrs ?? []), ...(n.props ?? []), ...(n.styles ?? [])])
+                read(a.value, out, n.source);
+              read(n.spread, out, n.source);
+              read(n.styleText, out, n.source);
+              reads(n.children ?? [], out);
+              break;
+            case 'if': {
+              const then: Stmt[] = [];
+              const otherwise: Stmt[] = [];
+              check(n.test, n.source);
+              reads(n.then, then);
+              reads(n.else ?? [], otherwise);
+              out.push({ op: 'if', test: n.test, then, else: otherwise });
+              break;
+            }
+            case 'each': {
+              // renderList reads every item (and its key) in order.
+              const loop: Stmt[] = [];
+              read(n.key, loop, n.source);
+              reads(n.body, loop);
+              if (n.index !== undefined) {
+                out.push({ op: 'let', local: n.index, value: { op: 'lit', value: 0 } });
+                loop.push({
+                  op: 'assign',
+                  target: { place: 'local', local: n.index },
+                  value: { op: 'add', left: L(n.index), right: { op: 'lit', value: 1 } },
+                });
+              }
+              check(n.items, n.source);
+              out.push({ op: 'for-of', local: n.item, iterable: n.items, body: loop });
+              break;
+            }
+            case 'component':
+              // Props are evaluated in this render; slot content in the child's.
+              // (The prop forwarding a component ref is Runic's, not Vue's.)
+              for (const p of n.props ?? [])
+                if (p.name !== exposedOf[n.component]?.prop) read(p.value, out, n.source);
+              break;
+            case 'slot':
+              planned('in a component that renders slots');
+          }
+      };
+      reads(template, body);
+      const fn = lower.reserve();
+      lower.functions[fn] = {
+        name: 'render',
+        component: COMPONENT,
+        params: [],
+        locals: tb.locals.map(l => ({ ...l })),
+        result: 'void',
+        body,
+      };
+      return {
+        run: fn,
+        phase: 'pre',
+        deps: { kind: 'tracked' },
+        unmount: { removal: 'before', order: 'pre' },
+        render: true,
+        source: at,
+      };
+    };
+    /** Whether evaluating an expression has no side effects (it may run again in the render effect). */
+    const pure = (e: Expr): boolean => {
+      const seen = new Set<number>();
+      /** A function the evaluation calls: its body must be pure too. */
+      const called = (fn: number): boolean => {
+        if (seen.has(fn)) return true;
+        seen.add(fn);
+        // A computed value is cached: reading it again runs nothing new.
+        if (lower.functions[fn]?.derived) return true;
+        return visit(lower.functions[fn]?.body);
+      };
+      const visit = (x: unknown): boolean => {
+        if (!x || typeof x !== 'object') return true;
+        if (Array.isArray(x)) return x.every(visit);
+        const o = x as Record<string, unknown>;
+        if (o.op === 'set' || o.op === 'call-value') return false;
+        if (o.op === 'assign' && (o.target as { place: string }).place !== 'local') return false;
+        if (o.op === 'call' && !called(o.function as number)) return false;
+        if (o.op === 'builtin') {
+          if (!pureBuiltin(o.name as string)) return false;
+          // Callbacks of array methods run during the evaluation.
+          for (const a of o.args as Expr[])
+            if (a.op === 'closure' && !called(a.function)) return false;
+        }
+        // Creating a function value runs nothing.
+        if (o.op === 'closure') return true;
+        return Object.values(o).every(visit);
+      };
+      return visit(e);
+    };
     const template = children(u.descriptor.template.ast.children);
+    if (restoreElements.length) effects.push({ effect: renderEffect(template), group: 3 });
     return {
       name: path.basename(u.file, '.vue'),
       cells,
@@ -4279,3 +4911,72 @@ function maybeText(lower: Lowerer, v: Expr, t: Type): Expr {
   };
   return { op: 'call', function: fn, args: [v] };
 }
+
+// @vue/shared 3.5.43 style helpers, for static styles (the compiler parses a
+// static `style` attribute into an object at build time).
+const listDelimiterRE = /;(?![^(]*\))/g;
+const propertyDelimiterRE = /:([^]+)/;
+const styleCommentRE = /"(?:[^"\\]|\\[^])*"|'(?:[^'\\]|\\[^])*'|\\[^]|\/\*[^]*?\*\//g;
+
+/** parseStringStyle: the declarations of a style text by key, in order (a later one wins in place). */
+export function parseStringStyle(cssText: string): Map<string, string> {
+  const ret = new Map<string, string>();
+  cssText
+    .replace(styleCommentRE, match => (match.startsWith('/*') ? '' : match))
+    .split(listDelimiterRE)
+    .forEach(item => {
+      if (item) {
+        const tmp = item.split(propertyDelimiterRE);
+        if (tmp.length > 1) ret.set(tmp[0].trim(), tmp[1].trim());
+      }
+    });
+  return ret;
+}
+
+/** stringifyStyle: the text static HTML carries for a style object. */
+export function stringifyStyle(styles: Map<string, string>): string {
+  let ret = '';
+  for (const [key, value] of styles)
+    ret += `${key.startsWith('--') ? key : hyphenate(key)}:${value};`;
+  return ret;
+}
+
+/** Whether a key is an array index, which object enumeration puts first. */
+const isIndexKey = (key: string) => /^(0|[1-9]\d*)$/.test(key) && Number(key) < 2 ** 32 - 1;
+
+/** Types whose props Vue compares by value (a changed prop re-renders the child). */
+const primitive = (t: Type): boolean => {
+  const inner = maybeInner(t) ?? t;
+  return inner === 'string' || inner === 'number' || inner === 'boolean';
+};
+
+/** Built-ins that mutate state or act on the host (runic-ir's catalogue). */
+const IMPURE_BUILTINS = new Set([
+  'array.push',
+  'array.pop',
+  'array.shift',
+  'array.unshift',
+  'array.splice',
+  'array.sort',
+  'array.reverse',
+  'array.fill',
+  'array.copyWithin',
+  'map.set',
+  'map.delete',
+  'map.clear',
+  'set.add',
+  'set.delete',
+  'set.clear',
+  'storage.set',
+  'storage.remove',
+  'storage.clear',
+  'event.preventDefault',
+  'event.stopPropagation',
+  'event.stopImmediatePropagation',
+]);
+const pureBuiltin = (name: string): boolean =>
+  !IMPURE_BUILTINS.has(name) &&
+  !/^(timer|microtask|promise|flush|window|document|element|console)\./.test(name) &&
+  !/^root\.(set-attr|remove-attr|class-toggle|class-add|class-remove|style-set|style-remove)$/.test(
+    name,
+  );
