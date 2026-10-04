@@ -100,6 +100,16 @@ impl<A: App> Document for Native<A> {
             self.rendering_step(resized);
             ran = true;
         }
+        // The frame's layout, before the shell paints it.
+        if self.layout_frame() {
+            ran = true;
+        }
+        if !self.listeners.pending_scroll.is_empty() {
+            // Clamped scrollers: their scroll events are due in the next frame.
+            if let Some(cx) = &task_context {
+                cx.waker().wake_by_ref();
+            }
+        }
         if let (Some(due), Some(cx)) = (self.app.next_timer(), task_context) {
             if self.wake_at.is_none_or(|w| due < w) {
                 self.wake_at = Some(due);
@@ -125,16 +135,21 @@ impl<A: App> Document for Native<A> {
             pointer: &mut self.pointer,
         };
         EventDriver::new(&mut self.doc, handler).handle_ui_event(event);
-        if !self.listeners.pending_scroll.is_empty() {
-            if let Some(w) = &self.waker {
-                w.wake_by_ref();
-            }
-        }
         // Apps: the host's work queued by the event follows it. Probes run
         // it after the whole action (a key press is a key down and a key
         // up; Chromium's clipboard and history replies may come after both).
         if !crate::probe_mode() {
             self.host_tasks();
+            // A scroller the update left past the end of its range is
+            // clamped before the shell paints (probes lay out in frames).
+            if crate::layout::any_scrolled(&self.doc) {
+                crate::layout::resolve(&mut self.doc);
+            }
+        }
+        if !self.listeners.pending_scroll.is_empty() || crate::layout::any_clamped() {
+            if let Some(w) = &self.waker {
+                w.wake_by_ref();
+            }
         }
     }
 }
@@ -313,6 +328,28 @@ impl<A: App> Native<A> {
             event.finish();
         }
         self.doc.shell_provider.request_redraw();
+    }
+
+    /// A frame's layout after its rendering step. Scroll offsets that layout
+    /// (or a layout read since the last frame) clamped get their `scroll`
+    /// events queued, for the next frame's rendering step: Chromium queues
+    /// them in the frame's lifecycle after its scroll steps. Returns whether
+    /// any were queued.
+    pub(crate) fn layout_frame(&mut self) -> bool {
+        crate::layout::resolve(&mut self.doc);
+        self.listeners.settle(&mut self.doc);
+        let clamped = crate::layout::take_clamped();
+        for &node in &clamped {
+            self.listeners.scrolled(Some(node));
+        }
+        !clamped.is_empty()
+    }
+
+    /// One frame (probes): the rendering step, then layout.
+    #[cfg(feature = "probe")]
+    pub(crate) fn frame(&mut self) {
+        self.rendering_step(false);
+        self.layout_frame();
     }
 
     /// The viewport or the user preferences change (probe actions): what

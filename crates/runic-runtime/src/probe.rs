@@ -344,8 +344,21 @@ fn perform<A: App>(native: &mut Native<A>, action: &Value) {
     perform_on(native, action, target);
 }
 
-/// The centre of a rendered element.
-fn centre<A: App>(native: &Native<A>, id: NodeId) -> (f32, f32) {
+/// The centre of a rendered element, the target of a pointer action.
+/// Playwright first scrolls the target into view where it is not fully
+/// visible, which the probe does not model: cases target visible elements.
+fn centre<A: App>(native: &mut Native<A>, id: NodeId) -> (f32, f32) {
+    if !crate::layout::fully_visible(&mut native.doc, id) {
+        let name = native
+            .doc
+            .get_node(id)
+            .and_then(|n| n.attr("id".into()))
+            .unwrap_or("?");
+        panic!(
+            "pointer target #{name} is not fully visible in its scroll containers and the viewport: \
+             Playwright scrolls it into view first (DOM.scrollIntoViewIfNeeded), which the probe does not model"
+        );
+    }
     let r = crate::layout::client_rect(&native.doc, id).expect("rendered pointer target");
     ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32)
 }
@@ -611,10 +624,11 @@ pub(crate) fn run<A: App>() {
         }
         native.doc.resolve(0.0);
         native.listeners.settle(&mut native.doc);
-        // The rendering step after the action: pending scroll events.
-        native.rendering_step(false);
-        native.doc.resolve(0.0);
-        native.listeners.settle(&mut native.doc);
+        // Two frames after the action, as the browser harness waits for two
+        // animation frames: pending scroll events in the first rendering
+        // step; those of scroll positions its layout clamped in the second.
+        native.frame();
+        native.frame();
         let us = t.elapsed().as_secs_f64() * 1e6;
         observe(&mut native, action, i + 1, us);
     }

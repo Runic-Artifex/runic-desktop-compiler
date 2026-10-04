@@ -1,0 +1,20 @@
+{
+  "description": "Scroll events in Svelte, Vue and React: one per moved scroller in the rendering step after the action, at the scroller only (scroll does not bubble: the wrapper's listener never runs); content that shrinks clamps the scroll position in layout, and its scroll event follows in the rendering step after the next frame; a layout read after the DOM update (forced layout) sees the clamped position at once; growing the content keeps the position (no event)",
+  "fixtures": [
+    "scrolling-svelte",
+    "scrolling-vue",
+    "scrolling-react"
+  ],
+  "actions": [
+    { "kind": "click", "id": "down" },
+    { "kind": "click", "id": "shrink" },
+    { "kind": "click", "id": "tiny" },
+    { "kind": "click", "id": "grow" },
+    { "kind": "click", "id": "down" },
+    { "kind": "wheel", "id": "list", "deltaY": 60 },
+    { "kind": "click", "id": "read" },
+    { "kind": "click", "id": "grow" },
+    { "kind": "click", "id": "down" },
+    { "kind": "click", "id": "down" }
+  ]
+}
