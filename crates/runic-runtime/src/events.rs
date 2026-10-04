@@ -611,10 +611,53 @@ fn is_control(doc: &BaseDocument, id: NodeId) -> bool {
     )
 }
 
-/// Focusable by the mouse and by script: an enabled control or an element
-/// with a `tabindex`.
+/// A URL fragment percent-decoded as UTF-8 (lossy), as the HTML standard
+/// decodes it to find the element a fragment names.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h), Some(l)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Whether an `<a name>` element has the name `name` (a fragment target).
+fn named_anchor(doc: &BaseDocument, name: &str) -> bool {
+    tree_order(doc).into_iter().any(|n| {
+        tag(doc, n) == Some("a")
+            && doc.get_node(n).and_then(|e| e.attr("name".into())) == Some(name)
+    })
+}
+
+/// A link: an `<a>` with an `href`.
+fn is_link(doc: &BaseDocument, id: NodeId) -> bool {
+    tag(doc, id) == Some("a")
+        && doc
+            .get_node(id)
+            .is_some_and(|n| n.attr("href".into()).is_some())
+}
+
+/// The link a click on `chain` (target first) follows: the innermost one.
+fn link_of(doc: &BaseDocument, chain: &[NodeId]) -> Option<NodeId> {
+    chain.iter().copied().find(|&n| is_link(doc, n))
+}
+
+/// Focusable by the mouse and by script: an enabled control, a link or an
+/// element with a `tabindex`.
 pub(crate) fn is_focusable_element(doc: &BaseDocument, id: NodeId) -> bool {
-    (is_control(doc, id) || tab_index(doc, id).is_some()) && !is_disabled_control(doc, id)
+    (is_control(doc, id) || is_link(doc, id) || tab_index(doc, id).is_some())
+        && !is_disabled_control(doc, id)
 }
 
 /// The element's place in the sequential focus navigation order: positive
@@ -831,6 +874,44 @@ impl<A: App> Handler<'_, A> {
                 };
                 self.dispatch(doc, &[delivery]);
             }
+        }
+    }
+
+    /// Follow a link after its click (the click's default action): a
+    /// fragment navigation (`popstate` at once, `hashchange` as a task when
+    /// the fragment changed). Scrolling to and focusing an element the
+    /// fragment names, and links to other documents, are unsupported.
+    fn follow_link(&mut self, doc: &mut BaseDocument, link: NodeId) {
+        let Some(href) = doc
+            .get_node(link)
+            .and_then(|n| n.attr("href".into()))
+            .map(str::to_owned)
+        else {
+            return;
+        };
+        if let Some(name) = href.strip_prefix('#') {
+            let decoded = percent_decode(name);
+            if decoded.is_empty() || decoded.eq_ignore_ascii_case("top") {
+                crate::unsupported(&format!(
+                    "following the link {href:?} (scrolling to the top of the document)"
+                ));
+                return;
+            }
+            if doc.get_element_by_id(&decoded).is_some() || named_anchor(doc, &decoded) {
+                crate::unsupported(&format!(
+                    "following the link {href:?} to an element (scrolling to and focusing fragment targets)"
+                ));
+                return;
+            }
+        }
+        match crate::history::follow_fragment(&href.as_str().into()) {
+            Ok(changed) => {
+                self.window(doc, Event::Popstate);
+                if changed {
+                    self.app.hashchange();
+                }
+            }
+            Err(e) => crate::unsupported(&e.message.to_rust()),
         }
     }
 
@@ -1358,6 +1439,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
             _ => {}
         }
         let focused_button = focused.filter(|&f| tag(doc, f) == Some("button"));
+        let focused_link = focused.filter(|&f| is_link(doc, f));
         let focused_checkbox = focused.filter(|&f| is_checkbox(doc, f));
         match &event.data {
             DomEventData::PointerMove(p) => {
@@ -1408,10 +1490,9 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     // controls). Text inputs keep Blitz's default (focus and
                     // caret placement).
                     *self.nav_start = chain.first().copied();
-                    let candidate = chain
-                        .iter()
-                        .copied()
-                        .find(|&n| is_control(doc, n) || tab_index(doc, n).is_some());
+                    let candidate = chain.iter().copied().find(|&n| {
+                        is_control(doc, n) || is_link(doc, n) || tab_index(doc, n).is_some()
+                    });
                     let next = candidate.filter(|&c| !is_disabled_control(doc, c));
                     // Text controls then get Blitz's caret placement.
                     if next != focused {
@@ -1502,7 +1583,9 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 // and labels).
                 state.prevent_default();
                 if e.is_some() && !Self::cancelled(&e) {
-                    if let Some(control) = labelled_control(doc, chain) {
+                    if let Some(link) = link_of(doc, chain) {
+                        self.follow_link(doc, link);
+                    } else if let Some(control) = labelled_control(doc, chain) {
                         // Label activation is done here, as Chromium does it: a
                         // simulated click on checkboxes and buttons, then focus.
                         state.prevent_default();
@@ -1573,6 +1656,17 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 let button = focused_button.unwrap();
                 let chain = chain_of(doc, button);
                 self.click(doc, &chain, EventData::default());
+            }
+            DomEventData::KeyDown(k) if focused_link.is_some() && k.key == Key::Enter => {
+                // Enter on a focused link: a simulated click, whose default
+                // action follows the link.
+                state.prevent_default();
+                let link = focused_link.unwrap();
+                let chain = chain_of(doc, link);
+                let e = self.click(doc, &chain, EventData::default());
+                if e.is_some() && !Self::cancelled(&e) {
+                    self.follow_link(doc, link);
+                }
             }
             DomEventData::KeyDown(k)
                 if focused_button.or(focused_checkbox).is_some()

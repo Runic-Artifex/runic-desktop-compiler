@@ -11,14 +11,15 @@ pub const MAX_DEPTH: usize = 96;
 pub const MAX_CSS: usize = 4 * 1024 * 1024;
 pub const MAX_EXPRESSIONS: usize = 1 << 20;
 
-/// Elements without default actions that the runtime renders with browser
-/// semantics. Elements with navigation, submission or label activation
+/// Elements the runtime renders with browser semantics, default actions
+/// included: links (`a` with an `href`) follow fragment links of this
+/// document (docs/IR.md). Elements with other navigation or submission
 /// behaviour stay out until the runtime implements those actions.
 pub const TAGS: &[&str] = &[
-    "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button", "input", "main", "article",
-    "section", "header", "footer", "nav", "aside", "ul", "ol", "li", "strong", "em", "small", "b",
-    "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option", "svg", "g", "path",
-    "circle", "ellipse", "line", "polyline", "polygon", "rect",
+    "a", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button", "input", "main",
+    "article", "section", "header", "footer", "nav", "aside", "ul", "ol", "li", "strong", "em",
+    "small", "b", "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option", "svg",
+    "g", "path", "circle", "ellipse", "line", "polyline", "polygon", "rect",
 ];
 
 /// Inline SVG (M5): elements in the SVG namespace. Blitz renders an `<svg>`

@@ -464,6 +464,16 @@ function checkRules(css, file) {
         column: rule.source.start.column,
       });
   });
+  // Blitz never matches :target (the element a followed fragment link
+  // names), which Chromium does (docs/BLITZ-GAPS.md).
+  css.walkRules(rule => {
+    if (/:target\b(?!-)/.test(rule.selector))
+      throw new Diagnostic(
+        'E_CSS',
+        `Unsupported selector ${rule.selector}: Blitz never matches :target`,
+        { file, line: rule.source.start.line, column: rule.source.start.column },
+      );
+  });
   // The DOM is built without wrapper nodes: selectors and ordinary
   // properties are rendered by Blitz/Stylo and checked by conformance. Only
   // time-based behaviour (and @keyframes, above) is outside the contract (M10).

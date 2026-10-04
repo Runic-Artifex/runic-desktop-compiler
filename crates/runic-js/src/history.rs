@@ -211,6 +211,33 @@ impl Session {
         Ok(true)
     }
 
+    /// Following a link to `href` (`<a href="#name">`): a fragment
+    /// navigation of this document, as the HTML standard's "navigate"
+    /// makes it from a link. It pushes an entry, or replaces the current one
+    /// when the URL is the current URL (following the same link again);
+    /// `popstate` fires either way, then `hashchange` as a task when the
+    /// fragment changed (the result). Links to other documents are
+    /// unsupported (the compiler only accepts fragment links).
+    pub fn follow_fragment(&mut self, href: &JsString) -> Result<bool, Throw> {
+        let text = href.to_rust();
+        if !text.starts_with('#') {
+            return Err(unsupported(&format!(
+                "following a link to {text:?}, which is not a fragment of this document"
+            )));
+        }
+        let url = self
+            .url()
+            .join(&text)
+            .map_err(|_| unsupported(&format!("the link {text:?} does not parse")))?;
+        let hashchange = url.fragment() != self.url().fragment();
+        if &url == self.url() || self.loading {
+            self.entries[self.index].url = url;
+        } else {
+            self.append(url);
+        }
+        Ok(hashchange)
+    }
+
     /// Traverse by `delta` entries (`history.go(delta)`, back and forward).
     /// Out of range does nothing. Traversals to entries of an earlier
     /// document (before a reload) load that document in Chromium, which the
@@ -304,6 +331,27 @@ mod tests {
         }
         assert_eq!(h.length(), MAX_ENTRIES);
         assert_eq!(h.href(), "/p59");
+    }
+
+    #[test]
+    fn following_fragment_links() {
+        let mut h = Session::new("/start?q=1").unwrap();
+        h.loaded();
+        // A new fragment pushes an entry (hashchange follows popstate).
+        assert!(h.follow_fragment(&s("#login")).unwrap());
+        assert_eq!((h.href(), h.length()), ("/start?q=1#login".into(), 2));
+        // The same link again replaces the entry (popstate only).
+        assert!(!h.follow_fragment(&s("#login")).unwrap());
+        assert_eq!(h.length(), 2);
+        assert!(h.follow_fragment(&s("#a%20b")).unwrap());
+        assert_eq!((h.hash(), h.length()), ("#a%20b".into(), 3));
+        assert_eq!(
+            h.traverse(-1).unwrap(),
+            Some(Traversal { hashchange: true })
+        );
+        // Links to other documents are not fragment navigations.
+        assert!(h.follow_fragment(&s("/other")).is_err());
+        assert!(h.follow_fragment(&s("?q=2")).is_err());
     }
 
     #[test]

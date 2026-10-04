@@ -187,6 +187,8 @@ pub trait App: 'static {
     fn traverse(&mut self, delta: i64) {
         let _ = delta;
     }
+    /// Queue the `hashchange` of a fragment navigation (a followed link) as a task.
+    fn hashchange(&mut self) {}
 }
 
 /// Entry point of a generated application binary.
