@@ -1040,10 +1040,21 @@ export class Classes {
   }
 
   /** `obj.name` on an instance. */
-  read(info: ClassInfo, object: Expr, e: ts.PropertyAccessExpression, _b: FnBuilder): Expr {
+  read(info: ClassInfo, object: Expr, e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
     this.declaredOnly(info, e);
     const name = e.name.text;
     const field = this.fieldIndex(info, name);
+    // A derived field of a component-script class computes in that component.
+    if (
+      field >= 0 &&
+      isDerived(info.fields[field]) &&
+      info.component !== undefined &&
+      info.component !== b.component
+    )
+      return this.fail(
+        e,
+        `${info.name}.${name} is a derived field of a class declared in a component script; read it in that component (or declare the class in a .svelte.ts module)`,
+      );
     if (field >= 0) return { op: 'get', object, field };
     const member = info.members.get(name);
     if (member?.get) return { op: 'call', function: member.get.fn!, args: [object] };
