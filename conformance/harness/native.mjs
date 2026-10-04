@@ -31,6 +31,7 @@ export function runProbe(
     clipboard,
     seed,
     visibleTargets,
+    hiddenTargets,
   } = {},
 ) {
   const args = ['--probe', '--width', String(viewport.width), '--height', String(viewport.height)];
@@ -45,6 +46,8 @@ export function runProbe(
   // Browser comparisons: pointer targets must be fully visible (Playwright
   // would scroll them into view first, which the probe does not model).
   if (visibleTargets) args.push('--visible-targets');
+  // Differential traces end before a pointer action at a hidden target.
+  if (hiddenTargets === 'stop') args.push('--hidden-targets', 'stop');
   const r = spawnSync(binary, args, {
     input: JSON.stringify(actions),
     encoding: 'utf8',

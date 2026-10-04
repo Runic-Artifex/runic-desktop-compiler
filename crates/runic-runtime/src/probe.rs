@@ -327,6 +327,36 @@ fn nth<A: App>(native: &Native<A>, kind: &str, n: u64) -> Option<NodeId> {
     (!all.is_empty()).then(|| all[(n as usize) % all.len()])
 }
 
+/// The target of a pointer action that is not fully visible in its scroll
+/// containers and the viewport, named. Differential traces (`--hidden-targets
+/// stop`) end before such an action: the interpreter, which has no layout,
+/// delivers it to the target itself, while a pointer at the target's centre
+/// would hit what covers or clips it.
+fn hidden_pointer_target<A: App>(native: &mut Native<A>, action: &Value) -> Option<String> {
+    let kind = action["kind"].as_str()?;
+    if !matches!(
+        kind,
+        "click" | "dblclick" | "contextmenu" | "hover" | "wheel"
+    ) {
+        return None;
+    }
+    let target = match action["nth"].as_u64() {
+        Some(n) => nth(native, kind, n)?,
+        None => native.doc.get_element_by_id(action["id"].as_str()?)?,
+    };
+    if crate::layout::fully_visible(&mut native.doc, target) {
+        return None;
+    }
+    let id = native
+        .doc
+        .get_node(target)
+        .and_then(|n| n.attr("id".into()));
+    Some(id.map_or_else(
+        || format!("node {}", target.as_u64()),
+        |id| format!("#{id}"),
+    ))
+}
+
 fn perform<A: App>(native: &mut Native<A>, action: &Value) {
     if let Some(n) = action["nth"].as_u64() {
         let kind = action["kind"].as_str().unwrap_or_default();
@@ -619,6 +649,11 @@ pub(crate) fn run<A: App>() {
     if let Some(dir) = &out {
         std::fs::create_dir_all(dir).expect("output directory");
     }
+    let stop_hidden = std::env::args()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .any(|w| w[0] == "--hidden-targets" && w[1] == "stop");
+    let mut stopped = None;
     let mut steps = vec![];
     let mut observe = |native: &mut Native<A>, action: Value, index: usize, action_us: f64| {
         // The viewport as resize actions left it.
@@ -642,6 +677,13 @@ pub(crate) fn run<A: App>() {
         .into_iter()
         .enumerate()
     {
+        if stop_hidden && let Some(name) = hidden_pointer_target(&mut native, &action) {
+            stopped = Some(format!(
+                "action {} targets {name}, which is not fully visible",
+                i + 1
+            ));
+            break;
+        }
         let t = Instant::now();
         if action["kind"] == "reload" {
             // A new app instance on the same (in-memory) localStorage,
@@ -662,6 +704,9 @@ pub(crate) fn run<A: App>() {
         let us = t.elapsed().as_secs_f64() * 1e6;
         observe(&mut native, action, i + 1, us);
     }
-    let trace = json!({"irHash": A::IR_HASH, "mountUs": mount_us, "steps": steps});
+    let mut trace = json!({"irHash": A::IR_HASH, "mountUs": mount_us, "steps": steps});
+    if let Some(reason) = stopped {
+        trace["stopped"] = json!(reason);
+    }
     println!("{}", serde_json::to_string(&trace).unwrap());
 }

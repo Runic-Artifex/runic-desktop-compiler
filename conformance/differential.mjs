@@ -145,6 +145,7 @@ const fixtures = positionals.length
       .filter(n => !['unsupported-effect'].includes(n));
 const random = rng(Number(values.seed));
 let failures = 0;
+let partial = 0;
 let steps = 0;
 const incomplete = [];
 for (const fixture of fixtures) {
@@ -180,6 +181,7 @@ for (const fixture of fixtures) {
   ].filter(([k]) => kinds.has(k));
   const total = weights.reduce((a, [, w]) => a + w, 0);
   let fixtureFailures = 0;
+  let fixturePartial = 0;
   for (let t = 0; t < Number(values.traces); t++) {
     const actions = [];
     for (let i = 0; i < Number(values.length) && weights.length; i++) {
@@ -197,8 +199,17 @@ for (const fixture of fixtures) {
     }
     const env = { timezone: values.timezone, locale: values.locale };
     const expected = interpret(ir, actions, env);
-    const actual = runProbe(binary, { actions, ...env }).steps;
-    for (let i = 0; i < expected.length; i++) {
+    const result = runProbe(binary, { actions, ...env, hiddenTargets: 'stop' });
+    const actual = result.steps;
+    // A trace ends before a pointer action whose target is not fully visible
+    // (scrolled out or covered): without layout, the interpreter would
+    // deliver it to the target, the native pointer to what covers it.
+    if (result.stopped) {
+      partial++;
+      fixturePartial++;
+      if (partial <= 3) console.log(`  ${fixture} trace ${t} ends early: ${result.stopped}`);
+    }
+    for (let i = 0; i < Math.min(expected.length, actual.length); i++) {
       steps++;
       const want = {
         dom: expected[i].state.dom.map(n => semantic(canonical(fromInterp(n)))),
@@ -223,7 +234,9 @@ for (const fixture of fixtures) {
     }
   }
   failures += fixtureFailures;
-  console.log(`${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : 'ok'} (${values.traces} traces x ${values.length} actions)`);
+  console.log(
+    `${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : 'ok'} (${values.traces} traces x ${values.length} actions${fixturePartial ? `; ${fixturePartial} ended early at a hidden pointer target` : ''})`,
+  );
 }
-console.log(JSON.stringify({ fixtures: fixtures.length, steps, failures, incomplete, seed: Number(values.seed), optimize: !values['no-opt'] }));
+console.log(JSON.stringify({ fixtures: fixtures.length, steps, failures, incomplete, partialTraces: partial, seed: Number(values.seed), optimize: !values['no-opt'] }));
 process.exitCode = failures ? 1 : 0;
