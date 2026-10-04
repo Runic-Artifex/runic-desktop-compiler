@@ -2,7 +2,7 @@
 
 This is the serialized contract between the frontend adapters and the Rust backend (D1). Its types live in `crates/runic-ir` (`src/lib.rs`), and that crate is the authority whenever this document and the code disagree. The `runic-ir` validator and reference interpreter define its meaning. The code generator in `crates/runic-codegen` must agree with that interpreter (D8).
 
-Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)), and in M4 with scheduling, effects, derived values, promises and host services ([design](design/M4-EFFECTS.md)). The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
+Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)), and in M4 with scheduling, effects, derived values, promises and host services ([design](design/M4-EFFECTS.md)); M6 adds class records. The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
 
 ## Program
 
@@ -13,7 +13,7 @@ Schema 4 was introduced in M1 and extended additively in M2 with values, stateme
   "renderer": "cpu",                 // D12: "cpu" | "gpu"
   "capabilities": ["dom", "css", "window", "click", "keyboard", "text-input"],
   "styles": { "css": "…", "assets": [{ "path": "assets/x.woff2", "sha256": "…", "bytes": 1234, "mime": "font/woff2" }] },
-  "records":   [ { "name": "Item", "fields": [ { "name": "label", "type": "string" } ] } ],
+  "records":   [ { "name": "Item", "fields": [ { "name": "label", "type": "string" } ] } ],  // "class": true marks class instances (M6)
   "functions": [ Function, … ],
   "globals":   [ { "name": "DEFAULTS", "type": T, "init": Expr } ],  // module constants, evaluated once in order
   "components": [ Component, … ],
@@ -57,6 +57,8 @@ Types follow the value model (D16, [M2-VALUES](design/M2-VALUES.md)). Unit types
 | regexp | `"regexp"` | `js::RegExp`: a RegExp object (pattern, flags and a mutable `lastIndex`), read and used through `regexp.*` built-ins; identity equality (M5) |
 | date | `"date"` | `js::Date`: a Date object (a mutable time value), read and changed through `date.*` built-ins; identity equality; `to-string` is `toString()`, `to-number` the time value (M5) |
 | promise | `{"promise": T}` | `JsPromise<T>`: pending or settled, reactions run as microtasks; identity equality; never a promise of a promise |
+
+**Class instances** (M6, [design](design/M6-LIBRARIES.md#library-code-steps-3-to-6)) are records with `"class": true`: nominal (the frontend never shares a class record with a structurally equal one), with one field per instance field, `#private` ones included under their `#name`. Methods, accessors and constructors are ordinary functions (a method takes the instance as its first parameter; a constructor returns it), so the interpreter and code generator need no other construct. Class records differ from plain ones in three ways: deep state never proxies them (Svelte's `$state` proxies plain objects and arrays only, so a `proxied` cell holds the instance itself, and mutating it in place while the template reads it is `E_REACTIVITY`); they are not plain data (`JSON.stringify`, `JSON.parse`, `structuredClone` and `Object.keys`/`values` reject them); and `to-string` of one is `E_CLASS` (its `toString` method would not be dispatched).
 
 Literal values (`lit`) are numbers, strings and booleans. String literals are Unicode text; a literal containing a lone surrogate is rejected by the frontend (`E_STRING`), although computed strings may contain one.
 
