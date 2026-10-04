@@ -1,0 +1,5 @@
+{
+  "framework": "svelte",
+  "entry": "main.js",
+  "title": "Runic packs-svelte"
+}

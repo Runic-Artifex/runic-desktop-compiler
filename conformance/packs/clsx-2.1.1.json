@@ -1,0 +1,288 @@
+{
+ "package": "clsx",
+ "version": "2.1.1",
+ "variables": [
+  {
+   "name": "s",
+   "type": "string",
+   "a": "'foo'",
+   "b": "''"
+  },
+  {
+   "name": "e",
+   "type": "string",
+   "a": "''",
+   "b": "' sp '"
+  },
+  {
+   "name": "n",
+   "type": "string | null",
+   "a": "null",
+   "b": "'bar baz'"
+  },
+  {
+   "name": "u",
+   "type": "string | undefined",
+   "a": "undefined",
+   "b": "'u'"
+  },
+  {
+   "name": "t",
+   "type": "boolean",
+   "a": "true",
+   "b": "false"
+  },
+  {
+   "name": "f",
+   "type": "boolean",
+   "a": "false",
+   "b": "true"
+  },
+  {
+   "name": "z",
+   "type": "number",
+   "a": "0",
+   "b": "3.5"
+  },
+  {
+   "name": "k",
+   "type": "number",
+   "a": "7",
+   "b": "NaN"
+  },
+  {
+   "name": "m",
+   "type": "number",
+   "a": "-0",
+   "b": "1e21"
+  },
+  {
+   "name": "nn",
+   "type": "number | null",
+   "a": "null",
+   "b": "12"
+  },
+  {
+   "name": "xs",
+   "type": "string[]",
+   "a": "['a', '', 'b']",
+   "b": "[]"
+  },
+  {
+   "name": "ys",
+   "type": "(string | null)[]",
+   "a": "[null, 'q']",
+   "b": "['r', null, '']"
+  },
+  {
+   "name": "ns",
+   "type": "number[]",
+   "a": "[0, 1, NaN]",
+   "b": "[2, -0]"
+  },
+  {
+   "name": "bs",
+   "type": "boolean[]",
+   "a": "[true]",
+   "b": "[false, true]"
+  },
+  {
+   "name": "nested",
+   "type": "string[][]",
+   "a": "[['x', ''], []]",
+   "b": "[['y'], [' ']]"
+  }
+ ],
+ "vectors": [
+  {
+   "args": "'a'",
+   "a": "a",
+   "b": "a"
+  },
+  {
+   "args": "'a', 'b'",
+   "a": "a b",
+   "b": "a b"
+  },
+  {
+   "args": "'  a ', ' b  '",
+   "a": "  a   b  ",
+   "b": "  a   b  "
+  },
+  {
+   "args": "''",
+   "a": "",
+   "b": ""
+  },
+  {
+   "args": "' '",
+   "a": " ",
+   "b": " "
+  },
+  {
+   "args": "'a', ' ', 'b'",
+   "a": "a   b",
+   "b": "a   b"
+  },
+  {
+   "args": "s, e, n, u",
+   "a": "foo",
+   "b": " sp  bar baz u"
+  },
+  {
+   "args": "t && 'yes', f && 'no'",
+   "a": "yes",
+   "b": "no"
+  },
+  {
+   "args": "t ? 'on' : 'off', f ? s : n",
+   "a": "on",
+   "b": "off"
+  },
+  {
+   "args": "{ a: t, b: f, 'c d': true }",
+   "a": "a c d",
+   "b": "b c d"
+  },
+  {
+   "args": "{ b: t, 1: t, a: t, 0: f, 10: true, 4294967295: t, 4294967294: t }",
+   "a": "1 10 4294967294 b a 4294967295",
+   "b": "0 10"
+  },
+  {
+   "args": "{ s, t, k, z }",
+   "a": "s t k",
+   "b": "z"
+  },
+  {
+   "args": "{ a: s, b: e, c: n, d: nn, e: xs }",
+   "a": "a e",
+   "b": "b c d e"
+  },
+  {
+   "args": "{ a: t, '': t, b: f }",
+   "a": "a ",
+   "b": "b"
+  },
+  {
+   "args": "{ '': t, a: t }",
+   "a": "a",
+   "b": ""
+  },
+  {
+   "args": "{ ' ': t, a: f }",
+   "a": " ",
+   "b": "a"
+  },
+  {
+   "args": "['x', ['y', [f && 'z', 'w']], []]",
+   "a": "x y w",
+   "b": "x y z w"
+  },
+  {
+   "args": "[{ x: t }, [{ y: f, z: t }], {}]",
+   "a": "x z",
+   "b": "y"
+  },
+  {
+   "args": "z, k, m, 1.5, 0",
+   "a": "7 1.5",
+   "b": "3.5 1e+21 1.5"
+  },
+  {
+   "args": "nn",
+   "a": "",
+   "b": "12"
+  },
+  {
+   "args": "xs, ys",
+   "a": "a b q",
+   "b": "r"
+  },
+  {
+   "args": "ns",
+   "a": "1",
+   "b": "2"
+  },
+  {
+   "args": "bs",
+   "a": "",
+   "b": ""
+  },
+  {
+   "args": "nested",
+   "a": "x",
+   "b": "y  "
+  },
+  {
+   "args": "null, undefined, true, false",
+   "a": "",
+   "b": ""
+  },
+  {
+   "args": "s || 'fallback', e || 'fb2', n ?? 'nul', u ?? s",
+   "a": "foo fb2 nul foo",
+   "b": "fallback  sp  bar baz u"
+  },
+  {
+   "args": "k && 'num', z && 'zero', k || 'never', z || 'zero-or'",
+   "a": "num 7 zero-or",
+   "b": "zero never 3.5"
+  },
+  {
+   "args": "[], {}",
+   "a": "",
+   "b": ""
+  },
+  {
+   "args": "`t-${k}`, `${s}${e}`",
+   "a": "t-7 foo",
+   "b": "t-NaN  sp "
+  },
+  {
+   "args": "clsx('inner', t && 'x'), 'outer'",
+   "a": "inner x outer",
+   "b": "inner outer"
+  },
+  {
+   "args": "e, e, 'a', e",
+   "a": "a",
+   "b": " sp   sp  a  sp "
+  },
+  {
+   "args": "[s, n, [u, k]], { x: k, y: z, z: nn }",
+   "a": "foo 7 x",
+   "b": "bar baz u y z"
+  },
+  {
+   "args": "'a', 1e21, -0, NaN",
+   "a": "a 1e+21",
+   "b": "a 1e+21"
+  },
+  {
+   "args": "{ 'is-on': t && f, b: s, c: !t }",
+   "a": "b",
+   "b": "c"
+  },
+  {
+   "args": "t && ['p', { q: f }], f && { never: true }",
+   "a": "p",
+   "b": "never"
+  },
+  {
+   "args": "s ? 'has-s' : { empty: t }",
+   "a": "has-s",
+   "b": ""
+  },
+  {
+   "args": "nn ?? 'none', u || n || 'last'",
+   "a": "none last",
+   "b": "12 u"
+  },
+  {
+   "args": "[xs, ns, bs], [ys]",
+   "a": "a b 1 q",
+   "b": "2 r"
+  }
+ ]
+}

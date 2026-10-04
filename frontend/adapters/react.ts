@@ -56,6 +56,7 @@ import { FnBuilder, Lowerer, skipParens, type HandlerEvent, type Hooks } from '.
 import { createProgram, REACT } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
+import { packMappings, type Edge } from '../packs.ts';
 import { arrayElement, maybeInner } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
 
@@ -360,7 +361,7 @@ interface Graph {
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
   config: { title: string; renderer?: 'cpu' | 'gpu' };
-  modules: Map<string, { code: string; imports: { specifier: string; resolved: string }[] }>;
+  modules: Map<string, { code: string; imports: Edge[] }>;
   tooling: { packages: Record<string, string> };
 }
 
@@ -3858,7 +3859,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         tools: { typescript: ts.version },
       },
       provenance: graph.manifest,
-      mappings: [],
+      mappings: packMappings(lower),
     },
     ...(graph.config.renderer ? { renderer: graph.config.renderer } : {}),
     capabilities,

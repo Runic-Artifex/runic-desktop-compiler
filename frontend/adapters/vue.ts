@@ -72,6 +72,7 @@ import {
 import { createProgram, VUE } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
+import { bindPackImport, packMappings, type Edge } from '../packs.ts';
 import { arrayElement, maybeInner } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
 
@@ -284,7 +285,7 @@ interface Graph {
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
   config: { title: string; renderer?: 'cpu' | 'gpu' };
-  modules: Map<string, { code: string; imports: { specifier: string; resolved: string }[] }>;
+  modules: Map<string, { code: string; imports: Edge[] }>;
   tooling: {
     packages: Record<string, string>;
     compiler: {
@@ -2731,8 +2732,11 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           continue;
         }
         if (spec.endsWith('.vue')) continue;
-        if (!spec.startsWith('.'))
-          tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+        bindPackImport(
+          stmt,
+          graph.modules.get(u.file)!.imports.find(i => i.specifier === spec),
+          lower,
+        );
         continue;
       }
       if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
@@ -4883,7 +4887,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         tools: { typescript: ts.version },
       },
       provenance: graph.manifest,
-      mappings: [],
+      mappings: packMappings(lower),
     },
     ...(graph.config.renderer ? { renderer: graph.config.renderer } : {}),
     capabilities,

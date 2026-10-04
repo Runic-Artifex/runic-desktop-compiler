@@ -40,6 +40,38 @@ const mime = { '.woff2': 'font/woff2' };
 const SVG_CSS =
   /^(fill|stroke|marker)(-|$)|^(clip-rule|paint-order|vector-effect|shape-rendering|stop-color|stop-opacity|flood-color|flood-opacity|lighting-color|color-interpolation|color-interpolation-filters|color-rendering|text-anchor|dominant-baseline|alignment-baseline|baseline-shift|mask-type|d|cx|cy|r|rx|ry|x|y)$/;
 
+/** The package name and subpath of a bare specifier (`@scope/pkg/sub` → `@scope/pkg`, `./sub`). */
+export function bareSpecifier(specifier) {
+  if (/^(\.|\/|[a-z][a-z0-9+.-]*:|\0|#|\$)/i.test(specifier)) return undefined;
+  const parts = specifier.split('/');
+  const n = specifier.startsWith('@') ? 2 : 1;
+  if (parts.length < n || parts.slice(0, n).some(p => !p)) return undefined;
+  const rest = parts.slice(n).join('/');
+  return { name: parts.slice(0, n).join('/'), subpath: rest ? './' + rest : '.' };
+}
+
+/**
+ * The package a bare import resolved into (mapping packs, docs/design/M6-LIBRARIES.md):
+ * the nearest directory above the resolved file whose package.json carries
+ * the specifier's package name, with that file's exact version.
+ */
+async function packageOf(specifier, resolved) {
+  const bare = bareSpecifier(specifier);
+  if (!bare || !path.isAbsolute(resolved)) return undefined;
+  for (let dir = path.dirname(resolved); path.dirname(dir) !== dir; dir = path.dirname(dir)) {
+    let info;
+    try {
+      info = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
+    } catch (e) {
+      if (e.code === 'ENOENT') continue;
+      throw e;
+    }
+    if (info.name === bare.name)
+      return { name: bare.name, version: String(info.version), dir, subpath: bare.subpath };
+  }
+  return undefined;
+}
+
 // This plugin sees original application modules before Vite's JSX transform.
 // Collection is deliberately independent of the React lowering adapter.
 export function collectionPlugin(root, modules, tooling, onDiagnostic) {
@@ -85,7 +117,9 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic) {
                     `Cannot resolve ${specifier}`,
                     location(stmt, root),
                   );
-                imports.push({ specifier, resolved: resolved.id.split('?')[0] });
+                const file = resolved.id.split('?')[0];
+                const pkg = await packageOf(specifier, file);
+                imports.push({ specifier, resolved: file, ...(pkg ? { package: pkg } : {}) });
               }
             }
           }

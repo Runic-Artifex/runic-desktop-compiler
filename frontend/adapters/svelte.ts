@@ -25,6 +25,17 @@ import { createProgram, RUNES } from '../program.ts';
 import { TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
 import { arrayElement } from '../irtype.ts';
+import {
+  bindPackImport,
+  packExport,
+  packMappings,
+  PackError,
+  usePack,
+  type Edge,
+  type Pack,
+  type PackAttr,
+  type PackComponent,
+} from '../packs.ts';
 
 // The svelte/compiler AST is untyped here; nodes are plain objects.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,7 +101,7 @@ interface Graph {
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
   config: { title: string; renderer?: 'cpu' | 'gpu' };
-  modules: Map<string, { code: string; imports: { specifier: string; resolved: string }[] }>;
+  modules: Map<string, { code: string; imports: Edge[] }>;
   tooling: {
     packages: Record<string, string>;
     compiler: { parse: (src: string, opts: object) => SNode };
@@ -126,6 +137,8 @@ interface Unit {
   starts: Map<SNode, number>;
   /** Child components by local name. */
   children: Map<string, string>;
+  /** Components supplied by mapping packs (expanded in place), by local name. */
+  packs: Map<string, { pack: Pack; component: PackComponent }>;
 }
 
 export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
@@ -228,10 +241,25 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       : '';
     // Child components imported by the instance script.
     const children = new Map<string, string>();
+    const packs = new Map<string, { pack: Pack; component: PackComponent }>();
     const scriptSf = ts.createSourceFile(file + '.ts', script, ts.ScriptTarget.Latest, true);
     for (const stmt of scriptSf.statements) {
       if (!ts.isImportDeclaration(stmt)) continue;
       const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
+      // Components of mapping packs (default imports of a package module).
+      const pkg = graph.modules.get(file)!.imports.find(i => i.specifier === spec)?.package;
+      const own = stmt.importClause?.name;
+      const framework = spec === 'svelte' || spec.startsWith('svelte/');
+      if (pkg && own && !framework && !stmt.importClause!.isTypeOnly) {
+        const at = locate(original, ast.instance.content.start + own.getStart(scriptSf), fileRel);
+        try {
+          const { pack, value } = packExport(pkg, 'default');
+          if (value.kind === 'component') packs.set(own.text, { pack, component: value });
+        } catch (e) {
+          if (e instanceof PackError) fail(e.code, e.message, at);
+          throw e;
+        }
+      }
       if (!spec.endsWith('.svelte')) continue;
       const edge = graph.modules.get(file)!.imports.find(i => i.specifier === spec);
       const name = stmt.importClause?.name?.text;
@@ -257,6 +285,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       segments: [],
       starts: new Map(),
       children,
+      packs,
     };
   };
   const visit = (file: string, stack: string[], from?: Source) => {
@@ -472,6 +501,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           fragment(n.body);
           s += '}\n';
           fragment(n.fallback);
+        } else if (n.type === 'Component' && u.packs.has(n.name)) {
+          // A pack component: its attribute expressions, typed in place.
+          attrs(n.attributes);
+          fragment(n.fragment);
         } else if (n.type === 'Component') {
           if (!u.children.has(n.name))
             fail(
@@ -831,8 +864,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (spec.startsWith('svelte/'))
           tsFail(stmt, 'E_CAPABILITY', `${spec} imports (stores, reactivity) are planned for M6`);
         if (spec.endsWith('.svelte')) continue;
-        if (!spec.startsWith('.'))
-          tsFail(stmt, 'E_DEPENDENCY', `No adapter for dependency ${spec} (npm libraries are M6)`);
+        bindPackImport(
+          stmt,
+          graph.modules.get(u.file)!.imports.find(i => i.specifier === spec),
+          lower,
+        );
         continue;
       }
       if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
@@ -1247,7 +1283,39 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         fail('E_TEMPLATE', `Attribute ${name} of type ${JSON.stringify(t)} is unsupported`, loc(a));
       return { name, value: { op: 'to-string', arg: v } };
     };
+    /** An instance of a pack component, expanded by its pack. */
+    const packComponent = (
+      n: SNode,
+      { pack, component }: { pack: Pack; component: PackComponent },
+    ) => {
+      const attrs: PackAttr[] = [];
+      const reject = (at: SNode, what: string): never =>
+        fail('E_PACK', `${pack.name}@${pack.version} pack: ${what}`, loc(at));
+      for (const a of n.attributes) {
+        if (a.type !== 'Attribute')
+          reject(
+            a,
+            `${a.type === 'SpreadAttribute' ? 'spread attributes' : a.type} on ${n.name} are not covered`,
+          );
+        let value: PackAttr['value'];
+        if (a.value === true) value = { present: true };
+        else {
+          const parts = Array.isArray(a.value) ? a.value : [a.value];
+          if (parts.length === 1 && parts[0].type === 'Text') value = { text: parts[0].data };
+          else if (parts.length === 1 && parts[0].type === 'ExpressionTag')
+            value = { expr: exprNode(parts[0].expression) };
+          else return reject(a, `the attribute ${a.name} mixes text and expressions`);
+        }
+        attrs.push({ name: a.name, at: loc(a), value });
+      }
+      if (n.fragment.nodes.some((c: SNode) => c.type !== 'Text' || c.data.trim()))
+        reject(n, `content inside ${n.name} is not covered`);
+      usePack(lower, pack);
+      return component.expand(attrs, { lower, b: tb, at: loc(n), fail });
+    };
     const component = (n: SNode): Node => {
+      const packed = u.packs.get(n.name);
+      if (packed) return packComponent(n, packed);
       const child = units.get(u.children.get(n.name)!)!;
       const target = components[child.index];
       const passed: { name: string; value: Expr; bind?: Expr }[] = [];
@@ -1713,7 +1781,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         tools: { typescript: ts.version },
       },
       provenance: graph.manifest,
-      mappings: [],
+      mappings: packMappings(lower),
     },
     ...(graph.config.renderer ? { renderer: graph.config.renderer } : {}),
     capabilities,
