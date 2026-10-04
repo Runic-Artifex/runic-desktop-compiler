@@ -307,3 +307,29 @@ declare const localStorage: {
   removeItem(key: string): void;
   clear(): void;
 };
+/**
+ * M6: image objects. The native runtime loads no images (and renders no
+ * <img>): `new Image()` throws RunicUnsupportedError when it runs. bits-ui's
+ * Avatar binds a loader that would create one for Avatar.Image, whose <img>
+ * is rejected at compile time.
+ */
+interface HTMLImageElement {
+  readonly __runicImage: true;
+  src: string;
+  crossOrigin: string | null;
+  referrerPolicy: string;
+  onload: (() => void) | null;
+  onerror: (() => void) | null;
+}
+declare var Image: { new (): HTMLImageElement };
+/** M6: the referrer policies (svelte/elements' image attributes name it). */
+type ReferrerPolicy =
+  | ''
+  | 'no-referrer'
+  | 'no-referrer-when-downgrade'
+  | 'origin'
+  | 'origin-when-cross-origin'
+  | 'same-origin'
+  | 'strict-origin'
+  | 'strict-origin-when-cross-origin'
+  | 'unsafe-url';

@@ -244,6 +244,24 @@ impl<'a> FnCtx<'a> {
         (code, names)
     }
 
+    /// The properties of a style object record `r` (in `o`), for
+    /// `js::AttrValue::Style`: absent when nullish.
+    fn style_props(&self, r: usize) -> String {
+        self.p.records[r]
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(i, fd)| {
+                let v = if fd.ty == Type::String {
+                    format!("Some(o.f{i}.clone())")
+                } else {
+                    format!("match &o.f{i} {{ Maybe::Some(s) => Some(s.clone()), _ => None }}")
+                };
+                format!("({}.to_string(), {v}), ", rust_str(&fd.name))
+            })
+            .collect()
+    }
+
     pub fn expr(&mut self, e: &Expr) -> String {
         use Expr::*;
         match e {
@@ -421,6 +439,14 @@ impl<'a> FnCtx<'a> {
                                 Type::Maybe(i) if **i == Type::Boolean => format!(
                                     "match {x} {{ Maybe::Some(b) => js::AttrValue::Flag(b), Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}"
                                 ),
+                                // A style object or nothing (bits-ui's Avatar.Fallback).
+                                Type::Maybe(i) if matches!(**i, Type::Record(_)) => {
+                                    let Type::Record(r) = **i else { unreachable!() };
+                                    format!(
+                                        "match {x} {{ Maybe::Some(r) => {{ let o = r.peek(); js::AttrValue::Style(vec![{}]) }}, Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}",
+                                        self.style_props(r)
+                                    )
+                                }
                                 Type::Maybe(_) => format!(
                                     "match {x} {{ Maybe::Some(s) => js::AttrValue::Text(s), Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}"
                                 ),
@@ -459,21 +485,7 @@ impl<'a> FnCtx<'a> {
                                 }
                                 // A style object: its properties (absent when nullish).
                                 Type::Record(r) => {
-                                    let props: String = self.p.records[*r]
-                                        .fields
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(i, fd)| {
-                                            let v = if fd.ty == Type::String {
-                                                format!("Some(o.f{i}.clone())")
-                                            } else {
-                                                format!(
-                                                    "match &o.f{i} {{ Maybe::Some(s) => Some(s.clone()), _ => None }}"
-                                                )
-                                            };
-                                            format!("({}.to_string(), {v}), ", rust_str(&fd.name))
-                                        })
-                                        .collect();
+                                    let props = self.style_props(*r);
                                     format!(
                                         "{{ let r = {x}; let o = r.peek(); js::AttrValue::Style(vec![{props}]) }}"
                                     )

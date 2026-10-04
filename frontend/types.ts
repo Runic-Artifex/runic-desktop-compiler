@@ -29,6 +29,8 @@ export class TypeMapper {
    * their key order is not tracked (key-observing built-ins reject them).
    */
   readonly packageRecords = new Set<number>();
+  /** The record of image objects (frontend/dom.d.ts), once used. */
+  image: number | undefined;
 
   constructor(checker: ts.TypeChecker, fail: Fail) {
     this.checker = checker;
@@ -194,6 +196,25 @@ export class TypeMapper {
     // Event objects (frontend/dom.d.ts) are opaque values read through built-ins.
     if (t.getProperty('__runicEvent')) return 'event';
     if (t.getProperty('__runicMediaQuery')) return 'media-query';
+    // An image object (frontend/dom.d.ts): a record of its properties.
+    if (t.getProperty('__runicImage')) {
+      if (this.image === undefined) {
+        this.image = this.records.length;
+        const handler: Type = { maybe: { fn: { params: [], result: 'void' } } };
+        this.records.push({
+          name: 'Image',
+          class: true,
+          fields: [
+            { name: 'src', type: 'string' },
+            { name: 'crossOrigin', type: { maybe: 'string' } },
+            { name: 'referrerPolicy', type: 'string' },
+            { name: 'onload', type: handler },
+            { name: 'onerror', type: handler },
+          ],
+        });
+      }
+      return { record: this.image };
+    }
     // A computed style declaration stands for its element (frontend/dom.d.ts).
     if (t.getProperty('__runicComputedStyle')) return 'element';
     // Attribute bags (docs/IR.md `attrs`): the marker frontend/dom.d.ts

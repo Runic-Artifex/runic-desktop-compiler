@@ -75,6 +75,8 @@ export interface PackFunction {
   inline?: boolean;
   /** Methods called on the export or constant (`watch.pre(…)`, `context.get()`). */
   methods?: Record<string, (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr>;
+  /** `new X(…)` of a class export (svelte-toolbelt's DOMContext). */
+  construct?(node: ts.NewExpression, b: FnBuilder, lower: Lowerer): Expr;
   /** The keys of the attribute bag a call returns (frontend/bags.ts). */
   shape?(node: ts.CallExpression, of: (e: ts.Expression) => Shape): Shape;
 }
@@ -379,6 +381,12 @@ function functionBinding(pack: Pack, label: string, fn: PackFunction): Binding {
         }
       : undefined,
     inline: fn.inline,
+    construct: fn.construct
+      ? (node, b, l) => {
+          usePack(l, pack);
+          return fn.construct!(node, b, l);
+        }
+      : undefined,
     methods: fn.methods
       ? Object.fromEntries(
           Object.entries(fn.methods).map(([k, m]) => [

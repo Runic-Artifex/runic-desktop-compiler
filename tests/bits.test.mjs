@@ -284,6 +284,36 @@ test('mergeProps shapes outside the pack fail at run time', async () => {
     });
 });
 
+test('Avatar: fallbacks compile, Avatar.Image (image loading) is rejected at its <img>', async () => {
+  const { ir } = await lowered('fixtures/bits-avatar-svelte');
+  const steps = interpret(ir, [{ kind: 'click', id: 'small' }]);
+  assert.equal(byId(steps[1], 'cn').attrs['data-size'], 'sm');
+  assert.equal(byId(steps[1], 'cn').attrs['data-status'], 'loading');
+  await mkdir('.cache/tests', { recursive: true });
+  const root = await mkdtemp(path.resolve('.cache/tests/avatar-'));
+  try {
+    await cp('fixtures/bits-avatar-svelte', root, { recursive: true });
+    const app = path.join(root, 'src/App.svelte');
+    await writeFile(
+      app,
+      readFileSync(app, 'utf8').replace(
+        '<Avatar.Root id="cn" {size}>',
+        '<Avatar.Root id="cn" {size}><Avatar.Image src="https://github.com/shadcn.png" alt="@shadcn" />',
+      ),
+    );
+    await assert.rejects(
+      lowered(root),
+      failWith(
+        'E_TEMPLATE',
+        'node_modules/bits-ui/dist/bits/avatar/components/avatar-image.svelte',
+        /<img>/,
+      ),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('SvelteMap reads outside derived values are rejected; dictionary objects guard prototype names', async () => {
   await withApp(
     {

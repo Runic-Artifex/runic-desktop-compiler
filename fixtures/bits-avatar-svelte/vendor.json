@@ -1,0 +1,43 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/ui/avatar/avatar-badge.svelte": {
+      "upstream": "docs/src/lib/registry/ui/avatar/avatar-badge.svelte",
+      "sha256": "030aed3b10b1aad2b56de489651236cde10ae8b48e60e6f8a0acd480dd3b1ed1"
+    },
+    "src/lib/registry/ui/avatar/avatar-fallback.svelte": {
+      "upstream": "docs/src/lib/registry/ui/avatar/avatar-fallback.svelte",
+      "sha256": "44a173a4aa47ac9dfb55224b104a7beed580fbc94aa5e878bd44abdd02120690"
+    },
+    "src/lib/registry/ui/avatar/avatar-group-count.svelte": {
+      "upstream": "docs/src/lib/registry/ui/avatar/avatar-group-count.svelte",
+      "sha256": "4ea515a0aa4b74fe7b933d32aecc43e87b0bef7f2d062b76ac0fd65428b9d4d5"
+    },
+    "src/lib/registry/ui/avatar/avatar-group.svelte": {
+      "upstream": "docs/src/lib/registry/ui/avatar/avatar-group.svelte",
+      "sha256": "4679c94bf7e9fb533812d2933a16157ff9a5173fc72a9179f5c0429b38165cee"
+    },
+    "src/lib/registry/ui/avatar/avatar-image.svelte": {
+      "upstream": "docs/src/lib/registry/ui/avatar/avatar-image.svelte",
+      "sha256": "0e465839b99caf87798cef5897063cda3c75f63ab2c466522245b69c656fc63a"
+    },
+    "src/lib/registry/ui/avatar/avatar.svelte": {
+      "upstream": "docs/src/lib/registry/ui/avatar/avatar.svelte",
+      "sha256": "6e606b6faae78f4e4d4b20852062c96249b03981b075e1b049eb8a168471fea8"
+    },
+    "src/lib/registry/ui/avatar/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/avatar/index.ts",
+      "sha256": "cddb7340b5f1bc0904d2142e13aeb9b7197b327bcc08aab37cfd519c61165f2d"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

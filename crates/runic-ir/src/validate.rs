@@ -760,8 +760,18 @@ impl<'a> Scope<'a> {
                                     Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event]
                                 ),
                                 // A style object (M6): property values, absent when nullish.
-                                None if name == "style" && matches!(t, Type::Record(_)) => {
-                                    let Type::Record(r) = t else { unreachable!() };
+                                None if name == "style"
+                                    && (matches!(t, Type::Record(_))
+                                        || matches!(&t, Type::Maybe(i) if matches!(**i, Type::Record(_)))) =>
+                                {
+                                    let r = match &t {
+                                        Type::Record(r) => *r,
+                                        Type::Maybe(i) => match **i {
+                                            Type::Record(r) => r,
+                                            _ => unreachable!(),
+                                        },
+                                        _ => unreachable!(),
+                                    };
                                     self.record(r, src)?.fields.iter().all(|f| {
                                         f.reactive.is_none()
                                             && (f.ty == Type::String

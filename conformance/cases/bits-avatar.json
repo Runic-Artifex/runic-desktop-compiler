@@ -1,0 +1,11 @@
+{
+  "description": "bits-ui's Avatar compiled from its published source (its root state holds svelte-toolbelt's DOMContext and binds an image loader) through shadcn-svelte's unmodified avatar wrappers, arranged as the avatar demos arrange them but without Avatar.Image: loading an image is rejected (the native runtime fetches no images and renders no <img>; new Image() throws RunicUnsupportedError when it runs; every avatar demo loads one from github.com and is rejected), so the avatars show their fallbacks with data-status loading, as the demos do while their images load. Sizes changed from the app (data-size and the size-dependent classes), a badge, a group with a count",
+  "fixtures": ["bits-avatar-svelte"],
+  "pixelRegions": ["avatars"],
+  "actions": [
+    { "kind": "click", "id": "small" },
+    { "kind": "click", "id": "more" },
+    { "kind": "click", "id": "large" },
+    { "kind": "hover", "id": "cn" }
+  ]
+}

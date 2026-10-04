@@ -29,6 +29,8 @@
 // - `afterTick(fn)` (dist/utils/after-tick.js): `tick().then(fn)`.
 // - `onDestroyEffect(fn)` (dist/utils/on-destroy-effect.svelte.js): an
 //   effect of the instance being created whose cleanup calls `fn`.
+// - `new DOMContext(box)` (dist/utils/dom-context.svelte.js): a record of the
+//   element box whose setTimeout and clearTimeout are the window's.
 // - `srOnlyStyles` (dist/utils/sr-only-styles.js): a constant style object,
 //   folded where it is spread into a bag's style object.
 //
@@ -298,6 +300,60 @@ function box(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   };
 }
 
+/** DOMContext records, per program. */
+const domContexts = new WeakMap<Lowerer, number>();
+
+/**
+ * The record of `DOMContext` (dist/utils/dom-context.svelte.js): its
+ * element box. `setTimeout` and `clearTimeout` are the window's timers;
+ * its other members (the document, the active element, queries in its root
+ * node) are not covered.
+ */
+function domContextRecord(lower: Lowerer): number {
+  const known = domContexts.get(lower);
+  if (known !== undefined) return known;
+  const record = lower.types.records.length;
+  domContexts.set(lower, record);
+  const element: Type = { record: boxRecord(lower, { maybe: 'element' }) };
+  lower.types.records.push({
+    name: 'DOMContext',
+    class: true,
+    fields: [{ name: 'element', type: element }],
+  });
+  const covered = `${LABEL}: DOMContext covers setTimeout and clearTimeout`;
+  lower.recordMembers.set(record, {
+    read(name, _object, at) {
+      return lower.fail(at, 'E_PACK', `${covered}, not ${name}`);
+    },
+    write(name, _object, _value, at) {
+      return lower.fail(at, 'E_PACK', `${covered}; ${name} cannot be assigned`);
+    },
+    call(name, _object, node, b) {
+      if (name !== 'setTimeout' && name !== 'clearTimeout')
+        return lower.fail(node, 'E_PACK', `${covered}, not ${name}()`);
+      return lower.hostCall(name, node, b)!;
+    },
+  });
+  return record;
+}
+
+/** `new DOMContext(element)` of an element box (a getter is not covered). */
+function newDomContext(node: ts.NewExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [element] = node.arguments ?? [];
+  if (!element || node.arguments!.length !== 1)
+    return lower.fail(node, 'E_PACK', `${LABEL}: new DOMContext takes the element's box`);
+  const record = domContextRecord(lower);
+  const want = lower.types.records[record].fields[0].type;
+  const v = lower.expr(element, b);
+  if (JSON.stringify(lower.irType(v, b)) !== JSON.stringify(want))
+    return lower.fail(
+      element,
+      'E_PACK',
+      `${LABEL}: new DOMContext takes a box of an element or null`,
+    );
+  return { op: 'record', record, fields: [v] };
+}
+
 /** `mergeProps(...bags)`. */
 function mergeProps(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const args = node.arguments.map(a => {
@@ -487,10 +543,26 @@ export const svelteToolbeltPack: Pack = {
         return { kind: 'function', call: onDestroyEffect };
       case 'srOnlyStyles':
         return { kind: 'constant', value: SR_ONLY_STYLES };
+      case 'DOMContext':
+        return {
+          kind: 'function',
+          call: (n, _b, l) =>
+            l.fail(n, 'E_PACK', `${LABEL}: DOMContext is a class (new DOMContext(box))`),
+          construct: newDomContext,
+        };
     }
-    return `${LABEL} covers box, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect and srOnlyStyles, not ${imported}`;
+    return `${LABEL} covers box, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect, srOnlyStyles and DOMContext, not ${imported}`;
   },
   type(t, at, lower) {
+    // DOMContext (dist/utils/dom-context.svelte.d.ts).
+    const sym = t.getSymbol();
+    if (
+      sym?.name === 'DOMContext' &&
+      /[\\/]svelte-toolbelt[\\/]dist[\\/]utils[\\/]dom-context\.svelte\.d\.ts$/.test(
+        sym.declarations?.[0]?.getSourceFile().fileName ?? '',
+      )
+    )
+      return { record: domContextRecord(lower) };
     // ReadableBox<T> and WritableBox<T> (dist/box/box-extras.svelte.d.ts):
     // a `current` property and the BoxSymbol brand.
     const checker = lower.checker;

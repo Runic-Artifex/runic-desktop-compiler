@@ -100,6 +100,8 @@ export type Binding =
       methods?: Record<string, (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr>;
       /** The keys of the attribute bag a call returns (frontend/bags.ts). */
       shape?: (node: ts.CallExpression, of: (e: ts.Expression) => Shape) => Shape;
+      /** `new X(…)` of a pack class (svelte-toolbelt's DOMContext). */
+      construct?: (node: ts.NewExpression, b: FnBuilder, lower: Lowerer) => Expr;
     }
   /** A class declaration (frontend/classes.ts): `new C(…)` and static members. */
   | { kind: 'class'; cls: ClassInfo }
@@ -1424,12 +1426,22 @@ export class Lowerer {
       const declared = this.types.typeOrUndefined(d.name);
       if (declared === undefined) {
         // TypeScript only knows `any`: the initialiser's IR type decides.
-        if (!d.initializer)
+        // Without one (untyped JavaScript, `let timer;`): the one type of the
+        // values assigned to it in its scope, undefined until then.
+        if (!d.initializer) {
+          const assigned = this.assignedType(d, sym);
+          if (assigned) {
+            const t: Type = maybeInner(assigned) ? assigned : { maybe: assigned };
+            const local = b.local(d.name.text, t, b.boxed.has(sym));
+            this.bindings.set(sym, { kind: 'local', owner: b, local });
+            return [{ op: 'let', local, value: { op: 'undefined', type: t }, ...this.src(d) }];
+          }
           this.fail(
             d,
             'E_TYPE_UNSUPPORTED',
             `${d.name.text} needs a type annotation or an initialiser`,
           );
+        }
         const value = this.expr(d.initializer!, b);
         const local = b.local(d.name.text, this.irType(value, b), b.boxed.has(sym));
         this.bindings.set(sym, { kind: 'local', owner: b, local });
@@ -1468,6 +1480,36 @@ export class Lowerer {
       { op: 'let', local: tmp, value },
       ...this.destructure(d.name, { op: 'local', local: tmp }, type, b),
     ];
+  }
+
+  /**
+   * The IR type of the values assigned to an untyped variable declared
+   * without an initialiser, from TypeScript's types of the right-hand sides
+   * in its scope; undefined when there are none or they differ.
+   */
+  private assignedType(d: ts.VariableDeclaration, sym: ts.Symbol): Type | undefined {
+    let scope: ts.Node = d.parent;
+    while (scope.parent && !ts.isBlock(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+    const found: Type[] = [];
+    let open = false;
+    const visit = (n: ts.Node) => {
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(n.left) &&
+        this.checker.getSymbolAtLocation(n.left) === sym
+      ) {
+        const t = this.types.tryMap(this.checker.getTypeAtLocation(n.right), n.right);
+        if (t === undefined) open = true;
+        else found.push(t);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(scope);
+    if (open || !found.length) return undefined;
+    const inner = found.map(t => maybeInner(t) ?? t);
+    if (!inner.every(t => sameType(t, inner[0]))) return undefined;
+    return found.some(t => maybeInner(t)) ? { maybe: inner[0] } : inner[0];
   }
 
   private destructure(pattern: ts.BindingName, source: Expr, type: Type, b: FnBuilder): Stmt[] {
@@ -2678,7 +2720,7 @@ export class Lowerer {
   }
 
   /** Timer, microtask and clock host calls. */
-  private hostCall(name: string, e: ts.CallExpression, b: FnBuilder): Expr | undefined {
+  hostCall(name: string, e: ts.CallExpression, b: FnBuilder): Expr | undefined {
     const args = e.arguments.map(a => this.expr(a, b));
     const number = (i: number): Expr => args[i] ?? { op: 'lit', value: 0 };
     const builtin = (n: string, a: Expr[], type: Type): Expr => ({
@@ -4122,10 +4164,41 @@ export class Lowerer {
   private newExpression(e: ts.NewExpression, b: FnBuilder): Expr {
     const svelteMap = newSvelteMap(e, this);
     if (svelteMap) return svelteMap;
+    // Image objects load images over the network or from files, which the
+    // native runtime does not (no <img> either): `new Image()` throws
+    // RunicUnsupportedError when it runs (frontend/dom.d.ts).
+    if (this.hostName(e.expression) === 'Image') {
+      const type = this.types.of(e);
+      const index = this.reserve();
+      this.functions[index] = {
+        name: 'Image$new',
+        params: [],
+        locals: [],
+        result: type,
+        body: [
+          {
+            op: 'throw',
+            value: {
+              op: 'record',
+              record: this.errorRecord(),
+              fields: [
+                { op: 'lit', value: 'RunicUnsupportedError' },
+                {
+                  op: 'lit',
+                  value: 'new Image(): the native runtime loads no images',
+                },
+              ],
+            },
+          },
+        ],
+      };
+      return { op: 'call', function: index, args: [] };
+    }
     const global = this.globalName(e.expression);
     if (ts.isIdentifier(e.expression)) {
       const cls = this.binding(e.expression);
       if (cls?.kind === 'class') return this.classes.construct(cls.cls, e, b);
+      if (cls?.kind === 'pack' && cls.construct) return cls.construct(e, b, this);
     }
     if (global === 'Promise') {
       // new Promise<T>(executor): resolve takes a T, reject an Error.
@@ -4416,6 +4489,11 @@ export class Lowerer {
           },
         },
       };
+    }
+    // A style object, or none (bits-ui's Avatar.Fallback: `style: this.style`).
+    if (name === 'style' && typeof inner === 'object' && 'record' in inner) {
+      const fields = this.types.records[inner.record].fields;
+      if (fields.every(f => f.type === STRING || maybeInner(f.type) === STRING)) return v;
     }
     if (typeof t === 'object' && 'fn' in t) {
       // Listeners under `on<event>`; other functions are callbacks (never attributes).
