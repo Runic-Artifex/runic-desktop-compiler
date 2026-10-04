@@ -1686,7 +1686,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (a.type === 'Attribute') {
           const want = target.cells[propCell(a)].type;
           let v: Expr;
-          if (a.value === true) v = coerceInit({ op: 'lit', value: true }, 'boolean', want);
+          if (a.value === true)
+            v = coerceInit({ op: 'lit', value: true }, 'boolean', want, lower.types.records);
           else if (Array.isArray(a.value)) {
             let joined: Expr | undefined;
             for (const part of a.value) {
@@ -1696,7 +1697,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                   : display(exprNode(part.expression));
               joined = joined ? { op: 'concat', left: joined, right: p } : p;
             }
-            v = coerceInit(joined ?? { op: 'lit', value: '' }, 'string', want);
+            v = coerceInit(joined ?? { op: 'lit', value: '' }, 'string', want, lower.types.records);
           } else {
             const e = exprNode(a.value.expression);
             v = value(e);
