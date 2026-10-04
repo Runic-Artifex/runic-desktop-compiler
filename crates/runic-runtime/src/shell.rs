@@ -100,6 +100,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     let mut app = A::new();
     let mut listeners = Listeners::default();
     listeners.container = Some(mount);
+    listeners.body = Some(body);
     app.mount(
         &mut Dom {
             doc: &mut doc,

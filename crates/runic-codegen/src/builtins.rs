@@ -563,6 +563,16 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 rust_type(inner)
             )
         }
+        // M6 overlays: the contexts of the instance being created, an
+        // imperatively mounted instance's destruction, and the body.
+        ("context", "all") => q(cx, "cx.context_all()".into()),
+        ("mounted", "unmount") => format!(
+            "{{ let h: js::Handle = {}; unmount_handle(cx, &h); js::JsPromise::<(), Lst>::fulfilled(()) }}",
+            t[0]
+        ),
+        ("document", "body") => {
+            "js::Element(cx.dom.body().expect(\"an attached document\"))".into()
+        }
         ("uid", "next") => format!(
             "{{ cx.uids += 1; JsString::from(format!(\"{{}}{{}}\", {}.to_rust(), cx.uids)) }}",
             t[0]

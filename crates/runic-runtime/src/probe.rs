@@ -104,8 +104,23 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
     let doc = &native.doc;
     let focused = doc.get_focussed_node_id();
     let root = native.listeners.container.expect("the mount container");
+    // Content mounted in the body after the container (M6 portals).
+    let portals: Vec<NodeId> = native
+        .listeners
+        .body
+        .and_then(|b| doc.get_node(b))
+        .map(|b| {
+            let at = b
+                .children
+                .iter()
+                .position(|&c| c == root)
+                .map_or(0, |i| i + 1);
+            b.children[at..].to_vec()
+        })
+        .unwrap_or_default();
     let mut geometry = Map::new();
-    let mut stack = vec![root];
+    let mut stack: Vec<NodeId> = portals.iter().rev().copied().collect();
+    stack.push(root);
     while let Some(id) = stack.pop() {
         let Some(node) = doc.get_node(id) else {
             continue;
@@ -160,6 +175,13 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
             state["document"] =
                 Value::Object(attrs.into_iter().map(|(k, v)| (k, json!(v))).collect());
         }
+    }
+    let portals: Vec<Value> = portals
+        .iter()
+        .filter_map(|&n| snapshot_node(doc, n, focused))
+        .collect();
+    if !portals.is_empty() {
+        state["portals"] = Value::Array(portals);
     }
     let instances = native.app.instances_json();
     if !instances.is_empty() {

@@ -664,6 +664,115 @@ impl Gen<'_> {
         )
     }
 
+    /// Code giving the instance `ci` of component `c` the content that
+    /// component `k` provides for its slots (rendered in the instance `inst`
+    /// of `k` with its template locals `t`); the block types go to `extra`.
+    fn slot_providers(
+        &self,
+        k: usize,
+        c: usize,
+        slots: &[(usize, &SlotDef, usize)],
+        ci: &str,
+        extra: &mut String,
+    ) -> String {
+        let mut providers = String::new();
+        for (decl, def, body) in slots {
+            let (decl, body) = (*decl, *body);
+            let params: String = def
+                .params
+                .iter()
+                .enumerate()
+                .map(|(i, l)| format!("v.l{l} = a.a{i}.clone(); "))
+                .collect();
+            // Forwarded content counts while its condition holds
+            // (whether this instance was given the slot: fixed
+            // once it is created).
+            let (when_open, when_close) = match &def.when {
+                Some(w) => (format!("if {} {{ ", self.ctx(k).expr(w)), " }".to_string()),
+                None => (String::new(), String::new()),
+            };
+            let _ = writeln!(
+                providers,
+                "{{ {when_open}let inst = Rc::clone(inst); let t = Rc::clone(t); let p: P{c}_{decl} = Rc::new(move |cx: &mut Cx, dom: &mut Dom, a: A{c}_{decl}, parent: NodeId, before: Option<NodeId>| -> JsResult<Box<dyn Block<A{c}_{decl}>>> {{ let t2: Rc<RefCell<T{k}>> = Rc::new(RefCell::new({{ let mut v = t.borrow().clone(); {params}v }})); let s = mount_s{body}(cx, dom, &inst, &t2, parent, before)?; Ok(Box::new(SB{body} {{ inst: Rc::clone(&inst), outer: Rc::clone(&t), t: t2, s }})) }}); {ci}.borrow_mut().s{decl} = Some(p);{when_close} }}"
+            );
+            let _ = writeln!(
+                extra,
+                "pub struct SB{body} {{ inst: I{k}, outer: Rc<RefCell<T{k}>>, t: Rc<RefCell<T{k}>>, s: Box<S{body}> }}\n\
+                 impl Block<A{c}_{decl}> for SB{body} {{\n\
+                 fn update(&mut self, cx: &mut Cx, dom: &mut Dom, a: A{c}_{decl}, parent: NodeId, after: Option<NodeId>) -> JsResult<()> {{ {{ let mut v = self.outer.borrow().clone(); {params}*self.t.borrow_mut() = v; }} update_s{body}(&mut self.s, cx, dom, &self.inst, &self.t, true, parent, after) }}\n\
+                 fn sync(&self, cx: &mut Cx, dom: &mut Dom) -> JsResult<()> {{ sync_s{body}(&self.s, cx, dom, &self.inst, &self.t) }}\n\
+                 fn dispose(&self, cx: &mut Cx) {{ dispose_s{body}(&self.s, cx); }}\n\
+                 fn nodes(&self, out: &mut Vec<NodeId>) {{ nodes_s{body}(&self.s, out); }}\n\
+                 fn first(&self) -> Option<NodeId> {{ first_s{body}(&self.s) }}\n\
+                 fn walk(&self, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{ walk_s{body}(&self.s, parent, out); }}\n\
+                 }}"
+            );
+        }
+        providers
+    }
+
+    /// Mount site `i` of component `k` (M6 overlays): `mount_{k}_{i}` gives a
+    /// new instance of the site's component `c` its slot content, creates it
+    /// (pre effects run) and mounts it before an empty anchor text appended
+    /// to the body. The instance stays registered (`cx.mounted`) until
+    /// unmounted. Each mounted component also gets its `Portal` type.
+    fn mount_site(
+        &self,
+        k: usize,
+        i: usize,
+        c: usize,
+        root: usize,
+        slots: &[(usize, &SlotDef, usize)],
+        portals: &mut BTreeSet<usize>,
+    ) -> String {
+        let child = &self.p.components[c];
+        let has_pre = self.dynamic_fx || child.effects.iter().any(|e| e.phase == EffectPhase::Pre);
+        let mut extra = String::new();
+        let providers = self.slot_providers(k, c, slots, "ci", &mut extra);
+        let prelude = self.prelude(k, "t");
+        let created = if has_pre {
+            "fx_phase_i{c}(cx, &ci, 0, true);\n".replace("{c}", &c.to_string())
+        } else {
+            String::new()
+        };
+        let mut out = format!(
+            "#[allow(unused_variables, unused_mut)]\nfn mount_{k}_{i}(cx: &mut Cx, inst: &I{k}, ci: I{c}, target: js::Element) -> JsResult<js::Handle> {{\n\
+             if cx.dom.body() != Some(target.0) {{ let what = \"mounting a component into an element other than the body (its owner's updates would interleave with the mounted content)\"; runic_runtime::unsupported(what); return Err(js::Throw::new(\"RunicUnsupportedError\", what)); }}\n\
+             let t_own: Rc<RefCell<T{k}>> = Rc::new(RefCell::new(T{k}::default())); let t = &t_own;\n\
+             {prelude}{providers}init_i{c}(cx, &ci)?;\n{created}\
+             let mut dom = cx.dom.dom_mut().expect(\"an attached document\");\n\
+             let body = NodeId::from_u64(target.0);\n\
+             let anchor = dom.text(\"\"); dom.append(body, anchor);\n\
+             let ct: Rc<RefCell<T{c}>> = Rc::new(RefCell::new(T{c}::default()));\n\
+             let cs = {{ let via = std::mem::take(&mut cx.via); let r = mount_s{root}(cx, &mut dom, &ci, &ct, body, Some(anchor)); cx.via = via; r? }};\n\
+             let state: Rc<RefCell<MountState>> = Rc::new(RefCell::new(MountState::Live(Box::new(PortalI{c} {{ ci, ct, cs, body, anchor }}))));\n\
+             cx.mounted.push(Rc::clone(&state));\n\
+             // Its post effects run in the next pass of the running flush, or in the flush this queues.\n\
+             cx.jobs.queue_flush();\n\
+             Ok(js::Handle(state as Rc<dyn std::any::Any>))\n}}\n{extra}"
+        );
+        if portals.insert(c) {
+            let pre = if has_pre {
+                format!(
+                    "{{ let u = cx.updated.get(&(Rc::as_ptr(&self.ci) as *const u8 as usize)).copied().unwrap_or(true); fx_phase_i{c}(cx, &self.ci, 0, u); }}\n"
+                )
+            } else {
+                String::new()
+            };
+            let _ = writeln!(
+                out,
+                "pub struct PortalI{c} {{ ci: I{c}, ct: Rc<RefCell<T{c}>>, cs: Box<S{root}>, body: NodeId, anchor: NodeId }}\n\
+                 impl Portal for PortalI{c} {{\n\
+                 fn update(&mut self, cx: &mut Cx, dom: &mut Dom) {{ {pre}let via = std::mem::take(&mut cx.via); let r = update_s{root}(&mut self.cs, cx, dom, &self.ci, &self.ct, false, self.body, Some(self.anchor)); cx.via = via; if let Err(e) = r {{ eprintln!(\"runic: render error: {{e}}\"); }} if let Err(e) = sync_s{root}(&self.cs, cx, dom, &self.ci, &self.ct) {{ eprintln!(\"runic: render error: {{e}}\"); }} }}\n\
+                 fn walk(&self, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{ out.push((Rc::new(H{c}(Rc::clone(&self.ci))) as Rc<dyn Inst>, 0)); walk_s{root}(&self.cs, Rc::as_ptr(&self.ci) as *const u8 as usize, out); }}\n\
+                 fn remove(&self, cx: &mut Cx, dom: &mut Dom) {{ remove_s{root}(&self.cs, cx, dom); dom.remove(self.anchor); }}\n\
+                 fn destroy(&self, cx: &mut Cx) {{ destroy_i{c}(cx, &self.ci); }}\n\
+                 }}"
+            );
+        }
+        out
+    }
+
     /// Top-level DOM nodes of an item, in order (for moves and removal).
     fn top_nodes(&self, item: &Item, out: &mut String) {
         match item {
@@ -1130,39 +1239,7 @@ impl Gen<'_> {
                     String::new()
                 };
                 // Slot providers: mount the parent's content in the parent instance.
-                let mut providers = String::new();
-                for (decl, def, body) in slots {
-                    let (decl, body) = (*decl, *body);
-                    let params: String = def
-                        .params
-                        .iter()
-                        .enumerate()
-                        .map(|(i, l)| format!("v.l{l} = a.a{i}.clone(); "))
-                        .collect();
-                    // Forwarded content counts while its condition holds
-                    // (whether this instance was given the slot: fixed
-                    // once it is created).
-                    let (when_open, when_close) = match &def.when {
-                        Some(w) => (format!("if {} {{ ", self.ctx(k).expr(w)), " }".to_string()),
-                        None => (String::new(), String::new()),
-                    };
-                    let _ = writeln!(
-                        providers,
-                        "{{ {when_open}let inst = Rc::clone(inst); let t = Rc::clone(t); let p: P{c}_{decl} = Rc::new(move |cx: &mut Cx, dom: &mut Dom, a: A{c}_{decl}, parent: NodeId, before: Option<NodeId>| -> JsResult<Box<dyn Block<A{c}_{decl}>>> {{ let t2: Rc<RefCell<T{k}>> = Rc::new(RefCell::new({{ let mut v = t.borrow().clone(); {params}v }})); let s = mount_s{body}(cx, dom, &inst, &t2, parent, before)?; Ok(Box::new(SB{body} {{ inst: Rc::clone(&inst), outer: Rc::clone(&t), t: t2, s }})) }}); ci{key}.borrow_mut().s{decl} = Some(p);{when_close} }}"
-                    );
-                    let _ = writeln!(
-                        o.extra,
-                        "pub struct SB{body} {{ inst: I{k}, outer: Rc<RefCell<T{k}>>, t: Rc<RefCell<T{k}>>, s: Box<S{body}> }}\n\
-                         impl Block<A{c}_{decl}> for SB{body} {{\n\
-                         fn update(&mut self, cx: &mut Cx, dom: &mut Dom, a: A{c}_{decl}, parent: NodeId, after: Option<NodeId>) -> JsResult<()> {{ {{ let mut v = self.outer.borrow().clone(); {params}*self.t.borrow_mut() = v; }} update_s{body}(&mut self.s, cx, dom, &self.inst, &self.t, true, parent, after) }}\n\
-                         fn sync(&self, cx: &mut Cx, dom: &mut Dom) -> JsResult<()> {{ sync_s{body}(&self.s, cx, dom, &self.inst, &self.t) }}\n\
-                         fn dispose(&self, cx: &mut Cx) {{ dispose_s{body}(&self.s, cx); }}\n\
-                         fn nodes(&self, out: &mut Vec<NodeId>) {{ nodes_s{body}(&self.s, out); }}\n\
-                         fn first(&self) -> Option<NodeId> {{ first_s{body}(&self.s) }}\n\
-                         fn walk(&self, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{ walk_s{body}(&self.s, parent, out); }}\n\
-                         }}"
-                    );
-                }
+                let providers = self.slot_providers(k, c, slots, &format!("ci{key}"), &mut o.extra);
                 o.fields.push((format!("ci{key}"), format!("I{c}")));
                 o.fields
                     .push((format!("ct{key}"), format!("Rc<RefCell<T{c}>>")));
@@ -1636,6 +1713,12 @@ fn probe_json(t: &Type, v: &str) -> String {
         Type::MediaQuery => {
             format!("{{ let _ = &{v}; runic_runtime::Json::String(\"media-query\".into()) }}")
         }
+        Type::Mounted => {
+            format!("{{ let _ = &{v}; runic_runtime::Json::String(\"mounted\".into()) }}")
+        }
+        Type::Contexts => {
+            format!("{{ let _ = &{v}; runic_runtime::Json::String(\"contexts\".into()) }}")
+        }
         // A Date as its ISO string (or "Invalid Date").
         Type::Date => format!(
             "runic_runtime::Json::String(js::date::to_json({v}.time()).map_or(\"Invalid Date\".into(), |s| s.to_rust()))"
@@ -1645,7 +1728,7 @@ fn probe_json(t: &Type, v: &str) -> String {
 
 /// The type of the value a parent passes to a prop cell: a prop taking its
 /// default when undefined may be passed nullable.
-fn passed_type(cell: &Cell) -> Type {
+pub(crate) fn passed_type(cell: &Cell) -> Type {
     match &cell.ty {
         Type::Maybe(_) => cell.ty.clone(),
         t if cell.undefined_default => Type::maybe(t.clone()),
@@ -1908,6 +1991,14 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
         };
         Ok(i.contexts().get(key))
     }
+    /// `context.all`: the contexts the instance being created sees, the same object for every
+    /// call in one instance.
+    fn context_all(&mut self) -> JsResult<js::Handle> {
+        let Some(i) = self.creating.last() else {
+            return Err(js::Throw::new("RunicContextError", "contexts are read while a component instance is created"));
+        };
+        Ok(js::Handle(i.contexts() as Rc<dyn std::any::Any>))
+    }
     /// `effect.pre` / `effect.post`: an effect of the instance being created.
     fn create_effect(&mut self, pre: bool, f: Dfx) -> JsResult<()> {
         let Some(i) = self.creating.last().cloned() else {
@@ -1981,6 +2072,42 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
             }
         }
     }
+}
+/// An imperatively mounted instance (`mount`, M6 overlays): updated after the root in every flush pass.
+pub trait Portal {
+    /// Its pre effects, then its update, then the sync of its live controls.
+    fn update(&mut self, cx: &mut Cx, dom: &mut Dom);
+    /// The instance and the instances it renders (a tree walk; the instance's parent key is 0).
+    fn walk(&self, out: &mut Vec<(Rc<dyn Inst>, usize)>);
+    /// Remove its DOM (focus loss first) and dispose of the instances it renders.
+    fn remove(&self, cx: &mut Cx, dom: &mut Dom);
+    fn destroy(&self, cx: &mut Cx);
+}
+/// The state behind a `mounted` handle; `Busy` while it updates (an unmount then waits for the update's end).
+pub enum MountState { Live(Box<dyn Portal>), Busy, BusyGone, Gone }
+/// `mounted.unmount`: nothing for an instance no longer mounted.
+fn unmount_handle(cx: &mut Cx, h: &js::Handle) {
+    let Ok(state) = h.0.clone().downcast::<RefCell<MountState>>() else { return };
+    let now = std::mem::replace(&mut *state.borrow_mut(), MountState::Gone);
+    match now {
+        MountState::Live(p) => { cx.mounted.retain(|m| !Rc::ptr_eq(m, &state)); unmount_portal(cx, p); }
+        MountState::Busy | MountState::BusyGone => *state.borrow_mut() = MountState::BusyGone,
+        MountState::Gone => {}
+    }
+}
+/// Destroy a mounted instance at once: cleanups that run before DOM removal, the removal,
+/// then the others, each at its tree position.
+fn unmount_portal(cx: &mut Cx, p: Box<dyn Portal>) {
+    let mut tree = Vec::new();
+    p.walk(&mut tree);
+    let set: std::collections::HashSet<usize> = tree.iter().map(|(i, _)| i.key()).collect();
+    let root = Rc::clone(&tree[0].0);
+    teardown_at(cx, &root, &|m| !m.1, &set, &tree);
+    if let Some(mut dom) = cx.dom.dom_mut() { p.remove(cx, &mut dom); }
+    cx.destroyed.retain(|d| !set.contains(&d.key()));
+    p.destroy(cx);
+    teardown_at(cx, &root, &|m| m.1, &set, &tree);
+    cx.jobs.queue_flush();
 }
 "#;
 
@@ -2309,6 +2436,25 @@ pub fn generate(
     };
     let mut planner = Planner::new(p);
     let root = planner.root(p.root);
+    // Mount sites (M6): the mounted component's root scope and the slot
+    // content scopes of the mounting component.
+    let mut sites = vec![];
+    for (k, comp) in p.components.iter().enumerate() {
+        for (i, m) in comp.mounts.iter().enumerate() {
+            let site_root = planner.root(m.component);
+            let defs: Vec<(usize, &SlotDef, usize)> = m
+                .slots
+                .iter()
+                .map(|d| {
+                    let decl = p.components[m.component]
+                        .slot(&d.name)
+                        .expect("validated slot");
+                    (decl, d, planner.scope(&d.body, k))
+                })
+                .collect();
+            sites.push((k, i, m.component, site_root, defs));
+        }
+    }
     // Scheduling policies (docs/design/M4-EFFECTS.md).
     let event_microtask = p.schedule.flush == Flush::EventMicrotask;
     let per_listener = p.schedule.checkpoint == Checkpoint::Listener;
@@ -2506,10 +2652,10 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, {live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -2575,6 +2721,11 @@ pub fn generate(
     // Scopes.
     for (id, scope) in planner.scopes.iter().enumerate() {
         out.push_str(&g.scope(id, scope.as_ref().expect("planned scope")));
+    }
+    // Mount sites and the portal types of mounted components.
+    let mut portals = BTreeSet::new();
+    for (k, i, c, site_root, defs) in &sites {
+        out.push_str(&g.mount_site(*k, *i, *c, *site_root, defs, &mut portals));
     }
     let each_live = |f: &str| -> String {
         (0..p.components.len())
@@ -2658,7 +2809,7 @@ pub fn generate(
          runic_runtime::Job::FlushThen(f) => {{ if self.cx.jobs.take_flush() {{ self.flush(dom); }} if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n}}\n}}\n\
          /// The flush job: compute dirty cells since the last flush, commit render snapshots and update the DOM.\n\
          /// Live instances in tree order with their parents' keys (the root's is 0).\n\
-         fn walk(&self) -> Vec<(Rc<dyn Inst>, usize)> {{ let mut out: Vec<(Rc<dyn Inst>, usize)> = vec![(Rc::new(H{ri}(Rc::clone(&self.inst))), 0)]; if let Some((_, s)) = &self.root {{ walk_s{root}(s, Rc::as_ptr(&self.inst) as *const u8 as usize, &mut out); }} out }}\n\
+         fn walk(&self) -> Vec<(Rc<dyn Inst>, usize)> {{ let mut out: Vec<(Rc<dyn Inst>, usize)> = vec![(Rc::new(H{ri}(Rc::clone(&self.inst))), 0)]; if let Some((_, s)) = &self.root {{ walk_s{root}(s, Rc::as_ptr(&self.inst) as *const u8 as usize, &mut out); }} for m in &self.cx.mounted {{ if let MountState::Live(p) = &*m.borrow() {{ p.walk(&mut out); }} }} out }}\n\
          /// The flush job: passes until effects stop writing.\n\
          fn flush(&mut self, dom: &mut Dom) {{\n\
          self.cx.jobs.flush_started();\n\
@@ -2688,6 +2839,8 @@ pub fn generate(
          if let Some((parent, s)) = self.root.as_mut() {{\n\
          if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
          if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
+         // Mounted instances (M6), in mount order; one unmounted during its own update goes after it.\n\
+         for m in self.cx.mounted.clone() {{ let taken = std::mem::replace(&mut *m.borrow_mut(), MountState::Busy); match taken {{ MountState::Live(mut p) => {{ p.update(&mut self.cx, dom); let now = std::mem::replace(&mut *m.borrow_mut(), MountState::Gone); match now {{ MountState::BusyGone => {{ self.cx.mounted.retain(|x| !Rc::ptr_eq(x, &m)); unmount_portal(&mut self.cx, p); }} _ => *m.borrow_mut() = MountState::Live(p) }} }} other => *m.borrow_mut() = other }} }}\n\
          // Mutations while rendering are not writes.\n\
          self.cx.jobs.take_mutated();\n\
          {restore}\

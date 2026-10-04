@@ -77,6 +77,10 @@ pub enum Val {
     RegExp(js::RegExp),
     MediaQuery(js::MediaQueryList),
     Date(js::Date),
+    /// An imperatively mounted instance (M6): its id while it is mounted.
+    Mounted(Rc<std::cell::Cell<Option<usize>>>),
+    /// The contexts instance `i` sees (`context.all`).
+    Contexts(usize),
 }
 
 /// Promises of the interpreter: reactions become [`PJob`]s on the microtask queue.
@@ -211,6 +215,8 @@ impl js::StrictEq for Val {
             (Val::RegExp(a), Val::RegExp(b)) => a == b,
             (Val::MediaQuery(a), Val::MediaQuery(b)) => a == b,
             (Val::Date(a), Val::Date(b)) => a == b,
+            (Val::Mounted(a), Val::Mounted(b)) => Rc::ptr_eq(a, b),
+            (Val::Contexts(a), Val::Contexts(b)) => a == b,
             (Val::Attrs(a), Val::Attrs(b)) => {
                 a.len() == b.len()
                     && a.iter()
@@ -258,7 +264,8 @@ impl js::ToJsString for Val {
             Val::RegExp(r) => r.to_js_string(),
             Val::MediaQuery(_) => JsString::from("[object MediaQueryList]"),
             Val::Date(d) => d.to_js_string(),
-            Val::Attrs(_) => JsString::from("[object Object]"),
+            Val::Attrs(_) | Val::Mounted(_) => JsString::from("[object Object]"),
+            Val::Contexts(_) => JsString::from("[object Map]"),
             Val::Promise(_) => JsString::from("[object Promise]"),
         }
     }
@@ -360,6 +367,10 @@ impl ToMapKey for Val {
             Val::MediaQuery(m) => MapKey::Ref(m.id()),
             Val::Date(d) => d.map_key(),
             Val::Attrs(a) => MapKey::Ref(Rc::as_ptr(a) as *const u8 as usize),
+            Val::Mounted(m) => MapKey::Ref(Rc::as_ptr(m) as *const u8 as usize),
+            // Instance ids never collide with heap addresses in one map (a
+            // map's key type is static).
+            Val::Contexts(i) => MapKey::Ref(*i),
         }
     }
 }
@@ -524,6 +535,9 @@ pub struct Instance<'p> {
     dynamic: Vec<(Effect, Val)>,
     /// Contexts this instance set, by key.
     contexts: HashMap<String, Val>,
+    /// Where context lookups continue: the parent, or for an imperatively
+    /// mounted instance the instance whose contexts it was given (M6).
+    context_parent: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -764,6 +778,13 @@ pub struct Machine<'p> {
     detached: Vec<Val>,
     /// Elements the running render rendered.
     rendered_ids: HashSet<u64>,
+    /// Imperatively mounted instances in mount order (M6): the handle and
+    /// the instance. They render after the root, as the body's last
+    /// children.
+    mounted: Vec<(Rc<std::cell::Cell<Option<usize>>>, usize)>,
+    /// How many top-level nodes of the last tree the root rendered (the
+    /// rest is mounted content in the body).
+    root_len: usize,
 }
 
 use js::BOOLEAN_PROPERTIES;
@@ -1016,6 +1037,8 @@ impl<'p> Machine<'p> {
             attached: HashMap::new(),
             detached: vec![],
             rendered_ids: HashSet::new(),
+            mounted: vec![],
+            root_len: 0,
         };
         for g in &program.globals {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
@@ -1041,6 +1064,19 @@ impl<'p> Machine<'p> {
         props: &[(usize, Val, Option<Val>)],
         parent: Option<usize>,
     ) -> Res<usize> {
+        self.create_in(component, props, parent, parent, &[])
+    }
+
+    /// `create` with the instance where its context lookups continue and
+    /// the content provided for its slots (before its initialisers run).
+    fn create_in(
+        &mut self,
+        component: usize,
+        props: &[(usize, Val, Option<Val>)],
+        parent: Option<usize>,
+        context_parent: Option<usize>,
+        slots: &[Option<Provided<'p>>],
+    ) -> Res<usize> {
         let comp = &self.program.components[component];
         let id = self.instances.len();
         let n = comp.cells.len();
@@ -1064,7 +1100,11 @@ impl<'p> Machine<'p> {
             renders: 0,
             dynamic: vec![],
             contexts: HashMap::new(),
+            context_parent,
         });
+        if !slots.is_empty() {
+            self.instances[id].slots = slots.to_vec();
+        }
         let saved = std::mem::replace(&mut self.current, id);
         let creating = self.creating.replace(id);
         let result = (|| -> Res<()> {
@@ -1207,6 +1247,12 @@ impl<'p> Machine<'p> {
                 let decl = self.comp().slot(name).expect("validated slot");
                 Val::Bool(self.inst().slots[decl].is_some())
             }
+            Mount {
+                site,
+                target,
+                props,
+                context,
+            } => self.mount_site(*site, target, props, context.as_deref(), f)?,
             Not { arg } => Val::Bool(!self.eval(arg, f)?.boolean()),
             Neg { arg } => Val::Num(-self.eval(arg, f)?.num()),
             BitNot { arg } => Val::Num(js::bit_not(self.eval(arg, f)?.num())),
@@ -2698,6 +2744,14 @@ impl<'p> Machine<'p> {
                     .and_then(|i| element_id(chain[i]))
                 {
                     Some(p) => Val::Element(js::Element(p)),
+                    // Content mounted in the body (M6) has the body as its parent.
+                    None if chain.len() == 1
+                        && self.last_tree[self.root_len.min(self.last_tree.len())..]
+                            .iter()
+                            .any(|n| element_id(n) == Some(e.0)) =>
+                    {
+                        Val::Element(js::Element::BODY)
+                    }
                     None => Val::Null,
                 }
             }
@@ -2749,10 +2803,31 @@ impl<'p> Machine<'p> {
                         found = v.clone();
                         break;
                     }
-                    at = self.instances[i].parent;
+                    at = self.instances[i].context_parent;
                 }
                 found
             }
+            // The contexts the instance being created sees (Svelte's
+            // getAllContexts(): its own and its ancestors').
+            ("context", "all") => match self.creating {
+                Some(i) => Val::Contexts(i),
+                None => {
+                    return Err(Throw::new(
+                        "RunicContextError",
+                        "contexts are read while a component instance is created",
+                    ));
+                }
+            },
+            ("mounted", "unmount") => {
+                let Val::Mounted(h) = &a[0] else {
+                    panic!("validated mounted instance")
+                };
+                if let Some(id) = h.take() {
+                    self.unmount(id);
+                }
+                Val::Promise(Promise::fulfilled(Val::Undefined))
+            }
+            ("document", "body") => Val::Element(js::Element::BODY),
             ("uid", "next") => {
                 self.uids += 1;
                 Val::Str(JsString::from(format!(
@@ -3015,6 +3090,8 @@ impl<'p> Machine<'p> {
             | Val::RegExp(_)
             | Val::MediaQuery(_)
             | Val::Date(_)
+            | Val::Mounted(_)
+            | Val::Contexts(_)
             | Val::Attrs(_) => return None,
             // A promise has no own enumerable properties.
             Val::Promise(_) => J::Object(Default::default()),
@@ -3140,7 +3217,19 @@ impl<'p> Machine<'p> {
         let previous = std::mem::take(&mut self.refs);
         self.rendered_elements.clear();
         self.rendered_ids.clear();
-        let result = self.render_instance(0, &mut out, &mut visited);
+        let mut result = self.render_instance(0, &mut out, &mut visited);
+        // Mounted instances (M6), each the body's last children at its mount.
+        let mut portals: Vec<Vec<VNode>> = vec![];
+        for (_, id) in self.mounted.clone() {
+            if result.is_err() {
+                break;
+            }
+            visited.insert(id);
+            self.order.push(id);
+            let mut content = vec![];
+            result = self.render_instance(id, &mut content, &mut visited);
+            portals.push(content);
+        }
         self.restore_due = false;
         let rendered = std::mem::take(&mut self.rendered_elements);
         self.element_ids.retain(|k, _| rendered.contains(k));
@@ -3180,6 +3269,10 @@ impl<'p> Machine<'p> {
         });
         result.map_err(throw_diag)?;
         let mut tree = normalize(out);
+        self.root_len = tree.len();
+        for p in portals {
+            tree.extend(normalize(p));
+        }
         // A radio button checked by this render unchecks the others of its
         // group, in render order (the later one wins, as in Chromium).
         for radio in std::mem::take(&mut self.checked_radios) {
@@ -3855,12 +3948,20 @@ impl<'p> Machine<'p> {
     /// Cells of the root instance and the DOM; other live instances follow in
     /// tree order under `instances` (omitted when there are none).
     pub fn snapshot(&mut self) -> Json {
+        let mut portals = vec![];
         let dom = match self.render() {
-            Ok(d) => Json::Array(d.iter().map(VNode::to_json).collect()),
+            Ok(d) => {
+                // Content mounted in the body (M6) follows the root's.
+                portals = d[self.root_len..].iter().map(VNode::to_json).collect();
+                Json::Array(d[..self.root_len].iter().map(VNode::to_json).collect())
+            }
             Err(e) => json!({ "error": e.to_string() }),
         };
         let cells: Vec<Json> = self.instances[0].cells.iter().map(cell_json).collect();
         let mut state = json!({ "cells": cells, "dom": dom });
+        if !portals.is_empty() {
+            state["portals"] = Json::Array(portals);
+        }
         if !self.root.attrs().is_empty() {
             state["document"] = json!(self.root.attrs());
         }
@@ -4530,6 +4631,88 @@ impl<'p> Machine<'p> {
             self.run_effect(i, e);
         }
         Ok(())
+    }
+
+    /// `mount`: an instance of mount site `site`'s component, created now in
+    /// the body (after everything there), with its props and slot content
+    /// from the calling instance; it renders after the root until unmounted.
+    fn mount_site(
+        &mut self,
+        site: usize,
+        target: &Expr,
+        props: &[MountProp],
+        context: Option<&Expr>,
+        f: &Frame,
+    ) -> Res<Val> {
+        let caller = self.current;
+        let owner = &self.program.components[self.instances[caller].component];
+        let m: &'p MountSite = &owner.mounts[site];
+        let Val::Element(target) = self.eval(target, f)? else {
+            panic!("validated element")
+        };
+        if target != js::Element::BODY {
+            let what = "mounting a component into an element other than the body (its owner's updates would interleave with the mounted content)".to_string();
+            self.unsupported.get_or_insert(what.clone());
+            return Err(Throw::new("RunicUnsupportedError", what));
+        }
+        let child = &self.program.components[m.component];
+        let mut args = vec![];
+        for a in props {
+            let v = self.eval(&a.value, f)?;
+            args.push((child.prop(&a.name).expect("validated prop"), v, None));
+        }
+        let context = match context {
+            Some(c) => match self.eval(c, f)? {
+                Val::Contexts(i) => Some(i),
+                other => panic!("validated contexts, found {other:?}"),
+            },
+            None => None,
+        };
+        // Slot content renders in the calling instance, with its template
+        // locals as they start (snippets keep their owner's scope).
+        let values = vec![Val::Undefined; owner.template_locals.len()];
+        let slots: Vec<Option<Provided<'p>>> = child
+            .slots
+            .iter()
+            .map(|d| {
+                m.slots
+                    .iter()
+                    .find(|s| s.name == d.name)
+                    .map(|def| Provided {
+                        parent: caller,
+                        def,
+                        values: values.clone(),
+                    })
+            })
+            .collect();
+        let id = self.create_in(m.component, &args, None, context, &slots)?;
+        let handle = Rc::new(std::cell::Cell::new(Some(id)));
+        self.mounted.push((Rc::clone(&handle), id));
+        // Rendered (and its effects run) in the running flush's next pass,
+        // or in the flush this queues.
+        self.queue_flush();
+        Ok(Val::Mounted(handle))
+    }
+
+    /// `mounted.unmount`: destroy a mounted instance and the instances it
+    /// renders, running their cleanups as at destruction (its content leaves
+    /// the document with the next render).
+    fn unmount(&mut self, id: usize) {
+        let order = self.tree_order();
+        self.mounted.retain(|(_, i)| *i != id);
+        let mut set: HashSet<usize> = HashSet::from([id]);
+        for &i in &order {
+            if self.instances[i].parent.is_some_and(|p| set.contains(&p)) {
+                set.insert(i);
+            }
+        }
+        let destroyed: Vec<usize> = order.iter().copied().filter(|i| set.contains(i)).collect();
+        for &i in &destroyed {
+            self.instances[i].alive = false;
+        }
+        let batched = self.program.schedule.cleanups == Cleanups::Batched;
+        self.teardown(&destroyed, &order, batched);
+        self.queue_flush();
     }
 
     /// Run the due effects of `phase` of instance `i`, each checked when
@@ -6520,6 +6703,8 @@ pub fn cell_json(v: &Val) -> Json {
             json!(js::date::to_json(d.time()).map_or("Invalid Date".into(), |s| s.to_rust()))
         }
         Val::Attrs(_) => json!("attrs"),
+        Val::Mounted(_) => json!("mounted"),
+        Val::Contexts(_) => json!("contexts"),
     }
 }
 

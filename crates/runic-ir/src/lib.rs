@@ -317,6 +317,13 @@ pub enum Type {
     /// of classes): at least two class records, ascending, none a subclass
     /// of another.
     Classes(Vec<usize>),
+    /// A component instance mounted imperatively (`mount`, M6 overlays),
+    /// compared by identity: what `mounted.unmount` destroys.
+    Mounted,
+    /// The contexts an instance sees (`context.all`, Svelte's
+    /// `getAllContexts()`), compared by identity: the context parent of an
+    /// instance `mount` creates.
+    Contexts,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -345,6 +352,8 @@ impl Type {
             Type::Regexp => "regexp".into(),
             Type::MediaQuery => "media-query".into(),
             Type::Date => "date".into(),
+            Type::Mounted => "mounted".into(),
+            Type::Contexts => "contexts".into(),
             Type::Class(c) => format!("class#{c}"),
             Type::Classes(cs) => format!(
                 "classes#{}",
@@ -657,6 +666,24 @@ pub struct Component {
     /// Effects of each instance, in declaration order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
+    /// Components the component's functions mount imperatively (`mount`
+    /// expressions name a site by index, M6): the component mounted and the
+    /// content the calling instance provides for its slots.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mounts: Vec<MountSite>,
+}
+
+/// A component a component's functions mount imperatively (`mount`): its
+/// slot content is template content of the mounting component, rendered in
+/// the instance that mounts it (snippets keep their owner's scope).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MountSite {
+    pub component: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slots: Vec<SlotDef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
 }
 
 /// A function of a component instance that runs around updates when its
@@ -778,6 +805,22 @@ impl Component {
             .position(|c| c.prop.as_deref() == Some(name))
     }
 
+    /// The template followed by each mount site as a component node (its
+    /// slot content is template content of this component), for analyses
+    /// that walk everything the component renders.
+    pub fn template_and_mounts(&self) -> Vec<Node> {
+        self.template
+            .iter()
+            .cloned()
+            .chain(self.mounts.iter().map(|m| Node::Component {
+                component: m.component,
+                props: vec![],
+                slots: m.slots.clone(),
+                source: m.source.clone(),
+            }))
+            .collect()
+    }
+
     /// Whether the template, or slot content it passes, has an `<svg>`.
     pub fn uses_svg(&self) -> bool {
         fn any(nodes: &[Node]) -> bool {
@@ -797,6 +840,10 @@ impl Component {
             })
         }
         any(&self.template)
+            || self
+                .mounts
+                .iter()
+                .any(|m| m.slots.iter().any(|s| any(&s.body)))
     }
 }
 
@@ -1460,6 +1507,28 @@ pub enum Expr {
     SlotProvided {
         name: String,
     },
+    /// Mount an instance of the component of mount site `site` of the
+    /// running function's component as the last child of `target` (M6
+    /// overlays, Svelte's `mount`): its props are evaluated once, its slots
+    /// are the site's content rendered in the calling instance, and its
+    /// contexts are found through `context` (none without one). It lives,
+    /// updated with every flush, until `mounted.unmount`.
+    Mount {
+        site: usize,
+        target: Box<Expr>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        props: Vec<MountProp>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<Box<Expr>>,
+    },
+}
+
+/// A prop passed to an imperatively mounted instance.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MountProp {
+    pub name: String,
+    pub value: Expr,
 }
 
 /// One case of `match-class`: an exact class.
@@ -1570,6 +1639,15 @@ impl Expr {
                 .chain(cases.iter().map(|c| &c.body))
                 .chain(otherwise.as_deref())
                 .collect(),
+            Mount {
+                target,
+                props,
+                context,
+                ..
+            } => std::iter::once(&**target)
+                .chain(props.iter().map(|p| &p.value))
+                .chain(context.as_deref())
+                .collect(),
         }
     }
 
@@ -1605,7 +1683,7 @@ impl Expr {
     pub fn calls(&self) -> bool {
         matches!(
             self,
-            Expr::Call { .. } | Expr::CallValue { .. } | Expr::Builtin { .. }
+            Expr::Call { .. } | Expr::CallValue { .. } | Expr::Builtin { .. } | Expr::Mount { .. }
         ) || self.children().iter().any(|c| c.calls())
     }
 }

@@ -460,6 +460,8 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &s, "id").map(|_| Maybe(Box::new(Element)))
         }
+        // M6 overlays: the body element (where portals mount).
+        ("document", "body") => arity(args, 0, 0).map(|_| Element),
         ("focus", "current") => arity(args, 0, 0).map(|_| Maybe(Box::new(Element))),
         ("focus", "reset") => arity(args, 0, 0).map(|_| Void),
         ("focus", "start") => {
@@ -778,6 +780,15 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 Maybe(_) => Ok(declared.clone()),
                 other => Err(format!("context.get returns a Maybe, found {}", other.name())),
             }
+        }
+        // The contexts the instance being created sees (Svelte's
+        // `getAllContexts()`), for `mount` (M6 overlays).
+        ("context", "all") => arity(args, 0, 0).map(|_| Contexts),
+        // Destroy an imperatively mounted instance (Svelte's `unmount`): a
+        // promise fulfilled at once.
+        ("mounted", "unmount") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Mounted, "instance").map(|_| Promise(Box::new(Void)))
         }
         // An id unique in the program: the prefix and a counter from 1.
         ("uid", "next") => {

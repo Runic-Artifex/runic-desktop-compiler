@@ -201,6 +201,8 @@ pub(crate) struct Listeners {
     /// The element the app is mounted in (`div#root`, or the container of
     /// the app's HTML template).
     pub(crate) container: Option<NodeId>,
+    /// The body element (where imperative mounts append, M6).
+    pub(crate) body: Option<NodeId>,
     /// The sequential focus navigation starting point a focus reset
     /// (`focus.reset`: the start of the document) or `focus.start` set.
     pub(crate) set_navigation: Option<Option<NodeId>>,
@@ -393,6 +395,27 @@ impl Host {
             .get_node(parent)
             .and_then(|n| n.element_data())
             .map(|_| parent.as_u64())
+    }
+
+    /// `document.body` (M6 overlays).
+    pub fn body(&self) -> Option<u64> {
+        let dom = self.dom()?;
+        dom.listeners.body.map(NodeId::as_u64)
+    }
+
+    /// The attached document for code that mounts and removes subtrees from
+    /// app code (imperative mounts, M6). Valid only while attached, as the
+    /// other script operations' access is.
+    pub fn dom_mut(&self) -> Option<Dom<'static>> {
+        // SAFETY: as for `dom`: attached only while the generated app runs
+        // app code inside a runtime call that holds the document and does
+        // not use it while app code runs.
+        unsafe {
+            Some(Dom {
+                doc: &mut *self.doc?,
+                listeners: &mut *self.listeners?,
+            })
+        }
     }
 
     /// `document.getElementById(id)`: the first element in tree order.

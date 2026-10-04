@@ -14,7 +14,77 @@ impl Element {
     /// their listeners).
     pub const DOCUMENT: Element = Element(u64::MAX - 1);
     pub const WINDOW: Element = Element(u64::MAX);
+    /// The body element where the interpreter has no node for it
+    /// (`document.body`, where imperative mounts append; M6). The native
+    /// runtime uses Blitz's node.
+    pub const BODY: Element = Element(u64::MAX - 2);
 }
+
+/// An opaque host object compared by identity (M6 overlays: imperatively
+/// mounted component instances and context maps). Generated apps keep
+/// their own state behind it.
+#[derive(Clone)]
+pub struct Handle(pub std::rc::Rc<dyn std::any::Any>);
+
+impl Handle {
+    pub fn new<T: 'static>(v: T) -> Self {
+        Handle(std::rc::Rc::new(v))
+    }
+    pub fn downcast<T: 'static>(&self) -> Option<&T> {
+        self.0.downcast_ref::<T>()
+    }
+    /// A key identifying the object (identity).
+    pub fn id(&self) -> usize {
+        std::rc::Rc::as_ptr(&self.0) as *const () as usize
+    }
+}
+
+impl std::fmt::Debug for Handle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Handle({:#x})", self.id())
+    }
+}
+impl PartialEq for Handle {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+impl Truthy for Handle {
+    fn truthy(&self) -> bool {
+        true
+    }
+}
+impl ToJsString for Handle {
+    fn to_js_string(&self) -> JsString {
+        JsString::from("[object Object]")
+    }
+}
+impl ArrayElement for Handle {
+    fn join_string(&self) -> JsString {
+        self.to_js_string()
+    }
+}
+impl ToNumber for Handle {
+    fn to_number(&self) -> f64 {
+        f64::NAN
+    }
+}
+impl TypeOf for Handle {
+    fn type_of(&self) -> &'static str {
+        "object"
+    }
+}
+impl StrictEq for Handle {
+    fn strict_eq(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+impl ToMapKey for Handle {
+    fn map_key(&self) -> MapKey {
+        MapKey::Ref(self.id())
+    }
+}
+impl crate::Own for Handle {}
 
 impl Truthy for Element {
     fn truthy(&self) -> bool {

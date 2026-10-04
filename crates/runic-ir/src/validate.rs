@@ -1203,6 +1203,64 @@ impl<'a> Scope<'a> {
                 }
                 Type::Boolean
             }
+            Mount {
+                site,
+                target,
+                props,
+                context,
+            } => {
+                // In a function of the mounting component: its instance
+                // renders the site's slot content.
+                let Some(c) = self.component else {
+                    return err("E_IR", "mount outside a component's function", src);
+                };
+                let comp = &self.program.components[c];
+                let Some(m) = comp.mounts.get(*site) else {
+                    return err(
+                        "E_IR",
+                        format!("{} has no mount site {site}", comp.name),
+                        src,
+                    );
+                };
+                if self.bound.is_some() {
+                    return err(
+                        "E_IR",
+                        "mount in a template expression (templates must not have effects)",
+                        src,
+                    );
+                }
+                self.expect(target, Type::Element, d, src)?;
+                if let Some(ctx) = context {
+                    self.expect(ctx, Type::Contexts, d, src)?;
+                }
+                let child = &self.program.components[m.component];
+                let mut names = HashSet::new();
+                for a in props {
+                    let Some(cell) = child.prop(&a.name) else {
+                        return err(
+                            "E_IR",
+                            format!("{} has no prop {}", child.name, a.name),
+                            src,
+                        );
+                    };
+                    if !names.insert(a.name.as_str()) {
+                        return err("E_IR", format!("Prop {} is passed twice", a.name), src);
+                    }
+                    let ty = &child.cells[cell].ty;
+                    let have = self.infer(&a.value, d, src)?;
+                    let nullable = child.cells[cell].undefined_default
+                        && !matches!(ty, Type::Maybe(_))
+                        && have == Type::maybe(ty.clone());
+                    if have != *ty && !nullable {
+                        return err(
+                            "E_IR",
+                            format!("Expected {}, found {}", ty.name(), have.name()),
+                            src,
+                        );
+                    }
+                }
+                Type::Mounted
+            }
         };
         Ok(t)
     }
@@ -1870,12 +1928,30 @@ fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
             }
         }
     }
+    // Mount sites (M6): their slot content is template content of this
+    // component, checked as the slots of a component node are.
+    let mounts: Vec<Node> = c
+        .mounts
+        .iter()
+        .map(|m| {
+            if m.component >= p.components.len() {
+                return err("E_IR", "Unknown mounted component", m.source.as_ref());
+            }
+            Ok(Node::Component {
+                component: m.component,
+                props: vec![],
+                slots: m.slots.clone(),
+                source: m.source.clone(),
+            })
+        })
+        .collect::<Result<_>>()?;
     let mut scoped = HashSet::new();
     each_locals(&c.template, &mut scoped);
+    each_locals(&mounts, &mut scoped);
     let mut bound: Vec<bool> = (0..c.template_locals.len())
         .map(|i| !scoped.contains(&i))
         .collect();
-    for node in &c.template {
+    for node in c.template.iter().chain(&mounts) {
         let mut cx = NodeCx {
             p,
             ci,
@@ -2491,6 +2567,10 @@ enum Root {
 
 /// The host service a built-in uses, if any.
 fn host_service(name: &str) -> Option<&'static str> {
+    // The body element never changes.
+    if name == "document.body" {
+        return None;
+    }
     match name.split_once('.')?.0 {
         "console" => Some("The console"),
         "clipboard" => Some("The clipboard"),
@@ -2499,6 +2579,7 @@ fn host_service(name: &str) -> Option<&'static str> {
         "focus" => Some("Focus (the focused element)"),
         "host" => Some("Host work"),
         "random" => Some("Randomness (Math.random, crypto.randomUUID)"),
+        "mounted" => Some("Unmounting a component"),
         _ => None,
     }
 }
@@ -3125,8 +3206,9 @@ fn unsafe_mutations(p: &Program, m: &mut Mutations) -> Result<()> {
     // The writes of template expressions themselves (array mutators).
     let mut templates: Vec<Vec<usize>> = vec![];
     for (k, c) in p.components.iter().enumerate() {
+        let all_nodes = c.template_and_mounts();
         let mut exprs = vec![];
-        template_sourced(&c.template, None, &mut exprs);
+        template_sourced(&all_nodes, None, &mut exprs);
         let mut scope = Scope::new(p, Some(k));
         scope.locals = c.template_locals.clone();
         let mut own = Mutations::default();
@@ -3396,8 +3478,9 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
     unsafe_mutations(p, &mut m)?;
     // RegExps whose lastIndex changes in template expressions themselves.
     for (k, c) in p.components.iter().enumerate() {
+        let all_nodes = c.template_and_mounts();
         let mut exprs = vec![];
-        template_exprs(&c.template, &mut exprs);
+        template_exprs(&all_nodes, &mut exprs);
         let (mut found, mut dates) = (vec![], vec![]);
         for e in exprs {
             template_regexp_writes(k, e, &mut found);
@@ -3511,8 +3594,9 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
         }
     };
     for (k, c) in p.components.iter().enumerate() {
+        let all_nodes = c.template_and_mounts();
         let mut err = None;
-        visit_template(p, k, &c.template, None, &mut |root, src| {
+        visit_template(p, k, &all_nodes, None, &mut |root, src| {
             if err.is_none() {
                 if let Some(msg) = changes(root) {
                     err = Some(Diagnostic::new("E_REACTIVITY", msg, src));
@@ -3575,8 +3659,9 @@ fn template_field_reads(p: &Program) -> HashSet<(usize, usize)> {
     let mut out = HashSet::new();
     let mut stack = vec![];
     for (k, c) in p.components.iter().enumerate() {
+        let all_nodes = c.template_and_mounts();
         let mut exprs = vec![];
-        template_exprs(&c.template, &mut exprs);
+        template_exprs(&all_nodes, &mut exprs);
         let mut scope = Scope::new(p, Some(k));
         scope.locals = c.template_locals.clone();
         for e in exprs {
@@ -3802,6 +3887,7 @@ fn reads(
             }
         }
         Expr::Global { global } => f(Root::Global(*global)),
+        Expr::Mount { .. } => f(Root::Host("Mounting a component")),
         Expr::Builtin { name, .. } => {
             if let Some(what) = host_service(name) {
                 f(Root::Host(what));
