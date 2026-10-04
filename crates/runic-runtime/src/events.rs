@@ -69,6 +69,9 @@ impl<A: App> Document for Native<A> {
         DocGuard::Ref(&self.doc)
     }
     fn inner_mut(&mut self) -> DocGuardMut<'_> {
+        // The shell's first access precedes its animation clock's start:
+        // the runtime's timeline starts with it.
+        crate::timeline::start();
         // The shell resizes the viewport or changes its color scheme and
         // then redraws: the next poll runs the rendering step for it.
         if self.environ_changed().is_some() {
@@ -162,15 +165,42 @@ impl<A: App> Native<A> {
     /// Run the timers due at or before clock time `to`, then apply the focus
     /// fixups that follow any update.
     pub(crate) fn advance(&mut self, to: f64) {
+        self.run_timers(to);
+        self.fix_focus_after_update();
+        // The host's work queued by the timers runs after them.
+        self.host_tasks();
+    }
+
+    /// Run the timers and animation frames due at or before clock time `to`.
+    fn run_timers(&mut self, to: f64) {
         self.listeners.settle(&mut self.doc);
         let mut dom = Dom {
             doc: &mut self.doc,
             listeners: &mut self.listeners,
         };
         self.app.advance(&mut dom, to);
-        self.fix_focus_after_update();
-        // The host's work queued by the timers runs after them.
-        self.host_tasks();
+        if crate::probe_mode() {
+            crate::timeline::set_virtual(self.app.now());
+        }
+    }
+
+    /// A probe's `wait` up to virtual time `to`: the timers due run in
+    /// order and, at every frame (each multiple of 16 ms, where the timers
+    /// place animation frames), styles are resolved, so that animations
+    /// and transitions started by the frame's timers begin at the frame
+    /// and are sampled at it, as the browser harness samples Chromium's
+    /// (docs/design/M6-LIBRARIES.md#animations).
+    #[cfg(feature = "probe")]
+    pub(crate) fn wait(&mut self, to: f64) {
+        loop {
+            let frame = (self.app.now() / 16.0).floor() * 16.0 + 16.0;
+            if frame > to {
+                break;
+            }
+            self.run_timers(frame);
+            crate::timeline::resolve(&mut self.doc);
+        }
+        self.advance(to);
     }
 
     /// Focus fixups that follow any update outside an event dispatch.
@@ -334,7 +364,7 @@ impl<A: App> Native<A> {
         // Focus fixup (after animation frames in Chromium): a focused element
         // that became disabled or lost its box is blurred, with `blur` and
         // `focusout` as events of their own.
-        self.doc.resolve(0.0);
+        crate::timeline::resolve(&mut self.doc);
         if let Some(f) = focused_element(&self.doc) {
             let boxless = !crate::layout::client_rect(&self.doc, f).is_some()
                 || !self.doc.get_node(f).is_some_and(|n| n.has_boxes());
@@ -394,7 +424,7 @@ impl<A: App> Native<A> {
             1.0,
             scheme,
         ));
-        self.doc.resolve(0.0);
+        crate::timeline::resolve(&mut self.doc);
         self.listeners.settle(&mut self.doc);
         self.rendering_step(resized);
     }

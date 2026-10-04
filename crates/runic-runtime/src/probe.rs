@@ -481,9 +481,10 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
             native.environ(env);
         }
         "wait" => {
-            // Virtual time: run every timer and frame due within the wait.
+            // Virtual time: run every timer and frame due within the wait,
+            // resolving styles (animations) at every frame.
             let to = native.app.now() + action["ms"].as_f64().expect("ms");
-            native.advance(to);
+            native.wait(to);
         }
         "keydown" => {
             // A key pressed on the target (differential tests): focus, then press.
@@ -652,7 +653,7 @@ pub(crate) fn run<A: App>() {
             // The host's work queued by the action follows it.
             native.host_tasks();
         }
-        native.doc.resolve(0.0);
+        crate::timeline::resolve(&mut native.doc);
         native.listeners.settle(&mut native.doc);
         // Two frames after the action, as the browser harness waits for two
         // animation frames: pending scroll events in the first rendering
