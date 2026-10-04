@@ -239,6 +239,6 @@ fn main() {
     check("blur", p.doc.get_focussed_node_id() != Some(id));
     println!(
         "{}",
-        json!({"route":"internal EventDriver; no OS input","blitz":"89e5e615aea649a1a9630c526956aa3d90a3afa7","rawReadonlyValue":raw_readonly,"checks":checks,"inputEvents":p.events})
+        json!({"route":"internal EventDriver; no OS input","blitz":"8b54d6d2930f654d75446e423b42033d323205f0","rawReadonlyValue":raw_readonly,"checks":checks,"inputEvents":p.events})
     );
 }

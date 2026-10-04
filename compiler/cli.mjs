@@ -8,6 +8,14 @@ import { lower } from './frontend.mjs';
 import { emit, targetDir, repository } from './codegen.mjs';
 
 const cliEntry = process.argv[1] === new URL(import.meta.url).pathname;
+
+/** The Blitz repository and revision the workspace pins (Cargo.toml). */
+async function blitzRevision() {
+  const manifest = await readFile(path.join(repository, 'Cargo.toml'), 'utf8');
+  const pin = /^blitz-dom = \{ git = "([^"]+)", rev = "([0-9a-f]+)"/m.exec(manifest);
+  if (!pin) throw new Diagnostic('E_BUILD', 'Cargo.toml does not pin blitz-dom to a git revision');
+  return `${pin[1]}@${pin[2]}`;
+}
 const { values, positionals } = parseArgs({
   args: cliEntry ? process.argv.slice(2) : [],
   allowPositionals: true,
@@ -101,7 +109,7 @@ export async function buildApp(app, options = {}) {
           codegenUnits: 1,
           probe: Boolean(options.probe),
           rust: '1.98.1',
-          blitz: '89e5e615aea649a1a9630c526956aa3d90a3afa7',
+          blitz: await blitzRevision(),
         },
         null,
         2,
