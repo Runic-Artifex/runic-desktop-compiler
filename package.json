@@ -28,6 +28,8 @@
   "devDependencies": {
     "@lucide/svelte": "1.52.0",
     "clsx": "2.1.1",
-    "playwright-core": "1.63.0"
+    "playwright-core": "1.63.0",
+    "tailwind-merge": "3.7.0",
+    "tailwind-variants": "3.3.1"
   }
 }

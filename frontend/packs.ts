@@ -9,9 +9,12 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Expr, Node } from './ir.ts';
-import type { FnBuilder, Lowerer } from './language.ts';
+import type { Binding, FnBuilder, Lowerer } from './language.ts';
+import { valueChoice, withRest, type Choice } from './packs/choice.ts';
 import { clsxPack } from './packs/clsx-2.1.1.ts';
 import { lucideSveltePack } from './packs/lucide-svelte-1.52.0.ts';
+import { tailwindMergePack } from './packs/tailwind-merge-3.7.0.ts';
+import { tailwindVariantsPack } from './packs/tailwind-variants-3.3.1.ts';
 
 type Source = { file: string; line: number; column: number };
 
@@ -36,6 +39,24 @@ export interface Edge {
 export interface PackFunction {
   kind: 'function';
   call(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr;
+  /**
+   * The exact values a call can return, as a choice over its arguments'
+   * values (frontend/packs/choice.ts), for packs that evaluate calls with
+   * this one among their arguments at build time.
+   */
+  choice?(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Choice;
+  /**
+   * A call that initialises a const and defines a new pack function, such as
+   * tailwind-variants' `tv(config)`. The const has no runtime value: its
+   * calls are lowered.
+   */
+  constant?(node: ts.CallExpression, name: string, lower: Lowerer): PackFunction;
+  /**
+   * Calls are evaluated at build time from their arguments' syntax, so a
+   * module function that only returns a call of this one over its rest
+   * parameter is inlined at its call sites (`bindPackWrapper`).
+   */
+  inline?: boolean;
 }
 
 /** An attribute of a component instance, as written. */
@@ -76,7 +97,7 @@ export interface Pack {
 }
 
 /** One module per pack, keyed by package name. */
-const PACKS: Pack[] = [clsxPack, lucideSveltePack];
+const PACKS: Pack[] = [clsxPack, lucideSveltePack, tailwindMergePack, tailwindVariantsPack];
 
 export class PackError extends Error {
   readonly code: string;
@@ -182,17 +203,114 @@ export function bindPackImport(
     if (!sym) return lower.fail(id, 'E_PACK', `Cannot bind ${id.text}`);
     const { pack, value } = found;
     const label = `${imported === 'default' ? spec : `${imported} of ${spec}`} (${pack.name}@${pack.version})`;
-    lower.bindings.set(sym, {
-      kind: 'pack',
-      label,
-      call:
-        value.kind === 'function'
-          ? (node, b, l) => {
-              usePack(l, pack);
-              return value.call(node, b, l);
-            }
-          : undefined,
-    });
+    lower.bindings.set(
+      sym,
+      value.kind === 'function' ? functionBinding(pack, label, value) : { kind: 'pack', label },
+    );
   }
+  return true;
+}
+
+/** The binding of a pack function: its uses record the pack. */
+function functionBinding(pack: Pack, label: string, fn: PackFunction): Binding {
+  return {
+    kind: 'pack',
+    label,
+    call: (node, b, l) => {
+      usePack(l, pack);
+      return fn.call(node, b, l);
+    },
+    choice: fn.choice
+      ? (node, b, l) => {
+          usePack(l, pack);
+          return fn.choice!(node, b, l);
+        }
+      : undefined,
+    constant: fn.constant
+      ? (node, name, l) => {
+          usePack(l, pack);
+          return functionBinding(
+            pack,
+            `${name} (${pack.name}@${pack.version})`,
+            fn.constant!(node, name, l),
+          );
+        }
+      : undefined,
+    inline: fn.inline,
+  };
+}
+
+/** The pack binding a call's callee names, if any. */
+function calleeBinding(e: ts.Expression | undefined, lower: Lowerer) {
+  const init = e && skip(e);
+  if (!init || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression)) return undefined;
+  const binding = lower.binding(init.expression);
+  return binding?.kind === 'pack' ? { call: init, binding } : undefined;
+}
+
+const skip = (e: ts.Expression): ts.Expression =>
+  ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isSatisfiesExpression(e)
+    ? skip(e.expression)
+    : e;
+
+/**
+ * Bind a const initialised by a pack call that defines a new pack function
+ * (`const button = tv({...})`). Returns false for other declarations.
+ */
+export function bindPackConstant(d: ts.VariableDeclaration, lower: Lowerer): boolean {
+  const found = calleeBinding(d.initializer, lower);
+  if (!found?.binding.constant) return false;
+  if (!ts.isIdentifier(d.name))
+    return lower.fail(d.name, 'E_PACK', `${found.binding.label}: assign the result to a name`);
+  if (!(ts.isVariableDeclarationList(d.parent) && d.parent.flags & ts.NodeFlags.Const))
+    return lower.fail(
+      d,
+      'E_PACK',
+      `${found.binding.label}: the result must be assigned to a const`,
+    );
+  const sym = lower.checker.getSymbolAtLocation(d.name);
+  if (!sym) return lower.fail(d.name, 'E_PACK', `Cannot bind ${d.name.text}`);
+  lower.bindings.set(sym, found.binding.constant(found.call, d.name.text, lower));
+  return true;
+}
+
+/**
+ * Bind a module function that only returns a call of an `inline` pack
+ * function over its rest parameter, such as shadcn's
+ * `function cn(...inputs) { return twMerge(clsx(inputs)); }`. Its calls are
+ * lowered as that expression with the parameter standing for the array of
+ * the call's arguments, so the pack sees the arguments' syntax. Returns
+ * false for other functions (they lower as ordinary functions).
+ */
+export function bindPackWrapper(
+  sym: ts.Symbol,
+  decl: ts.FunctionLikeDeclaration,
+  name: string,
+  lower: Lowerer,
+): boolean {
+  if (decl.parameters.length !== 1 || decl.asteriskToken) return false;
+  if (decl.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)) return false;
+  const param = decl.parameters[0];
+  if (!param.dotDotDotToken || !ts.isIdentifier(param.name) || param.initializer) return false;
+  const body = decl.body;
+  let result: ts.Expression | undefined;
+  if (body && ts.isBlock(body)) {
+    const [only] = body.statements;
+    if (body.statements.length === 1 && ts.isReturnStatement(only)) result = only.expression;
+  } else if (body) result = body as ts.Expression;
+  const found = calleeBinding(result, lower);
+  if (!found?.binding.inline) return false;
+  const rest = lower.checker.getSymbolAtLocation(param.name);
+  if (!rest) return false;
+  const expr = result!;
+  const label = `${name} (inlined: it returns ${found.binding.label})`;
+  lower.bindings.set(sym, {
+    kind: 'pack',
+    label,
+    call: (node, b, l) => withRest(l, rest, node.arguments, () => l.expr(expr, b)),
+    choice: (node, b, l) =>
+      withRest(l, rest, node.arguments, () => valueChoice({ lower: l, b, label }, expr)),
+    inline: true,
+  });
   return true;
 }

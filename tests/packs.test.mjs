@@ -12,8 +12,10 @@ import { collect, Diagnostic } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
 import { interpret } from '../compiler/codegen.mjs';
 import { vectors as live } from '../conformance/packs/clsx.mjs';
+import { vectors as twLive, variantsModule, utilsModule } from '../conformance/packs/tailwind.mjs';
 
 const committed = JSON.parse(readFileSync('conformance/packs/clsx-2.1.1.json', 'utf8'));
+const twCommitted = JSON.parse(readFileSync('conformance/packs/tailwind.json', 'utf8'));
 
 const ENTRY = {
   svelte: [
@@ -113,6 +115,148 @@ test('clsx calls lowered by the pack agree with the real package on every vector
     );
     assert.equal(compared, vectors.length * 2);
   });
+});
+
+test('the committed tailwind vectors are the output of the installed packages', () => {
+  assert.deepEqual(twCommitted.versions, {
+    'tailwind-merge': '3.7.0',
+    'tailwind-variants': '3.3.1',
+    clsx: '2.1.1',
+  });
+  assert.deepEqual(twCommitted.vectors, twLive);
+});
+
+test('twMerge, twJoin, cn and tv calls evaluated at build time select the real result at runtime', async () => {
+  const { variables, vectors } = twCommitted;
+  const script = [
+    "import { twMerge, twJoin } from 'tailwind-merge';",
+    "import { clsx } from 'clsx';",
+    "import { cn } from './utils.ts';",
+    "import { button, badge } from './variants.ts';",
+    ...variables.map(v => `let ${v.name} = $state<${v.type}>(${v.a});`),
+    `function go() {\n${variables.map(v => `  ${v.name} = ${v.b};`).join('\n')}\n}`,
+  ].join('\n');
+  const markup = [
+    '<button id="go" onclick={go}>go</button>',
+    ...vectors.map((v, i) => `<i id="v${i}">{${v.call}}</i>`),
+  ].join('\n');
+  await withApp(
+    'svelte',
+    `<script lang="ts">\n${script}\n</script>\n${markup}\n`,
+    async root => {
+      const { ir } = await lowered(root);
+      assert.deepEqual(
+        ir.meta.mappings.map(m => m.id),
+        ['clsx@2.1.1', 'tailwind-merge@3.7.0', 'tailwind-variants@3.3.1'],
+      );
+      const steps = interpret(ir, [{ kind: 'click', id: 'go' }]);
+      let compared = 0;
+      vectors.forEach((v, i) =>
+        ['a', 'b'].forEach((state, s) => {
+          assert.equal(
+            byId(steps[s], `v${i}`).children.join(''),
+            v[state],
+            `${v.call} in state ${state}`,
+          );
+          compared++;
+        }),
+      );
+      assert.equal(compared, vectors.length * 2);
+    },
+    { 'utils.ts': utilsModule, 'variants.ts': variantsModule },
+  );
+});
+
+test('tailwind packs reject open values, uncovered exports and configs, and patched packages', async () => {
+  const svelte = (script, markup = '') => `<script lang="ts">\n${script}\n</script>\n${markup}\n`;
+  const tw = "import { twMerge } from 'tailwind-merge';\n";
+  const tvImport = "import { tv } from 'tailwind-variants';\n";
+  const files = { 'utils.ts': utilsModule, 'variants.ts': variantsModule };
+  const cases = [
+    // An open string (the editor's pass-through class props).
+    [svelte(`${tw}let s = $state('x');`, "<i class={twMerge('p-2', s)}></i>"), 'App.svelte'],
+    [
+      svelte(
+        "import { cn } from './utils.ts';\nlet { class: className }: { class?: string } = $props();",
+        "<i class={cn('p-2', className)}></i>",
+      ),
+      'App.svelte',
+    ],
+    [svelte(`${tw}let n = $state(1);`, "<i class={twMerge('p-2', n)}></i>"), 'App.svelte'],
+    [svelte(`${tw}const xs = ['a'];`, '<i class={twMerge(...xs)}></i>'), 'App.svelte'],
+    // More combinations than are evaluated at build time (2^13).
+    [
+      svelte(
+        `${tw}${Array.from({ length: 13 }, (_, i) => `let b${i} = $state(false);`).join('\n')}`,
+        `<i class={twMerge(${Array.from({ length: 13 }, (_, i) => `b${i} && 'p-${i}'`).join(', ')})}></i>`,
+      ),
+      'App.svelte',
+    ],
+    [svelte("import { extendTailwindMerge } from 'tailwind-merge';"), 'App.svelte'],
+    [
+      svelte(`${tw}const apply = (f: (a: string) => string) => f('a');\nconst c = apply(twMerge);`),
+      'App.svelte',
+    ],
+    [svelte("import { cn } from 'tailwind-variants';"), 'App.svelte'],
+    [svelte(`${tvImport}const x = String(tv({ base: 'a' }));`), 'App.svelte'],
+    [svelte(`${tvImport}let b = tv({ base: 'a' });`), 'App.svelte'],
+    [svelte(`${tvImport}const b = tv({ base: 'a', slots: { x: 'b' } });`), 'App.svelte'],
+    [svelte(`${tvImport}const b = tv({ base: 'a' }, { twMerge: false });`), 'App.svelte'],
+    [svelte(`${tvImport}let c = $state('a');\nconst b = tv({ base: c });`), 'App.svelte'],
+    [svelte("import { button } from './variants.ts';\nconst v = button.variants;"), 'App.svelte'],
+    [
+      svelte(
+        "import { button } from './variants.ts';\nlet s = $state('x');",
+        '<i class={button({ class: s })}></i>',
+      ),
+      'App.svelte',
+    ],
+  ];
+  const wrong = [];
+  for (const [source, file] of cases)
+    await withApp(
+      'svelte',
+      source,
+      async root =>
+        lowered(root).then(
+          () => wrong.push(`accepted: ${source}`),
+          e =>
+            e instanceof Diagnostic &&
+            e.code === 'E_PACK' &&
+            e.source?.file === file &&
+            e.source.line > 0
+              ? undefined
+              : wrong.push(`${source}\n  → ${e.code} ${JSON.stringify(e.source)} ${e.message}`),
+        ),
+      files,
+    );
+  // A copy of tailwind-merge 3.7.0 whose code differs from the published one.
+  const patched = {
+    'node_modules/tailwind-merge/package.json': JSON.stringify({
+      name: 'tailwind-merge',
+      version: '3.7.0',
+      type: 'module',
+      exports: { '.': { import: './dist/bundle-mjs.mjs' } },
+    }),
+    'node_modules/tailwind-merge/dist/bundle-mjs.mjs':
+      'export const twMerge = (...a) => a.join(" ");\n',
+  };
+  await withApp(
+    'svelte',
+    svelte(tw, "<i class={twMerge('p-2', 'p-4')}></i>"),
+    async root =>
+      lowered(root).then(
+        () => wrong.push('accepted a patched tailwind-merge'),
+        e =>
+          e instanceof Diagnostic &&
+          e.code === 'E_PACK' &&
+          /differs from the published package/.test(e.message)
+            ? undefined
+            : wrong.push(`patched → ${e.code} ${e.message}`),
+      ),
+    patched,
+  );
+  assert.deepEqual(wrong, []);
 });
 
 test('clsx lowers in React components and module functions alike', async () => {

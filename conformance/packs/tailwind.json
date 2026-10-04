@@ -1,0 +1,164 @@
+{
+ "versions": {
+  "tailwind-merge": "3.7.0",
+  "tailwind-variants": "3.3.1",
+  "clsx": "2.1.1"
+ },
+ "variables": [
+  {
+   "name": "v",
+   "type": "'solid' | 'outline' | 'ghost'",
+   "a": "'solid'",
+   "b": "'ghost'"
+  },
+  {
+   "name": "s",
+   "type": "'sm' | 'md' | 'lg' | undefined",
+   "a": "undefined",
+   "b": "'lg'"
+  },
+  {
+   "name": "ns",
+   "type": "'sm' | 'lg' | null | undefined",
+   "a": "null",
+   "b": "undefined"
+  },
+  {
+   "name": "t",
+   "type": "boolean",
+   "a": "true",
+   "b": "false"
+  },
+  {
+   "name": "f",
+   "type": "boolean",
+   "a": "false",
+   "b": "true"
+  },
+  {
+   "name": "tone",
+   "type": "'warm' | 'cool' | null",
+   "a": "null",
+   "b": "'cool'"
+  },
+  {
+   "name": "o",
+   "type": "'solid' | 'outline' | 'ghost' | ''",
+   "a": "''",
+   "b": "'outline'"
+  },
+  {
+   "name": "k",
+   "type": "'a' | 'b'",
+   "a": "'a'",
+   "b": "'b'"
+  }
+ ],
+ "vectors": [
+  {
+   "call": "twMerge('p-2', 'p-4')",
+   "a": "p-4",
+   "b": "p-4"
+  },
+  {
+   "call": "twMerge('px-2 py-1', t && 'p-3', f ? 'px-5' : 'py-6')",
+   "a": "p-3 py-6",
+   "b": "py-1 px-5"
+  },
+  {
+   "call": "twMerge(['m-1 p-1', [t && 'p-2', 'm-3']], f && 'm-2', null, undefined, false, '')",
+   "a": "p-2 m-3",
+   "b": "p-1 m-2"
+  },
+  {
+   "call": "twMerge('text-sm text-red-500', tone)",
+   "a": "text-sm text-red-500",
+   "b": "text-sm text-red-500 cool"
+  },
+  {
+   "call": "twMerge('shadow-md', t && 'shadow-inner')",
+   "a": "shadow-inner",
+   "b": "shadow-md"
+  },
+  {
+   "call": "twMerge(v === 'ghost' ? 'opacity-50' : 'opacity-100', !t && 'hidden', k === 'b' && 'block')",
+   "a": "opacity-100",
+   "b": "opacity-50 block"
+  },
+  {
+   "call": "twMerge(clsx('p-1', t && 'p-2', { 'p-3': f }), s)",
+   "a": "p-2",
+   "b": "p-3 lg"
+  },
+  {
+   "call": "twMerge('  p-1 ', ' p-2  ')",
+   "a": "p-2",
+   "b": "p-2"
+  },
+  {
+   "call": "twJoin('p-2', t && 'p-4', tone, ['m-1', f && 'm-2'])",
+   "a": "p-2 p-4 m-1",
+   "b": "p-2 cool m-1 m-2"
+  },
+  {
+   "call": "cn('p-2', { 'p-4': t, 'm-1': f, 2: t }, [tone, 'x'])",
+   "a": "2 p-4 x",
+   "b": "p-2 m-1 cool x"
+  },
+  {
+   "call": "cn(button({ variant: v, size: s }), 'px-1')",
+   "a": "btn inline-flex rounded-md border py-2 text-sm bg-blue text-white px-1",
+   "b": "btn inline-flex rounded-md border bg-transparent py-3 text-lg px-1"
+  },
+  {
+   "call": "cn(cn('p-1', t && 'p-2'), f && 'p-3', t ? cn('m-1', tone) : 'm-2')",
+   "a": "p-2 m-1",
+   "b": "p-3 m-2"
+  },
+  {
+   "call": "cn(t === f && 'eq', o || 'none')",
+   "a": "none",
+   "b": "outline"
+  },
+  {
+   "call": "button({ variant: o || v, size: 'sm' })",
+   "a": "btn inline-flex rounded-md border bg-blue text-white px-2 py-1 text-xs",
+   "b": "btn inline-flex rounded-md border bg-white text-blue px-2 py-1 text-xs"
+  },
+  {
+   "call": "button({ size: ns })",
+   "a": "btn inline-flex rounded-md border px-4 py-2 text-sm bg-blue text-white",
+   "b": "btn inline-flex rounded-md border px-4 py-2 text-sm bg-blue text-white"
+  },
+  {
+   "call": "button()",
+   "a": "btn inline-flex rounded-md border px-4 py-2 text-sm bg-blue text-white",
+   "b": "btn inline-flex rounded-md border px-4 py-2 text-sm bg-blue text-white"
+  },
+  {
+   "call": "button({ variant: v, class: t ? 'px-9' : undefined })",
+   "a": "btn inline-flex rounded-md border py-2 text-sm bg-blue text-white px-9",
+   "b": "btn inline-flex rounded-md border py-2 text-sm bg-transparent px-2"
+  },
+  {
+   "call": "button({ variant: 'ghost', className: ['rounded-none', f && 'px-0'] })",
+   "a": "btn inline-flex border py-2 text-sm bg-transparent px-2 rounded-none",
+   "b": "btn inline-flex border py-2 text-sm bg-transparent rounded-none px-0"
+  },
+  {
+   "call": "badge({ active: t, tone })",
+   "a": "badge rounded-full px-3 py-1 font-bold ring-2",
+   "b": "badge rounded-full px-3 py-1 font-normal bg-sky-100"
+  },
+  {
+   "call": "badge({ active: f, tone: tone ?? 'warm', className: 'ring-0' })",
+   "a": "badge rounded-full px-3 py-1 font-normal bg-orange-100 ring-0",
+   "b": "badge rounded-full px-3 py-1 font-bold bg-sky-100 ring-0"
+  },
+  {
+   "call": "badge({ active: t && f })",
+   "a": "badge rounded-full px-3 py-1 font-normal",
+   "b": "badge rounded-full px-3 py-1 font-normal"
+  }
+ ]
+}

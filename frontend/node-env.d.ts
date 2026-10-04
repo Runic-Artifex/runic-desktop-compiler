@@ -22,6 +22,9 @@ declare module 'node:crypto' {
     update(data: string | Uint8Array): { digest(encoding: 'hex'): string };
   };
 }
+declare module 'node:module' {
+  export function createRequire(url: string): (id: string) => unknown;
+}
 declare module 'node:url' {
   export function fileURLToPath(url: string): string;
 }

@@ -1,0 +1,24 @@
+{
+  "description": "Mapping packs for tailwind-merge 3.7.0 and tailwind-variants 3.3.1 (docs/design/M6-LIBRARIES.md), evaluated at build time by the real packages: shadcn's cn (twMerge(clsx(inputs)), inlined), twMerge and twJoin with constant arguments, with `cond && 'x'`, conditionals, arrays and clsx objects; tv variant functions with literal-union state (default and explicit variants, undefined size), a conditional variant, `a || b` over a nullable union, a boolean variant, compound variants and a constant `class`; the merged classes in class attributes (styled by hand-written stand-ins for a few utilities) and as text",
+  "fixtures": ["tw-svelte", "tw-react", "tw-vue"],
+  "actions": [
+    { "kind": "click", "id": "variant" },
+    { "kind": "click", "id": "size" },
+    { "kind": "click", "id": "active" },
+    { "kind": "click", "id": "open" },
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "override" },
+    { "kind": "click", "id": "filter" },
+    { "kind": "click", "id": "variant" },
+    { "kind": "click", "id": "size" },
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "active" },
+    { "kind": "click", "id": "size" },
+    { "kind": "click", "id": "override" },
+    { "kind": "click", "id": "variant" },
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "size" },
+    { "kind": "click", "id": "open" },
+    { "kind": "click", "id": "filter" }
+  ]
+}

@@ -1,0 +1,550 @@
+// Build-time evaluation over finite arguments (docs/design/M6-LIBRARIES.md#mapping-packs-d9).
+//
+// A pack whose functions are evaluated by running the real package in Node
+// (tailwind-merge, tailwind-variants) lowers a call by enumerating the exact
+// JavaScript values its arguments can take, calling the package once for each
+// combination and selecting the result at runtime. The values form a choice
+// tree: leaves are exact JavaScript values; inner nodes are IR tests that the
+// program evaluates, in JavaScript's evaluation order, to reach the leaf that
+// holds the values the arguments really have.
+//
+// An argument's choice comes from its syntax and, where the syntax ends, from
+// its TypeScript type:
+// - literals (strings, numbers, booleans, null, undefined), array and object
+//   literals (static keys) of choices, and consts whose initialisers are such
+//   literals;
+// - `c ? a : b` (one test of c), `a && b`, `a || b`, `a ?? b` (b's choice is
+//   used on the paths where a's value selects it);
+// - calls of pack functions that offer a choice (nested twMerge, clsx,
+//   variant functions, inlined wrappers);
+// - any other expression whose type is boolean (one truthiness test) or a
+//   union of string literals, booleans, null and undefined: the value is read
+//   once and compared with each member. A value outside its declared type
+//   (possible only through unsound casts) throws instead of selecting a
+//   wrong result.
+// Anything else (a plain `string`, numbers, objects) is open and rejected
+// with E_PACK; pack modules explain the cheapest exact alternative.
+import ts from 'typescript';
+import type { Expr, Type } from '../ir.ts';
+import type { FnBuilder, Lowerer } from '../language.ts';
+
+export type Choice =
+  | { kind: 'leaf'; value: unknown }
+  /** A value outside its declared literal type: throws at runtime. */
+  | { kind: 'outside' }
+  | { kind: 'test'; test: Expr; then: Choice; else: Choice }
+  | { kind: 'with'; local: number; value: Expr; body: Choice };
+
+/** The most combinations one call may enumerate. */
+export const LIMIT = 4096;
+
+export const leaf = (value: unknown): Choice => ({ kind: 'leaf', value });
+
+/** Replace every leaf by `f(value)` (f is called once per leaf). */
+export function graft(c: Choice, f: (value: unknown) => Choice): Choice {
+  switch (c.kind) {
+    case 'leaf':
+      return f(c.value);
+    case 'outside':
+      return c;
+    case 'test':
+      return { ...c, then: graft(c.then, f), else: graft(c.else, f) };
+    case 'with':
+      return { ...c, body: graft(c.body, f) };
+  }
+}
+
+export function leaves(c: Choice): number {
+  switch (c.kind) {
+    case 'leaf':
+    case 'outside':
+      return 1;
+    case 'test':
+      return leaves(c.then) + leaves(c.else);
+    case 'with':
+      return leaves(c.body);
+  }
+}
+
+/** Context of one pack call: where to report and how to name the pack. */
+export interface Ctx {
+  lower: Lowerer;
+  b: FnBuilder;
+  /** `tailwind-merge@3.7.0 pack` */
+  label: string;
+}
+
+const fail = (ctx: Ctx, n: ts.Node, what: string): never =>
+  ctx.lower.fail(n, 'E_PACK', `${ctx.label}: ${what}`);
+
+function bounded(ctx: Ctx, n: ts.Node, c: Choice): Choice {
+  const count = leaves(c);
+  if (count > LIMIT)
+    fail(
+      ctx,
+      n,
+      `the arguments take ${count} combinations of values, more than the ${LIMIT} evaluated at build time`,
+    );
+  return c;
+}
+
+/** The choices of `items` in order, as one choice of arrays of their values. */
+export function sequence(ctx: Ctx, at: ts.Node, items: Choice[]): Choice {
+  let acc: Choice = leaf([]);
+  for (const item of items)
+    acc = bounded(
+      ctx,
+      at,
+      graft(acc, done => graft(item, v => leaf([...(done as unknown[]), v]))),
+    );
+  return acc;
+}
+
+/** Pure tests can be dropped when both branches agree. */
+function pure(e: Expr): boolean {
+  switch (e.op) {
+    case 'lit':
+    case 'local':
+    case 'cell':
+    case 'global':
+    case 'undefined':
+    case 'null':
+      return true;
+    case 'not':
+    case 'to-boolean':
+      return pure(e.arg);
+    case 'eq':
+    case 'ne':
+    case 'and':
+    case 'or':
+      return pure(e.left) && pure(e.right);
+    case 'builtin':
+      return e.name.startsWith('maybe.is-') && e.args.every(pure);
+    default:
+      return false;
+  }
+}
+
+const outsideHelpers = new WeakMap<Lowerer, number>();
+
+/** `pack$outside()`: throws for a value outside its declared literal type. */
+function outside(lower: Lowerer): Expr {
+  let index = outsideHelpers.get(lower);
+  if (index === undefined) {
+    index = lower.reserve();
+    outsideHelpers.set(lower, index);
+    lower.functions[index] = {
+      name: 'pack$outside',
+      params: [],
+      locals: [],
+      result: 'string',
+      body: [
+        {
+          op: 'throw',
+          value: {
+            op: 'record',
+            record: lower.errorRecord(),
+            fields: [
+              { op: 'lit', value: 'TypeError' },
+              {
+                op: 'lit',
+                value:
+                  'A value outside its declared literal type reached a call evaluated at build time',
+              },
+            ],
+          },
+        },
+      ],
+    };
+  }
+  return { op: 'call', function: index, args: [] };
+}
+
+/** The IR selecting a leaf's string at runtime. */
+export function toExpr(ctx: Ctx, c: Choice, value: (v: unknown) => Expr): Expr {
+  const memo = new Map<Choice, { e: Expr; key: string }>();
+  const go = (c: Choice): { e: Expr; key: string } => {
+    const known = memo.get(c);
+    if (known) return known;
+    let out: { e: Expr; key: string };
+    switch (c.kind) {
+      case 'leaf': {
+        const e = value(c.value);
+        out = { e, key: JSON.stringify(e) };
+        break;
+      }
+      case 'outside': {
+        const e = outside(ctx.lower);
+        out = { e, key: JSON.stringify(e) };
+        break;
+      }
+      case 'test': {
+        const t = go(c.then);
+        const f = go(c.else);
+        if (t.key === f.key && pure(c.test)) out = t;
+        else {
+          const e: Expr = { op: 'cond', test: c.test, then: t.e, else: f.e };
+          out = { e, key: JSON.stringify(e) };
+        }
+        break;
+      }
+      case 'with': {
+        const body = go(c.body);
+        const e: Expr = { op: 'with', local: c.local, value: c.value, body: body.e };
+        out = { e, key: JSON.stringify(e) };
+        break;
+      }
+    }
+    memo.set(c, out);
+    return out;
+  };
+  return go(c).e;
+}
+
+const skip = (e: ts.Expression): ts.Expression => {
+  for (;;) {
+    if (
+      ts.isParenthesizedExpression(e) ||
+      ts.isAsExpression(e) ||
+      ts.isSatisfiesExpression(e) ||
+      ts.isNonNullExpression(e) ||
+      ts.isTypeAssertionExpression(e)
+    )
+      e = e.expression;
+    else return e;
+  }
+};
+
+/** Pack call substitutions: a rest parameter standing for a call site's arguments. */
+const restArgs = new WeakMap<Lowerer, Map<ts.Symbol, (readonly ts.Expression[])[]>>();
+
+/** Evaluate `body` with `param` standing for the array of `args` (inlined wrappers). */
+export function withRest<T>(
+  lower: Lowerer,
+  param: ts.Symbol,
+  args: readonly ts.Expression[],
+  body: () => T,
+): T {
+  let m = restArgs.get(lower);
+  if (!m) restArgs.set(lower, (m = new Map()));
+  let stack = m.get(param);
+  if (!stack) m.set(param, (stack = []));
+  stack.push(args);
+  try {
+    return body();
+  } finally {
+    stack.pop();
+  }
+}
+
+const restOf = (
+  lower: Lowerer,
+  sym: ts.Symbol | undefined,
+): readonly ts.Expression[] | undefined => {
+  const stack = sym && restArgs.get(lower)?.get(sym);
+  return stack?.length ? stack[stack.length - 1] : undefined;
+};
+
+/** The initialiser of a const that `id` names. */
+function constInit(lower: Lowerer, id: ts.Identifier): ts.Expression | undefined {
+  const decl = lower.symbol(id)?.valueDeclaration;
+  if (
+    decl &&
+    ts.isVariableDeclaration(decl) &&
+    decl.initializer &&
+    ts.isVariableDeclarationList(decl.parent) &&
+    decl.parent.flags & ts.NodeFlags.Const
+  )
+    return decl.initializer;
+  return undefined;
+}
+
+/**
+ * A compile-time constant: literals, arrays and objects of them (static
+ * keys) and consts bound to them; undefined (the result) if `e` is not one.
+ */
+export function staticValue(
+  lower: Lowerer,
+  e: ts.Expression,
+  depth = 0,
+): { value: unknown } | undefined {
+  const node = skip(e);
+  const K = ts.SyntaxKind;
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+    return { value: node.text };
+  if (ts.isNumericLiteral(node)) return { value: Number(node.text) };
+  if (
+    ts.isPrefixUnaryExpression(node) &&
+    node.operator === K.MinusToken &&
+    ts.isNumericLiteral(node.operand)
+  )
+    return { value: -Number(node.operand.text) };
+  if (node.kind === K.TrueKeyword) return { value: true };
+  if (node.kind === K.FalseKeyword) return { value: false };
+  if (node.kind === K.NullKeyword) return { value: null };
+  if (ts.isIdentifier(node)) {
+    if (node.text === 'undefined' && !lower.binding(node)) return { value: undefined };
+    const init = depth < 8 ? constInit(lower, node) : undefined;
+    return init && staticValue(lower, init, depth + 1);
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    const out: unknown[] = [];
+    for (const el of node.elements) {
+      if (ts.isSpreadElement(el) || ts.isOmittedExpression(el)) return undefined;
+      const v = staticValue(lower, el, depth);
+      if (!v) return undefined;
+      out.push(v.value);
+    }
+    return { value: out };
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const out: Record<string, unknown> = {};
+    for (const p of node.properties) {
+      if (!ts.isPropertyAssignment(p)) return undefined;
+      const key = staticKey(p.name);
+      if (key === undefined || key === '__proto__') return undefined;
+      const v = staticValue(lower, p.initializer, depth);
+      if (!v) return undefined;
+      out[key] = v.value;
+    }
+    return { value: out };
+  }
+  return undefined;
+}
+
+function staticKey(name: ts.PropertyName): string | undefined {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNoSubstitutionTemplateLiteral(name))
+    return name.text;
+  if (ts.isNumericLiteral(name)) return String(Number(name.text));
+  return undefined;
+}
+
+const maybeOf = (t: Type): Type | undefined =>
+  typeof t === 'object' && 'maybe' in t ? t.maybe : undefined;
+
+/** The members of a finite TypeScript type, or undefined when it is open. */
+function domain(type: ts.Type): unknown[] | undefined {
+  const out: unknown[] = [];
+  for (const t of type.isUnion() ? type.types : [type]) {
+    if (t.flags & ts.TypeFlags.StringLiteral) out.push((t as ts.StringLiteralType).value);
+    else if (t.flags & ts.TypeFlags.BooleanLiteral)
+      out.push((t as unknown as { intrinsicName: string }).intrinsicName === 'true');
+    else if (t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)) out.push(undefined);
+    else if (t.flags & ts.TypeFlags.Null) out.push(null);
+    else return undefined;
+  }
+  return out;
+}
+
+/** Compare the value `v` (IR type `t`) with each member of `members`. */
+function switchOn(ctx: Ctx, at: ts.Node, v: Expr, t: Type, members: unknown[]): Choice {
+  const { b } = ctx;
+  let read = v;
+  let wrap = (c: Choice): Choice => c;
+  if (!(v.op === 'local' || v.op === 'lit')) {
+    const local = b.local('$pack', t);
+    read = { op: 'local', local };
+    wrap = body => ({ kind: 'with', local, value: v, body });
+  }
+  const inner = maybeOf(t);
+  const plain = inner ?? t;
+  const values = members.filter(m => m !== undefined && m !== null);
+  const strings = values.filter((m): m is string => typeof m === 'string');
+  const booleans = values.filter((m): m is boolean => typeof m === 'boolean');
+  if (strings.length && booleans.length)
+    fail(ctx, at, 'a value that is a string or a boolean is not covered');
+  const of = (x: Expr): Choice => {
+    if (plain === 'boolean') return { kind: 'test', test: x, then: leaf(true), else: leaf(false) };
+    if (plain !== 'string' || !strings.length)
+      return fail(ctx, at, `a value of type ${JSON.stringify(t)} is not covered`);
+    let c: Choice = { kind: 'outside' };
+    for (const s of [...strings].reverse())
+      c = {
+        kind: 'test',
+        test: { op: 'eq', left: x, right: { op: 'lit', value: s } },
+        then: leaf(s),
+        else: c,
+      };
+    return c;
+  };
+  if (inner === undefined) return wrap(of(read));
+  const nullish: Choice =
+    members.includes(null) && members.includes(undefined)
+      ? {
+          kind: 'test',
+          test: { op: 'builtin', name: 'maybe.is-null', args: [read], type: 'boolean' },
+          then: leaf(null),
+          else: leaf(undefined),
+        }
+      : leaf(members.includes(null) ? null : undefined);
+  return wrap({
+    kind: 'test',
+    test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: 'boolean' },
+    then: nullish,
+    else: values.length ? of({ op: 'unwrap', value: read }) : { kind: 'outside' },
+  });
+}
+
+/** The exact values `e` can take, as a choice (rejecting open values with E_PACK). */
+export function valueChoice(ctx: Ctx, e: ts.Expression): Choice {
+  const { lower, b } = ctx;
+  const node = skip(e);
+  const K = ts.SyntaxKind;
+  const constant = staticValue(lower, node);
+  if (constant) return leaf(constant.value);
+  if (ts.isConditionalExpression(node)) {
+    const test = lower.condition(node.condition, b);
+    return bounded(ctx, node, {
+      kind: 'test',
+      test,
+      then: valueChoice(ctx, node.whenTrue),
+      else: valueChoice(ctx, node.whenFalse),
+    });
+  }
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind;
+    if (
+      op === K.AmpersandAmpersandToken ||
+      op === K.BarBarToken ||
+      op === K.QuestionQuestionToken
+    ) {
+      const left = valueChoice(ctx, node.left);
+      let right: Choice | undefined;
+      const rest = () => (right ??= valueChoice(ctx, node.right));
+      return bounded(
+        ctx,
+        node,
+        graft(left, v => {
+          const takeRight =
+            op === K.AmpersandAmpersandToken ? !!v : op === K.BarBarToken ? !v : v == null;
+          return takeRight ? rest() : leaf(v);
+        }),
+      );
+    }
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    const items = node.elements.map(el => {
+      if (ts.isSpreadElement(el)) return fail(ctx, el, 'a spread in an array is not covered');
+      if (ts.isOmittedExpression(el)) return fail(ctx, el, 'an array hole is not covered');
+      return valueChoice(ctx, el);
+    });
+    return sequence(ctx, node, items);
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const keys: string[] = [];
+    const items: Choice[] = [];
+    for (const p of node.properties) {
+      if (ts.isShorthandPropertyAssignment(p)) {
+        if (p.objectAssignmentInitializer)
+          fail(ctx, p, 'a default in an object literal is not covered');
+        keys.push(p.name.text);
+        items.push(shorthandChoice(ctx, p));
+      } else if (ts.isPropertyAssignment(p)) {
+        const key = staticKey(p.name);
+        if (key === undefined) fail(ctx, p.name, 'a computed key is not covered');
+        if (key === '__proto__') fail(ctx, p.name, 'a __proto__ key is not covered');
+        keys.push(key!);
+        items.push(valueChoice(ctx, p.initializer));
+      } else fail(ctx, p, 'a spread, method or accessor in an object literal is not covered');
+    }
+    return graft(sequence(ctx, node, items), vs => {
+      // Evaluated in source order as the literal defines its properties.
+      const o: Record<string, unknown> = {};
+      keys.forEach((k, i) =>
+        Object.defineProperty(o, k, {
+          value: (vs as unknown[])[i],
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        }),
+      );
+      return leaf(o);
+    });
+  }
+  if (ts.isIdentifier(node)) {
+    const rest = restOf(lower, lower.checker.getSymbolAtLocation(node));
+    if (rest) return argsChoice(ctx, node, rest);
+  }
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+    const binding = lower.binding(node.expression);
+    if (binding?.kind === 'pack' && binding.choice) return binding.choice(node, b, lower);
+  }
+  return typedChoice(ctx, node, lower.checker.getTypeAtLocation(node), () => lower.expr(node, b));
+}
+
+/** `{ x }`: the value of the variable x. */
+function shorthandChoice(ctx: Ctx, p: ts.ShorthandPropertyAssignment): Choice {
+  const { lower, b } = ctx;
+  const sym = lower.checker.getShorthandAssignmentValueSymbol(p);
+  const rest = restOf(lower, sym);
+  if (rest) return argsChoice(ctx, p, rest);
+  const constant = staticValue(lower, p.name);
+  if (constant) return leaf(constant.value);
+  const binding = sym && lower.bindings.get(sym);
+  if (!binding) return lower.fail(p, 'E_UNRESOLVED', `${p.name.text} is not a supported binding`);
+  return typedChoice(ctx, p.name, lower.checker.getTypeOfSymbolAtLocation(sym, p.name), () =>
+    lower.bindingExpr(binding, p.name, b, lower.types.of(p.name)),
+  );
+}
+
+/** A value read once and compared with the members of its finite type. */
+function typedChoice(ctx: Ctx, node: ts.Expression, type: ts.Type, read: () => Expr): Choice {
+  const { lower, b } = ctx;
+  const members = domain(type);
+  if (!members)
+    return fail(
+      ctx,
+      node,
+      `a value of type ${lower.checker.typeToString(type)} is not covered: the arguments of calls evaluated at build time must be compile-time constants or range over string literals, booleans, null and undefined (an open string, such as a class prop passed through from a parent, has no finite set of values)`,
+    );
+  if (members.every(m => typeof m === 'boolean') && members.length === 2) {
+    const v = read();
+    return {
+      kind: 'test',
+      test: lower.truthy(v, lower.irType(v, b)),
+      then: leaf(true),
+      else: leaf(false),
+    };
+  }
+  const v = read();
+  return switchOn(ctx, node, v, lower.irType(v, b), members);
+}
+
+/** An argument list, as one choice of arrays of the arguments' values. */
+function argsChoice(ctx: Ctx, at: ts.Node, args: readonly ts.Expression[]): Choice {
+  const items = args.map(a =>
+    ts.isSpreadElement(a) ? fail(ctx, a, 'a spread argument is not covered') : valueChoice(ctx, a),
+  );
+  return sequence(ctx, at, items);
+}
+
+/**
+ * A pack function evaluated at build time: the call's choice of results,
+ * `evaluate` running the real package on each combination of argument values.
+ */
+export function evaluatedChoice(
+  ctx: Ctx,
+  node: ts.CallExpression,
+  evaluate: (args: unknown[]) => unknown,
+): Choice {
+  return graft(argsChoice(ctx, node, node.arguments), vs => {
+    try {
+      return leaf(evaluate(vs as unknown[]));
+    } catch (err) {
+      return fail(ctx, node, `the package threw at build time: ${(err as Error).message}`);
+    }
+  });
+}
+
+/** A call whose results must be strings: the IR selecting them. */
+export function stringCall(ctx: Ctx, node: ts.CallExpression, c: Choice): Expr {
+  return toExpr(ctx, c, v =>
+    typeof v === 'string'
+      ? { op: 'lit', value: v }
+      : fail(
+          ctx,
+          node,
+          `the call can return ${v === undefined ? 'undefined' : typeof v}, not a string`,
+        ),
+  );
+}
