@@ -19,6 +19,7 @@ Layers: **UA** is Blitz's user-agent stylesheet (`blitz-dom/assets/default.css`)
 | Shrink-to-fit widths | layout | content-sized boxes (buttons, labels, flex items) get their measured inline width rounded up to a whole pixel: `layout/inline.rs` calls `.ceil()` on the computed and measured widths (39.36px → 40px). A row of such boxes drifts by the sum (M5: 3.2px over six items) | fixtures: fixed widths where several content-sized boxes share a row | M3, `todomvc-svelte`; M5, `radio-svelte` |
 | `<select>` | paint, events | nothing is drawn for a select: no closed control, no popup | runtime: a UA sheet draws the closed control from its options (grid-stacked, the shown one marked by an attribute that snapshots omit, a rotated-border arrow), and the runtime draws the popup into the page and implements its keyboard and pointer model. Headless Chromium also draws the popup into the page; windowed Chromium uses a separate widget that can extend past the window, which the runtime cannot | M5, `select-svelte`, `select-popup` |
 | Overflowing textarea | layout | a textarea whose text is taller than its box shows scrolled in Blitz and unscrolled in Chromium | fixtures: a textarea tall enough for its text | M5, `patterns-svelte` |
+| Text controls in an overflowing flex row | layout | text inputs and text areas in a flex row too narrow for them are laid out about 53px narrower than in Chromium (their automatic minimum size); a text area with text also adds about 0.4 pixel error at 420px | fixtures: the text area on its own row, sized by the fixture's CSS | M5, `forms-vue` |
 | Line breaks after hyphens | Parley | Chromium breaks a full line after the hyphen in `1999-12-31`; Blitz does not | fixtures: shorter sample text | M5, `patterns-svelte` |
 
 ## Behaviour the runtime implements
@@ -27,7 +28,7 @@ These work today and are covered by conformance. The cost is code in `runic-runt
 
 | Gap | Layer | Observed | Runtime | Found |
 |---|---|---|---|---|
-| Click default action | events | Blitz's default click action moves or clears focus, unlike Chromium (focus moves on `mousedown`, a click on a non-focusable element keeps it) | always cancels Blitz's click default and implements focus, label activation and checkbox and radio activation itself (`events.rs`) | M5, `focus` |
+| Click default action | events | Blitz focuses checkboxes and radios on click (text inputs on pointer down) and clears focus without focus events when nothing focusable was clicked (`events/pointer.rs` `handle_click`); Chromium moves focus on `mousedown`, to the nearest focusable ancestor or nowhere | always cancels Blitz's click default; moves focus on `mousedown` and does label, checkbox and radio activation itself (`events.rs`) | M5, `focus` |
 | Focus events and sequential navigation | events | Chromium's `blur`/`focusout`/`focus`/`focusin` order with `relatedTarget`, `tabindex` focusability and positive-`tabindex`-first Tab order | `move_focus` and `tab_order` | M5, `focus`, `radio` |
 | Pointer and mouse boundary events | events | Blitz interleaves pointer and mouse boundary events; Chromium sends all pointer boundary events first | buffers and replays Chromium's order | M5, `events` |
 | `dblclick` | events | Blitz drops `dblclick` when the click was cancelled (which the runtime always does) | counts clicks itself | M5, `events` |
@@ -38,6 +39,21 @@ These work today and are covered by conformance. The cost is code in `runic-runt
 ## Fork assessment
 
 D11 already allows local patches in a documented patch set. The question is whether the gaps justify carrying one now rather than waiting for upstream.
+
+**Upstream status (checked 2026-10-04).** Upstream Blitz main is 8 commits ahead of the pin: Taffy revision bumps, `align-items: normal` left unset, and AnyRender 0.14 (vello 0.11, vello_cpu 0.3, wgpu 30). None of them touch blitz-dom, blitz-traits, blitz-shell or blitz-html, and none fixes a gap listed here. Per gap:
+
+| Gap | Upstream | Patch (estimated) |
+|---|---|---|
+| Shrink-to-fit widths | the `.ceil()` in `layout/inline.rs` was added deliberately (`a1c00e08`) to stop float error from wrapping text on relayout | round up to 1/64 px (Chromium's layout unit) instead of whole pixels, a few lines |
+| Placeholders | open PR #552 (`::placeholder` as a pseudo-element with its own Parley layout); it cherry-picks cleanly onto the pin | carry #552 |
+| Line breaks after hyphens | Parley already has `CHROMIUM_LINE_BREAK_OVERRIDE` (Parley #640) at the version Blitz uses; Blitz does not set it | a few lines in `layout/construct.rs`; inputs and textareas also need a small Parley `PlainEditor` setter |
+| `dblclick` | it is dispatched from click's default action, so a cancelled click drops it | dispatch it after the click in `handle_pointerup`, about 10 lines |
+| Text input line height, inline baselines | text inputs are layout leaves using `font-size * 1.2` for `line-height: normal`, with no baseline | about 15–30 lines each in `dispatch_child_layout` |
+| Overflowing textarea | likely cause (not reproduced): after any click or key down Blitz scrolls the focused text control to its caret, even when the event targeted something else | limit that to events on the control, about 10 lines |
+| Focus ring | `outline: auto` is not painted and `outline-offset` is ignored; open PR #799 moves the UA rule to `:focus-visible` | 15–25 lines for the offset, 30–50 for an `auto` ring |
+| Checkbox box model | no issue or PR | about 30–60 lines, gated on `appearance` |
+| Click default action | a large draft event refactor (#513) rewrites the same code | the runtime handles it; leave it |
+| `<select>` | tracking issue #258, no PR; an overlay popup needs window APIs (#302, open) | not a small patch; the runtime handles it |
 
 **What only a patched Blitz can fix.** The rendering and layout gaps with a fixture-only workaround cannot be fixed from the runtime:
 - shrink-to-fit rounding;
@@ -58,10 +74,18 @@ Neither is urgent.
 
 **What needs no fork.** UA defaults (radio and checkbox metrics, control fonts and colours) are fixed from the runtime's UA parity sheet.
 
-**Recommendation.** Carry a thin fork from M6 on:
-- **Base.** Branch at the pinned revision, so it is not a dependency upgrade.
+**Recommendation.** Carry a thin fork:
 - **Commits.** One commit per gap, each with the conformance case that shows it, each offered upstream. A patch is dropped when the pin moves past an upstream fix.
 - **Wiring.** Cargo `[patch]` on the Blitz git URL.
-- **Order.** Shrink-to-fit rounding (two `.ceil()` calls), placeholders, then inline control baselines and text input line height. The focus ring and textarea scrolling follow when an application needs them.
-- **Parley and selects.** A Parley patch for hyphen breaks is decided separately, after checking upstream Parley. Native select popups wait for the desktop-input track.
+- **Order.** Each patch is roughly 2–60 lines:
+  1. 1/64 px rounding;
+  2. placeholders (#552);
+  3. the line-break override;
+  4. `dblclick`;
+  5. text input line height and baselines;
+  6. textarea scrolling;
+  7. the focus ring.
+- **Base.** Either the current pin or upstream main. Starting from main costs one pin move now (AnyRender version bumps and a conformance rerun for the Taffy changes) and saves rebasing the patches across those commits later. It is a dependency upgrade, so the milestone that carries it must plan it.
+- **Parley.** Paragraphs need no Parley fork. Inputs and textareas need the `PlainEditor` setter, to be offered upstream first.
+- **Selects.** Native select popups wait for the desktop-input track.
 - **Cost.** Rebasing the series when the pin moves. Pin moves are already planned work, and a small series with one case per patch keeps them cheap.
