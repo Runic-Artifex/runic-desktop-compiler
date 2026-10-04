@@ -133,7 +133,7 @@ Both adapters implement the event model; the shared cases `events` and `shortcut
 |---|---|
 | 1. Events, window and document listeners | Done for Svelte, React and Vue (cases `events`, `events-vue`, `shortcuts`) |
 | 2. Rest props and spread, `class:`, component refs | Done for Svelte (cases `rest-props`, `class-directives`, `component-refs`). `style:` waits for step 4's CSSOM work (now available). React and Vue: to do |
-| 3. Forms | `textarea` and `label` done (case `forms`); `select` and radio buttons to do (a select needs a runtime-drawn control and popup) |
+| 3. Forms | Done for Svelte: `textarea` and `label` (case `forms`), `select` with its popup (cases `select`, `select-popup`), radio buttons (case `radio`). React and Vue: to do |
 | 4. Document element, `matchMedia` | Done (case `theme`, crate `runic-css`); layout reads, scrolling, `ResizeObserver` and media change events to do |
 | 5–7 | To do |
 

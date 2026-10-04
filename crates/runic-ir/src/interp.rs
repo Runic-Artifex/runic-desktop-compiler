@@ -3685,11 +3685,29 @@ impl<'p> Machine<'p> {
         let Some(nodes) = chain_nodes(&tree, target) else {
             return Ok(());
         };
-        let toggled = match nodes.last() {
+        // A checkbox flips; a radio button is checked and its group's other
+        // one unchecked (a checked radio button only gets the click).
+        let (toggled, previous) = match nodes.last() {
+            Some(VNode::Element {
+                checked: Some(c),
+                attrs,
+                ..
+            }) if attrs.get("type").is_some_and(|t| t == "radio") => {
+                if *c {
+                    (None, vec![])
+                } else {
+                    let others: Vec<u64> = radio_group(&tree, target)
+                        .into_iter()
+                        .filter(|&(r, on)| r != target && on)
+                        .map(|(r, _)| r)
+                        .collect();
+                    (Some(true), others)
+                }
+            }
             Some(VNode::Element {
                 checked: Some(c), ..
-            }) => Some(!c),
-            _ => None,
+            }) => (Some(!c), vec![]),
+            _ => (None, vec![]),
         };
         let change = toggled.map(|checked| js::EventData {
             checked,
@@ -3709,6 +3727,9 @@ impl<'p> Machine<'p> {
         // The toggle stays unless the click was cancelled.
         if let (Some(on), false) = (toggled, cancelled) {
             self.live_checked.insert(target, on);
+            for r in previous {
+                self.live_checked.insert(r, false);
+            }
         }
         if let Some(d) = change.filter(|_| !with_click) {
             if !cancelled {
@@ -3814,6 +3835,33 @@ impl<'p> Machine<'p> {
         )?;
         let cancelled = down.is_some_and(|e| e.default_prevented());
         let tree = self.render()?;
+        // Arrows move to the next (previous) enabled radio button of the
+        // group, wrapping, and check it.
+        let radio = chain_nodes(&tree, target).and_then(|n| n.last().copied()).is_some_and(
+            |n| matches!(n, VNode::Element { tag, attrs, .. } if tag == "input" && attrs.get("type").is_some_and(|t| t == "radio")),
+        );
+        if !cancelled
+            && radio
+            && matches!(
+                k.key.as_str(),
+                "ArrowDown" | "ArrowRight" | "ArrowUp" | "ArrowLeft"
+            )
+        {
+            let group: Vec<u64> = radio_group_enabled(&tree, target);
+            if let Some(i) = group.iter().position(|&r| r == target) {
+                let n = group.len();
+                let forward = matches!(k.key.as_str(), "ArrowDown" | "ArrowRight");
+                let next = if forward {
+                    group[(i + 1) % n]
+                } else {
+                    group[(i + n - 1) % n]
+                };
+                if next != target {
+                    self.move_focus(Some(next), s)?;
+                    self.click(next, s)?;
+                }
+            }
+        }
         // A focused closed select changes its option with the keyboard.
         if !cancelled {
             if let Some(value) = select_key_target(&tree, target, &k.key) {
@@ -4241,6 +4289,70 @@ fn focus_target(nodes: &[&VNode]) -> Option<u64> {
         }
         VNode::Text(_) => None,
     }
+}
+
+/// The radio buttons of `radio`'s group (the same non-empty name; itself
+/// alone without one), in tree order, with their checked state.
+fn radio_group(tree: &[VNode], radio: u64) -> Vec<(u64, bool)> {
+    fn walk(nodes: &[VNode], name: &str, out: &mut Vec<(u64, bool)>) {
+        for n in nodes {
+            if let VNode::Element {
+                tag,
+                attrs,
+                checked,
+                id,
+                children,
+                ..
+            } = n
+            {
+                if tag == "input"
+                    && attrs.get("type").is_some_and(|t| t == "radio")
+                    && attrs.get("name").is_some_and(|x| x == name)
+                {
+                    out.push((*id, checked.unwrap_or(false)));
+                }
+                walk(children, name, out);
+            }
+        }
+    }
+    let name = chain_nodes(tree, radio).and_then(|n| match n.last() {
+        Some(VNode::Element { attrs, checked, .. }) => attrs
+            .get("name")
+            .filter(|n| !n.is_empty())
+            .cloned()
+            .ok_or(checked.unwrap_or(false))
+            .ok(),
+        _ => None,
+    });
+    match name {
+        Some(name) => {
+            let mut out = vec![];
+            walk(tree, &name, &mut out);
+            out
+        }
+        None => chain_nodes(tree, radio)
+            .and_then(|n| match n.last() {
+                Some(VNode::Element { checked, .. }) => {
+                    Some(vec![(radio, checked.unwrap_or(false))])
+                }
+                _ => None,
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// The enabled radio buttons of the group (and `radio` itself).
+fn radio_group_enabled(tree: &[VNode], radio: u64) -> Vec<u64> {
+    radio_group(tree, radio)
+        .into_iter()
+        .map(|(r, _)| r)
+        .filter(|&r| {
+            r == radio
+                || chain_nodes(tree, r).and_then(|n| n.last().copied()).is_some_and(
+                    |n| matches!(n, VNode::Element { attrs, .. } if !attrs.contains_key("disabled")),
+                )
+        })
+        .collect()
 }
 
 fn labelable(n: &VNode) -> bool {

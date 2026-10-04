@@ -1349,7 +1349,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             Array.isArray(a.value) &&
             a.value.length === 1 &&
             a.value[0].type === 'Text' &&
-            a.value[0].data === 'checkbox',
+            (a.value[0].data === 'checkbox' || a.value[0].data === 'radio'),
+        );
+      const radio =
+        checkbox &&
+        n.attributes.some(
+          (a: SNode) => a.type === 'Attribute' && a.name === 'type' && a.value[0].data === 'radio',
         );
       let bound: { event: HandlerEvent; handler: ReturnType<Lowerer['bindHandler']> } | undefined;
       const styles: { name: string; value: Expr }[] = [];
@@ -1463,6 +1468,33 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           )
             fail('E_TEMPLATE', 'bind:this needs a component variable of an element type', loc(a));
           reference = (b as { cell: number }).cell;
+        } else if (a.type === 'BindDirective' && a.name === 'group') {
+          // bind:group on a radio button: checked when the bound value is the
+          // button's, which a change writes (Svelte's binding group).
+          const own = n.attributes.find((x: SNode) => x.type === 'Attribute' && x.name === 'value');
+          const text =
+            own &&
+            Array.isArray(own.value) &&
+            own.value.length === 1 &&
+            own.value[0].type === 'Text'
+              ? own.value[0].data
+              : undefined;
+          if (!radio || text === undefined)
+            fail(
+              'E_TEMPLATE',
+              'bind:group is supported on radio buttons with a literal value',
+              loc(a),
+            );
+          const target = exprNode(a.expression);
+          const read = value(target);
+          if (typeOf(target, read) !== 'string')
+            fail('E_TEMPLATE', 'bind:group needs an assignable string value', loc(a));
+          const lit: Expr = { op: 'lit', value: text! };
+          props.push({ name: 'checked', value: { op: 'eq', left: read, right: lit } });
+          bound = {
+            event: 'change',
+            handler: lower.bindHandler(target, COMPONENT, 'change', tb, lit),
+          };
         } else if (a.type === 'BindDirective') {
           const kind =
             a.name === 'value' && ['input', 'textarea', 'select'].includes(n.name) && !checkbox

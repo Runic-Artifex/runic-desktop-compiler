@@ -1461,7 +1461,7 @@ impl<'p> NodeCx<'_, 'p> {
                 let checkbox = tag == "input"
                     && attrs.iter().any(|a| {
                         a.name == "type"
-                            && matches!(&a.value, Expr::Lit { value: Value::String(t) } if t == "checkbox")
+                            && matches!(&a.value, Expr::Lit { value: Value::String(t) } if t == "checkbox" || t == "radio")
                     });
                 for prop in props {
                     let want = match (prop.name.as_str(), tag, checkbox) {

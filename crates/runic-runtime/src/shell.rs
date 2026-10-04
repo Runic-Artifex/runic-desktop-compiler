@@ -22,6 +22,7 @@ pub(crate) type Renderer = anyrender_vello::VelloWindowRenderer;
 /// element's `color`; Chromium uses a grey border and its blue accent fill).
 const UA_PARITY: &str = "input, textarea, select, button { font-size: 13.333333px; }\n\
 input[type=checkbox] { color: #767676; }\n\
+input[type=radio] { margin: 3px 3px 0 5px; width: 13px; height: 13px; box-sizing: border-box; }\n\
 input[type=checkbox]:checked { color: #0075ff; }";
 
 /// Probe screenshots hide the caret, as the browser harness does.

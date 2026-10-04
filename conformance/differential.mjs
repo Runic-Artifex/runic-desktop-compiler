@@ -152,7 +152,7 @@ for (const fixture of fixtures) {
     for (let i = 0; i < expected.length; i++) {
       steps++;
       const want = {
-        dom: expected[i].state.dom.map(fromInterp),
+        dom: expected[i].state.dom.map(n => semantic(canonical(fromInterp(n)))),
         cells: expected[i].state.cells,
         instances: expected[i].state.instances ?? [],
         document: expected[i].state.document ?? {},

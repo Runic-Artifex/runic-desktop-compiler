@@ -205,12 +205,50 @@ fn tag(doc: &BaseDocument, id: NodeId) -> Option<&str> {
     Some(&doc.get_node(id)?.element_data()?.name.local)
 }
 
-fn is_checkbox(doc: &BaseDocument, id: NodeId) -> bool {
+fn input_type(doc: &BaseDocument, id: NodeId, kind: &str) -> bool {
     tag(doc, id) == Some("input")
         && doc
             .get_node(id)
             .and_then(|n| n.attr("type".into()))
-            .is_some_and(|t| t.eq_ignore_ascii_case("checkbox"))
+            .is_some_and(|t| t.eq_ignore_ascii_case(kind))
+}
+
+fn is_radio(doc: &BaseDocument, id: NodeId) -> bool {
+    input_type(doc, id, "radio")
+}
+
+/// A checkbox or a radio button (a control with a live checked state).
+fn is_checkbox(doc: &BaseDocument, id: NodeId) -> bool {
+    input_type(doc, id, "checkbox") || is_radio(doc, id)
+}
+
+fn checked(doc: &BaseDocument, id: NodeId) -> bool {
+    doc.get_node(id)
+        .and_then(|n| n.element_data())
+        .and_then(|e| e.checkbox_input_checked())
+        .unwrap_or(false)
+}
+
+/// The radio buttons of `radio`'s group (the same non-empty name; itself
+/// alone without one), in tree order.
+fn radio_group(doc: &BaseDocument, radio: NodeId) -> Vec<NodeId> {
+    let name = doc
+        .get_node(radio)
+        .and_then(|n| n.attr("name".into()))
+        .filter(|n| !n.is_empty())
+        .map(str::to_owned);
+    let Some(name) = name else {
+        return vec![radio];
+    };
+    tree_order(doc)
+        .into_iter()
+        .filter(|&n| {
+            is_radio(doc, n)
+                && doc.get_node(n).is_some_and(|x| {
+                    x.flags.is_in_document() && x.attr("name".into()) == Some(name.as_str())
+                })
+        })
+        .collect()
 }
 
 fn is_disabled_control(doc: &BaseDocument, id: NodeId) -> bool {
@@ -315,6 +353,18 @@ fn tab_order(doc: &BaseDocument, id: NodeId) -> Option<i32> {
             .is_some_and(|r| r.width > 0.0 && r.height > 0.0)
     {
         return None;
+    }
+    // A radio group is reached at its checked button (the first without one).
+    if is_radio(doc, id) {
+        let group = radio_group(doc, id);
+        let entry = group
+            .iter()
+            .copied()
+            .find(|&r| checked(doc, r))
+            .or_else(|| group.first().copied());
+        if entry != Some(id) {
+            return None;
+        }
     }
     match tab_index(doc, id) {
         Some(t) if t < 0 => None,
@@ -662,20 +712,38 @@ impl<A: App> Handler<'_, A> {
         if inside_disabled(doc, &chain) {
             return;
         }
-        // The toggle precedes the click listeners, as in the browser.
-        let Some(now) = doc
-            .get_node(id)
-            .and_then(|n| n.element_data())
-            .and_then(|e| e.checkbox_input_checked())
-            .map(|c| !c)
-        else {
+        // The toggle precedes the click listeners, as in the browser: a
+        // checkbox flips; a radio button is checked and its group's other
+        // one unchecked (a checked radio button only gets the click).
+        let was = checked(doc, id);
+        let radio = is_radio(doc, id);
+        if radio && was {
+            let data = EventData {
+                checked: true,
+                ..data
+            };
+            self.click(doc, &chain, data);
             return;
-        };
-        Dom {
-            doc,
-            listeners: self.listeners,
         }
-        .set_checked(id, now);
+        let now = radio || !was;
+        let previous: Vec<NodeId> = if radio {
+            radio_group(doc, id)
+                .into_iter()
+                .filter(|&r| r != id && checked(doc, r))
+                .collect()
+        } else {
+            vec![]
+        };
+        {
+            let mut dom = Dom {
+                doc,
+                listeners: self.listeners,
+            };
+            dom.set_checked(id, now);
+            for &r in &previous {
+                dom.set_checked(r, false);
+            }
+        }
         let click_data = EventData {
             checked: now,
             ..data
@@ -722,12 +790,17 @@ impl<A: App> Handler<'_, A> {
             self.fire(doc, &chain, Event::Click, click_data)
         };
         if Self::cancelled(&click) {
-            if doc.get_node(id).is_some() {
-                Dom {
-                    doc,
-                    listeners: self.listeners,
+            let mut dom = Dom {
+                doc,
+                listeners: self.listeners,
+            };
+            if dom.doc.get_node(id).is_some() {
+                dom.set_checked(id, was);
+            }
+            for &r in &previous {
+                if dom.doc.get_node(r).is_some() {
+                    dom.set_checked(r, true);
                 }
-                .set_checked(id, !now);
             }
             return;
         }
@@ -1132,6 +1205,34 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 // Keyboard focus selects the content of text fields (Chromium).
                 if let Some(n) = next.filter(|&n| controls::has_editor(doc, n)) {
                     doc.with_text_input(n, |mut editor| editor.select_all());
+                }
+            }
+            DomEventData::KeyDown(k)
+                if focused.is_some_and(|f| is_radio(doc, f))
+                    && matches!(
+                        k.key,
+                        Key::ArrowDown | Key::ArrowRight | Key::ArrowUp | Key::ArrowLeft
+                    ) =>
+            {
+                // Arrows move to the next (previous) enabled radio button of
+                // the group, wrapping, and check it.
+                state.prevent_default();
+                let from = focused.unwrap();
+                let group: Vec<NodeId> = radio_group(doc, from)
+                    .into_iter()
+                    .filter(|&r| r == from || !is_disabled_control(doc, r))
+                    .collect();
+                let i = group.iter().position(|&r| r == from).unwrap_or(0);
+                let n = group.len();
+                let forward = matches!(k.key, Key::ArrowDown | Key::ArrowRight);
+                let next = if forward {
+                    group[(i + 1) % n]
+                } else {
+                    group[(i + n - 1) % n]
+                };
+                if next != from {
+                    self.move_focus(doc, Some(next));
+                    self.activate_checkbox(doc, next, EventData::default());
                 }
             }
             DomEventData::KeyDown(k) if focused_button.is_some() && k.key == Key::Enter => {
