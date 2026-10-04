@@ -40,6 +40,9 @@ pub struct Timers<C> {
 
 impl<C: Clone> Timers<C> {
     pub fn new(origin: f64) -> Self {
+        if crate::probe_mode() {
+            crate::timeline::set_virtual(CLOCK_START);
+        }
         Timers {
             entries: Vec::new(),
             next: 1_000_000_000_000,
@@ -109,6 +112,11 @@ impl<C: Clone> Timers<C> {
             .map(|(i, _)| i)?;
         let e = &mut self.entries[i];
         self.now = self.now.max(e.call_at);
+        // Probes: animations follow the virtual clock (layout reads in
+        // the callback resolve styles at its time).
+        if crate::probe_mode() {
+            crate::timeline::set_virtual(self.now);
+        }
         let taken = (e.kind, e.callback.clone());
         if e.kind == TimerKind::Interval {
             e.call_at += e.delay;

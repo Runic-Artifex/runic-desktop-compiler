@@ -60,7 +60,7 @@ test('CSS keeps entry import order', async () => {
   assert.ok(ab.indexOf('red') < ab.indexOf('blue'));
 });
 
-test('CSS accepts ordinary properties and selectors but not time-based behaviour or remote assets', async () => {
+test('CSS accepts ordinary properties and selectors but not remote assets', async () => {
   const check = (css, expected) =>
     react(
       'import "./s.css";function App(){return <p>Hi</p>;}',
@@ -74,12 +74,53 @@ test('CSS accepts ordinary properties and selectors but not time-based behaviour
       { 's.css': css },
     );
   await check('p:first-child + p { grid-template-columns: 1fr 2fr; opacity: .5 }', undefined);
-  await check('p { transition: color 1s }', 'E_CSS_PROPERTY');
-  await check('@keyframes spin { from { color: red } }', 'E_CSS');
   await check(
     '@font-face{font-family:R;src:url("https://example.invalid/f.woff2") format("woff2");}',
     'E_ASSET',
   );
+});
+
+test('CSS transitions and keyframe animations are accepted where the runtime reproduces them', async () => {
+  const check = (css, expected, line) =>
+    react(
+      'import "./s.css";function App(){return <p>Hi</p>;}',
+      async root =>
+        expected
+          ? assert.rejects(
+              collect(root),
+              e =>
+                e instanceof Diagnostic &&
+                e.code === expected &&
+                e.source?.file === 's.css' &&
+                (line === undefined || e.source.line === line),
+            )
+          : collect(root),
+      { 's.css': css },
+    );
+  await check(
+    '@keyframes spin { to { transform: rotate(360deg) } }\n' +
+      '@keyframes enter { from { opacity: var(--enter-opacity, 0) } }\n' +
+      'p { transition: color 150ms ease, background-color 150ms; animation: spin 1s linear infinite }\n' +
+      'b { animation: enter .2s ease-out .1s backwards; transition-property: transform; transition-duration: .3s }',
+    undefined,
+  );
+  // Stylo discards a finished animation on the next restyle: no forwards fill,
+  // also not through a custom property the stylesheet sets anywhere.
+  await check('p { color: red }\np { animation: spin 1s forwards }', 'E_CSS_PROPERTY', 2);
+  await check('p { animation-fill-mode: both }', 'E_CSS_PROPERTY', 1);
+  await check(
+    '@property --fill { syntax: "*"; inherits: false; initial-value: none; }\n' +
+      'p { animation: spin 1s var(--fill, none) }\n.keep { --fill: forwards }',
+    'E_CSS_PROPERTY',
+    2,
+  );
+  await check(
+    '@property --fill { syntax: "*"; inherits: false; initial-value: none; }\np { animation: spin 1s var(--fill, none) }',
+    undefined,
+  );
+  await check('p { transition: display 1s allow-discrete }', 'E_CSS_PROPERTY', 1);
+  await check('p { animation-timeline: scroll() }', 'E_CSS_PROPERTY', 1);
+  await check('@starting-style { p { opacity: 0 } }', 'E_CSS', 1);
 });
 
 test('CSS that Stylo drops is reported unless verified equivalent in Chromium', async () => {

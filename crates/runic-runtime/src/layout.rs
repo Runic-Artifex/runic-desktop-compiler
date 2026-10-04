@@ -17,7 +17,7 @@ thread_local! {
 /// `scroll` event follows in the rendering step after the next frame's
 /// (`take_clamped`). Blitz keeps the old offset until the next scroll.
 pub(crate) fn resolve(doc: &mut BaseDocument) {
-    doc.resolve(0.0);
+    crate::timeline::resolve(doc);
     let root = doc.try_root_element().map(|r| r.id);
     let mut scrolled: Vec<NodeId> = doc
         .tree()

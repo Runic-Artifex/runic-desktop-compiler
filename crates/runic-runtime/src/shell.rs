@@ -103,7 +103,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     );
     // Fonts arrive through the net provider and register on resolve.
     for _ in 0..4 {
-        doc.resolve(0.0);
+        crate::timeline::resolve(&mut doc);
     }
     listeners.settle(&mut doc);
     let mut native = Native {
@@ -121,7 +121,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     // Loaded: then the host's work queued while the app mounted.
     crate::history::loaded();
     native.host_tasks();
-    native.doc.resolve(0.0);
+    crate::timeline::resolve(&mut native.doc);
     native.listeners.settle(&mut native.doc);
     native
 }

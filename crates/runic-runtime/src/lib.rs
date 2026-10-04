@@ -21,6 +21,7 @@ pub use runic_js::reorder;
 mod select;
 mod shell;
 mod storage;
+mod timeline;
 mod timers;
 
 pub use blitz_traits::node_id::NodeId;
