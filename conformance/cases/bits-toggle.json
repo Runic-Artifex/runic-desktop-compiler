@@ -1,0 +1,26 @@
+{
+  "description": "bits-ui's Toggle compiled from its published source through shadcn-svelte's unmodified toggle wrapper (tailwind-variants toggleVariants in its module script; mergeProps with an object literal { type }) and its demos toggle-sm, toggle-lg, toggle-outline, toggle-with-text and toggle-disabled, and a toggle bound to the app (bind:pressed, onPressedChange, disabled from outside). The main demo, toggle-demo, is rejected: it fills its icon with a Tailwind fill utility, CSS that Blitz does not apply to inline SVG (E_CSS_PROPERTY). Pressed by clicks, by Enter and Space on the focused toggle (the button's own activation), from outside; disabled toggles ignore clicks; aria-pressed, data-state on/off, the hover and pressed backgrounds and the keyboard focus ring (pixel regions)",
+  "fixtures": ["bits-toggle-svelte"],
+  "pixelRegions": ["sizes", "outline", "row"],
+  "actions": [
+    { "kind": "click", "id": "bound" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "press" },
+    { "kind": "click", "id": "disable" },
+    { "kind": "click", "id": "bound" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "disable" },
+    { "kind": "hover", "id": "bound" },
+    { "kind": "wait", "ms": 200 }
+  ]
+}
