@@ -1650,6 +1650,7 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
     let mut init = String::new();
     for (i, cell) in c.cells.iter().enumerate() {
         let mut cx = FnCtx::new(p, Some(k), vec![], None, Type::Void);
+        cx.init = true;
         let v = cx.expr(&cell.init);
         let check = match cell.domain {
             Some(Domain::Text { max_utf16 }) => format!(

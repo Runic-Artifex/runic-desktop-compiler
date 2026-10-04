@@ -32,6 +32,9 @@ pub struct FnCtx<'a> {
     /// Whether a `snap` variable holds the render snapshot (functions and
     /// handlers); elsewhere it is the instance's current snapshot.
     pub snap: bool,
+    /// Initialising cells: the snapshot is the cells initialised so far
+    /// (as the interpreter commits each one), so `snapshot` reads see them.
+    pub init: bool,
 }
 
 pub fn rust_str(s: &str) -> String {
@@ -80,6 +83,7 @@ impl<'a> FnCtx<'a> {
             no_exits: 0,
             errors: vec![],
             snap: false,
+            init: false,
         }
     }
 
@@ -134,6 +138,9 @@ impl<'a> FnCtx<'a> {
                 )
             }
             Read::Snapshot if self.snap => format!("snap.c{cell}.clone()"),
+            Read::Snapshot if self.init => {
+                format!("{{ let v = inst.borrow().c.c{cell}.clone(); v }}")
+            }
             Read::Snapshot => format!("{{ let v = inst.borrow().snap.c{cell}.clone(); v }}"),
         }
     }
