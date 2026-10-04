@@ -9,6 +9,7 @@ pub mod clipboard;
 pub mod console;
 mod controls;
 mod dom;
+mod effects;
 mod events;
 pub mod history;
 mod jobs;

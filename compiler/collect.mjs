@@ -54,10 +54,19 @@ const EQUIVALENT_DROPPED_PROPERTY = new Set([
   '-webkit-text-decoration',
   '-webkit-backdrop-filter',
 ]);
-// Computed by Stylo but not used by Blitz's CPU renderer (docs/BLITZ-GAPS.md).
-const IGNORED_PROPERTY = new Map([
-  ['filter', 'the CPU renderer draws no CSS filters'],
-  ['backdrop-filter', 'the CPU renderer draws no backdrop filters'],
+// The CSS filter functions the CPU renderer draws in `filter` and
+// `backdrop-filter` (docs/research/M6-CPU-RENDERER.md).
+const FILTER_FUNCTIONS = new Set([
+  'blur',
+  'brightness',
+  'contrast',
+  'grayscale',
+  'hue-rotate',
+  'invert',
+  'opacity',
+  'saturate',
+  'sepia',
+  'drop-shadow',
 ]);
 
 const SVG_CSS =
@@ -430,15 +439,6 @@ function checkWithStylo(code, file) {
     if (d.parent?.type === 'rule') decls.push(d);
   });
   const at = (line, column) => ({ file, line, column });
-  for (const d of decls) {
-    const ignored = IGNORED_PROPERTY.get(d.prop);
-    if (ignored)
-      throw new Diagnostic(
-        'E_CSS_PROPERTY',
-        `Unsupported CSS declaration ${d.prop}: ${ignored}`,
-        at(d.source.start.line, d.source.start.column),
-      );
-  }
   const result = cssCheck(
     code,
     decls.map(d => [d.prop, d.value]),
@@ -510,6 +510,78 @@ function possibleKeywords(value, values, seen = new Set()) {
   return words;
 }
 
+/**
+ * The values a `var()` node can stand for: its fallback and every value the
+ * stylesheet gives the custom property (a superset, as for possibleKeywords).
+ * Names in `seen` are not expanded again.
+ */
+function varAlternatives(node, values, seen) {
+  const comma = node.nodes.findIndex(x => x.type === 'div' && x.value === ',');
+  const alternatives = comma >= 0 ? [valueParser.stringify(node.nodes.slice(comma + 1))] : [];
+  const name = node.nodes[0]?.value;
+  if (name && !seen.has(name)) alternatives.push(...(values.get(name) ?? []));
+  return { name, alternatives };
+}
+
+const COLOR_FUNCTIONS =
+  /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark|contrast-color)$/i;
+
+/**
+ * Whether the argument nodes of a shadow name a colour: a colour function, a
+ * hex colour or colour keyword, or a var() whose every possible value does.
+ * Stylo has validated the declarations without var(), so a word that is not
+ * a number or length is a colour keyword there.
+ */
+function namesColor(nodes, values, seen = new Set()) {
+  return nodes.some(n => {
+    if (n.type === 'word')
+      return !valueParser.unit(n.value) && n.value.toLowerCase() !== 'currentcolor';
+    if (n.type !== 'function') return false;
+    if (n.value.toLowerCase() !== 'var') return COLOR_FUNCTIONS.test(n.value);
+    const { name, alternatives } = varAlternatives(n, values, seen);
+    const inner = new Set([...seen, name]);
+    return (
+      alternatives.length > 0 &&
+      alternatives.every(v => namesColor(valueParser(v).nodes, values, inner))
+    );
+  });
+}
+
+/**
+ * Why a `filter` or `backdrop-filter` value is outside what the CPU renderer
+ * draws, or undefined: functions other than the CSS filter functions (SVG
+ * filter references with url()), and drop-shadow() without its own colour,
+ * which Blitz draws black instead of in currentColor. Through each var()
+ * every value the stylesheet gives the custom property is checked.
+ */
+function unsupportedFilter(value, values) {
+  const visit = (nodes, seen) => {
+    for (const n of nodes) {
+      if (n.type !== 'function') continue;
+      const name = n.value.toLowerCase();
+      if (name === 'var') {
+        const { name: property, alternatives } = varAlternatives(n, values, seen);
+        const inner = new Set([...seen, property]);
+        for (const v of alternatives) {
+          const problem = visit(valueParser(v).nodes, inner);
+          if (problem) return problem;
+        }
+        continue;
+      }
+      if (!FILTER_FUNCTIONS.has(name))
+        return `${name}() is not a CSS filter function the CPU renderer draws (SVG filter references are not supported)`;
+      if (
+        name === 'drop-shadow' &&
+        (!namesColor(n.nodes, values) ||
+          possibleKeywords(valueParser.stringify(n.nodes), values).has('currentcolor'))
+      )
+        return 'drop-shadow() needs its own colour: Blitz draws a shadow without one (currentColor) in black';
+    }
+    return undefined;
+  };
+  return visit(valueParser(value).nodes, new Set());
+}
+
 const SCROLL_DRIVEN =
   /^(animation-timeline|animation-range(-start|-end)?|scroll-timeline(-name|-axis)?|view-timeline(-name|-axis|-inset)?|timeline-scope)$/;
 
@@ -570,6 +642,19 @@ function checkRules(css, file) {
         `Unsupported CSS declaration ${decl.prop}: ${unsupported}`,
         {
           file: file,
+          line: decl.source.start.line,
+          column: decl.source.start.column,
+        },
+      );
+    const filter = /^(backdrop-)?filter$/.test(decl.prop)
+      ? unsupportedFilter(decl.value, values)
+      : undefined;
+    if (filter)
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration ${decl.prop}: ${filter}`,
+        {
+          file,
           line: decl.source.start.line,
           column: decl.source.start.column,
         },

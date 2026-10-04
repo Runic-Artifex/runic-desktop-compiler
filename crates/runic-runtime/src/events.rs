@@ -403,6 +403,7 @@ impl<A: App> Native<A> {
                 "runic: E_FONT: {text} is not drawn: no font of its font-family is embedded in the app"
             ));
         }
+        crate::effects::report_filter_deviations(&self.doc);
         self.listeners.settle(&mut self.doc);
         let clamped = crate::layout::take_clamped();
         for &node in &clamped {

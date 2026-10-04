@@ -667,6 +667,8 @@ pub(crate) fn run<A: App>() {
     let mut observe = |native: &mut Native<A>, action: Value, index: usize, action_us: f64| {
         // The viewport as resize actions left it.
         let (width, height) = native.doc.viewport().window_size;
+        // Every observed state, the mounted one included (frames check later ones).
+        crate::effects::report_filter_deviations(&native.doc);
         let mut step = snapshot(native, width, height);
         step["action"] = action;
         step["outcomes"] = json!(std::mem::take(&mut native.log));
