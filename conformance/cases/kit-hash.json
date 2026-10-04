@@ -1,0 +1,22 @@
+{
+  "description": "A SvelteKit app like the Translations Editor (hash router, one layout around the pages, <svelte:head> titles, app.html attributes): the start at /, link clicks (Kit navigates after a frame and a timer), the layout keeping its instance and state across navigations, the page's reactive title, $app/state page (url, route.id, status), an unknown route rendering Kit's default error page through hooks.client's handleError, back and forward, the live-region announcer with the title after each navigation, focus reset to the document start (Tab then reaches the first link)",
+  "fixtures": ["kit-hash-svelte"],
+  "clock": true,
+  "actions": [
+    { "kind": "click", "id": "count" },
+    { "kind": "click", "id": "count" },
+    { "kind": "click", "id": "open" },
+    { "kind": "click", "id": "nav-about" },
+    { "kind": "wait", "ms": 20 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "click", "id": "nav-missing" },
+    { "kind": "wait", "ms": 20 },
+    { "kind": "back" },
+    { "kind": "back" },
+    { "kind": "click", "id": "count" },
+    { "kind": "forward" },
+    { "kind": "click", "id": "nav-home" },
+    { "kind": "wait", "ms": 20 },
+    { "kind": "click", "id": "open" }
+  ]
+}

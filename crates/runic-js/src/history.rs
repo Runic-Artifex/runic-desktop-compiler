@@ -12,6 +12,20 @@
 use crate::{JsString, Throw};
 use url::{Position, Url};
 
+/// `document.title` as read: the title text with ASCII whitespace stripped
+/// and collapsed (the HTML standard's title getter).
+pub fn document_title(raw: &JsString) -> JsString {
+    let ws = |u: &u16| matches!(*u, 0x09 | 0x0A | 0x0C | 0x0D | 0x20);
+    let mut out: Vec<u16> = Vec::new();
+    for part in raw.units().split(ws).filter(|p| !p.is_empty()) {
+        if !out.is_empty() {
+            out.push(0x20);
+        }
+        out.extend_from_slice(part);
+    }
+    JsString::from_units(out)
+}
+
 /// The stand-in origin of relative locations (never observable).
 const BASE: &str = "http://runic.invalid/";
 

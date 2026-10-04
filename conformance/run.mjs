@@ -82,7 +82,9 @@ try {
             clipboard: c.clipboard,
             seed: c.seed,
           };
-          const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
+          // document.title is a host effect of programs that set it (M6).
+          const trackTitle = /"document\.set-title"/.test(JSON.stringify(ir));
+          const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, trackTitle, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
           const n = runProbe(binary, { viewport, actions, ...env, visibleTargets: true, out: values.pixels ? path.join(shots, 'native') : undefined });
           run.browser = { framework: b.framework, browserVersion: browser.browserVersion, errors: b.errors };
           run.mountUs = n.mountUs;

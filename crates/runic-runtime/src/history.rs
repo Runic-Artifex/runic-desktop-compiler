@@ -68,7 +68,7 @@ pub fn state() -> Option<JsString> {
 
 /// `document.title`.
 pub fn title() -> JsString {
-    TITLE.with(|t| t.borrow().clone())
+    TITLE.with(|t| runic_js::history::document_title(&t.borrow()))
 }
 
 /// `document.title = value`.

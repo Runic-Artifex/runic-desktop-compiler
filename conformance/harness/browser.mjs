@@ -10,7 +10,10 @@
 // frames in the page. It never forces blur or mutates app state to settle.
 import { createServer } from 'vite';
 import { createServer as createNetServer } from 'node:net';
-import { mkdir, readFile, realpath } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, realpath, rm } from 'node:fs/promises';
+import { createServer as createHttpServer } from 'node:http';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -46,10 +49,85 @@ function freePort() {
   });
 }
 
+/** Kit builds of this process, by fixture and source hash. */
+const kitBuilds = new Map();
+
+/** The files of a fixture directory (sources only), relative, sorted. */
+async function sourceFiles(dir, rel = '') {
+  const out = [];
+  for (const entry of (await readdir(path.join(dir, rel), { withFileTypes: true })).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )) {
+    if (['node_modules', '.svelte-kit', 'build', 'dist'].includes(entry.name)) continue;
+    const r = path.join(rel, entry.name);
+    if (entry.isDirectory()) out.push(...(await sourceFiles(dir, r)));
+    else out.push(r);
+  }
+  return out;
+}
+
+/**
+ * A SvelteKit fixture runs as the real Kit app: a copy of it (under
+ * .cache/conformance/kit/) is built by Kit with the fixture's own Vite and
+ * Svelte configs (adapter-static with an SPA fallback page), and the build
+ * is served with that fallback for every path that is not a file.
+ */
+async function serveKitFixture(root, config) {
+  const files = await sourceFiles(root);
+  const digest = createHash('sha256');
+  for (const f of files) digest.update(f).update(await readFile(path.join(root, f)));
+  const key = `${root}\0${digest.digest('hex')}`;
+  let site = kitBuilds.get(key);
+  if (!site) {
+    const work = path.join(repo, '.cache/conformance/kit', path.basename(root));
+    await rm(work, { recursive: true, force: true });
+    await mkdir(work, { recursive: true });
+    for (const f of files) {
+      await mkdir(path.dirname(path.join(work, f)), { recursive: true });
+      await copyFile(path.join(root, f), path.join(work, f));
+    }
+    // Kit reads svelte.config.js from the working directory.
+    const r = spawnSync(process.execPath, [path.join(repo, 'node_modules/vite/bin/vite.js'), 'build'], {
+      cwd: work,
+      encoding: 'utf8',
+      maxBuffer: 64 << 20,
+    });
+    if (r.status !== 0) throw new Error(`Kit build of ${root} failed:\n${r.stdout}\n${r.stderr}`);
+    site = path.join(work, 'build');
+    kitBuilds.set(key, site);
+  }
+  const types = { '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
+  const server = createHttpServer(async (req, res) => {
+    const pathname = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    let file = path.join(site, pathname);
+    if (!file.startsWith(site)) file = path.join(site, 'index.html');
+    let body;
+    try {
+      body = await readFile(file);
+    } catch {
+      file = path.join(site, 'index.html');
+      body = await readFile(file);
+    }
+    res.writeHead(200, { 'content-type': types[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+    res.end(body);
+  });
+  const port = await freePort();
+  await new Promise(resolve => server.listen(port, '127.0.0.1', resolve));
+  return {
+    url: `http://127.0.0.1:${port}/`,
+    framework: 'sveltekit',
+    version: JSON.parse(await readFile(path.join(repo, 'node_modules/@sveltejs/kit/package.json'), 'utf8')).version,
+    // The element Kit mounts in: app.html's <div …>%sveltekit.body%</div>.
+    container: 'body > div',
+    close: () => new Promise(resolve => server.close(resolve)),
+  };
+}
+
 /** Starts a Vite dev server for an original fixture on a free loopback port. */
 export async function serveFixture(fixture) {
   const root = await realpath(fixture);
   const config = JSON.parse(await readFile(path.join(root, 'runic.json'), 'utf8'));
+  if (config.kit) return serveKitFixture(root, config);
   const tooling = await frontendTooling(root, config);
   const server = await createServer({
     root,
@@ -76,10 +154,25 @@ export async function serveFixture(fixture) {
 
 // --- Page-side helpers (serialized into the page by Playwright) ---
 
-function pageSnapshot() {
-  const root = document.getElementById('root');
+/**
+ * The snapshot of the app's container (`#root`, or a SvelteKit app's
+ * mount element, `container`). In a Kit container the bootstrap that
+ * app.html's `%sveltekit.body%` became (a <script> element and the
+ * whitespace around it, before the app's nodes) is Kit's static page,
+ * not app DOM, and is left out; the native app has no such nodes.
+ */
+function pageSnapshot(container) {
+  const root = container ? document.querySelector(container) : document.getElementById('root');
   const active = document.activeElement;
+  const bootstrap = new Set();
+  if (container)
+    for (const c of root.childNodes) {
+      if (c.nodeType === Node.ELEMENT_NODE && c.localName === 'script') bootstrap.add(c);
+      else if (c.nodeType === Node.TEXT_NODE && !c.data.trim()) bootstrap.add(c);
+      else if (c.nodeType !== Node.COMMENT_NODE) break;
+    }
   const node = n => {
+    if (bootstrap.has(n)) return null;
     if (n.nodeType === Node.TEXT_NODE) return n.data === '' ? null : { text: n.data };
     if (n.nodeType !== Node.ELEMENT_NODE) return null; // framework comment anchors
     const attributes = Object.fromEntries(
@@ -103,6 +196,7 @@ function pageSnapshot() {
   };
   const geometry = {};
   for (const e of [root, ...root.querySelectorAll('[id]')]) {
+    if (!e.id) continue;
     const r = e.getBoundingClientRect();
     geometry[e.id] = { x: r.x, y: r.y, width: r.width, height: r.height };
   }
@@ -118,9 +212,13 @@ function pageSnapshot() {
   };
 }
 
-/** The location and history length (host snapshot fields; clipboard text is read separately). */
-function pageLocation() {
-  return { href: location.href.slice(location.origin.length), historyLength: history.length };
+/** The location and history length (host snapshot fields; clipboard text is read separately), and the title where tracked. */
+function pageLocation(title) {
+  return {
+    href: location.href.slice(location.origin.length),
+    historyLength: history.length,
+    ...(title ? { title: document.title } : {}),
+  };
 }
 
 /**
@@ -147,12 +245,20 @@ function appSource(url, origin) {
  * lines since the last step, clipboard text, location and history length,
  * each omitted at its default, in the order the probe and interpreter use.
  */
-export function hostSnapshot({ console: lines = [], clipboard = '', href = '/', historyLength = 1 }) {
+export function hostSnapshot({
+  console: lines = [],
+  clipboard = '',
+  href = '/',
+  historyLength = 1,
+  title = '',
+}) {
   const host = {};
   if (lines.length) host.console = lines;
   if (clipboard !== '') host.clipboard = clipboard;
   if (href !== '/') host.href = href;
   if (historyLength !== 1) host.historyLength = historyLength;
+  // document.title (programs that set it; M6).
+  if (title !== '') host.title = textJson(title);
   return Object.keys(host).length ? host : undefined;
 }
 
@@ -291,7 +397,14 @@ const twoFrames = () =>
  * catch the fallback font.
  */
 async function loaded(page) {
-  await page.waitForFunction(() => document.getElementById('root')?.childNodes.length > 0);
+  const container = page.__runicContainer;
+  if (container)
+    // A SvelteKit app: its first element besides Kit's bootstrap script.
+    await page.waitForFunction(
+      c => [...(document.querySelector(c)?.children ?? [])].some(e => e.localName !== 'script'),
+      container,
+    );
+  else await page.waitForFunction(() => document.getElementById('root')?.childNodes.length > 0);
   await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await page.addStyleTag({ content: '* { caret-color: transparent !important; }' });
 }
@@ -419,6 +532,7 @@ export async function createBrowserHarness() {
         timezone = 'UTC',
         locale = 'en-US',
         clock: fakeClock = false,
+        trackTitle = false,
         url = '/',
         clipboard = '',
         seed = 1,
@@ -464,6 +578,23 @@ export async function createBrowserHarness() {
         const page = await context.newPage();
         await page.addInitScript(seedRandomness, [seed, appSource.toString()]);
         await page.addInitScript(trackClipboard, clipboard);
+        page.__runicContainer = server.container;
+        // Fetches in flight (settling waits for them), counted without
+        // changing the promise the app gets.
+        if (server.container)
+          await page.addInitScript(() => {
+            const fetch = window.fetch;
+            window.__runicFetches = 0;
+            window.fetch = function fetch_(...args) {
+              const p = fetch.apply(this, args);
+              window.__runicFetches++;
+              const done = () => {
+                window.__runicFetches--;
+              };
+              p.then(done, done);
+              return p;
+            };
+          });
         // localStorage items the case starts with.
         if (storage)
           await page.addInitScript(items => {
@@ -493,8 +624,20 @@ export async function createBrowserHarness() {
         }
         // With the fake clock, animation frames only run in virtual time, so
         // settling waits for real rendering instead.
-        const settle = () =>
+        const settleFrames = () =>
           clock ? new Promise(r => setTimeout(r, 50)) : page.evaluate(twoFrames);
+        // A SvelteKit app may wait for a fetch (version.json before an
+        // error page): settling also waits for the fetches in flight.
+        const settle = async () => {
+          await settleFrames();
+          if (!server.container) return;
+          let waited = false;
+          while (await page.evaluate(() => window.__runicFetches > 0)) {
+            waited = true;
+            await new Promise(r => setTimeout(r, 10));
+          }
+          if (waited) await settleFrames();
+        };
         const time = {
           now: CLOCK_START,
           stepped: false,
@@ -548,7 +691,7 @@ export async function createBrowserHarness() {
         const steps = [];
         const observe = async (action, index, timing) => {
           let t = performance.now();
-          const snapshot = await page.evaluate(pageSnapshot);
+          const snapshot = await page.evaluate(pageSnapshot, server.container);
           const clip = await page.evaluate(clipboardState);
           if ('actual' in clip && clip.actual !== clip.recorded)
             throw new Error(
@@ -557,7 +700,7 @@ export async function createBrowserHarness() {
           const host = hostSnapshot({
             console: lines,
             clipboard: clip.recorded,
-            ...(await page.evaluate(pageLocation)),
+            ...(await page.evaluate(pageLocation, trackTitle)),
           });
           lines = [];
           if (host) snapshot.host = host;

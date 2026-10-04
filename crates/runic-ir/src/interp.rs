@@ -2529,7 +2529,7 @@ impl<'p> Machine<'p> {
                 None => Val::Null,
             },
             // The document (M6).
-            ("document", "title") => Val::Str(self.host.title.clone()),
+            ("document", "title") => Val::Str(js::history::document_title(&self.host.title)),
             ("document", "set-title") => {
                 self.host.title = a[0].string();
                 Val::Undefined
@@ -3885,8 +3885,9 @@ impl<'p> Machine<'p> {
         if self.host.session.length() != 1 {
             host.insert("historyLength".into(), json!(self.host.session.length()));
         }
-        if !self.host.title.is_empty() {
-            host.insert("title".into(), text_json(&self.host.title));
+        let title = js::history::document_title(&self.host.title);
+        if !title.is_empty() {
+            host.insert("title".into(), text_json(&title));
         }
         if !host.is_empty() {
             state["host"] = Json::Object(host);
