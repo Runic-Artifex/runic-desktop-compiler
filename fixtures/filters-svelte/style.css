@@ -1,0 +1,42 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 16px; }
+.controls { display: flex; gap: 8px; margin-bottom: 12px; }
+button { font-family: RunicFixture; font-size: 14px; height: 36px; padding: 0 16px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+
+/* Large coloured areas so that the whole-viewport pixel gate sees every filter. */
+.grid { display: grid; grid-template-columns: repeat(5, 148px); gap: 8px; }
+.cell { height: 112px; padding: 14px 12px; background: #f6f3ec; }
+.tile { display: flex; width: 112px; height: 72px; border: 3px solid rgb(40, 44, 60); border-radius: 8px; overflow: hidden; background: rgb(250, 236, 180); }
+.a, .b, .c { flex: 1; }
+.a { background: rgb(214, 64, 52); }
+.b { background: rgb(46, 140, 86); }
+.c { display: flex; align-items: center; justify-content: center; background: rgb(52, 92, 196); }
+.dot { width: 18px; height: 18px; border-radius: 50%; background: rgb(255, 214, 0); }
+
+/* Each CSS filter function. */
+.brightness { filter: brightness(0.6); }
+.contrast { filter: contrast(180%); }
+.grayscale { filter: grayscale(1); }
+.hue-rotate { filter: hue-rotate(140deg); }
+/* A filtered element inside a filtered element. */
+.hue-rotate .dot { filter: invert(1); }
+.invert { filter: invert(0.85); }
+.opacity { filter: opacity(45%); }
+.saturate { filter: saturate(2.5); }
+.sepia { filter: sepia(0.9); }
+.blur { filter: blur(5px); }
+.shadow-hard { filter: drop-shadow(10px 8px 0 rgb(30, 30, 60)); }
+.shadow-soft { filter: drop-shadow(6px 6px 6px rgb(0 0 0 / 0.6)); }
+
+/* Filter lists apply each function to the result of the previous one. */
+.list { filter: contrast(1.3) hue-rotate(-60deg) saturate(1.6) brightness(1.1); }
+.list-shadow { filter: blur(2px) drop-shadow(4px 4px 3px rgb(120 0 80 / 0.7)) sepia(0.5); }
+
+/* A filter is applied before the element's opacity. */
+.with-opacity { opacity: 0.7; filter: grayscale(0.6) invert(0.2); }
+
+/* A filter transition: matching lists interpolate function by function. */
+.animated { filter: brightness(1) saturate(1); transition: filter 400ms linear; }
+.animated.dimmed { filter: brightness(0.5) saturate(3); }

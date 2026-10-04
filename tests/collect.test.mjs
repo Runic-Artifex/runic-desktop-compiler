@@ -155,16 +155,52 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   await check('p { color: red }\n@container (width > 10px) { p { color: blue } }', 'E_CSS', 2);
   await check('p { color: red }\np { field-sizing: content }', 'E_CSS_PROPERTY', 2);
   await check('p { -webkit-line-clamp: 2 }', 'E_CSS_PROPERTY', 1);
-  await check('p { filter: blur(2px) }', 'E_CSS_PROPERTY', 1);
-  // Identity filters on every path the stylesheet allows draw nothing in Chromium either.
-  await check('p { filter: blur(var(--tw-enter-blur, 0)); }\nb { filter: none }', undefined);
+});
+
+test('CSS filter lists are accepted where the CPU renderer draws them', async () => {
+  const check = (css, expected, line) =>
+    react(
+      'import "./s.css";function App(){return <p>Hi</p>;}',
+      async root =>
+        expected
+          ? assert.rejects(
+              collect(root),
+              e =>
+                e instanceof Diagnostic &&
+                e.code === expected &&
+                e.source?.file === 's.css' &&
+                (line === undefined || e.source.line === line),
+            )
+          : collect(root),
+      { 's.css': css },
+    );
   await check(
-    'p { filter: blur(var(--tw-enter-blur, 0)) }\n.in { --tw-enter-blur: 4px }',
-    'E_CSS_PROPERTY',
-    1,
+    'p { filter: blur(2px) brightness(1.2) contrast(80%) grayscale(1) hue-rotate(90deg) invert(.5) opacity(.4) saturate(2) sepia(1) }\n' +
+      'b { filter: drop-shadow(2px 4px 6px rgb(0 0 0 / .5)) drop-shadow(red 1px 1px); transition: filter .2s }\n' +
+      '@keyframes glow { to { filter: brightness(1.5) } }\ni { filter: none }\n' +
+      'u { backdrop-filter: blur(8px) saturate(1.5); -webkit-backdrop-filter: blur(8px) saturate(1.5) }',
+    undefined,
   );
-  await check('p { filter: brightness(var(--b, 1)) blur(0px) }\n.x { --b: 100% }', undefined);
-  await check('p { backdrop-filter: blur(2px) }', 'E_CSS_PROPERTY', 1);
+  // Tailwind's composition through custom properties: every value is checked.
+  await check(
+    ':root { --drop-shadow-md: 0 3px 3px rgb(0 0 0 / 0.12) }\n' +
+      '.a { --tw-blur: blur(8px); filter: var(--tw-blur,) var(--tw-drop-shadow,) }\n' +
+      '.b { --tw-drop-shadow: drop-shadow(var(--drop-shadow-md)) }\n' +
+      '.c { --tw-drop-shadow: drop-shadow(0 1px 1px var(--tw-drop-shadow-color, rgb(0 0 0 / .05))) }\n' +
+      '.d { --tw-drop-shadow-color: oklch(63.7% 0.237 25.331) }',
+    undefined,
+  );
+  // SVG filter references and drop shadows in currentColor (Blitz draws them black).
+  await check('p { color: red }\np { filter: url(#f) }', 'E_CSS_PROPERTY', 2);
+  await check('p { filter: drop-shadow(2px 2px 4px) }', 'E_CSS_PROPERTY', 1);
+  await check('p { filter: blur(1px) drop-shadow(currentColor 2px 2px) }', 'E_CSS_PROPERTY', 1);
+  await check(
+    '.a { --c: currentColor }\n.b { filter: drop-shadow(1px 1px var(--c, red)) }',
+    'E_CSS_PROPERTY',
+    2,
+  );
+  await check('.a { --f: url(#x) }\n.b { filter: var(--f, none) }', 'E_CSS_PROPERTY', 2);
+  await check('p { backdrop-filter: url(#f) }', 'E_CSS_PROPERTY', 1);
 });
 
 test('malformed Svelte source reports a located parse error', async () => {

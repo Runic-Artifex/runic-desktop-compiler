@@ -1,0 +1,26 @@
+{
+  "description": "CSS filters in the CPU renderer (forked vello_cpu and anyrender_vello_cpu): each filter function (brightness, contrast, grayscale, hue-rotate with a nested invert, invert, opacity, saturate, sepia, blur), hard and soft drop shadows, filter lists (colour functions; blur, drop shadow and sepia), a filter under opacity, and a filter transition sampled mid-way; every cell is a pixel region",
+  "fixtures": ["filters-svelte"],
+  "pixelRegions": [
+    "brightness",
+    "contrast",
+    "grayscale",
+    "hue-rotate",
+    "invert",
+    "opacity",
+    "saturate",
+    "sepia",
+    "blur",
+    "shadow-hard",
+    "shadow-soft",
+    "list",
+    "list-shadow",
+    "with-opacity",
+    "animated"
+  ],
+  "actions": [
+    { "kind": "click", "id": "toggle" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "wait", "ms": 300 }
+  ]
+}

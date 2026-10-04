@@ -26,7 +26,9 @@ blitz-paint = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev 
 anyrender = "=0.14.0"
 kurbo = "=0.13.1"
 peniko = "=0.6.1"
-anyrender_vello_cpu = { version = "=0.18.0", features = ["softbuffer_window_renderer"] }
+# `backdrop_filters` (with `filters`): CSS `filter` lists and `backdrop-filter`
+# in the CPU renderer, with the patched crates below.
+anyrender_vello_cpu = { version = "=0.18.0", features = ["softbuffer_window_renderer", "backdrop_filters"] }
 anyrender_vello = "=0.15.0"
 winit = "=0.31.0-beta.3"
 markup5ever = "=0.40.0"
@@ -43,6 +45,21 @@ runic-js = { path = "crates/runic-js" }
 runic-ir = { path = "crates/runic-ir" }
 runic-runtime = { path = "crates/runic-runtime" }
 runic-css = { path = "crates/runic-css" }
+
+# The CPU renderer's forks (docs/research/M6-CPU-RENDERER.md): the published
+# vello_cpu 0.3.0 and anyrender 0.14 releases plus colour-matrix filters, filter
+# lists and backdrop filters. Every crate of each repository in the graph is patched,
+# so that crates.io and git copies are never mixed.
+[patch.crates-io]
+vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3" }
+vello_common = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3" }
+glifo = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3" }
+anyrender = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
+anyrender_vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
+anyrender_vello = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
+anyrender_svg = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
+softbuffer_window_renderer = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
+wgpu_context = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
 
 [profile.dev]
 debug = 0

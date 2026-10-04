@@ -1,0 +1,7 @@
+{
+  "description": "CSS backdrop-filter in the CPU renderer (forked anyrender_vello_cpu): a translucent panel blurring the stripes behind it, a filter list (grayscale, contrast), a filtered backdrop under the element's opacity, and a full-viewport dialog overlay that blurs the page up to the viewport's edges",
+  "fixtures": ["backdrop-svelte"],
+  "viewports": [[800, 600]],
+  "pixelRegions": ["glass", "mono", "faded"],
+  "actions": [{ "kind": "click", "id": "open" }]
+}

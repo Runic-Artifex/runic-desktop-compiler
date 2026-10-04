@@ -55,10 +55,19 @@ const EQUIVALENT_DROPPED_PROPERTY = new Set([
   '-webkit-text-decoration',
   '-webkit-backdrop-filter',
 ]);
-// Computed by Stylo but not used by Blitz's CPU renderer (docs/BLITZ-GAPS.md).
-const IGNORED_PROPERTY = new Map([
-  ['filter', 'the CPU renderer draws no CSS filters'],
-  ['backdrop-filter', 'the CPU renderer draws no backdrop filters'],
+// The CSS filter functions the CPU renderer draws in `filter` and
+// `backdrop-filter` (docs/research/M6-CPU-RENDERER.md).
+const FILTER_FUNCTIONS = new Set([
+  'blur',
+  'brightness',
+  'contrast',
+  'grayscale',
+  'hue-rotate',
+  'invert',
+  'opacity',
+  'saturate',
+  'sepia',
+  'drop-shadow',
 ]);
 
 const SVG_CSS =
@@ -491,19 +500,6 @@ function checkWithStylo(code, file) {
     if (d.parent?.type === 'rule') decls.push(d);
   });
   const at = (line, column) => ({ file, line, column });
-  const filterValues = customPropertyValues(css);
-  for (const d of decls) {
-    const ignored = IGNORED_PROPERTY.get(d.prop);
-    // A filter that is the identity on every path the stylesheet allows
-    // (tw-animate-css's blur(var(--tw-enter-blur, 0)) when nothing sets the
-    // blur) draws nothing in Chromium either.
-    if (ignored && !identityFilter(d.value, filterValues))
-      throw new Diagnostic(
-        'E_CSS_PROPERTY',
-        `Unsupported CSS declaration ${d.prop}: ${ignored}`,
-        at(d.source.start.line, d.source.start.column),
-      );
-  }
   const result = cssCheck(
     code,
     decls.map(d => [d.prop, d.value]),
@@ -575,6 +571,78 @@ function possibleKeywords(value, values, seen = new Set()) {
   return words;
 }
 
+/**
+ * The values a `var()` node can stand for: its fallback and every value the
+ * stylesheet gives the custom property (a superset, as for possibleKeywords).
+ * Names in `seen` are not expanded again.
+ */
+function varAlternatives(node, values, seen) {
+  const comma = node.nodes.findIndex(x => x.type === 'div' && x.value === ',');
+  const alternatives = comma >= 0 ? [valueParser.stringify(node.nodes.slice(comma + 1))] : [];
+  const name = node.nodes[0]?.value;
+  if (name && !seen.has(name)) alternatives.push(...(values.get(name) ?? []));
+  return { name, alternatives };
+}
+
+const COLOR_FUNCTIONS =
+  /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark|contrast-color)$/i;
+
+/**
+ * Whether the argument nodes of a shadow name a colour: a colour function, a
+ * hex colour or colour keyword, or a var() whose every possible value does.
+ * Stylo has validated the declarations without var(), so a word that is not
+ * a number or length is a colour keyword there.
+ */
+function namesColor(nodes, values, seen = new Set()) {
+  return nodes.some(n => {
+    if (n.type === 'word')
+      return !valueParser.unit(n.value) && n.value.toLowerCase() !== 'currentcolor';
+    if (n.type !== 'function') return false;
+    if (n.value.toLowerCase() !== 'var') return COLOR_FUNCTIONS.test(n.value);
+    const { name, alternatives } = varAlternatives(n, values, seen);
+    const inner = new Set([...seen, name]);
+    return (
+      alternatives.length > 0 &&
+      alternatives.every(v => namesColor(valueParser(v).nodes, values, inner))
+    );
+  });
+}
+
+/**
+ * Why a `filter` or `backdrop-filter` value is outside what the CPU renderer
+ * draws, or undefined: functions other than the CSS filter functions (SVG
+ * filter references with url()), and drop-shadow() without its own colour,
+ * which Blitz draws black instead of in currentColor. Through each var()
+ * every value the stylesheet gives the custom property is checked.
+ */
+function unsupportedFilter(value, values) {
+  const visit = (nodes, seen) => {
+    for (const n of nodes) {
+      if (n.type !== 'function') continue;
+      const name = n.value.toLowerCase();
+      if (name === 'var') {
+        const { name: property, alternatives } = varAlternatives(n, values, seen);
+        const inner = new Set([...seen, property]);
+        for (const v of alternatives) {
+          const problem = visit(valueParser(v).nodes, inner);
+          if (problem) return problem;
+        }
+        continue;
+      }
+      if (!FILTER_FUNCTIONS.has(name))
+        return `${name}() is not a CSS filter function the CPU renderer draws (SVG filter references are not supported)`;
+      if (
+        name === 'drop-shadow' &&
+        (!namesColor(n.nodes, values) ||
+          possibleKeywords(valueParser.stringify(n.nodes), values).has('currentcolor'))
+      )
+        return 'drop-shadow() needs its own colour: Blitz draws a shadow without one (currentColor) in black';
+    }
+    return undefined;
+  };
+  return visit(valueParser(value).nodes, new Set());
+}
+
 const SCROLL_DRIVEN =
   /^(animation-timeline|animation-range(-start|-end)?|scroll-timeline(-name|-axis)?|view-timeline(-name|-axis|-inset)?|timeline-scope)$/;
 
@@ -639,6 +707,19 @@ function checkRules(css, file) {
           column: decl.source.start.column,
         },
       );
+    const filter = /^(backdrop-)?filter$/.test(decl.prop)
+      ? unsupportedFilter(decl.value, values)
+      : undefined;
+    if (filter)
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration ${decl.prop}: ${filter}`,
+        {
+          file,
+          line: decl.source.start.line,
+          column: decl.source.start.column,
+        },
+      );
     // Blitz renders an inline <svg> from its subtree's attributes (usvg), so
     // these SVG-only properties would be ignored natively (docs/BLITZ-GAPS.md).
     if (SVG_CSS.test(decl.prop))
@@ -672,73 +753,5 @@ function checkRules(css, file) {
           column: decl.source.start.column,
         },
       );
-  });
-}
-
-/**
- * The values `value` can take with each `var()` replaced by its fallback or
- * by a value the stylesheet gives the custom property; undefined beyond
- * `limit` combinations.
- */
-function expandVars(value, values, limit = 256, seen = new Set()) {
-  const nodes = valueParser(value).nodes;
-  // Replace the first var() (searching nested functions) by each choice.
-  let target;
-  const find = list => {
-    for (const n of list) {
-      if (target) return;
-      if (n.type === 'function' && n.value === 'var') target = n;
-      else if (n.nodes) find(n.nodes);
-    }
-  };
-  find(nodes);
-  if (!target) return [value];
-  const name = target.nodes[0]?.value;
-  const comma = target.nodes.findIndex(x => x.type === 'div' && x.value === ',');
-  const fallback =
-    comma >= 0 ? valueParser.stringify(target.nodes.slice(comma + 1)).trim() : undefined;
-  const choices = [];
-  // Any element may leave the property unset: the fallback (none: invalid).
-  choices.push(fallback ?? 'none');
-  if (!seen.has(name)) for (const v of values.get(name) ?? []) choices.push(v);
-  const out = [];
-  for (const choice of choices) {
-    const original = { ...target };
-    Object.assign(target, { type: 'word', value: choice, nodes: undefined });
-    const text = valueParser.stringify(nodes);
-    Object.assign(target, original);
-    const rest = expandVars(text, values, limit, new Set([...seen, name]));
-    if (!rest) return undefined;
-    out.push(...rest);
-    if (out.length > limit) return undefined;
-  }
-  return out;
-}
-
-const IDENTITY_FILTER = {
-  blur: ['0', '0px'],
-  brightness: ['1', '100%'],
-  contrast: ['1', '100%'],
-  grayscale: ['0', '0%'],
-  'hue-rotate': ['0', '0deg'],
-  invert: ['0', '0%'],
-  opacity: ['1', '100%'],
-  saturate: ['1', '100%'],
-  sepia: ['0', '0%'],
-};
-
-/** Whether every value `value` can take (see expandVars) is the identity filter. */
-function identityFilter(value, values) {
-  const all = expandVars(value, values);
-  if (!all) return false;
-  return all.every(v => {
-    const text = v.trim();
-    if (text === '' || text === 'none') return true;
-    return valueParser(text).nodes.every(
-      n =>
-        n.type === 'space' ||
-        (n.type === 'function' &&
-          IDENTITY_FILTER[n.value]?.includes(valueParser.stringify(n.nodes).trim())),
-    );
   });
 }

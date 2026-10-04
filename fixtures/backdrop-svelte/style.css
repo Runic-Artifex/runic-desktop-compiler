@@ -1,0 +1,19 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+button { position: absolute; left: 40px; top: 520px; font-family: RunicFixture; font-size: 14px; height: 36px; padding: 0 16px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+
+/* Large coloured stripes so that the whole-viewport pixel gate sees the backdrops. */
+.stripes { position: absolute; left: 0; top: 0; width: 800px; height: 480px; display: flex; }
+.stripe { flex: 1; }
+
+/* Square panels (Blitz clips a backdrop to the border box's bounding rectangle). */
+.panel { position: absolute; top: 60px; width: 200px; height: 160px; display: flex; align-items: center; justify-content: center; border: 2px solid rgb(255 255 255 / 0.8); }
+.chip { width: 40px; height: 40px; background: rgb(255, 255, 255); }
+.glass { left: 40px; background: rgb(255 255 255 / 0.25); backdrop-filter: blur(8px); }
+.mono { left: 300px; backdrop-filter: grayscale(1) contrast(1.2); }
+/* The element's opacity applies to its filtered backdrop too. */
+.faded { left: 560px; top: 260px; opacity: 0.6; backdrop-filter: invert(1) hue-rotate(90deg); }
+
+/* A dialog overlay: the blur reads the page up to the viewport's edges. */
+.overlay { position: fixed; inset: 0; background: rgb(0 0 0 / 0.2); backdrop-filter: blur(3px); }
