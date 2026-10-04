@@ -180,6 +180,17 @@ Svelte compiles a `$state` class field to a private signal with an accessor pair
   - dispatch stays static where the receiver's class is exact, and becomes a per-class method table where it is not;
   - library base classes (`MediaQuery`, `Error`) are packs.
 
+## Inheritance and class unions
+
+bits-ui builds component families on base classes (`SelectBaseRootState` with `SelectSingleRootState` and `SelectMultipleRootState`; Accordion, ToggleGroup, Toolbar, Slider, date and time segments), and passes instances typed as the base class or as a union of subclasses through contexts. The app layer extends library classes (`MediaQuery`, `Error`). IR records have no subtyping, so:
+
+- **Closed world.** The compiler sees every class of the program, so the subclasses of a class are known. A reference whose static type is a class `C` that has subclasses, or a union of classes, gets an IR *class reference* type: `{"class": C}` for `C` or any subclass, `{"classes": [...]}` for a union. It holds the instance with its class tag. A class without subclasses keeps the plain record type, so existing programs are unchanged.
+- **Layout.** A subclass record starts with its base's fields, in order (`super(…)` initialises them first, as JavaScript does). Base methods are lowered once per base, with `this` typed as the base's class reference. Private names are per declaring class.
+- **Field access** through a class reference reads the field every member has (TypeScript guarantees it for the fields it allows). **Method calls** dispatch by the class tag to the most derived override among the known classes, with a match over the closed set of tags. `super.m(…)` is a static call. `instanceof` tests the tag.
+- **Upcasts** wrap a record into a class reference. **Narrowing** (`instanceof`, discriminant checks TypeScript performs) unwraps it, and fails with a `TypeError` only where TypeScript's types were unsound.
+- **Library base classes.** `Error` subclasses carry `name`, `message` and the class tag, so caught values can be tested with `instanceof`. A caught value of unknown type becomes a class reference over the program's error classes plus the built-in error records. `MediaQuery` (`svelte/reactivity`) is a pack class wrapping M5's media query lists.
+- **Rejected:** mixins, `extends` of expressions, abstract members called through `super`, `Symbol.hasInstance`, and changing prototypes.
+
 ## Verification
 
 - Every step adds conformance cases in Chromium. Library steps use small fixtures that import the real packages: one bits-ui primitive per fixture, then the editor's wrappers.
