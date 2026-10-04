@@ -199,11 +199,11 @@ test('React rejects event semantics it cannot model, with locations', async () =
     ],
     [
       'export function App() { const [c, setC] = useState(false); return <input type="checkbox" checked={c} onChange={e => { e.preventDefault(); setC(e.target.checked); }} />; }',
-      /checkbox calls e.preventDefault/,
+      /checkbox or radio button calls e.preventDefault/,
     ],
     [
       'export function App() { const [c, setC] = useState(false); return <input type="checkbox" checked={c} onChange={e => { e.stopPropagation(); setC(e.target.checked); }} />; }',
-      /checkbox calls e.stopPropagation/,
+      /checkbox or radio button calls e.stopPropagation/,
     ],
     // A cancelled checkbox click whose onChange sets state (on the box or an ancestor).
     [

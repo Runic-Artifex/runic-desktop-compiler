@@ -845,6 +845,8 @@ impl Gen<'_> {
                     }
                     let (rty, conv, set) = if p.name == "checked" {
                         ("bool", "", "dom.set_checked(N, v)")
+                    } else if p.name == "selectValue" {
+                        ("String", ".to_rust()", "dom.set_select_value(N, &v)")
                     } else {
                         ("String", ".to_rust()", "dom.set_value(N, &v)")
                     };

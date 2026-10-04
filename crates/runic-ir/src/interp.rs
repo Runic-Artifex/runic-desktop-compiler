@@ -608,6 +608,14 @@ pub struct Machine<'p> {
     control_cache: HashMap<u64, (Option<String>, Option<bool>)>,
     /// The re-render of its instance each `restore: render` control last applied.
     control_renders: HashMap<u64, u64>,
+    /// The option value each `selectValue` select last showed.
+    select_shown: HashMap<u64, String>,
+    /// With `controlledRestore`: the next render restores controlled values
+    /// (set at the mount, by flushes and after each dispatch that ran
+    /// listeners, as the runtime syncs).
+    restore_due: bool,
+    /// Tasks run so far (event listeners, timers).
+    tasks_run: u64,
     /// Class toggle state by element id: the class value, the toggles and
     /// the attribute they produced.
     class_states: HashMap<u64, (JsString, Vec<bool>, Option<JsString>)>,
@@ -764,6 +772,9 @@ impl<'p> Machine<'p> {
             live_checked: HashMap::new(),
             control_cache: HashMap::new(),
             control_renders: HashMap::new(),
+            select_shown: HashMap::new(),
+            restore_due: true,
+            tasks_run: 0,
             class_states: HashMap::new(),
             style_states: HashMap::new(),
             replace_states: HashMap::new(),
@@ -2276,6 +2287,7 @@ impl<'p> Machine<'p> {
         let previous = std::mem::take(&mut self.refs);
         self.rendered_elements.clear();
         let result = self.render_instance(0, &mut out, &mut visited);
+        self.restore_due = false;
         let rendered = std::mem::take(&mut self.rendered_elements);
         self.element_ids.retain(|k, _| rendered.contains(k));
         // Refs of elements that are no longer rendered become null.
@@ -2685,16 +2697,19 @@ impl<'p> Machine<'p> {
                 let mut value = None;
                 let mut checked = None;
                 // Controlled values: applied always (restore) or when they change.
-                let restore = self.program.schedule.controlled_restore;
+                let restore = self.program.schedule.controlled_restore && self.restore_due;
                 // A text area's text content (its children).
                 let mut text_content = None;
                 let restore_render = *restore_mode == Some(Restore::Render);
+                // A select value falling back to the first enabled option (React DOM).
+                let mut first_enabled = false;
                 for p in props {
                     match p.name.as_str() {
                         "defaultValue" => {
                             text_content = Some(self.eval(&p.value, frame)?.string().to_rust());
                         }
-                        "value" => {
+                        "value" | "selectValue" => {
+                            first_enabled = p.name == "selectValue";
                             let v = self.eval(&p.value, frame)?.string().to_rust();
                             // A re-render of the instance since the value was last applied.
                             let renders = self.instances[self.current].renders;
@@ -2781,7 +2796,15 @@ impl<'p> Machine<'p> {
                         .collect();
                     let has = |v: &str| options.iter().any(|(o, _)| o == v);
                     let shown = match value.take() {
-                        Some(v) => has(&v).then_some(v),
+                        Some(v) if has(&v) => Some(v),
+                        // React DOM's updateOptions: else the first enabled
+                        // option, else the selection unchanged.
+                        Some(_) if first_enabled => options
+                            .iter()
+                            .find(|o| !o.1)
+                            .map(|o| o.0.clone())
+                            .or_else(|| self.select_shown.get(&id).filter(|v| has(v)).cloned()),
+                        Some(_) => None,
                         None => self
                             .live_values
                             .get(&id)
@@ -2789,6 +2812,12 @@ impl<'p> Machine<'p> {
                             .cloned()
                             .or_else(|| options.iter().find(|o| !o.1).map(|o| o.0.clone())),
                     };
+                    if first_enabled {
+                        match &shown {
+                            Some(s) => self.select_shown.insert(id, s.clone()),
+                            None => self.select_shown.remove(&id),
+                        };
+                    }
                     value = Some(shown.unwrap_or_default());
                 }
                 out.push(VNode::Element {
@@ -2845,6 +2874,7 @@ impl<'p> Machine<'p> {
         body: impl FnOnce(&mut Self) -> Res<()>,
     ) -> Result<()> {
         let before: Vec<Vec<Val>> = self.instances.iter().map(|i| i.cells.clone()).collect();
+        self.tasks_run += 1;
         self.in_event = event;
         let result = body(self);
         self.payload = None;
@@ -2864,6 +2894,13 @@ impl<'p> Machine<'p> {
         while let Some(job) = self.default_tasks.pop_front() {
             self.run_micro(job);
             self.checkpoint();
+        }
+        // React restores controlled values after the listeners of each
+        // event, also when they wrote no state (the runtime syncs then); a
+        // render error shows at the next render.
+        if event && self.program.schedule.controlled_restore {
+            self.restore_due = true;
+            let _ = self.render();
         }
         let uncaught = std::mem::take(&mut self.uncaught);
         match (result, uncaught.into_iter().next()) {
@@ -3216,6 +3253,7 @@ impl<'p> Machine<'p> {
         self.phase = Some(EffectPhase::Pre);
         let alive_before: Vec<usize> = before.clone();
         self.render_updates = Some(updated.clone());
+        self.restore_due = true;
         let rendered = self.render();
         self.render_updates = None;
         if let Err(d) = rendered {
@@ -3902,6 +3940,7 @@ impl<'p> Machine<'p> {
             .clone()
             .filter(|_| with_click)
             .map(|d| (EventKind::Change, d));
+        let tasks = self.tasks_run;
         let click = self.dispatch(target, EventKind::Click, data, with, s)?;
         let cancelled = click.as_ref().is_some_and(|e| e.default_prevented());
         // The toggle stays unless the click was cancelled.
@@ -3909,6 +3948,12 @@ impl<'p> Machine<'p> {
             self.live_checked.insert(target, on);
             for r in previous {
                 self.live_checked.insert(r, false);
+            }
+            // The toggle preceded the listeners, after which controlled
+            // values are restored (React).
+            if self.program.schedule.controlled_restore && self.tasks_run != tasks {
+                self.restore_due = true;
+                self.render()?;
             }
         }
         if let Some(d) = change.filter(|_| !with_click) {

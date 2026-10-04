@@ -116,11 +116,31 @@ pub(crate) fn set_value(dom: &mut crate::Dom, select: NodeId, value: &str) {
     mark(dom, select, found);
 }
 
+/// React DOM's `updateOptions`: the first option with that value, else the
+/// first enabled option, else the selection unchanged.
+pub(crate) fn set_value_or_first(dom: &mut crate::Dom, select: NodeId, value: &str) {
+    let options = options(dom.doc, select);
+    let found = options
+        .iter()
+        .copied()
+        .find(|&o| option_value(dom.doc, o) == value)
+        .or_else(|| {
+            options.iter().copied().find(|&o| {
+                dom.doc
+                    .get_node(o)
+                    .is_some_and(|n| n.attr("disabled".into()).is_none())
+            })
+        })
+        .or_else(|| options.iter().copied().find(|&o| marked(dom.doc, o)));
+    mark(dom, select, found);
+}
+
 /// After the options changed: a controlled select shows the option of its
-/// value; otherwise the shown option stays while it is there, or the first
-/// enabled option is shown.
-pub(crate) fn settle(dom: &mut crate::Dom, select: NodeId, desired: Option<&str>) {
+/// value (`first`: as `set_value_or_first`); otherwise the shown option
+/// stays while it is there, or the first enabled option is shown.
+pub(crate) fn settle(dom: &mut crate::Dom, select: NodeId, desired: Option<&str>, first: bool) {
     match desired {
+        Some(v) if first => set_value_or_first(dom, select, v),
         Some(v) => set_value(dom, select, v),
         None => {
             let options = options(dom.doc, select);

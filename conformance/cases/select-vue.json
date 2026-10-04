@@ -1,0 +1,81 @@
+{
+  "description": "The select case for Vue (v-model, and :value with @change): options from a v-for list and a v-if option, a disabled option, an uncontrolled select (option values from collapsed text), programmatic values, a value no option has showing none (setSelected), keyboard changes on a focused closed select (arrows skipping disabled options, Home, End, typeahead). Vue differs from Svelte for a :value nothing writes: Vue patches a select's value at every re-render of its component where the live value differs, so the user's choice stays until an unrelated update re-renders the component and is then restored",
+  "fixtures": [
+    "select-vue"
+  ],
+  "actions": [
+    {
+      "kind": "choose",
+      "id": "unit",
+      "value": "minute"
+    },
+    {
+      "kind": "choose",
+      "id": "kind",
+      "value": "markup"
+    },
+    {
+      "kind": "choose",
+      "id": "free",
+      "value": "Beta gamma"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "choose",
+      "id": "unit",
+      "value": "week"
+    },
+    {
+      "kind": "click",
+      "id": "bad"
+    },
+    {
+      "kind": "click",
+      "id": "reset"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "focus",
+      "id": "kind"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowUp"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowDown"
+    },
+    {
+      "kind": "press",
+      "key": "s"
+    },
+    {
+      "kind": "press",
+      "key": "Home"
+    },
+    {
+      "kind": "choose",
+      "id": "fixed",
+      "value": "c"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "focus",
+      "id": "unit"
+    },
+    {
+      "kind": "press",
+      "key": "End"
+    }
+  ]
+}

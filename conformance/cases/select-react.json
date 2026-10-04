@@ -1,0 +1,81 @@
+{
+  "description": "The select case for React (value with onChange): options from a list and a conditional option, a disabled option, an uncontrolled select (option values from collapsed text), programmatic values, keyboard changes on a focused closed select (arrows skipping disabled options, Home, End, typeahead). React differs from Svelte where the state and the options disagree: React DOM shows a value no option has as the first enabled option (updateOptions), not as none, also after the shown option is removed; and a select whose onChange writes no state is restored right after the change (restoreControlledState): the handler sees the picked value, the select snaps back",
+  "fixtures": [
+    "select-react"
+  ],
+  "actions": [
+    {
+      "kind": "choose",
+      "id": "unit",
+      "value": "minute"
+    },
+    {
+      "kind": "choose",
+      "id": "kind",
+      "value": "markup"
+    },
+    {
+      "kind": "choose",
+      "id": "free",
+      "value": "Beta gamma"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "choose",
+      "id": "unit",
+      "value": "week"
+    },
+    {
+      "kind": "click",
+      "id": "bad"
+    },
+    {
+      "kind": "click",
+      "id": "reset"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "focus",
+      "id": "kind"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowUp"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowDown"
+    },
+    {
+      "kind": "press",
+      "key": "s"
+    },
+    {
+      "kind": "press",
+      "key": "Home"
+    },
+    {
+      "kind": "choose",
+      "id": "fixed",
+      "value": "c"
+    },
+    {
+      "kind": "click",
+      "id": "extra"
+    },
+    {
+      "kind": "focus",
+      "id": "unit"
+    },
+    {
+      "kind": "press",
+      "key": "End"
+    }
+  ]
+}

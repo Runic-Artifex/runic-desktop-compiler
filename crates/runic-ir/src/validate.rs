@@ -1605,12 +1605,13 @@ impl<'p> NodeCx<'_, 'p> {
                     let want = match (prop.name.as_str(), tag, checkbox) {
                         ("value", "input", false)
                         | ("value", "textarea" | "select", _)
-                        | ("defaultValue", "textarea", _) => Type::String,
+                        | ("defaultValue", "textarea", _)
+                        | ("selectValue", "select", _) => Type::String,
                         ("checked", "input", true) => Type::Boolean,
                         _ => {
                             return err(
                                 "E_IR",
-                                "Live properties are value (text inputs, text areas, selects), checked (checkboxes, radio buttons) and defaultValue (text areas)",
+                                "Live properties are value (text inputs, text areas, selects), checked (checkboxes, radio buttons), defaultValue (text areas) and selectValue (selects)",
                                 src,
                             );
                         }
@@ -1634,6 +1635,15 @@ impl<'p> NodeCx<'_, 'p> {
                     return err(
                         "E_IR",
                         "A text area's defaultValue needs a live value property",
+                        src,
+                    );
+                }
+                if props.iter().any(|p| p.name == "selectValue")
+                    && (props.iter().any(|p| p.name == "value") || restore.is_some())
+                {
+                    return err(
+                        "E_IR",
+                        "A select has either a value or a selectValue (without restore)",
                         src,
                     );
                 }

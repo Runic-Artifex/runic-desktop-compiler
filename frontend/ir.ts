@@ -249,6 +249,10 @@ export type Node =
       kind: 'element';
       tag: string;
       attrs?: Attr[];
+      /**
+       * Live properties: `value`, `checked`, a text area's `defaultValue`, a
+       * select's `selectValue` (React DOM: unmatched, the first enabled option).
+       */
       props?: Attr[];
       listeners?: Listener[];
       /** A cell holding this element while mounted (null after removal). */

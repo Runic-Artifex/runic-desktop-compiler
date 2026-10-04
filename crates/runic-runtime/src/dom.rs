@@ -158,6 +158,9 @@ pub(crate) struct Listeners {
     pending_caret: Vec<NodeId>,
     /// Selects and the value they are controlled to (none: uncontrolled).
     selects: HashMap<NodeId, Option<String>>,
+    /// Controlled selects whose value falls back to the first enabled option
+    /// (`selectValue`, React DOM's `updateOptions`).
+    select_fallback: std::collections::HashSet<NodeId>,
     /// The text content (`defaultValue`) of text areas whose editor is still
     /// to be created from a value set by script: it replaces that seed once
     /// the editor exists.
@@ -397,9 +400,11 @@ impl Dom<'_> {
         for (id, desired) in selects {
             if self.doc.get_node(id).is_none() {
                 self.listeners.selects.remove(&id);
+                self.listeners.select_fallback.remove(&id);
                 continue;
             }
-            crate::select::settle(self, id, desired.as_deref());
+            let first = self.listeners.select_fallback.contains(&id);
+            crate::select::settle(self, id, desired.as_deref(), first);
         }
     }
 
@@ -725,6 +730,14 @@ impl Dom<'_> {
     /// The live value of a text control, once its editor exists.
     pub fn value(&self, node: NodeId) -> Option<String> {
         crate::controls::value(self.doc, node)
+    }
+
+    /// Control a select as React DOM does (`updateOptions`): the option with
+    /// `value`, else the first enabled one, else the selection unchanged.
+    pub fn set_select_value(&mut self, node: NodeId, value: &str) {
+        self.listeners.selects.insert(node, Some(value.to_owned()));
+        self.listeners.select_fallback.insert(node);
+        crate::select::set_value_or_first(self, node, value);
     }
 
     /// Set the live value of a text control. Equal values are left untouched

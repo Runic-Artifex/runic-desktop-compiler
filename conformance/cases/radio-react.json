@@ -1,0 +1,72 @@
+{
+  "description": "Radio buttons in React (checked={size === v} with onChange): a click checks one and unchecks the group's other (onChange only for the newly checked one; a checked one gets only the click), arrows move and check within the group (across rows, skipping disabled ones), a radio button whose onChange sets no state is checked by a click, arrow or its label and then restored with its group to the state (React's restoreControlledState), a cancelled click, Tab entering the group at its checked button, a programmatic value",
+  "fixtures": [
+    "radio-react"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "s"
+    },
+    {
+      "kind": "click",
+      "id": "s"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowLeft"
+    },
+    {
+      "kind": "click",
+      "id": "f"
+    },
+    {
+      "kind": "click",
+      "id": "f-label"
+    },
+    {
+      "kind": "click",
+      "id": "lock"
+    },
+    {
+      "kind": "click",
+      "id": "xl"
+    },
+    {
+      "kind": "click",
+      "id": "pick"
+    },
+    {
+      "kind": "focus",
+      "id": "before"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "Shift+Tab"
+    },
+    {
+      "kind": "press",
+      "key": "Space"
+    }
+  ]
+}
