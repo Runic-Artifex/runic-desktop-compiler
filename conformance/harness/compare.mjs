@@ -90,6 +90,14 @@ export function compareTraces(browser, native, { pixels = false, pixelRegions = 
       continue;
     }
     diffTree(canonical(b.dom), canonical(nv.dom), '', step.dom);
+    // Content mounted in the body after the container (portals, M6).
+    if (b.portals || nv.portals)
+      diffTree(
+        canonical({ tag: 'body', children: b.portals ?? [] }),
+        canonical({ tag: 'body', children: nv.portals ?? [] }),
+        'portals',
+        step.dom,
+      );
     // The document element's attributes (theming: class, data-*, style).
     if (JSON.stringify(b.document ?? {}) !== JSON.stringify(nv.document ?? {}))
       step.dom.push({ at: 'document', browser: b.document ?? {}, native: nv.document ?? {} });
