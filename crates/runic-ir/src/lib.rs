@@ -301,6 +301,14 @@ pub enum Type {
     /// A Date object (`js::Date`), compared by identity; its time value is
     /// mutable (setters).
     Date,
+    /// An instance of class record `C` or of one of its subclasses (M6
+    /// inheritance), carrying its class: `C` has subclasses (a class without
+    /// them is a plain `record` type).
+    Class(usize),
+    /// An instance of one of several classes or their subclasses (a union
+    /// of classes): at least two class records, ascending, none a subclass
+    /// of another.
+    Classes(Vec<usize>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -329,6 +337,14 @@ impl Type {
             Type::Regexp => "regexp".into(),
             Type::MediaQuery => "media-query".into(),
             Type::Date => "date".into(),
+            Type::Class(c) => format!("class#{c}"),
+            Type::Classes(cs) => format!(
+                "classes#{}",
+                cs.iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join("|")
+            ),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params
@@ -349,7 +365,12 @@ impl Type {
     /// Reference types have identity (and are affected by deep mutation).
     pub fn is_reference(&self) -> bool {
         match self {
-            Type::Array(_) | Type::Record(_) | Type::Map(..) | Type::Set(_) => true,
+            Type::Array(_)
+            | Type::Record(_)
+            | Type::Map(..)
+            | Type::Set(_)
+            | Type::Class(_)
+            | Type::Classes(_) => true,
             Type::Maybe(t) => t.is_reference(),
             _ => false,
         }
@@ -387,6 +408,19 @@ pub struct RecordType {
     /// `Object.keys`/`values` reject it).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub class: bool,
+    /// The base class record of a subclass (M6 inheritance): the base's
+    /// fields are a prefix of this record's fields, with the same names,
+    /// types and reactive markers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extends: Option<usize>,
+    /// An abstract class: never constructed by a `record` expression, so no
+    /// value has it as its class.
+    #[serde(
+        rename = "abstract",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub is_abstract: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -428,6 +462,93 @@ pub enum Reactive {
 }
 
 impl Program {
+    /// Whether class record `r` is `c` or one of its subclasses.
+    pub fn extends(&self, r: usize, c: usize) -> bool {
+        let mut at = Some(r);
+        let mut steps = 0;
+        while let Some(x) = at {
+            if x == c {
+                return true;
+            }
+            steps += 1;
+            if steps > self.records.len() {
+                return false;
+            }
+            at = self.records.get(x).and_then(|rec| rec.extends);
+        }
+        false
+    }
+
+    /// Class record `c` and its subclasses, ascending.
+    pub fn subtree(&self, c: usize) -> Vec<usize> {
+        (0..self.records.len())
+            .filter(|&r| self.extends(r, c))
+            .collect()
+    }
+
+    /// The class records a value of type `t` can be an instance of
+    /// (abstract ones included), ascending; `None` for types that are not
+    /// class-typed (plain records included).
+    pub fn class_members(&self, t: &Type) -> Option<Vec<usize>> {
+        match t {
+            Type::Record(r) if self.records.get(*r).is_some_and(|rec| rec.class) => Some(vec![*r]),
+            Type::Class(c) => Some(self.subtree(*c)),
+            Type::Classes(cs) => {
+                let mut out: Vec<usize> = cs.iter().flat_map(|c| self.subtree(*c)).collect();
+                out.sort_unstable();
+                out.dedup();
+                Some(out)
+            }
+            _ => None,
+        }
+    }
+
+    /// The classes a value of type `t` can have: its class members that are
+    /// not abstract.
+    pub fn concrete_members(&self, t: &Type) -> Option<Vec<usize>> {
+        self.class_members(t).map(|m| {
+            m.into_iter()
+                .filter(|&r| !self.records[r].is_abstract)
+                .collect()
+        })
+    }
+
+    /// A record whose field list describes every field `get` may read on a
+    /// value of type `t`: the record itself or, for a class reference, its
+    /// first member (the validator checks that the members agree on each
+    /// field read or written through the reference).
+    pub fn field_record(&self, t: &Type) -> Option<usize> {
+        match t {
+            Type::Record(r) => Some(*r),
+            Type::Class(_) | Type::Classes(_) => self.class_members(t)?.first().copied(),
+            _ => None,
+        }
+    }
+
+    /// The message of the TypeError a failing `downcast` of an instance of
+    /// class record `actual` to class type `target` throws.
+    pub fn downcast_message(&self, actual: usize, target: &Type) -> String {
+        let target = match target {
+            Type::Maybe(t) => t,
+            t => t,
+        };
+        let names: Vec<&str> = match target {
+            Type::Record(r) | Type::Class(r) => vec![self.records[*r].name.as_str()],
+            Type::Classes(cs) => cs.iter().map(|c| self.records[*c].name.as_str()).collect(),
+            _ => vec![],
+        };
+        format!(
+            "A {} instance where the static type expects {}",
+            self.records[actual].name,
+            names.join(" | ")
+        )
+    }
+
+    /// Whether some record is a subclass (class references can occur).
+    pub fn has_subclasses(&self) -> bool {
+        self.records.iter().any(|r| r.extends.is_some())
+    }
+
     /// Whether some class record has reactive fields (M6 stage B).
     pub fn has_reactive_fields(&self) -> bool {
         self.records
@@ -1283,6 +1404,41 @@ pub enum Expr {
         value: Box<Expr>,
         body: Box<Expr>,
     },
+    /// A class instance (or a Maybe of one) as a wider class type (M6
+    /// inheritance): every class of `value`'s type is one of `type`'s.
+    Upcast {
+        value: Box<Expr>,
+        #[serde(rename = "type")]
+        ty: Type,
+    },
+    /// A class reference (or a Maybe of one) as a narrower class type;
+    /// throws a TypeError when the instance's class is not one of `type`'s
+    /// (only where the source's static types were unsound). Nullish values
+    /// pass.
+    Downcast {
+        value: Box<Expr>,
+        #[serde(rename = "type")]
+        ty: Type,
+    },
+    /// Branch on the class of a class reference: the case of its class
+    /// binds the instance (typed as that exact class record) to `local`
+    /// and evaluates `body`; `else` covers the classes without a case and
+    /// is required unless the cases cover every class `value` can have.
+    MatchClass {
+        value: Box<Expr>,
+        cases: Vec<ClassCase>,
+        #[serde(rename = "else", default, skip_serializing_if = "Option::is_none")]
+        otherwise: Option<Box<Expr>>,
+    },
+}
+
+/// One case of `match-class`: an exact class.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClassCase {
+    pub record: usize,
+    pub local: usize,
+    pub body: Expr,
 }
 
 impl Expr {
@@ -1373,6 +1529,15 @@ impl Expr {
             Call { args, .. } | Builtin { args, .. } => args.iter().collect(),
             CallValue { callee, args } => std::iter::once(&**callee).chain(args).collect(),
             With { value, body, .. } => vec![value, body],
+            Upcast { value, .. } | Downcast { value, .. } => vec![value],
+            MatchClass {
+                value,
+                cases,
+                otherwise,
+            } => std::iter::once(&**value)
+                .chain(cases.iter().map(|c| &c.body))
+                .chain(otherwise.as_deref())
+                .collect(),
         }
     }
 

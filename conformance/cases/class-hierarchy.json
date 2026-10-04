@@ -1,0 +1,19 @@
+{
+  "description": "Class inheritance and class references (M6): a bits-ui-like toggle group whose state is a base class with single and multiple subclasses chosen by a prop through a static factory; the instance is held as a union of the subclasses and as the base class; overridden methods dispatch by class (isPressed read by an inherited $derived field and an inherited getter, select through the base's toggle, clear through the base type), an overriding getter calls super's, a discriminant (kind) and instanceof narrow the union; $state and #private $state fields in the base and the subclasses (Svelte). React and Vue hold immutable selections in state: an abstract base class with abstract methods, subclasses with parameter properties and super(…) arguments, methods returning a union of the subclasses",
+  "fixtures": ["class-hierarchy-svelte", "class-hierarchy-react", "class-hierarchy-vue"],
+  "actions": [
+    { "kind": "click", "id": "align-b" },
+    { "kind": "click", "id": "align-i" },
+    { "kind": "click", "id": "align-i" },
+    { "kind": "click", "id": "align-u" },
+    { "kind": "click", "id": "format-b" },
+    { "kind": "click", "id": "format-u" },
+    { "kind": "click", "id": "format-b" },
+    { "kind": "click", "id": "format-i" },
+    { "kind": "click", "id": "align-clear" },
+    { "kind": "click", "id": "format-clear" },
+    { "kind": "click", "id": "format-u" },
+    { "kind": "click", "id": "align-b" },
+    { "kind": "click", "id": "format-clear" }
+  ]
+}

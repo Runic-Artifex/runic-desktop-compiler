@@ -51,13 +51,14 @@ import type {
   Program,
   Stmt,
   Type,
+  RecordType,
 } from '../ir.ts';
 import { FnBuilder, Lowerer, skipParens, type HandlerEvent, type Hooks } from '../language.ts';
 import { createProgram, REACT } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
 import { packMappings, type Edge } from '../packs.ts';
-import { arrayElement, maybeInner } from '../irtype.ts';
+import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
 
 const TAGS = new Set([
@@ -965,6 +966,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
               lower.value(fallback, COMPONENT, `${key}$default`),
               lower.exprType(fallback),
               t,
+              lower.types.records,
             );
           });
         }
@@ -1106,7 +1108,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
               return;
             }
             const v = lower.value(arg, COMPONENT, `${cells[cell].name}$init`);
-            cells[cell].init = coerceInit(v, lower.exprType(arg), type);
+            cells[cell].init = coerceInit(v, lower.exprType(arg), type, lower.types.records);
           });
           continue;
         }
@@ -1259,7 +1261,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         return;
       }
       const v = lower.value(arg, COMPONENT, `${name}$init`);
-      cells[cell].init = coerceInit(v, lower.exprType(arg), type);
+      cells[cell].init = coerceInit(v, lower.exprType(arg), type, lower.types.records);
     });
   };
 
@@ -3903,16 +3905,19 @@ const propertyName = (n: ts.PropertyName): string =>
   ts.isIdentifier(n) || ts.isStringLiteral(n) ? n.text : n.getText();
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */
-function coerceInit(v: Expr, from: Type, to: Type): Expr {
+function coerceInit(v: Expr, from: Type, to: Type, records: RecordType[]): Expr {
   if (typeof to === 'object' && 'maybe' in to && !(typeof from === 'object' && 'maybe' in from))
-    return { op: 'some', value: v };
-  return v;
+    return upcastTo({ op: 'some', value: v }, { maybe: from }, to, records);
+  // A class instance where a class reference is expected.
+  return upcastTo(v, from, to, records);
 }
 
 const isReference = (t: Type): boolean =>
   typeof t === 'object' &&
   ('array' in t ||
     'record' in t ||
+    'class' in t ||
+    'classes' in t ||
     'map' in t ||
     'set' in t ||
     ('maybe' in t && isReference(t.maybe)));

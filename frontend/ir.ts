@@ -17,6 +17,10 @@ export type Type =
   | { maybe: Type }
   | { array: Type }
   | { record: number }
+  /** An instance of class record `class` or of a subclass (M6 inheritance; the class has subclasses). */
+  | { class: number }
+  /** An instance of one of several unrelated classes or their subclasses (ascending, two or more). */
+  | { classes: number[] }
   | { map: [Type, Type] }
   | { set: Type }
   | { promise: Type }
@@ -172,7 +176,18 @@ export type Expr =
   /** Evaluate `value`, bind it to `local`, then evaluate `body` (sequencing with a temporary). */
   | { op: 'with'; local: number; value: Expr; body: Expr }
   /** Unwrap a Maybe; throws TypeError when nullish (`x!` then member access). */
-  | { op: 'unwrap'; value: Expr };
+  | { op: 'unwrap'; value: Expr }
+  /** A class instance (or a Maybe of one) as a wider class type (M6 inheritance). */
+  | { op: 'upcast'; value: Expr; type: Type }
+  /** A class reference (or a Maybe of one) as a narrower class type; TypeError when it is not. */
+  | { op: 'downcast'; value: Expr; type: Type }
+  /** Branch on the class of a class reference; each case binds the instance as its exact class. */
+  | {
+      op: 'match-class';
+      value: Expr;
+      cases: { record: number; local: number; body: Expr }[];
+      else?: Expr;
+    };
 
 export type Place =
   | { place: 'local'; local: number }
@@ -222,6 +237,10 @@ export interface RecordType {
   fields: RecordField[];
   /** A class instance record (nominal: never shared by shape; not proxied, not plain data). */
   class?: true;
+  /** The base class record (M6 inheritance): its fields are a prefix of this record's. */
+  extends?: number;
+  /** An abstract class (never constructed). */
+  abstract?: true;
 }
 
 export interface RecordField {

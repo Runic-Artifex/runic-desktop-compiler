@@ -418,8 +418,41 @@ impl<'a> Scope<'a> {
     }
 
     fn check_type(&self, t: &Type, src: Option<&Source>) -> Result<()> {
+        let p = self.program;
+        let class = |c: usize| p.records.get(c).is_some_and(|r| r.class);
         match t {
             Type::Record(r) => self.record(*r, src).map(|_| ()),
+            // A class reference names a class with subclasses (a class
+            // without them is a record type).
+            Type::Class(c) => {
+                if !class(*c) || !p.records.iter().any(|r| r.extends == Some(*c)) {
+                    return err(
+                        "E_IR",
+                        format!("class#{c} must be a class record with subclasses"),
+                        src,
+                    );
+                }
+                Ok(())
+            }
+            Type::Classes(cs) => {
+                let ok = cs.len() >= 2
+                    && cs.windows(2).all(|w| w[0] < w[1])
+                    && cs.iter().all(|&c| class(c))
+                    && cs
+                        .iter()
+                        .all(|&a| cs.iter().all(|&b| a == b || !p.extends(a, b)));
+                if !ok {
+                    return err(
+                        "E_IR",
+                        format!(
+                            "{} must list two or more unrelated class records in ascending order",
+                            t.name()
+                        ),
+                        src,
+                    );
+                }
+                Ok(())
+            }
             Type::Maybe(i) | Type::Array(i) | Type::Set(i) => self.check_type(i, src),
             Type::Map(k, v) => self.check_type(k, src).and(self.check_type(v, src)),
             Type::Fn(f) => {
@@ -508,6 +541,13 @@ impl<'a> Scope<'a> {
                     Type::Maybe(i) => i,
                     other => other,
                 };
+                if matches!(inner, Type::Class(_) | Type::Classes(_)) {
+                    return err(
+                        "E_CLASS",
+                        "A class instance is converted to a string; its toString method is not dispatched (call a method that returns the text)",
+                        src,
+                    );
+                }
                 if let Type::Record(r) = inner {
                     if self.program.records.get(*r).is_some_and(|rec| rec.class) {
                         return err(
@@ -677,6 +717,13 @@ impl<'a> Scope<'a> {
             }
             Record { record, fields } => {
                 let rec = self.record(*record, src)?;
+                if rec.is_abstract {
+                    return err(
+                        "E_IR",
+                        format!("Abstract class {} is constructed", rec.name),
+                        src,
+                    );
+                }
                 // Derived class fields are computed when read: no value here.
                 let given: Vec<&crate::Field> =
                     rec.fields.iter().filter(|f| !f.is_derived()).collect();
@@ -720,8 +767,10 @@ impl<'a> Scope<'a> {
             }
             Get { object, field } => {
                 let t = self.infer(object, d, src)?;
-                let Type::Record(r) = t else {
-                    return err("E_IR", format!("Field access on {}", t.name()), src);
+                let r = match &t {
+                    Type::Record(r) => *r,
+                    Type::Class(_) | Type::Classes(_) => self.shared_field(&t, *field, src)?,
+                    _ => return err("E_IR", format!("Field access on {}", t.name()), src),
                 };
                 let rec = self.record(r, src)?;
                 match rec.fields.get(*field) {
@@ -946,8 +995,151 @@ impl<'a> Scope<'a> {
                 self.expect(value, want, d, src)?;
                 self.infer(body, d, src)?
             }
+            Upcast { value, ty } => {
+                self.check_type(ty, src)?;
+                let t = self.infer(value, d, src)?;
+                let (from, to) = class_pair(&t, ty);
+                let p = self.program;
+                match (p.class_members(from), to) {
+                    (Some(have), Type::Class(_) | Type::Classes(_)) if from != to => {
+                        let want = p.class_members(to).unwrap_or_default();
+                        if !have.iter().all(|r| want.contains(r)) {
+                            return err(
+                                "E_IR",
+                                format!("Upcast of {} to {}", t.name(), ty.name()),
+                                src,
+                            );
+                        }
+                    }
+                    _ => {
+                        return err(
+                            "E_IR",
+                            format!("Upcast of {} to {}", t.name(), ty.name()),
+                            src,
+                        );
+                    }
+                }
+                ty.clone()
+            }
+            Downcast { value, ty } => {
+                self.check_type(ty, src)?;
+                let t = self.infer(value, d, src)?;
+                let (from, to) = class_pair(&t, ty);
+                let p = self.program;
+                let ok = matches!(from, Type::Class(_) | Type::Classes(_))
+                    && from != to
+                    && match (p.class_members(from), p.class_members(to)) {
+                        (Some(have), Some(want)) => want.iter().all(|r| have.contains(r)),
+                        _ => false,
+                    };
+                if !ok {
+                    return err(
+                        "E_IR",
+                        format!("Downcast of {} to {}", t.name(), ty.name()),
+                        src,
+                    );
+                }
+                ty.clone()
+            }
+            MatchClass {
+                value,
+                cases,
+                otherwise,
+            } => {
+                let t = self.infer(value, d, src)?;
+                let p = self.program;
+                let concrete = match &t {
+                    Type::Class(_) | Type::Classes(_) => p.concrete_members(&t).unwrap_or_default(),
+                    other => {
+                        return err("E_IR", format!("match-class on {}", other.name()), src);
+                    }
+                };
+                let mut result: Option<Type> = None;
+                let mut seen = HashSet::new();
+                let unify = |r: Type, result: &mut Option<Type>| -> Result<()> {
+                    match result {
+                        Some(want) if *want != r => err(
+                            "E_IR",
+                            format!(
+                                "match-class branches have types {} and {}",
+                                want.name(),
+                                r.name()
+                            ),
+                            src,
+                        ),
+                        _ => {
+                            *result = Some(r);
+                            Ok(())
+                        }
+                    }
+                };
+                for c in cases {
+                    if !concrete.contains(&c.record) || !seen.insert(c.record) {
+                        return err(
+                            "E_IR",
+                            format!(
+                                "match-class case record#{} is not a class of {}",
+                                c.record,
+                                t.name()
+                            ),
+                            src,
+                        );
+                    }
+                    if self.local(c.local, src)?.ty != Type::Record(c.record) {
+                        return err("E_IR", "match-class local has the wrong type", src);
+                    }
+                    let r = self.infer(&c.body, d, src)?;
+                    unify(r, &mut result)?;
+                }
+                match otherwise {
+                    Some(e) => {
+                        let r = self.infer(e, d, src)?;
+                        unify(r, &mut result)?;
+                    }
+                    None if concrete.iter().any(|r| !seen.contains(r)) => {
+                        return err("E_IR", "match-class does not cover every class", src);
+                    }
+                    None => {}
+                }
+                match result {
+                    Some(r) => r,
+                    None => return err("E_IR", "match-class without cases", src),
+                }
+            }
         };
         Ok(t)
+    }
+
+    /// For `get` and field places through class reference `t`: a member
+    /// record, after checking that every member has the same field `field`
+    /// (prefix layout).
+    fn shared_field(&self, t: &Type, field: usize, src: Option<&Source>) -> Result<usize> {
+        let p = self.program;
+        let members = p.class_members(t).unwrap_or_default();
+        let Some(&first) = members.first() else {
+            return err("E_IR", format!("Field access on {}", t.name()), src);
+        };
+        let Some(f) = p.records[first].fields.get(field) else {
+            return err(
+                "E_IR",
+                format!("Record {} has no field {field}", p.records[first].name),
+                src,
+            );
+        };
+        for &r in &members[1..] {
+            if p.records[r].fields.get(field) != Some(f) {
+                return err(
+                    "E_IR",
+                    format!(
+                        "Field {field} ({}) is not shared by the classes of {}",
+                        f.name,
+                        t.name()
+                    ),
+                    src,
+                );
+            }
+        }
+        Ok(first)
     }
 
     fn expect(&mut self, e: &Expr, want: Type, depth: usize, src: Option<&Source>) -> Result<()> {
@@ -988,7 +1180,8 @@ impl<'a> Scope<'a> {
             Place::Local { local } => Ok(self.local(*local, src)?.ty.clone()),
             Place::Cell { cell } => Ok(self.cell(*cell, src)?.ty.clone()),
             Place::Field { object, field } => {
-                if let Type::Record(r) = self.infer(object, 0, src)? {
+                let t = self.infer(object, 0, src)?;
+                if let Some(r) = self.program.field_record(&t) {
                     if let Some(f) = self.record(r, src)?.fields.get(*field) {
                         if f.is_derived() {
                             return err(
@@ -1185,6 +1378,41 @@ fn primitive(t: &Type) -> bool {
     }
 }
 
+/// The class types an `upcast`/`downcast` converts between: both inside
+/// their Maybe when both are nullable.
+fn class_pair<'t>(from: &'t Type, to: &'t Type) -> (&'t Type, &'t Type) {
+    match (from, to) {
+        (Type::Maybe(a), Type::Maybe(b)) => (a, b),
+        other => other,
+    }
+}
+
+/// Class records and their hierarchy (M6 inheritance): a subclass's base is
+/// a class record whose fields are a prefix of its own; the chain ends.
+fn check_class_record(p: &Program, i: usize) -> Result<()> {
+    let rec = &p.records[i];
+    let bad = |m: String| err("E_IR", format!("Record {}: {m}", rec.name), None);
+    if (rec.extends.is_some() || rec.is_abstract) && !rec.class {
+        return bad("only class records extend others or are abstract".into());
+    }
+    let Some(b) = rec.extends else {
+        return Ok(());
+    };
+    let Some(base) = p.records.get(b).filter(|r| r.class) else {
+        return bad(format!("its base record#{b} is not a class record"));
+    };
+    if p.extends(b, i) {
+        return bad("its base chain is a cycle".into());
+    }
+    if rec.fields.len() < base.fields.len() || rec.fields[..base.fields.len()] != base.fields[..] {
+        return bad(format!(
+            "its fields do not start with those of {}",
+            base.name
+        ));
+    }
+    Ok(())
+}
+
 /// The type of an expression in a validated program and context.
 pub fn infer_in(
     program: &Program,
@@ -1254,6 +1482,7 @@ pub fn validate(p: &Program) -> Result<()> {
             Scope::new(p, None).check_type(&f.ty, None)?;
             reactive_field(p, i, f)?;
         }
+        check_class_record(p, i)?;
     }
     for f in &p.functions {
         let src = f.source.as_ref();
@@ -1317,7 +1546,9 @@ fn reactive_field(p: &Program, r: usize, f: &crate::Field) -> Result<()> {
             if !func.captures.is_empty()
                 || func.derived
                 || func.params.len() != 1
-                || func.params[0].ty != Type::Record(r)
+                || !p
+                    .class_members(&func.params[0].ty)
+                    .is_some_and(|m| m.contains(&r))
                 || func.result != f.ty
             {
                 return bad(format!(
@@ -2367,7 +2598,14 @@ impl Origins<'_> {
         }
         let mut scope = self.scope.clone();
         match scope.infer(object, 0, None) {
-            Ok(Type::Record(r)) => self.p.records.get(r)?.fields.get(field)?.reactive,
+            Ok(t) => {
+                self.p
+                    .records
+                    .get(self.p.field_record(&t)?)?
+                    .fields
+                    .get(field)?
+                    .reactive
+            }
             _ => None,
         }
     }
@@ -2408,7 +2646,10 @@ impl Origins<'_> {
             Expr::Local { local } => self.locals.get(*local).copied().unwrap_or(Origin::Unknown),
             Expr::Get { object, .. } => element(self.origin(object)),
             Expr::Index { array, .. } => element(self.origin(array)),
-            Expr::Unwrap { value } | Expr::Some { value } => self.origin(value),
+            Expr::Unwrap { value }
+            | Expr::Some { value }
+            | Expr::Upcast { value, .. }
+            | Expr::Downcast { value, .. } => self.origin(value),
             Expr::Array { .. } | Expr::Record { .. } | Expr::Closure { .. } => Origin::Fresh,
             Expr::Builtin { name, args, .. } if FRESH.contains(&name.as_str()) => {
                 let _ = args;
@@ -2430,7 +2671,7 @@ impl Origins<'_> {
             Origin::Reactive => {
                 let raw = match self.scope.infer(e, 0, None) {
                     Ok(Type::Record(r)) => self.p.records[r].class,
-                    Ok(Type::Map(..) | Type::Set(_)) => true,
+                    Ok(Type::Map(..) | Type::Set(_) | Type::Class(_) | Type::Classes(_)) => true,
                     _ => false,
                 };
                 if raw {
@@ -2494,6 +2735,12 @@ impl Origins<'_> {
         if let Expr::With { local, value, .. } | Expr::Optional { local, value, .. } = e {
             let o = self.origin(value);
             self.bind(*local, o);
+        }
+        if let Expr::MatchClass { value, cases, .. } = e {
+            let o = self.origin(value);
+            for c in cases {
+                self.bind(c.local, o);
+            }
         }
         for c in e.children() {
             self.expr(c);
@@ -2844,6 +3091,11 @@ fn class_records(p: &Program, t: &Type, seen: &mut HashSet<usize>, out: &mut Vec
             class_records(p, k, seen, out);
             class_records(p, v, seen, out);
         }
+        Type::Class(_) | Type::Classes(_) => {
+            for r in p.class_members(t).unwrap_or_default() {
+                class_records(p, &Type::Record(r), seen, out);
+            }
+        }
         Type::Record(r) if seen.insert(*r) => {
             if p.records[*r].class {
                 out.push(*r);
@@ -2869,12 +3121,17 @@ fn exposes(
     proxied: bool,
     seen: &mut HashSet<(usize, bool)>,
 ) -> bool {
-    if outer == inner {
+    if same_value_type(p, outer, inner) {
         return !proxied
             || matches!(inner, Type::Map(..) | Type::Set(_))
-            || matches!(inner, Type::Record(r) if p.records[*r].class);
+            || p.class_members(inner).is_some();
     }
     match outer {
+        Type::Class(_) | Type::Classes(_) => p
+            .class_members(outer)
+            .unwrap_or_default()
+            .into_iter()
+            .any(|r| exposes(p, &Type::Record(r), inner, proxied, seen)),
         Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
             exposes(p, t, inner, proxied, seen)
         }
@@ -2895,15 +3152,30 @@ fn exposes(
     }
 }
 
+/// Whether values of types `a` and `b` can be the same value: equal
+/// types, or class types with a class in common (M6 inheritance).
+fn same_value_type(p: &Program, a: &Type, b: &Type) -> bool {
+    a == b
+        || match (p.class_members(a), p.class_members(b)) {
+            (Some(x), Some(y)) => x.iter().any(|r| y.contains(r)),
+            _ => false,
+        }
+}
+
 /// Whether a value of type `outer` can hold a value of type `inner`.
 fn holds(p: &Program, outer: &Type, inner: &Type, seen: &mut HashSet<usize>) -> bool {
-    if outer == inner {
+    if same_value_type(p, outer, inner) {
         return true;
     }
     match outer {
         Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
             holds(p, t, inner, seen)
         }
+        Type::Class(_) | Type::Classes(_) => p
+            .class_members(outer)
+            .unwrap_or_default()
+            .into_iter()
+            .any(|r| holds(p, &Type::Record(r), inner, seen)),
         Type::Map(k, v) => holds(p, k, inner, seen) || holds(p, v, inner, seen),
         Type::Record(r) => {
             seen.insert(*r)

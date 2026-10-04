@@ -18,6 +18,7 @@ import type {
   Program,
   Stmt,
   Type,
+  RecordType,
   Effect,
 } from '../ir.ts';
 import { EVENT_KINDS } from '../ir.ts';
@@ -27,7 +28,7 @@ import { TypeMapper } from '../types.ts';
 import { lowerModules, ModuleResolver } from '../modules.ts';
 import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domains.ts';
 import { valueSet } from '../packs/choice.ts';
-import { arrayElement } from '../irtype.ts';
+import { arrayElement, upcastTo } from '../irtype.ts';
 import {
   bindPackImport,
   packExport,
@@ -1020,7 +1021,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           const f = fallback;
           pending.push(() => {
             const v = lower.value(f, COMPONENT, `${name}$default`);
-            cells[cell].init = coerceInit(v, lower.valueType(v), type);
+            cells[cell].init = coerceInit(v, lower.valueType(v), type, lower.types.records);
           });
         }
       }
@@ -1230,7 +1231,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             }
             // The IR type of the lowered value (a bare `null` takes its contextual type).
             const v = lower.value(value, COMPONENT, `${name}$init`);
-            cells[cell].init = coerceInit(v, lower.valueType(v), type);
+            cells[cell].init = coerceInit(v, lower.valueType(v), type, lower.types.records);
           });
         }
         continue;
@@ -1554,7 +1555,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const decl = slots.find(d => d.name === name)!;
       const args = (call as ts.CallExpression).arguments.map((a, i) => {
         const v = value(a);
-        return coerceInit(v, typeOf(a, v), decl.params![i]);
+        return coerceInit(v, typeOf(a, v), decl.params![i], lower.types.records);
       });
       return { kind: 'slot', name, ...(args.length ? { args } : {}), source: loc(n) };
     };
@@ -1699,7 +1700,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           } else {
             const e = exprNode(a.value.expression);
             v = value(e);
-            v = coerceInit(v, typeOf(e, v), want);
+            v = coerceInit(v, typeOf(e, v), want, lower.types.records);
           }
           passed.push({ name: a.name, value: v });
         } else if (a.type === 'BindDirective') {
@@ -2258,19 +2259,22 @@ function assigned(checker: ts.TypeChecker, sf: ts.SourceFile, sym: ts.Symbol): b
 }
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */
-function coerceInit(v: Expr, from: Type, to: Type): Expr {
+function coerceInit(v: Expr, from: Type, to: Type, records: RecordType[]): Expr {
   // A null or undefined default takes the prop's type.
   if ((v.op === 'null' || v.op === 'undefined') && typeof to === 'object' && 'maybe' in to)
     return { op: v.op, type: to };
   if (typeof to === 'object' && 'maybe' in to && !(typeof from === 'object' && 'maybe' in from))
-    return { op: 'some', value: v };
-  return v;
+    return upcastTo({ op: 'some', value: v }, { maybe: from }, to, records);
+  // A class instance where a class reference is expected.
+  return upcastTo(v, from, to, records);
 }
 
 const isReference = (t: Type): boolean =>
   typeof t === 'object' &&
   ('array' in t ||
     'record' in t ||
+    'class' in t ||
+    'classes' in t ||
     'map' in t ||
     'set' in t ||
     ('maybe' in t && isReference(t.maybe)));

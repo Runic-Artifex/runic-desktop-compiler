@@ -2,7 +2,7 @@
 
 This is the serialized contract between the frontend adapters and the Rust backend (D1). Its types live in `crates/runic-ir` (`src/lib.rs`), and that crate is the authority whenever this document and the code disagree. The `runic-ir` validator and reference interpreter define its meaning. The code generator in `crates/runic-codegen` must agree with that interpreter (D8).
 
-Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)), and in M4 with scheduling, effects, derived values, promises and host services ([design](design/M4-EFFECTS.md)); M6 adds class records and their reactive fields. The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
+Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)), and in M4 with scheduling, effects, derived values, promises and host services ([design](design/M4-EFFECTS.md)); M6 adds class records, their reactive fields, class hierarchies and class references. The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
 
 ## Program
 
@@ -13,7 +13,7 @@ Schema 4 was introduced in M1 and extended additively in M2 with values, stateme
   "renderer": "cpu",                 // D12: "cpu" | "gpu"
   "capabilities": ["dom", "css", "window", "click", "keyboard", "text-input"],
   "styles": { "css": "…", "assets": [{ "path": "assets/x.woff2", "sha256": "…", "bytes": 1234, "mime": "font/woff2" }] },
-  "records":   [ { "name": "Item", "fields": [ { "name": "label", "type": "string" } ] } ],  // "class": true marks class instances (M6); fields may be "reactive"
+  "records":   [ { "name": "Item", "fields": [ { "name": "label", "type": "string" } ] } ],  // "class": true marks class instances (M6), "extends": b a subclass, "abstract": true; fields may be "reactive"
   "functions": [ Function, … ],
   "globals":   [ { "name": "DEFAULTS", "type": T, "init": Expr } ],  // module constants, evaluated once in order
   "components": [ Component, … ],
@@ -51,6 +51,7 @@ Types follow the value model (D16, [M2-VALUES](design/M2-VALUES.md)). Unit types
 | nullable | `{"maybe": T}` | `Maybe<T>`: `undefined`, `null` or a value |
 | array | `{"array": T}` | `JsRef<Vec<T>>`: shared, mutable, identity equality |
 | record | `{"record": i}` | generated struct behind `JsRef` (index into `records`) |
+| class reference | `{"class": c}`, `{"classes": [c…]}` | `Obj`: the program's enum of instances by class (a variant per concrete class record holding its `JsRef`); identity equality (M6) |
 | map / set | `{"map": [K, V]}` / `{"set": T}` | insertion-ordered, SameValueZero keys |
 | function | `{"fn": {"params": [T…], "result": T}}` | reference-counted closure (a component function's closure keeps its instance) |
 | element | `"element"` | opaque element handle (refs), identity equality |
@@ -68,6 +69,15 @@ Types follow the value model (D16, [M2-VALUES](design/M2-VALUES.md)). Unit types
 - **Reads.** `get` of a reactive field is a dependency of the running tracked effect or derived value, like a cell, unless that computation created the instance (Svelte does not track the signals a reaction creates). `get` of a derived field computes it if it never was or if what its last computation read changed, then gives the cached value; a recomputation `===` to the cached value keeps it, so its readers see no change.
 - **Writes.** `assign` to a `state` field stores proxies of plain objects and arrays, as `proxied` cells do; a `raw` field stores the value as it is. A value `===` to the old one changes nothing (the field keeps the old value: `-0` written over `0`); otherwise the write queues the flush and makes the field's readers out of date. Mutations through the proxies a `state` field holds are reactive as those of `proxied` cells are. Derived fields are not assignable.
 - **Bindings** that may read a reactive field (directly or through the functions they call) are re-evaluated in every flush pass after such a write; they write the DOM only where a value changed.
+
+**Class hierarchies and class references** (M6, [design](design/M6-LIBRARIES.md#inheritance-and-class-unions)):
+
+- **Records.** A subclass record names its base, `"extends": b`; its fields start with all of the base's fields, with the same names, types and markers (a derived field keeps its function), so a field has one index in a whole hierarchy. `"abstract": true` marks a class no `record` expression constructs. A class without subclasses keeps the plain `record` type, so programs without inheritance are unchanged.
+- **Types.** `{"class": c}` is an instance of class `c` or of one of its subclasses, and requires `c` to have subclasses. `{"classes": [c…]}` is an instance of one of two or more classes (ascending, none a subclass of another) or of their subclasses. Both are class references: the value carries its class. Its *classes* are the class records it can be an instance of; its concrete classes are those that are not abstract.
+- **Conversions.** `upcast {value, type}` widens a class instance (a record, or a class reference) to a class reference whose classes include all of its own; `downcast {value, type}` narrows a class reference to a record or class reference of some of its classes and throws a `TypeError` when the instance's class is not one of them. Both also convert a Maybe of one into a Maybe of the other, where nullish values pass. Frontends upcast wherever an instance meets a wider declared type and downcast where TypeScript narrowed one (`instanceof`, discriminants, `as`): a downcast fails only where the source's static types were unsound.
+- **Dispatch.** `match-class {value, cases: [{record, local, body}], else?}` evaluates the class reference `value`, binds it to the `local` of the case for its exact class (typed as that record) and evaluates its `body`; otherwise `else`, which may be omitted when the cases cover every concrete class. All branches have one type, the result. Frontends call an overridden method through a match over the receiver's classes, each case calling the override its class resolves to; members all classes resolve alike are called directly.
+- **Fields.** `get` and field `assign` accept a class reference when every one of its classes has the same field at that index.
+- Methods of a class with subclasses take the class reference `{"class": c}` as their instance; so do derived field functions declared there, for every subclass's copy of the field.
 
 Literal values (`lit`) are numbers, strings and booleans. String literals are Unicode text; a literal containing a lone surrogate is rejected by the frontend (`E_STRING`), although computed strings may contain one.
 
@@ -153,6 +163,8 @@ Every expression has a statically known type, which the validator infers and che
 | `closure {function, captures, stable?}` | fn | A function value; `captures` are the caller's local indices. `stable`: one function object per instance (or program), for script-level functions of Svelte and Vue and module functions |
 | `builtin {name, args, type}` | `type` | A catalogue built-in (below) |
 | `with {local, value, body}` | type of `body` | Bind `value` to `local`, then evaluate `body` |
+| `upcast {value, type}`, `downcast {value, type}` | `type` | A class instance as a wider class reference; a class reference as a narrower class type (`TypeError` when it is not; M6) |
+| `match-class {value, cases, else?}` | type of the branches | A branch per exact class of a class reference, binding the instance to the case's `local` (M6) |
 | `mapped {rule, guard, fast, reference}` | type of `reference` | Only in migrated schema 3 programs |
 
 **Built-ins** are a catalogue in `runic-ir` (`builtins.rs`) with type rules, interpreter implementations in `runic-js` and Rust spellings in `runic-codegen`. The families are `Math.*` (except `random`), `Number`/number methods, string methods, array methods (including callbacks and in-place mutation), `Array.from`/`Array.isArray`, `Object.keys/values/entries/assign`, `JSON.stringify`/`JSON.parse` into a declared type, `Map`/`Set`, `structuredClone` and the global conversion functions. The full list is in [M2-VALUES](design/M2-VALUES.md); each family has Node-generated test vectors in `crates/runic-js/tests/vectors/`. M4 adds host operations: `timer.timeout/interval/frame/clear`, `clock.now/date`, `microtask.queue`, `storage.get/set/remove/clear` (localStorage), `promise.new/resolve/reject/then/catch/finally/all` with the internal `promise.pending/fulfil/adopt/fail` of async functions, and `flush.tick` (a microtask running any pending flush, then fulfilling) and `flush.after` (fulfilled when the pending flush ends). M5 adds the event object members `event.type/key/code/ctrlKey/shiftKey/altKey/metaKey/repeat/clientX/clientY/button/buttons/deltaX/deltaY/target/currentTarget/defaultPrevented/value/checked` (`value`/`checked`: the target control's state at dispatch; `currentTarget` is null after the dispatch) and `event.preventDefault/stopPropagation/stopImmediatePropagation`, and `window.listen/unlisten` and `document.listen/unlisten` (`addEventListener`/`removeEventListener`: a literal event kind and a listener taking the event or nothing, identified by its function value; adding a registered listener again does nothing). Dates (`date.*`) and locale-sensitive formatting and collation (`intl.*`) follow the regular expressions below, and the host services `console.*`, `clipboard.*`, `history.*`, `location.*` and `random.*` after them.

@@ -1261,6 +1261,48 @@ impl<'p> Machine<'p> {
                     self.eval(then, f)?
                 }
             },
+            // Class references are instance records carrying their class.
+            Upcast { value, .. } => self.eval(value, f)?,
+            Downcast { value, ty } => {
+                let v = self.eval(value, f)?;
+                if let Val::Record(r) = &v {
+                    let actual = r.peek().record;
+                    let target = match ty {
+                        Type::Maybe(t) => &**t,
+                        t => t,
+                    };
+                    if !self
+                        .program
+                        .class_members(target)
+                        .is_some_and(|m| m.contains(&actual))
+                    {
+                        return Err(Throw::type_error(
+                            self.program.downcast_message(actual, target),
+                        ));
+                    }
+                }
+                v
+            }
+            MatchClass {
+                value,
+                cases,
+                otherwise,
+            } => {
+                let v = self.eval(value, f)?;
+                let Val::Record(r) = &v else {
+                    panic!("validated class reference, found {v:?}");
+                };
+                let actual = r.peek().record;
+                match cases.iter().find(|c| c.record == actual) {
+                    Option::Some(c) => {
+                        f.set(c.local, v.clone());
+                        self.eval(&c.body, f)?
+                    }
+                    Option::None => {
+                        self.eval(otherwise.as_deref().expect("validated match-class"), f)?
+                    }
+                }
+            }
             Unwrap { value } => match self.eval(value, f)? {
                 Val::Undefined => {
                     return Err(Throw::type_error("Cannot read properties of undefined"));

@@ -88,9 +88,9 @@ fn reactive_refs(
     let mut found = false;
     match e {
         Expr::Get { object, field } => {
-            if let Type::Record(r) =
-                runic_ir::validate::infer_in(p, component, locals, None, object)
-            {
+            if let Some(r) = p.field_record(&runic_ir::validate::infer_in(
+                p, component, locals, None, object,
+            )) {
                 found = p.records[r].fields[*field].reactive.is_some();
             }
         }
@@ -1489,7 +1489,40 @@ fn records(p: &Program) -> String {
              #[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n"
         );
     }
+    out.push_str(&class_refs(p));
     out
+}
+
+/// Class references (M6 inheritance): one enum of the instances of every
+/// class in a hierarchy, by class; an IR class type restricts which
+/// variants a value can be.
+fn class_refs(p: &Program) -> String {
+    if !types::has_class_refs(p) {
+        return String::new();
+    }
+    let variants = types::obj_variants(p);
+    let each = |f: &dyn Fn(usize) -> String| -> String { variants.iter().map(|&r| f(r)).collect() };
+    let decl = each(&|r| format!("R{r}(JsRef<R{r}>), "));
+    let eq = each(&|r| format!("(Obj::R{r}(a), Obj::R{r}(b)) => JsRef::ptr_eq(a, b), "));
+    let addr = each(&|r| format!("Obj::R{r}(o) => o.addr(), "));
+    let mark = each(&|r| format!("Obj::R{r}(o) => js::Own::mark(o), "));
+    let debug = each(&|r| format!("Obj::R{r}(o) => std::fmt::Debug::fmt(o, f), "));
+    let probe = each(&|r| format!("Obj::R{r}(o) => probe_r{r}(o), "));
+    let eq_rest = "_ => false, ";
+    format!(
+        "/// A class instance with its class.\n#[derive(Clone)]\npub enum Obj {{ {decl}}}\n\
+         impl Obj {{ fn addr(&self) -> usize {{ match self {{ {addr}_ => unreachable!(), }} }} }}\n\
+         impl PartialEq for Obj {{ fn eq(&self, other: &Self) -> bool {{ js::StrictEq::strict_eq(self, other) }} }}\n\
+         impl std::fmt::Debug for Obj {{ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{ match self {{ {debug}_ => unreachable!(), }} }} }}\n\
+         impl js::StrictEq for Obj {{ fn strict_eq(&self, other: &Self) -> bool {{ match (self, other) {{ {eq}{eq_rest}}} }} }}\n\
+         impl js::Truthy for Obj {{ fn truthy(&self) -> bool {{ true }} }}\n\
+         impl js::TypeOf for Obj {{ fn type_of(&self) -> &'static str {{ \"object\" }} }}\n\
+         impl js::ToJsString for Obj {{ fn to_js_string(&self) -> JsString {{ JsString::from(\"[object Object]\") }} }}\n\
+         impl js::ArrayElement for Obj {{ fn join_string(&self) -> JsString {{ JsString::from(\"[object Object]\") }} }}\n\
+         impl js::ToMapKey for Obj {{ fn map_key(&self) -> js::MapKey {{ js::MapKey::Ref(self.addr()) }} }}\n\
+         impl js::Own for Obj {{ fn mark(&self) {{ match self {{ {mark}_ => unreachable!(), }} }} }}\n\
+         #[allow(dead_code, unused_parens)]\nfn probe_obj(v: &Obj) -> runic_runtime::Json {{ match v {{ {probe}_ => unreachable!(), }} }}\n"
+    )
 }
 
 fn builtins_json_ok(t: &Type, p: &Program) -> bool {
@@ -1512,6 +1545,7 @@ fn probe_json(t: &Type, v: &str) -> String {
             probe_json(i, "(*x)")
         ),
         Type::Record(r) => format!("probe_r{r}(&{v})"),
+        Type::Class(_) | Type::Classes(_) => format!("probe_obj(&{v})"),
         Type::Map(k, x) => format!(
             "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().entries.values().map(|(k, x)| runic_runtime::Json::Array(vec![{}, {}])).collect()) }})",
             probe_json(k, "(*k)"),
@@ -1650,6 +1684,7 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
     let mut init = String::new();
     for (i, cell) in c.cells.iter().enumerate() {
         let mut cx = FnCtx::new(p, Some(k), vec![], None, Type::Void);
+        cx.init = true;
         let v = cx.expr(&cell.init);
         let check = match cell.domain {
             Some(Domain::Text { max_utf16 }) => format!(
@@ -1783,6 +1818,14 @@ fn derived_fields(p: &Program, out: &mut String) {
     for (r, rec) in p.records.iter().enumerate() {
         for (i, f) in rec.fields.iter().enumerate() {
             let Some(d) = f.derived else { continue };
+            if rec.is_abstract {
+                continue;
+            }
+            // The function of an inherited field takes the class reference.
+            let this = match p.functions[d].params[0].ty {
+                Type::Class(_) | Type::Classes(_) => format!("Obj::R{r}(o.clone())"),
+                _ => "o.clone()".to_string(),
+            };
             let t = rust_type(&f.ty);
             let (sig, args, capture, captured) = match p.functions[d].component {
                 Some(k) => (
@@ -1802,7 +1845,7 @@ fn derived_fields(p: &Program, out: &mut String) {
                  if !stale {{ return Ok(()); }}\n\
                  let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new()));\n\
                  let heap_outer = js::begin_heap_reads(Some(true));\n\
-                 let r = f{d}(cx{args}, o.clone());\n\
+                 let r = f{d}(cx{args}, {this});\n\
                  let heap = js::end_heap_reads(heap_outer);\n\
                  let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default();\n\
                  let v: {t} = r?;\n\
@@ -2083,7 +2126,7 @@ pub fn generate(
     let _ = writeln!(
         out,
         "// Generated by runic-codegen from Runic IR schema {SCHEMA} ({ir_hash}). Do not edit.\n\
-         #![allow(unused_parens, unused_variables, unused_mut, unused_assignments, unused_braces, dead_code, unused_imports, unused_labels, unreachable_code, clippy::all)]\n\
+         #![allow(unused_parens, unused_variables, unused_mut, unused_assignments, unused_braces, dead_code, unused_imports, unused_labels, unreachable_code, unreachable_patterns, clippy::all)]\n\
          use runic_runtime::{{js, Dom, Event, NodeId}};\n\
          use runic_runtime::js::{{JsArray, JsMap, JsRef, JsResult, JsSet, JsString, Maybe}};\n\
          use std::cell::RefCell;\n\

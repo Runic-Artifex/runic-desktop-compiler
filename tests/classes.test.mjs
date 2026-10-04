@@ -272,7 +272,8 @@ test('Svelte state holds class instances as they are (not proxied)', async () =>
 test('classes: unsupported forms are rejected where they are written', async () => {
   const at = (line, column) => `App.svelte:${line}:${column}`;
   const go = `let out = $state(''); function go() { out = ''; }`;
-  await rejects(`class A { x = 1 }\nclass B extends A { y = 2 }\n${go}`, 'E_CLASS', at(3, 9));
+  // Library base classes (mapping packs will provide them).
+  await rejects(`class A extends Error { x = 1 }\n${go}`, 'E_CLASS', at(2, 17));
   await rejects(
     `class A { n = 1; m(): number { return this.n; } }\nlet out = $state('');\nfunction go() { const a = new A(); const f = a.m; out = String(f()); }`,
     'E_CLASS',
@@ -613,4 +614,438 @@ test('reactive class fields: Svelte errors and observable timing are rejected wh
     {},
     '<button id="go" onclick={go}>go</button><p id="out">{a.plain}</p>',
   );
+});
+
+// M6 inheritance and class unions. Expected values are what JavaScript
+// gives for the same classes (TypeScript's ES2023 emit, define semantics
+// for fields), checked in Node.
+
+const CHAIN = `const log: string[] = [];
+function note(s: string): number {
+  log.push(s);
+  return log.length;
+}
+export function logged(): string {
+  return log.join(',');
+}
+export class A {
+  a = note('A.a');
+  #p = note('A.#p');
+  constructor(x: number) {
+    note(\`A(\${x})\`);
+  }
+  get p(): number {
+    return this.#p;
+  }
+  who(): string {
+    return 'A';
+  }
+  hello(): string {
+    return \`hello from \${this.who()}\`;
+  }
+  static make(): string {
+    return 'made';
+  }
+  static K = 7;
+}
+export class B extends A {
+  b = note('B.b');
+  #p = note('B.#p');
+  constructor(y: number) {
+    note('B pre');
+    super(y * 2);
+    note(\`B(\${y})\`);
+  }
+  get bp(): number {
+    return this.#p;
+  }
+  who(): string {
+    return 'B:' + super.who();
+  }
+}
+export class C extends B {
+  c = note('C.c');
+  who(): string {
+    return 'C';
+  }
+}
+`;
+
+test('inheritance: construction order, prefix layout, overrides, super calls, private names per class and statics', async () => {
+  const out = await run(
+    `import { A, B, C, logged } from './chain';
+     let out = $state('');
+     function go() {
+       const c = new C(5);
+       const first = logged();
+       out = \`\${first} | \${c.a} \${c.b} \${c.c} \${c.p} \${c.bp} | \${c.hello()} | \${new B(1).hello()} | \${C.make()} \${C.K} \${c instanceof A} \${c instanceof B}\`;
+     }`,
+    { 'chain.ts': CHAIN },
+  );
+  assert.deepEqual(out, [
+    '',
+    'B pre,A.a,A.#p,A(10),B.b,B.#p,B(5),C.c | 2 5 8 3 6 | hello from C | hello from B:A | made 7 true true',
+  ]);
+  const ir = await lowered(
+    `import { A, B, C } from './chain';
+     let out = $state('');
+     function go() { const c = new C(5); const a: A = c; out = a.hello() + new B(1).hello(); }`,
+    { 'chain.ts': CHAIN },
+  );
+  const rec = name => ir.records.findIndex(r => r.name === name);
+  const [a, b, c] = ['A', 'B', 'C'].map(rec);
+  // Subclass records start with their base's fields; a private name both declare is qualified.
+  assert.deepEqual(
+    ir.records[c].fields.map(f => f.name),
+    ['a', '#p', 'b', 'B#p', 'c'],
+  );
+  assert.equal(ir.records[b].extends, a);
+  assert.equal(ir.records[c].extends, b);
+  // A's methods take any A (a class reference); a value typed A is one too.
+  const hello = ir.functions.find(f => f?.name === 'A.hello');
+  assert.deepEqual(hello.params[0].type, { class: a });
+  const json = JSON.stringify(ir);
+  assert.match(json, /"op":"upcast"/);
+  assert.match(json, /"op":"match-class"/);
+});
+
+const SHAPES = `export abstract class Shape {
+  abstract readonly kind: 'circle' | 'square';
+  constructor(readonly name: string) {}
+  abstract area(): number;
+  get label(): string {
+    return \`\${this.name}:\${this.area().toFixed(1)}\`;
+  }
+  scaled(k: number): number {
+    return this.area() * k;
+  }
+}
+export class Circle extends Shape {
+  readonly kind = 'circle';
+  constructor(public r: number) {
+    super('circle');
+  }
+  area(): number {
+    return 3 * this.r * this.r;
+  }
+}
+export class Square extends Shape {
+  readonly kind = 'square';
+  constructor(public s: number) {
+    super('square');
+  }
+  area(): number {
+    return this.s * this.s;
+  }
+  grow(): void {
+    this.s += 1;
+  }
+}
+export function describe(s: Circle | Square): string {
+  if (s.kind === 'circle') return \`r=\${s.r}\`;
+  return \`s=\${s.s}\`;
+}
+export function biggest(shapes: Shape[]): Shape | undefined {
+  let best: Shape | undefined = undefined;
+  for (const s of shapes) if (!best || s.area() > best.area()) best = s;
+  return best;
+}
+export function result(): string {
+  const shapes: Shape[] = [new Circle(1), new Square(2), new Circle(2)];
+  let grown = 0;
+  for (const s of shapes)
+    if (s instanceof Square) {
+      s.grow();
+      grown += s.s;
+    }
+  const one: Circle | Square = shapes[1] instanceof Square ? shapes[1] : new Square(9);
+  const big = biggest(shapes);
+  const same = big === shapes[2];
+  return \`\${shapes.map(s => s.label).join(' ')} | \${grown} \${describe(one)} \${describe(new Circle(4))} | \${big?.name} \${same} \${shapes[0].scaled(2)} | \${shapes.map(s => s.kind).join(',')}\`;
+}
+`;
+
+test('class references: abstract classes, unions of subclasses, dispatch, instanceof and discriminant narrowing', async () => {
+  const out = await run(
+    `import { result } from './shapes';
+     let out = $state('');
+     function go() { out = result(); }`,
+    { 'shapes.ts': SHAPES },
+  );
+  assert.deepEqual(out, [
+    '',
+    'circle:3.0 square:9.0 circle:12.0 | 3 s=3 r=4 | circle true 6 | circle,square,circle',
+  ]);
+});
+
+test('inheritance with reactive fields: $state and $derived in base and subclass, super calls and a class reference in state', async () => {
+  const ids = ['go', 'swap'];
+  const out = await logs(
+    `import { Base, Derived } from './h.svelte.ts';
+     let item: Base = $state(new Derived());
+     let out = $state('');
+     $effect(() => { console.log(\`summary \${item.summary}\`); });
+     function go() { item.inc(); }
+     function swap() { item = new Base(); }`,
+    {
+      'h.svelte.ts': `export class Base {
+  count = $state(0);
+  double = $derived(this.count * 2);
+  get summary(): string { return \`\${this.describe()} \${this.double}\`; }
+  describe(): string { return 'base'; }
+  inc(): void { this.count += 1; }
+}
+export class Derived extends Base {
+  extra = $state(10);
+  total = $derived(this.count + this.extra);
+  describe(): string { return \`derived \${this.total}\`; }
+  inc(): void { super.inc(); this.extra += 1; }
+}
+`,
+    },
+    clicks('go', 'swap', 'go'),
+    buttons(ids),
+  );
+  assert.deepEqual(out, [
+    ['summary derived 10 0'],
+    ['summary derived 12 2'],
+    ['summary base 0'],
+    ['summary base 2'],
+  ]);
+});
+
+test('inheritance: a base constructor that uses this before subclass fields exist', async () => {
+  // Allowed when the subclasses declare no fields: the override runs, as in JavaScript.
+  const out = await run(
+    `class P {
+       n = 0;
+       constructor() { this.bump(); }
+       bump(): void { this.n += 1; }
+     }
+     class Q extends P {
+       bump(): void { this.n += 10; }
+     }
+     let out = $state('');
+     function go() { out = \`\${new P().n} \${new Q().n}\`; }`,
+  );
+  assert.deepEqual(out, ['', '1 10']);
+  // Rejected where a subclass declares fields: they would not exist yet.
+  await rejects(
+    `class P {\n  n = 0;\n  constructor() { this.bump(); }\n  bump(): void { this.n += 1; }\n}\nclass Q extends P {\n  k = 5;\n  bump(): void { this.n += this.k; }\n}\nlet out = $state('');\nfunction go() { out = String(new Q().n); }`,
+    'E_CLASS',
+    'App.svelte:8:3',
+  );
+});
+
+test('inheritance: unsupported forms are rejected where they are written', async () => {
+  const at = (line, column) => `App.svelte:${line}:${column}`;
+  const go = `let out = $state('');\nfunction go() { out = ''; }`;
+  // Mixins and other base expressions.
+  await rejects(`class A { n = 1; }\nclass B extends (A) {}\n${go}`, 'E_CLASS', at(3, 17));
+  // this before super(…).
+  await rejects(
+    `class A { n = 1; }\nclass B extends A {\n  k: number;\n  constructor() {\n    this.k = 1;\n    super();\n  }\n}\n${go}`,
+    'E_CLASS',
+    at(6, 5),
+  );
+  // super.x of a field (fields are not on the prototype).
+  await rejects(
+    `class A { n = 1; }\nclass B extends A {\n  m(): number { return super.n; }\n}\nlet out = $state('');\nfunction go() { out = String(new B().m()); }`,
+    'E_CLASS',
+    at(4, 24),
+  );
+  // An abstract method called through super.
+  await rejects(
+    `abstract class A { abstract m(): number; }\nclass B extends A {\n  m(): number { return super.m(); }\n}\nlet out = $state('');\nfunction go() { out = String(new B().m()); }`,
+    'E_CLASS',
+    at(4, 24),
+  );
+  // A redeclared field.
+  await rejects(`class A { n = 1; }\nclass B extends A {\n  n = 2;\n}\n${go}`, 'E_CLASS', at(4, 3));
+  // A component-script class extending a module class.
+  await rejects(`import { A } from './a';\nclass B extends A {}\n${go}`, 'E_CLASS', at(3, 17), {
+    'a.ts': 'export class A { n = 1; }\n',
+  });
+  // A field declared separately by the classes of a union, assigned through the union.
+  await rejects(
+    `class A { k = 1; }\nclass B { k = 2; }\nlet flip = $state(false);\nlet out = $state('');\nfunction go() { const x: A | B = flip ? new A() : new B(); x.k = 3; out = String(x.k); }`,
+    'E_CLASS',
+    at(6, 60),
+  );
+  // An array of a subclass used as an array of its base (it keeps its identity).
+  await rejects(
+    `class A { n = 1; }\nclass B extends A {}\nlet out = $state('');\nfunction go() { const bs: B[] = [new B()]; const as: A[] = bs; out = String(as.length); }`,
+    'E_CLASS',
+    at(5, 50),
+  );
+  // Binding a method that a subclass overrides, through the base type.
+  await rejects(
+    `class A { m(): number { return 1; } }\nclass B extends A { m(): number { return 2; } }\nlet out = $state('');\nfunction go() { const a: A = new B(); const f = a.m.bind(a); out = String(f()); }`,
+    'E_CLASS',
+    at(5, 49),
+  );
+});
+
+test('the backend validates class hierarchies, class references and their conversions', async () => {
+  const ir = await lowered(
+    `import { result } from './shapes';
+     let out = $state('');
+     function go() { out = result(); }`,
+    { 'shapes.ts': SHAPES },
+  );
+  check(ir);
+  const rec = name => ir.records.findIndex(r => r.name === name);
+  const [shape, circle, square] = ['Shape', 'Circle', 'Square'].map(rec);
+  assert.equal(ir.records[shape].abstract, true);
+  /** A copy of the program with one function returning `body` (of type `result`) from `params`. */
+  const withFn = (params, result, value, locals = []) => {
+    const p = structuredClone(ir);
+    p.functions.push({ name: 'probe', params, locals, result, body: [{ op: 'return', value }] });
+    return p;
+  };
+  const arg = { op: 'local', local: 0 };
+  // Upcasts widen; a narrowing "upcast" is rejected, as is a class reference of a class without subclasses.
+  check(
+    withFn(
+      [{ name: 'c', type: { record: circle } }],
+      { class: shape },
+      { op: 'upcast', value: arg, type: { class: shape } },
+    ),
+  );
+  assert.throws(
+    () =>
+      check(
+        withFn(
+          [{ name: 's', type: { class: shape } }],
+          { record: circle },
+          { op: 'upcast', value: arg, type: { record: circle } },
+        ),
+      ),
+    /Upcast/,
+  );
+  assert.throws(
+    () =>
+      check(withFn([{ name: 'c', type: { class: circle } }], 'number', { op: 'lit', value: 1 })),
+    /must be a class record with subclasses/,
+  );
+  assert.throws(
+    () =>
+      check(
+        withFn([{ name: 'u', type: { classes: [square, circle] } }], 'number', {
+          op: 'lit',
+          value: 1,
+        }),
+      ),
+    /ascending/,
+  );
+  // Downcasts narrow; match-class covers every class it can have, or has an else.
+  check(
+    withFn(
+      [{ name: 's', type: { class: shape } }],
+      { record: square },
+      { op: 'downcast', value: arg, type: { record: square } },
+    ),
+  );
+  const cases = [
+    { record: circle, local: 1, body: { op: 'lit', value: 1 } },
+    { record: square, local: 2, body: { op: 'lit', value: 2 } },
+  ];
+  const locals = [
+    { name: 'c', type: { record: circle } },
+    { name: 's', type: { record: square } },
+  ];
+  check(
+    withFn(
+      [{ name: 's', type: { class: shape } }],
+      'number',
+      { op: 'match-class', value: arg, cases },
+      locals,
+    ),
+  );
+  assert.throws(
+    () =>
+      check(
+        withFn(
+          [{ name: 's', type: { class: shape } }],
+          'number',
+          { op: 'match-class', value: arg, cases: cases.slice(1) },
+          locals,
+        ),
+      ),
+    /does not cover every class/,
+  );
+  // An abstract class is never constructed; a subclass record starts with its base's fields.
+  const abstract = structuredClone(ir);
+  abstract.functions.push({
+    name: 'probe',
+    params: [],
+    locals: [],
+    result: { record: shape },
+    body: [
+      { op: 'return', value: { op: 'record', record: shape, fields: [{ op: 'lit', value: 'x' }] } },
+    ],
+  });
+  assert.throws(() => check(abstract), /Abstract class Shape is constructed/);
+  const prefix = structuredClone(ir);
+  prefix.records[circle].fields.reverse();
+  assert.throws(() => check(prefix), /do not start with those of Shape/);
+  // An assertion to a subclass is checked: a TypeError where the static type was unsound
+  // (JavaScript throws one here too, calling the missing method).
+  const out = await run(
+    `import { Shape, Circle, Square } from './shapes';
+     let out = $state('');
+     function go() {
+       const shapes: Shape[] = [new Circle(1), new Square(2)];
+       const ok = shapes[1] as Square;
+       ok.grow();
+       try {
+         const s = shapes[0] as unknown as Square;
+         s.grow();
+         out = 'grew';
+       } catch (e) {
+         out = \`\${ok.s} \${(e as Error).name}\`;
+       }
+     }`,
+    { 'shapes.ts': SHAPES },
+  );
+  assert.deepEqual(out, ['', '3 TypeError']);
+});
+
+test('class references: overridden accessors with super, unions of unrelated classes, nullable instanceof and this results', async () => {
+  const out = await run(
+    `import { result } from './m';
+     let out = $state('');
+     function go() { out = result(); }`,
+    {
+      'm.ts': `class Base {
+  #v = 1;
+  get value(): number { return this.#v; }
+  set value(v: number) { this.#v = v; }
+  self(): this { return this; }
+  tag(): string { return 'base'; }
+}
+class Doubler extends Base {
+  set value(v: number) { super.value = v * 2; }
+  get value(): number { return super.value + 0.5; }
+  tag(): string { return 'doubler'; }
+}
+class Other {
+  tag(): string { return 'other'; }
+  value = 42;
+}
+export function result(): string {
+  const xs: Base[] = [new Base(), new Doubler()];
+  for (const x of xs) x.value = 3;
+  const maybe: Base | undefined = xs.find(x => x.tag() === 'doubler');
+  const none: Base | undefined = xs.find(x => x.tag() === 'none');
+  const mixed: (Base | Other)[] = [xs[0], new Other(), xs[1]];
+  return \`\${xs.map(x => x.value).join(' ')} | \${maybe instanceof Doubler} \${none instanceof Doubler} \${maybe instanceof Base} | \${mixed.map(m => \`\${m.tag()}=\${m.value}\`).join(' ')} | \${xs[1].self().tag()} \${xs[1].self() === xs[1]}\`;
+}
+`,
+    },
+  );
+  assert.deepEqual(out, [
+    '',
+    '3 6.5 | true false true | base=3 other=42 doubler=6.5 | doubler true',
+  ]);
 });
