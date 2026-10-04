@@ -3180,9 +3180,9 @@ export class Lowerer {
     for (const p of e.properties) {
       if (ts.isSpreadAssignment(p)) {
         const st = this.types.of(p.expression);
-        if (!(typeof st === 'object' && 'record' in st))
+        if (!this.classes.isClass(st) && !(typeof st === 'object' && 'record' in st))
           this.fail(p, 'E_OBJECT', 'Spread requires a record value');
-        if (this.classes.of(st))
+        if (this.classes.isClass(st))
           this.fail(
             p,
             'E_CLASS',
