@@ -114,6 +114,12 @@ Steps 0 to 2 can run in parallel. Steps 3 to 6 share the language layer and IR, 
     - QuickJS islands with island and coverage reports;
     - model-assisted discovery generalised to library packs, as an explicit separate operation.
 
+## Progress
+
+| Step | Done | Open |
+|---|---|---|
+| 2. Packs | Pack mechanism (`frontend/packs.ts`, `E_DEPENDENCY`/`E_PACK_VERSION`/`E_PACK`, `meta.mappings`); `clsx` 2.1.1 as IR expressions (38 vectors, `conformance/packs/clsx.mjs`); `@lucide/svelte` 1.52.0 icon expansion; case `packs` in Svelte, React and Vue | `tailwind-merge` 3.7.0, `tailwind-variants` 3.3.1 |
+
 ## Verification
 
 - Every step adds conformance cases in Chromium. Library steps use small fixtures that import the real packages: one bits-ui primitive per fixture, then the editor's wrappers.

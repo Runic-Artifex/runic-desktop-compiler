@@ -9,7 +9,7 @@ Schema 4 was introduced in M1 and extended additively in M2 with values, stateme
 ```jsonc
 {
   "schema": 4,
-  "meta": { "title": "…", "sourceHash": "<sha256>", "frontend": {…}, "provenance": […], "mappings": [] },
+  "meta": { "title": "…", "sourceHash": "<sha256>", "frontend": {…}, "provenance": […], "mappings": [{ "id": "clsx@2.1.1", "version": 1, "sha256": "…" }] },
   "renderer": "cpu",                 // D12: "cpu" | "gpu"
   "capabilities": ["dom", "css", "window", "click", "keyboard", "text-input"],
   "styles": { "css": "…", "assets": [{ "path": "assets/x.woff2", "sha256": "…", "bytes": 1234, "mime": "font/woff2" }] },
@@ -33,6 +33,8 @@ Schema 4 was introduced in M1 and extended additively in M2 with values, stateme
   }
 }
 ```
+
+`meta.mappings` lists the mapping packs ([D9](design/M6-LIBRARIES.md#mapping-packs-d9)) the frontend used: `<package>@<version>`, the pack format version (1) and the SHA-256 of the pack module. It is provenance only: packs lower to ordinary IR (expressions, functions and template nodes), so the backend never sees a package.
 
 CSS refers to embedded assets as `url("runic-asset:<index>")`. The runtime resolves them from bytes compiled into the binary. Every object rejects unknown fields.
 
@@ -217,7 +219,7 @@ Node =
 - **Tags** come from an allow-list in `validate.rs` (`TAGS`), which includes the inline SVG elements below.
 - **Inline SVG** (M5): `svg`, `g`, `path`, `circle`, `ellipse`, `line`, `polyline`, `polygon` and `rect` (`SVG_TAGS`) are created in the SVG namespace. Blitz renders an `<svg>` as a replaced element: it serialises the subtree's attributes, with `currentColor` replaced by each element's computed CSS `color`, and draws them with usvg into the content box (`object-fit: contain`), clipped by the UA rule `svg { overflow: hidden }` that Chromium also has. So the validator accepts only what both engines read the same way (`E_SVG`):
   - Placement: an `<svg>` is not inside another; the other SVG elements are children of `<svg>` or `<g>`; shapes have no children; an `<svg>` holds no HTML elements, components or slot outlets, and text only if it is literal HTML whitespace. `if` and `each` nodes may stand anywhere among them.
-  - An `<svg>` needs a string `viewBox`. Its attributes are `xmlns` (only the literal `http://www.w3.org/2000/svg`), `width`, `height` (CSS sizes in both engines; author CSS may override them), `viewBox`, `class`, `id`, the paint attributes and `aria-*`/`data-*`. Attributes that Chromium applies to the outer box but Blitz only to the drawing (`opacity`, `transform`, `display`, `style`, `color`, …) are rejected.
+  - An `<svg>` needs a string `viewBox`. Its attributes are `xmlns` (only the literal `http://www.w3.org/2000/svg`), `width`, `height` (CSS sizes in both engines; author CSS may override them), `viewBox`, `class`, `id`, `role` (M6), the paint attributes and `aria-*`/`data-*`. Attributes that Chromium applies to the outer box but Blitz only to the drawing (`opacity`, `transform`, `display`, `style`, `color`, …) are rejected.
   - Paint attributes on every SVG element: `fill`, `fill-opacity`, `fill-rule`, `stroke`, `stroke-width`, `stroke-linecap`, `stroke-linejoin`, `stroke-miterlimit`, `stroke-dasharray`, `stroke-dashoffset`, `stroke-opacity`. Besides them and `class`, `aria-*`, `data-*`: `g` takes `opacity`, `transform`; each shape also its geometry (`path` `d`; `circle` `cx`, `cy`, `r`; `ellipse` `cx`, `cy`, `rx`, `ry`; `line` `x1`, `y1`, `x2`, `y2`; `polyline`/`polygon` `points`; `rect` `x`, `y`, `width`, `height`, `rx`, `ry`). No `id` (SVG children have no layout boxes in Blitz), `style` or `color` (`currentColor` is resolved from CSS `color` before usvg sees the attribute).
   - Values are strings or nullable strings (absent when nullish), static or bound; boolean values are rejected.
   - No listeners, spreads (they may carry listeners), refs or managed inline styles: Blitz hit-tests an inline `<svg>` as one box, where Chromium targets the painted shape. Class toggles are allowed.
