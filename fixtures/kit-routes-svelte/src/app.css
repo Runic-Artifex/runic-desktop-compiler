@@ -27,6 +27,11 @@ nav,
   align-items: center;
   margin: 2px 0;
 }
+label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
 a {
   color: #1d4f8a;
 }

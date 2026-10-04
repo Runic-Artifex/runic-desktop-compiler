@@ -364,6 +364,7 @@ export async function collect(app) {
       esbuild: { jsx: 'transform' },
     });
   } catch (e) {
+    if (kit?.failure()) throw kit.failure();
     if (collectionError) throw collectionError;
     if (e instanceof Diagnostic || tooling.name !== 'svelte') throw e;
     throw new Diagnostic('E_SVELTE_COMPILE', e.message, {

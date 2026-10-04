@@ -2456,6 +2456,14 @@ export class Lowerer {
         // States are null or strings (M6); objects are untyped structured clones.
         let stateArg: Expr | undefined;
         if (!nullish(state)) {
+          // Checked by type first: an object literal has no string type.
+          const st = state && this.types.typeOrUndefined(state);
+          if (!state || (st !== STRING && maybeInner(st ?? 'void') !== STRING))
+            this.fail(
+              state ?? e,
+              'E_HOST',
+              `history.${method} states are null or strings (state objects are untyped structured clones)`,
+            );
           const v = state && this.expr(state, b);
           const t = v && this.irType(v, b);
           if (!v || (t !== STRING && maybeInner(t!) !== STRING))

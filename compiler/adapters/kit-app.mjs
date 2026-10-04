@@ -262,18 +262,32 @@ export async function kitApp(root, config, compiler) {
     return undefined;
   };
 
+  const failure = { diagnostic: undefined };
   const plugin = {
     name: 'runic-sveltekit',
     enforce: 'pre',
     async resolveId(specifier, importer) {
       const v = resolveVirtual(specifier, importer?.split('?')[0]);
       if (typeof v === 'string') return v;
-      if (v?.error)
-        throw new Diagnostic(
-          'E_KIT_IMPORT',
-          v.error,
-          importer ? at(path.relative(root, importer)) : undefined,
-        );
+      if (v?.error) {
+        // Located at the import in the source file (Vite wraps errors thrown
+        // here, so the collector rethrows the recorded diagnostic).
+        const file = importer?.split('?')[0];
+        let source;
+        if (file && existsSync(file)) {
+          const lines = readFileSync(file, 'utf8').split('\n');
+          const line = lines.findIndex(
+            l => /\bfrom\s*['"]|\bimport\s*['"(]/.test(l) && l.includes(specifier),
+          );
+          source = at(
+            path.relative(root, file),
+            line + 1 || 1,
+            line < 0 ? 1 : lines[line].indexOf(specifier),
+          );
+        }
+        failure.diagnostic ??= new Diagnostic('E_KIT_IMPORT', v.error, source);
+        throw new Error(v.error);
+      }
       for (const [find, target] of Object.entries(aliases)) {
         const base = find.replace(/\/\*$/, '');
         if (specifier === base || specifier.startsWith(base + '/')) {
@@ -294,6 +308,8 @@ export async function kitApp(root, config, compiler) {
     version: KIT_VERSION,
     entry: path.join(generated, 'entry.ts'),
     plugin,
+    /** The diagnostic the plugin raised, if any. */
+    failure: () => failure.diagnostic,
     html,
     generated,
     hash: options.routerType === 'hash',

@@ -168,19 +168,15 @@ test('rejected: console shapes Chromium formats or reports differently', async (
   await rejects([['console.info(`info ${logged}`);', 'console.table(logged);']], 'E_MEMBER');
 });
 
-test('rejected: history state, reloads, other documents, the origin', async () => {
+test('rejected: history state objects, reloads, other documents, the origin', async () => {
   await rejects(
     [["history.pushState(null, '', `?q=", "history.pushState({ q }, '', `?q="]],
     'E_HOST',
     /state objects/,
   );
   await rejects([['history.go(-2)', 'history.go(0)']], 'E_HOST', /non-zero integer literal/);
-  await rejects([['history.go(-2)', 'history.go(logged)']], 'E_HOST', /non-zero integer literal/);
-  await rejects(
-    [['length = history.length;', 'length = history.state;']],
-    'E_HOST',
-    /history.state/,
-  );
+  // A computed delta is checked when it runs (M6); a literal one must be an integer.
+  await rejects([['history.go(-2)', 'history.go(1.5)']], 'E_HOST', /non-zero integer literal/);
   await rejects([['hash = location.hash;', 'hash = location.href;']], 'E_HOST', /origin/);
   await rejects([['location.hash = to;', 'location.pathname = to;']], 'E_HOST', /another document/);
   await rejects([['location.hash = to;', 'location.reload();']], 'E_HOST', /another document/);

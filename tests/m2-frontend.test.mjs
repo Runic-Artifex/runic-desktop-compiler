@@ -199,7 +199,7 @@ test('uncovered constructs are rejected with diagnostics', async () => {
   await rejects(`let x: any = $state(1);`, 'E_TYPE_UNSUPPORTED');
   await rejects(`let c = $state(0); $effect.root(() => { c; });`, 'E_STATEMENT');
   await rejects(`let xs = $state([1]);`, 'E_TEMPLATE', '{@html "<b>x</b>"}');
-  await rejects(`let r = $state<Error | null>(null);`, 'E_TYPE_UNSUPPORTED');
+  await rejects(`let r = $state<symbol | null>(null);`, 'E_TYPE_UNSUPPORTED');
   await rejects(`import { getContext } from 'svelte';`, 'E_CAPABILITY');
 });
 
