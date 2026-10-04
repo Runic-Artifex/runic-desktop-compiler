@@ -1,6 +1,6 @@
 # M6: libraries, CSS pipeline, SvelteKit
 
-**Exit** (roadmap): the Translations Editor's non-bridge screens render from source, the corpus coverage report is committed, and island counts are recorded as the baseline to reduce from.
+**Exit** (roadmap): the shadcn-svelte site's component examples render from source, the corpus coverage report (including the three shadcn sources) is committed, and island counts are recorded as the baseline to reduce from. The north star changed on 2026-10-04 (roadmap decision log); the research below was done on the Translations Editor, whose stack (SvelteKit, Svelte 5, bits-ui, Tailwind 4, lucide, tailwind-variants) is the shadcn-svelte site's, so its findings carry over.
 
 Research behind this plan:
 - [M6-LIBRARIES](../research/M6-LIBRARIES.md): what the editor reaches in bits-ui, lucide, svelte-toolbelt, runed, floating-ui and the class utilities, and which features those sources use;

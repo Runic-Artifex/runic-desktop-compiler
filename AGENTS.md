@@ -1,6 +1,6 @@
 # Working on Runic Desktop Compiler
 
-The compiler turns JavaScript/TypeScript framework applications (React, Vue and Svelte today) into native Rust applications rendered with Blitz, with no browser, WebView or (by default) JavaScript engine. It exists to give the [Runic SDK](/home/viktor/Development/RunicArtifex/runic-sdk) a WebView-free, fast-starting deployment path; the north-star app is the SDK's Translations Editor (Svelte/SvelteKit).
+The compiler turns JavaScript/TypeScript framework applications (React, Vue and Svelte today) into native Rust applications rendered with Blitz, with no browser, WebView or (by default) JavaScript engine. It gives the [Runic SDK](/home/viktor/Development/RunicArtifex/runic-sdk), and other hosts such as a Godot UI, a WebView-free, fast-starting UI path. The north star is the shadcn sites (shadcn-svelte as a whole SvelteKit site, plus the shadcn/ui and shadcn-vue component examples); the SDK's Translations Editor follows with the application bridge.
 
 Start here:
 

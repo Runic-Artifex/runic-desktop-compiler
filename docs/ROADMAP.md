@@ -2,11 +2,15 @@
 
 A rough plan for the whole compiler, written on 2026-10-03. It replaces the Phase 5–8 plan in [history/PHASES5-8.md](history/PHASES5-8.md). Milestones are numbered M0–M13 so they don't collide with the historical Phases 0–4. Each milestone is driven by **example applications** rather than by abstract capability lists.
 
-**The goal** is the Runic SDK's WebView-free deployment path. The north star is the **Runic Translations Editor**, a SvelteKit static SPA with Svelte 5, Tailwind 4 and bits-ui/shadcn-svelte, connected to a C# view model through the generated Runic application bridge (see [ARCHITECTURE.md](ARCHITECTURE.md), Purpose and D13). Its requirements shape the order below.
+**The goal** is a general compiler for framework UIs that need no browser: the Runic SDK's WebView-free deployment path, and hosts such as a Godot UI. The north star (decided 2026-10-04) is the **shadcn sites**, pulled from GitHub at pinned commits:
+- the [shadcn-svelte](https://www.shadcn-svelte.com/) documentation site as a whole: SvelteKit, Svelte 5, Tailwind 4, bits-ui, lucide, tailwind-variants, markdown pages;
+- the component examples and blocks of [shadcn/ui](https://ui.shadcn.com/) (React 19, Radix) and of [shadcn-vue](https://www.shadcn-vue.com/) (Vue, Reka UI), each in a Vite host page. The ui.shadcn.com site itself is a Next.js app with server components, which needs a Next.js adapter of its own.
+
+They cover a wider range of components than one application, and keep early verification independent of Runic. The Runic Translations Editor follows with the application bridge (M8).
 
 **Framework rule (D14).** Every capability milestone must pass in **Svelte**. React and Vue follow in the same milestone when the adapter work is small; otherwise they keep explicit diagnostics until later.
 
-**Platform rule (D15).** Everything runs on Linux first. Windows starts only after the north-star app works on Linux, and macOS comes last.
+**Platform rule (D15).** Everything runs on Linux first. Windows starts only after the north star works on Linux, and macOS comes last.
 
 How each kind of work is executed (standalone, subagents or workflows) is defined in [WORKING.md](WORKING.md). Each milestone below states which mode to use and why.
 
@@ -20,9 +24,9 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 | M3 | Components, slots and snippets, keyed lists, instance lifetimes | 7GUIs CRUD, TodoMVC (in memory) | Standalone core, then subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m3.md)) |
 | M4 | Effects, timers, async, event loop | 7GUIs Timer, TodoMVC with persistence | Standalone core, ordering research subagent, subagents per adapter | Done 2026-10-03 ([results](../conformance/results/m4.md)) |
 | M5 | Full event model, forms, layout/measurement APIs, host services | 7GUIs Circle Drawer, Cells; a virtualized list | Subagents per service; desktop track standalone | Done 2026-10-04 ([results](../conformance/results/m5.md)) |
-| M6 | Blitz fork; npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | translation-editor sub-screens, corpus apps | Workflows for corpus and packs | In progress |
-| M7 | Runic application bridge to .NET | an SDK sample app with a C# view model | Standalone + spike | Planned |
-| M8 | **North star on Linux:** Translations Editor compiled, verified and packaged | Runic Translations Editor | Workflow for triage, standalone integration | Planned |
+| M6 | Blitz fork; npm and component libraries, Tailwind/CSS pipeline, SvelteKit SPA subset, mapping packs, corpus scan, QuickJS islands | shadcn-svelte component examples, corpus apps | Workflows for corpus and packs | In progress |
+| M7 | **North star on Linux:** the shadcn-svelte site, and the shadcn/ui and shadcn-vue examples, compiled, verified and packaged | shadcn-svelte, shadcn/ui, shadcn-vue | Workflow for triage, standalone integration | Planned |
+| M8 | Runic application bridge to .NET; the Translations Editor compiled, verified and packaged | an SDK sample app, then the Runic Translations Editor | Standalone + spike | Planned |
 | M9 | Angular adapter | 7GUIs + TodoMVC in Angular, an SDK Angular sample | Standalone design, subagents for cases | Planned |
 | M10 | Optimisation: startup, size, compile time, dev loop | M8 app | Standalone with measured experiments | Planned |
 | M11 | Windows | M8 app on Windows | Standalone | Planned |
@@ -34,7 +38,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 - **Startup and size budget.** From M1 on, the harness records cold-start time to first frame and stripped binary size for every example. Each milestone reports both. A regression needs a stated reason.
 - **Desktop input.** OS keyboard, IME, Wayland resize and accessibility on Linux. This needs real compositor sessions, so it is done standalone with computer use. It never blocks compiler milestones, but M8 requires it complete for the editor.
 - **Blitz upstream.** Report and fix renderer and control bugs upstream and keep the pin current (D11). Known gaps and the fork assessment: [BLITZ-GAPS.md](BLITZ-GAPS.md).
-- **Native coverage.** From M6 on, island count and native-coverage % of the editor and corpus apps are tracked per milestone and must not regress.
+- **Native coverage.** From M6 on, island count and native-coverage % of the north-star and corpus apps are tracked per milestone and must not regress.
 
 ## M0: Restructure (done)
 
@@ -161,7 +165,7 @@ Replace the parts that cannot scale before adding any capability.
 
 **Moved out of M5** (with the reason):
 - `ResizeObserver`: to M6. The editor uses it only through its component libraries (bits-ui, floating-ui).
-- Fetch of local resources: to M7. The editor's only `fetch` reads the desktop appearance, which the application bridge provides natively.
+- Fetch of local resources: to M8 (originally M7, before the north star moved there). The editor's only `fetch` reads the desktop appearance, which the application bridge provides natively.
 - Window title and size: to M8 packaging. The title comes from `runic.json`; no app sets either at run time.
 - Accessibility through AccessKit: to the desktop-input track. It needs a real OS session to verify.
 - Sequential navigation from a live range after a move-induced blur (case `reorder-navigation`): to M8. Modelling it exactly needs each framework's exact sequence of DOM moves, in the generated code and in the interpreter, and only Tab presses right after the focused item is reordered can observe it.
@@ -186,38 +190,44 @@ Replace the parts that cannot scale before adding any capability.
 - **Dependencies:** compile npm dependencies and *component libraries* (bits-ui, shadcn-svelte, `@lucide/svelte`) from source through the adapters and language layer.
 - **Mapping packs:** packs for frequent utilities (`clsx`, `tailwind-merge`, `tailwind-variants`, `@internationalized/date`), validated against the real packages.
 - **CSS pipeline:** accept plugin-generated CSS (Tailwind 4 via Vite), and audit Blitz/Stylo support for its output (`@layer`, custom properties, `oklch`, `color-mix`, nesting).
-- **SvelteKit:** a static SPA subset (`adapter-static`, layouts/pages, the `$app`/`$lib` modules the editor uses).
+- **SvelteKit:** a static SPA subset (`adapter-static`, layouts/pages, the `$app`/`$lib` modules the shadcn-svelte site and the editor use).
 - **Corpus and islands:** `runic scan` over a corpus of 20–50 open-source Svelte, React and Vue apps; QuickJS islands (D7), opt-in, with island and coverage reports; model-assisted discovery generalised to library packs.
 - **Blitz fork** (decided 2026-10-04, the first step): [`Runic-Artifex/blitz`](https://github.com/Runic-Artifex/blitz), based on upstream main. Move the pin to it (AnyRender 0.14, Taffy and Parley updates, a full conformance rerun), then carry one commit per gap in the order of [BLITZ-GAPS](BLITZ-GAPS.md#fork-assessment), each with the conformance case that shows it and offered upstream; fixture workarounds are removed as their gaps close. Placeholders come with it.
 - **Carried from M5:** `ResizeObserver`, `Intl.PluralRules`/`DisplayNames`, React's continuous lane (scroll-driven updates rendered after the frame, for the React virtualized list), console reports of unhandled promise rejections.
 
-**Exit:** the editor's non-bridge screens render from source, the corpus coverage report is committed, and island counts are recorded as the baseline to reduce from.
+**Exit:** the shadcn-svelte site's component examples render from source, the corpus coverage report (including the three shadcn sources) is committed, and island counts are recorded as the baseline to reduce from.
 
-**Design:** [M6-LIBRARIES](design/M6-LIBRARIES.md) (decisions, work order, verification), from the research in [M6-LIBRARIES](research/M6-LIBRARIES.md) and [M6-CSS](research/M6-CSS.md). CSS transitions and animations move here from M10 as far as the editor needs them.
+**Design:** [M6-LIBRARIES](design/M6-LIBRARIES.md) (decisions, work order, verification), from the research in [M6-LIBRARIES](research/M6-LIBRARIES.md) and [M6-CSS](research/M6-CSS.md). CSS transitions and animations move here from M10 as far as the north star and the editor need them.
 
 **Work mode: workflows** for corpus scanning (one agent per app plus an aggregator) and pack authoring (independent validator agents); standalone for SvelteKit and the QuickJS bridge.
 
-## M7: Runic application bridge
+## M7: North star on Linux
+
+The north star compiles from pinned, unmodified upstream sources and passes conformance against the browser:
+- **shadcn-svelte:** the documentation site as a whole SvelteKit app (static SPA subset), page by page, including its markdown content and theming;
+- **shadcn/ui:** the component examples and blocks (`apps/v4/registry`, `examples`), each mounted in a Vite host page; React's pinned version follows the upstream lockfile;
+- **shadcn-vue:** its component examples, mounted the same way.
+
+The apps are packaged for Linux (Nix closure, then AppImage or Flatpak), startup and size are measured, and the desktop-input track is complete for them. QuickJS islands are allowed, but every one is listed with a plan to remove it.
+
+**Work mode:**
+- **Workflow:** triage the remaining blockers from the scan, one agent per blocker cluster with verification.
+- **Standalone:** integration and packaging.
+
+## M8: Runic application bridge and the Translations Editor
 
 **Scope (D13):**
 - **Recognition:** recognise the SDK's generated bridge client (generator identity and contract metadata) and lower calls to a native `runic-bridge` client.
-- **Process model:** decide between an in-process NativeAOT .NET library over a C ABI and a separate process over IPC, by measuring startup latency and robustness. Implement the chosen model.
+- **Process model:** decide between an in-process NativeAOT .NET library over a C ABI and a separate process over IPC, by measuring startup latency and robustness. Implement the chosen model. The embedder interface stays host-agnostic, so other hosts (a Godot UI) can use it.
 - **SDK hosting:** the desktop host in `Runic.Desktop` gains a "native UI" mode next to its WebView hosts. This change lives in the SDK repository and is coordinated with the user.
+- **The Translations Editor** compiles from its unmodified source and passes conformance against its WebView build; it is packaged for Linux and compared with the WebKitGTK build.
 
-**Examples:** a minimal SDK sample app with a C# view model, then the editor's bridge surface.
+**Examples:** a minimal SDK sample app with a C# view model, then the editor.
 
 **Work mode:**
 - **Standalone:** cross-language ABI design.
 - **Subagent spike:** survey the SDK's `CsWebUiBridge` generator and contract format, and the archived initiative's C ABI.
 - **User checkpoint:** before any change in the SDK repository.
-
-## M8: North star on Linux
-
-The Runic Translations Editor compiles from its unmodified source and passes conformance against its WebView build. It is packaged for Linux (Nix closure, then AppImage or Flatpak). Startup and size are compared against the WebKitGTK build, and the desktop-input track is complete for it. QuickJS islands are allowed but every one is listed with a plan to remove it.
-
-**Work mode:**
-- **Workflow:** triage the remaining blockers from the scan, one agent per blocker cluster with verification.
-- **Standalone:** integration and packaging.
 
 ## M9: Angular
 
@@ -261,3 +271,4 @@ Solid and further frontends; porting the language layer or adapters to Rust (oxc
 - 2026-10-03 (M4): instead of reproducing each framework's re-render granularity, templates may not read values that change without notifying the framework (`E_REACTIVITY`); granularity is observable only through such reads.
 - 2026-10-04 (M6): the Blitz fork is `Runic-Artifex/blitz`, based on upstream main (user decision); its patches are listed in [BLITZ-GAPS](BLITZ-GAPS.md).
 - 2026-10-04 (M6): CSS transitions and animations move from M10 into M6 as far as the editor needs them, driven by the runtime's clock and compared with Chromium's fake clock; the editor's components animate their open and closed states and bits-ui awaits `getAnimations()`, and stripping them would be an approximation ([M6 design](design/M6-LIBRARIES.md)).
+- 2026-10-04: the north star is the shadcn sites (user decision): the whole shadcn-svelte documentation site, and the shadcn/ui (React) and shadcn-vue component examples, from pinned GitHub commits (M7). They are more diverse than one application and keep verification independent of Runic; the compiler is also meant for hosts other than Runic (a Godot UI). The Runic application bridge and the Translations Editor move to M8.

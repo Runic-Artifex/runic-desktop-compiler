@@ -2,7 +2,7 @@
 
 A research compiler that turns JavaScript/TypeScript framework applications into native Rust desktop applications rendered with [Blitz](https://github.com/DioxusLabs/blitz). Generated applications contain no browser, no WebView and no JavaScript engine. Vite collects the original sources and assets, versioned framework adapters lower components to a validated IR, and the backend generates Rust state transitions and live DOM bindings.
 
-**Purpose:** a WebView-free, fast-starting deployment path for [Runic SDK](/home/viktor/Development/RunicArtifex/runic-sdk) apps. The north star is the SDK's Translations Editor (Svelte 5 + SvelteKit with a C# view model).
+**Purpose:** a WebView-free, fast-starting UI path for [Runic SDK](/home/viktor/Development/RunicArtifex/runic-sdk) apps and other hosts. The north star is the shadcn sites (shadcn-svelte, shadcn/ui and shadcn-vue); the SDK's Translations Editor follows with the application bridge.
 
 **Status (2026-10-03):** M2 is complete. React, Vue and Svelte share a TypeScript frontend that lowers ordinary JavaScript (numbers, strings, objects, arrays, `Map`/`Set`, closures, exceptions and the common built-ins) to a Rust backend; components are still single-component apps with conditionals and text inputs. See [contract v6](docs/CONTRACT.md) and the [M2 results](conformance/results/m2.md). The plan to a general compiler is in [docs/ROADMAP.md](docs/ROADMAP.md); the next milestone (M3) adds components and lists.
 
