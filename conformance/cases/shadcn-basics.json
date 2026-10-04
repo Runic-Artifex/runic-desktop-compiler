@@ -1,0 +1,28 @@
+{
+  "description": "shadcn-svelte's Button, Badge and Card compiled from their unmodified sources (M6 library modules, docs/design/M6-LIBRARIES.md#library-modules-step-3): <script module> tv() variants exported through index.ts barrels, `$lib` imports (runic.json alias), Card's parts as <Card.Root> through a namespace import, cn from the cn package re-exported by lib/utils.ts, class props whose values come from the instantiation sites (prop domains, enumerated per site), href turning Button into a link and Badge's <svelte:element>, children snippets and rest props (id, aria-label, onclick). Clicks change a variant, a size, a class and disabled (a disabled Button link loses its href); hover, Tab focus (focus-visible ring), links followed by click and by Enter (fragment navigations: popstate, hashchange, the same link again replacing the entry). Known paint gap the whole-viewport pixel gate does not see (docs/BLITZ-GAPS.md): the lucide icons are not drawn natively, because their currentColor resolves to the theme's oklch colours, which Blitz passes to usvg as oklch()",
+  "fixtures": ["shadcn-basics-svelte"],
+  "actions": [
+    { "kind": "hover", "id": "outline" },
+    { "kind": "click", "id": "default" },
+    { "kind": "click", "id": "as-link" },
+    { "kind": "click", "id": "as-link" },
+    { "kind": "click", "id": "variants-link" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "click", "id": "outline" },
+    { "kind": "click", "id": "secondary" },
+    { "kind": "hover", "id": "secondary" },
+    { "kind": "click", "id": "destructive" },
+    { "kind": "click", "id": "ghost" },
+    { "kind": "click", "id": "as-link" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "click", "id": "secondary" },
+    { "kind": "click", "id": "outline" },
+    { "kind": "click", "id": "card-submit" },
+    { "kind": "hover", "id": "card-outline" },
+    { "kind": "click", "id": "ghost" },
+    { "kind": "click", "id": "destructive" },
+    { "kind": "hover", "id": "badge-link" }
+  ]
+}

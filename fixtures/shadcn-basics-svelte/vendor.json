@@ -1,0 +1,21 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/modules.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's.",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": { "upstream": "LICENSE.md", "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9" },
+    "src/lib/utils.ts": { "upstream": "docs/src/lib/registry/lib/utils.ts", "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c" },
+    "src/lib/registry/ui/badge/badge.svelte": { "upstream": "docs/src/lib/registry/ui/badge/badge.svelte", "sha256": "197f4dbe650f8b97de66085a41a6f90f136890179d4d4264b090092ad9350b8a" },
+    "src/lib/registry/ui/badge/index.ts": { "upstream": "docs/src/lib/registry/ui/badge/index.ts", "sha256": "1dc9eba432869188db370b8e984ca8ff97430c609746a8274a0edecc0d55b765" },
+    "src/lib/registry/ui/button/button.svelte": { "upstream": "docs/src/lib/registry/ui/button/button.svelte", "sha256": "836d6b14108ce6f20ed88c6500d981c412e1d9cc8bbde02c2f64552b1c0b195c" },
+    "src/lib/registry/ui/button/index.ts": { "upstream": "docs/src/lib/registry/ui/button/index.ts", "sha256": "0f6b6f040d92b4153821d3f9b4d6b9cbc567247e4fda913e64c1d0fcc4a2f386" },
+    "src/lib/registry/ui/card/card-action.svelte": { "upstream": "docs/src/lib/registry/ui/card/card-action.svelte", "sha256": "032220a0e351eac68b77e4cedf938597376703f1a95648a615306b0a648d2851" },
+    "src/lib/registry/ui/card/card-content.svelte": { "upstream": "docs/src/lib/registry/ui/card/card-content.svelte", "sha256": "1fc6e4e49eb6cd16ce76e66d1015fe72503a8538bc8e602326a3f5130ffd8a33" },
+    "src/lib/registry/ui/card/card-description.svelte": { "upstream": "docs/src/lib/registry/ui/card/card-description.svelte", "sha256": "c51e61a11c7b87e3da6b06eb953e7bfffe0388f7721795bfc207c8bea0aabbd3" },
+    "src/lib/registry/ui/card/card-footer.svelte": { "upstream": "docs/src/lib/registry/ui/card/card-footer.svelte", "sha256": "9242ce73ae1fdf89f2dc30c42302e928ae6bf1dfecd18df1c08e1958afb71161" },
+    "src/lib/registry/ui/card/card-header.svelte": { "upstream": "docs/src/lib/registry/ui/card/card-header.svelte", "sha256": "5c15cab4b41f19e406b86a46d767dc7d38936c5870a64707a633f515f59a5215" },
+    "src/lib/registry/ui/card/card.svelte": { "upstream": "docs/src/lib/registry/ui/card/card.svelte", "sha256": "263baa411cacfe098ba631ff8696aa02a9134ff40094b56caaf4800de7bfad0b" },
+    "src/lib/registry/ui/card/card-title.svelte": { "upstream": "docs/src/lib/registry/ui/card/card-title.svelte", "sha256": "5deb7cebbb6cb224a4dd62dcf61468ee39094497df2b186210d7e1a36096ac02" },
+    "src/lib/registry/ui/card/index.ts": { "upstream": "docs/src/lib/registry/ui/card/index.ts", "sha256": "41b4e0bf782f5e2bbed1863de169ad9f623b47a73f9fc57ba6776779e4be9edb" }
+  }
+}

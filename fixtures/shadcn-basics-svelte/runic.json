@@ -1,0 +1,7 @@
+{
+  "framework": "svelte",
+  "entry": "main.js",
+  "title": "Runic shadcn-basics-svelte",
+  "tailwind": true,
+  "alias": { "$lib": "src/lib" }
+}
