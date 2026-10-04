@@ -71,6 +71,10 @@ pub fn same_expr(t: &Type, a: &str, b: &str) -> String {
         Type::Number => format!("js::same_value({a}, {b})"),
         Type::Fn(_) => format!("Rc::ptr_eq(&{a}, &{b})"),
         Type::Void => "true".into(),
+        // Functions compare by identity.
+        Type::Maybe(inner) if matches!(**inner, Type::Fn(_)) => format!(
+            "(match (&{a}, &{b}) {{ (Maybe::Some(x), Maybe::Some(y)) => Rc::ptr_eq(x, y), (Maybe::Undefined, Maybe::Undefined) | (Maybe::Null, Maybe::Null) => true, _ => false }})"
+        ),
         _ => format!("js::StrictEq::strict_eq(&{a}, &{b})"),
     }
 }

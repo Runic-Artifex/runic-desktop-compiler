@@ -8,14 +8,18 @@ import ts from 'typescript';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { Expr, Node } from './ir.ts';
+import type { Expr, Node, Type } from './ir.ts';
+import type { Shape } from './bags.ts';
 import type { Binding, FnBuilder, Lowerer } from './language.ts';
 import { valueChoice, withRest, wrapperValues, type Choice } from './packs/choice.ts';
+import { sourceVersions } from './sources.ts';
 import { cnPack } from './packs/cn-0.3.0.ts';
 import { clsxPack } from './packs/clsx-2.1.1.ts';
 import { lucideSveltePack } from './packs/lucide-svelte-1.52.0.ts';
 import { tailwindMergePack } from './packs/tailwind-merge-3.7.0.ts';
 import { tailwindVariantsPack } from './packs/tailwind-variants-3.3.1.ts';
+import { runedPack } from './packs/runed-0.35.1.ts';
+import { svelteToolbeltPack } from './packs/svelte-toolbelt-0.10.6.ts';
 
 type Source = { file: string; line: number; column: number };
 
@@ -27,6 +31,8 @@ export interface PackageRef {
   dir: string;
   /** The specifier's subpath: `.` or `./icons/x`. */
   subpath: string;
+  /** The package is compiled from source (frontend/sources.ts), not by a pack. */
+  source?: boolean;
 }
 
 /** An import edge of the collected module graph. */
@@ -58,13 +64,17 @@ export interface PackFunction {
    * tailwind-variants' `tv(config)`. The const has no runtime value: its
    * calls are lowered.
    */
-  constant?(node: ts.CallExpression, name: string, lower: Lowerer): PackFunction;
+  constant?(node: ts.CallExpression | ts.NewExpression, name: string, lower: Lowerer): PackFunction;
   /**
    * Calls are evaluated at build time from their arguments' syntax, so a
    * module function that only returns a call of this one over its rest
    * parameter is inlined at its call sites (`bindPackWrapper`).
    */
   inline?: boolean;
+  /** Methods called on the export or constant (`watch.pre(…)`, `context.get()`). */
+  methods?: Record<string, (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr>;
+  /** The keys of the attribute bag a call returns (frontend/bags.ts). */
+  shape?(node: ts.CallExpression, of: (e: ts.Expression) => Shape): Shape;
 }
 
 /** An attribute of a component instance, as written. */
@@ -102,10 +112,35 @@ export interface Pack {
    * `pkg.subpath`, or a message saying why it is not covered.
    */
   export(pkg: PackageRef, imported: string): PackExport | string;
+  /**
+   * The IR type of a type the package declares that the pack represents
+   * (svelte-toolbelt's boxes), or undefined for other types.
+   */
+  type?(t: ts.Type, at: ts.Node, lower: Lowerer): Type | undefined;
+}
+
+/** The IR type a pack gives `t` (TypeMapper hook), if any. */
+export function packType(t: ts.Type, at: ts.Node, lower: Lowerer): Type | undefined {
+  for (const pack of PACKS) {
+    const found = pack.type?.(t, at, lower);
+    if (found) {
+      usePack(lower, pack);
+      return found;
+    }
+  }
+  return undefined;
 }
 
 /** One module per pack, keyed by package name. */
-const PACKS: Pack[] = [clsxPack, cnPack, lucideSveltePack, tailwindMergePack, tailwindVariantsPack];
+const PACKS: Pack[] = [
+  clsxPack,
+  cnPack,
+  lucideSveltePack,
+  runedPack,
+  svelteToolbeltPack,
+  tailwindMergePack,
+  tailwindVariantsPack,
+];
 
 export class PackError extends Error {
   readonly code: string;
@@ -115,13 +150,23 @@ export class PackError extends Error {
   }
 }
 
-/** The pack for a resolved package: E_DEPENDENCY without one, E_PACK_VERSION for another version. */
+/**
+ * The pack for a resolved package: E_DEPENDENCY without one (and when the
+ * package is not compiled from source either), E_SOURCE_VERSION for another
+ * version of a package compiled from source, E_PACK_VERSION for another
+ * version of a packed one.
+ */
 export function packFor(pkg: PackageRef): Pack {
   const candidates = PACKS.filter(p => p.name === pkg.name);
+  if (!candidates.length && sourceVersions(pkg.name).length)
+    throw new PackError(
+      'E_SOURCE_VERSION',
+      `${pkg.name}@${pkg.version} is not compiled from source; the verified version is ${sourceVersions(pkg.name).join(', ')}`,
+    );
   if (!candidates.length)
     throw new PackError(
       'E_DEPENDENCY',
-      `No mapping pack for dependency ${pkg.name} (npm libraries compiled from source are planned for M6)`,
+      `No mapping pack for dependency ${pkg.name}, and it is not compiled from source (frontend/sources.ts lists those packages)`,
     );
   const pack = candidates.find(p => p.version === pkg.version);
   if (!pack)
@@ -173,6 +218,8 @@ export function bindPackImport(
   stmt: ts.ImportDeclaration,
   edge: Edge | undefined,
   lower: Lowerer,
+  /** Bind only this imported name (package modules bind names on first use). */
+  only?: ts.Identifier,
 ): boolean {
   const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
   if (isLocal(spec, edge)) return false;
@@ -201,6 +248,7 @@ export function bindPackImport(
     for (const el of named.elements)
       if (!el.isTypeOnly) names.push([el.name, (el.propertyName ?? el.name).text]);
   for (const [id, imported] of names) {
+    if (only && id !== only) continue;
     let found: { pack: Pack; value: PackExport };
     try {
       found = packExport(pkg, imported);
@@ -226,6 +274,8 @@ export function bindPackImport(
 const isLocal = (spec: string, edge: Edge | undefined): boolean =>
   spec.startsWith('.') ||
   spec.startsWith('/') ||
+  // Packages compiled from source are modules like local ones.
+  !!edge?.package?.source ||
   (!!edge && !edge.package && !/[\\/]node_modules[\\/]/.test(edge.resolved));
 
 /**
@@ -306,13 +356,30 @@ function functionBinding(pack: Pack, label: string, fn: PackFunction): Binding {
         }
       : undefined,
     inline: fn.inline,
+    methods: fn.methods
+      ? Object.fromEntries(
+          Object.entries(fn.methods).map(([k, m]) => [
+            k,
+            (node: ts.CallExpression, b: FnBuilder, l: Lowerer) => {
+              usePack(l, pack);
+              return m(node, b, l);
+            },
+          ]),
+        )
+      : undefined,
+    shape: fn.shape,
   };
 }
 
-/** The pack binding a call's callee names, if any. */
+/** The pack binding a call's (or `new`'s) callee names, if any. */
 function calleeBinding(e: ts.Expression | undefined, lower: Lowerer) {
   const init = e && skip(e);
-  if (!init || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression)) return undefined;
+  if (
+    !init ||
+    !(ts.isCallExpression(init) || ts.isNewExpression(init)) ||
+    !ts.isIdentifier(init.expression)
+  )
+    return undefined;
   const binding = lower.binding(init.expression);
   return binding?.kind === 'pack' ? { call: init, binding } : undefined;
 }

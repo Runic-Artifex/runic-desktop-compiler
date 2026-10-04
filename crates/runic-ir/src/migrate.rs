@@ -255,6 +255,7 @@ fn node(v: &Json, handlers: &[Json]) -> Result<Node> {
                 listeners,
                 reference: None,
                 spread: None,
+                spread_boolean_text: false,
                 classes: vec![],
                 style_text: None,
                 styles: vec![],
@@ -292,6 +293,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
             };
             Ok(Cell {
                 readonly: false,
+                undefined_default: false,
                 tracking: Tracking::Identity,
                 name: field(s, "name")?.as_str().unwrap_or_default().to_owned(),
                 ty: ty(field(s, "type")?)?,

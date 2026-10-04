@@ -28,9 +28,12 @@
   "devDependencies": {
     "@lucide/svelte": "1.52.0",
     "@tailwindcss/vite": "4.3.3",
+    "bits-ui": "2.19.2",
     "clsx": "2.1.1",
     "cn": "0.3.0",
     "playwright-core": "1.63.0",
+    "runed": "0.35.1",
+    "svelte-toolbelt": "0.10.6",
     "tailwind-merge": "3.7.0",
     "tailwind-variants": "3.3.1",
     "tailwindcss": "4.3.3"

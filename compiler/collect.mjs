@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { frontendTooling } from './adapters/tooling.mjs';
 import { cssCheck } from './codegen.mjs';
 import { parse as parseHTML } from 'parse5';
+import { isSourcePackage } from '../frontend/sources.ts';
 
 export const hash = value =>
   createHash('sha256')
@@ -90,7 +91,14 @@ async function packageOf(specifier, resolved) {
       throw e;
     }
     if (info.name === bare.name)
-      return { name: bare.name, version: String(info.version), dir, subpath: bare.subpath };
+      return {
+        name: bare.name,
+        version: String(info.version),
+        dir,
+        subpath: bare.subpath,
+        // Compiled from source (frontend/sources.ts) rather than by a pack.
+        ...(isSourcePackage(bare.name, String(info.version)) ? { source: true } : {}),
+      };
   }
   return undefined;
 }
@@ -124,23 +132,76 @@ function typeOnly(stmt) {
   );
 }
 
+/**
+ * The package a file in `node_modules` belongs to (the directory after the
+ * last `node_modules`, scoped names included): its name, version, directory
+ * and whether it declares itself free of module side effects.
+ */
+const packageInfos = new Map();
+async function owningPackage(file) {
+  const marker = `${path.sep}node_modules${path.sep}`;
+  const i = file.lastIndexOf(marker);
+  if (i < 0) return undefined;
+  const parts = file.slice(i + marker.length).split(path.sep);
+  const name = parts[0].startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  const dir = file.slice(0, i + marker.length) + name.split('/').join(path.sep);
+  if (!packageInfos.has(dir)) {
+    let info;
+    try {
+      info = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
+    } catch {
+      info = undefined;
+    }
+    packageInfos.set(
+      dir,
+      info?.name === name
+        ? { name, version: String(info.version), dir, sideEffects: info.sideEffects }
+        : undefined,
+    );
+  }
+  return packageInfos.get(dir);
+}
+
 // This plugin sees original application modules before Vite's JSX transform.
 // Collection is deliberately independent of the React lowering adapter.
+// Modules of packages compiled from source (frontend/sources.ts) are
+// collected too, with the package they belong to.
 export function collectionPlugin(root, modules, tooling, onDiagnostic) {
+  let packageModules = 0;
   return {
     name: 'runic-input-graph',
     enforce: 'pre',
     async transform(code, id) {
       try {
-        if (!id.startsWith(root + path.sep) || id.includes('/node_modules/') || id.includes('?'))
-          return;
+        if (id.includes('?')) return;
+        let source;
+        if (!id.startsWith(root + path.sep) || id.includes('/node_modules/')) {
+          const pkg = await owningPackage(id);
+          if (!pkg || !isSourcePackage(pkg.name, pkg.version)) return;
+          source = { name: pkg.name, version: pkg.version, dir: pkg.dir };
+          if (pkg.sideEffects !== false)
+            throw new Diagnostic(
+              'E_SOURCE_PACKAGE',
+              `${pkg.name}@${pkg.version} does not declare "sideEffects": false; packages compiled from source must, since only the declarations a program reaches are lowered`,
+            );
+        }
         if (
           !['.js', '.jsx', '.ts', '.tsx', '.css', ...(tooling.extensions ?? [])].includes(
             path.extname(id),
           )
         )
           return;
-        if (code.length > 1048576 || (modules.size >= 256 && !modules.has(id)))
+        if (source) {
+          if (code.length > 1048576 || (packageModules >= 2048 && !modules.has(id)))
+            throw new Diagnostic(
+              'E_RESOURCE',
+              'Packages compiled from source exceed 2048 modules or 1 MiB per module',
+            );
+          if (!modules.has(id)) packageModules++;
+        } else if (
+          code.length > 1048576 ||
+          (modules.size - packageModules >= 256 && !modules.has(id))
+        )
           throw new Diagnostic(
             'E_RESOURCE',
             'Application graph exceeds 256 modules or 1 MiB per source module',
@@ -197,7 +258,7 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic) {
             }
           }
         }
-        modules.set(id, { id, code, imports });
+        modules.set(id, { id, code, imports, ...(source ? { package: source } : {}) });
       } catch (e) {
         if (e instanceof Diagnostic) onDiagnostic?.(e);
         throw e;

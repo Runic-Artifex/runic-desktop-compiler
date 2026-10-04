@@ -356,16 +356,38 @@ impl<'a> FnCtx<'a> {
                             let x = self.expr(spread);
                             code.push_str(&format!("v.extend({x}.entries().iter().cloned()); "));
                         }
+                        // An attachment under a key of its own (a fresh symbol).
+                        AttrItem::Attach { attach } => {
+                            let Type::Fn(f) = self.ty(attach) else {
+                                unreachable!("validated attachment")
+                            };
+                            let x = self.expr(attach);
+                            let cleanup = match &*f.result {
+                                Type::Void => "{ f(cx, e)?; Ok(None) }",
+                                Type::Maybe(_) => {
+                                    "match f(cx, e)? { Maybe::Some(c) => Ok(Some(c)), _ => Ok(None) }"
+                                }
+                                _ => "Ok(Some(f(cx, e)?))",
+                            };
+                            code.push_str(&format!(
+                                "{{ let f = {x}; let a: Att = Rc::new(move |cx: &mut Cx, e: js::Element| -> JsResult<Option<Lst>> {{ {cleanup} }}); v.push((js::attachment_key(), js::AttrValue::Attach(Rc::new(a)))); }} "
+                            ));
+                        }
                         AttrItem::Entry { name, value } => {
                             let t = self.ty(value);
                             let x = self.expr(value);
+                            let event =
+                                name.strip_prefix("on").and_then(EventKind::parse).is_some();
                             let entry = match &t {
                                 Type::String => format!("js::AttrValue::Text({x})"),
                                 Type::Boolean => format!("js::AttrValue::Flag({x})"),
-                                Type::Maybe(_) => format!(
-                                    "match {x} {{ Maybe::Some(s) => js::AttrValue::Text(s), _ => js::AttrValue::Absent }}"
+                                Type::Maybe(i) if **i == Type::Boolean => format!(
+                                    "match {x} {{ Maybe::Some(b) => js::AttrValue::Flag(b), Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}"
                                 ),
-                                Type::Fn(f) => {
+                                Type::Maybe(_) => format!(
+                                    "match {x} {{ Maybe::Some(s) => js::AttrValue::Text(s), Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}"
+                                ),
+                                Type::Fn(f) if event => {
                                     let call = if f.params.is_empty() {
                                         "f(cx)"
                                     } else {
@@ -373,6 +395,50 @@ impl<'a> FnCtx<'a> {
                                     };
                                     format!(
                                         "{{ let f = {x}; let id = Rc::as_ptr(&f) as *const () as usize; let b: Bag = Rc::new(move |cx: &mut Cx, e: js::Event| {{ let _ = &e; let _ = {call}?; Ok(()) }}); js::AttrValue::Listener(id, b) }}"
+                                    )
+                                }
+                                // A callback for a component that declares it:
+                                // type-erased (`attrs.get` adapts it).
+                                Type::Fn(f) => {
+                                    let mut params = String::new();
+                                    let mut names = String::new();
+                                    for (i, p) in f.params.iter().enumerate() {
+                                        let take = match p {
+                                            Type::Maybe(inner) => format!(
+                                                "erased_opt::<{}>(&args, {i})?",
+                                                crate::types::rust_type(inner)
+                                            ),
+                                            _ => format!(
+                                                "erased_arg::<{}>(&args, {i})?",
+                                                crate::types::rust_type(p)
+                                            ),
+                                        };
+                                        let _ = write!(params, "let p{i} = {take}; ");
+                                        let _ = write!(names, ", p{i}");
+                                    }
+                                    format!(
+                                        "{{ let f = {x}; let id = Rc::as_ptr(&f) as *const () as usize; let g: Erased = Rc::new(move |cx: &mut Cx, args: Vec<Rc<dyn std::any::Any>>| -> JsResult<Rc<dyn std::any::Any>> {{ {params}let r = f(cx{names})?; Ok(Rc::new(r) as Rc<dyn std::any::Any>) }}); js::AttrValue::Callback(id, Rc::new(g)) }}"
+                                    )
+                                }
+                                // A style object: its properties (absent when nullish).
+                                Type::Record(r) => {
+                                    let props: String = self.p.records[*r]
+                                        .fields
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, fd)| {
+                                            let v = if fd.ty == Type::String {
+                                                format!("Some(o.f{i}.clone())")
+                                            } else {
+                                                format!(
+                                                    "match &o.f{i} {{ Maybe::Some(s) => Some(s.clone()), _ => None }}"
+                                                )
+                                            };
+                                            format!("({}.to_string(), {v}), ", rust_str(&fd.name))
+                                        })
+                                        .collect();
+                                    format!(
+                                        "{{ let r = {x}; let o = r.peek(); js::AttrValue::Style(vec![{props}]) }}"
                                     )
                                 }
                                 other => unreachable!("validated bag entry {other:?}"),
@@ -514,6 +580,11 @@ impl<'a> FnCtx<'a> {
                 let assign = self.assign_local(*local, &v);
                 let b = self.expr(body);
                 format!("{{ {assign} {b} }}")
+            }
+            SlotProvided { name } => {
+                let k = self.component.expect("validated component context");
+                let decl = self.p.components[k].slot(name).expect("validated slot");
+                format!("inst.borrow().s{decl}.is_some()")
             }
         }
     }

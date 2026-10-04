@@ -51,6 +51,12 @@ interface Field {
   rune?: { kind: Rune; call: ts.CallExpression; container: ts.Node };
   /** The function computing a derived field from the instance. */
   derived?: number;
+  /**
+   * Set by a statement of the constructor's top level after the instance
+   * exists, and not read before (`lateFields`): stored as a nullable value
+   * that is undefined until then; reads unwrap it.
+   */
+  late?: boolean;
 }
 
 /** The runes that declare reactive class fields. */
@@ -92,8 +98,12 @@ export interface ClassInfo {
 const RUNES = /^\$(state|derived)(\.|$)/;
 const FIELD_RUNES: Rune[] = ['$state', '$state.raw', '$derived', '$derived.by'];
 
-/** Svelte compiles runes in components and in `.svelte.js`/`.svelte.ts` modules only. */
-const RUNE_FILES = /\.svelte(\.__runic\.ts|\.ts|\.js)$/;
+/**
+ * Svelte compiles runes in components and in `.svelte.js`/`.svelte.ts`
+ * modules only (package modules are read through typed virtual modules,
+ * `x.svelte.js.__runic.ts`, frontend/package-modules.ts).
+ */
+const RUNE_FILES = /\.svelte(\.__runic\.ts|\.ts|\.js|\.js\.__runic\.ts)$/;
 
 export class Classes {
   private readonly lower: Lowerer;
@@ -170,6 +180,15 @@ export class Classes {
     const decl = sym.valueDeclaration ?? sym.declarations?.[0];
     if (!decl || !ts.isClassDeclaration(decl))
       return this.fail(at, `${sym.name}: class expressions are unsupported (declare the class)`);
+    // A package's declaration of a class compiled from source: its implementation.
+    const impl = decl.getSourceFile().isDeclarationFile
+      ? this.lower.implementation?.(sym)
+      : undefined;
+    if (impl && impl !== sym) {
+      const info = this.layout(impl, at);
+      this.bySymbol.set(sym, info);
+      return info;
+    }
     if (decl.getSourceFile().isDeclarationFile)
       return this.fail(
         at,
@@ -278,6 +297,7 @@ export class Classes {
     }
     for (const f of fields) f.type = this.fieldType(f, info);
     info.fields = fields;
+    this.lateFields(info);
     types.records[record].fields = fields.map(f => ({
       name: f.name,
       type: f.type,
@@ -285,6 +305,66 @@ export class Classes {
     }));
     info.rawThis = this.capturesThis(info);
     return info;
+  }
+
+  /**
+   * Fields the constructor sets only after the instance exists (bits-ui's
+   * `this.contentPresence = new PresenceManager({ ref: boxWith(() =>
+   * this.contentNode) })`): a field without initialiser, not set by the
+   * leading statements that run before the record is built (see
+   * `constructorBody`), assigned by a statement at the constructor's top
+   * level afterwards, and not read until then. JavaScript holds `undefined`
+   * there meanwhile; the field is stored as a nullable value, undefined
+   * until that statement, and reads unwrap it. The statements before the
+   * assignment (and its value) must not use `this` other than to read or
+   * write other fields, so no method, accessor or function given `this`
+   * can observe the field early.
+   */
+  private lateFields(info: ClassInfo) {
+    const statements = info.ctor?.body?.statements ?? [];
+    const set = new Map<string, number>();
+    for (const f of info.fields) if (f.param || f.decl?.initializer) set.set(f.name, 0);
+    let i = 0;
+    for (; i < statements.length; i++) {
+      const s = statements[i];
+      const target = thisAssignment(s);
+      const field = target && info.fields.find(f => f.name === target.name.text);
+      if (target && field) {
+        const rhs = ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right;
+        const rune = field.rune && skipParens(rhs) === field.rune.call;
+        if (rune || this.earlyForm(rhs, info, set)) {
+          set.set(field.name, 0);
+          continue;
+        }
+        break;
+      }
+      if (mentionsThis(s)) break;
+    }
+    for (const f of info.fields) {
+      if (set.has(f.name) || f.rune || maybeInner(f.type) || f.type === 'void') continue;
+      const j = statements.findIndex((s, k) => k >= i && thisAssignment(s)?.name.text === f.name);
+      if (j < 0) continue;
+      // `this` in the window may only reach other fields.
+      let safe = true;
+      const visit = (n: ts.Node) => {
+        if (!safe) return;
+        if (n.kind === ts.SyntaxKind.ThisKeyword) {
+          const p = n.parent;
+          const other =
+            ts.isPropertyAccessExpression(p) &&
+            p.expression === n &&
+            info.fields.some(x => x.name === p.name.text && x !== f && !isDerived(x)) &&
+            !info.members.has(p.name.text);
+          const target = thisAssignment(statements[j]);
+          if (!other && !(p === target)) safe = false;
+        }
+        ts.forEachChild(n, visit);
+      };
+      for (let k = i; k <= j; k++) visit(statements[k]);
+      if (!safe) continue;
+      f.late = true;
+      f.type = { maybe: f.type };
+    }
   }
 
   /** Structural checks: what stage A supports. */
@@ -601,11 +681,14 @@ export class Classes {
   }
 
   private declaredOnly(info: ClassInfo, at: ts.Node) {
+    // Classes of package modules are declared when first used.
+    if (!info.declared) this.lower.bindingOf(info.symbol);
     if (!info.declared)
       this.fail(at, `${info.name} is not declared in a module or component script`);
   }
 
   private ensureDeclared(info: ClassInfo, at: ts.Node) {
+    if (!info.declared) this.lower.bindingOf(info.symbol);
     if (!info.declared)
       this.fail(at, `${info.name} is not declared in a module or component script`);
     // A class is not hoisted: using it above its declaration throws.
@@ -684,6 +767,7 @@ export class Classes {
         const fn = arg as ts.ArrowFunction;
         lower.function(fn, name, undefined, info.component, index, undefined, {
           self,
+          ...(f.type === 'attrs' ? { result: 'attrs' as Type } : {}),
           body: b => {
             lower.thisBindings.set(container, { owner: b, local: 0 });
             return lower.functionBody(fn, b);
@@ -792,6 +876,18 @@ export class Classes {
       const arg = f.rune!.call.arguments[0];
       if (f.rune!.call.arguments.length > 1)
         this.fail(f.rune!.call, `${f.rune!.kind} takes at most one argument`);
+      // `$state(null)`: the literal takes the field's (nullable) type.
+      const literal = arg && skipParens(arg);
+      if (
+        literal &&
+        maybeInner(f.type) &&
+        (literal.kind === ts.SyntaxKind.NullKeyword ||
+          (ts.isIdentifier(literal) && literal.text === 'undefined'))
+      )
+        return {
+          op: literal.kind === ts.SyntaxKind.NullKeyword ? 'null' : 'undefined',
+          type: f.type,
+        };
       return arg ? this.early(arg, b, info, temps, where) : { op: 'undefined', type: f.type };
     };
     for (const f of info.fields)
@@ -1055,6 +1151,14 @@ export class Classes {
         e,
         `${info.name}.${name} is a derived field of a class declared in a component script; read it in that component (or declare the class in a .svelte.ts module)`,
       );
+    if (field >= 0 && info.fields[field].late)
+      return { op: 'unwrap', value: { op: 'get', object, field } };
+    // A nullable field TypeScript narrowed to its value here (as for variables).
+    if (field >= 0 && maybeInner(info.fields[field].type)) {
+      const here = this.lower.types.typeOrUndefined(e);
+      if (here !== undefined && here !== 'void' && !maybeInner(here))
+        return { op: 'unwrap', value: { op: 'get', object, field } };
+    }
     if (field >= 0) return { op: 'get', object, field };
     const member = info.members.get(name);
     if (member?.get) return { op: 'call', function: member.get.fn!, args: [object] };
@@ -1132,6 +1236,17 @@ export class Classes {
         target,
         `${info.name}.${name} is a $derived field; assigning it (overriding a derived value, Svelte 5.25+) is unsupported`,
       );
+    if (info && field >= 0 && info.fields[field].late) {
+      const source = lower.sourceOf(target);
+      return [
+        {
+          op: 'assign',
+          target: { place: 'field', object: lower.expr(target.expression, b), field },
+          value: { op: 'some', value },
+          ...(source ? { source } : {}),
+        },
+      ];
+    }
     if (!info || field >= 0) return undefined;
     this.declaredOnly(info, target);
     const member = info.members.get(name);

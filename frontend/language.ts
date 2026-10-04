@@ -5,6 +5,7 @@ import ts from 'typescript';
 import path from 'node:path';
 import {
   EVENT_KINDS,
+  type AttrItem,
   WINDOW_EVENT_KINDS,
   type EventKind,
   type Expr,
@@ -30,9 +31,19 @@ import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
 import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
 import { Classes, type ClassInfo } from './classes.ts';
-import { bindPackConstant } from './packs.ts';
+import { bindPackConstant, packType } from './packs.ts';
 import type { Choice } from './packs/choice.ts';
 import type { DomainHook } from './domains.ts';
+import type { Shape } from './bags.ts';
+
+/**
+ * Members of records that packs define (svelte-toolbelt's boxes): reads and
+ * writes of their properties lower through the pack.
+ */
+export interface RecordMembers {
+  read(name: string, object: Expr, at: ts.Node, b: FnBuilder): Expr;
+  write(name: string, object: Expr, value: Expr, at: ts.Node, b: FnBuilder): Stmt[];
+}
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -71,13 +82,29 @@ export type Binding =
       choice?: (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Choice;
       /** The values a call can return, without IR (frontend/domains.ts); undefined if open. */
       values?: (node: ts.CallExpression, lower: Lowerer) => unknown[] | undefined;
-      /** A call initialising a const that becomes a pack function (`tv(config)`). */
-      constant?: (node: ts.CallExpression, name: string, lower: Lowerer) => Binding;
+      /**
+       * A call (or `new`) initialising a const that becomes a pack binding
+       * (`tv(config)`, runed's `new Context(name)`).
+       */
+      constant?: (
+        node: ts.CallExpression | ts.NewExpression,
+        name: string,
+        lower: Lowerer,
+      ) => Binding;
       /** Wrappers returning a call of this function over a rest parameter are inlined. */
       inline?: boolean;
+      /** Methods called on the bound value (`watch.pre(…)`, a context's `set`/`get`). */
+      methods?: Record<string, (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr>;
+      /** The keys of the attribute bag a call returns (frontend/bags.ts). */
+      shape?: (node: ts.CallExpression, of: (e: ts.Expression) => Shape) => Shape;
     }
   /** A class declaration (frontend/classes.ts): `new C(…)` and static members. */
-  | { kind: 'class'; cls: ClassInfo };
+  | { kind: 'class'; cls: ClassInfo }
+  /**
+   * A module constant of a package compiled from source, evaluated at build
+   * time (frontend/package-bindings.ts): its primitive members are literals.
+   */
+  | { kind: 'constant'; label: string; value: unknown };
 
 /** The member of a ref object that holds its value (`value` unless the binding names one). */
 const refField = (b: { field?: string }): string => b.field ?? 'value';
@@ -246,10 +273,13 @@ export class Lowerer {
     this.sourceOf = sourceOf;
     this.classes = new Classes(this);
     types.classRecord = (cls, t, at) => this.classes.record(cls, t, at);
+    types.packType = (t, at) => packType(t, at, this);
   }
 
   /** Classes (frontend/classes.ts). */
   readonly classes: Classes;
+  /** Records whose members a pack lowers (by record index). */
+  readonly recordMembers = new Map<number, RecordMembers>();
   /** The values props receive from their instantiation sites (frontend/domains.ts), if analysed. */
   domains?: DomainHook;
   /**
@@ -335,6 +365,8 @@ export class Lowerer {
       self?: Type;
       /** Lower the body with this instead of the declaration's statements (constructors). */
       body?: (b: FnBuilder) => Stmt[];
+      /** The result type, where the declaration's is not the value's (attribute bags). */
+      result?: Type;
     },
   ): { index: number; builder: FnBuilder } {
     const boxed = this.analyseCaptures(decl);
@@ -407,9 +439,10 @@ export class Lowerer {
     }
     const tsResult = sig!.getReturnType();
     let result: Type =
-      tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+      options?.result ??
+      (tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
         ? 'void'
-        : this.types.map(tsResult, decl);
+        : this.types.map(tsResult, decl));
     // A function expression where a void-returning function is expected
     // (a listener, a callback): its value is never observed.
     // (Not under `satisfies`, which keeps the expression's own type.)
@@ -1340,6 +1373,32 @@ export class Lowerer {
           ...this.src(target),
         },
       ];
+    // An element's inline style property, set through the CSSOM.
+    const style = ts.isPropertyAccessExpression(target) && this.elementStyle(target, b);
+    if (style) {
+      const text: Expr =
+        this.irType(value, b) === 'string' ? value : { op: 'to-string', arg: value };
+      return [
+        {
+          op: 'expr',
+          value: {
+            op: 'builtin',
+            name: 'element.style-set',
+            args: [style.element, { op: 'lit', value: style.property }, text],
+            type: 'void',
+          },
+          ...this.src(target),
+        },
+      ];
+    }
+    // Members of pack records (svelte-toolbelt's boxes).
+    if (ts.isPropertyAccessExpression(target)) {
+      const t = this.typeAt(target.expression);
+      const r = typeof t === 'object' && 'record' in t ? t.record : undefined;
+      const members = r !== undefined && this.recordMembers.get(r);
+      if (members)
+        return members.write(target.name.text, this.expr(target.expression, b), value, target, b);
+    }
     // Class setters and members that are not fields (frontend/classes.ts).
     if (ts.isPropertyAccessExpression(target)) {
       const member = this.classes.write(target, value, b);
@@ -1402,18 +1461,46 @@ export class Lowerer {
   // -------------------------------------------------------------------------
   // Expressions
 
+  /**
+   * Bindings created on first use: the declarations of package modules
+   * compiled from source (frontend/package-bindings.ts), which are lowered
+   * only when the program reaches them. Undefined for other symbols.
+   */
+  lazy?: (symbol: ts.Symbol) => Binding | undefined;
+  /**
+   * The class compiled from source that a package's declaration file
+   * declares (frontend/package-modules.ts), if any: its instances are the
+   * implementation's.
+   */
+  implementation?: (symbol: ts.Symbol) => ts.Symbol | undefined;
+
+  /** The binding of `symbol`, created on first use if it is lazy. */
+  bindingOf(symbol: ts.Symbol): Binding | undefined {
+    return this.bindings.get(symbol) ?? this.lazy?.(symbol);
+  }
+
   binding(id: ts.Identifier): Binding | undefined {
     // Package imports and re-exports are bound by their own symbols
     // (frontend/packs.ts): follow the alias chain through local re-exports.
     let own = this.checker.getSymbolAtLocation(id);
     for (let hops = 0; own && hops < 32; hops++) {
-      const pack = this.bindings.get(own);
+      const pack = this.bindingOf(own);
       if (pack?.kind === 'pack') return pack;
       if (!(own.flags & ts.SymbolFlags.Alias)) break;
       own = this.checker.getImmediateAliasedSymbol(own);
     }
     const s = this.symbol(id);
-    return s ? this.bindings.get(s) : undefined;
+    return s ? this.bindingOf(s) : undefined;
+  }
+
+  /** The module namespace an expression names (`import * as ns`, `export * as ns`), if any. */
+  namespaceOf(e: ts.Expression): ts.Symbol | undefined {
+    e = skipParens(e);
+    if (!ts.isIdentifier(e) && !ts.isPropertyAccessExpression(e)) return undefined;
+    const s = this.symbol(ts.isIdentifier(e) ? e : e.name);
+    return s && s.flags & ts.SymbolFlags.ValueModule && !(s.flags & ts.SymbolFlags.Function)
+      ? s
+      : undefined;
   }
 
   typeOfNode(n: ts.Node): Type {
@@ -1534,8 +1621,20 @@ export class Lowerer {
           else: this.coerce(c.whenFalse, b, this.types.of(e)),
         };
       }
-      case K.TypeOfExpression:
+      case K.TypeOfExpression: {
+        // A method of a host object (`typeof node.getAnimations`) is a function.
+        const operand = skipParens((e as ts.TypeOfExpression).expression);
+        const member = ts.isPropertyAccessExpression(operand)
+          ? this.checker.getSymbolAtLocation(operand.name)?.valueDeclaration
+          : undefined;
+        if (
+          member &&
+          ts.isMethodSignature(member) &&
+          path.resolve(member.getSourceFile().fileName) === DOM
+        )
+          return { op: 'lit', value: 'function' };
         return { op: 'typeof', arg: this.expr((e as ts.TypeOfExpression).expression, b) };
+      }
       case K.PropertyAccessExpression:
         return this.property(e as ts.PropertyAccessExpression, b);
       case K.ElementAccessExpression:
@@ -1590,10 +1689,73 @@ export class Lowerer {
     return this.types.of(e);
   }
 
+  /**
+   * A function value of type `from` where a function of type `to` taking
+   * more parameters is expected (JavaScript ignores extra arguments, as when
+   * `onOpenChange = noop` defaults a `(value: boolean) => void` prop): a
+   * closure calling it with the leading arguments. Undefined where no such
+   * adaptation applies.
+   */
+  adaptFunction(v: Expr, from: Type, to: Type): Expr | undefined {
+    if (typeof from !== 'object' || !('fn' in from) || typeof to !== 'object' || !('fn' in to))
+      return undefined;
+    const f = from.fn;
+    const t = to.fn;
+    // Fewer parameters, a result where none is expected (it is discarded),
+    // or no result where a nullable one is expected (`() => void |
+    // Promise<void>` callbacks: undefined).
+    const undefinedResult = f.result === 'void' && maybeInner(t.result) !== undefined;
+    if (
+      f.params.length > t.params.length ||
+      (f.params.length === t.params.length &&
+        !(t.result === 'void' && f.result !== 'void') &&
+        !undefinedResult)
+    )
+      return undefined;
+    if (!f.params.every((p, i) => sameType(p, t.params[i]))) return undefined;
+    if (!(sameType(f.result, t.result) || t.result === 'void' || undefinedResult)) return undefined;
+    const call: Expr = {
+      op: 'call-value',
+      callee: { op: 'local', local: 0 },
+      args: f.params.map((_, i) => ({ op: 'local', local: i + 1 }) as Expr),
+    };
+    const adapter = this.reserve();
+    this.functions[adapter] = {
+      name: 'adapted',
+      captures: [{ name: 'fn', type: from }],
+      params: t.params.map((p, i) => ({ name: `arg${i}`, type: p })),
+      locals: [],
+      result: t.result,
+      body:
+        t.result === 'void'
+          ? [{ op: 'expr', value: call }]
+          : undefinedResult
+            ? [
+                { op: 'expr', value: call },
+                { op: 'return', value: { op: 'undefined', type: t.result } },
+              ]
+            : [{ op: 'return', value: call }],
+    };
+    const make = this.reserve();
+    this.functions[make] = {
+      name: 'adapt',
+      params: [{ name: 'fn', type: from }],
+      locals: [],
+      result: to,
+      body: [{ op: 'return', value: { op: 'closure', function: adapter, captures: [0] } }],
+    };
+    return { op: 'call', function: make, args: [v] };
+  }
+
   /** Lower `e` and widen it to `target` (e.g. T into Maybe<T>). */
   coerce(e: ts.Expression, b: FnBuilder, target: Type): Expr {
     const v = this.expr(e, b);
     const t = this.irType(v, b);
+    // A function where a function of another (compatible) type is expected.
+    if (!sameType(t, target)) {
+      const adapted = this.adaptFunction(v, t, maybeInner(target) ?? target);
+      if (adapted) return maybeInner(target) ? { op: 'some', value: adapted } : adapted;
+    }
     if (
       typeof target === 'object' &&
       'maybe' in target &&
@@ -1728,7 +1890,60 @@ export class Lowerer {
           'E_CLASS',
           `The class ${id.text} is not a value (construct it with new, or use its static members)`,
         );
+      case 'constant':
+        return this.constantExpr(binding.value, binding.label, id);
     }
+  }
+
+  /**
+   * `x.style.prop` on an element `x`: the element and the CSS property the
+   * camelCase name stands for (`transitionDuration` → `transition-duration`,
+   * `WebkitX` → `-webkit-x`, `cssFloat` → `float`).
+   */
+  private elementStyle(
+    e: ts.PropertyAccessExpression,
+    b: FnBuilder,
+  ): { element: Expr; property: string } | undefined {
+    const inner = skipParens(e.expression);
+    if (!ts.isPropertyAccessExpression(inner) || inner.name.text !== 'style') return undefined;
+    if (this.types.typeOrUndefined(inner.expression) !== 'element') return undefined;
+    const name = e.name.text;
+    if (['cssText', 'length', 'parentRule', 'cssFloat'].includes(name) && name !== 'cssFloat')
+      return this.fail(e, 'E_MEMBER', `style.${name} is unsupported (style properties are)`);
+    const property =
+      name === 'cssFloat'
+        ? 'float'
+        : name
+            .replace(/^[A-Z]/, c => '-' + c.toLowerCase())
+            .replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+    return { element: this.expr(inner.expression, b), property };
+  }
+
+  /** A value computed at build time as an IR literal (strings, numbers, booleans, undefined). */
+  constantExpr(value: unknown, label: string, at: ts.Node): Expr {
+    if (typeof value === 'string' || typeof value === 'boolean') return { op: 'lit', value };
+    if (typeof value === 'number' && Number.isFinite(value)) return { op: 'lit', value };
+    if (value === undefined) return { op: 'undefined', type: this.contextual(at as ts.Expression) };
+    return this.fail(
+      at,
+      'E_CONST',
+      `${label} is evaluated at build time; only its string, number and boolean members can be used`,
+    );
+  }
+
+  /** The build-time value of `e` if it reads a member of a build-time constant (`attrs.root`). */
+  constantMember(e: ts.Expression): { value: unknown; label: string } | undefined {
+    e = skipParens(e);
+    if (!ts.isPropertyAccessExpression(e) || !ts.isIdentifier(e.expression)) return undefined;
+    const b = this.binding(e.expression);
+    if (b?.kind !== 'constant') return undefined;
+    const object = b.value;
+    if (!object || typeof object !== 'object' || !Object.hasOwn(object, e.name.text))
+      return this.fail(e, 'E_CONST', `${b.label} has no member ${e.name.text}`);
+    return {
+      value: (object as Record<string, unknown>)[e.name.text],
+      label: `${b.label}.${e.name.text}`,
+    };
   }
 
   private prefix(e: ts.PrefixUnaryExpression, b: FnBuilder): Expr {
@@ -1776,7 +1991,12 @@ export class Lowerer {
       // JS value semantics: evaluate the left operand once.
       const tmp = b.local('$logical', lt);
       const read: Expr = { op: 'local', local: tmp };
-      const keep = sameType(lt, result) ? read : ({ op: 'some', value: read } as Expr);
+      // `a || b` keeps a truthy `a`, which is not nullish.
+      const keep: Expr = sameType(lt, result)
+        ? read
+        : op === K.BarBarToken && maybeInner(lt) && sameType(maybeInner(lt)!, result)
+          ? { op: 'unwrap', value: read }
+          : { op: 'some', value: read };
       const test = this.truthy(read, lt);
       return {
         op: 'with',
@@ -2262,6 +2482,26 @@ export class Lowerer {
     }
     const service = this.hostServiceRead(e);
     if (service) return service;
+    // A member of a module namespace (`kbd.SPACE`): the export it names.
+    if (this.namespaceOf(e.expression)) {
+      const member = this.symbol(e.name);
+      const found = member && this.bindingOf(member);
+      if (!found || !ts.isIdentifier(e.name))
+        return this.fail(e, 'E_IMPORT', `${e.getText()} is not a supported binding`);
+      return this.bindingExpr(found, e.name, b);
+    }
+    // A member of a constant evaluated at build time.
+    const constant = this.constantMember(e);
+    if (constant) return this.constantExpr(constant.value, constant.label, e);
+    // An element's inline style property (`node.style.transitionDuration`).
+    const style = this.elementStyle(e, b);
+    if (style)
+      return {
+        op: 'builtin',
+        name: 'element.style-get',
+        args: [style.element, { op: 'lit', value: style.property }],
+        type: 'string',
+      };
     if (ts.isIdentifier(e.expression)) {
       const special = this.binding(e.expression);
       if (special?.kind === 'props')
@@ -2379,6 +2619,8 @@ export class Lowerer {
         );
       return { op: 'builtin', name: 'media-query.matches', args: [object], type: 'boolean' };
     }
+    if (kind === 'element' && name === 'isConnected')
+      return { op: 'builtin', name: 'element.isConnected', args: [object], type: 'boolean' };
     if (kind === 'element') {
       if (!ELEMENT_METRICS.includes(name))
         return this.fail(
@@ -2400,6 +2642,8 @@ export class Lowerer {
     }
     if (kind === 'record' && this.classes.of(t))
       return this.classes.read(this.classes.of(t)!, object, e, b);
+    const members = kind === 'record' && this.recordMembers.get((t as { record: number }).record);
+    if (members) return members.read(name, object, e, b);
     if (kind === 'record')
       return {
         op: 'get',
@@ -2550,10 +2794,12 @@ export class Lowerer {
       const nested = this.pendingLink(e) !== undefined;
       then = this.expr(e, b);
       const thenType = this.typeAt(e);
+      // What the lowered chain gives decides (TypeScript adds `undefined`
+      // to the type of an optional call through a nullable function).
       alreadyMaybe =
-        nested ||
-        (typeof thenType === 'object' && 'maybe' in thenType) ||
-        maybeInner(this.irType(then, b)) !== undefined;
+        maybeInner(this.irType(then, b)) !== undefined ||
+        ((nested || (typeof thenType === 'object' && 'maybe' in thenType)) &&
+          this.irType(then, b) === 'void');
     } finally {
       this.overrides.delete(base);
     }
@@ -2626,12 +2872,22 @@ export class Lowerer {
     ts0: Type | undefined,
     at: ts.Node,
   ): Expr {
-    if (CLASS_DATA_BUILTINS.has(name))
+    if (CLASS_DATA_BUILTINS.has(name)) {
       this.classes.plainData(
         name,
         args.map(a => this.irType(a, b)),
         at,
       );
+      for (const a of args) {
+        const t = this.irType(a, b);
+        if (typeof t === 'object' && 'record' in t && this.types.packageRecords.has(t.record))
+          this.fail(
+            at,
+            'E_OBJECT',
+            `${name} of a ${this.types.records[t.record].name} (an options type a package declares) is unsupported: its key order is not tracked`,
+          );
+      }
+    }
     const type =
       ts0 ??
       builtinType(
@@ -2827,6 +3083,20 @@ export class Lowerer {
         if (special?.kind === 'props')
           return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
         if (special?.kind === 'class') return this.classes.callStatic(special.cls, callee, e, b);
+        if (special?.kind === 'pack') {
+          const m = special.methods?.[method];
+          if (!m) return this.fail(e, 'E_PACK', `${special.label}: .${method}() is not covered`);
+          return m(e, b, this);
+        }
+      }
+      // A function of a module namespace (`ns.f(…)`).
+      if (this.namespaceOf(callee.expression)) {
+        const member = this.symbol(callee.name);
+        const found = member && this.bindingOf(member);
+        if (found?.kind === 'function')
+          return { op: 'call', function: found.fn, args: this.callArgs(e, b) };
+        if (found?.kind === 'generic') return this.specialise(found, e, b);
+        if (found?.kind === 'pack' && found.call) return found.call(e, b, this);
       }
       const receiver = this.expr(callee.expression, b);
       const kind = this.receiverKind(this.irType(receiver, b));
@@ -2844,6 +3114,52 @@ export class Lowerer {
         this.types.typeOrUndefined(e.arguments[0]) === 'regexp'
       )
         return this.stringRegexp(method, receiver, e, b);
+      // MutationObserver methods.
+      if (
+        kind === 'record' &&
+        (this.irType(receiver, b) as { record: number }).record === this.types.mutationObserver
+      ) {
+        if (method === 'disconnect')
+          return { op: 'builtin', name: 'mutation.disconnect', args: [receiver], type: 'void' };
+        if (method !== 'observe')
+          return this.fail(e, 'E_CALL', `MutationObserver ${method}() is unsupported`);
+        const [target, options] = e.arguments;
+        const o = options && skipParens(options);
+        const filter =
+          o && ts.isObjectLiteralExpression(o)
+            ? o.properties.find(p => p.name?.getText() === 'attributeFilter')
+            : undefined;
+        const attributes =
+          o && ts.isObjectLiteralExpression(o)
+            ? o.properties.find(p => p.name?.getText() === 'attributes')
+            : undefined;
+        if (
+          !target ||
+          !o ||
+          !ts.isObjectLiteralExpression(o) ||
+          o.properties.length !== 2 ||
+          !filter ||
+          !ts.isPropertyAssignment(filter) ||
+          !attributes ||
+          !ts.isPropertyAssignment(attributes) ||
+          attributes.initializer.kind !== ts.SyntaxKind.TrueKeyword
+        )
+          return this.fail(
+            e,
+            'E_CALL',
+            'MutationObserver observe is supported with { attributes: true, attributeFilter: [...] }',
+          );
+        return {
+          op: 'builtin',
+          name: 'mutation.observe',
+          args: [
+            receiver,
+            this.coerce(target, b, 'element'),
+            this.coerce((filter as ts.PropertyAssignment).initializer, b, { array: STRING }),
+          ],
+          type: 'void',
+        };
+      }
       if (kind === 'record' && this.classes.of(this.irType(receiver, b)))
         return this.classes.callMethod(
           this.classes.of(this.irType(receiver, b))!,
@@ -2853,7 +3169,7 @@ export class Lowerer {
           b,
         );
       if (kind === 'record')
-        return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
+        return { op: 'call-value', callee: this.expr(callee, b), args: this.callArgs(e, b) };
       if (kind === 'element') return this.elementMethod(method, receiver, e, b);
       if (kind === 'media-query') {
         const [type, listener, options] = e.arguments;
@@ -2905,6 +3221,17 @@ export class Lowerer {
       case 'scrollTo':
       case 'scrollBy':
         return call(method, this.scrollCoordinates(e, b), 'void');
+      case 'hasAttribute':
+        if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'hasAttribute takes a name');
+        return call(method, [this.coerce(e.arguments[0], b, STRING)], BOOLEAN);
+      case 'getAnimations': {
+        if (e.arguments.length)
+          this.fail(e, 'E_CALL', 'getAnimations options (subtree) are unsupported');
+        const type = this.tsCallType(e);
+        if (!type)
+          return this.fail(e, 'E_TYPE_UNSUPPORTED', 'getAnimations needs the Animation type');
+        return call(method, [], type);
+      }
       case 'scrollIntoView': {
         // Defaults: block start, inline nearest; false aligns the block end.
         let block = 'start';
@@ -3113,6 +3440,18 @@ export class Lowerer {
     }
     if (global === 'RegExp') return this.regexpNew(e, e.arguments ?? [], b);
     if (global === 'Date') return this.dateNew(e, b);
+    // new MutationObserver(callback): a record holding the callback.
+    if (this.hostName(e.expression) === 'MutationObserver') {
+      const [cb] = e.arguments ?? [];
+      const type = this.types.of(e);
+      if (!cb || e.arguments!.length !== 1 || typeof type !== 'object' || !('record' in type))
+        return this.fail(e, 'E_NEW', 'new MutationObserver takes a callback');
+      return {
+        op: 'record',
+        record: type.record,
+        fields: [this.coerce(cb, b, { fn: { params: [], result: 'void' } })],
+      };
+    }
     if (
       ts.isPropertyAccessExpression(e.expression) &&
       this.globalName(e.expression.expression) === 'Intl'
@@ -3138,6 +3477,10 @@ export class Lowerer {
 
   private object(e: ts.ObjectLiteralExpression, b: FnBuilder): Expr {
     const t = this.checker.getContextualType(e) ?? this.checker.getTypeAtLocation(e);
+    // Attribute bags: literals with computed keys or spreads of bags, or
+    // typed as one (frontend/package-modules.ts types bits-ui's `props`).
+    if (this.isBagLiteral(e) || this.types.tryMap(t, e) === 'attrs' || this.returnsBag(e, b))
+      return this.bagLiteral(e, b);
     const type = this.types.map(t, e);
     const recordType = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
     if (!(typeof recordType === 'object' && 'record' in recordType))
@@ -3152,6 +3495,12 @@ export class Lowerer {
     // Keys are observable (Object.keys, JSON.stringify): the record has the
     // literal's key order.
     const order = this.types.keyOrder(e, declared.fields);
+    if (
+      order.some((n, i) => declared.fields[i].name !== n) &&
+      this.types.packageRecords.has(recordType.record) &&
+      !e.properties.some(ts.isSpreadAssignment)
+    )
+      return this.byName(e, recordType.record, b);
     if (order.some((n, i) => declared.fields[i].name !== n)) {
       if (declared.name !== 'Object')
         return this.fail(
@@ -3202,7 +3551,7 @@ export class Lowerer {
         name = p.name.text;
         const i = this.types.fieldIndex(recordType.record, name, p);
         const sym = this.checker.getShorthandAssignmentValueSymbol(p);
-        const binding = sym && this.bindings.get(sym);
+        const binding = sym && this.bindingOf(sym);
         value = binding
           ? this.bindingExpr(binding, p.name, b, this.types.of(p.name))
           : this.fail(p, 'E_UNRESOLVED', `${name} is not a supported binding`);
@@ -3230,6 +3579,229 @@ export class Lowerer {
     // Bind spread sources (in source order) around the construction.
     for (const sp of spreads.reverse())
       out = { op: 'with', local: sp.local, value: sp.value, body: out };
+    return out;
+  }
+
+  /** Whether an object literal builds an attribute bag: a computed key, or a spread of a bag. */
+  /**
+   * Whether `e` is what a function returns whose declared result is a bag
+   * (a derived value of a field typed `Record<string, unknown>`).
+   */
+  private returnsBag(e: ts.ObjectLiteralExpression, b: FnBuilder): boolean {
+    if (b.result !== 'attrs') return false;
+    let n: ts.Node = e;
+    while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
+    return (
+      ts.isReturnStatement(n.parent) ||
+      ((ts.isArrowFunction(n.parent) || ts.isFunctionExpression(n.parent)) && n.parent.body === n)
+    );
+  }
+
+  private isBagLiteral(e: ts.ObjectLiteralExpression): boolean {
+    return e.properties.some(
+      p =>
+        (p.name && ts.isComputedPropertyName(p.name)) ||
+        (ts.isSpreadAssignment(p) &&
+          this.types.tryMap(this.checker.getTypeAtLocation(p.expression), p) === 'attrs'),
+    );
+  }
+
+  /**
+   * An object literal as an attribute bag (docs/IR.md `attrs`): its entries
+   * in order, names static or build-time constants (`[attrs.root]: ""`).
+   * Values: strings, booleans and nullable ones (absent when nullish),
+   * numbers as their string, `on<event>` listeners, a `style` object of
+   * property values; spreads of bags (attachments), of records (their
+   * fields) and of conditionals between literals.
+   */
+  bagLiteral(e: ts.ObjectLiteralExpression, b: FnBuilder): Expr {
+    const items: AttrItem[] = [];
+    for (const p of e.properties) {
+      if (ts.isSpreadAssignment(p)) {
+        items.push({ spread: this.bagValue(p.expression, b) });
+        continue;
+      }
+      let name: string | undefined;
+      if (p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))) name = p.name.text;
+      else if (p.name && ts.isComputedPropertyName(p.name)) {
+        const inner = skipParens(p.name.expression);
+        const c = ts.isStringLiteralLike(inner)
+          ? { value: inner.text }
+          : this.constantMember(inner);
+        if (c && typeof c.value === 'string') name = c.value;
+      }
+      if (name === undefined)
+        return this.fail(
+          p,
+          'E_ATTRS',
+          'Attribute bag keys are static names or build-time constants',
+        );
+      let value: Expr;
+      if (ts.isPropertyAssignment(p)) {
+        if (name === 'style' && ts.isObjectLiteralExpression(skipParens(p.initializer))) {
+          items.push({
+            name,
+            value: this.styleObject(skipParens(p.initializer) as ts.ObjectLiteralExpression, b),
+          });
+          continue;
+        }
+        value = this.expr(p.initializer, b);
+      } else if (ts.isShorthandPropertyAssignment(p)) value = this.expr(p.name, b);
+      else return this.fail(p, 'E_ATTRS', 'Unsupported attribute bag member');
+      items.push({ name, value: this.bagEntry(name, value, p, b) });
+    }
+    return { op: 'attrs', items };
+  }
+
+  /** A value as a bag entry: strings, booleans (or nullable), numbers as strings, listeners. */
+  private bagEntry(name: string, v: Expr, at: ts.Node, b: FnBuilder): Expr {
+    const t = this.irType(v, b);
+    const inner = maybeInner(t) ?? t;
+    if (inner === 'string' || inner === 'boolean') return v;
+    if (inner === 'number') {
+      if (!maybeInner(t)) return { op: 'to-string', arg: v };
+      const tmp = b.local('$entry', t);
+      return {
+        op: 'with',
+        local: tmp,
+        value: v,
+        body: {
+          op: 'cond',
+          test: {
+            op: 'builtin',
+            name: 'maybe.is-nullish',
+            args: [{ op: 'local', local: tmp }],
+            type: 'boolean',
+          },
+          then: { op: 'undefined', type: { maybe: 'string' } },
+          else: {
+            op: 'some',
+            value: { op: 'to-string', arg: { op: 'unwrap', value: { op: 'local', local: tmp } } },
+          },
+        },
+      };
+    }
+    if (typeof t === 'object' && 'fn' in t) {
+      // Listeners under `on<event>`; other functions are callbacks (never attributes).
+      const kind = /^on([a-z]+)$/.exec(name)?.[1];
+      const listener =
+        !kind ||
+        (EVENT_KINDS.includes(kind as EventKind) &&
+          (t.fn.params.length === 0 || (t.fn.params.length === 1 && t.fn.params[0] === 'event')));
+      if (!listener)
+        return this.fail(
+          at,
+          'E_ATTRS',
+          `${name}: on<event> functions in attribute bags are listeners of supported events`,
+        );
+      return v;
+    }
+    return this.fail(
+      at,
+      'E_ATTRS',
+      `${name}: values of type ${JSON.stringify(t)} are unsupported in attribute bags`,
+    );
+  }
+
+  /** A `style` object of an attribute bag: a record of nullable property values. */
+  private styleObject(o: ts.ObjectLiteralExpression, b: FnBuilder): Expr {
+    const fields: { name: string; type: Type }[] = [];
+    const values: Expr[] = [];
+    for (const p of o.properties) {
+      if (!ts.isPropertyAssignment(p) || !(ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)))
+        return this.fail(p, 'E_ATTRS', 'Style objects have static property names');
+      const v = this.expr(p.initializer, b);
+      const t = this.irType(v, b);
+      if (t !== 'string' && maybeInner(t) !== 'string')
+        return this.fail(p, 'E_ATTRS', 'Style object values are strings or undefined');
+      fields.push({ name: p.name.text, type: { maybe: 'string' } });
+      values.push(t === 'string' ? { op: 'some', value: v } : v);
+    }
+    const record = this.types.records.length;
+    this.types.records.push({ name: 'Style', fields });
+    return { op: 'record', record, fields: values };
+  }
+
+  /** A bag-valued expression: a bag, a record spread as entries, or a conditional of literals. */
+  private bagValue(e: ts.Expression, b: FnBuilder): Expr {
+    const x = skipParens(e);
+    if (ts.isObjectLiteralExpression(x)) return this.bagLiteral(x, b);
+    if (ts.isConditionalExpression(x))
+      return {
+        op: 'cond',
+        test: this.condition(x.condition, b),
+        then: this.bagValue(x.whenTrue, b),
+        else: this.bagValue(x.whenFalse, b),
+      };
+    const v = this.expr(e, b);
+    const t = this.irType(v, b);
+    if (t === 'attrs') return v;
+    if (typeof t === 'object' && 'record' in t && !this.types.records[t.record].class) {
+      const tmp = b.local('$spread', t);
+      const r = this.types.records[t.record];
+      return {
+        op: 'with',
+        local: tmp,
+        value: v,
+        body: {
+          op: 'attrs',
+          items: r.fields.map((f, i) => ({
+            name: f.name,
+            value: this.bagEntry(
+              f.name,
+              { op: 'get', object: { op: 'local', local: tmp }, field: i },
+              e,
+              b,
+            ),
+          })),
+        },
+      };
+    }
+    return this.fail(
+      e,
+      'E_ATTRS',
+      'Spreads in attribute bags take bags, records or object literals',
+    );
+  }
+
+  /**
+   * An object literal for a record a package's declaration file declares
+   * (`PresenceManagerOpts`), its properties in another order: the values in
+   * the literal's order, the record in the declaration's. Key order of such
+   * records is not tracked: key-observing built-ins reject them.
+   */
+  private byName(e: ts.ObjectLiteralExpression, record: number, b: FnBuilder): Expr {
+    const r = this.types.records[record];
+    const temps = new Map<string, number>();
+    const values: { local: number; value: Expr }[] = [];
+    for (const p of e.properties) {
+      const name =
+        p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) ? p.name.text : undefined;
+      if (!name || !(ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)))
+        return this.fail(p, 'E_OBJECT', 'Unsupported object member');
+      const i = this.types.fieldIndex(record, name, p);
+      const t = r.fields[i].type;
+      let value: Expr;
+      if (ts.isPropertyAssignment(p))
+        value =
+          ts.isArrowFunction(p.initializer) || ts.isFunctionExpression(p.initializer)
+            ? this.closure(p.initializer, b, name)
+            : this.coerce(p.initializer, b, t);
+      else value = this.expr(p.name, b);
+      if (maybeInner(t) && !maybeInner(this.irType(value, b))) value = { op: 'some', value };
+      const local = b.local(`$${name}`, t);
+      temps.set(name, local);
+      values.push({ local, value });
+    }
+    const fields = r.fields.map((f): Expr => {
+      const t = temps.get(f.name);
+      if (t !== undefined) return { op: 'local', local: t };
+      if (maybeInner(f.type)) return { op: 'undefined', type: f.type };
+      return this.fail(e, 'E_OBJECT', `Missing field ${f.name}`);
+    });
+    let out: Expr = { op: 'record', record, fields };
+    for (const v of values.reverse())
+      out = { op: 'with', local: v.local, value: v.value, body: out };
     return out;
   }
 

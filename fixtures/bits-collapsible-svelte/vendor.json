@@ -1,0 +1,16 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": { "upstream": "LICENSE.md", "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9" },
+    "src/lib/utils.ts": { "upstream": "docs/src/lib/registry/lib/utils.ts", "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c" },
+    "src/lib/registry/examples/collapsible-demo.svelte": { "upstream": "docs/src/lib/registry/examples/collapsible-demo.svelte", "sha256": "95980c9ef5877500410b8bbaaa603ed2b4911d349ef25295cc347df2b9551cb4" },
+    "src/lib/registry/ui/button/button.svelte": { "upstream": "docs/src/lib/registry/ui/button/button.svelte", "sha256": "836d6b14108ce6f20ed88c6500d981c412e1d9cc8bbde02c2f64552b1c0b195c" },
+    "src/lib/registry/ui/button/index.ts": { "upstream": "docs/src/lib/registry/ui/button/index.ts", "sha256": "0f6b6f040d92b4153821d3f9b4d6b9cbc567247e4fda913e64c1d0fcc4a2f386" },
+    "src/lib/registry/ui/collapsible/collapsible-content.svelte": { "upstream": "docs/src/lib/registry/ui/collapsible/collapsible-content.svelte", "sha256": "8af85ac6ed50471ad32a4e90fb0c54b0fbe0b0700cd3fc5a91b85de70bf22554" },
+    "src/lib/registry/ui/collapsible/collapsible.svelte": { "upstream": "docs/src/lib/registry/ui/collapsible/collapsible.svelte", "sha256": "1d48e117ac1b8fef1af070c56237a04e5ad1d4bafd4372852a0e9d10e9f4afc2" },
+    "src/lib/registry/ui/collapsible/collapsible-trigger.svelte": { "upstream": "docs/src/lib/registry/ui/collapsible/collapsible-trigger.svelte", "sha256": "e74d7c62176b48d8f5a7282fd0491fbab4dcfb0f23690b6cfae3f3d08b630e3a" },
+    "src/lib/registry/ui/collapsible/index.ts": { "upstream": "docs/src/lib/registry/ui/collapsible/index.ts", "sha256": "abeb5bef64eabc6e378338dddcecee0df56ab18ece8b1d08bd1ed6e740aff05e" }
+  }
+}

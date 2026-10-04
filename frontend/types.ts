@@ -13,6 +13,16 @@ export class TypeMapper {
   private fail: Fail;
   /** The record of a class instance type (set by the class lowering). */
   classRecord?: (cls: ts.Symbol, t: ts.Type, at: ts.Node) => number;
+  /** The IR type a mapping pack gives a package type (frontend/packs.ts), if any. */
+  packType?: (t: ts.Type, at: ts.Node) => Type | undefined;
+  /** The record of MutationObservers, once a program uses one. */
+  mutationObserver?: number;
+  /**
+   * Records of types a package's declaration files declare (interfaces of
+   * options objects): literals may list their properties in any order, so
+   * their key order is not tracked (key-observing built-ins reject them).
+   */
+  readonly packageRecords = new Set<number>();
 
   constructor(checker: ts.TypeChecker, fail: Fail) {
     this.checker = checker;
@@ -118,7 +128,20 @@ export class TypeMapper {
         'E_TYPE_UNSUPPORTED',
         'bigint and symbol values are outside the supported value model',
       );
+    // Types a mapping pack represents (svelte-toolbelt's boxes).
+    if (t.flags & (F.Object | F.Intersection)) {
+      const packed = this.packType?.(t, at);
+      if (packed) return packed;
+    }
     if (t.flags & F.Object) return this.object(t as ts.ObjectType, at);
+    // An intersection of object types (`Props & { props: … }`) is the record of their properties.
+    if (t.flags & F.Intersection) {
+      // A DOM handle refined by an intersection (bits-ui's `MouseEvent & { currentTarget: … }`).
+      if (t.getProperty('__runicElement')) return 'element';
+      if (t.getProperty('__runicEvent')) return 'event';
+      const attrs = (t as ts.IntersectionType).types.some(p => p.getProperty('__runicAttrs'));
+      return attrs ? 'attrs' : { record: this.record(t, at) };
+    }
     return this.fail(at, 'E_TYPE_UNSUPPORTED', `Unsupported type ${this.checker.typeToString(t)}`);
   }
 
@@ -161,6 +184,36 @@ export class TypeMapper {
     // Event objects (frontend/dom.d.ts) are opaque values read through built-ins.
     if (t.getProperty('__runicEvent')) return 'event';
     if (t.getProperty('__runicMediaQuery')) return 'media-query';
+    // Attribute bags (docs/IR.md `attrs`): the marker frontend/dom.d.ts
+    // declares for bag-building object literals, and objects of untyped
+    // entries only: `Record<string, unknown>` (the props bits-ui passes to
+    // `child` snippets) and symbol-keyed attachment objects (svelte-toolbelt's
+    // `attachRef`).
+    if (t.getProperty('__runicAttrs')) return 'attrs';
+    // A MutationObserver (frontend/dom.d.ts): a record holding its callback.
+    if (t.getProperty('__runicMutationObserver')) {
+      if (this.mutationObserver === undefined) {
+        this.mutationObserver = this.records.length;
+        this.records.push({
+          name: 'MutationObserver',
+          class: true,
+          fields: [{ name: 'callback', type: { fn: { params: [], result: 'void' } } }],
+        });
+      }
+      return { record: this.mutationObserver };
+    }
+    if (!this.checker.getPropertiesOfType(t).length && !t.getCallSignatures().length) {
+      const infos = this.checker.getIndexInfosOfType(t);
+      if (
+        infos.length &&
+        infos.every(
+          i =>
+            !!(i.keyType.flags & ts.TypeFlags.ESSymbolLike) ||
+            !!(i.type.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)),
+        )
+      )
+        return 'attrs';
+    }
     const name = t.symbol?.name ?? t.aliasSymbol?.name;
     const args = (t as ts.TypeReference).target
       ? this.checker.getTypeArguments(t as ts.TypeReference)
@@ -272,7 +325,17 @@ export class TypeMapper {
       let pt = this.checker.getTypeOfSymbolAtLocation(p, decl ?? at);
       if (p.flags & ts.SymbolFlags.Optional)
         pt = this.checker.getNullableType(pt, ts.TypeFlags.Undefined);
-      placeholder.fields.push({ name: p.name, type: this.map(pt, decl ?? at) });
+      // Properties a package's declaration files declare are reported where
+      // the program uses the type.
+      const where =
+        decl &&
+        !(
+          decl.getSourceFile().isDeclarationFile &&
+          /[\\/]node_modules[\\/]/.test(decl.getSourceFile().fileName)
+        )
+          ? decl
+          : at;
+      placeholder.fields.push({ name: p.name, type: this.map(pt, where) });
     }
     // An object literal's keys are in JavaScript order (TypeScript orders
     // spread types differently).
@@ -281,6 +344,16 @@ export class TypeMapper {
       const order = this.keyOrder(literal, placeholder.fields);
       placeholder.fields.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
     }
+    const declarations = (t.aliasSymbol ?? t.symbol)?.declarations ?? [];
+    if (
+      declarations.length &&
+      declarations.every(
+        d =>
+          d.getSourceFile().isDeclarationFile &&
+          /[\\/]node_modules[\\/]/.test(d.getSourceFile().fileName),
+      )
+    )
+      this.packageRecords.add(index);
     // Structurally identical records share one IR record.
     const shape = JSON.stringify(placeholder.fields);
     const same = this.byShape.get(shape);

@@ -444,6 +444,87 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             opt_number(&t[1]),
             opt_number(&t[2])
         ),
+        // Libraries compiled from source (M6).
+        ("element", "isConnected") => format!("cx.dom.is_connected({}.0)", t[0]),
+        ("element", "hasAttribute") => {
+            format!("cx.dom.has_attribute({}.0, &{}.to_rust())", t[0], t[1])
+        }
+        ("element", "style-get") => format!(
+            "JsString::from(cx.dom.style_get({}.0, &{}.to_rust()))",
+            t[0], t[1]
+        ),
+        ("element", "style-set") => format!(
+            "{{ cx.dom.style_set({}.0, &{}.to_rust(), &{}.to_rust()); }}",
+            t[0], t[1], t[2]
+        ),
+        // No animation or transition can run: none (otherwise unsupported).
+        ("element", "getAnimations") => format!(
+            "{{ if !cx.dom.animations_none({}.0) {{ runic_runtime::unsupported(\"getAnimations() on an element whose style declares CSS animations or transitions (Blitz exposes no animation objects)\"); }} js::array(Vec::new()) }}",
+            t[0]
+        ),
+        // `beforematch` listeners: the runtime never fires the event.
+        ("element", "listen" | "unlisten") => format!("{{ let _ = (&{}, &{}); }}", t[0], t[2]),
+        ("mutation", "observe") => format!(
+            "{{ let _ = (&{}, &{}, &{}); runic_runtime::unsupported(\"MutationObserver.observe\"); }}",
+            t[0], t[1], t[2]
+        ),
+        // An observer that never observed has nothing to disconnect.
+        ("mutation", "disconnect") => format!("{{ let _ = &{}; }}", t[0]),
+        ("effect", phase @ ("pre" | "post")) => {
+            let Type::Fn(f) = &types[0] else {
+                unreachable!("validated effect function")
+            };
+            let cleanup = match &*f.result {
+                Type::Void => "{ f(cx)?; Ok(None) }",
+                Type::Maybe(_) => "match f(cx)? { Maybe::Some(c) => Ok(Some(c)), _ => Ok(None) }",
+                _ => "Ok(Some(f(cx)?))",
+            };
+            q(
+                cx,
+                format!(
+                    "{{ let f = {}; let d: Dfx = Rc::new(move |cx: &mut Cx| -> JsResult<Option<Lst>> {{ {cleanup} }}); cx.create_effect({}, d) }}",
+                    t[0],
+                    phase == "pre"
+                ),
+            )
+        }
+        ("reactive", "untrack-call") => {
+            let args: String = t[1..].iter().map(|a| format!(", {a}")).collect();
+            q(
+                cx,
+                format!(
+                    "{{ let outer = cx.tracking.take(); let heap_outer = js::begin_heap_reads(None); let r = ({})(cx{args}); js::end_heap_reads(heap_outer); cx.tracking = outer; r }}",
+                    t[0]
+                ),
+            )
+        }
+        ("context", "set") => format!(
+            "{{ let v = {}; {}; v }}",
+            t[1],
+            q(
+                cx,
+                format!("cx.context_set({}, Rc::new(v.clone()) as Rc<dyn std::any::Any>)", t[0])
+            )
+        ),
+        ("context", "get") => {
+            let Type::Maybe(inner) = ty else {
+                unreachable!("validated context type")
+            };
+            let found = q(cx, format!("cx.context_get(&{})", t[0]));
+            let mismatch = q(
+                cx,
+                "Err::<(), _>(js::Throw::type_error(\"RunicContextError: a context of another type under the key\"))".into(),
+            );
+            format!(
+                "match {found} {{ Some(v) => match v.downcast_ref::<{}>() {{ Some(x) => Maybe::Some(x.clone()), None => {{ {mismatch}; unreachable!() }} }}, None => Maybe::Undefined }}",
+                rust_type(inner)
+            )
+        }
+        ("uid", "next") => format!(
+            "{{ cx.uids += 1; JsString::from(format!(\"{{}}{{}}\", {}.to_rust(), cx.uids)) }}",
+            t[0]
+        ),
+        ("attrs", m) => attrs_builtin(cx, m, &t, ty),
         ("element", "scrollIntoView") => format!(
             "cx.dom.scroll_into_view({}.0, &{}.to_rust(), &{}.to_rust())",
             t[0], t[1], t[2]
@@ -639,6 +720,89 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         _ => unreachable!("validated builtin {name}"),
     };
     format!("{{ {code}{body} }}")
+}
+
+/// Attribute bag built-ins (M6, docs/IR.md "Attribute bags").
+fn attrs_builtin(cx: &mut FnCtx, m: &str, t: &[String], ty: &Type) -> String {
+    let mismatch = |cx: &FnCtx, what: &str| {
+        cx.q(&format!(
+            "Err::<(), _>(js::Throw::type_error(\"RunicAttrsError: the spread passes {what} a value of another type than the prop's\"))"
+        ))
+    };
+    match m {
+        "has" => format!("{}.entries().iter().any(|(n, _)| *n == {})", t[0], t[1]),
+        "without" => {
+            let names = t[1..].join(", ");
+            format!(
+                "{{ let names = [{names}]; js::Attrs::new({}.entries().iter().filter(|(n, _)| !names.contains(n)).cloned().collect()) }}",
+                t[0]
+            )
+        }
+        "merge-props" => {
+            let bags: String = t
+                .iter()
+                .map(|b| {
+                    format!(
+                        "{b}.entries().iter().map(|(n, v)| (n.to_rust(), v.clone())).collect::<Vec<_>>(), "
+                    )
+                })
+                .collect();
+            let failed = cx.q("Err::<(), _>(js::Throw::new(\"RunicUnsupportedError\", m))");
+            format!(
+                "match js::merge_props(&[{bags}], &MergeBags) {{ Ok(v) => js::Attrs::new(v.into_iter().map(|(n, v)| (JsString::from(n), v)).collect()), Err(m) => {{ runic_runtime::unsupported(&m); {failed}; unreachable!() }} }}"
+            )
+        }
+        "get" => {
+            let Type::Maybe(inner) = ty else {
+                unreachable!("validated attrs.get type")
+            };
+            let bad = mismatch(cx, "a prop");
+            let convert = match &**inner {
+                Type::String => "js::AttrValue::Text(s) => Maybe::Some(s.clone()),".to_string(),
+                Type::Boolean => "js::AttrValue::Flag(b) => Maybe::Some(*b),".to_string(),
+                Type::Fn(f) => {
+                    let target = rust_type(inner);
+                    let params: String = f
+                        .params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| format!(", x{i}: {}", rust_type(p)))
+                        .collect();
+                    let args: String = (0..f.params.len())
+                        .map(|i| format!("Rc::new(x{i}) as Rc<dyn std::any::Any>, "))
+                        .collect();
+                    let result = match &*f.result {
+                        Type::Void => "{ let _ = r; Ok(()) }".to_string(),
+                        Type::Maybe(i) => format!(
+                            "match (r.downcast_ref::<{}>(), r.downcast_ref::<{}>(), r.downcast_ref::<()>()) {{ (Some(v), _, _) => Ok(v.clone()), (_, Some(v), _) => Ok(Maybe::Some(v.clone())), (_, _, Some(_)) => Ok(Maybe::Undefined), _ => Err(erased_mismatch()) }}",
+                            rust_type(&f.result),
+                            rust_type(i)
+                        ),
+                        other => format!("erased_result::<{}>(r)", rust_type(other)),
+                    };
+                    let rt = rust_type(&f.result);
+                    let callback = format!(
+                        "js::AttrValue::Callback(_, g) => {{ let g = g.downcast_ref::<Erased>().expect(\"erased callback\").clone(); let h: {target} = Rc::new(move |cx: &mut Cx{params}| -> JsResult<{rt}> {{ let r = g(cx, vec![{args}])?; {result} }}); Maybe::Some(h) }}"
+                    );
+                    // An event listener becomes a function of the event.
+                    let listener = if f.params == [Type::Event] && *f.result == Type::Void {
+                        format!(
+                            "js::AttrValue::Listener(_, b) => {{ let b = b.clone(); let h: {target} = Rc::new(move |cx: &mut Cx, e: js::Event| -> JsResult<()> {{ b(cx, e) }}); Maybe::Some(h) }}"
+                        )
+                    } else {
+                        String::new()
+                    };
+                    format!("{callback}\n{listener}")
+                }
+                other => unreachable!("validated attrs.get type {other:?}"),
+            };
+            format!(
+                "{{ let name = {}; let b = {}; let found = b.resolved().into_iter().find(|(n, _)| **n == name).map(|(_, v)| v.clone()); match &found {{ None | Some(js::AttrValue::Absent) => Maybe::Undefined, Some(js::AttrValue::Null) => Maybe::Null, Some(v) => match v {{ {convert} _ => {{ {bad}; unreachable!() }} }} }} }}",
+                t[1], t[0]
+            )
+        }
+        other => unreachable!("validated attrs built-in {other}"),
+    }
 }
 
 /// Whether a declared match result has `string` elements (every capture

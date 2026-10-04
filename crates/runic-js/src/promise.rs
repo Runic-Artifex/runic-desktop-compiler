@@ -91,6 +91,9 @@ impl<T, J> Clone for JsPromise<T, J> {
     }
 }
 
+/// A promise held by state stays as it is (no proxy).
+impl<T, J> crate::Own for JsPromise<T, J> {}
+
 impl<T, J> PartialEq for JsPromise<T, J> {
     fn eq(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.0, &other.0)

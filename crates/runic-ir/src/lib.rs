@@ -629,6 +629,11 @@ pub struct SlotDef {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub params: Vec<usize>,
     pub body: Vec<Node>,
+    /// The content counts as provided only while this holds (a boolean
+    /// evaluated in the parent, as its props are): content the parent
+    /// forwards from a slot of its own (M6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<Expr>,
 }
 
 impl Component {
@@ -701,6 +706,15 @@ pub struct Cell {
     /// Its value must not be mutated in place (React state and props).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub readonly: bool,
+    /// A prop whose parent passes `undefined` takes `init` (Svelte's `$props()`
+    /// defaults); the parent may then pass a nullable value of the cell's type
+    /// (M6).
+    #[serde(
+        rename = "undefinedDefault",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub undefined_default: bool,
 }
 
 fn is_identity(t: &Tracking) -> bool {
@@ -1036,11 +1050,14 @@ pub enum Read {
     Snapshot,
 }
 
-/// An attribute bag item: an entry, or the entries of another bag.
+/// An attribute bag item: an entry, the entries of another bag, or an
+/// attachment (M6): a function of the element returning its cleanup, under
+/// a key of its own created when the bag is evaluated.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum AttrItem {
     Spread { spread: Expr },
+    Attach { attach: Expr },
     Entry { name: String, value: Expr },
 }
 
@@ -1283,6 +1300,11 @@ pub enum Expr {
         value: Box<Expr>,
         body: Box<Expr>,
     },
+    /// Whether the running instance's parent provides content for its slot
+    /// `name` (a declared slot of the component; M6).
+    SlotProvided {
+        name: String,
+    },
 }
 
 impl Expr {
@@ -1307,6 +1329,7 @@ impl Expr {
             | Local { .. }
             | Payload
             | Event
+            | SlotProvided { .. }
             | Closure { .. } => vec![],
             Not { arg }
             | Neg { arg }
@@ -1363,6 +1386,7 @@ impl Expr {
                 .iter()
                 .map(|i| match i {
                     AttrItem::Spread { spread } => spread,
+                    AttrItem::Attach { attach } => attach,
                     AttrItem::Entry { value, .. } => value,
                 })
                 .collect(),
@@ -1509,6 +1533,16 @@ pub enum Node {
         /// holds): its attributes and `on<event>` listeners.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         spread: Option<Expr>,
+        /// A boolean spread entry for a name without a boolean element
+        /// property becomes the text "true" or "false" (Svelte's
+        /// `setAttribute`); otherwise true sets the attribute empty and
+        /// false removes it.
+        #[serde(
+            rename = "spreadBooleanText",
+            default,
+            skip_serializing_if = "std::ops::Not::not"
+        )]
+        spread_boolean_text: bool,
         /// Class toggles (boolean values): with them, the `class` attribute
         /// (a string, absent meaning empty) is composed as docs/IR.md describes.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
