@@ -86,15 +86,14 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
             out.insert("readOnly".into(), json!(true));
         }
     }
-    // A text area's text is its value (its children only seed the editor).
-    let children: Vec<Value> = if tag == "textarea" {
-        vec![]
-    } else {
-        node.children
-            .iter()
-            .filter_map(|&c| snapshot_node(doc, c, focused))
-            .collect()
-    };
+    // A text area's children are its text content (`defaultValue`); a value
+    // set by script before its editor existed seeds the editor through them
+    // until the next layout (see `Listeners::settle`).
+    let children: Vec<Value> = node
+        .children
+        .iter()
+        .filter_map(|&c| snapshot_node(doc, c, focused))
+        .collect();
     if !children.is_empty() {
         out.insert("children".into(), Value::Array(children));
     }

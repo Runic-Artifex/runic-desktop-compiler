@@ -2598,16 +2598,21 @@ impl<'p> Machine<'p> {
                         Val::Str(s) => Some(s.to_rust()),
                         _ => None,
                     };
+                    // Without a style value: properties only (React DOM).
                     let value = match style_text {
-                        Some(e) => text(self.eval(e, frame)?),
-                        None => Some(String::new()),
+                        Some(e) => Some(text(self.eval(e, frame)?)),
+                        None => None,
                     };
                     let mut properties = vec![];
                     for p in styles {
                         properties.push((p.name.as_str(), text(self.eval(&p.value, frame)?)));
                     }
                     let (mut state, current) = self.style_states.remove(&id).unwrap_or_default();
-                    let current = match state.apply(current.as_deref(), value, &properties) {
+                    let applied = match value {
+                        Some(value) => state.apply(current.as_deref(), value, &properties),
+                        None => state.apply_properties(current.as_deref(), &properties),
+                    };
+                    let current = match applied {
                         Ok(next) => next,
                         Err(()) => current,
                     };
@@ -2655,8 +2660,13 @@ impl<'p> Machine<'p> {
                 let mut checked = None;
                 // Controlled values: applied always (restore) or when they change.
                 let restore = self.program.schedule.controlled_restore;
+                // A text area's text content (its children).
+                let mut text_content = None;
                 for p in props {
                     match p.name.as_str() {
+                        "defaultValue" => {
+                            text_content = Some(self.eval(&p.value, frame)?.string().to_rust());
+                        }
                         "value" => {
                             let v = self.eval(&p.value, frame)?.string().to_rust();
                             let cache = self.control_cache.entry(id).or_default();
@@ -2708,6 +2718,9 @@ impl<'p> Machine<'p> {
                 let mut kids = vec![];
                 for c in children {
                     self.render_node(c, frame, path, &mut kids, visited)?;
+                }
+                if let Some(t) = text_content {
+                    kids.push(VNode::Text(t));
                 }
                 // A select's value is its shown option's: the controlled value
                 // if an option has it (else none: ""); uncontrolled, the chosen

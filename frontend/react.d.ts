@@ -62,11 +62,16 @@ declare module 'react' {
     readonly metaKey: boolean;
   }
   export interface PointerEvent<T = Element> extends MouseEvent<T> {}
+  /** onFocus and onBlur: React dispatches them from focusin and focusout. */
+  export interface FocusEvent<T = Element> extends UIEvent<T> {
+    readonly relatedTarget: HTMLElement | null;
+  }
   export type EventHandler<E extends SyntheticEvent> = (event: E) => void;
   export type MouseEventHandler<T = Element> = EventHandler<MouseEvent<T>>;
   export type PointerEventHandler<T = Element> = EventHandler<PointerEvent<T>>;
   export type KeyboardEventHandler<T = Element> = EventHandler<KeyboardEvent<T>>;
   export type ChangeEventHandler<T = Element> = EventHandler<ChangeEvent<T>>;
+  export type FocusEventHandler<T = Element> = EventHandler<FocusEvent<T>>;
   /**
    * The props of DOM elements, for components forwarding rest props to one
    * (`{ variant?: string } & ButtonHTMLAttributes<HTMLButtonElement>`).
@@ -92,6 +97,7 @@ declare module 'react' {
     type KeyboardEvent<T = Element> = import('react').KeyboardEvent<T>;
     type MouseEvent<T = Element> = import('react').MouseEvent<T>;
     type PointerEvent<T = Element> = import('react').PointerEvent<T>;
+    type FocusEvent<T = Element> = import('react').FocusEvent<T>;
   }
   const React: { useState: typeof useState };
   export default React;
@@ -124,7 +130,10 @@ declare namespace JSX {
     onPointerLeave?: import('react').PointerEventHandler;
     onKeyDown?: import('react').KeyboardEventHandler;
     onKeyUp?: import('react').KeyboardEventHandler;
+    onFocus?: import('react').FocusEventHandler;
+    onBlur?: import('react').FocusEventHandler;
     onChange?: import('react').ChangeEventHandler<HTMLInputElement>;
+    htmlFor?: string | null;
     [prop: string]: unknown;
   }
   interface IntrinsicElements {

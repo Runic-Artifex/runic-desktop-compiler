@@ -577,14 +577,15 @@ test('React rejects uncovered behaviour with locations', async () => {
       'function C({children}){return <p>{children}</p>;}function App(){return <C children={<i>a</i>}><b>x</b></C>;}',
       'E_PROPS',
     ],
-    // Checkboxes are controlled; focus events are planned.
+    // Checkboxes are controlled; capture-phase handlers are not modelled.
     ['function App(){return <input type="checkbox"/>;}', 'E_JSX'],
-    ['function App(){return <input onFocus={()=>1}/>;}', 'E_EVENT'],
+    ['function App(){return <input onFocusCapture={()=>1}/>;}', 'E_EVENT'],
     [
       'function App(){const[xs,set]=useState([()=>{}]);return <p>{xs.map(f=><b onClick={f}>a</b>)}</p>;}',
       'E_EVENT',
     ],
-    ['function App(){return <p style={{color:"red"}}>a</p>;}', 'E_JSX'],
+    // React throws for style strings.
+    ['function App(){return <p style="color:red">a</p>;}', 'E_JSX'],
     ['function App(){return <p onMouseOver={()=>1}>a</p>;}', 'E_EVENT'],
     [
       'const helper=x=>{console.log(x);return x;};const App=()=> <p>{helper(1)}</p>;',

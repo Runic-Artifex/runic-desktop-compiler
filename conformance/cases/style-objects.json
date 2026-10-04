@@ -1,0 +1,19 @@
+{
+  "description": "React style objects (react-dom setValueForStyles): the style-directives actions on the same elements, then numbers (px unless 0 or unitless), a custom property set with setProperty (a padded value) and removed with null, and removal through null, '' and booleans. React sets each key through the CSSOM at mount and only the changed keys afterwards, so a key removed and set again moves to the end; the static style goes through the CSSOM too (React has no style strings)",
+  "fixtures": ["styles-react"],
+  "actions": [
+    { "kind": "click", "id": "color" },
+    { "kind": "click", "id": "wider" },
+    { "kind": "click", "id": "base" },
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "color" },
+    { "kind": "click", "id": "base" },
+    { "kind": "click", "id": "wider" },
+    { "kind": "click", "id": "dim" },
+    { "kind": "click", "id": "accent" },
+    { "kind": "click", "id": "hide" },
+    { "kind": "click", "id": "dim" },
+    { "kind": "click", "id": "accent" },
+    { "kind": "click", "id": "hide" }
+  ]
+}
