@@ -44,6 +44,26 @@ fn io(e: std::io::Error) -> Diagnostic {
     Diagnostic::new("E_OUTPUT", e.to_string(), None)
 }
 
+/// The `[patch.crates-io]` section of a workspace manifest, verbatim (empty
+/// if there is none). A generated app is a workspace of its own, so it
+/// repeats the compiler workspace's patches to resolve the same crates as
+/// the Cargo.lock it copies.
+pub fn patch_section(manifest: &str) -> String {
+    let mut section = String::new();
+    let mut inside = false;
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            inside = trimmed == "[patch.crates-io]";
+        }
+        if inside {
+            section.push_str(line);
+            section.push('\n');
+        }
+    }
+    section
+}
+
 /// Write the generated crate for `program` into `out`.
 ///
 /// `runtime` is the path of `crates/runic-runtime`; `lock` the workspace
@@ -106,8 +126,11 @@ panic = "abort"
 
 # A standalone workspace: generated apps live inside the compiler repository.
 [workspace]
-"#,
+
+{patches}"#,
         runtime = runtime.display().to_string(),
+        patches =
+            patch_section(&std::fs::read_to_string(lock.with_file_name("Cargo.toml")).map_err(io)?),
     );
     std::fs::write(out.join("Cargo.toml"), manifest).map_err(io)?;
     std::fs::copy(lock, out.join("Cargo.lock")).map_err(io)?;
@@ -117,6 +140,19 @@ panic = "abort"
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copies_the_workspace_patches() {
+        let manifest = "[workspace]\nmembers = []\n\n# Forks.\n[patch.crates-io]\n# A fork.\nvello_cpu = { git = \"file:///v\", rev = \"1\" }\n\n[profile.dev]\ndebug = 0\n";
+        assert_eq!(
+            patch_section(manifest),
+            "[patch.crates-io]\n# A fork.\nvello_cpu = { git = \"file:///v\", rev = \"1\" }\n\n"
+        );
+        assert_eq!(patch_section("[workspace]\n"), "");
+        // The compiler workspace's own manifest has the renderer forks.
+        let root = include_str!("../../../Cargo.toml");
+        assert!(patch_section(root).contains("vello_cpu = "));
+    }
 
     #[test]
     fn extracts_and_deduplicates_data_urls() {

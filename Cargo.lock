@@ -73,8 +73,7 @@ dependencies = [
 [[package]]
 name = "anyrender"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1755d0ef8e00e87b6b825dfbe5a35d34d3b302e97e80a48e93f9cd361fbada06"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
 dependencies = [
  "kurbo",
  "peniko",
@@ -85,8 +84,7 @@ dependencies = [
 [[package]]
 name = "anyrender_svg"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39327debd1bdca190d086c107825a5dc4c665be31e99e5c0854345a050d08cad"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
 dependencies = [
  "anyrender",
  "image",
@@ -98,8 +96,7 @@ dependencies = [
 [[package]]
 name = "anyrender_vello"
 version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04d545f71a3f13b1099d5787c44cfeb00322cebbebbf90c4f8cdae78bee423f7"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
 dependencies = [
  "anyrender",
  "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -117,8 +114,7 @@ dependencies = [
 [[package]]
 name = "anyrender_vello_cpu"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a09d9356dd2b2f032345711a350c0e2326a854cb5070f899265bc80fb33884b1"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
 dependencies = [
  "anyrender",
  "bytemuck",
@@ -1116,8 +1112,7 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f1218dedd5348c1b166ec3b8b3cbca49d2f527bd43b3fa072ea5123c523ed3f"
+source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3#8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -3034,8 +3029,7 @@ dependencies = [
 [[package]]
 name = "softbuffer_window_renderer"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "809f260e686014e0222158362d571a7813cd836a27b7e51ed7e1dcf39ce08378"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
 dependencies = [
  "anyrender",
  "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3707,8 +3701,7 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73c2fbe53548bcd25c8ff42f75a93770a8611a16b37bee56d7ef7b44e36027f1"
+source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3#8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -3723,8 +3716,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed1fec424fbba6acf6cbc78bb526447eb77590d95f40419d598870fe37535212"
+source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3#8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -4185,8 +4177,7 @@ dependencies = [
 [[package]]
 name = "wgpu_context"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5277f9d30e7087f1eeb0034206dce7d3377e76da017fdceb8aa4faebb1df68e2"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
 dependencies = [
  "futures-intrusive",
  "wgpu",
