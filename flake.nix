@@ -24,6 +24,11 @@
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
       PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
       RUNIC_PLAYWRIGHT_VERSION = pkgs.playwright-driver.version;
+      # GPU conformance runs (conformance/run.mjs --renderer gpu): the probe
+      # draws on Mesa's software Vulkan driver (lavapipe) from this lock, set
+      # through VK_ICD_FILENAMES for the probe process only; apps run from the
+      # shell keep the host's drivers.
+      RUNIC_LAVAPIPE_ICD = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
     };
   };
 }

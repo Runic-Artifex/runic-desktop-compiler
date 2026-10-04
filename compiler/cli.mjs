@@ -24,13 +24,21 @@ const { values, positionals } = parseArgs({
     'no-opt': { type: 'boolean' },
     probe: { type: 'boolean' },
     release: { type: 'boolean' },
+    renderer: { type: 'string' },
     json: { type: 'boolean' },
   },
 });
 const [command, app] = positionals;
 export async function buildApp(app, options = {}) {
-  const graph = await collect(app),
-    { ir } = await lower(graph);
+  const graph = await collect(app);
+  // The renderer runic.json selects, unless the build overrides it
+  // (conformance runs of GPU builds: `--renderer gpu`).
+  if (options.renderer !== undefined) {
+    if (!['cpu', 'gpu'].includes(options.renderer))
+      throw new Diagnostic('E_CONFIG', 'The renderer must be "cpu" or "gpu"');
+    graph.config = { ...graph.config, renderer: options.renderer };
+  }
+  const { ir } = await lower(graph);
   if (!ir.styles.assets.some(a => a.mime === 'font/woff2'))
     throw new Diagnostic(
       'E_FONT',
@@ -108,6 +116,7 @@ export async function buildApp(app, options = {}) {
           lto: process.env.CARGO_PROFILE_RELEASE_LTO ?? 'off',
           codegenUnits: 1,
           probe: Boolean(options.probe),
+          renderer: ir.renderer ?? 'cpu',
           rust: '1.98.1',
           blitz: await blitzRevision(),
         },
@@ -175,7 +184,7 @@ function alive(pid) {
 async function main() {
   if (!command || !app) {
     console.log(
-      'runic-compiler analyze|build <app>\nrunic-compiler scan <project-dir>\nOptions: --out PATH --no-opt --release --probe --json',
+      'runic-compiler analyze|build <app>\nrunic-compiler scan <project-dir>\nOptions: --out PATH --no-opt --release --probe --renderer cpu|gpu --json',
     );
     return;
   }
@@ -185,6 +194,7 @@ async function main() {
       noOpt: values['no-opt'],
       release: values.release,
       probe: values.probe,
+      renderer: values.renderer,
     });
     console.log(JSON.stringify({ executable: path.join(r.out, 'runic-app') }));
     return;

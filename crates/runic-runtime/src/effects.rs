@@ -1,7 +1,7 @@
 //! Filters that Blitz would draw differently from Chromium.
 //!
-//! The CPU renderer draws `filter` and `backdrop-filter`
-//! (docs/research/M6-CPU-RENDERER.md), but Blitz builds the filter layer
+//! Both renderers (CPU and GPU) draw `filter` and `backdrop-filter` with the
+//! same semantics (docs/research/M6-CPU-RENDERER.md), but Blitz builds the filter layer
 //! around part of the element only: its outline and outer box shadows are
 //! painted outside the layer (unfiltered), the layer is clipped to the border
 //! box (plus the filter's reach), and a backdrop is clipped to the border
@@ -79,7 +79,7 @@ fn filter_deviations(doc: &BaseDocument) -> Vec<String> {
             }
             if let Some(root) = backdrop_root(doc, node) {
                 reasons.push(format!(
-                    "its ancestor <{root}> is a backdrop root (opacity, filter, clip-path, mask or mix-blend-mode): Chromium filters only what that ancestor paints behind it, the CPU renderer everything behind it"
+                    "its ancestor <{root}> is a backdrop root (opacity, filter, clip-path, mask or mix-blend-mode): Chromium filters only what that ancestor paints behind it, the renderers everything behind it"
                 ));
             }
         }

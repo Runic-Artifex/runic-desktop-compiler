@@ -17,6 +17,25 @@ pub(crate) type Renderer = anyrender_vello_cpu::VelloCpuWindowRenderer;
 #[cfg(all(feature = "renderer-gpu", not(feature = "renderer-cpu")))]
 pub(crate) type Renderer = anyrender_vello::VelloWindowRenderer;
 
+/// The GPU renderer's anti-aliasing, for the window and probe screenshots
+/// alike: area coverage, as the CPU renderer and Skia compute it, rather than
+/// `anyrender_vello`'s default for windows, 16x MSAA, which differs more from
+/// Chromium (`icons`: 0.27/255 against 0.11/255 per viewport; research doc,
+/// GPU section).
+#[cfg(all(feature = "renderer-gpu", not(feature = "renderer-cpu")))]
+pub(crate) fn gpu_antialiasing() -> anyrender_vello::AaConfig {
+    anyrender_vello::AaConfig::Area
+}
+
+fn window_renderer() -> Renderer {
+    #[cfg(all(feature = "renderer-gpu", not(feature = "renderer-cpu")))]
+    return Renderer::with_options(
+        anyrender_vello::VelloRendererOptions::default().antialiasing_method(gpu_antialiasing()),
+    );
+    #[cfg(feature = "renderer-cpu")]
+    Renderer::new()
+}
+
 /// Chromium's form-control defaults where Blitz's UA stylesheet differs: the
 /// control font size and radio button metrics (the fork paints checkbox and
 /// radio colours as Chromium does).
@@ -218,7 +237,7 @@ pub(crate) fn run<A: App>() {
     application.add_window(WindowConfig::with_attributes(
         Box::new(native),
         Measured {
-            inner: Renderer::new(),
+            inner: window_renderer(),
             start,
             first: false,
             size: (width, height),

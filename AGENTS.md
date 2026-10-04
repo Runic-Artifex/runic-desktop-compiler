@@ -48,7 +48,7 @@ Use the locked flake environment. Check `flake.nix`, `.envrc` and the README fir
 npm ci                                   # once
 npm test                                 # compiler suites
 cargo test --offline --workspace         # Rust crates
-node conformance/run.mjs [case…] [--pixels] [--no-opt]   # browser vs native
+node conformance/run.mjs [case…] [--pixels] [--no-opt] [--renderer gpu]   # browser vs native (GPU builds on lavapipe)
 node conformance/differential.mjs        # interpreter vs generated code
 node conformance/measure.mjs             # release size and first-frame time (Xvfb)
 node compiler/cli.mjs scan <project>     # feature census against the roadmap
