@@ -1465,7 +1465,16 @@ export class Lowerer {
   }
 
   private contextual(e: ts.Expression): Type {
-    const t = this.checker.getContextualType(e);
+    let t = this.checker.getContextualType(e);
+    if (!t) {
+      // A branch of a conditional without a contextual type (an untyped
+      // `const`): the conditional's type.
+      let node: ts.Node = e;
+      while (ts.isParenthesizedExpression(node.parent)) node = node.parent;
+      const p = node.parent;
+      if (ts.isConditionalExpression(p) && p.condition !== node)
+        t = this.checker.getTypeAtLocation(p);
+    }
     if (!t) return { maybe: NUMBER };
     const mapped = this.types.map(t, e);
     return typeof mapped === 'object' && 'maybe' in mapped ? mapped : { maybe: mapped };

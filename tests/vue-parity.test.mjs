@@ -398,3 +398,23 @@ test('rejections: text controls whose re-render restore Runic cannot reproduce',
     /slot/,
   );
 });
+
+test('a nullish branch of a template conditional takes the conditional type', async () => {
+  const g = await edits('fixtures/styles-vue', {
+    'App.vue': [
+      [
+        '<p id="static" style="color: RED; margin-top: 4px">',
+        `<p id="static" :style="{ color: width > 130 ? 'red' : undefined }" :title="width > 130 ? null : 'narrow'">`,
+      ],
+    ],
+  });
+  const { ir } = await lower(g);
+  const steps = interpret(ir, [{ kind: 'click', id: 'wider' }]);
+  assert.deepEqual(
+    steps.map(s => [byId(s, 'static').attrs.style, byId(s, 'static').attrs.title]),
+    [
+      [undefined, 'narrow'],
+      ['color: red;', undefined],
+    ],
+  );
+});

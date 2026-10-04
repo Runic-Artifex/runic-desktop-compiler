@@ -57,7 +57,8 @@ test('Style objects: each key through the CSSOM, then only changed keys', async 
     `export function App() {
   const [on, setOn] = useState(false);
   const [w, setW] = useState(10);
-  const color: string | undefined = on ? 'green' : undefined;
+  // Untyped: the conditional's type (string | undefined), not undefined's.
+  const color = on ? 'green' : undefined;
   return (
     <main>
       <button id="toggle" onClick={() => setOn(!on)}>t</button>
