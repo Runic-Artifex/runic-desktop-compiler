@@ -1,0 +1,25 @@
+{
+  "description": "CSS gradients on both renderers: linear (two stops, an angle, several stops, hard stops, transparency over another layer, repeating), radial (circle, ellipse, hard stop, repeating) and conic (smooth, hard stops) gradients, several background layers, a gradient under a border and rounded corners, and a background-position transition sampled mid-way; every cell is a pixel region. The GPU renderer drew gradients half a pixel off before the vello fork sampled them at pixel centres; what Blitz draws differently is in blitz-gradients",
+  "fixtures": ["gradients-svelte"],
+  "pixelRegions": [
+    "linear",
+    "linear-angle",
+    "linear-stops",
+    "linear-hard",
+    "linear-alpha",
+    "linear-repeating",
+    "radial",
+    "radial-ellipse",
+    "radial-hard",
+    "radial-repeating",
+    "conic",
+    "conic-hard",
+    "layered",
+    "rounded",
+    "animated"
+  ],
+  "actions": [
+    { "kind": "click", "id": "toggle" },
+    { "kind": "wait", "ms": 200 }
+  ]
+}
