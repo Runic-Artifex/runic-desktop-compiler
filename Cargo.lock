@@ -2704,7 +2704,9 @@ dependencies = [
  "runic-css",
  "runic-js",
  "serde_json",
+ "stylo",
  "stylo_dom",
+ "stylo_traits",
  "winit",
 ]
 

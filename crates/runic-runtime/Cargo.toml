@@ -23,6 +23,9 @@ blitz-shell.workspace = true
 blitz-traits.workspace = true
 blitz-paint.workspace = true
 style_dom.workspace = true
+# Computed styles (font stacks in diagnostics); the version Blitz uses.
+style = { version = "=0.22.0", package = "stylo" }
+style_traits = { version = "=0.22.0", package = "stylo_traits" }
 anyrender.workspace = true
 kurbo.workspace = true
 peniko.workspace = true

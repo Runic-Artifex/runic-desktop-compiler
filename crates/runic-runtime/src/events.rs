@@ -391,6 +391,18 @@ impl<A: App> Native<A> {
     /// any were queued.
     pub(crate) fn layout_frame(&mut self) -> bool {
         crate::layout::resolve(&mut self.doc);
+        // Text that no loaded font draws would silently be missing (Chromium
+        // falls back to a system font): a probe fails, an app reports it once.
+        for text in crate::layout::unfonted_text(&self.doc) {
+            #[cfg(feature = "probe")]
+            panic!(
+                "E_FONT: {text} is not drawn: no font of its font-family is embedded in the app"
+            );
+            #[cfg(not(feature = "probe"))]
+            crate::layout::report_once(format!(
+                "runic: E_FONT: {text} is not drawn: no font of its font-family is embedded in the app"
+            ));
+        }
         self.listeners.settle(&mut self.doc);
         let clamped = crate::layout::take_clamped();
         for &node in &clamped {

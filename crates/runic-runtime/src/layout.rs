@@ -432,3 +432,56 @@ pub(crate) fn fully_visible(doc: &mut BaseDocument, node: NodeId) -> bool {
             left >= px && top >= py && right <= px + pw && bottom <= py + ph
         })
 }
+
+/// Text that no font draws: an element's inline content holds visible
+/// characters but its laid-out width is zero, because none of the faces its
+/// `font-family` names was loaded (native builds load only the app's
+/// embedded fonts; Chromium would fall back to a system font). Each entry
+/// names the text and the font stack.
+pub(crate) fn unfonted_text(doc: &BaseDocument) -> Vec<String> {
+    let mut out = vec![];
+    for (_, node) in doc.tree().iter() {
+        let Some(element) = node.element_data() else {
+            continue;
+        };
+        let Some(text) = element.inline_layout_data.as_ref() else {
+            continue;
+        };
+        if text.text.trim().is_empty() || text.layout.width() > 0.0 {
+            continue;
+        }
+        let family = node
+            .primary_styles()
+            .map(|s| {
+                use style_traits::ToCss as _;
+                s.get_font().font_family.to_css_string()
+            })
+            .unwrap_or_default();
+        let sample: String = text.text.trim().chars().take(40).collect();
+        // Text of an anonymous block (inline content of a flex or grid
+        // container, such as a button) is named by its element.
+        let mut owner = node;
+        while matches!(owner.data, blitz_dom::node::NodeData::AnonymousBlock(_)) {
+            match owner.parent.and_then(|p| doc.get_node(p)) {
+                Some(p) => owner = p,
+                None => break,
+            }
+        }
+        let tag = owner
+            .element_data()
+            .map_or_else(String::new, |e| e.name.local.to_string());
+        out.push(format!("{sample:?} in <{tag}> (font-family: {family})"));
+    }
+    out
+}
+
+/// Print `message` to stderr the first time it occurs.
+#[cfg(not(feature = "probe"))]
+pub(crate) fn report_once(message: String) {
+    thread_local! {
+        static SEEN: std::cell::RefCell<std::collections::HashSet<String>> = Default::default();
+    }
+    if SEEN.with(|s| s.borrow_mut().insert(message.clone())) {
+        eprintln!("{message}");
+    }
+}
