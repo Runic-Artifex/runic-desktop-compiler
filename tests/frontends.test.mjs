@@ -511,7 +511,7 @@ test('React rejects uncovered behaviour with locations', async () => {
     ['function App(){console.log("render");return <p>Hi</p>;}', 'E_COMPONENT'],
     ['const discarded=new Date().getTime();function App(){return <p>Hi</p>;}', 'E_NEW'],
     ['import {useMemo} from "react";function App(){return <p>Hi</p>;}', 'E_CAPABILITY'],
-    ['const App=()=> <select><option>one</option></select>;', 'E_JSX'],
+    ['const App=()=> <select multiple><option>one</option></select>;', 'E_JSX'],
     // Lists need an inline callback returning JSX, with plain parameters and value keys.
     ['function App(){return <p>{[1,2].map(String)}</p>;}', 'E_JSX'],
     ['function App(){return <p>{[1,2].map(x=>x)}</p>;}', 'E_JSX'],

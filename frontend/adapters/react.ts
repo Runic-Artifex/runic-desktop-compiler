@@ -57,6 +57,7 @@ import { createProgram, REACT } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
 import { arrayElement, maybeInner } from '../irtype.ts';
+import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
 
 const TAGS = new Set([
   'div',
@@ -91,6 +92,8 @@ const TAGS = new Set([
   'hr',
   'textarea',
   'label',
+  'select',
+  'option',
 ]);
 /** React prop names → DOM attribute names. */
 const ATTRS: Record<string, string> = {
@@ -2206,24 +2209,33 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     const listeners: Listener[] = [];
     let ref: number | undefined;
     let styles: { name: string; value: Expr }[] | undefined;
-    const checkbox =
-      name === 'input' &&
-      opening.attributes.properties.some(a => {
-        if (!ts.isJsxAttribute(a) || a.name.getText() !== 'type' || !a.initializer) return false;
-        const v = ts.isJsxExpression(a.initializer) ? a.initializer.expression : a.initializer;
-        return !!v && ts.isStringLiteralLike(v) && v.text === 'checkbox';
-      });
+    const inputType =
+      name === 'input'
+        ? opening.attributes.properties
+            .map(a => {
+              if (!ts.isJsxAttribute(a) || a.name.getText() !== 'type' || !a.initializer) return;
+              const v = ts.isJsxExpression(a.initializer)
+                ? a.initializer.expression
+                : a.initializer;
+              return v && ts.isStringLiteralLike(v) ? v.text : undefined;
+            })
+            .find(t => t !== undefined)
+        : undefined;
+    // Checkboxes and radio buttons: a live checked property and change events.
+    const radio = inputType === 'radio';
+    const checkbox = inputType === 'checkbox' || radio;
+    const select = name === 'select';
     // `{...rest}`: this component's rest props (the only spread the pre-pass allows).
     const spreadAt = opening.attributes.properties.findIndex(ts.isJsxSpreadAttribute);
     const restKeys = spreadAt >= 0 ? cur.rest!.keys : new Set<string>();
     if (spreadAt >= 0) {
       if (opening.attributes.properties.filter(ts.isJsxSpreadAttribute).length > 1)
         fail(opening, 'E_JSX', 'One spread per element is supported');
-      if (checkbox)
+      if (checkbox || select || name === 'option')
         fail(
           opening.attributes.properties[spreadAt],
           'E_JSX',
-          'Spread attributes on checkboxes are planned for later',
+          `Spread attributes on ${radio ? 'radio buttons' : checkbox ? 'checkboxes' : `<${name}>`} are planned for later`,
         );
     }
     for (const a of opening.attributes.properties) {
@@ -2232,13 +2244,17 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       const raw = attr.name.getText();
       const init = attr.initializer;
       if (raw === 'key') continue;
-      if (raw in EVENT_PROPS || (raw === 'onChange' && (name === 'input' || name === 'textarea'))) {
+      if (
+        raw in EVENT_PROPS ||
+        (raw === 'onChange' && (name === 'input' || name === 'textarea' || select))
+      ) {
         if (!init || !ts.isJsxExpression(init) || !init.expression)
           fail(attr, 'E_EVENT', 'Event props need a handler expression');
-        // React's onChange is the input event on text inputs and text areas
-        // and the change (dispatched on click) on checkboxes.
+        // React's onChange is the input event on text inputs and text areas,
+        // the change (dispatched on click) on checkboxes and radio buttons
+        // and the change event on selects.
         const event: HandlerEvent =
-          raw === 'onChange' ? (checkbox ? 'change' : 'input') : EVENT_PROPS[raw];
+          raw === 'onChange' ? (checkbox || select ? 'change' : 'input') : EVENT_PROPS[raw];
         // React DOM drops these listeners of disabled controls (getListener),
         // while Chromium delivers mousemove and mouseenter to them.
         if (
@@ -2263,8 +2279,41 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         fail(
           attr,
           'E_EVENT',
-          `${raw} is unsupported (supported: ${Object.keys(EVENT_PROPS).join(', ')} and onChange on inputs and text areas)`,
+          `${raw} is unsupported (supported: ${Object.keys(EVENT_PROPS).join(', ')} and onChange on inputs, text areas and selects)`,
         );
+      if (select && (raw === 'defaultValue' || raw === 'multiple'))
+        fail(
+          attr,
+          'E_JSX',
+          raw === 'multiple'
+            ? 'Multiple selects are planned for later'
+            : 'Uncontrolled selects with defaultValue are planned for later (React marks the option selected); control the select with value and onChange, or leave it uncontrolled',
+        );
+      if (select && raw === 'value') {
+        // React DOM's updateOptions, at mount, at every commit of the select
+        // and after its change events (restoreControlledState): the option
+        // with that value, else the first enabled one.
+        const e = init && ts.isJsxExpression(init) ? init.expression : undefined;
+        let value: Expr;
+        if (init && ts.isStringLiteral(init))
+          value = { op: 'lit', value: decodeHTMLStrict(init.text) };
+        else if (!e) return fail(attr, 'E_JSX', 'value takes a string');
+        else {
+          const v = expr(e);
+          const t = typeOf(e, v);
+          if (t !== 'string' && t !== 'number')
+            fail(
+              attr,
+              'E_JSX',
+              `The value of a select must be a string or number, not ${JSON.stringify(t)} (null and undefined make it uncontrolled; arrays need multiple)`,
+            );
+          value = t === 'string' ? v : { op: 'to-string', arg: v };
+        }
+        props.push({ name: 'selectValue', value });
+        continue;
+      }
+      if (name === 'option' && (raw === 'selected' || raw === 'defaultSelected'))
+        fail(attr, 'E_JSX', `${raw} on options is unsupported; use value on the select`);
       if (name === 'textarea' && (raw === 'value' || raw === 'defaultValue')) {
         if (raw === 'defaultValue')
           fail(
@@ -2351,7 +2400,21 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       fail(
         opening,
         'E_JSX',
-        'Checkboxes must be controlled with checked={…} (uncontrolled checkboxes and defaultChecked are planned for M5)',
+        radio
+          ? 'Radio buttons must be controlled with checked={…} (uncontrolled radio buttons and defaultChecked are planned for later)'
+          : 'Checkboxes must be controlled with checked={…} (uncontrolled checkboxes and defaultChecked are planned for M5)',
+      );
+    // React restores a controlled radio button or select after its change
+    // event even without an onChange listener (a read-only control); the
+    // IR restores after events that run listeners.
+    if (
+      (radio || (select && props.some(p => p.name === 'selectValue'))) &&
+      !listeners.some(l => l.event === 'change')
+    )
+      fail(
+        opening,
+        'E_JSX',
+        `A controlled ${radio ? 'radio button' : 'select'} needs an onChange handler (read-only controls are planned for later)`,
       );
     if (name === 'textarea' && kids.some(k => !ts.isJsxText(k) || cleanText(k.text)))
       fail(
@@ -2406,24 +2469,20 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           ? { op: 'attrs', items: [...before, { spread: bag }, ...after] }
           : bag;
     }
-    return keyed(
-      keyAttr,
-      [
-        {
-          kind: 'element',
-          tag: name,
-          ...(attrs.length ? { attrs } : {}),
-          ...(props.length ? { props } : {}),
-          ...(listeners.length ? { listeners } : {}),
-          ...(ref !== undefined ? { ref } : {}),
-          ...(spread ? { spread } : {}),
-          ...(styles?.length ? { styles } : {}),
-          ...(kids.length ? { children: children(kids) } : {}),
-          source: sourceOf(n),
-        },
-      ],
-      n,
-    );
+    const node: Node & { kind: 'element' } = {
+      kind: 'element',
+      tag: name,
+      ...(attrs.length ? { attrs } : {}),
+      ...(props.length ? { props } : {}),
+      ...(listeners.length ? { listeners } : {}),
+      ...(ref !== undefined ? { ref } : {}),
+      ...(spread ? { spread } : {}),
+      ...(styles?.length ? { styles } : {}),
+      ...(kids.length ? { children: children(kids) } : {}),
+      source: sourceOf(n),
+    };
+    if (select) checkSelectChildren(node, 'React renders it as a text node');
+    return keyed(keyAttr, [node], n);
   };
   /** A child component instance; its props are evaluated in the parent's template scope. */
   const component = (
@@ -3124,6 +3183,23 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       ),
       ...bagListeners.map(l => ({ h: l, root: bagRoot(l) })),
     ];
+    // Change listeners of selects (the others are on checkboxes and radio buttons).
+    const selectChanges = new Set<unknown>();
+    const selects = (k: number, nodes: Node[]) => {
+      for (const n of nodes) {
+        if (n.kind === 'element') {
+          if (n.tag === 'select')
+            for (const l of n.listeners ?? [])
+              if (l.event === 'change') selectChanges.add(components[k].handlers[l.handler]);
+          selects(k, n.children ?? []);
+        }
+        if (n.kind === 'if') selects(k, [...n.then, ...(n.else ?? [])]);
+        if (n.kind === 'each') selects(k, [...n.body, ...(n.else ?? [])]);
+        if (n.kind === 'slot') selects(k, n.fallback ?? []);
+        if (n.kind === 'component') for (const s of n.slots ?? []) selects(k, s.body);
+      }
+    };
+    components.forEach((c, k) => selects(k, c.template));
     for (const { h, root } of listening) {
       const prop = propOf(h.event);
       let micro = false;
@@ -3160,10 +3236,23 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
               h.source,
               `${prop} uses e.${member}: React dispatches it from ${h.event} as a synthetic event of type "${h.event === 'focusin' ? 'focus' : 'blur'}" whose preventDefault() marks it prevented though focus events cannot be cancelled, which is unsupported`,
             );
-          if (h.event === 'change' && (member === 'preventDefault' || member === 'stopPropagation'))
+          if (
+            h.event === 'change' &&
+            selectChanges.has(h) &&
+            (member === 'preventDefault' || member === 'defaultPrevented')
+          )
             rejectEvent(
               h.source,
-              `onChange of a checkbox calls e.${member}(): React applies it to the click that produced the change`,
+              `onChange of a select uses e.${member}: React's synthetic event reports itself prevented after preventDefault() although change events cannot be cancelled, which is unsupported`,
+            );
+          if (
+            h.event === 'change' &&
+            !selectChanges.has(h) &&
+            (member === 'preventDefault' || member === 'stopPropagation')
+          )
+            rejectEvent(
+              h.source,
+              `onChange of a checkbox or radio button calls e.${member}(): React applies it to the click that produced the change`,
             );
           if (member === 'currentTarget') current = true;
           if (o.op === 'builtin' && /^(microtask|promise)\./.test(o.name as string)) micro = true;
@@ -3336,13 +3425,55 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
             return false;
         }
       });
+    // A cancelled click on a radio button: React restores the group to its
+    // state, then the browser checks the previously checked button again,
+    // unchecking the rest of the group; the IR does not uncheck the group
+    // when it reverts, so a cancelling click handler must not change state.
+    const radios = (k: number, nodes: Node[], seen = new Set<number>()): boolean =>
+      nodes.some(n => {
+        switch (n.kind) {
+          case 'element':
+            return (
+              (n.tag === 'input' &&
+                (n.attrs ?? []).some(
+                  a => a.name === 'type' && a.value.op === 'lit' && a.value.value === 'radio',
+                )) ||
+              radios(k, n.children ?? [], seen)
+            );
+          case 'if':
+            return radios(k, [...n.then, ...(n.else ?? [])], seen);
+          case 'each':
+            return radios(k, [...n.body, ...(n.else ?? [])], seen);
+          case 'slot':
+            return radios(k, n.fallback ?? [], seen);
+          case 'component': {
+            const inSlots = (n.slots ?? []).some(s => radios(k, s.body, seen));
+            if (inSlots || seen.has(n.component)) return inSlots;
+            seen.add(n.component);
+            return radios(n.component, components[n.component].template, seen);
+          }
+          default:
+            return false;
+        }
+      });
+    const cancelsWriting = (k: number, n: Node & { kind: 'element' }) =>
+      (n.listeners ?? []).some(l => {
+        const root = handlerRoot(k, components[k].handlers[l.handler]);
+        return l.event === 'click' && prevents(root) && writesState([root]);
+      });
     const visitElements = (k: number, nodes: Node[]) => {
       for (const n of nodes) {
         if (n.kind === 'element') {
           if (cancels(k, n) && checkboxes(k, [n]))
             throw new Diagnostic(
               'E_EVENT',
-              'A click handler here may cancel the click on a checkbox whose onChange updates state: React still runs onChange (and keeps that state) while the browser reverts the box, which is unsupported; ignore the change in onChange instead',
+              'A click handler here may cancel the click on a checkbox or radio button whose onChange updates state: React still runs onChange (and keeps that state) while the browser reverts the click, which is unsupported; ignore the change in onChange instead',
+              n.source,
+            );
+          if (cancelsWriting(k, n) && radios(k, [n]))
+            throw new Diagnostic(
+              'E_EVENT',
+              'A click handler here may cancel the click on a radio button and updates state: the browser then checks the previously checked button again after React restored the group, which is unsupported',
               n.source,
             );
           visitElements(k, n.children ?? []);
@@ -3361,8 +3492,74 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     if (cancelling && components.some((c, k) => checkboxes(k, c.template)))
       rejectEvent(
         cancelling.source,
-        'A click handler in rest props may cancel the click on a checkbox whose onChange updates state: React still runs onChange (and keeps that state) while the browser reverts the box, which is unsupported; ignore the change in onChange instead',
+        'A click handler in rest props may cancel the click on a checkbox or radio button whose onChange updates state: React still runs onChange (and keeps that state) while the browser reverts the click, which is unsupported; ignore the change in onChange instead',
       );
+    const writing = bagListeners.find(
+      l => l.event === 'click' && prevents(bagRoot(l)) && writesState([bagRoot(l)]),
+    );
+    if (writing && components.some((c, k) => radios(k, c.template)))
+      rejectEvent(
+        writing.source,
+        'A click handler in rest props may cancel the click on a radio button and updates state: the browser then checks the previously checked button again after React restored the group, which is unsupported',
+      );
+  };
+
+  /**
+   * A picked option dispatches input, then change; React restores a
+   * controlled select after the change only, while the IR restores after
+   * every event that runs listeners. Window and document input listeners
+   * would see that restore (and the change event the restored value), so
+   * they are rejected in programs with controlled selects.
+   */
+  const checkSelectInput = () => {
+    const controlled = (nodes: Node[]): boolean =>
+      nodes.some(n => {
+        switch (n.kind) {
+          case 'element':
+            return (
+              (n.tag === 'select' && (n.props ?? []).some(p => p.name === 'selectValue')) ||
+              controlled(n.children ?? [])
+            );
+          case 'if':
+            return controlled([...n.then, ...(n.else ?? [])]);
+          case 'each':
+            return controlled([...n.body, ...(n.else ?? [])]);
+          case 'slot':
+            return controlled(n.fallback ?? []);
+          case 'component':
+            return (n.slots ?? []).some(s => controlled(s.body));
+          default:
+            return false;
+        }
+      });
+    if (!components.some(c => controlled(c.template))) return;
+    const roots = [
+      ...components.flatMap((c, k) => c.handlers.map(h => handlerRoot(k, h))),
+      ...lower.functions.map(f => ({ body: f.body, component: f.component, locals: localsOf(f) })),
+      ...components.flatMap((c, k) =>
+        c.cells.map(x => ({ body: x.init, component: k, locals: [] as Local[] })),
+      ),
+    ];
+    for (const root of roots) {
+      let statement: Handler['source'];
+      const visit = (n: unknown) => {
+        if (Array.isArray(n)) return n.forEach(visit);
+        if (!n || typeof n !== 'object') return;
+        const o = n as Obj;
+        if (o.source && typeof o.op === 'string') statement = o.source as Handler['source'];
+        if (
+          o.op === 'builtin' &&
+          /^(window|document)\.listen$/.test(o.name as string) &&
+          (o.args as Obj[])[0]?.value === 'input'
+        )
+          rejectEvent(
+            statement,
+            `${(o.name as string).split('.')[0]} input listeners in a program with controlled selects are unsupported: React restores a select after its change event only, the IR after every event with listeners`,
+          );
+        for (const v of Object.values(o)) visit(v);
+      };
+      visit(root.body);
+    }
   };
 
   /**
@@ -3521,6 +3718,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   checkUnmountOrder();
   checkChildrenEffects();
   checkRenderRefs();
+  checkRadioGroups(components, rootIndex);
+  checkSelectInput();
   const capabilities = ['dom', 'css', 'window', 'click', 'keyboard'];
   if (components.some(c => c.handlers.some(h => h.event === 'input')))
     capabilities.push('text-input');

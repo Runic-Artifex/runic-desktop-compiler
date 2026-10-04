@@ -73,6 +73,7 @@ import { createProgram, VUE } from '../program.ts';
 import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules } from '../modules.ts';
 import { arrayElement, maybeInner } from '../irtype.ts';
+import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type VNode = any;
@@ -110,6 +111,8 @@ const TAGS = new Set([
   'hr',
   'textarea',
   'label',
+  'select',
+  'option',
 ]);
 const BOOLEAN_ATTRS = new Set([
   'disabled',
@@ -1622,10 +1625,159 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   const components: Component[] = [];
   /** Slot prop names of each component, in the order of the slot's IR params. */
   const slotProps: Map<string, string[]>[] = [];
+  /** The refs v-model assigns on selects and radio buttons, with the elements' @change listeners. */
+  const selectModels: {
+    component: number;
+    cell: number;
+    radio: boolean;
+    source: Source;
+    change: Part[];
+  }[] = [];
   for (const u of order) components[u.index] = lowerComponent(u);
   rejectRenderRefReads();
   components.forEach(rejectWatcherWrites);
   rejectUnmountOrder();
+  checkRadioGroups(components, units.get(rootFile!)!.index);
+  checkControlModels();
+  checkCancelledRadios();
+
+  /**
+   * A cancelled click on a radio button: the browser checks the previously
+   * checked button again after the listeners (and Vue's flush), unchecking
+   * the rest of its group; the IR does not uncheck the group when it
+   * reverts, so a click listener that may cancel the click on a radio
+   * button (on it or an ancestor) must not write state.
+   */
+  function checkCancelledRadios() {
+    const prevents = (roots: unknown[], fns: Set<number>) => {
+      let found = false;
+      const visit = (x: unknown) => {
+        if (found || !x || typeof x !== 'object') return;
+        if (Array.isArray(x)) return x.forEach(visit);
+        const o = x as { op?: string; name?: string };
+        if (o.op === 'builtin' && o.name === 'event.preventDefault') found = true;
+        if (o.op === 'call-value') found = true;
+        for (const v of Object.values(x)) visit(v);
+      };
+      visit(roots);
+      for (const f of fns) visit(lower.functions[f]?.body);
+      return found;
+    };
+    const hasRadio = (nodes: Node[]): boolean =>
+      nodes.some(n =>
+        n.kind === 'element'
+          ? (n.tag === 'input' &&
+              (n.attrs ?? []).some(
+                a => a.name === 'type' && a.value.op === 'lit' && a.value.value === 'radio',
+              )) ||
+            hasRadio(n.children ?? [])
+          : n.kind === 'if'
+            ? hasRadio([...n.then, ...(n.else ?? [])])
+            : n.kind === 'each'
+              ? hasRadio([...n.body, ...(n.else ?? [])])
+              : n.kind === 'slot'
+                ? hasRadio(n.fallback ?? [])
+                : n.kind === 'component'
+                  ? (n.slots ?? []).some(s => hasRadio(s.body)) ||
+                    hasRadio(components[n.component].template)
+                  : false,
+      );
+    components.forEach((c, k) => {
+      const visit = (nodes: Node[]) => {
+        for (const n of nodes) {
+          if (n.kind === 'element') {
+            for (const l of n.listeners ?? []) {
+              if (l.event !== 'click') continue;
+              const h = c.handlers[l.handler];
+              const a = access([h.body], c.cells);
+              if (
+                prevents([h.body], a.calls) &&
+                (a.writes.size || a.heap || a.unknown) &&
+                hasRadio([n])
+              )
+                fail(
+                  'E_EVENT',
+                  'A click listener here may cancel the click on a radio button and writes state: the browser checks the previously checked button again after the flush, which is unsupported',
+                  n.source,
+                );
+            }
+            visit(n.children ?? []);
+          }
+          if (n.kind === 'if') visit([...n.then, ...(n.else ?? [])]);
+          if (n.kind === 'each') visit([...n.body, ...(n.else ?? [])]);
+          if (n.kind === 'slot') visit(n.fallback ?? []);
+          if (n.kind === 'component') for (const s of n.slots ?? []) visit(s.body);
+        }
+      };
+      visit(c.template);
+    });
+  }
+
+  /**
+   * v-model on a select or radio button.
+   * - vModelRadio sets every button of the model where the model changed
+   *   since the last render; the IR sets a button where its checked value
+   *   changed. They agree while the buttons show the model after each
+   *   flush, which an effect writing the model in the flush of a change
+   *   (before the render) could break: rejected.
+   * - The directive's change listener is a native listener of its own, with
+   *   a microtask checkpoint (and the flush) before the element's @change
+   *   listener; the IR runs both in one handler. Supported where that flush
+   *   has nothing else to run (no watchers or lifecycle hooks) and, for
+   *   radio buttons, @change does not write the model (Vue would set the
+   *   buttons in both flushes). vModelSelect applies the model after every
+   *   update where it is not the value it just assigned, as the IR's
+   *   re-render restore does.
+   */
+  function checkControlModels() {
+    const calls = (fns: Set<number>, roots: unknown[]): boolean => {
+      let found = false;
+      const visit = (x: unknown) => {
+        if (found || !x || typeof x !== 'object') return;
+        if (Array.isArray(x)) return x.forEach(visit);
+        if ((x as { op?: string }).op === 'call-value') found = true;
+        for (const v of Object.values(x)) visit(v);
+      };
+      visit(roots);
+      for (const f of fns) visit(lower.functions[f]?.body);
+      return found;
+    };
+    const effects = components.flatMap((c, k) =>
+      (c.effects ?? []).filter(e => !e.render).map(e => ({ e, k })),
+    );
+    for (const m of selectModels) {
+      const name = components[m.component].cells[m.cell].name;
+      if (m.radio)
+        for (const { e, k } of effects) {
+          const roots = [
+            lower.functions[e.run].body,
+            e.deps.kind === 'values' ? e.deps.values : [],
+          ];
+          const a = access(roots, components[k].cells);
+          if ((k === m.component && a.writes.has(m.cell)) || a.unknown || calls(a.calls, roots))
+            fail(
+              'E_EFFECT',
+              `This effect may write ${name}, which v-model binds to radio buttons: Vue sets the buttons only where the model changed since the last render, which the IR does not model when the model changes back in the flush of a change`,
+              e.source,
+            );
+        }
+      if (!m.change.length) continue;
+      if (effects.length)
+        fail(
+          'E_EVENT',
+          `v-model and @change on one select or radio button in a program with watchers or lifecycle hooks are planned for later (Vue flushes between the two listeners: line ${effects[0].e.source?.line} would run in between)`,
+          m.source,
+        );
+      const bodies = m.change.map(p => p.body);
+      const a = access(bodies, components[m.component].cells);
+      if (m.radio && (a.writes.has(m.cell) || a.unknown || calls(a.calls, bodies)))
+        fail(
+          'E_EVENT',
+          `@change on this radio button may write ${name}, which its v-model assigns: Vue sets the buttons in the flush between the two listeners, which is unsupported`,
+          m.change[0].source ?? m.source,
+        );
+    }
+  }
 
   /**
    * What a function can do to the state of its component: the cells it reads
@@ -4062,20 +4214,36 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];
-      const checkbox =
-        n.tag === 'input' &&
-        n.props.some(
-          (p: VNode) =>
-            p.type === ATTRIBUTE && p.name === 'type' && p.value?.content === 'checkbox',
-        );
       /** Text inputs and text areas: Vue patches their value at every re-render. */
       const typeAttr = n.props.find((p: VNode) => p.type === ATTRIBUTE && p.name === 'type');
+      // Checkboxes and radio buttons: a live checked property and change events.
+      const radio = n.tag === 'input' && typeAttr?.value?.content === 'radio';
+      const checkbox = (n.tag === 'input' && typeAttr?.value?.content === 'checkbox') || radio;
+      const select = n.tag === 'select';
       const textControl = (n.tag === 'input' && !checkbox) || n.tag === 'textarea';
+      /** A radio button's value: a static value or a string literal bound with :value. */
+      const radioValue = (): string | undefined => {
+        for (const q of n.props) {
+          if (q.type === ATTRIBUTE && q.name === 'value') return q.value?.content ?? '';
+          if (q.type === DIRECTIVE && q.name === 'bind' && q.arg?.content === 'value' && q.exp) {
+            const e = skipParens(exprNode(q.exp));
+            if (ts.isStringLiteralLike(e)) return e.text;
+            fail(
+              'E_TEMPLATE',
+              ':value on a radio button takes a string literal (other values are planned for later)',
+              loc(q),
+            );
+          }
+        }
+        return undefined;
+      };
       let restoreRender = false;
       /** Listener parts per event, in Vue's call order. */
       const parts = new Map<HandlerEvent, Part[]>();
       let model: Part | undefined;
       let modelEvent: HandlerEvent = 'change';
+      /** The ref a v-model on a select or radio button assigns. */
+      let controlModel: { cell: number; radio: boolean; source: Source } | undefined;
       /** The prop index of v-bind="$attrs". */
       let spreadAt: number | undefined;
       const checked = (v: Expr, at: VNode) => {
@@ -4097,11 +4265,23 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           continue;
         if (p.type === ATTRIBUTE) {
           if (p.name === 'ref') continue; // a reserved prop: the template ref (refOf)
+          if (radio && p.name === 'checked')
+            fail(
+              'E_TEMPLATE',
+              'checked on a radio button is planned for later; use v-model with a value',
+              loc(p),
+            );
           if (checkbox && p.name === 'checked') {
             // Vue sets checked as a DOM property ('' → true), not an attribute.
             checked({ op: 'lit', value: true }, p);
             continue;
           }
+          if (select && p.name === 'value')
+            fail(
+              'E_TEMPLATE',
+              'A static value on a select is planned for later; use v-model or :value',
+              loc(p),
+            );
           attrs.push({
             name: p.name,
             value: BOOLEAN_ATTRS.has(p.name)
@@ -4130,8 +4310,12 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
           // scroll: verified for Svelte only so far.
           if (!EVENT_KINDS.includes(event) || event === 'scroll')
             fail('E_EVENT', `@${event} listeners are planned for a later milestone`, loc(p));
-          if (event === 'change' && !checkbox)
-            fail('E_EVENT', '@change is supported on checkboxes (text inputs: @input)', loc(p));
+          if (event === 'change' && !checkbox && !select)
+            fail(
+              'E_EVENT',
+              '@change is supported on checkboxes, radio buttons and selects (text inputs: @input)',
+              loc(p),
+            );
           const part = withModifiers(handlerFor(p, event), event, guards, keys);
           parts.set(event, [...(parts.get(event) ?? []), part]);
           continue;
@@ -4150,9 +4334,16 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               : `Directive modifiers are planned for a later milestone`,
             loc(p),
           );
-        if (p.name === 'bind' && p.arg?.isStatic && textControl && p.arg.content === 'value') {
+        if (
+          p.name === 'bind' &&
+          p.arg?.isStatic &&
+          (textControl || select) &&
+          p.arg.content === 'value'
+        ) {
           // patchProp: el.value = String(value) (nullish: ''), forced at every
-          // re-render where it differs from the live value; the attribute too.
+          // re-render where it differs from the live value (after the
+          // children, so a select's options are there); a text area's
+          // attribute too.
           const v = value(exprNode(p.exp));
           const t = typeOf(v);
           if (props.some(q => q.name === 'value'))
@@ -4172,10 +4363,39 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
                   ? { op: 'to-string', arg: v }
                   : { op: 'nullish', left: v, right: lit('') },
           });
-          // The attribute is compared for text areas (inputs show their live value).
-          if (n.tag === 'textarea')
+          // runtime-dom patchProp also sets the value attribute. It is compared
+          // for text areas and selects (inputs show their live value).
+          if (n.tag === 'textarea' || select)
             attrs.push({ name: 'value', value: t === 'number' ? { op: 'to-string', arg: v } : v });
           restoreRender = true;
+          continue;
+        }
+        if (p.name === 'bind' && radio && p.arg?.content === 'checked')
+          fail(
+            'E_TEMPLATE',
+            ':checked on a radio button is planned for later (Vue patches it only when it changes, so a click the state does not follow leaves the group out of step); use v-model with a value',
+            loc(p),
+          );
+        if (p.name === 'bind' && radio && p.arg?.isStatic && p.arg.content === 'value') {
+          // A string literal (radioValue): Vue sets el.value, which is the attribute.
+          attrs.push({ name: 'value', value: lit(radioValue()!) });
+          continue;
+        }
+        if (
+          p.name === 'bind' &&
+          p.arg?.isStatic &&
+          n.tag === 'option' &&
+          p.arg.content === 'value'
+        ) {
+          // option._value: what v-model assigns; strings only.
+          const v = value(exprNode(p.exp));
+          if (typeOf(v) !== 'string')
+            fail(
+              'E_TEMPLATE',
+              `:value on an option takes a string, not ${JSON.stringify(typeOf(v))} (v-model would assign the value itself)`,
+              loc(p),
+            );
+          attrs.push({ name: 'value', value: v });
           continue;
         }
         if (p.name === 'bind' && p.arg?.isStatic && checkbox && p.arg.content === 'checked') {
@@ -4211,6 +4431,66 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
               `:${name} with ${JSON.stringify(t)} (class/style objects are planned for later)`,
               loc(p),
             );
+          continue;
+        }
+        if (p.name === 'model' && (select || radio)) {
+          // vModelSelect: a change listener assigns the chosen option's value
+          // (added when the directive is created); setSelected after the
+          // mount and after every re-render (`updated`), except while a
+          // change it made is being flushed. vModelRadio: checked when the
+          // model equals the button's value, set where the model changed;
+          // a change assigns the value.
+          const what = select ? 'a select' : 'a radio button';
+          if (props.some(q => q.name === (select ? 'value' : 'checked')))
+            fail('E_TEMPLATE', `${select ? 'value' : 'checked'} is set twice (v-model)`, loc(p));
+          const target = skipParens(exprNode(p.exp));
+          if (ts.isIdentifier(target) && lower.binding(target)?.kind === 'local')
+            fail(
+              'E_TEMPLATE',
+              'v-model cannot assign a v-for or slot scope variable (Vue rejects it)',
+              loc(p),
+            );
+          const read = value(target);
+          if (typeOf(read) !== 'string')
+            fail(
+              'E_TEMPLATE',
+              `v-model on ${what} needs a string target, not ${JSON.stringify(typeOf(read))} (Vue compares values loosely; other types are planned for later)`,
+              loc(p),
+            );
+          if (read.op !== 'cell' || cells[read.cell]?.prop !== undefined)
+            fail(
+              'E_TEMPLATE',
+              `v-model on ${what} needs a ref of this component (props and models are planned for later)`,
+              loc(p),
+            );
+          const cell = (read as { cell: number }).cell;
+          if (select) {
+            props.push({ name: 'value', value: read });
+            restoreRender = true;
+            model = {
+              ...lower.bindHandler(target, COMPONENT, 'change', tb, {
+                op: 'builtin',
+                name: 'event.value',
+                args: [{ op: 'event' }],
+                type: 'string',
+              }),
+              source: loc(p),
+            };
+          } else {
+            const own = radioValue();
+            if (own === undefined)
+              fail(
+                'E_TEMPLATE',
+                'v-model on a radio button needs a value (value="…" or :value with a string literal)',
+                loc(p),
+              );
+            checked({ op: 'eq', left: read, right: lit(own!) }, p);
+            model = {
+              ...lower.bindHandler(target, COMPONENT, 'change', tb, lit(own!)),
+              source: loc(p),
+            };
+          }
+          controlModel = { cell, radio, source: loc(p) };
           continue;
         }
         if (p.name === 'model' && textControl) {
@@ -4307,9 +4587,17 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       if (checkbox && !props.some(q => q.name === 'checked'))
         fail(
           'E_TEMPLATE',
-          'Checkboxes need :checked or v-model (uncontrolled checkboxes are planned for later)',
+          radio
+            ? 'Radio buttons need v-model (uncontrolled radio buttons are planned for later)'
+            : 'Checkboxes need :checked or v-model (uncontrolled checkboxes are planned for later)',
           loc(n),
         );
+      if (controlModel)
+        selectModels.push({
+          component: COMPONENT,
+          ...controlModel,
+          change: parts.get('change') ?? [],
+        });
       // v-model's listener is added when the directive is created, before
       // Vue patches the element's props (and its @change listener). A text
       // model's input listener is a native listener of its own (a microtask
@@ -4326,7 +4614,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         if (slotDepth)
           fail(
             'E_TEMPLATE',
-            'A text control with :value or v-model in slot content is planned for later (Vue patches it when the child re-renders)',
+            'A text control or select with :value or v-model in slot content is planned for later (Vue patches it when the child re-renders)',
             loc(n),
           );
       }
@@ -4377,7 +4665,13 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             ? { op: 'attrs', merge: true, items: [...before, { spread: attrsRead() }, ...after] }
             : attrsRead();
       }
-      return {
+      if (spread && (select || radio || n.tag === 'option'))
+        fail(
+          'E_ATTRS',
+          `Fallthrough attributes on ${radio ? 'radio buttons' : `<${n.tag}>`} are planned for later`,
+          loc(n),
+        );
+      const node: Node & { kind: 'element' } = {
         kind: 'element',
         tag: n.tag,
         ...(attrs.length ? { attrs } : {}),
@@ -4390,6 +4684,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         ...(n.children.length ? { children: children(n.children) } : {}),
         source: loc(n),
       };
+      if (select) checkSelectChildren(node, 'Vue keeps text between options on one line');
+      return node;
     };
     /**
      * Vue's render effect, for a component whose text controls it re-patches
@@ -4405,7 +4701,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       const planned = (why: string, where = at): never =>
         fail(
           'E_TEMPLATE',
-          `A text control with :value or v-model ${why} is planned for later`,
+          `A text control or select with :value or v-model ${why} is planned for later`,
           where,
         );
       if (slotDecls.size)
