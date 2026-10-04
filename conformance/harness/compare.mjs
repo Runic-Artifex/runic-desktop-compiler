@@ -64,15 +64,19 @@ function diffTree(a, b, at, out) {
   for (let i = 0; i < n; i++) diffTree(ca[i], cb[i], `${at}/${a.tag}[${i}]`, out);
 }
 
-export function pixelMAE(a, b) {
-  const r = spawnSync('magick', ['compare', '-metric', 'MAE', a, b, 'null:'], { encoding: 'utf8' });
+/** Mean absolute error of two screenshots (0–255), of the whole image or the `crop` rectangle of both. */
+export function pixelMAE(a, b, crop) {
+  const region = crop ? `[${crop.width}x${crop.height}+${crop.x}+${crop.y}]` : '';
+  const r = spawnSync('magick', ['compare', '-metric', 'MAE', a + region, b + region, 'null:'], {
+    encoding: 'utf8',
+  });
   const m = r.stderr.match(/\(([0-9.e+-]+)\)/);
   if (!m) throw new Error('ImageMagick compare failed: ' + r.stderr);
   return Number(m[1]) * 255;
 }
 
 /** Compare step lists; returns { steps: [...], passed: {...} }. */
-export function compareTraces(browser, native, { pixels = false } = {}) {
+export function compareTraces(browser, native, { pixels = false, pixelRegions = [] } = {}) {
   const steps = [];
   const n = Math.max(browser.length, native.length);
   for (let i = 0; i < n; i++) {
@@ -105,6 +109,19 @@ export function compareTraces(browser, native, { pixels = false } = {}) {
       if (!(id in (b.geometry ?? {}))) step.geometry.push({ id, browser: null, native: nv.geometry[id] });
     if (pixels && b.screenshotPath && nv.screenshotPath) {
       step.pixelMAE = +pixelMAE(b.screenshotPath, nv.screenshotPath).toFixed(3);
+      // Regions of the case (its animated areas, which are small in the
+      // viewport): the same tolerance, over the element's box in Chromium.
+      for (const id of pixelRegions) {
+        const r = b.geometry?.[id];
+        if (!r) continue;
+        const x = Math.max(0, Math.floor(r.x));
+        const y = Math.max(0, Math.floor(r.y));
+        const right = Math.min(b.viewport.width, Math.ceil(r.x + r.width));
+        const bottom = Math.min(b.viewport.height, Math.ceil(r.y + r.height));
+        if (right <= x || bottom <= y) continue;
+        const crop = { x, y, width: right - x, height: bottom - y };
+        (step.regionMAE ??= {})[id] = +pixelMAE(b.screenshotPath, nv.screenshotPath, crop).toFixed(3);
+      }
     }
     steps.push(step);
   }
@@ -114,7 +131,14 @@ export function compareTraces(browser, native, { pixels = false } = {}) {
     passed: {
       semantics: steps.every(ok),
       geometry: steps.every(s => !s.missing && !s.geometry.length),
-      pixels: pixels ? steps.every(s => s.pixelMAE !== undefined && s.pixelMAE <= PIXEL_MAE_TOLERANCE) : null,
+      pixels: pixels
+        ? steps.every(
+            s =>
+              s.pixelMAE !== undefined &&
+              s.pixelMAE <= PIXEL_MAE_TOLERANCE &&
+              Object.values(s.regionMAE ?? {}).every(m => m <= PIXEL_MAE_TOLERANCE),
+          )
+        : null,
     },
   };
 }

@@ -86,7 +86,7 @@ try {
           const n = runProbe(binary, { viewport, actions, ...env, visibleTargets: true, out: values.pixels ? path.join(shots, 'native') : undefined });
           run.browser = { framework: b.framework, browserVersion: browser.browserVersion, errors: b.errors };
           run.mountUs = n.mountUs;
-          const cmp = compareTraces(b.steps, n.steps, { pixels: values.pixels });
+          const cmp = compareTraces(b.steps, n.steps, { pixels: values.pixels, pixelRegions: c.pixelRegions });
           Object.assign(run, cmp);
           if (b.errors?.length) run.passed.semantics = false;
           // A documented known gap is reported as such, never as a pass.

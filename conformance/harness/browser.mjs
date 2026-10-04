@@ -239,6 +239,47 @@ async function clipboardState() {
 /** `Date.now()` at clock time 0 (shared with the probe and the interpreter). */
 const CLOCK_ORIGIN = 1_767_225_600_000;
 
+/** Clock time when the app starts (the probe's and the interpreter's `CLOCK_START`). */
+const CLOCK_START = 1000;
+
+/**
+ * The page's CSS animations and transitions on virtual time
+ * (docs/design/M6-LIBRARIES.md#animations). Playwright's fake clock does
+ * not move Chromium's document timeline, which follows real frames, so the
+ * harness stops the timeline (DevTools' `Animation.setPlaybackRate(0)`)
+ * and seeks every animation to the virtual time since the harness first
+ * saw it. Animations are looked for after the page loads and around every
+ * action, and during waits at every frame (each multiple of 16 ms of
+ * virtual time) when the page's CSS is time-based: the native probe
+ * resolves styles at the same points, so both start an animation at the
+ * same virtual time and sample it at the same times. `document.getAnimations()`
+ * also brings styles up to date, which creates the transitions and
+ * animations a style change starts.
+ */
+function seekAnimations(now) {
+  const seen = (window.__runicAnimations ??= new WeakMap());
+  const timeline = document.timeline.currentTime;
+  if (window.__runicTimeline !== undefined && window.__runicTimeline !== timeline)
+    throw new Error(`The document timeline moved (${window.__runicTimeline} to ${timeline}); it must stand still`);
+  window.__runicTimeline = timeline;
+  for (const a of document.getAnimations()) {
+    if (!seen.has(a)) seen.set(a, now);
+    a.currentTime = now - seen.get(a);
+  }
+}
+
+/** Whether the page's stylesheets hold keyframes or animation or transition declarations. */
+function timeBasedCss() {
+  const rules = list =>
+    [...list].some(
+      r =>
+        r instanceof CSSKeyframesRule ||
+        (r.style && /(^|[\s;])(animation|transition)[\w-]*:/.test(r.style.cssText)) ||
+        (r.cssRules && rules(r.cssRules)),
+    );
+  return [...document.styleSheets].some(s => rules(s.cssRules));
+}
+
 const twoFrames = () =>
   new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
@@ -257,7 +298,7 @@ async function loaded(page) {
 
 // --- Actions ---
 
-async function perform(page, action, timeout) {
+async function perform(page, action, timeout, time) {
   const target = action.id
     ? page.locator('#' + CSS.escape(action.id))
     : action.selector
@@ -305,6 +346,7 @@ async function perform(page, action, timeout) {
     case 'reload': // The app starts again on the same localStorage.
       await page.reload({ waitUntil: 'load' });
       await loaded(page);
+      await time.loaded();
       break;
     case 'resize': // The viewport changes size.
       await page.setViewportSize({ width: action.width, height: action.height });
@@ -317,7 +359,7 @@ async function perform(page, action, timeout) {
       });
       break;
     case 'wait': // Virtual time (the fake clock is installed for such cases).
-      await page.clock.runFor(action.ms);
+      await time.wait(action.ms);
       break;
     case 'focus':
       await target.evaluate(e => e.focus());
@@ -430,6 +472,13 @@ export async function createBrowserHarness() {
             sessionStorage.setItem('runic-seeded', '1');
             for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v);
           }, storage);
+        // CSS animations on virtual time (seekAnimations): the document
+        // timeline stands still, for this page's documents and reloads. The
+        // Animation domain is not enabled: it is not needed for this, and
+        // with it Playwright's clock installation below became slow enough
+        // for real time to leak into the fake performance.now() (timers case).
+        const cdp = await context.newCDPSession(page);
+        await cdp.send('Animation.setPlaybackRate', { playbackRate: 0 });
         // Cases with `wait` actions (or `clock: true`) run on Playwright's fake
         // clock, paused at the shared origin and advanced to 1000 ms before the
         // page loads (the native probe and the interpreter start their virtual
@@ -446,6 +495,33 @@ export async function createBrowserHarness() {
         // settling waits for real rendering instead.
         const settle = () =>
           clock ? new Promise(r => setTimeout(r, 50)) : page.evaluate(twoFrames);
+        const time = {
+          now: CLOCK_START,
+          stepped: false,
+          seek() {
+            return page.evaluate(seekAnimations, this.now);
+          },
+          /** A document loaded: its animations start now. */
+          async loaded() {
+            this.stepped = await page.evaluate(timeBasedCss);
+            await this.seek();
+          },
+          /** Advance virtual time by `ms`, frame by frame when the CSS is time-based. */
+          async wait(ms) {
+            const to = this.now + ms;
+            await this.seek();
+            if (this.stepped)
+              for (let frame = Math.floor(this.now / 16) * 16 + 16; frame <= to; frame += 16) {
+                await page.clock.runFor(frame - this.now);
+                this.now = frame;
+                await this.seek();
+              }
+            // Also for no time left: a zero wait runs the timers due now.
+            await page.clock.runFor(to - this.now);
+            this.now = to;
+            await this.seek();
+          },
+        };
         page.setDefaultTimeout(timeout);
         page.on('pageerror', e => errors.push({ kind: 'pageerror', message: e.message }));
         // Console lines of app code are host effects of the step (compared
@@ -466,6 +542,7 @@ export async function createBrowserHarness() {
         await page.evaluate(u => location.replace(u), start).catch(() => {});
         await page.waitForURL(u => u.origin === origin, { waitUntil: 'load' });
         await loaded(page);
+        await time.loaded();
         await settle();
         const mountMs = performance.now() - t1;
         const steps = [];
@@ -494,7 +571,11 @@ export async function createBrowserHarness() {
         await observe(null, 0, {});
         for (const [i, action] of actions.entries()) {
           let t = performance.now();
-          await perform(page, action, timeout);
+          // Animations that started since the last step start at this time.
+          await time.seek();
+          await perform(page, action, timeout, time);
+          // Those the action started (a wait has sought its own).
+          if (action.kind !== 'wait') await time.seek();
           const actionMs = performance.now() - t;
           t = performance.now();
           await settle();
