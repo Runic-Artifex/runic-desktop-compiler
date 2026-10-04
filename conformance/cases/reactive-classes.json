@@ -1,0 +1,24 @@
+{
+  "description": "Reactive class fields (M6 stage B): a todo-list class in a .svelte.ts module with $state (deep: pushed plain objects become proxies), $state.raw (replaced whole), a #private $state field behind a getter, a field assigned $state in the constructor, a class instance in a $state field (not proxied), $derived and $derived.by fields read by the template, by other derived fields and by $effects (the 'done' effect re-runs only when its value changes), a class in the component script whose derived field reads component state, a module-level instance (a program global) read by the template, filters switched through a nested instance's field",
+  "fixtures": ["reactive-class-svelte"],
+  "actions": [
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "toggle-2" },
+    { "kind": "click", "id": "show-done" },
+    { "kind": "click", "id": "toggle-2" },
+    { "kind": "click", "id": "show-open" },
+    { "kind": "click", "id": "toggle-1" },
+    { "kind": "click", "id": "rename" },
+    { "kind": "click", "id": "show-all" },
+    { "kind": "click", "id": "adopt" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "toggle-3" },
+    { "kind": "click", "id": "show-done" },
+    { "kind": "click", "id": "adopt" },
+    { "kind": "click", "id": "show-all" },
+    { "kind": "click", "id": "clear" }
+  ]
+}
