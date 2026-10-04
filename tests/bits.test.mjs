@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { collect, Diagnostic } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
@@ -60,14 +60,22 @@ const failWith = (code, file, pattern) => e =>
     `expected ${code} in ${file}, got ${e.code} ${JSON.stringify(e.source)}: ${e.message}`,
   );
 
+/** The fixtures built from vendored shadcn-svelte sources over bits-ui. */
+const BITS_FIXTURES = readdirSync('fixtures')
+  .filter(f => f.startsWith('bits-') && existsSync(path.join('fixtures', f, 'vendor.json')))
+  .map(f => path.join('fixtures', f));
+
 test('the vendored shadcn-svelte sources are unmodified', () => {
-  const vendor = JSON.parse(readFileSync(path.join(FIXTURE, 'vendor.json'), 'utf8'));
-  const corpus = path.join('.cache/corpus', vendor.source);
-  for (const [file, { upstream, sha256 }] of Object.entries(vendor.files)) {
-    const bytes = readFileSync(path.join(FIXTURE, file));
-    assert.equal(createHash('sha256').update(bytes).digest('hex'), sha256, file);
-    if (existsSync(path.join(corpus, upstream)))
-      assert.deepEqual(bytes, readFileSync(path.join(corpus, upstream)), upstream);
+  assert.ok(BITS_FIXTURES.includes(FIXTURE));
+  for (const fixture of BITS_FIXTURES) {
+    const vendor = JSON.parse(readFileSync(path.join(fixture, 'vendor.json'), 'utf8'));
+    const corpus = path.join('.cache/corpus', vendor.source);
+    for (const [file, { upstream, sha256 }] of Object.entries(vendor.files)) {
+      const bytes = readFileSync(path.join(fixture, file));
+      assert.equal(createHash('sha256').update(bytes).digest('hex'), sha256, `${fixture}/${file}`);
+      if (existsSync(path.join(corpus, upstream)))
+        assert.deepEqual(bytes, readFileSync(path.join(corpus, upstream)), upstream);
+    }
   }
 });
 
@@ -95,6 +103,28 @@ test("bits-ui's Collapsible compiles from its published source with the toolbelt
   // The content is measured (getBoundingClientRect): the interpreter has no
   // layout and throws rather than guessing.
   assert.throws(() => interpret(ir, []), /RunicLayoutError|needs the native layout/);
+});
+
+test('Separator and Progress: props through rest bags, values as Svelte spreads them', async () => {
+  const sep = interpret((await lowered('fixtures/bits-separator-svelte')).ir, [
+    { kind: 'click', id: 'orientation' },
+    { kind: 'click', id: 'decorative' },
+  ]);
+  // `decorative` and `orientation` pass through the wrapper's rest props
+  // (a boolean stays a boolean) to the bits-ui component's declared props.
+  const dynamic = s => byId(s, 'dynamic').attrs;
+  assert.equal(dynamic(sep[0]).role, 'separator');
+  assert.equal(dynamic(sep[1])['data-orientation'], 'vertical');
+  assert.deepEqual([dynamic(sep[2]).role, dynamic(sep[2])['aria-hidden']], ['none', 'true']);
+  const progress = interpret((await lowered('fixtures/bits-progress-svelte')).ir, [
+    { kind: 'click', id: 'unknown' },
+  ]);
+  const bar = s => byId(s, 'bar').children.find(n => typeof n !== 'string');
+  // Svelte assigns `value` to a div's (expando) property: no attribute.
+  assert.equal(bar(progress[0]).attrs.value, undefined);
+  assert.equal(bar(progress[0]).attrs['aria-valuenow'], '25');
+  assert.equal(bar(progress[1]).attrs['data-state'], 'indeterminate');
+  assert.equal(bar(progress[1]).children[0].attrs.style, 'transform: translateX(-100%);');
 });
 
 test('another version of a package compiled from source is rejected', async () => {

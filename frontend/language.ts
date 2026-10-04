@@ -2037,7 +2037,11 @@ export class Lowerer {
     }
     if (op === K.QuestionQuestionToken) {
       const left = this.expr(e.left, b);
-      const result = this.types.typeOrUndefined(e) ?? maybeInner(this.irType(left, b)) ?? 'void';
+      const lt = this.irType(left, b);
+      // A left operand that is never nullish (a prop with a default) is the
+      // value; the right one is not evaluated.
+      if (!maybeInner(lt) && lt !== 'void') return left;
+      const result = this.types.typeOrUndefined(e) ?? maybeInner(lt) ?? 'void';
       return { op: 'nullish', left, right: this.coerce(e.right, b, result) };
     }
     if (op === K.InstanceOfKeyword && ts.isIdentifier(e.right)) {

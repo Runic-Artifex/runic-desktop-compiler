@@ -555,6 +555,13 @@ impl Program {
             .iter()
             .any(|r| r.fields.iter().any(|f| f.reactive.is_some()))
     }
+
+    /// Whether some class record has a derived field.
+    pub fn has_derived_fields(&self) -> bool {
+        self.records
+            .iter()
+            .any(|r| r.fields.iter().any(Field::is_derived))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

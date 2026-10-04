@@ -1,0 +1,31 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/separator-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/separator-demo.svelte",
+      "sha256": "88e9a532e92f9f4bd3855e22ecd1177713309bcb1778cfbe093c27b53db7e3f0"
+    },
+    "src/lib/registry/examples/separator-vertical.svelte": {
+      "upstream": "docs/src/lib/registry/examples/separator-vertical.svelte",
+      "sha256": "6573d2f7ddae743c769664ddcb4a3745c05e1a312ca2581e950b6f1dde70382a"
+    },
+    "src/lib/registry/ui/separator/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/separator/index.ts",
+      "sha256": "beeaaaab286f1aeff1e43a8ef1c02a60de5e6349780d12af73e9646c6db98bf6"
+    },
+    "src/lib/registry/ui/separator/separator.svelte": {
+      "upstream": "docs/src/lib/registry/ui/separator/separator.svelte",
+      "sha256": "6640a4c992ec62329efe8d5aa499c39d3b1163b50f4f2bee0edebf5a4f49a9db"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

@@ -161,6 +161,32 @@ pub const BOOLEAN_PROPERTIES: &[&str] = &[
     "open",
 ];
 
+/// How Svelte's `set_attributes` (a spread, `spreadBooleanText`) applies a
+/// defined `value` entry: it assigns the element's `value` property.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpreadValue {
+    /// No `value` property: an expando, no attribute (`<div>`, bits-ui's
+    /// Progress root).
+    Expando,
+    /// The property reflects the content attribute as text (`<button>`,
+    /// `<option>`, `<data>`).
+    Reflect,
+    /// The property is live state or numeric (`<input>`, `<li>`, …): not
+    /// modelled.
+    Unsupported,
+}
+
+/// How a spread's defined `value` entry applies to an element of `tag`.
+pub fn spread_value(tag: &str) -> SpreadValue {
+    match tag {
+        "button" | "option" | "data" => SpreadValue::Reflect,
+        "input" | "textarea" | "select" | "li" | "meter" | "output" | "param" | "progress" => {
+            SpreadValue::Unsupported
+        }
+        _ => SpreadValue::Expando,
+    }
+}
+
 /// What a bag value is, for [`merge_props`].
 pub enum MergeKind {
     Undefined,

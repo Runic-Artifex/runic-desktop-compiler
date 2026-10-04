@@ -806,6 +806,31 @@ impl Dom<'_> {
                     );
                     continue;
                 }
+                // Svelte's set_attributes assigns a defined `value` to the
+                // element's property (`element.value = v`).
+                ("value", AttrValue::Text(_) | AttrValue::Flag(_)) if boolean_text => {
+                    let tag = self
+                        .doc
+                        .get_node(node)
+                        .and_then(|n| n.element_data())
+                        .map(|e| e.name.local.to_string())
+                        .unwrap_or_default();
+                    match runic_js::spread_value(&tag) {
+                        runic_js::SpreadValue::Expando => continue,
+                        runic_js::SpreadValue::Reflect => {}
+                        runic_js::SpreadValue::Unsupported => {
+                            crate::unsupported(&format!(
+                                "a spread's value on <{tag}> (Svelte assigns the value property)"
+                            ));
+                            continue;
+                        }
+                    }
+                    if let AttrValue::Flag(b) = value {
+                        self.set_attr(node, "value", if *b { "true" } else { "false" });
+                        names.push(name);
+                        continue;
+                    }
+                }
                 _ => {}
             }
             match value {

@@ -3558,6 +3558,25 @@ impl<'p> Machine<'p> {
                                     "hidden=\"until-found\" (Blitz has no find-in-page and hides the content)",
                                 ));
                             }
+                            // Svelte assigns a defined `value` to the element's property.
+                            ("value", Val::Str(_) | Val::Bool(_)) if *spread_boolean_text => {
+                                match js::spread_value(tag) {
+                                    js::SpreadValue::Expando => continue,
+                                    js::SpreadValue::Reflect => {}
+                                    js::SpreadValue::Unsupported => {
+                                        return Err(Throw::new(
+                                            "RunicUnsupportedError",
+                                            format!(
+                                                "a spread's value on <{tag}> (Svelte assigns the value property)"
+                                            ),
+                                        ));
+                                    }
+                                }
+                                if let Val::Bool(b) = v {
+                                    map.insert("value".into(), b.to_string());
+                                    continue;
+                                }
+                            }
                             (n, Val::Bool(b))
                                 if *spread_boolean_text && !BOOLEAN_PROPERTIES.contains(&n) =>
                             {

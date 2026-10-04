@@ -30,8 +30,8 @@ pub mod tz;
 
 pub use array_ops::join_elements;
 pub use attrs::{
-    ATTACHMENT, AttrValue, Attrs, BOOLEAN_PROPERTIES, MergeKind, MergeOps, attachment_key,
-    attrs_merge, class_merge, merge_props, resolve_entries,
+    ATTACHMENT, AttrValue, Attrs, BOOLEAN_PROPERTIES, MergeKind, MergeOps, SpreadValue,
+    attachment_key, attrs_merge, class_merge, merge_props, resolve_entries, spread_value,
 };
 pub use classes::{class_compose, class_toggle};
 pub use collections::*;

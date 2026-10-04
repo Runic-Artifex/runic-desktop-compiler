@@ -1,0 +1,12 @@
+{
+  "description": "bits-ui's Separator compiled from its published source through shadcn-svelte's unmodified separator wrapper and its demos (separator-demo: horizontal between text blocks; separator-vertical: three vertical separators in a row of links). A third separator takes its orientation and decorative props from the app through the wrapper's rest props (a boolean reaching a declared prop of the bits-ui component through a spread): role separator or none, aria-orientation, aria-hidden, data-orientation and the data-horizontal/data-vertical utilities, and a class merged by cn over the wrapper's (bg-primary replacing bg-border)",
+  "fixtures": ["bits-separator-svelte"],
+  "actions": [
+    { "kind": "click", "id": "orientation" },
+    { "kind": "click", "id": "decorative" },
+    { "kind": "click", "id": "orientation" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "click", "id": "decorative" }
+  ]
+}

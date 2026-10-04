@@ -2043,7 +2043,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       }
       if (BOOLEAN_ATTRS.has(name))
         return { name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } };
-      if (t === 'string') return { name, value: v };
+      // Booleans stay booleans: a component that declares the prop receives
+      // the value (Separator's `decorative`); spread onto an element they
+      // become what Svelte's set_attributes writes (`spreadBooleanText`).
+      if (t === 'string' || t === 'boolean') return { name, value: v };
+      if (typeof t === 'object' && 'maybe' in t && t.maybe === 'boolean') return { name, value: v };
       if (typeof t === 'object' && 'maybe' in t) return { name, value: maybeAttribute(v, t, a) };
       return { name, value: { op: 'to-string', arg: v } };
     };
