@@ -2622,6 +2622,55 @@ pub fn generate(
         let _ = writeln!(init_globals, "{{ let v = {v}; cx.g{i} = v; }}");
     }
     let commit_ignored = p.schedule.commit_events_ignored;
+    // ResizeObservers (M6): the program's observer record, if it has one.
+    let resize = (0..p.records.len())
+        .find_map(|r| runic_ir::builtins::resize_observer_shape(&p.records, r).map(|s| (r, s)));
+    let resize_fields = match resize {
+        Some((ro, _)) => format!(
+            "pub resize_observers: Vec<JsRef<R{ro}>>, pub resize_obs: Vec<(JsRef<R{ro}>, js::Element, u8, Option<(f64, f64)>)>, "
+        ),
+        None => String::new(),
+    };
+    let resize_init = if resize.is_some() {
+        "resize_observers: Vec::new(), resize_obs: Vec::new(), "
+    } else {
+        ""
+    };
+    let resize_step = match resize {
+        Some((ro, runic_ir::builtins::ResizeShape { entry, rect, size })) => format!(
+            "fn resize_step(&mut self, dom: &mut Dom) -> bool {{\n\
+             if self.cx.resize_obs.is_empty() {{ return false; }}\n\
+             let pick = |s: &[f64; 8], b: u8| match b {{ 1 => (s[4], s[5]), 2 => (s[6], s[7]), _ => (s[2], s[3]) }};\n\
+             let mut shallowest = 0usize; let mut ran = false;\n\
+             for _ in 0..1000usize {{\n\
+             // Observations whose size changed since last reported, deeper than the last round's shallowest target.\n\
+             let mut active: Vec<(JsRef<R{ro}>, js::Element, u8)> = Vec::new(); let mut skipped = false;\n\
+             for o in &self.cx.resize_obs {{ let s = dom.observed_sizes(o.1.0); if o.3 != Some(pick(&s, o.2)) {{ if dom.depth(o.1.0) > shallowest {{ active.push((o.0.clone(), o.1, o.2)); }} else {{ skipped = true; }} }} }}\n\
+             if active.is_empty() {{ if skipped {{ eprintln!(\"runic: ResizeObserver loop completed with undelivered notifications\"); }} break; }}\n\
+             let mut min_depth = usize::MAX;\n\
+             // Each observer in creation order: its entries, then its callback as a task.\n\
+             for ob in self.cx.resize_observers.clone() {{\n\
+             let mine: Vec<(js::Element, u8)> = active.iter().filter(|a| JsRef::ptr_eq(&a.0, &ob)).map(|a| (a.1, a.2)).collect();\n\
+             if mine.is_empty() {{ continue; }}\n\
+             let mut entries = Vec::new();\n\
+             for (target, b) in mine {{\n\
+             let s = dom.observed_sizes(target.0);\n\
+             min_depth = min_depth.min(dom.depth(target.0));\n\
+             for o in self.cx.resize_obs.iter_mut() {{ if JsRef::ptr_eq(&o.0, &ob) && o.1 == target {{ o.3 = Some(pick(&s, b)); }} }}\n\
+             let sz = |w: f64, h: f64| js::array(vec![JsRef::new(R{size} {{ f0: w, f1: h }})]);\n\
+             entries.push(JsRef::new(R{entry} {{ f0: target, f1: JsRef::new(R{rect} {{ f0: s[0], f1: s[1], f2: s[2], f3: s[3], f4: s[1], f5: s[0] + s[2], f6: s[1] + s[3], f7: s[0] }}), f2: sz(s[4], s[5]), f3: sz(s[2], s[3]), f4: sz(s[6], s[7]) }}));\n\
+             }}\n\
+             let cb = ob.borrow().f0.clone(); let list = js::array(entries); let me = ob.clone();\n\
+             if let Err(e) = self.task(dom, false, |cx| cb(cx, list, me)) {{ eprintln!(\"runic: uncaught exception in a ResizeObserver callback: {{e}}\"); }}\n\
+             ran = true;\n\
+             }}\n\
+             shallowest = min_depth;\n\
+             dom.resolve_layout();\n\
+             }}\n\
+             ran\n}}\n"
+        ),
+        None => String::new(),
+    };
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
@@ -2652,10 +2701,10 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -2918,6 +2967,7 @@ pub fn generate(
          }})\n\
          }}\n\
          fn traverse(&mut self, delta: i64) {{ self.cx.host_tasks.push_back(HostTask::Traverse(delta)); }}\n\
+         {resize_step}\
          fn hashchange(&mut self) {{ self.cx.host_tasks.push_back(HostTask::HashChange); }}\n\
          fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
          fn now(&self) -> f64 {{ self.cx.timers.now }}\n\

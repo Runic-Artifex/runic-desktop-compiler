@@ -655,6 +655,26 @@ pub struct Dom<'a> {
     pub(crate) listeners: &'a mut Listeners,
 }
 
+impl Dom<'_> {
+    /// What a ResizeObserver reports for element `node` (M6,
+    /// `layout::observed_sizes`): content x, y, width, height; border box
+    /// width, height; device-pixel content box width, height.
+    pub fn observed_sizes(&self, node: u64) -> [f64; 8] {
+        crate::layout::observed_sizes(self.doc, NodeId::from_u64(node))
+    }
+
+    /// The depth of element `node` in the document.
+    pub fn depth(&self, node: u64) -> usize {
+        crate::layout::depth(self.doc, NodeId::from_u64(node))
+    }
+
+    /// Resolve styles and layout (between ResizeObserver deliveries).
+    pub fn resolve_layout(&mut self) {
+        crate::layout::resolve(self.doc);
+        self.listeners.settle(self.doc);
+    }
+}
+
 /// `node.textContent = text`: the children are replaced by one text node,
 /// or none for the empty string.
 fn replace_text_content(doc: &mut BaseDocument, node: NodeId, text: &str) {

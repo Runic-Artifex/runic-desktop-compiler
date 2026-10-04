@@ -48,6 +48,73 @@ pub const ELEMENT_METRICS: &[&str] = &[
 /// Window metrics: the viewport size and its scroll position.
 pub const WINDOW_METRICS: &[&str] = &["innerWidth", "innerHeight", "scrollX", "scrollY"];
 
+/// The records of a ResizeObserver program (M6): the observer record `r`
+/// holds one field, its callback, taking an array of entries and the
+/// observer; an entry is `target` (element), `contentRect` (a DOMRect
+/// record), `borderBoxSize`, `contentBoxSize` and
+/// `devicePixelContentBoxSize` (arrays of size records of `inlineSize` and
+/// `blockSize`), in this order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResizeShape {
+    pub entry: usize,
+    pub rect: usize,
+    pub size: usize,
+}
+
+/// The ResizeObserver shape of record `r`, if it is one.
+pub fn resize_observer_shape(records: &[RecordType], r: usize) -> Option<ResizeShape> {
+    let rec = records.get(r)?;
+    let [cb] = rec.fields.as_slice() else {
+        return None;
+    };
+    let Type::Fn(f) = &cb.ty else { return None };
+    let (Type::Array(entries), Type::Record(me)) = (f.params.first()?, f.params.get(1)?) else {
+        return None;
+    };
+    if cb.name != "callback" || *me != r || f.params.len() != 2 || *f.result != Type::Void {
+        return None;
+    }
+    let Type::Record(entry) = **entries else {
+        return None;
+    };
+    let e = &records.get(entry)?.fields;
+    let names = [
+        "target",
+        "contentRect",
+        "borderBoxSize",
+        "contentBoxSize",
+        "devicePixelContentBoxSize",
+    ];
+    if e.len() != names.len() || e.iter().zip(names).any(|(f, n)| f.name != n) {
+        return None;
+    }
+    let Type::Record(rect) = e[1].ty else {
+        return None;
+    };
+    let Type::Array(sizes) = &e[2].ty else {
+        return None;
+    };
+    let Type::Record(size) = **sizes else {
+        return None;
+    };
+    let rect_ok = records.get(rect).is_some_and(|r| {
+        r.fields.len() == DOM_RECT.len()
+            && r.fields
+                .iter()
+                .zip(DOM_RECT)
+                .all(|(f, n)| f.name == n && f.ty == Type::Number)
+    });
+    let size_ok = records.get(size).is_some_and(|r| {
+        r.fields.len() == 2
+            && r.fields[0].name == "inlineSize"
+            && r.fields[1].name == "blockSize"
+            && r.fields.iter().all(|f| f.ty == Type::Number)
+    });
+    let ok =
+        e[0].ty == Type::Element && rect_ok && size_ok && e[3].ty == e[2].ty && e[4].ty == e[2].ty;
+    ok.then_some(ResizeShape { entry, rect, size })
+}
+
 /// Whether built-in `name` reads or changes the native layout (the
 /// interpreter has none: programs using them are compared against the
 /// browser only).
@@ -72,6 +139,8 @@ pub fn needs_layout(name: &str) -> bool {
         }
         // MutationObservers are reported unsupported when they observe.
         Some(("mutation", "observe")) => true,
+        // ResizeObservers report sizes from layout (M6).
+        Some(("resize", "observe")) => true,
         Some(("window", m)) => WINDOW_METRICS.contains(&m) || matches!(m, "scrollTo" | "scrollBy"),
         _ => false,
     }
@@ -705,6 +774,45 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             }
             expect(&args[1], &Element, "target")?;
             expect(&args[2], &Type::array(s), "attribute filter").map(|_| Void)
+        }
+        // ResizeObserver (M6): created with its callback (in creation order),
+        // observing elements with a box (a literal: content-box, border-box
+        // or device-pixel-content-box, checked by the validator).
+        ("resize", "new") => {
+            arity(args, 1, 1)?;
+            match declared {
+                Record(r) if resize_observer_shape(records, *r).is_some() => {
+                    expect(&args[0], &records[*r].fields[0].ty, "callback").map(|_| declared.clone())
+                }
+                other => Err(format!(
+                    "resize.new returns a ResizeObserver record, found {}",
+                    other.name()
+                )),
+            }
+        }
+        ("resize", m @ ("observe" | "unobserve" | "disconnect")) => {
+            let n = match m {
+                "observe" => 3,
+                "unobserve" => 2,
+                _ => 1,
+            };
+            arity(args, n, n)?;
+            match &args[0] {
+                Record(r) if resize_observer_shape(records, *r).is_some() => {}
+                other => {
+                    return Err(format!(
+                        "the receiver must be a ResizeObserver record, found {}",
+                        other.name()
+                    ));
+                }
+            }
+            if n > 1 {
+                expect(&args[1], &Element, "target")?;
+            }
+            if n > 2 {
+                expect(&args[2], &s, "box")?;
+            }
+            Ok(Void)
         }
         ("mutation", "disconnect") => {
             arity(args, 1, 1)?;

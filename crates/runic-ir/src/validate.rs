@@ -341,6 +341,17 @@ fn check_library_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Re
                 src,
             ),
         },
+        // ResizeObserver boxes (M6).
+        "resize.observe" => match literal(2) {
+            Some("content-box" | "border-box" | "device-pixel-content-box") => Ok(()),
+            _ => err(
+                "E_BUILTIN",
+                format!(
+                    "{name}: the box is content-box, border-box or device-pixel-content-box (a literal)"
+                ),
+                src,
+            ),
+        },
         _ => Ok(()),
     }
 }

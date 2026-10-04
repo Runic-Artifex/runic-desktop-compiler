@@ -322,6 +322,49 @@ pub(crate) fn metric(doc: &mut BaseDocument, node: NodeId, name: &str) -> f64 {
     }
 }
 
+/// What a ResizeObserver reports for `node` (M6), from the current layout:
+/// the content rectangle (x and y are the padding's left and top, then the
+/// content width and height), the border box size, and the content box
+/// size in device pixels (snapped at the box's position, as Blink snaps
+/// it). Lengths are in layout units (1/64 px). An element without boxes
+/// (`display: none`, or inside such an element) reports zeros.
+pub(crate) fn observed_sizes(doc: &BaseDocument, node: NodeId) -> [f64; 8] {
+    let Some(n) = element(doc, node).filter(|_| rendered(doc, node)) else {
+        return [0.0; 8];
+    };
+    let l = *n.unrounded_layout();
+    let q = |v: f32| lu(v as f64) as f64 / 64.0;
+    let (b, p, sb) = (l.border, l.padding, l.scrollbar_size);
+    let cw = (l.size.width - b.left - b.right - p.left - p.right - sb.width).max(0.0);
+    let ch = (l.size.height - b.top - b.bottom - p.top - p.bottom - sb.height).max(0.0);
+    let (x, y) = layout_position(doc, node);
+    let scale = doc.viewport().scale_f64();
+    let cx = (x + b.left as f64 + p.left as f64) * scale;
+    let cy = (y + b.top as f64 + p.top as f64) * scale;
+    [
+        q(p.left),
+        q(p.top),
+        q(cw),
+        q(ch),
+        q(l.size.width),
+        q(l.size.height),
+        snap_size(cw as f64 * scale, cx),
+        snap_size(ch as f64 * scale, cy),
+    ]
+}
+
+/// The depth of `node` in the document (its number of ancestors), for the
+/// order of ResizeObserver deliveries.
+pub(crate) fn depth(doc: &BaseDocument, node: NodeId) -> usize {
+    let mut d = 0;
+    let mut current = doc.get_node(node).and_then(|n| n.parent);
+    while let Some(p) = current {
+        d += 1;
+        current = doc.get_node(p).and_then(|n| n.parent);
+    }
+    d
+}
+
 /// A window metric (`innerWidth`, `innerHeight`, `scrollX`, `scrollY`).
 pub(crate) fn window_metric(doc: &mut BaseDocument, name: &str) -> f64 {
     resolve(doc);

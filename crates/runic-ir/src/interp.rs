@@ -2759,6 +2759,16 @@ impl<'p> Machine<'p> {
             ("element", "listen" | "unlisten") => Val::Undefined,
             // An observer that never observed has nothing to disconnect.
             ("mutation", "disconnect") => Val::Undefined,
+            // ResizeObservers (M6): created as records holding their
+            // callback; observing needs layout (above), so an observer that
+            // never observed has nothing to stop.
+            ("resize", "new") => {
+                let Type::Record(r) = ty else {
+                    panic!("validated ResizeObserver record")
+                };
+                Val::Record(JsRef::new(RecordData::new(*r, vec![a[0].clone()], true)))
+            }
+            ("resize", "unobserve" | "disconnect") => Val::Undefined,
             ("effect", phase @ ("pre" | "post")) => {
                 let phase = if phase == "pre" {
                     EffectPhase::Pre

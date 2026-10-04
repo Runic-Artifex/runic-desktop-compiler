@@ -117,7 +117,11 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
                 .map_or(0, |i| i + 1);
             b.children[at..].to_vec()
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        // The runtime's own select popup is not page content.
+        .filter(|&n| native.pointer.popup_list() != Some(n))
+        .collect();
     let mut geometry = Map::new();
     let mut stack: Vec<NodeId> = portals.iter().rev().copied().collect();
     stack.push(root);
@@ -714,6 +718,11 @@ pub(crate) fn run<A: App>() {
         }
         steps.push(step);
     };
+    // Two frames after the mount, as the browser harness waits for two
+    // animation frames before its first snapshot (ResizeObserver
+    // notifications of the mount arrive in them, M6).
+    native.frame();
+    native.frame();
     observe(&mut native, Value::Null, 0, 0.0);
     for (i, action) in actions
         .as_array()
