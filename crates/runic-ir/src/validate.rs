@@ -17,13 +17,170 @@ pub const MAX_EXPRESSIONS: usize = 1 << 20;
 pub const TAGS: &[&str] = &[
     "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button", "input", "main", "article",
     "section", "header", "footer", "nav", "aside", "ul", "ol", "li", "strong", "em", "small", "b",
-    "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option",
+    "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option", "svg", "g", "path",
+    "circle", "ellipse", "line", "polyline", "polygon", "rect",
 ];
+
+/// Inline SVG (M5): elements in the SVG namespace. Blitz renders an `<svg>`
+/// as a replaced element by serialising its subtree's attributes (with
+/// `currentColor` resolved from each element's CSS `color`) and rendering
+/// them with usvg, so only attributes whose meaning usvg and Chromium share
+/// are accepted (docs/IR.md, "Inline SVG").
+pub const SVG_TAGS: &[&str] = &[
+    "svg", "g", "path", "circle", "ellipse", "line", "polyline", "polygon", "rect",
+];
+
+/// The only value of an `xmlns` attribute (the element's own namespace).
+pub const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
+
+/// Inherited paint properties, as presentation attributes on any SVG element.
+const SVG_PAINT: &[&str] = &[
+    "fill",
+    "fill-opacity",
+    "fill-rule",
+    "stroke",
+    "stroke-width",
+    "stroke-linecap",
+    "stroke-linejoin",
+    "stroke-miterlimit",
+    "stroke-dasharray",
+    "stroke-dashoffset",
+    "stroke-opacity",
+];
+
+/// The attributes an SVG element accepts besides `SVG_PAINT`, `aria-*` and
+/// `data-*`. The root's box is laid out by Blitz: its `width` and `height`
+/// are CSS sizes in both engines, and attributes that Chromium applies to
+/// the outer box but Blitz only to the drawing (`opacity`, `transform`,
+/// `display`, `style`, …) are not accepted.
+fn svg_attrs(tag: &str) -> &'static [&'static str] {
+    match tag {
+        "svg" => &["xmlns", "width", "height", "viewBox", "class", "id"],
+        "g" => &["class", "opacity", "transform"],
+        "path" => &["class", "opacity", "transform", "d"],
+        "circle" => &["class", "opacity", "transform", "cx", "cy", "r"],
+        "ellipse" => &["class", "opacity", "transform", "cx", "cy", "rx", "ry"],
+        "line" => &["class", "opacity", "transform", "x1", "y1", "x2", "y2"],
+        "polyline" | "polygon" => &["class", "opacity", "transform", "points"],
+        "rect" => &[
+            "class",
+            "opacity",
+            "transform",
+            "x",
+            "y",
+            "width",
+            "height",
+            "rx",
+            "ry",
+        ],
+        _ => &[],
+    }
+}
+
+fn svg_attr_ok(tag: &str, name: &str) -> bool {
+    let data = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .is_some_and(|rest| !rest.is_empty() && attr_name_ok(&format!("a{rest}")))
+    };
+    svg_attrs(tag).contains(&name) || SVG_PAINT.contains(&name) || data("aria-") || data("data-")
+}
+
+/// HTML's ASCII whitespace: text that SVG rendering ignores.
+fn is_whitespace_text(e: &Expr) -> bool {
+    matches!(e, Expr::Lit { value: Value::String(s) }
+        if s.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\x0C' | '\r')))
+}
+
+/// The SVG rules of an element: where it may stand, and what it may carry.
+/// `managed`: whether the element has a ref, a spread and a managed inline
+/// style (live properties are checked with the other elements).
+fn check_svg(
+    tag: &str,
+    stack: &[&str],
+    attrs: &[Attr],
+    listeners: &[Listener],
+    managed: (bool, bool, bool),
+    src: Option<&Source>,
+) -> Result<()> {
+    let svg = SVG_TAGS.contains(&tag);
+    let inside = stack.contains(&"svg");
+    if !svg {
+        if inside {
+            return err(
+                "E_SVG",
+                format!("<{tag}> inside <svg> is unsupported (only SVG shapes and groups)"),
+                src,
+            );
+        }
+        return Ok(());
+    }
+    if tag == "svg" && inside {
+        return err("E_SVG", "Nested <svg> elements are unsupported", src);
+    }
+    // Without a viewBox, Chromium draws the content unscaled in a box of
+    // another size, while Blitz scales the drawing into the box.
+    if tag == "svg" && !attrs.iter().any(|a| a.name == "viewBox") {
+        return err("E_SVG", "An <svg> needs a viewBox", src);
+    }
+    if tag != "svg" && !matches!(stack.last(), Some(&("svg" | "g"))) {
+        return err(
+            "E_SVG",
+            format!("<{tag}> must be a child of <svg> or <g>"),
+            src,
+        );
+    }
+    let (reference, spread, styled) = managed;
+    if !listeners.is_empty() || spread {
+        return err(
+            "E_SVG",
+            "Listeners and spread attributes on SVG elements are unsupported (Blitz hit-tests an inline <svg> as one box)",
+            src,
+        );
+    }
+    if reference {
+        return err("E_SVG", "Refs to SVG elements are unsupported", src);
+    }
+    if styled {
+        return err(
+            "E_SVG",
+            "Inline styles on SVG elements are unsupported (Blitz renders SVG from its attributes)",
+            src,
+        );
+    }
+    for a in attrs {
+        if !svg_attr_ok(tag, &a.name) {
+            return err(
+                "E_SVG",
+                format!(
+                    "Attribute {} on <{tag}> is unsupported (supported: {}, the paint attributes {}, aria-* and data-*)",
+                    a.name,
+                    svg_attrs(tag).join(", "),
+                    SVG_PAINT.join(", ")
+                ),
+                src,
+            );
+        }
+        if a.name == "xmlns"
+            && !matches!(&a.value, Expr::Lit { value: Value::String(s) } if s == SVG_NAMESPACE)
+        {
+            return err(
+                "E_SVG",
+                format!("xmlns must be the literal {SVG_NAMESPACE}"),
+                src,
+            );
+        }
+    }
+    Ok(())
+}
 
 pub const CAPABILITIES: &[&str] = &["dom", "css", "window", "click", "keyboard", "text-input"];
 
-/// Elements without children (a textarea's text is its live value).
-const VOID: &[&str] = &["input", "br", "hr", "textarea"];
+/// Elements without children (a textarea's text is its live value; SVG
+/// shapes draw no content).
+const VOID: &[&str] = &[
+    "input", "br", "hr", "textarea", "path", "circle", "ellipse", "line", "polyline", "polygon",
+    "rect",
+];
 
 fn err<T>(code: &str, message: impl Into<String>, source: Option<&Source>) -> Result<T> {
     Err(Diagnostic::new(code, message, source))
@@ -1474,6 +1631,13 @@ impl<'p> NodeCx<'_, 'p> {
                         return err("E_IR", "Text parts must be strings", src);
                     }
                 }
+                if self.stack.contains(&"svg") && !parts.iter().all(is_whitespace_text) {
+                    return err(
+                        "E_SVG",
+                        "Text inside <svg> is unsupported (only whitespace between elements)",
+                        src,
+                    );
+                }
             }
             Node::If {
                 test,
@@ -1493,6 +1657,9 @@ impl<'p> NodeCx<'_, 'p> {
                 fallback,
                 ..
             } => {
+                if self.stack.contains(&"svg") {
+                    return err("E_SVG", "Slots inside <svg> are unsupported", src);
+                }
                 let Some(decl) = c.slot(name) else {
                     return err("E_IR", format!("{} declares no slot {name}", c.name), src);
                 };
@@ -1546,6 +1713,9 @@ impl<'p> NodeCx<'_, 'p> {
                 slots,
                 ..
             } => {
+                if self.stack.contains(&"svg") {
+                    return err("E_SVG", "Components inside <svg> are unsupported", src);
+                }
                 let child = &p.components[*component];
                 let mut given = HashSet::new();
                 for def in slots {
@@ -1701,17 +1871,37 @@ impl<'p> NodeCx<'_, 'p> {
                 if tag == "button" && self.stack.contains(&"button") {
                     return err("E_IR", "Nested buttons are invalid", src);
                 }
+                check_svg(
+                    tag,
+                    self.stack,
+                    attrs,
+                    listeners,
+                    (
+                        reference.is_some(),
+                        spread.is_some(),
+                        style_text.is_some() || !styles.is_empty(),
+                    ),
+                    src,
+                )?;
+                let svg = SVG_TAGS.contains(&tag);
                 let mut names = HashSet::new();
                 for a in attrs {
-                    if !attr_name_ok(&a.name) || !names.insert(a.name.as_str()) {
+                    let name_ok = attr_name_ok(&a.name) || (svg && a.name == "viewBox");
+                    if !name_ok || !names.insert(a.name.as_str()) {
                         return err(
                             "E_IR",
                             format!("Invalid or duplicate attribute {}", a.name),
                             src,
                         );
                     }
-                    match s.infer(&a.value, 0, src)? {
-                        Type::String | Type::Boolean => {}
+                    let ty = s.infer(&a.value, 0, src)?;
+                    if tag == "svg" && a.name == "viewBox" && ty != Type::String {
+                        return err("E_SVG", "The viewBox of an <svg> must be a string", src);
+                    }
+                    match ty {
+                        Type::String => {}
+                        // SVG attributes are values, never presence flags.
+                        Type::Boolean if !svg => {}
                         Type::Maybe(inner) if *inner == Type::String => {}
                         other => {
                             return err(

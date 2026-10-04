@@ -461,16 +461,27 @@ fn replace_text_content(doc: &mut BaseDocument, node: NodeId, text: &str) {
     }
 }
 
+/// The SVG elements of the IR (`runic_ir::validate::SVG_TAGS`).
+fn is_svg(tag: &str) -> bool {
+    matches!(
+        tag,
+        "svg" | "g" | "path" | "circle" | "ellipse" | "line" | "polyline" | "polygon" | "rect"
+    )
+}
+
 fn attr(name: &str) -> QualName {
     QualName::new(None, Namespace::from(""), LocalName::from(name))
 }
 
 impl Dom<'_> {
     pub fn element(&mut self, tag: &str) -> NodeId {
+        // SVG elements are created in the SVG namespace, as the frameworks
+        // create them (the IR validator keeps them inside an `<svg>`).
+        let ns = if is_svg(tag) { ns!(svg) } else { ns!(html) };
         let id = self
             .doc
             .mutate()
-            .create_element(QualName::new(None, ns!(html), LocalName::from(tag)), vec![]);
+            .create_element(QualName::new(None, ns, LocalName::from(tag)), vec![]);
         if tag == "select" {
             self.listeners.selects.insert(id, None);
         }

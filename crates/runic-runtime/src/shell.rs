@@ -23,7 +23,8 @@ pub(crate) type Renderer = anyrender_vello::VelloWindowRenderer;
 const UA_PARITY: &str = "input, textarea, select, button { font-size: 13.333333px; }\n\
 input[type=checkbox] { color: #767676; }\n\
 input[type=radio] { margin: 3px 3px 0 5px; width: 13px; height: 13px; box-sizing: border-box; }\n\
-input[type=checkbox]:checked { color: #0075ff; }";
+input[type=checkbox]:checked { color: #0075ff; }\n\
+svg { overflow: hidden; }";
 
 /// Probe screenshots hide the caret, as the browser harness does.
 #[cfg(feature = "probe")]

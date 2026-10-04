@@ -16,13 +16,13 @@ rust-version = "1.98"
 license = "MIT"
 
 [workspace.dependencies]
-blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false, features = ["woff"] }
+blitz-dom = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false, features = ["woff", "svg"] }
 blitz-html = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false }
 blitz-shell = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false, features = ["data-uri"] }
 # Element state bits for checkbox state changes (the version Blitz uses).
 style_dom = { version = "=0.22.0", package = "stylo_dom" }
 blitz-traits = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false }
-blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false }
+blitz-paint = { git = "https://github.com/DioxusLabs/blitz", rev = "89e5e615aea649a1a9630c526956aa3d90a3afa7", default-features = false, features = ["svg"] }
 anyrender = "=0.13.0"
 kurbo = "=0.13.1"
 peniko = "=0.6.1"

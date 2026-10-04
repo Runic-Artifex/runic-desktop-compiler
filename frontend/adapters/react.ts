@@ -95,6 +95,50 @@ const TAGS = new Set([
   'select',
   'option',
 ]);
+/** Inline SVG elements (runic-ir's SVG_TAGS). */
+const SVG_TAGS = new Set([
+  'svg',
+  'g',
+  'path',
+  'circle',
+  'ellipse',
+  'line',
+  'polyline',
+  'polygon',
+  'rect',
+]);
+for (const t of SVG_TAGS) TAGS.add(t);
+/**
+ * SVG props → attribute names, as react-dom 19.3 sets them (setProp in
+ * ReactDOMComponent): `className` becomes `class` and `viewBox`, `width` and
+ * `height` keep their names (setValueForKnownAttribute); other props go
+ * through getAttributeAlias (shared/getAttributeAlias.js, the `aliases` map)
+ * and setValueForAttribute. Only the aliases of attributes the IR accepts on
+ * SVG elements are listed; other camelCase props are rejected.
+ */
+const SVG_PROPS: Record<string, string> = {
+  className: 'class',
+  viewBox: 'viewBox',
+  fillOpacity: 'fill-opacity',
+  fillRule: 'fill-rule',
+  strokeDasharray: 'stroke-dasharray',
+  strokeDashoffset: 'stroke-dashoffset',
+  strokeLinecap: 'stroke-linecap',
+  strokeLinejoin: 'stroke-linejoin',
+  strokeMiterlimit: 'stroke-miterlimit',
+  strokeOpacity: 'stroke-opacity',
+  strokeWidth: 'stroke-width',
+};
+/** The attribute an SVG prop sets (undefined: unsupported). */
+function svgAttribute(prop: string): string | undefined {
+  if (Object.hasOwn(SVG_PROPS, prop)) return SVG_PROPS[prop];
+  // Props with rules of their own in setProp (children, data, focusable, …).
+  if (SPECIAL_PROPS.has(prop) || PRESENCE_PROPS.has(prop)) return undefined;
+  // aria-* and data-* (setValueForAttribute keeps the name as written) and
+  // lowercase names, which getAttributeAlias does not map.
+  if (/^(aria|data)-[a-z0-9-]+$/.test(prop) || /^[a-z][a-z0-9-]*$/.test(prop)) return prop;
+  return undefined;
+}
 /** React prop names → DOM attribute names. */
 const ATTRS: Record<string, string> = {
   className: 'class',
@@ -2206,6 +2250,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       return keyed(keyAttr, component(opening, kids, n), n);
     const name = tag.getText();
     if (!TAGS.has(name)) fail(tag, 'E_JSX', `<${name}> is outside the supported elements`);
+    const svg = SVG_TAGS.has(name);
     const attrs: { name: string; value: Expr }[] = [];
     const props: { name: string; value: Expr }[] = [];
     const listeners: Listener[] = [];
@@ -2371,6 +2416,42 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       }
       if (raw === 'ref') {
         ref = elementRef(attr);
+        continue;
+      }
+      if (svg) {
+        const attrName = svgAttribute(raw);
+        if (!attrName)
+          fail(
+            attr,
+            'E_JSX',
+            `Unsupported SVG prop ${raw} (supported: ${Object.keys(SVG_PROPS).join(', ')} and lowercase, aria-* and data-* names)`,
+          );
+        // setValueForAttribute: booleans set aria-* and data-* to "true" or
+        // "false" and remove other attributes (with a warning), which is
+        // rejected here.
+        const ariaData = /^(aria|data)-/.test(attrName!);
+        if (!init) {
+          if (!ariaData) fail(attr, 'E_JSX', `Boolean value for ${attrName}`);
+          attrs.push({ name: attrName!, value: { op: 'lit', value: 'true' } });
+          continue;
+        }
+        if (ts.isStringLiteral(init)) {
+          attrs.push({ name: attrName!, value: { op: 'lit', value: decodeHTMLStrict(init.text) } });
+          continue;
+        }
+        const e = (init as ts.JsxExpression).expression!;
+        const v = expr(e);
+        const t = typeOf(e, v);
+        if (t === 'boolean' && !ariaData) fail(attr, 'E_JSX', `Boolean value for ${attrName}`);
+        // React omits an attribute whose value is null or undefined.
+        if (maybeInner(t) === 'string') attrs.push({ name: attrName!, value: v });
+        else if (maybeInner(t))
+          fail(attr, 'E_JSX', `Attribute ${attrName} of type ${JSON.stringify(t)} is unsupported`);
+        else
+          attrs.push({
+            name: attrName!,
+            value: t === 'string' ? v : { op: 'to-string', arg: v },
+          });
         continue;
       }
       const attrName = ATTRS[raw] ?? raw;

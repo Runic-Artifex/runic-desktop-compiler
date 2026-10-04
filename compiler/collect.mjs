@@ -36,6 +36,9 @@ export function fail(node, root, code, message) {
   throw new Diagnostic(code, message, location(node, root));
 }
 const mime = { '.woff2': 'font/woff2' };
+/** CSS properties that apply only to SVG content (paint, markers, geometry). */
+const SVG_CSS =
+  /^(fill|stroke|marker)(-|$)|^(clip-rule|paint-order|vector-effect|shape-rendering|stop-color|stop-opacity|flood-color|flood-opacity|lighting-color|color-interpolation|color-interpolation-filters|color-rendering|text-anchor|dominant-baseline|alignment-baseline|baseline-shift|mask-type|d|cx|cy|r|rx|ry|x|y)$/;
 
 // This plugin sees original application modules before Vite's JSX transform.
 // Collection is deliberately independent of the React lowering adapter.
@@ -207,6 +210,18 @@ export async function collect(app) {
         throw new Diagnostic(
           'E_CSS_PROPERTY',
           `Unsupported CSS declaration ${decl.prop}; animations are planned for M10`,
+          {
+            file: path.relative(root, mod.id),
+            line: decl.source.start.line,
+            column: decl.source.start.column,
+          },
+        );
+      // Blitz renders an inline <svg> from its subtree's attributes (usvg), so
+      // these SVG-only properties would be ignored natively (docs/BLITZ-GAPS.md).
+      if (SVG_CSS.test(decl.prop))
+        throw new Diagnostic(
+          'E_CSS_PROPERTY',
+          `Unsupported CSS declaration ${decl.prop}: Blitz renders inline SVG from its attributes, so CSS for SVG paint and geometry is ignored; use presentation attributes`,
           {
             file: path.relative(root, mod.id),
             line: decl.source.start.line,

@@ -30,6 +30,9 @@ import { arrayElement } from '../irtype.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SNode = any;
 
+/** Inline SVG elements (runic-ir's SVG_TAGS). */
+const SVG_TAGS = ['svg', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'rect'];
+
 const TAGS = new Set([
   'select',
   'option',
@@ -65,6 +68,7 @@ const TAGS = new Set([
   'pre',
   'br',
   'hr',
+  ...SVG_TAGS,
 ]);
 /** HTML boolean attributes that Svelte sets as properties (present iff truthy). */
 const BOOLEAN_ATTRS = new Set([
@@ -969,6 +973,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (typeof t === 'object' && 'maybe' in t) return maybeText(lower, v, t);
       return { op: 'to-string', arg: v };
     };
+    /** Nesting depth of <svg> elements around the content being lowered. */
+    let inSvg = 0;
     const clean = (fragment: SNode, parent?: string): SNode[] => {
       // Comments, <svelte:window> and <svelte:document> leave no node;
       // the text around them joins.
@@ -991,8 +997,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             list[i].data = list[i].data.replace(/\s+$/, ' ');
         }
       // Elements whose whitespace-only text Svelte drops (it would not render).
+      // So does the SVG namespace (clean_nodes' can_remove_entirely; <text>
+      // is unsupported).
       const drops = ['select', 'tr', 'table', 'tbody', 'thead', 'tfoot', 'colgroup', 'datalist'];
-      if (parent && drops.includes(parent))
+      if ((parent && drops.includes(parent)) || inSvg > 0)
         return list.filter(n => !(n.type === 'Text' && n.data === ' '));
       return list;
     };
@@ -1043,6 +1051,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       return { event, handler: handlers.length - 1, ...(args?.length ? { args } : {}) };
     };
     const children = (fragment: SNode, parent?: string): Node[] => {
+      // An <svg>'s content is in the SVG namespace.
+      if (parent === 'svg') inSvg++;
+      try {
+        return childNodes(fragment, parent);
+      } finally {
+        if (parent === 'svg') inSvg--;
+      }
+    };
+    const childNodes = (fragment: SNode, parent?: string): Node[] => {
       const out: Node[] = [];
       let parts: Expr[] = [];
       const flush = () => {
@@ -1385,8 +1402,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             listeners.push(handlerFor(a.value.expression, event as HandlerEvent, a));
             continue;
           }
-          if (name.toLowerCase() !== name)
-            fail('E_TEMPLATE', `Attribute ${name} must be lowercase`, loc(a));
+          // SVG attribute names keep their case (viewBox).
+          if (name.toLowerCase() !== name && !(SVG_TAGS.includes(n.name) && name === 'viewBox'))
+            fail(
+              'E_TEMPLATE',
+              SVG_TAGS.includes(n.name)
+                ? `SVG attribute ${name} is unsupported (viewBox is the only mixed-case one)`
+                : `Attribute ${name} must be lowercase`,
+              loc(a),
+            );
           const values: SNode[] =
             a.value === true ? [] : Array.isArray(a.value) ? a.value : [a.value];
           if (checkbox && name === 'checked') {
