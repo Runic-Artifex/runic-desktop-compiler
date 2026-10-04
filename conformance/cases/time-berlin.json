@@ -1,0 +1,20 @@
+{
+  "description": "The time case in Europe/Berlin with the de-DE default locale: the opening date sits on the 2026 spring-forward day (01:30 UTC is 03:30 CEST), so getters, getTimezoneOffset, toString's zone name and setDate/setHours cross a DST transition; formats use the de-DE patterns and separators",
+  "fixtures": ["time-svelte"],
+  "timezone": "Europe/Berlin",
+  "locale": "de-DE",
+  "actions": [
+    { "kind": "wait", "ms": 1000 },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "late" },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "more" },
+    { "kind": "type", "id": "when", "text": "Z" },
+    { "kind": "wait", "ms": 61000 },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "next" },
+    { "kind": "type", "id": "when", "text": "x" },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "more" }
+  ]
+}

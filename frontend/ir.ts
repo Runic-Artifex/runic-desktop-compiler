@@ -30,6 +30,8 @@ export type Type =
   /** A RegExp object (identity; mutable lastIndex). */
   | 'regexp'
   | 'media-query'
+  /** A Date object (identity; mutable time value). */
+  | 'date'
   | 'void';
 
 export type Literal = boolean | number | string;

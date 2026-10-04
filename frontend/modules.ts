@@ -100,6 +100,8 @@ export function lowerModules(
         for (const d of stmt.declarationList.declarations) {
           if (!ts.isIdentifier(d.name) || !d.initializer)
             fail(d, 'E_MODULE', 'Module constants need a name and an initialiser');
+          // Intl constants have no runtime value (their uses are lowered).
+          if (lower.isIntlConstant(d)) continue;
           const sym = checker.getSymbolAtLocation(d.name)!;
           const name = (d.name as ts.Identifier).text;
           const init = skipParens(d.initializer!);

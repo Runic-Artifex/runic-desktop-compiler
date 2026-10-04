@@ -17,15 +17,20 @@ mod string;
 mod value;
 
 pub mod array_ops;
+pub mod date;
+pub mod env;
+pub mod intl;
 pub mod json;
 pub mod regexp;
 pub mod reorder;
 pub mod string_ops;
+pub mod tz;
 
 pub use array_ops::join_elements;
 pub use attrs::{AttrValue, Attrs, attrs_merge, class_merge};
 pub use classes::{class_compose, class_toggle};
 pub use collections::*;
+pub use date::Date;
 pub use element::Element;
 pub use error::*;
 pub use event::{Event, EventData};

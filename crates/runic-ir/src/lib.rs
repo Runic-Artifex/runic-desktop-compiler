@@ -288,6 +288,9 @@ pub enum Type {
     Regexp,
     /// A `MediaQueryList` (`matchMedia(query)`), compared by identity.
     MediaQuery,
+    /// A Date object (`js::Date`), compared by identity; its time value is
+    /// mutable (setters).
+    Date,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -315,6 +318,7 @@ impl Type {
             Type::Attrs => "attrs".into(),
             Type::Regexp => "regexp".into(),
             Type::MediaQuery => "media-query".into(),
+            Type::Date => "date".into(),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params

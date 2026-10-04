@@ -109,7 +109,8 @@ fn stringable(t: &Type) -> bool {
         | Type::Boolean
         | Type::Array(_)
         | Type::Record(_)
-        | Type::Regexp => true,
+        | Type::Regexp
+        | Type::Date => true,
         Type::Maybe(inner) => stringable(inner),
         _ => false,
     }
@@ -365,6 +366,9 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &n, "id").map(|_| Void)
         }
         ("clock", "now" | "date") => arity(args, 0, 0).map(|_| n),
+        // Dates and Intl (M5): Date objects, time values and formatting.
+        ("date", m) => date_type(m, args),
+        ("intl", m) => intl_type(m, args),
         // Promises (docs/design/M4-EFFECTS.md): handlers return a value or a
         // promise of it; rejections are Error records.
         ("promise", _) => promise_type(method, args, declared, records),
@@ -580,7 +584,11 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         }
         ("", "Number") => {
             arity(args, 0, 1)?;
-            if args.first().is_none_or(primitive) {
+            // A Date converts through valueOf.
+            if args
+                .first()
+                .is_none_or(|t| primitive(t) || *t == Type::Date)
+            {
                 Ok(n)
             } else {
                 Err("argument must be primitive".into())
@@ -850,6 +858,63 @@ fn string_regexp_type(m: &str, args: &[Type], declared: &Type) -> R {
         }
         other => Err(format!("unknown string method {other}")),
     }
+}
+
+/// `date.*`: Date objects (`new`, getters, setters, string forms) and time
+/// value functions (`local`, `utc`, `parse`).
+fn date_type(m: &str, args: &[Type]) -> R {
+    use Type::*;
+    match m {
+        "new" => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Number, "time value").map(|_| Date)
+        }
+        "local" | "utc" => {
+            arity(args, 7, 7)?;
+            all(args, &Number).map(|_| Number)
+        }
+        "parse" => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &String, "argument").map(|_| Number)
+        }
+        _ => {
+            let recv = args.first().ok_or("missing receiver")?;
+            expect(recv, &Date, "receiver")?;
+            if m == "getTime" || runic_js::date::GETTERS.contains(&m) {
+                return arity(args, 1, 1).map(|_| Number);
+            }
+            if let Some(&(_, min, max)) = runic_js::date::SETTERS.iter().find(|s| s.0 == m) {
+                arity(&args[1..], min, max)?;
+                return all(&args[1..], &Number).map(|_| Number);
+            }
+            match m {
+                "toString" | "toDateString" | "toTimeString" | "toUTCString" | "toISOString" => {
+                    arity(args, 1, 1).map(|_| String)
+                }
+                "toJSON" => arity(args, 1, 1).map(|_| Type::maybe(String)),
+                other => Err(format!("unknown Date member {other}")),
+            }
+        }
+    }
+}
+
+/// `intl.*`: formatting and collation with a literal option string and an
+/// optional runtime locale.
+fn intl_type(m: &str, args: &[Type]) -> R {
+    use Type::*;
+    let (operands, result) = match m {
+        "format-date" | "format-number" => (1, String),
+        "compare" => (2, Number),
+        other => return Err(format!("unknown intl member {other}")),
+    };
+    arity(args, operands + 1, operands + 2)?;
+    let operand = if m == "compare" { String } else { Number };
+    all(&args[..operands], &operand)?;
+    expect(&args[operands], &String, "options")?;
+    if let Some(l) = args.get(operands + 1) {
+        expect(l, &String, "locale")?;
+    }
+    Ok(result)
 }
 
 fn string_method(m: &str, args: &[Type]) -> R {

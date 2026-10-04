@@ -113,9 +113,11 @@ export function migrate(ir) {
 }
 
 /** Run `actions` through the reference interpreter. */
-export function interpret(ir, actions, { storage } = {}) {
+export function interpret(ir, actions, { storage, timezone, locale } = {}) {
   return withIR(ir, file => {
     const extra = storage ? ['--storage', JSON.stringify(storage)] : [];
+    if (timezone) extra.push('--timezone', timezone);
+    if (locale) extra.push('--locale', locale);
     const r = spawnSync(codegenBinary(), ['interp', file, ...extra], {
       input: JSON.stringify(actions),
       encoding: 'utf8',

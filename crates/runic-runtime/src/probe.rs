@@ -512,6 +512,18 @@ pub(crate) fn run<A: App>() {
             })
             .collect(),
     );
+    // The case's time zone and locale (Date and Intl); UTC and en-US by default.
+    if let Some(zone) = flag("--timezone") {
+        // Cases compare with Chromium: only zones verified against it.
+        assert!(
+            runic_js::intl::is_verified_zone(&zone),
+            "--timezone {zone} is not verified against Chromium"
+        );
+        runic_js::env::set_time_zone(&zone).expect("--timezone takes a known IANA zone");
+    }
+    if let Some(locale) = flag("--locale") {
+        runic_js::env::set_locale(&locale).expect("--locale takes a verified locale");
+    }
     let actions: Value = serde_json::from_reader(std::io::stdin()).expect("action list on stdin");
     let mut native = shell::document::<A>(width, height);
     let mount_us = start.elapsed().as_secs_f64() * 1e6;

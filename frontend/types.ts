@@ -176,7 +176,22 @@ export class TypeMapper {
         'E_REGEXP',
         'matchAll results are supported directly in for-of, Array.from(…) and [...…]',
       );
-    if (name && ['Date', 'Error', 'HTMLElement'].includes(name))
+    // Dates (docs/IR.md): Date objects with a mutable time value.
+    if (name === 'Date' && this.fromLib(t)) return 'date';
+    // Intl formatters are compile-time constants (frontend/intl.ts), not values.
+    if (
+      name &&
+      ['DateTimeFormat', 'NumberFormat', 'Collator', 'PluralRules', 'DisplayNames'].includes(
+        name,
+      ) &&
+      this.fromLib(t)
+    )
+      this.fail(
+        at,
+        'E_INTL',
+        `Intl.${name} objects are supported as constants used through their methods (const f = new Intl.DateTimeFormat(…); f.format(d)), not as values`,
+      );
+    if (name && ['Error', 'HTMLElement'].includes(name))
       this.fail(at, 'E_TYPE_UNSUPPORTED', `${name} values are planned for a later milestone`);
     return { record: this.record(t, at) };
   }

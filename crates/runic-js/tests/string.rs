@@ -160,8 +160,6 @@ fn run(method: &str, a: &[V]) -> V {
             str_v(so::concat(&s(&a[0]), &others))
         }
         "compare" => order_v(so::compare(&s(&a[0]), &s(&a[1]))),
-        // Code-unit order by design in M2 (the generator records the same).
-        "localeCompare" => V::Num(so::locale_compare(&s(&a[0]), &s(&a[1]))),
         "fromCharCode" => {
             let units: Vec<f64> = list(&a[0]).iter().map(n).collect();
             str_v(so::from_char_code(&units))
@@ -242,7 +240,8 @@ fn string_methods_match_node() {
         .map(|(k, v)| (k.clone(), v.as_u64().unwrap() as usize))
         .collect();
     assert_eq!(per_method, expected_counts);
-    assert_eq!(per_method.len(), 28, "methods covered: {per_method:?}");
+    // localeCompare is covered by the Chromium collation vectors (intl.rs).
+    assert_eq!(per_method.len(), 27, "methods covered: {per_method:?}");
     for (method, count) in &per_method {
         assert!(*count >= 50, "{method} has only {count} cases");
     }

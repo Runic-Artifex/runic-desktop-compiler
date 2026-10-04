@@ -1,0 +1,20 @@
+{
+  "description": "Dates and numbers as the Translations Editor shows them, in UTC with the en-US default locale: Date construction (clock, ISO strings, copies), getters and setters across midnight, toString/toISOString/toUTCString/toDateString, toLocale*String with a runtime locale (en-US, de-DE, fr-FR, en-GB), Intl.DateTimeFormat and Intl.NumberFormat constants, Number.prototype.toLocaleString with percent options, Date.parse of typed text (valid and invalid), sorting with an Intl.Collator comparator and localeCompare, and a one-second interval advanced by virtual time",
+  "fixtures": ["time-svelte"],
+  "timezone": "UTC",
+  "locale": "en-US",
+  "actions": [
+    { "kind": "wait", "ms": 1000 },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "late" },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "more" },
+    { "kind": "type", "id": "when", "text": "Z" },
+    { "kind": "wait", "ms": 61000 },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "next" },
+    { "kind": "type", "id": "when", "text": "x" },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "more" }
+  ]
+}

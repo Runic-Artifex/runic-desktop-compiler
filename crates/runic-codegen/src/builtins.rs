@@ -171,6 +171,8 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             cx,
             format!("js::to_exponential({}, {})", t[0], opt_num(t.get(1))),
         ),
+        ("date", m) => date(cx, m, &t),
+        ("intl", m) => intl(cx, m, &t, args),
         ("regexp", m) => regexp(cx, m, &t, ty),
         ("string", m) if m.starts_with("regexp-") => string_regexp(cx, m, &t, &types, ty, args),
         ("match", m) => match m {
@@ -597,6 +599,57 @@ fn present_strings(ty: &Type) -> bool {
         },
         _ => false,
     }
+}
+
+/// Date objects and time values (`js::date`).
+fn date(cx: &FnCtx, m: &str, t: &[String]) -> String {
+    let d = "js::date";
+    match m {
+        "new" => format!("js::Date::new({})", t[0]),
+        "local" => format!("{d}::local_time_value({})", t.join(", ")),
+        "utc" => format!("{d}::utc_time_value({})", t.join(", ")),
+        "parse" => format!("{d}::parse(&{})", t[0]),
+        "getTime" => format!("{}.time()", t[0]),
+        "toString" => format!("{d}::to_string({}.time())", t[0]),
+        "toDateString" => format!("{d}::to_date_string_local({}.time())", t[0]),
+        "toTimeString" => format!("{d}::to_time_string({}.time())", t[0]),
+        "toUTCString" => format!("{d}::to_utc_string({}.time())", t[0]),
+        "toISOString" => cx.q(&format!("{d}::to_iso_string({}.time())", t[0])),
+        "toJSON" => format!(
+            "{d}::to_json({}.time()).map_or(Maybe::Null, Maybe::Some)",
+            t[0]
+        ),
+        m if m.starts_with("set") => format!("{}.set({m:?}, &[{}])", t[0], t[1..].join(", ")),
+        m => format!("{d}::get({}.time(), {m:?})", t[0]),
+    }
+}
+
+/// Formatting and collation (`js::intl`): the option string is parsed once.
+fn intl(cx: &FnCtx, m: &str, t: &[String], args: &[Expr]) -> String {
+    let operands = if m == "compare" { 2 } else { 1 };
+    let Some(Expr::Lit {
+        value: runic_ir::Value::String(spec),
+    }) = args.get(operands)
+    else {
+        unreachable!("validated intl options")
+    };
+    let kind = match m {
+        "format-date" => "DateSpec",
+        "format-number" => "NumberSpec",
+        _ => "CollatorSpec",
+    };
+    let spec = format!(
+        "{{ static SPEC: std::sync::LazyLock<js::intl::{kind}> = std::sync::LazyLock::new(|| js::intl::{kind}::parse({spec:?}).expect(\"validated options\")); &*SPEC }}"
+    );
+    let locale = t
+        .get(operands + 1)
+        .map_or("None".to_string(), |l| format!("Some(&{l})"));
+    let call = match m {
+        "format-date" => format!("js::intl::format_date({}, {spec}, {locale})", t[0]),
+        "format-number" => format!("js::intl::format_number({}, {spec}, {locale})", t[0]),
+        _ => format!("js::intl::compare(&{}, &{}, {spec}, {locale})", t[0], t[1]),
+    };
+    format!("{{ let _ = &{}; {} }}", t[operands], cx.q(&call))
 }
 
 fn regexp(cx: &FnCtx, m: &str, t: &[String], ty: &Type) -> String {

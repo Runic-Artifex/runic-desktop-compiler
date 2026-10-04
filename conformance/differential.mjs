@@ -4,6 +4,7 @@
 // the native probe; DOM and cells must agree after every step.
 //
 //   node conformance/differential.mjs [fixture ...] [--traces N] [--length N] [--seed S] [--no-opt]
+//                                    [--timezone Zone] [--locale tag]
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,9 @@ const { values, positionals } = parseArgs({
     length: { type: 'string', default: '25' },
     seed: { type: 'string', default: '1' },
     'no-opt': { type: 'boolean' },
+    // The time zone and locale Date and Intl see (both sides).
+    timezone: { type: 'string', default: 'UTC' },
+    locale: { type: 'string', default: 'en-US' },
   },
 });
 
@@ -187,8 +191,9 @@ for (const fixture of fixtures) {
       }
       else actions.push({ kind, nth });
     }
-    const expected = interpret(ir, actions);
-    const actual = runProbe(binary, { actions }).steps;
+    const env = { timezone: values.timezone, locale: values.locale };
+    const expected = interpret(ir, actions, env);
+    const actual = runProbe(binary, { actions, ...env }).steps;
     for (let i = 0; i < expected.length; i++) {
       steps++;
       const want = {

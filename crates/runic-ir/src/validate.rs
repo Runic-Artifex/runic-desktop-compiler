@@ -80,6 +80,29 @@ fn check_regexp_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Res
     Ok(())
 }
 
+/// The option string of the `intl.*` built-ins is a literal the runtime
+/// accepts: verified locales, options and option combinations only.
+fn check_intl_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Result<()> {
+    let index = if name == "intl.compare" { 2 } else { 1 };
+    let Some(Expr::Lit {
+        value: Value::String(spec),
+    }) = args.get(index)
+    else {
+        return err(
+            "E_INTL",
+            format!("{name}: the options must be a literal"),
+            src,
+        );
+    };
+    let checked = match name {
+        "intl.format-date" => runic_js::intl::DateSpec::parse(spec).map(|_| ()),
+        "intl.format-number" => runic_js::intl::NumberSpec::parse(spec).map(|_| ()),
+        "intl.compare" => runic_js::intl::CollatorSpec::parse(spec).map(|_| ()),
+        _ => Ok(()),
+    };
+    checked.or_else(|m| err("E_INTL", m, src))
+}
+
 /// A replacement function for a pattern with `n` captures takes the match,
 /// the captures (`string`, or `string | undefined`), the position and the
 /// string, or a prefix of them.
@@ -289,7 +312,8 @@ impl<'a> Scope<'a> {
             }
             ToNumber { arg } => {
                 let t = self.infer(arg, d, src)?;
-                if !primitive(&t) {
+                // A Date converts through valueOf.
+                if !primitive(&t) && t != Type::Date {
                     return err(
                         "E_IR",
                         format!("Cannot convert {} to a number", t.name()),
@@ -638,6 +662,9 @@ impl<'a> Scope<'a> {
                     || name.starts_with("match.")
                 {
                     check_regexp_literals(name, args, src)?;
+                }
+                if name.starts_with("intl.") {
+                    check_intl_literals(name, args, src)?;
                 }
                 let types = args
                     .iter()
@@ -1751,6 +1778,10 @@ struct Mutations {
     /// unknown root may.
     regexps: HashSet<Root>,
     regexp_unknown: bool,
+    /// Dates whose time value a setter changes, by root, and whether one of
+    /// unknown root does.
+    dates: HashSet<Root>,
+    date_unknown: bool,
 }
 
 /// The RegExp whose `lastIndex` a built-in may change (global and sticky
@@ -1818,6 +1849,25 @@ fn stateless_regexp_root(p: &Program, root: Root) -> bool {
     }
 }
 
+/// The Date a setter changes.
+fn date_written<'e>(name: &str, args: &'e [Expr]) -> Option<&'e Expr> {
+    if name.starts_with("date.set") {
+        args.first()
+    } else {
+        None
+    }
+}
+
+fn note_date_write(out: &mut Mutations, origin: Origin) {
+    match origin {
+        Origin::Root(r) => {
+            out.dates.insert(r);
+        }
+        Origin::Fresh => {}
+        Origin::Unknown => out.date_unknown = true,
+    }
+}
+
 /// Records a RegExp built-in that may change `lastIndex` of `receiver`
 /// (with its origin).
 fn note_regexp_write(p: &Program, out: &mut Mutations, origin: Origin) {
@@ -1874,6 +1924,7 @@ const FRESH: &[&str] = &[
     "JSON.parse",
     "string.split",
     "regexp.new",
+    "date.new",
 ];
 /// Built-ins returning an element of their receiver.
 const ELEMENT: &[&str] = &[
@@ -1959,6 +2010,10 @@ impl Origins<'_> {
             if let Some(re) = regexp_written(name, args) {
                 let o = self.origin(re);
                 note_regexp_write(self.p, self.out, o);
+            }
+            if let Some(d) = date_written(name, args) {
+                let o = self.origin(d);
+                note_date_write(self.out, o);
             }
             if MUTATORS.contains(&name.as_str()) {
                 if let Some(receiver) = args.first() {
@@ -2176,12 +2231,16 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
     for (k, c) in p.components.iter().enumerate() {
         let mut exprs = vec![];
         template_exprs(&c.template, &mut exprs);
-        let mut found = vec![];
+        let (mut found, mut dates) = (vec![], vec![]);
         for e in exprs {
             template_regexp_writes(k, e, &mut found);
+            template_date_writes(k, e, &mut dates);
         }
         for o in found {
             note_regexp_write(p, &mut m, o);
+        }
+        for o in dates {
+            note_date_write(&mut m, o);
         }
     }
     let changes = |root: Root| -> Option<String> {
@@ -2196,6 +2255,13 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 Tracking::Identity,
             ),
         };
+        if (m.date_unknown || m.dates.contains(&root))
+            && holds(p, ty, &Type::Date, &mut HashSet::new())
+        {
+            return Some(format!(
+                "{name} holds a Date that is changed in place (a setter such as setDate or setHours) and is read while rendering; no framework tracks a Date's time value, so the view would depend on how often it renders (assign a new Date instead)"
+            ));
+        }
         if (m.regexp_unknown || m.regexps.contains(&root))
             && holds(p, ty, &Type::Regexp, &mut HashSet::new())
         {
@@ -2334,6 +2400,23 @@ fn template_regexp_writes(k: usize, e: &Expr, out: &mut Vec<Origin>) {
     }
     for c in e.children() {
         template_regexp_writes(k, c, out);
+    }
+}
+
+/// The origins of Dates that a template expression of component `k` changes.
+fn template_date_writes(k: usize, e: &Expr, out: &mut Vec<Origin>) {
+    if let Expr::Builtin { name, args, .. } = e {
+        if let Some(d) = date_written(name, args) {
+            out.push(match d {
+                Expr::Cell { cell, .. } => Origin::Root(Root::Cell(k, *cell)),
+                Expr::Global { global } => Origin::Root(Root::Global(*global)),
+                Expr::Builtin { name, .. } if name == "date.new" => Origin::Fresh,
+                _ => Origin::Unknown,
+            });
+        }
+    }
+    for c in e.children() {
+        template_date_writes(k, c, out);
     }
 }
 

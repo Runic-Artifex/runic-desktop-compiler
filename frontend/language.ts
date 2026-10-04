@@ -9,6 +9,7 @@ import {
   type Expr,
   type Fn,
   type Global,
+  type Literal,
   type Local,
   type Place,
   type Stmt,
@@ -26,6 +27,7 @@ import {
 import { DOM } from './program.ts';
 import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
+import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -946,6 +948,8 @@ export class Lowerer {
   }
 
   private declaration(d: ts.VariableDeclaration, b: FnBuilder): Stmt[] {
+    // Intl constants have no runtime value (their uses are lowered).
+    if (this.isIntlConstant(d)) return [];
     if (ts.isIdentifier(d.name)) {
       const sym = this.checker.getSymbolAtLocation(d.name)!;
       if (d.initializer && !d.type && this.isRegexpResult(d.initializer)) {
@@ -1517,6 +1521,12 @@ export class Lowerer {
     if (id.text === 'Infinity' && !this.binding(id))
       return { op: 'builtin', name: 'Number.POSITIVE_INFINITY', args: [], type: NUMBER };
     const binding = this.binding(id);
+    if (!binding && this.intlObject(id))
+      return this.fail(
+        id,
+        'E_INTL',
+        `${id.text} is an Intl constant: use its methods (format, compare) directly`,
+      );
     if (!binding)
       return this.fail(id, 'E_UNRESOLVED', `${id.text} is not a supported binding here`);
     return this.bindingExpr(binding, id, b);
@@ -1757,6 +1767,7 @@ export class Lowerer {
     if (t === 'event') return 'event';
     if (t === 'regexp') return 'regexp';
     if (t === 'media-query') return 'media-query';
+    if (t === 'date') return 'date';
     if (typeof t === 'object') {
       if ('array' in t) return 'array';
       if ('map' in t) return 'map';
@@ -1888,6 +1899,16 @@ export class Lowerer {
 
   private property(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
     const name = e.name.text;
+    // `collator.compare` as a function value; other members of Intl constants.
+    const intl = this.intlObject(e.expression);
+    if (intl) {
+      if (intl.kind === 'collator' && name === 'compare') return this.intlComparator(intl, b);
+      return this.fail(
+        e,
+        'E_INTL',
+        `Intl.${intl.ctor} members are supported as calls (${intl.kind === 'collator' ? 'compare(a, b), or compare as a comparator' : 'format(x)'})`,
+      );
+    }
     if (ts.isIdentifier(e.expression)) {
       const special = this.binding(e.expression);
       if (special?.kind === 'props')
@@ -2271,6 +2292,13 @@ export class Lowerer {
       if (hosted) return hosted;
       const global = this.globalName(callee);
       if (global === 'RegExp') return this.regexpNew(e, e.arguments, b);
+      // Date() without new: the current time as a string.
+      if (global === 'Date')
+        return this.builtin(
+          'date.toString',
+          [this.builtin('date.new', [this.builtin('clock.date', [], NUMBER)], 'date')],
+          STRING,
+        );
       // A copy of a match array keeps index, input and groups in JavaScript.
       if (global === 'structuredClone' && e.arguments[0] && this.isMatchArray(e.arguments[0]))
         return this.fail(e, 'E_REGEXP', 'structuredClone of a match array is unsupported');
@@ -2303,8 +2331,11 @@ export class Lowerer {
         const source = skipParens(e.arguments[0]);
         if (this.isMatchAll(source)) return this.expr(source, b);
       }
-      if (global === 'Date' && method === 'now' && !e.arguments.length)
-        return { op: 'builtin', name: 'clock.date', args: [], type: NUMBER };
+      if (global === 'Date') return this.dateStatic(method, e, b);
+      if (global === 'Intl') return this.fail(e, 'E_INTL', `Intl.${method} is unsupported`);
+      // Methods of Intl constants.
+      const intl = this.intlObject(callee.expression);
+      if (intl) return this.intlCall(intl, method, e, b);
       if (this.hostName(callee.expression) === 'performance' && method === 'now')
         return { op: 'builtin', name: 'clock.now', args: [], type: NUMBER };
       // Document element methods.
@@ -2418,6 +2449,11 @@ export class Lowerer {
       const receiver = this.expr(callee.expression, b);
       const kind = this.receiverKind(this.irType(receiver, b));
       if (kind === 'promise') return this.promiseMethod(method, receiver, e, b);
+      if (kind === 'date') return this.dateMethod(method, receiver, e, b);
+      if (kind === 'number' || kind === 'string') {
+        const local = this.localeMethod(kind, method, receiver, e, b);
+        if (local) return local;
+      }
       if (kind === 'regexp') return this.regexpMethod(method, receiver, callee.expression, e, b);
       if (
         kind === 'string' &&
@@ -2681,6 +2717,18 @@ export class Lowerer {
       };
     }
     if (global === 'RegExp') return this.regexpNew(e, e.arguments ?? [], b);
+    if (global === 'Date') return this.dateNew(e, b);
+    if (
+      ts.isPropertyAccessExpression(e.expression) &&
+      this.globalName(e.expression.expression) === 'Intl'
+    ) {
+      this.intlObject(e);
+      return this.fail(
+        e,
+        'E_INTL',
+        'Intl formatters and collators are supported as constants (const f = new Intl.NumberFormat(…)) and in expressions calling format or compare',
+      );
+    }
     const args = (e.arguments ?? []).map(a => this.expr(a, b));
     if (global === 'Map' || global === 'Set')
       return { op: 'builtin', name: `${global}.new`, args, type: this.exprType(e) };
@@ -2788,6 +2836,465 @@ export class Lowerer {
   // match. Reads that TypeScript types as `string` are then unwrapped where
   // the pattern proves the capture present, kept nullable where undefined is
   // handled (`??`, conditions, templates), and rejected otherwise.
+
+  // Dates and Intl ------------------------------------------------------------
+  //
+  // Date objects are IR values (type `date`); Date.now() and new Date() read
+  // the runtime clock. Intl formatters and collators are compile-time
+  // constants: their locales and options must be literals, and each use
+  // (format, compare) lowers to an `intl.*` built-in carrying the option
+  // string (frontend/intl.ts). The locale arguments of the toLocale* methods
+  // and localeCompare may also be strings computed at runtime, which must
+  // name a verified locale when the program runs.
+
+  private builtin(name: string, args: Expr[], type: Type): Expr {
+    return { op: 'builtin', name, args, type };
+  }
+
+  /** A number argument (primitives convert as in JavaScript). */
+  private numberArg(a: ts.Expression, b: FnBuilder): Expr {
+    const v = this.expr(a, b);
+    const t = this.irType(v, b);
+    if (t === 'number') return v;
+    if (t === 'string' || t === 'boolean' || maybeInner(t)) return { op: 'to-number', arg: v };
+    return this.fail(a, 'E_DATE', 'Date arguments must be numbers');
+  }
+
+  /** Year, month, day, hours, minutes, seconds, ms with the missing ones defaulted. */
+  private dateComponents(args: readonly ts.Expression[], b: FnBuilder): Expr[] {
+    if (args.length > 7) this.fail(args[7], 'E_DATE', 'Date takes at most 7 components');
+    const defaults: Expr[] = [
+      this.builtin('Number.NaN', [], NUMBER),
+      { op: 'lit', value: 0 },
+      { op: 'lit', value: 1 },
+      { op: 'lit', value: 0 },
+      { op: 'lit', value: 0 },
+      { op: 'lit', value: 0 },
+      { op: 'lit', value: 0 },
+    ];
+    return defaults.map((d, i) => (args[i] ? this.numberArg(args[i], b) : d));
+  }
+
+  /** `new Date(…)`. */
+  private dateNew(e: ts.NewExpression, b: FnBuilder): Expr {
+    const args = e.arguments ?? [];
+    const date = (tv: Expr): Expr => this.builtin('date.new', [tv], 'date');
+    if (args.length === 0) return date(this.builtin('clock.date', [], NUMBER));
+    if (args.length === 1) {
+      const v = this.expr(args[0], b);
+      const t = this.irType(v, b);
+      if (t === 'date') return date(this.builtin('date.getTime', [v], NUMBER));
+      if (t === 'string') return date(this.builtin('date.parse', [v], NUMBER));
+      if (t === 'number') return date(v);
+      return this.fail(
+        args[0],
+        'E_DATE',
+        'new Date takes a Date, a date string or a time value (number)',
+      );
+    }
+    return date(this.builtin('date.local', this.dateComponents(args, b), NUMBER));
+  }
+
+  /** Static `Date` functions. */
+  private dateStatic(method: string, e: ts.CallExpression, b: FnBuilder): Expr {
+    const a = e.arguments;
+    if (method === 'now' && !a.length) return this.builtin('clock.date', [], NUMBER);
+    if (method === 'UTC') return this.builtin('date.utc', this.dateComponents(a, b), NUMBER);
+    if (method === 'parse' && a.length === 1) {
+      const v = this.expr(a[0], b);
+      if (this.irType(v, b) !== 'string')
+        return this.fail(a[0], 'E_DATE', 'Date.parse takes a string');
+      return this.builtin('date.parse', [v], NUMBER);
+    }
+    return this.fail(e, 'E_DATE', `Date.${method} is unsupported (now, UTC and parse are)`);
+  }
+
+  /** Methods of a Date object. */
+  private dateMethod(method: string, receiver: Expr, e: ts.CallExpression, b: FnBuilder): Expr {
+    const a = e.arguments;
+    const name =
+      method === 'valueOf' ? 'getTime' : method === 'toGMTString' ? 'toUTCString' : method;
+    const none = () => {
+      if (a.length) this.fail(e, 'E_DATE', `${method} takes no arguments`);
+    };
+    if (name === 'getTime' || DATE_GETTERS.has(name)) {
+      none();
+      return this.builtin(`date.${name}`, [receiver], NUMBER);
+    }
+    const setter = Object.hasOwn(DATE_SETTERS, name) ? DATE_SETTERS[name] : undefined;
+    if (setter) {
+      if (a.length < 1 || a.length > setter)
+        return this.fail(e, 'E_DATE', `${method} takes 1 to ${setter} numbers`);
+      return this.builtin(`date.${name}`, [receiver, ...a.map(x => this.numberArg(x, b))], NUMBER);
+    }
+    if (['toString', 'toDateString', 'toTimeString', 'toUTCString', 'toISOString'].includes(name)) {
+      none();
+      return this.builtin(`date.${name}`, [receiver], STRING);
+    }
+    if (name === 'toJSON') {
+      // null for an invalid date, where TypeScript says string.
+      if (!this.undefinedHandled(e))
+        return this.fail(
+          e,
+          'E_DATE',
+          'toJSON returns null for an invalid Date; handle null (?? or a condition) or use toISOString()',
+        );
+      return this.builtin('date.toJSON', [receiver], { maybe: STRING });
+    }
+    const locale = new Map([
+      ['toLocaleString', 'a'],
+      ['toLocaleDateString', 'd'],
+      ['toLocaleTimeString', 't'],
+    ]).get(name);
+    if (locale)
+      return this.localeCall(
+        'date',
+        locale,
+        [this.builtin('date.getTime', [receiver], NUMBER)],
+        a[0],
+        a[1],
+        e,
+        b,
+      );
+    return this.fail(
+      e,
+      'E_DATE',
+      `Date.prototype.${method} is unsupported${['getYear', 'setYear'].includes(method) ? ' (use getFullYear/setFullYear)' : ''}`,
+    );
+  }
+
+  /** A literal value: a literal, `undefined`, or a const bound to one. */
+  private literalOf(e: ts.Expression, depth = 0): { value: Literal | undefined } | undefined {
+    e = skipParens(e);
+    if (ts.isStringLiteralLike(e)) return { value: e.text };
+    if (ts.isNumericLiteral(e)) return { value: Number(e.text) };
+    if (
+      ts.isPrefixUnaryExpression(e) &&
+      e.operator === ts.SyntaxKind.MinusToken &&
+      ts.isNumericLiteral(e.operand)
+    )
+      return { value: -Number(e.operand.text) };
+    if (e.kind === ts.SyntaxKind.TrueKeyword) return { value: true };
+    if (e.kind === ts.SyntaxKind.FalseKeyword) return { value: false };
+    if (ts.isIdentifier(e) && e.text === 'undefined' && !this.binding(e))
+      return { value: undefined };
+    const init = this.constInitializer(e, depth);
+    return init ? this.literalOf(init, depth + 1) : undefined;
+  }
+
+  /** The initialiser of a `const` that `e` names. */
+  private constInitializer(e: ts.Expression, depth: number): ts.Expression | undefined {
+    if (!ts.isIdentifier(e) || depth > 8) return undefined;
+    const decl = this.symbol(e)?.valueDeclaration;
+    if (
+      decl &&
+      ts.isVariableDeclaration(decl) &&
+      decl.initializer &&
+      ts.isVariableDeclarationList(decl.parent) &&
+      decl.parent.flags & ts.NodeFlags.Const
+    )
+      return decl.initializer;
+    return undefined;
+  }
+
+  /** Literal Intl options: an object literal (or a const bound to one). */
+  private intlOptions(node: ts.Expression | undefined): [string, Literal | undefined, ts.Node][] {
+    if (!node) return [];
+    let e = skipParens(node);
+    for (let depth = 0; ts.isIdentifier(e) && depth < 8; depth++) {
+      if (e.text === 'undefined' && !this.binding(e)) return [];
+      const init = this.constInitializer(e, depth);
+      if (!init) break;
+      e = skipParens(init);
+    }
+    if (!ts.isObjectLiteralExpression(e))
+      return this.fail(
+        node,
+        'E_INTL',
+        'Intl options must be an object literal (or a const holding one)',
+      );
+    return e.properties.map(p => {
+      if (ts.isShorthandPropertyAssignment(p)) {
+        const v = this.literalOf(p.name);
+        if (!v) return this.fail(p, 'E_INTL', 'Intl option values must be literals');
+        return [p.name.text, v.value, p];
+      }
+      if (!ts.isPropertyAssignment(p) || !(ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)))
+        return this.fail(p, 'E_INTL', 'Intl options must be plain properties with literal values');
+      const v = this.literalOf(p.initializer);
+      if (!v) return this.fail(p.initializer, 'E_INTL', 'Intl option values must be literals');
+      return [p.name.text, v.value, p];
+    });
+  }
+
+  /** A locales argument: absent, a literal (or one-element list), or a runtime string. */
+  private localeArg(
+    node: ts.Expression | undefined,
+    b: FnBuilder,
+  ): { literal?: string; runtime?: Expr } {
+    if (!node) return {};
+    const lit = this.literalOf(node);
+    if (lit) {
+      if (lit.value === undefined) return {};
+      if (typeof lit.value !== 'string')
+        return this.fail(node, 'E_INTL', 'A locale is a language tag string');
+      return { literal: lit.value };
+    }
+    let e = skipParens(node);
+    const init = this.constInitializer(e, 0);
+    if (init && ts.isArrayLiteralExpression(skipParens(init))) e = skipParens(init);
+    if (ts.isArrayLiteralExpression(e)) {
+      if (e.elements.length === 0) return {};
+      if (e.elements.length > 1)
+        return this.fail(e, 'E_INTL', 'Lists of several locales are unsupported; pass one locale');
+      return this.localeArg(e.elements[0], b);
+    }
+    const v = this.expr(node, b);
+    const t = this.irType(v, b);
+    if (t === 'string' || (maybeInner(t) === 'string' && typeof t === 'object'))
+      return { runtime: v };
+    return this.fail(node, 'E_INTL', 'A locale is a language tag string');
+  }
+
+  /**
+   * An `intl.*` call for operands with locales and options: a literal locale
+   * goes into the option string, a runtime one is the last argument
+   * (evaluated after the operands, as in JavaScript).
+   */
+  private localeCall(
+    kind: IntlKind,
+    method: string,
+    operands: Expr[],
+    localesNode: ts.Expression | undefined,
+    optionsNode: ts.Expression | undefined,
+    at: ts.Node,
+    b: FnBuilder,
+  ): Expr {
+    const { literal, runtime } = this.localeArg(localesNode, b);
+    const options = this.intlOptions(optionsNode);
+    const result = intlSpec(
+      kind,
+      method,
+      literal,
+      options.map(([k, v]) => [k, k === 'currency' && typeof v === 'string' ? v.toUpperCase() : v]),
+    );
+    if ('error' in result) {
+      const node =
+        options.find(o => o[0] === result.key)?.[2] ??
+        (result.key ? optionsNode : localesNode) ??
+        at;
+      return this.fail(node, 'E_INTL', result.error);
+    }
+    const name =
+      kind === 'date'
+        ? 'intl.format-date'
+        : kind === 'number'
+          ? 'intl.format-number'
+          : 'intl.compare';
+    const type = kind === 'collator' ? NUMBER : STRING;
+    const spec: Expr = { op: 'lit', value: result.spec };
+    if (!runtime) return this.builtin(name, [...operands, spec], type);
+    const rt = this.irType(runtime, b);
+    if (rt === 'string') return this.builtin(name, [...operands, spec, runtime], type);
+    // A locale that may be undefined: the default locale then.
+    const temps = operands.map((o, i) => b.local(`$operand${i}`, this.irType(o, b)));
+    const loc = b.local('$locale', rt);
+    const read = (l: number): Expr => ({ op: 'local', local: l });
+    const reads = temps.map(read);
+    let body: Expr = {
+      op: 'cond',
+      test: this.builtin('maybe.is-nullish', [read(loc)], BOOLEAN),
+      then: this.builtin(name, [...reads, spec], type),
+      else: this.builtin(name, [...reads, spec, { op: 'unwrap', value: read(loc) }], type),
+    };
+    body = { op: 'with', local: loc, value: runtime, body };
+    for (let i = temps.length - 1; i >= 0; i--)
+      body = { op: 'with', local: temps[i], value: operands[i], body };
+    return body;
+  }
+
+  /** An Intl formatter or collator constructed from literals, through consts. */
+  intlObject(
+    e: ts.Expression,
+    depth = 0,
+  ):
+    | { kind: IntlKind; ctor: string; args: readonly ts.Expression[]; node: ts.Expression }
+    | undefined {
+    e = skipParens(e);
+    if (
+      (ts.isNewExpression(e) || ts.isCallExpression(e)) &&
+      ts.isPropertyAccessExpression(e.expression) &&
+      this.globalName(e.expression.expression) === 'Intl'
+    ) {
+      const ctor = e.expression.name.text;
+      const kind = Object.hasOwn(INTL_KINDS, ctor) ? INTL_KINDS[ctor] : undefined;
+      if (!kind)
+        return this.fail(
+          e,
+          'E_INTL',
+          `Intl.${ctor} is unsupported (Intl.DateTimeFormat, Intl.NumberFormat and Intl.Collator are)`,
+        );
+      return { kind, ctor, args: e.arguments ?? [], node: e };
+    }
+    const init = this.constInitializer(e, depth);
+    return init ? this.intlObject(init, depth + 1) : undefined;
+  }
+
+  /** Whether `d` declares an Intl constant (no runtime value: its uses are lowered). */
+  isIntlConstant(d: ts.VariableDeclaration): boolean {
+    if (!d.initializer || !ts.isIdentifier(d.name)) return false;
+    const init = skipParens(d.initializer);
+    const isIntl =
+      (ts.isNewExpression(init) || ts.isCallExpression(init)) &&
+      ts.isPropertyAccessExpression(init.expression) &&
+      this.globalName(init.expression.expression) === 'Intl';
+    if (!isIntl) return false;
+    if (!(ts.isVariableDeclarationList(d.parent) && d.parent.flags & ts.NodeFlags.Const))
+      this.fail(d, 'E_INTL', 'Intl formatters and collators must be const');
+    this.intlObject(init);
+    return true;
+  }
+
+  /** The option string of an Intl object for method `method`. */
+  private intlObjectSpec(
+    o: NonNullable<ReturnType<Lowerer['intlObject']>>,
+    method: string,
+    b: FnBuilder,
+  ): string {
+    const [locales, options] = o.args;
+    const { literal, runtime } = this.localeArg(locales, b);
+    if (runtime) this.fail(locales, 'E_INTL', `The locale of an Intl.${o.ctor} must be a literal`);
+    const opts = this.intlOptions(options);
+    const result = intlSpec(
+      o.kind,
+      method,
+      literal,
+      opts.map(([k, v]) => [k, k === 'currency' && typeof v === 'string' ? v.toUpperCase() : v]),
+    );
+    if ('error' in result)
+      return this.fail(
+        opts.find(x => x[0] === result.key)?.[2] ?? options ?? locales ?? o.node,
+        'E_INTL',
+        result.error,
+      );
+    return result.spec;
+  }
+
+  /** `f.format(x)` and `c.compare(a, b)` of an Intl constant. */
+  private intlCall(
+    o: NonNullable<ReturnType<Lowerer['intlObject']>>,
+    method: string,
+    e: ts.CallExpression,
+    b: FnBuilder,
+  ): Expr {
+    const a = e.arguments;
+    const lit = (spec: string): Expr => ({ op: 'lit', value: spec });
+    if (o.kind === 'date' && method === 'format' && a.length <= 1) {
+      let tv: Expr = this.builtin('clock.date', [], NUMBER);
+      if (a[0]) {
+        const v = this.expr(a[0], b);
+        const t = this.irType(v, b);
+        if (t === 'date') tv = this.builtin('date.getTime', [v], NUMBER);
+        else if (t === 'number') tv = v;
+        else return this.fail(a[0], 'E_INTL', 'format takes a Date or a time value');
+      }
+      return this.builtin('intl.format-date', [tv, lit(this.intlObjectSpec(o, 'f', b))], STRING);
+    }
+    if (o.kind === 'number' && method === 'format' && a.length === 1) {
+      const v = this.expr(a[0], b);
+      if (this.irType(v, b) !== 'number') return this.fail(a[0], 'E_INTL', 'format takes a number');
+      return this.builtin('intl.format-number', [v, lit(this.intlObjectSpec(o, 'f', b))], STRING);
+    }
+    if (o.kind === 'collator' && method === 'compare' && a.length === 2) {
+      const [x, y] = a.map(n => this.expr(n, b));
+      if (this.irType(x, b) !== 'string' || this.irType(y, b) !== 'string')
+        return this.fail(e, 'E_INTL', 'compare takes two strings');
+      return this.builtin('intl.compare', [x, y, lit(this.intlObjectSpec(o, 'c', b))], NUMBER);
+    }
+    return this.fail(
+      e,
+      'E_INTL',
+      `Intl.${o.ctor}.prototype.${method} is unsupported here (${o.kind === 'collator' ? 'compare(a, b)' : 'format(x)'} is supported)`,
+    );
+  }
+
+  private readonly comparators = new Map<string, number>();
+
+  /** `collator.compare` as a function value (`list.sort(collator.compare)`). */
+  private intlComparator(o: NonNullable<ReturnType<Lowerer['intlObject']>>, b: FnBuilder): Expr {
+    const spec = this.intlObjectSpec(o, 'c', b);
+    let fn = this.comparators.get(spec);
+    if (fn === undefined) {
+      fn = this.reserve();
+      this.functions[fn] = {
+        name: 'Intl.Collator.compare',
+        params: [
+          { name: 'a', type: STRING },
+          { name: 'b', type: STRING },
+        ],
+        locals: [],
+        result: NUMBER,
+        body: [
+          {
+            op: 'return',
+            value: this.builtin(
+              'intl.compare',
+              [
+                { op: 'local', local: 0 },
+                { op: 'local', local: 1 },
+                { op: 'lit', value: spec },
+              ],
+              NUMBER,
+            ),
+          },
+        ],
+      };
+      this.comparators.set(spec, fn);
+    }
+    return { op: 'closure', function: fn, captures: [], stable: true };
+  }
+
+  /** Locale-sensitive methods of numbers and strings. */
+  private localeMethod(
+    kind: 'number' | 'string',
+    method: string,
+    receiver: Expr,
+    e: ts.CallExpression,
+    b: FnBuilder,
+  ): Expr | undefined {
+    const a = e.arguments;
+    if (kind === 'number' && method === 'toLocaleString')
+      return this.localeCall('number', 'n', [receiver], a[0], a[1], e, b);
+    if (kind !== 'string') return undefined;
+    if (method === 'localeCompare') {
+      if (a.length === 0) return this.fail(e, 'E_CALL', 'localeCompare takes a string');
+      const that = this.expr(a[0], b);
+      if (this.irType(that, b) !== 'string')
+        return this.fail(a[0], 'E_CALL', 'localeCompare takes a string');
+      if (a.length === 1) return this.builtin('string.localeCompare', [receiver, that], NUMBER);
+      return this.localeCall('collator', 'l', [receiver, that], a[1], a[2], e, b);
+    }
+    if (method === 'toLocaleLowerCase' || method === 'toLocaleUpperCase') {
+      // Every verified locale cases as the default (no Turkic, Lithuanian or
+      // Greek rules), so these are toLowerCase/toUpperCase.
+      if (a.length > 1) return this.fail(e, 'E_CALL', `${method} takes one locale`);
+      if (a[0]) {
+        const lit = this.literalOf(a[0]);
+        if (
+          !lit ||
+          (lit.value !== undefined && (typeof lit.value !== 'string' || !verifiedLocale(lit.value)))
+        )
+          return this.fail(
+            a[0],
+            'E_INTL',
+            `${method} supports no locale or a verified literal locale (${LOCALES.join(', ')})`,
+          );
+      }
+      const name = method === 'toLocaleLowerCase' ? 'toLowerCase' : 'toUpperCase';
+      return this.builtin(`string.${name}`, [receiver], STRING);
+    }
+    return undefined;
+  }
 
   /** `/source/flags` */
   private regexLiteral(e: ts.RegularExpressionLiteral): Expr {
@@ -3285,6 +3792,53 @@ const REGEXP_STRING_METHODS = new Set([
 ]);
 
 /** RegExp properties (`regexp.*` built-ins). */
+/** Date getters (`date.*` built-ins of the same name). */
+const DATE_GETTERS = new Set([
+  'getFullYear',
+  'getMonth',
+  'getDate',
+  'getDay',
+  'getHours',
+  'getMinutes',
+  'getSeconds',
+  'getMilliseconds',
+  'getUTCFullYear',
+  'getUTCMonth',
+  'getUTCDate',
+  'getUTCDay',
+  'getUTCHours',
+  'getUTCMinutes',
+  'getUTCSeconds',
+  'getUTCMilliseconds',
+  'getTimezoneOffset',
+]);
+
+/** Date setters and their largest argument count. */
+const DATE_SETTERS: Record<string, number> = {
+  setFullYear: 3,
+  setMonth: 2,
+  setDate: 1,
+  setHours: 4,
+  setMinutes: 3,
+  setSeconds: 2,
+  setMilliseconds: 1,
+  setUTCFullYear: 3,
+  setUTCMonth: 2,
+  setUTCDate: 1,
+  setUTCHours: 4,
+  setUTCMinutes: 3,
+  setUTCSeconds: 2,
+  setUTCMilliseconds: 1,
+  setTime: 1,
+};
+
+/** Supported Intl constructors. */
+const INTL_KINDS: Record<string, IntlKind> = {
+  DateTimeFormat: 'date',
+  NumberFormat: 'number',
+  Collator: 'collator',
+};
+
 const REGEXP_PROPERTIES: Record<string, Type> = {
   source: STRING,
   flags: STRING,

@@ -1,0 +1,14 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #e8e6df; color: #23292b; font-family: RunicFixture; font-size: 16px; }
+body { padding: 20px; }
+main { max-width: 600px; margin: 0 auto; padding: 20px; background: #fbfaf5; border: 1px solid #b5b4a8; border-radius: 10px; }
+p { margin: 6px 0; font-size: 13px; overflow-wrap: anywhere; }
+ul { margin: 6px 0; padding-left: 20px; font-size: 13px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+input[type='text'] { font-family: RunicFixture; font-size: 13px; line-height: 18px; padding: 5px 8px; border: 1px solid #556860; border-radius: 6px; background: #ffffff; color: #23292b; width: 230px; }
+input:focus { outline: none; border-color: #101010; }
+button { font-family: RunicFixture; font-size: 13px; padding: 5px 9px; border: 1px solid #556860; border-radius: 6px; background: #e1e8e2; color: #23292b; }
+.label { color: #5a6366; }
+/* A fixed width: the locale names the button shows differ in width. */
+#locale { width: 72px; }

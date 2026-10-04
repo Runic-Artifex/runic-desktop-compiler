@@ -1365,6 +1365,10 @@ fn probe_json(t: &Type, v: &str) -> String {
         Type::MediaQuery => {
             format!("{{ let _ = &{v}; runic_runtime::Json::String(\"media-query\".into()) }}")
         }
+        // A Date as its ISO string (or "Invalid Date").
+        Type::Date => format!(
+            "runic_runtime::Json::String(js::date::to_json({v}.time()).map_or(\"Invalid Date\".into(), |s| s.to_rust()))"
+        ),
     }
 }
 
