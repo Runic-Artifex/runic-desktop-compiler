@@ -1,0 +1,18 @@
+{
+  "description": "Mapping packs (docs/design/M6-LIBRARIES.md): clsx 2.1.1 with strings, nullable strings, numbers, && and ?: conditionals, objects with static keys (an array-index key first), nested arrays and an array value, in class attributes and text; @lucide/svelte 1.52.0 icons expanded to inline SVG with default and passed classes (string, clsx call, array), an alias icon (alert-circle), size, strokeWidth, color, absoluteStrokeWidth, role, aria-* and data-* attributes",
+  "fixtures": ["packs-svelte", "packs-react", "packs-vue"],
+  "actions": [
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "grow" },
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "count" },
+    { "kind": "click", "id": "tags" },
+    { "kind": "click", "id": "count" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "tags" },
+    { "kind": "click", "id": "tone" },
+    { "kind": "click", "id": "grow" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "tags" }
+  ]
+}
