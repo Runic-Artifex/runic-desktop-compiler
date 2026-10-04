@@ -327,8 +327,8 @@ fn nth<A: App>(native: &Native<A>, kind: &str, n: u64) -> Option<NodeId> {
     (!all.is_empty()).then(|| all[(n as usize) % all.len()])
 }
 
-/// The target of a pointer action that is not fully visible in its scroll
-/// containers and the viewport, named. Differential traces (`--hidden-targets
+/// The target of a pointer action that a pointer at its centre would not hit
+/// (scrolled out of a container, clipped or covered), named. Differential traces (`--hidden-targets
 /// stop`) end before such an action: the interpreter, which has no layout,
 /// delivers it to the target itself, while a pointer at the target's centre
 /// would hit what covers or clips it.
@@ -344,8 +344,16 @@ fn hidden_pointer_target<A: App>(native: &mut Native<A>, action: &Value) -> Opti
         Some(n) => nth(native, kind, n)?,
         None => native.doc.get_element_by_id(action["id"].as_str()?)?,
     };
-    if crate::layout::fully_visible(&mut native.doc, target) {
-        return None;
+    // Hidden: a pointer at the target's centre (where the probe aims) hits
+    // something outside the target (it is scrolled out, clipped or covered).
+    let r = crate::layout::client_rect(&native.doc, target)?;
+    let (x, y) = ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32);
+    let mut hit = native.doc.hit(x, y).map(|h| h.node_id);
+    while let Some(n) = hit {
+        if n == target {
+            return None;
+        }
+        hit = native.doc.get_node(n).and_then(|node| node.parent);
     }
     let id = native
         .doc
@@ -680,7 +688,7 @@ pub(crate) fn run<A: App>() {
     {
         if stop_hidden && let Some(name) = hidden_pointer_target(&mut native, &action) {
             stopped = Some(format!(
-                "action {} targets {name}, which is not fully visible",
+                "action {} targets {name}, which a pointer at its centre does not hit",
                 i + 1
             ));
             break;
