@@ -1833,7 +1833,11 @@ fn component_derived(p: &Program, k: usize, out: &mut String) {
         }
         let t = rust_type(&func.result);
         let owned_only = owned_only(p);
-        let same = same_expr(&func.result, "d.cached", "v");
+        let same = if func.derived_strict {
+            strict_expr(&func.result, "d.cached", "v")
+        } else {
+            same_expr(&func.result, "d.cached", "v")
+        };
         let _ = write!(clear, "st.dv{f} = None; ");
         let _ = writeln!(
             out,

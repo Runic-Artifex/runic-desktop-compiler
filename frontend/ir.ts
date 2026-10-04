@@ -204,6 +204,8 @@ export interface Local {
 export interface Fn {
   /** A cached derived value of its component (`$derived`, `computed`). */
   derived?: boolean;
+  /** Compare recomputed values with === (Svelte), not SameValue. */
+  derivedStrict?: boolean;
   name: string;
   /** Component whose cells the function reads and writes, if any. */
   component?: number;

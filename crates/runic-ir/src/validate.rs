@@ -2796,6 +2796,18 @@ fn unsafe_mutations(p: &Program, m: &mut Mutations) -> Result<()> {
             &format!("A template expression of {}", p.components[k].name),
         )?;
     }
+    for f in &p.functions {
+        if f.derived_strict && !f.derived {
+            return err(
+                "E_IR",
+                format!(
+                    "Function {} has derivedStrict but is not a derived value",
+                    f.name
+                ),
+                f.source.as_ref(),
+            );
+        }
+    }
     for (i, f) in p.functions.iter().enumerate() {
         if f.derived {
             check(

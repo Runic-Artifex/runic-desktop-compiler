@@ -912,6 +912,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                   tsFail(call, 'E_RUNE', '$derived.by takes a zero-parameter function');
                 lower.function(getter as ts.ArrowFunction, name, undefined, COMPONENT, index);
                 lower.functions[index].derived = true;
+                // Svelte compares a derived value's results with `===`.
+                lower.functions[index].derivedStrict = true;
               } else {
                 const v = lower.value(call.arguments[0], COMPONENT, `${name}$derived`);
                 lower.functions[index] = {
@@ -922,6 +924,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                   result: types.of(d.name),
                   body: [{ op: 'return', value: v }],
                   derived: true,
+                  derivedStrict: true,
                 };
               }
             });

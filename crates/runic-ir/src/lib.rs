@@ -469,6 +469,15 @@ pub struct Function {
     /// changed dependency only when its value changed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub derived: bool,
+    /// A derived value keeps its cached value when a recomputation is `===`
+    /// to it (Svelte `$derived`), not SameValue (Vue `computed`, the default):
+    /// `NaN` replaces `NaN`, `-0` keeps `0`.
+    #[serde(
+        rename = "derivedStrict",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub derived_strict: bool,
 }
 
 impl Function {

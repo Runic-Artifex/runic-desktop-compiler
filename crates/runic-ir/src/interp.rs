@@ -1494,10 +1494,13 @@ impl<'p> Machine<'p> {
         let reads = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
         let value = result?;
 
-        let same = self.instances[inst]
-            .derived
-            .get(&f)
-            .is_some_and(|d| d.value.same(&value));
+        let same = self.instances[inst].derived.get(&f).is_some_and(|d| {
+            if self.program.functions[f].derived_strict {
+                strict_equal(&d.value, &value)
+            } else {
+                d.value.same(&value)
+            }
+        });
         if same {
             let slot = self.instances[inst].derived.get_mut(&f).expect("slot");
             slot.reads = reads;

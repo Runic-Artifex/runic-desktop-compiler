@@ -1,0 +1,9 @@
+{
+  "description": "Svelte $derived keeps its value when a recomputation is === to it: dependents of an always-NaN derived re-run on every change of its input, those of one that flips between 0 and -0 do not",
+  "fixtures": ["derived-equality-svelte"],
+  "actions": [
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "inc" }
+  ]
+}
