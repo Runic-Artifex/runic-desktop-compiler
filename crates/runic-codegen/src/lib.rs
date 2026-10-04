@@ -1838,8 +1838,14 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
 /// host's work queued between tasks and the operations that queue it. The
 /// reference interpreter implements the same model (`runic_ir::interp`).
 const HOST_SERVICES: &str = r#"/// Work the host does after the running task, in order: clipboard replies, history traversals, `hashchange`.
-pub enum HostTask { ClipboardWrite(JsString, js::JsPromise<(), Lst>), ClipboardRead(js::JsPromise<JsString, Lst>), Traverse(i64), HashChange }
+pub enum HostTask { ClipboardWrite(JsString, js::JsPromise<(), Lst>), ClipboardRead(js::JsPromise<JsString, Lst>), Traverse(i64), HashChange, Reply(js::JsPromise<(), Lst>) }
 impl Cx {
+    /// `host.reply`: a promise fulfilled in a host task after the running one.
+    fn host_reply(&mut self) -> js::JsPromise<(), Lst> {
+        let p = js::JsPromise::pending();
+        self.host_tasks.push_back(HostTask::Reply(p.clone()));
+        p
+    }
     /// Chromium settles overlapping clipboard operations in an order that depends on their kinds, which the model does not cover.
     fn clipboard_pending(&self) -> JsResult<()> {
         if self.host_tasks.iter().any(|t| matches!(t, HostTask::ClipboardWrite(..) | HostTask::ClipboardRead(_))) {
@@ -1861,6 +1867,9 @@ impl Cx {
     }
     /// Traversals queued while one is pending interact in Chromium (a second may be dropped), which the model does not cover.
     fn traverse(&mut self, delta: i64) -> JsResult<()> {
+        if delta == 0 {
+            return Err(js::Throw::new("RunicHistoryError", "history.go(0) reloads the page, which the model does not cover"));
+        }
         if self.host_tasks.iter().any(|t| matches!(t, HostTask::Traverse(_))) {
             return Err(js::Throw::new("RunicHistoryError", "a history traversal while another is pending"));
         }
@@ -2588,6 +2597,25 @@ pub fn generate(
         .iter()
         .map(|(k, v)| format!("dom.set_attr(parent, {}, {});\n", rust_str(k), rust_str(v)))
         .collect();
+    // The app's HTML template (M6): attributes of <body> and of the container.
+    let attr_list = |m: &std::collections::BTreeMap<String, String>| -> String {
+        m.iter()
+            .map(|(k, v)| format!("({}, {}), ", rust_str(k), rust_str(v)))
+            .collect()
+    };
+    let mut template_attrs = String::new();
+    if !p.body.is_empty() {
+        template_attrs += &format!(
+            "const BODY_ATTRS: &'static [(&'static str, &'static str)] = &[{}];\n",
+            attr_list(&p.body)
+        );
+    }
+    if let Some(c) = &p.container {
+        template_attrs += &format!(
+            "const CONTAINER_ATTRS: Option<&'static [(&'static str, &'static str)]> = Some(&[{}]);\n",
+            attr_list(c)
+        );
+    }
     let assets: String = asset_mimes
         .iter()
         .enumerate()
@@ -2688,6 +2716,7 @@ pub fn generate(
          const CSS: &'static str = {css};\n\
          const ASSETS: &'static [(&'static str, &'static [u8])] = &[{assets}];\n\
          const IR_HASH: &'static str = {hash};\n\
+         {template_attrs}\
          const CHANGE_WITH_CLICK: bool = {change_with_click};\n\
          fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx, None);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
@@ -2732,6 +2761,7 @@ pub fn generate(
          Err(e) => {{ runic_runtime::unsupported(&e.message.to_rust()); None }}\n\
          }},\n\
          HostTask::HashChange => Some(Event::Hashchange),\n\
+         HostTask::Reply(p) => {{ let r = self.task(dom, false, |cx| {{ runic_runtime::promises::settle(cx, &p, Ok(())); Ok(()) }}); if let Err(e) = r {{ eprintln!(\"runic: uncaught exception: {{e}}\"); }} None }}\n\
          }})\n\
          }}\n\
          fn traverse(&mut self, delta: i64) {{ self.cx.host_tasks.push_back(HostTask::Traverse(delta)); }}\n\
@@ -2744,6 +2774,7 @@ pub fn generate(
         title = rust_str(&p.meta.title),
         css = rust_str(css),
         hash = rust_str(ir_hash),
+        template_attrs = template_attrs,
         restore = if p.restore_focus {
             "{ let events = commit_events(dom.restore_focus()); if !events.is_empty() { run_nested(&mut self.cx, events); } }\n"
         } else {

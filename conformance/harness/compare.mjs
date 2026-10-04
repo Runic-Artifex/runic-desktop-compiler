@@ -38,7 +38,7 @@ export function canonical(node) {
 /**
  * The host section of a snapshot (docs/design/M5-PLATFORM.md) in a fixed
  * key order: console lines ({ level, text }), clipboard text, location
- * relative to the origin and history length; absent fields are defaults.
+ * relative to the origin, history length and title; absent fields are defaults.
  */
 export function canonicalHost(host = {}) {
   const out = {};
@@ -46,6 +46,7 @@ export function canonicalHost(host = {}) {
   if (host.clipboard !== undefined) out.clipboard = host.clipboard;
   if (host.href !== undefined) out.href = host.href;
   if (host.historyLength !== undefined) out.historyLength = host.historyLength;
+  if (host.title !== undefined) out.title = host.title;
   return out;
 }
 

@@ -27,6 +27,7 @@ pub mod regexp;
 pub mod reorder;
 pub mod string_ops;
 pub mod tz;
+pub mod uri;
 
 pub use array_ops::join_elements;
 pub use attrs::{

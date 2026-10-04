@@ -198,6 +198,12 @@ pub(crate) struct Listeners {
     /// mousedown, and the last focus change by the user was by mouse.
     pub(crate) had_keyboard_event: bool,
     pub(crate) mouse_focus: bool,
+    /// The element the app is mounted in (`div#root`, or the container of
+    /// the app's HTML template).
+    pub(crate) container: Option<NodeId>,
+    /// The sequential focus navigation starting point a focus reset
+    /// (`focus.reset`: the start of the document) or `focus.start` set.
+    pub(crate) set_navigation: Option<Option<NodeId>>,
 }
 
 impl Listeners {
@@ -346,6 +352,89 @@ impl Host {
                 .and_then(|n| n.element_data())
                 .is_some_and(|e| e.attrs().iter().any(|a| *a.name.local == *name))
         })
+    }
+
+    /// `element.getAttribute(name)`.
+    pub fn get_attribute(&self, node: u64, name: &str) -> Option<String> {
+        let name = name.to_ascii_lowercase();
+        let dom = self.dom()?;
+        dom.doc
+            .get_node(NodeId::from_u64(node))
+            .and_then(|n| n.element_data())
+            .and_then(|e| {
+                e.attrs()
+                    .iter()
+                    .find(|a| *a.name.local == *name)
+                    .map(|a| a.value.to_string())
+            })
+    }
+
+    /// `element.localName`.
+    pub fn local_name(&self, node: u64) -> String {
+        self.dom()
+            .and_then(|dom| {
+                dom.doc
+                    .get_node(NodeId::from_u64(node))
+                    .and_then(|n| n.element_data())
+                    .map(|e| e.name.local.to_string())
+            })
+            .unwrap_or_default()
+    }
+
+    /// The parent element inside the app's DOM: none for the app's
+    /// top-level elements (whose parent is the mount container).
+    pub fn parent_element(&self, node: u64) -> Option<u64> {
+        let dom = self.dom()?;
+        let parent = dom.doc.get_node(NodeId::from_u64(node))?.parent?;
+        if Some(parent) == dom.listeners.container {
+            return None;
+        }
+        dom.doc
+            .get_node(parent)
+            .and_then(|n| n.element_data())
+            .map(|_| parent.as_u64())
+    }
+
+    /// `document.getElementById(id)`: the first element in tree order.
+    pub fn element_by_id(&self, id: &str) -> Option<u64> {
+        let dom = self.dom()?;
+        crate::events::tree_order(dom.doc)
+            .into_iter()
+            .find(|&n| dom.doc.get_node(n).and_then(|x| x.attr("id".into())) == Some(id))
+            .map(NodeId::as_u64)
+    }
+
+    /// The focused element (none for the body).
+    pub fn focused(&self) -> Option<u64> {
+        let dom = self.dom()?;
+        crate::events::focused_element(dom.doc).map(NodeId::as_u64)
+    }
+
+    /// The router's focus reset (SvelteKit's `reset_focus`: the body is
+    /// focused with a temporary `tabindex` and loses focus again): the
+    /// focused element, if any, is blurred, and the sequential focus
+    /// navigation starting point moves to the start of the document. The
+    /// body's own focus events reach no listener the IR can register.
+    pub fn reset_focus(&self) -> Vec<(runic_js::Event, Event, Vec<crate::Delivery>)> {
+        let Some(dom) = self.dom() else {
+            return vec![];
+        };
+        dom.listeners.set_navigation = Some(None);
+        match crate::events::focused_element(dom.doc) {
+            Some(f) => {
+                drop(dom);
+                self.focus(f.as_u64(), false)
+            }
+            None => vec![],
+        }
+    }
+
+    /// `focus.start`: the sequential focus navigation starting point moves to
+    /// `node` (a fragment navigation to it), focus staying where it is.
+    pub fn focus_start(&self, node: u64) {
+        if let Some(dom) = self.dom() {
+            dom.listeners.set_navigation = Some(Some(NodeId::from_u64(node)));
+        }
     }
 
     /// `element.style.getPropertyValue(name)` (the inline style).

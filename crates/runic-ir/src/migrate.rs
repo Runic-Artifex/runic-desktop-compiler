@@ -363,6 +363,8 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
         .collect();
     Ok(Program {
         document: Default::default(),
+        body: Default::default(),
+        container: None,
         records: vec![],
         functions: vec![],
         schema: SCHEMA,

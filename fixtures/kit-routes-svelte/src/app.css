@@ -1,0 +1,65 @@
+@font-face {
+  font-family: RunicFixture;
+  src: url('./fonts/DejaVuSans.woff2') format('woff2');
+  font-weight: 100 900;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: #eae6dc;
+  color: #252c28;
+  font-family: RunicFixture;
+  font-size: 14px;
+}
+header {
+  padding: 6px 12px;
+  background: #dfe7f0;
+  border-bottom: 1px solid #52665b;
+}
+nav,
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 2px 0;
+}
+label {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+a {
+  color: #1d4f8a;
+}
+main {
+  padding: 4px 12px;
+}
+h1,
+h2,
+h3 {
+  margin: 4px 0;
+  font-size: 18px;
+}
+p,
+ul {
+  margin: 4px 0;
+}
+button {
+  font-family: RunicFixture;
+  font-size: 13px;
+  width: 100px;
+  padding: 2px 6px;
+  border: 1px solid #52665b;
+  border-radius: 6px;
+  background: #e2e8df;
+  color: #252c28;
+}
+#items {
+  padding: 4px 8px;
+  border: 1px solid #b7b7a9;
+  border-radius: 8px;
+}

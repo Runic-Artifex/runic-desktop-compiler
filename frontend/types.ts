@@ -20,6 +20,8 @@ export class TypeMapper {
   classUnion?: (parts: ts.Type[], at: ts.Node) => Type;
   /** The IR type a mapping pack gives a package type (frontend/packs.ts), if any. */
   packType?: (t: ts.Type, at: ts.Node) => Type | undefined;
+  /** The record of Error values (`{ name, message }`), from the language layer. */
+  errorType?: () => number;
   /** The record of MutationObservers, once a program uses one. */
   mutationObserver?: number;
   /**
@@ -292,6 +294,7 @@ export class TypeMapper {
         'E_INTL',
         `Intl.${name} objects are supported as constants used through their methods (const f = new Intl.DateTimeFormat(…); f.format(d)), not as values`,
       );
+    if (name === 'Error' && this.fromLib(t) && this.errorType) return { record: this.errorType() };
     if (name && ['Error', 'HTMLElement'].includes(name))
       this.fail(at, 'E_TYPE_UNSUPPORTED', `${name} values are planned for a later milestone`);
     // Class instances are nominal records (frontend/classes.ts).
@@ -376,8 +379,20 @@ export class TypeMapper {
     const shape = JSON.stringify(placeholder.fields);
     const same = this.byShape.get(shape);
     const last = index === this.records.length - 1;
-    if (same !== undefined && same !== index && last && !this.referencesSelf(placeholder, index)) {
-      this.records.pop();
+    const referenced = () =>
+      this.records.some(
+        r => r !== placeholder && JSON.stringify(r.fields).includes(`{"record":${index}}`),
+      );
+    if (
+      same !== undefined &&
+      same !== index &&
+      !this.referencesSelf(placeholder, index) &&
+      (last || !referenced())
+    ) {
+      // The last record is dropped; one registered before records its
+      // fields registered (an equal record among them: a spread's source)
+      // stays unused.
+      if (last) this.records.pop();
       this.byType.set(t, same);
       return same;
     }

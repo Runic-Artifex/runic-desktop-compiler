@@ -133,6 +133,11 @@ pub trait App: 'static {
     /// `(mime, bytes)` of each embedded asset.
     const ASSETS: &'static [(&'static str, &'static [u8])];
     const IR_HASH: &'static str;
+    /// Attributes of `<body>` (from the app's HTML template, M6).
+    const BODY_ATTRS: &'static [(&'static str, &'static str)] = &[];
+    /// Attributes of the element the app mounts in (the HTML template's
+    /// container, M6); `None` for `<div id="root">`.
+    const CONTAINER_ATTRS: Option<&'static [(&'static str, &'static str)]> = None;
 
     fn new() -> Self;
     /// Build the initial DOM under `parent` and register listeners.

@@ -7,6 +7,11 @@ export async function lower(graph) {
   const result = await adapter(graph);
   // The document element starts with index.html's <html> attributes.
   if (Object.keys(graph.documentAttrs ?? {}).length) result.ir.document = graph.documentAttrs;
+  // A SvelteKit app's app.html: <body>'s attributes and the container it mounts in.
+  if (graph.kit) {
+    if (Object.keys(graph.kit.html.bodyAttrs).length) result.ir.body = graph.kit.html.bodyAttrs;
+    result.ir.container = graph.kit.html.containerAttrs;
+  }
   check(result.ir);
   return result;
 }

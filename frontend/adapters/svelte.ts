@@ -125,6 +125,8 @@ const BOOLEAN_ATTRS = new Set([
 
 interface Graph {
   root: string;
+  /** A SvelteKit app (compiler/adapters/kit-app.mjs). */
+  kit?: KitGraph;
   entry: string;
   hash: string;
   css: string;
@@ -142,6 +144,16 @@ interface Graph {
 }
 
 type Source = { file: string; line: number; column: number };
+
+/** What the Svelte adapter uses of a SvelteKit app (compiler/adapters/kit-app.mjs). */
+interface KitGraph {
+  hash: boolean;
+  generated: string;
+  routeModules: Set<string>;
+  routeComponents: Set<string>;
+  typeFiles: Map<string, string>;
+  resolveType: (specifier: string, from: string) => string | undefined;
+}
 
 /** Source location in the original file for an offset. */
 function locate(text: string, offset: number, file: string): Source {
@@ -306,6 +318,40 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     };
     units.set(file, u);
     return u;
+  };
+  /**
+   * The top-level `beforeNavigate(f)` / `afterNavigate(f)` calls of a
+   * component's instance script (imported from `$app/navigation`), as
+   * offsets in the component file.
+   */
+  const navigationCalls = (u: Unit): { start: number; end: number }[] => {
+    const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
+    const sf = ts.createSourceFile(u.file + '.ts', script, ts.ScriptTarget.Latest, true);
+    const names = new Set<string>();
+    for (const stmt of sf.statements)
+      if (
+        ts.isImportDeclaration(stmt) &&
+        (stmt.moduleSpecifier as ts.StringLiteral).text === '$app/navigation'
+      ) {
+        const named = stmt.importClause?.namedBindings;
+        if (named && ts.isNamedImports(named))
+          for (const el of named.elements)
+            if (['beforeNavigate', 'afterNavigate'].includes((el.propertyName ?? el.name).text))
+              names.add(el.name.text);
+      }
+    const out: { start: number; end: number }[] = [];
+    for (const stmt of sf.statements)
+      if (
+        ts.isExpressionStatement(stmt) &&
+        ts.isCallExpression(stmt.expression) &&
+        ts.isIdentifier(stmt.expression.expression) &&
+        names.has(stmt.expression.expression.text)
+      )
+        out.push({
+          start: u.scriptStart + stmt.expression.getStart(sf),
+          end: u.scriptStart + stmt.expression.end,
+        });
+    return out;
   };
   // Imports and re-exports, followed syntactically (frontend/modules.ts).
   const resolver = new ModuleResolver(graph, file => {
@@ -514,7 +560,24 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     copy(u.moduleStart, u.moduleStart + u.moduleLength);
     s += '\n';
     u.instanceSynth = s.length;
-    copy(u.scriptStart, u.scriptStart + u.scriptLength);
+    {
+      // SvelteKit's beforeNavigate/afterNavigate register their callback
+      // when the component mounts (add_navigation_callback: onMount, which
+      // is an untracked effect): a top-level `beforeNavigate(f)` becomes
+      // `$effect(() => untrack(() => beforeNavigate(f)))`, whose result
+      // removes the callback on destroy.
+      const calls = graph.kit ? navigationCalls(u) : [];
+      let at = u.scriptStart;
+      for (const c of calls) {
+        copy(at, c.start);
+        s += '$effect(() => __runic_untrack(() => ';
+        copy(c.start, c.end);
+        s += '))';
+        at = c.end;
+      }
+      copy(at, u.scriptStart + u.scriptLength);
+      if (calls.length) s += "\nimport { untrack as __runic_untrack } from 'svelte';";
+    }
     s += '\n';
     if (!u.reached) {
       u.statementsEnd = s.length;
@@ -540,12 +603,52 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             `<svelte:${target}> supports event attributes with a handler expression`,
             locate(u.original, a.start, u.rel),
           );
+        if (
+          graph.kit &&
+          ((target === 'document' && a.name === 'onclick') ||
+            (target === 'window' && ['onpopstate', 'onhashchange'].includes(a.name)))
+        )
+          fail(
+            'E_KIT_LISTENER',
+            `<svelte:${target} ${a.name}> is unsupported in a SvelteKit app (the router owns these listeners)`,
+            locate(u.original, a.start, u.rel),
+          );
         const event = JSON.stringify(a.name.slice(2));
         const name = `__runic_${target}_${hosts++}`;
         s += `const ${name} = (`;
         copy(a.value.expression.start, a.value.expression.end);
         const map = target === 'window' ? 'WindowEventMap' : 'HostEventMap';
         s += `) satisfies (event: ${map}[${event}]) => void;\n$effect.pre(() => { ${target}.addEventListener(${event}, ${name}); return () => ${target}.removeEventListener(${event}, ${name}); });\n`;
+      }
+    }
+    // <svelte:head>: a <title> sets document.title in an effect created
+    // with the template (Svelte's deferred_template_effect), its parts as
+    // Svelte renders text. Other head elements have no native meaning yet.
+    for (const n of u.ast.fragment.nodes) {
+      if (n.type !== 'SvelteHead') continue;
+      for (const c of n.fragment.nodes) {
+        if (c.type === 'Comment' || (c.type === 'Text' && !c.data.trim())) continue;
+        if (c.type !== 'TitleElement' || c.attributes.length)
+          fail(
+            'E_TEMPLATE',
+            '<svelte:head> supports <title> (other head elements have no native meaning yet)',
+            locate(u.original, c.start, u.rel),
+          );
+        s += '$effect(() => {\n  document.title = `';
+        for (const part of c.fragment.nodes) {
+          if (part.type === 'Text') s += part.data.replace(/[`\\$]/g, (ch: string) => '\\' + ch);
+          else if (part.type === 'ExpressionTag') {
+            s += '$' + '{__runic.text(';
+            copy(part.expression.start, part.expression.end);
+            s += ')}';
+          } else
+            fail(
+              'E_TEMPLATE',
+              'A <title> holds text and expressions',
+              locate(u.original, part.start, u.rel),
+            );
+        }
+        s += '`;\n});\n';
       }
     }
     u.statementsEnd = s.length;
@@ -715,6 +818,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep) && !isPackageModule(id))
         files.set(id, m.code);
     for (const m of packageModules.values()) files.set(m.virtual, m.text);
+    // A SvelteKit app's generated modules that are imported for types only.
+    for (const [f, code] of graph.kit?.typeFiles ?? []) if (!files.has(f)) files.set(f, code);
     // Imports resolve as the collector resolved them (aliases included); a
     // component file stands for its virtual module, a reached package module
     // for its typed virtual module. Other package modules (barrels, packs)
@@ -733,7 +838,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ? containing.slice(0, -'.__runic.ts'.length)
         : containing;
       const edge = graph.modules.get(from)?.imports.find(i => i.specifier === specifier);
-      if (!edge) return undefined;
+      if (!edge) return graph.kit?.resolveType(specifier, from);
       // Modules of packages, also uncollected ones (imported for types only).
       const source = isPackageModule(edge.resolved) || /[\\/]node_modules[\\/]/.test(edge.resolved);
       if (edge.package && !source) return undefined;
@@ -820,6 +925,41 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const tsFail = (n: ts.Node, code: string, message: string): never =>
     fail(code, message, sourceOf(n));
   const checker = program.getTypeChecker();
+  // SvelteKit: `error()` and `redirect()` throw values only the router reads
+  // (frontend/adapters/kit/kit.ts), so code that may catch them (a `catch`
+  // in a route module, or in a module or component that imports
+  // @sveltejs/kit, directly or through other modules) is rejected.
+  if (graph.kit) {
+    const kitModule = path.join(graph.kit.generated, 'kit.ts');
+    const reaching = new Set<string>([kitModule]);
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const [id, m] of graph.modules)
+        if (
+          !reaching.has(id) &&
+          !id.startsWith(graph.kit.generated + path.sep) &&
+          m.imports.some(i => !i.typeOnly && reaching.has(i.resolved))
+        ) {
+          reaching.add(id);
+          changed = true;
+        }
+    }
+    for (const id of [...reaching, ...graph.kit.routeModules]) {
+      if (id === kitModule) continue;
+      const sf = program.getSourceFile(units.get(id)?.virtual ?? id);
+      if (!sf) continue;
+      const visit = (n: ts.Node) => {
+        if (ts.isCatchClause(n))
+          tsFail(
+            n,
+            'E_KIT_CATCH',
+            "A catch clause where SvelteKit's error() or redirect() may be thrown is unsupported (their errors are the router's)",
+          );
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+  }
   const types = new TypeMapper(checker, tsFail);
 
   // --- Lowering state (one component at a time) ---
@@ -841,6 +981,66 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     cellType: cell => cells[cell].type,
     writeCell: (cell, value) => [{ op: 'set', cell, value }],
     call(node, ctx, lower) {
+      // In a SvelteKit app the router owns these listeners: Kit's click
+      // listener on <html> runs before the document's (the native runtime has
+      // document listeners only), and its focus reset navigates to fragments,
+      // firing popstate and hashchange that only the router ignores.
+      if (
+        graph.kit &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === 'addEventListener' &&
+        ts.isIdentifier(node.expression.expression) &&
+        ['window', 'document'].includes(node.expression.expression.text) &&
+        !node.getSourceFile().fileName.startsWith(graph.kit.generated + path.sep)
+      ) {
+        const [kind] = node.arguments;
+        const target = node.expression.expression.text;
+        if (
+          kind &&
+          ts.isStringLiteralLike(kind) &&
+          ((target === 'document' && kind.text === 'click') ||
+            (target === 'window' && ['popstate', 'hashchange'].includes(kind.text)))
+        )
+          return tsFail(
+            node,
+            'E_KIT_LISTENER',
+            `${target} ${kind.text} listeners are unsupported in a SvelteKit app (the router owns them)`,
+          );
+      }
+      // SvelteKit's beforeNavigate/afterNavigate: only as a component
+      // script's top-level statement (lowered to a mount-time registration).
+      if (graph.kit && ts.isIdentifier(node.expression)) {
+        const decl = checker.getSymbolAtLocation(node.expression)?.declarations?.[0];
+        const target =
+          decl && ts.isImportSpecifier(decl)
+            ? checker.getAliasedSymbol(checker.getSymbolAtLocation(node.expression)!)
+            : undefined;
+        const file = target?.declarations?.[0]?.getSourceFile().fileName ?? '';
+        if (
+          file === path.join(graph.kit.generated, 'navigation.ts') &&
+          ['beforeNavigate', 'afterNavigate'].includes(target!.name)
+        ) {
+          const arrow = node.parent;
+          const wrapper = arrow?.parent;
+          const lowered =
+            ts.isArrowFunction(arrow) &&
+            !!wrapper &&
+            ts.isCallExpression(wrapper) &&
+            ts.isIdentifier(wrapper.expression) &&
+            wrapper.expression.text === '__runic_untrack';
+          if (!lowered)
+            return tsFail(
+              node,
+              'E_KIT_LIFECYCLE',
+              `${target!.name} registers a callback for the component calling it: call it as a statement at the top level of a component script`,
+            );
+        }
+      }
+      // settled(): fulfilled when the pending flush ends (Svelte's batch commits).
+      if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'settled') {
+        if (node.arguments.length) return tsFail(node, 'E_CALL', 'settled takes no arguments');
+        return { op: 'builtin', name: 'flush.after', args: [], type: { promise: 'void' } };
+      }
       // tick(): a microtask that runs any pending flush, then fulfils.
       if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'tick') {
         if (node.arguments.length) return tsFail(node, 'E_CALL', 'tick takes no arguments');
@@ -1029,6 +1229,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // functions shared by every instance.
   for (const p of lowerModules(graph, program, lower, {
     skip: f => f === graph.entry,
+    // 'svelte''s tick, untrack and settled in modules lower where they are called.
+    frameworkImport(spec, stmt) {
+      if (spec !== 'svelte') return false;
+      const named = stmt.importClause?.namedBindings;
+      if (stmt.importClause?.name || !named || !ts.isNamedImports(named))
+        tsFail(stmt, 'E_CAPABILITY', 'Import tick, untrack and settled from svelte by name');
+      for (const el of (named as ts.NamedImports).elements)
+        if (!['tick', 'untrack', 'settled'].includes((el.propertyName ?? el.name).text))
+          tsFail(
+            el,
+            'E_CAPABILITY',
+            `svelte's ${(el.propertyName ?? el.name).text} is unsupported in modules (tick, untrack and settled are)`,
+          );
+      return true;
+    },
     componentModule: f => {
       const u = units.get(f);
       return u?.moduleLength ? moduleStatements(u) : undefined;
@@ -1707,7 +1922,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       // the text around them joins.
       const list: SNode[] = [];
       for (const n of fragment.nodes) {
-        if (['Comment', 'SvelteWindow', 'SvelteDocument'].includes(n.type)) continue;
+        if (['Comment', 'SvelteWindow', 'SvelteDocument', 'SvelteHead'].includes(n.type)) continue;
         const last = list.at(-1);
         if (n.type === 'Text' && last?.type === 'Text') last.data += n.data;
         else list.push({ ...n });
@@ -2408,10 +2623,55 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         linkFragments.push({ name: name!, at: loc(at) });
       }
     };
+    /**
+     * SvelteKit link options and focus: `data-sveltekit-preload-*` other
+     * than off (preloading runs loads early, not modelled yet) and
+     * `autofocus` (Kit's focus reset focuses it) are rejected.
+     */
+    const kitAttributes = (n: SNode) => {
+      for (const a of n.attributes) {
+        if (a.type === 'SpreadAttribute') {
+          const shape = shapes.of(nodeIn(u, a.expression) as ts.Expression);
+          for (const name of [
+            'autofocus',
+            'data-sveltekit-preload-data',
+            'data-sveltekit-preload-code',
+          ])
+            if (mayHold(shape, name))
+              fail(
+                'E_KIT_ATTRIBUTE',
+                `Spread attributes that may hold ${name} are unsupported in a SvelteKit app`,
+                loc(n),
+              );
+          continue;
+        }
+        if (a.type !== 'Attribute') continue;
+        if (a.name === 'autofocus')
+          fail(
+            'E_KIT_ATTRIBUTE',
+            'autofocus is unsupported in a SvelteKit app (the focus reset after a navigation focuses it)',
+            loc(a),
+          );
+        if (/^data-sveltekit-preload-(data|code)$/.test(a.name)) {
+          const text =
+            Array.isArray(a.value) && a.value.length === 1 && a.value[0].type === 'Text'
+              ? a.value[0].data
+              : undefined;
+          if (text !== 'off' && text !== 'false')
+            fail(
+              'E_KIT_PRELOAD',
+              `${a.name} other than "off" or "false" preloads routes (loads run on hover or tap), which is not supported yet`,
+              loc(a),
+            );
+        }
+      }
+    };
     const element = (n: SNode): Node => {
       if (!TAGS.has(n.name))
         fail('E_TEMPLATE', `<${n.name}> is outside the supported elements`, loc(n));
-      if (n.name === 'a') linkTargets(n);
+      // In a SvelteKit app the router follows links (its click listener).
+      if (n.name === 'a' && !graph.kit) linkTargets(n);
+      if (graph.kit) kitAttributes(n);
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];

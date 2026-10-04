@@ -12,6 +12,20 @@
 use crate::{JsString, Throw};
 use url::{Position, Url};
 
+/// `document.title` as read: the title text with ASCII whitespace stripped
+/// and collapsed (the HTML standard's title getter).
+pub fn document_title(raw: &JsString) -> JsString {
+    let ws = |u: &u16| matches!(*u, 0x09 | 0x0A | 0x0C | 0x0D | 0x20);
+    let mut out: Vec<u16> = Vec::new();
+    for part in raw.units().split(ws).filter(|p| !p.is_empty()) {
+        if !out.is_empty() {
+            out.push(0x20);
+        }
+        out.extend_from_slice(part);
+    }
+    JsString::from_units(out)
+}
+
 /// The stand-in origin of relative locations (never observable).
 const BASE: &str = "http://runic.invalid/";
 
@@ -23,6 +37,8 @@ struct Entry {
     url: Url,
     /// The document the entry belongs to (a reload starts a new one).
     document: u32,
+    /// `history.state`: a string (the structured clone of one), or null.
+    state: Option<JsString>,
 }
 
 /// A traversal that changed the current entry.
@@ -61,7 +77,11 @@ impl Session {
             return Err(format!("the start URL {start:?} must be a path"));
         }
         Ok(Session {
-            entries: vec![Entry { url, document: 0 }],
+            entries: vec![Entry {
+                url,
+                document: 0,
+                state: None,
+            }],
             index: 0,
             document: 0,
             loading: true,
@@ -97,6 +117,11 @@ impl Session {
     /// `location.href` without the origin.
     pub fn href(&self) -> String {
         self.url()[Position::BeforePath..].to_owned()
+    }
+
+    /// `history.state` of the current entry (`None` for null).
+    pub fn state(&self) -> Option<JsString> {
+        self.entries[self.index].state.clone()
     }
 
     /// `history.length`.
@@ -147,11 +172,12 @@ impl Session {
 
     /// Append an entry after the current one, dropping later entries (and
     /// the oldest beyond the limit).
-    fn append(&mut self, url: Url) {
+    fn append(&mut self, url: Url, state: Option<JsString>) {
         self.entries.truncate(self.index + 1);
         self.entries.push(Entry {
             url,
             document: self.document,
+            state,
         });
         if self.entries.len() > MAX_ENTRIES {
             self.entries.remove(0);
@@ -159,23 +185,51 @@ impl Session {
         self.index = self.entries.len() - 1;
     }
 
-    /// `history.pushState(null, "", url)`: a new entry, no events.
-    pub fn push(&mut self, url: Option<&JsString>) -> Result<(), Throw> {
+    /// `history.pushState(state, "", url)`: a new entry, no events.
+    pub fn push(&mut self, url: Option<&JsString>, state: Option<&JsString>) -> Result<(), Throw> {
         let url = match url {
             Some(u) => self.resolve(u)?,
             None => self.url().clone(),
         };
-        self.append(url);
+        self.append(url, state.cloned());
         Ok(())
     }
 
-    /// `history.replaceState(null, "", url)`: the current entry's URL, no events.
-    pub fn replace(&mut self, url: Option<&JsString>) -> Result<(), Throw> {
+    /// `history.replaceState(state, "", url)`: the current entry's URL and
+    /// state, no events.
+    pub fn replace(
+        &mut self,
+        url: Option<&JsString>,
+        state: Option<&JsString>,
+    ) -> Result<(), Throw> {
         if let Some(u) = url {
             let url = self.resolve(u)?;
             self.entries[self.index].url = url;
         }
+        self.entries[self.index].state = state.cloned();
         Ok(())
+    }
+
+    /// `new URL(input, base)` without the origin, for a `base` without the
+    /// origin (a path with optional query and fragment): `None` for
+    /// absolute URLs (other origins; the origin is not modelled) and URLs
+    /// that do not parse. Paths are escaped as Chromium escapes them.
+    pub fn resolve_against(input: &JsString, base: &JsString) -> Option<String> {
+        let origin = Url::parse(BASE).expect("base");
+        let base = origin.join(&base.to_rust()).ok()?;
+        let text = input.to_rust();
+        if Url::parse(&text).is_ok() {
+            return None;
+        }
+        let mut url = base.join(&text).ok()?;
+        if url.origin() != origin.origin() {
+            return None;
+        }
+        if url.path().contains(['^', '|']) {
+            let path = url.path().replace('^', "%5E").replace('|', "%7C");
+            url.set_path(&path);
+        }
+        Some(url[Position::BeforePath..].to_owned())
     }
 
     /// `location.hash = value`: a fragment navigation unless the fragment is
@@ -205,8 +259,9 @@ impl Session {
             }
             self.loading_navigations += 1;
             self.entries[self.index].url = url;
+            self.entries[self.index].state = None;
         } else {
-            self.append(url);
+            self.append(url, None);
         }
         Ok(true)
     }
@@ -231,9 +286,11 @@ impl Session {
             .map_err(|_| unsupported(&format!("the link {text:?} does not parse")))?;
         let hashchange = url.fragment() != self.url().fragment();
         if &url == self.url() || self.loading {
+            // A replaced entry starts with a null state.
             self.entries[self.index].url = url;
+            self.entries[self.index].state = None;
         } else {
-            self.append(url);
+            self.append(url, None);
         }
         Ok(hashchange)
     }
@@ -291,8 +348,8 @@ mod tests {
             (h.pathname(), h.search(), h.hash()),
             ("/start".into(), "?q=1".into(), "#a".into())
         );
-        h.push(Some(&s("/b"))).unwrap();
-        h.push(Some(&s("#c"))).unwrap();
+        h.push(Some(&s("/b")), None).unwrap();
+        h.push(Some(&s("#c")), None).unwrap();
         assert_eq!(h.length(), 3);
         assert_eq!(h.href(), "/b#c");
         // Fragment-only difference: hashchange follows popstate.
@@ -306,10 +363,10 @@ mod tests {
         );
         assert_eq!(h.traverse(-1).unwrap(), None);
         assert_eq!(h.traverse(5).unwrap(), None);
-        h.replace(Some(&s("/r"))).unwrap();
+        h.replace(Some(&s("/r")), None).unwrap();
         assert_eq!(h.href(), "/r");
-        assert!(h.push(Some(&s("http://example.com/"))).is_err());
-        assert!(h.push(Some(&s("//host/x"))).is_err());
+        assert!(h.push(Some(&s("http://example.com/")), None).is_err());
+        assert!(h.push(Some(&s("//host/x")), None).is_err());
     }
 
     #[test]
@@ -327,7 +384,7 @@ mod tests {
             (String::new(), "/#".into(), 2)
         );
         for i in 0..60 {
-            h.push(Some(&s(&format!("/p{i}")))).unwrap();
+            h.push(Some(&s(&format!("/p{i}"))), None).unwrap();
         }
         assert_eq!(h.length(), MAX_ENTRIES);
         assert_eq!(h.href(), "/p59");
@@ -358,14 +415,44 @@ mod tests {
     fn reload_starts_a_document() {
         let mut h = Session::new("/").unwrap();
         h.loaded();
-        h.push(Some(&s("/a"))).unwrap();
+        h.push(Some(&s("/a")), None).unwrap();
         h.start_document();
         h.loaded();
         assert!(h.traverse(-1).is_err());
-        h.push(Some(&s("/b"))).unwrap();
+        h.push(Some(&s("/b")), None).unwrap();
         assert_eq!(
             h.traverse(-1).unwrap(),
             Some(Traversal { hashchange: false })
         );
+    }
+
+    #[test]
+    fn entry_states() {
+        let mut h = Session::new("/").unwrap();
+        h.loaded();
+        assert_eq!(h.state(), None);
+        h.replace(None, Some(&s("1 1"))).unwrap();
+        h.push(Some(&s("/a")), Some(&s("2 2"))).unwrap();
+        assert_eq!(h.state(), Some(s("2 2")));
+        h.traverse(-1).unwrap();
+        assert_eq!((h.href(), h.state()), ("/".into(), Some(s("1 1"))));
+        // A reload keeps the entries' states; fragment navigations start null.
+        h.start_document();
+        h.loaded();
+        assert_eq!(h.state(), Some(s("1 1")));
+        h.follow_fragment(&s("#x")).unwrap();
+        assert_eq!(h.state(), None);
+    }
+
+    #[test]
+    fn resolving_against_a_base() {
+        let r = |i: &str, b: &str| Session::resolve_against(&s(i), &s(b));
+        assert_eq!(r("/a/b?q#f", "/x"), Some("/a/b?q#f".into()));
+        assert_eq!(r("../c", "/a/b/d"), Some("/a/c".into()));
+        assert_eq!(r("#h", "/a?q"), Some("/a?q#h".into()));
+        assert_eq!(r("", "/a?q#f"), Some("/a?q".into()));
+        assert_eq!(r("/a b^", "/"), Some("/a%20b%5E".into()));
+        assert_eq!(r("http://example.com/", "/"), None);
+        assert_eq!(r("//host/x", "/"), None);
     }
 }

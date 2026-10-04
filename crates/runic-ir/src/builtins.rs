@@ -422,14 +422,22 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("clipboard", "read") => arity(args, 0, 0).map(|_| Promise(Box::new(s))),
         // Session history: pushState/replaceState with an optional URL (the
         // state is null), traversals by a literal delta, the entry count.
+        // The second argument (M6) is the entry's state: a string or null.
         ("history", "push" | "replace") => {
-            arity(args, 0, 1)?;
+            arity(args, 0, 2)?;
             match args.first() {
-                None | Some(String) => Ok(Void),
-                Some(Maybe(t)) if **t == String => Ok(Void),
-                Some(other) => Err(format!("the URL must be a string, found {}", other.name())),
+                None | Some(String) => {}
+                Some(Maybe(t)) if **t == String => {}
+                Some(other) => {
+                    return Err(format!("the URL must be a string, found {}", other.name()));
+                }
+            }
+            match args.get(1) {
+                None => Ok(Void),
+                Some(t) => expect(t, &Maybe(Box::new(s.clone())), "state").map(|_| Void),
             }
         }
+        ("history", "state") => arity(args, 0, 0).map(|_| Maybe(Box::new(s.clone()))),
         ("history", "back" | "forward") => arity(args, 0, 0).map(|_| Void),
         ("history", "go") => {
             arity(args, 1, 1)?;
@@ -440,6 +448,41 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("location", "set-hash") => {
             arity(args, 1, 1)?;
             expect(&args[0], &s, "hash").map(|_| Void)
+        }
+        // The document (M6): its title, elements by id, the focused element
+        // (none for the body) and the router's focus reset.
+        ("document", "title") => arity(args, 0, 0).map(|_| s.clone()),
+        ("document", "set-title") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "title").map(|_| Void)
+        }
+        ("document", "getElementById") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "id").map(|_| Maybe(Box::new(Element)))
+        }
+        ("focus", "current") => arity(args, 0, 0).map(|_| Maybe(Box::new(Element))),
+        ("focus", "reset") => arity(args, 0, 0).map(|_| Void),
+        ("focus", "start") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "element").map(|_| Void)
+        }
+        // URLs without the origin (M6): `new URL(input, base)` (undefined for
+        // other origins) and the pairs of a query (`URLSearchParams`).
+        ("url", "resolve") => {
+            arity(args, 2, 2)?;
+            all(args, &s).map(|_| Maybe(Box::new(s.clone())))
+        }
+        ("url", "query-pairs") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "query").map(|_| Type::array(Type::array(s.clone())))
+        }
+        // Host work (M6): a promise fulfilled in a host task after the
+        // running one (an I/O round trip whose result is known), and a
+        // runtime shape the model does not cover (probes stop).
+        ("host", "reply") => arity(args, 0, 0).map(|_| Promise(Box::new(Void))),
+        ("host", "unsupported") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "description").map(|_| Void)
         }
         // Math.random() and crypto.randomUUID().
         ("random", "number") => arity(args, 0, 0).map(|_| n),
@@ -602,6 +645,21 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| b)
         }
+        // M6: attribute values, the tag name, and the parent element inside
+        // the program's DOM (none for its top-level elements).
+        ("element", "getAttribute") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "name").map(|_| Maybe(Box::new(s.clone())))
+        }
+        ("element", "localName") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| s.clone())
+        }
+        ("element", "parent") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(Element)))
+        }
         ("element", "style-get") => {
             arity(args, 2, 2)?;
             expect(&args[0], &Element, "receiver")?;
@@ -759,6 +817,10 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 expect(r, &n, "radix")?;
             }
             Ok(n)
+        }
+        ("", "encodeURIComponent" | "decodeURIComponent" | "decodeURI") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "argument").map(|_| s)
         }
         ("", "isNaN" | "isFinite") => {
             arity(args, 1, 1)?;

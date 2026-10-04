@@ -727,6 +727,9 @@ pub struct Machine<'p> {
     /// Exceptions thrown by microtasks and default tasks (reported, as a
     /// browser reports uncaught errors, after the task).
     uncaught: Vec<Throw>,
+    /// A runtime shape the model does not cover (`host.unsupported`): the
+    /// step fails, as probes stop on it.
+    unsupported: Option<String>,
     /// Cell reads of the running tracked effect.
     tracking: Option<Vec<Read_>>,
     /// The effect phase a running flush is in (writes then extend the flush).
@@ -802,6 +805,8 @@ enum HostTask {
     ClipboardRead(Promise),
     Traverse(i64),
     HashChange,
+    /// `host.reply`: fulfils its promise.
+    Reply(Promise),
 }
 
 struct HostState {
@@ -812,6 +817,8 @@ struct HostState {
     random: js::random::SplitMix64,
     seed: u64,
     tasks: VecDeque<HostTask>,
+    /// `document.title` (M6), empty when the document starts.
+    title: JsString,
 }
 
 /// A string as snapshot JSON: text, or its code units when it holds a lone
@@ -984,6 +991,7 @@ impl<'p> Machine<'p> {
             tracks_owned: cells_tracked(program, Tracking::Proxied)
                 || program.has_reactive_fields(),
             uncaught: vec![],
+            unsupported: None,
             tracking: None,
             phase: None,
             again: false,
@@ -1000,6 +1008,7 @@ impl<'p> Machine<'p> {
                 random: js::random::SplitMix64::new(seed),
                 seed,
                 tasks: VecDeque::new(),
+                title: JsString::new(),
             },
             attachment_keys: 0,
             uids: 0,
@@ -2494,19 +2503,84 @@ impl<'p> Machine<'p> {
                     "forward" => 1,
                     _ => a[0].num() as i64,
                 };
+                if delta == 0 {
+                    return Err(Throw::new(
+                        "RunicHistoryError",
+                        "history.go(0) reloads the page, which the model does not cover",
+                    ));
+                }
                 self.traverse(delta)?;
                 Val::Undefined
             }
             ("history", "push") => {
                 let url = a.first().and_then(Val::as_string);
-                self.host.session.push(url.as_ref())?;
+                let state = a.get(1).and_then(Val::as_string);
+                self.host.session.push(url.as_ref(), state.as_ref())?;
                 Val::Undefined
             }
             ("history", "replace") => {
                 let url = a.first().and_then(Val::as_string);
-                self.host.session.replace(url.as_ref())?;
+                let state = a.get(1).and_then(Val::as_string);
+                self.host.session.replace(url.as_ref(), state.as_ref())?;
                 Val::Undefined
             }
+            ("history", "state") => match self.host.session.state() {
+                Some(s) => Val::Str(s),
+                None => Val::Null,
+            },
+            // The document (M6).
+            ("document", "title") => Val::Str(js::history::document_title(&self.host.title)),
+            ("document", "set-title") => {
+                self.host.title = a[0].string();
+                Val::Undefined
+            }
+            ("document", "getElementById") => {
+                let id = a[0].string().to_rust();
+                match element_by_id(&self.last_tree, &id) {
+                    Some(e) => Val::Element(js::Element(e)),
+                    None => Val::Null,
+                }
+            }
+            ("focus", "current") => match self.focused {
+                Some(e) => Val::Element(js::Element(e)),
+                None => Val::Null,
+            },
+            // The router's focus reset: focus moves to the body (blurring
+            // the focused element; the interpreter has no navigation order).
+            ("focus", "reset") => {
+                if self.focused.is_some() {
+                    self.move_focus_nested(None);
+                }
+                Val::Undefined
+            }
+            // No sequential navigation order in the interpreter.
+            ("focus", "start") => Val::Undefined,
+            ("url", "resolve") => {
+                match js::history::Session::resolve_against(&a[0].string(), &a[1].string()) {
+                    Some(u) => Val::Str(JsString::from(u)),
+                    None => Val::Undefined,
+                }
+            }
+            ("url", "query-pairs") => {
+                let pairs: Vec<Val> = js::uri::query_pairs(&a[0].string())
+                    .into_iter()
+                    .map(|(k, v)| Val::Array(js::array(vec![Val::Str(k), Val::Str(v)])))
+                    .collect();
+                Val::Array(js::array(pairs))
+            }
+            ("host", "reply") => {
+                let p = Promise::pending();
+                self.host.tasks.push_back(HostTask::Reply(p.clone()));
+                Val::Promise(p)
+            }
+            ("host", "unsupported") => {
+                let what = a[0].string().to_rust();
+                self.unsupported.get_or_insert(what.clone());
+                return Err(Throw::new("RunicUnsupportedError", what));
+            }
+            ("", "encodeURIComponent") => Val::Str(js::uri::encode_uri_component(&a[0].string())?),
+            ("", "decodeURIComponent") => Val::Str(js::uri::decode_uri_component(&a[0].string())?),
+            ("", "decodeURI") => Val::Str(js::uri::decode_uri(&a[0].string())?),
             ("history", "length") => Val::Num(self.host.session.length() as f64),
             ("location", "pathname") => Val::Str(JsString::from(self.host.session.pathname())),
             ("location", "search") => Val::Str(JsString::from(self.host.session.search())),
@@ -2589,6 +2663,43 @@ impl<'p> Machine<'p> {
                         })
                         .unwrap_or(false),
                 )
+            }
+            ("element", "getAttribute") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let name = a[1].string().to_rust().to_ascii_lowercase();
+                match chain_nodes(&self.last_tree, e.0).and_then(|n| match n.last() {
+                    Some(VNode::Element { attrs, .. }) => attrs.get(&name).cloned(),
+                    _ => None,
+                }) {
+                    Some(v) => Val::Str(JsString::from(v)),
+                    None => Val::Null,
+                }
+            }
+            ("element", "localName") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                match chain_nodes(&self.last_tree, e.0).and_then(|n| n.last().copied()) {
+                    Some(VNode::Element { tag, .. }) => Val::Str(JsString::from(tag.as_str())),
+                    _ => Val::Str(JsString::new()),
+                }
+            }
+            // The parent inside the program's DOM: none at its top level.
+            ("element", "parent") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let chain = chain_nodes(&self.last_tree, e.0).unwrap_or_default();
+                match chain
+                    .len()
+                    .checked_sub(2)
+                    .and_then(|i| element_id(chain[i]))
+                {
+                    Some(p) => Val::Element(js::Element(p)),
+                    None => Val::Null,
+                }
             }
             // `beforematch` listeners: the runtime never fires the event.
             ("element", "listen" | "unlisten") => Val::Undefined,
@@ -3774,6 +3885,10 @@ impl<'p> Machine<'p> {
         if self.host.session.length() != 1 {
             host.insert("historyLength".into(), json!(self.host.session.length()));
         }
+        let title = js::history::document_title(&self.host.title);
+        if !title.is_empty() {
+            host.insert("title".into(), text_json(&title));
+        }
         if !host.is_empty() {
             state["host"] = Json::Object(host);
         }
@@ -3834,6 +3949,13 @@ impl<'p> Machine<'p> {
             let _ = self.render();
         }
         let uncaught = std::mem::take(&mut self.uncaught);
+        if let Some(what) = self.unsupported.take() {
+            return Err(Diagnostic::new(
+                "E_UNSUPPORTED",
+                format!("unsupported: {what}"),
+                source,
+            ));
+        }
         match (result, uncaught.into_iter().next()) {
             (Err(t), _) | (Ok(()), Some(t)) => {
                 Err(Diagnostic::new("E_THROW", t.to_string(), source))
@@ -5728,6 +5850,10 @@ impl<'p> Machine<'p> {
                     self.window_event(EventKind::Hashchange, s);
                     Ok(())
                 }
+                HostTask::Reply(p) => self.task(None, false, |m| {
+                    m.settle_promise(&p, Ok(Val::Undefined));
+                    Ok(())
+                }),
             };
             if let Err(d) = result {
                 s.error.get_or_insert(d);
@@ -6217,6 +6343,28 @@ fn element_id(n: &VNode) -> Option<u64> {
         VNode::Element { id, .. } => Some(*id),
         VNode::Text(_) => None,
     }
+}
+
+/// The first element in tree order whose `id` attribute is `id`
+/// (`document.getElementById`).
+fn element_by_id(tree: &[VNode], id: &str) -> Option<u64> {
+    for n in tree {
+        if let VNode::Element {
+            id: here,
+            attrs,
+            children,
+            ..
+        } = n
+        {
+            if attrs.get("id").is_some_and(|v| v == id) {
+                return Some(*here);
+            }
+            if let Some(found) = element_by_id(children, id) {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 /// The nodes from the root to the element with id `id`.

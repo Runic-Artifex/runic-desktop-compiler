@@ -55,6 +55,7 @@ fn element(doc: &mut BaseDocument, tag: &str, attrs: &[(&str, &str)]) -> NodeId 
 }
 
 /// Build `<html><head><style/></head><body><div id="root">app</div></body></html>`
+/// (the body and container attributes of the app's HTML template, M6)
 /// without parsing HTML, mount the application and settle fonts and layout.
 pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     // Scrollers a previous document's layout clamped (a probe's reload).
@@ -75,8 +76,12 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     let head = element(&mut doc, "head", &[]);
     let style = element(&mut doc, "style", &[]);
     let title = element(&mut doc, "title", &[]);
-    let body = element(&mut doc, "body", &[]);
-    let mount = element(&mut doc, "div", &[("id", "root")]);
+    let body = element(&mut doc, "body", A::BODY_ATTRS);
+    let mount = element(
+        &mut doc,
+        "div",
+        A::CONTAINER_ATTRS.unwrap_or(&[("id", "root")]),
+    );
     {
         let mut m = doc.mutate();
         let css = m.create_text_node(&stylesheet::<A>());
@@ -94,6 +99,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     crate::history::begin_document();
     let mut app = A::new();
     let mut listeners = Listeners::default();
+    listeners.container = Some(mount);
     app.mount(
         &mut Dom {
             doc: &mut doc,

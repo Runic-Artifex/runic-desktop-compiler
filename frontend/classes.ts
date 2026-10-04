@@ -1877,9 +1877,26 @@ export class Classes {
 
   /** `obj.name` on an instance (of a class record or class reference type `t`). */
   read(t: Type, object: Expr, e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
+    return this.readMember(t, object, e.name, e, e, b);
+  }
+
+  /**
+   * A member read by name: `obj.name` (`at` the access) or object
+   * destructuring of an instance (`const { name } = obj`, `at` the binding
+   * name, whose type is the read's).
+   */
+  readMember(
+    t: Type,
+    object: Expr,
+    nameNode: ts.MemberName,
+    at: ts.Node,
+    typed: ts.Node,
+    b: FnBuilder,
+  ): Expr {
     const lower = this.lower;
-    const name = e.name.text;
-    const { classes, targets, shared } = this.targets(t, name, e.name, e);
+    const name = nameNode.text;
+    const e = at;
+    const { classes, targets, shared } = this.targets(t, name, nameNode, e);
     const one = (recv: Expr, c: ClassInfo, target: Target): Expr => {
       switch (target.kind) {
         case 'field': {
@@ -1894,7 +1911,7 @@ export class Classes {
           if (f.late) return lateRead(f, get);
           // A nullable field TypeScript narrowed to its value here (as for variables).
           if (maybeInner(f.type)) {
-            const here = lower.types.typeOrUndefined(e);
+            const here = lower.types.typeOrUndefined(typed);
             if (here !== undefined && here !== 'void' && !maybeInner(here))
               return { op: 'unwrap', value: get };
           }
@@ -1923,7 +1940,7 @@ export class Classes {
     let out: Expr;
     if (shared) out = one(object, classes[0], shared);
     else {
-      const want = lower.types.of(e);
+      const want = lower.types.of(typed);
       out = this.matchClasses(object, classes, targets, b, (local, c, target) => {
         const v = one(local, c, target);
         return this.fit(v, lower.irType(v, b), want);
@@ -1932,7 +1949,7 @@ export class Classes {
     // Narrowed by TypeScript where it is read (`this.state instanceof C`).
     const have = lower.irType(out, b);
     if (!this.isClass(maybeInner(have) ?? have)) return out;
-    return this.narrow(out, have, lower.types.typeOrUndefined(e));
+    return this.narrow(out, have, lower.types.typeOrUndefined(typed));
   }
 
   /** `obj.name(…)` on an instance (of class type `t`). */
