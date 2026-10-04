@@ -20,8 +20,9 @@
 // variant function other than in a direct call (its `variants`, `base`, …
 // properties, passing it) is rejected, as are configs with `slots`,
 // `compoundSlots` or `extend` (a different result shape), a second config
-// argument, and non-constant configs. Open strings (a `class` prop passed
-// through from a parent) are rejected with E_PACK.
+// argument, and non-constant configs. A `class` prop passed through from a
+// parent ranges over the values its sites pass (frontend/domains.ts); other
+// open strings are rejected with E_PACK.
 //
 // Measured use in the Translations Editor (runic-sdk
 // apps/translations-editor/Frontend/src, 2026-10-04):
@@ -45,7 +46,7 @@
 //   way.
 import ts from 'typescript';
 import type { Pack, PackFunction } from '../packs.ts';
-import { evaluatedChoice, staticValue, stringCall, type Ctx } from './choice.ts';
+import { evaluatedChoice, evaluatedValues, staticValue, stringCall, type Ctx } from './choice.ts';
 import { pinnedCheck, pinnedLoad } from './pinned.ts';
 
 const VERSION = '3.3.1';
@@ -106,6 +107,10 @@ export const tailwindVariantsPack: Pack = {
           kind: 'function',
           inline: true,
           choice,
+          values: (n, l) =>
+            evaluatedValues({ lower: l, label: `${LABEL} (${name})` }, n, args =>
+              variants(...args),
+            ),
           call: (n, b, l) => stringCall(ctx(b, l), n, choice(n, b, l)),
         };
       },

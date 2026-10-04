@@ -63,6 +63,12 @@ pub fn set_hash(value: &JsString) -> JsResult<bool> {
     with(|s| s.set_hash(value))
 }
 
+/// Following a fragment link; whether the fragment changed (`popstate`
+/// fires either way, `hashchange` then as a task).
+pub(crate) fn follow_fragment(href: &JsString) -> JsResult<bool> {
+    with(|s| s.follow_fragment(href))
+}
+
 pub fn traverse(delta: i64) -> JsResult<Option<Traversal>> {
     with(|s| s.traverse(delta))
 }

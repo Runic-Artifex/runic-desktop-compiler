@@ -95,6 +95,35 @@ async function packageOf(specifier, resolved) {
   return undefined;
 }
 
+/**
+ * Imports and re-exports of types only, which TypeScript erases (`import
+ * type`, or named lists whose every name is `type`): they load no module,
+ * and their specifiers may name type-only package exports (`svelte/elements`).
+ */
+function typeOnly(stmt) {
+  if (ts.isImportDeclaration(stmt)) {
+    const clause = stmt.importClause;
+    if (!clause) return false;
+    if (clause.isTypeOnly) return true;
+    const named = clause.namedBindings;
+    return (
+      !clause.name &&
+      !!named &&
+      ts.isNamedImports(named) &&
+      named.elements.length > 0 &&
+      named.elements.every(e => e.isTypeOnly)
+    );
+  }
+  if (stmt.isTypeOnly) return true;
+  const clause = stmt.exportClause;
+  return (
+    !!clause &&
+    ts.isNamedExports(clause) &&
+    clause.elements.length > 0 &&
+    clause.elements.every(e => e.isTypeOnly)
+  );
+}
+
 // This plugin sees original application modules before Vite's JSX transform.
 // Collection is deliberately independent of the React lowering adapter.
 export function collectionPlugin(root, modules, tooling, onDiagnostic) {
@@ -133,6 +162,27 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic) {
                 (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier)
               ) {
                 const specifier = stmt.moduleSpecifier.text;
+                // Types only: recorded where Vite resolves them (the type
+                // checker follows the edge), skipped where it cannot.
+                if (typeOnly(stmt)) {
+                  let resolved = null;
+                  try {
+                    resolved = await this.resolve(specifier, id);
+                  } catch {
+                    resolved = null;
+                  }
+                  if (resolved && path.isAbsolute(resolved.id.split('?')[0])) {
+                    const file = resolved.id.split('?')[0];
+                    const pkg = await packageOf(specifier, file);
+                    imports.push({
+                      specifier,
+                      resolved: file,
+                      typeOnly: true,
+                      ...(pkg ? { package: pkg } : {}),
+                    });
+                  }
+                  continue;
+                }
                 const resolved = await this.resolve(specifier, id);
                 if (!resolved)
                   throw new Diagnostic(
@@ -434,6 +484,16 @@ function checkRules(css, file) {
         line: rule.source.start.line,
         column: rule.source.start.column,
       });
+  });
+  // Blitz never matches :target (the element a followed fragment link
+  // names), which Chromium does (docs/BLITZ-GAPS.md).
+  css.walkRules(rule => {
+    if (/:target\b(?!-)/.test(rule.selector))
+      throw new Diagnostic(
+        'E_CSS',
+        `Unsupported selector ${rule.selector}: Blitz never matches :target`,
+        { file, line: rule.source.start.line, column: rule.source.start.column },
+      );
   });
   // The DOM is built without wrapper nodes: selectors and ordinary
   // properties are rendered by Blitz/Stylo and checked by conformance. Only

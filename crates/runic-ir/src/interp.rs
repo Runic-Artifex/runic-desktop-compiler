@@ -4653,10 +4653,13 @@ impl<'p> Machine<'p> {
                 self.dispatch(target, EventKind::Change, d, None, s)?;
             }
         }
-        // Label activation: a simulated click on a labelled checkbox or button.
+        // A link's activation follows it; label activation is a simulated
+        // click on a labelled checkbox or button.
         if click.is_some() && !cancelled {
             let tree = self.render()?;
-            if let Some(control) = labelled_control(&tree, target) {
+            if let Some(href) = link_of(&tree, target) {
+                self.follow_link(&tree, &href, s)?;
+            } else if let Some(control) = labelled_control(&tree, target) {
                 let clickable = chain_nodes(&tree, control).and_then(|n| n.last().copied()).is_some_and(
                     |n| matches!(n, VNode::Element { tag, checked, .. } if tag == "button" || checked.is_some()),
                 );
@@ -4667,6 +4670,37 @@ impl<'p> Machine<'p> {
                     self.move_focus(Some(control), s)?;
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Follow a link after its click: a fragment navigation (`popstate` at
+    /// once, `hashchange` as a task when the fragment changed). Scrolling to
+    /// and focusing an element the fragment names need the layout.
+    fn follow_link(&mut self, tree: &[VNode], href: &str, s: &mut Run) -> Result<()> {
+        if let Some(name) = href.strip_prefix('#') {
+            let decoded = percent_decode(name);
+            if decoded.is_empty()
+                || decoded.eq_ignore_ascii_case("top")
+                || fragment_target(tree, &decoded)
+            {
+                return Err(Diagnostic::new(
+                    "E_LAYOUT",
+                    format!(
+                        "following the link {href:?} scrolls the document, which needs the native layout"
+                    ),
+                    None,
+                ));
+            }
+        }
+        let changed = self
+            .host
+            .session
+            .follow_fragment(&JsString::from(href))
+            .map_err(throw_diag)?;
+        self.window_event(EventKind::Popstate, s);
+        if changed {
+            self.host.tasks.push_back(HostTask::HashChange);
         }
         Ok(())
     }
@@ -4792,13 +4826,22 @@ impl<'p> Machine<'p> {
             }
         }
         let tree = self.render()?;
-        let (button, checkbox) = match chain_nodes(&tree, target).and_then(|n| n.last().copied()) {
-            Some(VNode::Element { tag, checked, .. }) => {
-                (tag == "button", tag == "input" && checked.is_some())
-            }
-            _ => (false, false),
-        };
-        if !cancelled && button && k.key == "Enter" {
+        let (button, checkbox, link) =
+            match chain_nodes(&tree, target).and_then(|n| n.last().copied()) {
+                Some(VNode::Element {
+                    tag,
+                    checked,
+                    attrs,
+                    ..
+                }) => (
+                    tag == "button",
+                    tag == "input" && checked.is_some(),
+                    tag == "a" && attrs.contains_key("href"),
+                ),
+                _ => (false, false, false),
+            };
+        // Enter activates a button or a link (a simulated click).
+        if !cancelled && (button || link) && k.key == "Enter" {
             self.click(target, s)?;
         }
         let up = self.dispatch(
@@ -5313,12 +5356,62 @@ fn payload_of(event: &js::Event) -> Option<Val> {
     }
 }
 
+/// The `href` of the innermost link (`<a href>`) around `target`.
+fn link_of(tree: &[VNode], target: u64) -> Option<String> {
+    chain_nodes(tree, target)?
+        .iter()
+        .rev()
+        .find_map(|n| match n {
+            VNode::Element { tag, attrs, .. } if tag == "a" => attrs.get("href").cloned(),
+            _ => None,
+        })
+}
+
+/// Whether an element of `tree` is the target of the fragment `name`: an
+/// element with that `id`, or an `<a>` with that `name`.
+fn fragment_target(tree: &[VNode], name: &str) -> bool {
+    tree.iter().any(|n| match n {
+        VNode::Element {
+            tag,
+            attrs,
+            children,
+            ..
+        } => {
+            attrs.get("id").is_some_and(|v| v == name)
+                || (tag == "a" && attrs.get("name").is_some_and(|v| v == name))
+                || fragment_target(children, name)
+        }
+        VNode::Text(_) => false,
+    })
+}
+
+/// A URL fragment percent-decoded as UTF-8 (lossy), as the HTML standard
+/// decodes it to find the element a fragment names.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = |b: u8| (b as char).to_digit(16);
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h), Some(l)) = (hex(bytes[i + 1]), hex(bytes[i + 2])) {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// The element a press on the chain `nodes` (root first) focuses: the
-/// innermost control or element with a `tabindex`; none when that is a
-/// disabled control or there is none.
+/// innermost control, link or element with a `tabindex`; none when that is
+/// a disabled control or there is none.
 fn focus_target(nodes: &[&VNode]) -> Option<u64> {
     let found = nodes.iter().rev().find(|n| {
-        matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea" | "select") || attrs.contains_key("tabindex"))
+        matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea" | "select") || (tag == "a" && attrs.contains_key("href")) || attrs.contains_key("tabindex"))
     })?;
     match found {
         VNode::Element { tag, attrs, id, .. } => {

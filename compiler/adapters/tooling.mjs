@@ -44,7 +44,7 @@ export const tailwindVersion = '4.3.3';
  * never run.
  */
 export async function frontendTooling(root, config) {
-  const tooling = await frameworkTooling(root, config);
+  const tooling = withAliases(root, config, await frameworkTooling(root, config));
   if (config.tailwind === undefined || config.tailwind === false) return tooling;
   if (config.tailwind !== true)
     throw new Diagnostic('E_CONFIG', 'runic.json tailwind must be true or false', {
@@ -77,6 +77,39 @@ export async function frontendTooling(root, config) {
     packages: { ...tooling.packages, tailwindcss: coreVersion, '@tailwindcss/vite': pluginVersion },
     tailwind: true,
   };
+}
+
+/**
+ * Import aliases (runic.json `"alias": { "$lib": "src/lib" }`), resolved as
+ * Vite's `resolve.alias` resolves them: a specifier equal to a key, or
+ * starting with the key and `/`, continues in the directory the key names.
+ * SvelteKit configures `$lib` this way (`kit.alias`); since the app's own
+ * Vite and SvelteKit configs are never run, runic.json states the aliases.
+ * Targets are directories inside the application.
+ */
+function withAliases(root, config, tooling) {
+  if (config.alias === undefined) return tooling;
+  const at = { file: 'runic.json', line: 1, column: 1 };
+  if (typeof config.alias !== 'object' || config.alias === null || Array.isArray(config.alias))
+    throw new Diagnostic('E_CONFIG', 'runic.json alias must map specifiers to directories', at);
+  const entries = [];
+  for (const [find, target] of Object.entries(config.alias)) {
+    if (!/^[$@#~\w][\w$@#~.-]*$/.test(find) || find.includes('/'))
+      throw new Diagnostic('E_CONFIG', `runic.json alias ${find} must be one path segment`, at);
+    const dir = typeof target === 'string' ? path.resolve(root, target) : undefined;
+    if (!dir || !(dir === root || dir.startsWith(root + path.sep)))
+      throw new Diagnostic(
+        'E_CONFIG',
+        `runic.json alias ${find} must name a directory inside the application`,
+        at,
+      );
+    entries.push({ find, replacement: dir });
+  }
+  const plugin = {
+    name: 'runic-alias',
+    config: () => ({ resolve: { alias: entries } }),
+  };
+  return { ...tooling, plugins: [plugin, ...tooling.plugins], aliases: entries };
 }
 
 async function frameworkTooling(root, config) {

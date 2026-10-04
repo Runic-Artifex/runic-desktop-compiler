@@ -14,9 +14,11 @@
 //   variant functions of tailwind-variants, nested twMerge calls): every
 //   combination is merged at build time and the program selects the result
 //   by the same tests JavaScript evaluates;
-// - open strings (a `string` prop passed through from a parent) are rejected
-//   with E_PACK. A native port would have to reproduce the whole default
-//   configuration; the editor does not need one (below).
+// - a prop passed through from a parent ranges over the values its
+//   instantiation sites pass (frontend/domains.ts, prop domains);
+// - other open strings are rejected with E_PACK. A native port would have
+//   to reproduce the whole default configuration; the editor does not need
+//   one (below).
 //
 // Exports: twMerge and twJoin (both evaluated). Wrappers such as shadcn's
 // `cn(...inputs) { return twMerge(clsx(inputs)) }` are inlined at their call
@@ -46,12 +48,13 @@
 //   results of their own finite arguments to inner wrappers. The cheapest
 //   exact path is therefore to propagate the finite set of values each
 //   component's string props receive from all instantiation sites (a
-//   whole-program analysis in the shared language layer, not in this pack);
-//   spreads onto components (97, of which 9 on tv-wrapper components, e.g.
-//   bits-ui `{...props}` from child snippets) have to be part of it.
+//   whole-program analysis in the shared language layer, not in this pack:
+//   frontend/domains.ts, M6 step 3, Svelte); spreads onto components (97,
+//   of which 9 on tv-wrapper components, e.g. bits-ui `{...props}` from
+//   child snippets) have to be part of it (step 6).
 import type ts from 'typescript';
 import type { Pack } from '../packs.ts';
-import { evaluatedChoice, stringCall, type Ctx } from './choice.ts';
+import { evaluatedChoice, evaluatedValues, stringCall, type Ctx } from './choice.ts';
 import { pinnedCheck, pinnedLoad } from './pinned.ts';
 
 const VERSION = '3.7.0';
@@ -80,6 +83,8 @@ export const tailwindMergePack: Pack = {
       kind: 'function',
       inline: true,
       choice,
+      values: (node, lower) =>
+        evaluatedValues({ lower, label: LABEL }, node, args => fn()(...args)),
       call: (node, b, lower) => stringCall(ctx(b, lower), node, choice(node, b, lower)),
     };
   },

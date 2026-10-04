@@ -218,7 +218,6 @@ test('modules reject mutable state, effects and unsupported import/export forms'
       'class A {}\nclass B extends A {}\nexport const starting=0;',
       'E_CLASS',
     ],
-    ["export {advance} from './advance.js';", "export * from './advance.js';", 'E_IMPORT'],
     ['import {LIMIT as maximum}', 'import * as maximum', 'E_IMPORT'],
     ['export const starting=0;', 'export const starting=new Uint8Array(1).length;', 'E_NEW'],
   ];
@@ -274,7 +273,7 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
     ['counter-svelte', 'n=2;', 'doubled=2;', 'E_ASSIGN'],
     // A derived value using a host service (M5).
     ['counter-svelte', '()=>n*2', '() => { console.log(n); return n*2; }', 'E_REACTIVITY'],
-    ['counter-svelte', '<script>', '<script context="module">', 'E_TEMPLATE'],
+    ['counter-svelte', '<script>', '<script context="module">', 'E_MODULE'],
     ['counter-svelte', '</script>', '</script><style>p { color:red; }</style>', 'E_TEMPLATE'],
     ['counter-svelte', 'onclick={toggle}', 'on:click={toggle}', 'E_TEMPLATE'],
     ['counter-svelte', '<main>', '<main use:action>', 'E_TEMPLATE'],

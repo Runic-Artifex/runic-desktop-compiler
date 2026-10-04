@@ -13,9 +13,11 @@ import { lower } from '../compiler/frontend.mjs';
 import { interpret } from '../compiler/codegen.mjs';
 import { vectors as live } from '../conformance/packs/clsx.mjs';
 import { vectors as twLive, variantsModule, utilsModule } from '../conformance/packs/tailwind.mjs';
+import { vectors as cnLive, utilsModule as cnUtilsModule } from '../conformance/packs/cn.mjs';
 
 const committed = JSON.parse(readFileSync('conformance/packs/clsx-2.1.1.json', 'utf8'));
 const twCommitted = JSON.parse(readFileSync('conformance/packs/tailwind.json', 'utf8'));
+const cnCommitted = JSON.parse(readFileSync('conformance/packs/cn-0.3.0.json', 'utf8'));
 
 const ENTRY = {
   svelte: [
@@ -167,20 +169,86 @@ test('twMerge, twJoin, cn and tv calls evaluated at build time select the real r
   );
 });
 
+test('the committed cn vectors are the output of the installed cn 0.3.0', () => {
+  assert.deepEqual(cnCommitted.versions, { cn: '0.3.0', 'tailwind-variants': '3.3.1' });
+  assert.deepEqual(cnCommitted.vectors, cnLive);
+});
+
+test('cn calls, re-exported by a local module as shadcn-svelte does, select the real result', async () => {
+  const { variables, vectors } = cnCommitted;
+  const script = [
+    "import { twMerge, twJoin } from 'cn';",
+    "import { cn } from './utils.ts';",
+    "import { button, badge } from './variants.ts';",
+    ...variables.map(v => `let ${v.name} = $state<${v.type}>(${v.a});`),
+    `function go() {\n${variables.map(v => `  ${v.name} = ${v.b};`).join('\n')}\n}`,
+  ].join('\n');
+  const markup = [
+    '<button id="go" onclick={go}>go</button>',
+    ...vectors.map((v, i) => `<i id="v${i}">{${v.call}}</i>`),
+  ].join('\n');
+  await withApp(
+    'svelte',
+    `<script lang="ts">\n${script}\n</script>\n${markup}\n`,
+    async root => {
+      const { ir } = await lowered(root);
+      assert.deepEqual(
+        ir.meta.mappings.map(m => m.id),
+        ['cn@0.3.0', 'tailwind-variants@3.3.1'],
+      );
+      const steps = interpret(ir, [{ kind: 'click', id: 'go' }]);
+      vectors.forEach((v, i) =>
+        ['a', 'b'].forEach((state, s) =>
+          assert.equal(
+            byId(steps[s], `v${i}`).children.join(''),
+            v[state],
+            `${v.call} in state ${state}`,
+          ),
+        ),
+      );
+    },
+    { 'utils.ts': cnUtilsModule, 'variants.ts': variantsModule },
+  );
+  // Uncovered exports and re-exports of the package are rejected at the import.
+  for (const [source, files] of [
+    ['<script lang="ts">\nimport { clsx } from \'cn\';\n</script>\n', {}],
+    [
+      "<script lang=\"ts\">\nimport { cn } from './utils.ts';\n</script>\n<i>{cn('a')}</i>\n",
+      { 'utils.ts': 'export * from "cn";\n' },
+    ],
+  ])
+    await withApp(
+      'svelte',
+      source,
+      async root =>
+        assert.rejects(lowered(root), e =>
+          e instanceof Diagnostic && e.code === 'E_PACK' && e.source?.line > 0
+            ? true
+            : assert.fail(`${e.code} ${e.message}`),
+        ),
+      files,
+    );
+});
+
 test('tailwind packs reject open values, uncovered exports and configs, and patched packages', async () => {
   const svelte = (script, markup = '') => `<script lang="ts">\n${script}\n</script>\n${markup}\n`;
   const tw = "import { twMerge } from 'tailwind-merge';\n";
   const tvImport = "import { tv } from 'tailwind-variants';\n";
-  const files = { 'utils.ts': utilsModule, 'variants.ts': variantsModule };
+  const files = {
+    'utils.ts': utilsModule,
+    'variants.ts': variantsModule,
+    // A pass-through class prop (frontend/domains.ts): open when a site passes an open string.
+    'Child.svelte': svelte(
+      "import { cn } from './utils.ts';\nlet { class: className }: { class?: string } = $props();",
+      "<i class={cn('p-2', className)}></i>",
+    ),
+  };
   const cases = [
     // An open string (the editor's pass-through class props).
     [svelte(`${tw}let s = $state('x');`, "<i class={twMerge('p-2', s)}></i>"), 'App.svelte'],
     [
-      svelte(
-        "import { cn } from './utils.ts';\nlet { class: className }: { class?: string } = $props();",
-        "<i class={cn('p-2', className)}></i>",
-      ),
-      'App.svelte',
+      svelte("import Child from './Child.svelte';\nlet s = $state('x');", '<Child class={s} />'),
+      'Child.svelte',
     ],
     [svelte(`${tw}let n = $state(1);`, "<i class={twMerge('p-2', n)}></i>"), 'App.svelte'],
     [svelte(`${tw}const xs = ['a'];`, '<i class={twMerge(...xs)}></i>'), 'App.svelte'],

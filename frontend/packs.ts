@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Expr, Node } from './ir.ts';
 import type { Binding, FnBuilder, Lowerer } from './language.ts';
-import { valueChoice, withRest, type Choice } from './packs/choice.ts';
+import { valueChoice, withRest, wrapperValues, type Choice } from './packs/choice.ts';
+import { cnPack } from './packs/cn-0.3.0.ts';
 import { clsxPack } from './packs/clsx-2.1.1.ts';
 import { lucideSveltePack } from './packs/lucide-svelte-1.52.0.ts';
 import { tailwindMergePack } from './packs/tailwind-merge-3.7.0.ts';
@@ -33,6 +34,8 @@ export interface Edge {
   specifier: string;
   resolved: string;
   package?: PackageRef;
+  /** An import or re-export of types only (it loads nothing). */
+  typeOnly?: boolean;
 }
 
 /** A function export: calls lower to IR expressions. */
@@ -45,6 +48,11 @@ export interface PackFunction {
    * this one among their arguments at build time.
    */
   choice?(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Choice;
+  /**
+   * The values a call can return, without building IR (frontend/domains.ts
+   * analyses what props receive); undefined when they are open.
+   */
+  values?(node: ts.CallExpression, lower: Lowerer): unknown[] | undefined;
   /**
    * A call that initialises a const and defines a new pack function, such as
    * tailwind-variants' `tv(config)`. The const has no runtime value: its
@@ -97,7 +105,7 @@ export interface Pack {
 }
 
 /** One module per pack, keyed by package name. */
-const PACKS: Pack[] = [clsxPack, lucideSveltePack, tailwindMergePack, tailwindVariantsPack];
+const PACKS: Pack[] = [clsxPack, cnPack, lucideSveltePack, tailwindMergePack, tailwindVariantsPack];
 
 export class PackError extends Error {
   readonly code: string;
@@ -167,7 +175,7 @@ export function bindPackImport(
   lower: Lowerer,
 ): boolean {
   const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
-  if (spec.startsWith('.') || spec.startsWith('/')) return false;
+  if (isLocal(spec, edge)) return false;
   const pkg = edge?.package;
   const fail = (n: ts.Node, e: unknown): never => {
     if (e instanceof PackError) return lower.fail(n, e.code, e.message);
@@ -211,6 +219,66 @@ export function bindPackImport(
   return true;
 }
 
+/**
+ * A relative import, or one an alias (runic.json `alias`) resolved to a
+ * local file rather than into a package.
+ */
+const isLocal = (spec: string, edge: Edge | undefined): boolean =>
+  spec.startsWith('.') ||
+  spec.startsWith('/') ||
+  (!!edge && !edge.package && !/[\\/]node_modules[\\/]/.test(edge.resolved));
+
+/**
+ * Bind the names a module re-exports from a package (`export { cn } from
+ * "cn"`, as shadcn-svelte's lib/utils.ts does) to its pack's exports: the
+ * re-export's own symbol carries the binding, which importers reach through
+ * their alias chain (`Lowerer.binding`). Returns false for re-exports of
+ * local modules. `export *` and `export * as N` of a package are rejected:
+ * a pack covers the names it lists.
+ */
+export function bindPackReexport(
+  stmt: ts.ExportDeclaration,
+  edge: Edge | undefined,
+  lower: Lowerer,
+): boolean {
+  const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
+  if (isLocal(spec, edge)) return false;
+  const pkg = edge?.package;
+  if (!pkg)
+    return lower.fail(
+      stmt,
+      'E_DEPENDENCY',
+      `No adapter for dependency ${spec} (it did not resolve into a package)`,
+    );
+  const clause = stmt.exportClause;
+  if (!clause || !ts.isNamedExports(clause))
+    return lower.fail(
+      stmt,
+      'E_PACK',
+      `Re-export the names of ${spec} that the program uses (export { name } from "${spec}")`,
+    );
+  for (const el of clause.elements) {
+    if (el.isTypeOnly) continue;
+    const imported = (el.propertyName ?? el.name).text;
+    let found: { pack: Pack; value: PackExport };
+    try {
+      found = packExport(pkg, imported);
+    } catch (e) {
+      if (e instanceof PackError) return lower.fail(el, e.code, e.message);
+      throw e;
+    }
+    const sym = lower.checker.getSymbolAtLocation(el.name);
+    if (!sym) return lower.fail(el, 'E_PACK', `Cannot bind ${el.name.text}`);
+    const { pack, value } = found;
+    const label = `${imported} of ${spec} (${pack.name}@${pack.version})`;
+    lower.bindings.set(
+      sym,
+      value.kind === 'function' ? functionBinding(pack, label, value) : { kind: 'pack', label },
+    );
+  }
+  return true;
+}
+
 /** The binding of a pack function: its uses record the pack. */
 function functionBinding(pack: Pack, label: string, fn: PackFunction): Binding {
   return {
@@ -226,6 +294,7 @@ function functionBinding(pack: Pack, label: string, fn: PackFunction): Binding {
           return fn.choice!(node, b, l);
         }
       : undefined,
+    values: fn.values,
     constant: fn.constant
       ? (node, name, l) => {
           usePack(l, pack);
@@ -258,6 +327,9 @@ const skip = (e: ts.Expression): ts.Expression =>
  * (`const button = tv({...})`). Returns false for other declarations.
  */
 export function bindPackConstant(d: ts.VariableDeclaration, lower: Lowerer): boolean {
+  // Bound already (adapters bind component constants before analysing props).
+  const own = ts.isIdentifier(d.name) ? lower.checker.getSymbolAtLocation(d.name) : undefined;
+  if (own && lower.bindings.get(own)?.kind === 'pack') return true;
   const found = calleeBinding(d.initializer, lower);
   if (!found?.binding.constant) return false;
   if (!ts.isIdentifier(d.name))
@@ -310,6 +382,7 @@ export function bindPackWrapper(
     call: (node, b, l) => withRest(l, rest, node.arguments, () => l.expr(expr, b)),
     choice: (node, b, l) =>
       withRest(l, rest, node.arguments, () => valueChoice({ lower: l, b, label }, expr)),
+    values: (node, l) => wrapperValues({ lower: l, label }, rest, node.arguments, expr),
     inline: true,
   });
   return true;

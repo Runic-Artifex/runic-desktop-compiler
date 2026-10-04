@@ -59,6 +59,32 @@ export class TypeMapper {
     return undefined;
   }
 
+  /**
+   * Like `map`, but undefined where `map` would fail; records registered on
+   * the way to the failure are dropped again.
+   */
+  tryMap(t: ts.Type, at: ts.Node): Type | undefined {
+    const records = this.records.length;
+    const byType = new Map(this.byType);
+    const byShape = new Map(this.byShape);
+    const fail = this.fail;
+    const sentinel = new Error('unmappable');
+    this.fail = () => {
+      throw sentinel;
+    };
+    try {
+      return this.map(t, at);
+    } catch (e) {
+      if (e !== sentinel) throw e;
+      this.records.length = records;
+      this.byType = byType;
+      this.byShape = byShape;
+      return undefined;
+    } finally {
+      this.fail = fail;
+    }
+  }
+
   map(t: ts.Type, at: ts.Node): Type {
     const F = ts.TypeFlags;
     // `this` in a class member: the class instance.
@@ -122,6 +148,14 @@ export class TypeMapper {
   }
 
   private object(t: ts.ObjectType, at: ts.Node): Type {
+    // A module namespace object (`import * as ns`).
+    const decl = t.symbol?.valueDeclaration;
+    if (decl && ts.isSourceFile(decl))
+      this.fail(
+        at,
+        'E_IMPORT',
+        'A module namespace is not a value: namespaces are supported as component tags (<Ns.Name>) and re-exports; import the names the code uses',
+      );
     // DOM elements (frontend/dom.d.ts) are opaque handles.
     if (t.getProperty('__runicElement')) return 'element';
     // Event objects (frontend/dom.d.ts) are opaque values read through built-ins.
