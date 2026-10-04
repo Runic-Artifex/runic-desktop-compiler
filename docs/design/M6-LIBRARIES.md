@@ -11,9 +11,11 @@ Research behind this plan:
 
 - **Animations and transitions move from M10 into M6**, as far as the editor needs them: transitions, the tw-animate-css `enter`/`exit` keyframes, `animate-spin` and `animate-pulse`.
   - Blitz already runs Stylo's animations from a clock. The runtime drives that clock from its event loop: real time natively, virtual time in probes.
-  - Conformance compares settled states as now, and intermediate frames at chosen fake-clock times.
+  - Conformance compares settled states as now, and intermediate frames at chosen virtual times.
   - `element.getAnimations()`, which bits-ui awaits before it unmounts a closed overlay, reads Stylo's running animations.
   - Stripping time-based CSS would be an approximation, so it is not an option.
+  
+  Implemented as described in [Animations](#animations), except `getAnimations()` and the animation events, which stay rejected.
 - **No islands for the editor.** bits-ui, svelte-toolbelt and runed touch the DOM and compile natively. The editor's island baseline is zero. QuickJS islands (D7) are built for the corpus, opt-in.
 - **Mapping packs** for the class utilities (`clsx`, `tailwind-merge`, `tailwind-variants`) and for `@lucide/svelte` icons:
   - The utilities' sources use typed arrays, `arguments`, `for-in` and mixed-type tables, which the IR does not model. Their call shapes in the editor are narrow.
@@ -149,10 +151,75 @@ Decisions:
   - A bag spreads onto an element as rest props do, or flows into a `child` snippet argument.
 - **Context.** Svelte's `setContext`/`getContext` and runed's `Context` lower to one IR context mechanism, keyed by a compile-time identity (a module-level `Symbol` or `Context` instance).
 
+## Animations
+
+**Chromium's timeline under test** (Playwright 1.63, Chromium 153; scratch pages, 2026-10-04):
+
+- Playwright's fake clock does not drive CSS animations. It replaces `Date`, timers, `requestAnimationFrame` and `performance.now()` in the page. The document timeline follows real frames: with the fake clock paused, a transition advanced 300 ms in 300 ms of real time, and `clock.runFor(500)` did not move it.
+- `Emulation.setVirtualTimePolicy` does not map either. With virtual time paused the timeline still moved a frame, and an advance budget of 200 ms moved it by 400 ms. It would also compete with Playwright's clock.
+- DevTools' `Animation.setPlaybackRate(0)` stops the document timeline. It applies to the page's later documents too and does not need the Animation domain enabled. Each animation can then be put at any time with `animation.currentTime`.
+  - This includes transform and opacity animations that run on the compositor: screenshots show the sought frame.
+  - `Animation.seekAnimations` is not used: it works on DevTools' clones of the animations.
+- After a seek, Chromium delivers `animationstart`, `transitionrun` and `transitionstart`, the `finished` promises (before the end events) and `animationend`/`transitionend` at the next rendering frame, not during the seek.
+
+**Sampling.** The browser harness stops the timeline. It seeks every animation in `document.getAnimations()` to the virtual time since the harness first saw it. That call also brings styles up to date, which starts the transitions and animations of a style change. It looks after the page loads, before and after every action, and, when the page's CSS is time-based, at every frame of a `wait`: each multiple of 16 ms of virtual time, after the timers due by then have run.
+
+The native probe resolves styles at the same points: after each action, and at each frame of a `wait`. So an animation starts at the same virtual time on both sides and is sampled at the same times. A timeline that moves anyway is a harness error.
+
+A case's `pixelRegions` compare each named element's box with the same 3/255 tolerance, because animated areas are too small for the whole-viewport gate. In case `animations`, shifting Chromium's animations by one frame (16 ms) fails the colour and transform regions (MAE up to 5.5 and 3.4). The infinite loaders move too little in one frame to be detected (0.3).
+
+**Runtime.** `runic-runtime::timeline` gives every style resolution the runtime starts the same time, in seconds. Before this change it passed 0, which froze Stylo's animations at their start.
+- Natively it is real time from the shell's first access to the document. That is where blitz-shell starts its own animation clock: `View::init` borrows the document, then `View::resume` starts the clock. So the shell's redraws, which continue while animations run, and the runtime's resolutions agree.
+- In probes it is the virtual clock.
+
+**CSS accepted** (collector, then the Stylo oracle):
+- `@keyframes`;
+- `animation*`;
+- `transition*`.
+
+**Rejected** with located `E_CSS_PROPERTY`:
+- `animation-fill-mode: forwards | both`. Stylo discards a finished animation when its element is next restyled, so a hover after the end restores the unfilled value (checked in a probe). Also rejected when a `var()` can reach these keywords through any value the stylesheet gives the custom property.
+- `transition-behavior: allow-discrete`.
+- Scroll-driven animations (`animation-timeline`, `animation-range*`, `scroll-timeline*`, `view-timeline*`, `timeline-scope`).
+
+`@starting-style` remains an unsupported at-rule.
+
+**Not implemented, still rejected:**
+- **Animation and transition events.** Their listeners are rejected as unsupported events (`E_EVENT`). Stylo's servo mode leaves events to the embedder. Blitz clears each animation's `is_new` flag and state changes after every resolution without reporting them, so dispatching events needs a fork change that returns them from `resolve`. The Chromium timing above is the reference.
+- **`element.getAnimations()`.** `E_CALL`. bits-ui's `AnimationsComplete` (2.19) uses:
+  - `node.getAnimations()`, after one or two animation frames;
+  - the array's `length`;
+  - each animation's `finished`, through `Promise.all`;
+  - on a rejection, `pending` and `playState !== "finished"` to wait again.
+
+  Specification for a later step:
+  - An IR built-in `element.getAnimations` returns an array of `animation` handles. A handle's identity is stable per Stylo animation (element, then keyframes name or transitioned property).
+  - `finished` is a `Promise<animation>`. The runtime resolves it after the resolution in which Stylo marks the animation finished. It rejects with an `AbortError` when Stylo cancels it: the style no longer names it, `display: none`, or the element is removed.
+  - `playState` is `running`, `paused` or `finished`. `pending` is false once the animation has been resolved.
+
+  It needs:
+  - a fork accessor for the document's `DocumentAnimationSet` (`BaseDocument::animations` is crate-private);
+  - a runtime registry of handles;
+  - an IR type, which changes the shared interface, so it is designed standalone;
+  - the interpreter reporting such programs incomplete, as it does for layout reads.
+  
+  bits-ui itself needs steps 3 to 7 first.
+
+**Gaps found** ([BLITZ-GAPS](../BLITZ-GAPS.md)):
+- The text of flex and grid containers, including buttons (the UA sheet makes them `inline-flex`), keeps its first `color`, with or without a transition. A fork patch is proposed. The fixtures colour a block-level button.
+- Stylo advances an animation by at most one iteration per resolution, so iterations shorter than a frame fall behind.
+- `animation-fill-mode` forwards and both, above.
+
+**Open:**
+- tw-animate-css's `enter`/`exit` keyframes animate `filter: blur(var(--tw-enter-blur, 0))`. `filter` is rejected because the CPU renderer draws no filters, so `animate-in` and `animate-out` stay rejected. The fix is either to prove the blur is always 0 (the same custom-property analysis as for fill modes) or to draw filters.
+- Inline styles are not checked by the collector, so a `style` attribute or binding with `animation-fill-mode: forwards` is not reported.
+- Stylo's `steps()` easing ignores the before flag. `jump-start` steps during a backwards-filled delay may differ; this is not verified.
+
 ## Progress
 
 | Step | Done | Open |
 |---|---|---|
+| Animations | Runtime timeline (real time natively, virtual in probes, styles resolved at every frame of a wait); `@keyframes`, `animation*`, `transition*` accepted; harness seeks Chromium's stopped timeline; `pixelRegions`; case `animations` in Svelte, React and Vue | `getAnimations()`, animation events, tw-animate-css `filter` in `enter`/`exit`, the anonymous-block colour patch ([Animations](#animations)) |
 | 2. Packs | Pack mechanism (`frontend/packs.ts`, `E_DEPENDENCY`/`E_PACK_VERSION`/`E_PACK`, `meta.mappings`); `clsx` 2.1.1 as IR expressions (38 vectors, `conformance/packs/clsx.mjs`); `@lucide/svelte` 1.52.0 icon expansion; case `packs` in Svelte, React and Vue; `tailwind-merge` 3.7.0 (`twMerge`, `twJoin`) and `tailwind-variants` 3.3.1 (`tv` constants and their variant functions) evaluated at build time by the pinned packages over constant or finite arguments (`frontend/packs/choice.ts`), shadcn's `cn` inlined, 21 vectors (`conformance/packs/tailwind.mjs`), case `tailwind-packs` in Svelte, React and Vue | Open class strings: 136 of the editor's 141 `cn` calls take a `class` (or similar) prop passed through from the parent, rejected with `E_PACK`. The values are finite in the editor; the exact path is propagating each component prop's set of values from its instantiation sites (shared language layer), not a native port of tailwind-merge. Svelte `<script module>` (10 of the 11 `tv` definitions) |
 
 ## Verification
