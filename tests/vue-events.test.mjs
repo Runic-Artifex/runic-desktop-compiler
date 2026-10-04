@@ -171,6 +171,19 @@ test('Vue handlers take the event as a value in every form', async () => {
   ]);
 });
 
+test('Optional chaining on a never-nullish value cast to a nullable type', async () => {
+  // e.target is an element during the dispatch; the cast only widens its type.
+  const ir = await vue(
+    `import { ref } from 'vue';\n${LOG}\nfunction key(e: KeyboardEvent) {\n  if (e.key === 'Enter') (e.target as HTMLInputElement | null)?.blur();\n}`,
+    `<main><input id="a" type="text" aria-label="A" @keydown="key" @blur="add('blur')" /><p id="log">{{ log.join(' ') }}</p></main>`,
+  );
+  const steps = interpret(ir, [
+    { kind: 'keydown', id: 'a', key: 'x' },
+    { kind: 'keydown', id: 'a', key: 'Enter' },
+  ]);
+  assert.deepEqual(appended(steps, 'log'), ['', 'blur']);
+});
+
 test('Vue modifier guards follow withModifiers and withKeys', async () => {
   const ir = await vue(
     `import { ref } from 'vue';\n${LOG}`,

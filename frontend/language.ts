@@ -2406,6 +2406,10 @@ export class Lowerer {
     // arrays with captures that may be undefined).
     const lowered = this.irType(bv, b);
     if (maybeInner(bt) && maybeInner(lowered)) bt = lowered;
+    // A value the IR has as never nullish where TypeScript allows null (a
+    // cast such as `e.target as HTMLInputElement | null`): `?.` is `.`.
+    const inner = maybeInner(bt);
+    if (inner !== undefined && JSON.stringify(inner) === JSON.stringify(lowered)) bt = lowered;
     if (!(typeof bt === 'object' && 'maybe' in bt)) {
       // `?.` on a value that cannot be nullish behaves like `.`.
       this.overrides.set(base, { expr: bv, type: bt });

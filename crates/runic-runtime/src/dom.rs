@@ -377,6 +377,9 @@ impl Host {
         if old == next {
             return vec![];
         }
+        if let Some(o) = old {
+            crate::controls::reset_scroll_on_blur(dom.doc, o);
+        }
         match next {
             Some(n) => {
                 dom.doc.set_focus_to(n);
@@ -577,6 +580,7 @@ impl Dom<'_> {
         let mut cur = Some(focused);
         while let Some(c) = cur {
             if nodes.contains(&c) {
+                crate::controls::reset_scroll_on_blur(self.doc, focused);
                 self.doc.clear_focus();
                 // Sequential navigation continues from where it was.
                 self.listeners.blurred = Some(focused);
@@ -606,6 +610,7 @@ impl Dom<'_> {
             let mut cur = Some(focused);
             while let Some(c) = cur {
                 if nodes.contains(&c) {
+                    crate::controls::reset_scroll_on_blur(self.doc, focused);
                     self.doc.clear_focus();
                     self.listeners.blurred = Some(focused);
                     break;

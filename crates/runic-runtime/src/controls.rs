@@ -32,6 +32,23 @@ pub fn live_value(doc: &mut BaseDocument, id: NodeId, text: &str) -> bool {
     true
 }
 
+/// A single-line text control losing focus shows its text from the start
+/// again (Chromium's `HTMLInputElement::DispatchBlurEvent` scrolls the inner
+/// editor back before the `blur` listeners run); text areas keep their
+/// scroll position. Blitz keeps the offset the caret last needed, so a value
+/// set later while the control is unfocused could be drawn scrolled out of
+/// view.
+pub fn reset_scroll_on_blur(doc: &mut BaseDocument, id: NodeId) {
+    if let Some(data) = doc
+        .get_node_mut(id)
+        .and_then(|n| n.element_data_mut())
+        .and_then(|el| el.text_input_data_mut())
+        .filter(|data| !data.is_multiline)
+    {
+        data.scroll_offset = 0.0;
+    }
+}
+
 /// `(selectionStart, selectionEnd)` in UTF-16 code units.
 #[cfg_attr(not(feature = "probe"), allow(dead_code))]
 pub fn selection(doc: &BaseDocument, id: NodeId) -> Option<(usize, usize, bool)> {

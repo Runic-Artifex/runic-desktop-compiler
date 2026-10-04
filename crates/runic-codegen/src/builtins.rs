@@ -49,9 +49,9 @@ fn opt_num(t: Option<&String>) -> String {
     t.map_or("Maybe::Undefined".into(), |v| format!("Maybe::Some({v})"))
 }
 
-/// A Rust closure adapting callback value `f` (IR type `fty`) to the
-/// `(&T, f64[, ...]) -> JsResult<_>` shape of `runic_js::array_ops`.
-fn adapter(fty: &Type, f: &str, recv: &str, predicate: bool) -> String {
+/// The call of callback value `f` (IR type `fty`) on element `x` at index
+/// `i` of `recv`, as `runic_js::array_ops` passes them.
+fn callback_call(fty: &Type, f: &str, recv: &str, predicate: bool) -> String {
     let Type::Fn(sig) = fty else {
         unreachable!("validated callback")
     };
@@ -67,16 +67,26 @@ fn adapter(fty: &Type, f: &str, recv: &str, predicate: bool) -> String {
         args.push_str(&format!(", {recv}.clone()"));
     }
     let call = format!("({f})(cx{args})?");
-    let result = if predicate {
-        if *sig.result == Type::Boolean {
-            call
-        } else {
-            format!("js::Truthy::truthy(&{call})")
-        }
+    if predicate && *sig.result != Type::Boolean {
+        format!("js::Truthy::truthy(&{call})")
     } else {
         call
-    };
+    }
+}
+
+/// A Rust closure adapting callback value `f` (IR type `fty`) to the
+/// `(&T, f64[, ...]) -> JsResult<_>` shape of `runic_js::array_ops`.
+fn adapter(fty: &Type, f: &str, recv: &str, predicate: bool) -> String {
+    let result = callback_call(fty, f, recv, predicate);
     format!("|x, i| -> JsResult<_> {{ let _ = &i; Ok({result}) }}")
+}
+
+/// A `forEach` callback: the call with its result discarded, passed straight
+/// to `for_each` so that the closure's parameter types are inferred (a
+/// closure called in place inside another one has none to infer from).
+fn effect_adapter(fty: &Type, f: &str, recv: &str) -> String {
+    let call = callback_call(fty, f, recv, false);
+    format!("|x, i| -> JsResult<()> {{ let _ = &i; let _ = {call}; Ok(()) }}")
 }
 
 fn reducer(fty: &Type, f: &str, recv: &str) -> String {
@@ -901,10 +911,8 @@ fn array(cx: &FnCtx, m: &str, t: &[String], types: &[Type]) -> String {
             cx.q(&format!("{ar}::{func}(&{a}, {f})"))
         }
         "forEach" => {
-            let f = adapter(&types[1], &t[1], a, false);
-            cx.q(&format!(
-                "{ar}::for_each(&{a}, |x, i| {{ ({f})(x, i).map(|_| ()) }})"
-            ))
+            let f = effect_adapter(&types[1], &t[1], a);
+            cx.q(&format!("{ar}::for_each(&{a}, {f})"))
         }
         "map" => cx.q(&format!(
             "{ar}::map(&{a}, {})",

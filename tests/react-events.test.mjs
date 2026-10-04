@@ -110,6 +110,40 @@ test('React pointer enter and leave update state rendered as text', async () => 
   );
 });
 
+test('React move handlers update state shown in paint-only style properties', async () => {
+  // A colour changes no layout, hit testing or focus: when React renders it
+  // (after the input, or with the next click) is unobservable, as for text.
+  await app(
+    `export function App() {
+  const [over, setOver] = useState(-1);
+  return (
+    <main>
+      {[0, 1].map(i => (
+        <div key={i} id={'cell-' + i} style={{ width: 40, backgroundColor: over === i ? '#ccc' : 'transparent', color: over === i ? 'red' : 'black' }} onMouseMove={() => setOver(i)}>
+          {i}
+        </div>
+      ))}
+    </main>
+  );
+}`,
+    async root => {
+      const ir = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'hover', id: 'cell-1' },
+        { kind: 'hover', id: 'cell-0' },
+      ]);
+      const styles = steps.map(
+        s => flat(s.state.dom).find(x => x.attrs.id === 'cell-0')?.attrs.style,
+      );
+      assert.deepEqual(styles, [
+        'width: 40px; background-color: transparent; color: black;',
+        'width: 40px; background-color: transparent; color: black;',
+        'width: 40px; background-color: rgb(204, 204, 204); color: red;',
+      ]);
+    },
+  );
+});
+
 test('A component function added and removed by one effect is one object per render', async () => {
   // Each click re-runs the effect: its cleanup must remove the function
   // object the previous run added, or every key would count once more.
@@ -242,6 +276,11 @@ test('React rejects event semantics it cannot model, with locations', async () =
     ],
     [
       'export function App() { const [n, setN] = useState(0); return <main><div onMouseEnter={() => setN(1)}>a</div><button onClick={() => setN(n + 1)}>{n}</button></main>; }',
+      /rendered as text/,
+    ],
+    // Inline style properties other than paint-only colours can change layout.
+    [
+      'export function App() { const [n, setN] = useState(0); return <div style={{ width: n }} onMouseMove={() => setN(n + 1)}>a</div>; }',
       /rendered as text/,
     ],
     [

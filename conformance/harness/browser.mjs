@@ -263,27 +263,31 @@ async function perform(page, action, timeout) {
     : action.selector
       ? page.locator(action.selector)
       : null;
+  // Pointer actions aim at the element centre, or at `position` ({x, y}
+  // from the top-left corner of the element's padding box, Playwright's
+  // option; the probe computes the same point).
+  const position = action.position;
   switch (action.kind) {
     case 'click': {
       // Real pointer input at the element centre. A disabled control is still
       // clicked (force skips Playwright's wait-for-enabled); the browser then
       // naturally ignores it, matching what a user would see.
       const force = await target.isDisabled({ timeout });
-      await target.click({ force, timeout });
+      await target.click({ force, timeout, position });
       break;
     }
     case 'dblclick':
     case 'contextmenu': {
       const force = await target.isDisabled({ timeout });
-      if (action.kind === 'dblclick') await target.dblclick({ force, timeout });
-      else await target.click({ button: 'right', force, timeout });
+      if (action.kind === 'dblclick') await target.dblclick({ force, timeout, position });
+      else await target.click({ button: 'right', force, timeout, position });
       break;
     }
     case 'hover': // The pointer moves to the element centre.
-      await target.hover({ force: true, timeout });
+      await target.hover({ force: true, timeout, position });
       break;
     case 'wheel': // A wheel turn over the element centre.
-      await target.hover({ force: true, timeout });
+      await target.hover({ force: true, timeout, position });
       await page.mouse.wheel(action.deltaX ?? 0, action.deltaY ?? 0);
       break;
     case 'type': // Trusted key events into the focused element.
