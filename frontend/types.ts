@@ -11,6 +11,8 @@ export class TypeMapper {
 
   private checker: ts.TypeChecker;
   private fail: Fail;
+  /** The record of a class instance type (set by the class lowering). */
+  classRecord?: (cls: ts.Symbol, t: ts.Type, at: ts.Node) => number;
 
   constructor(checker: ts.TypeChecker, fail: Fail) {
     this.checker = checker;
@@ -59,6 +61,11 @@ export class TypeMapper {
 
   map(t: ts.Type, at: ts.Node): Type {
     const F = ts.TypeFlags;
+    // `this` in a class member: the class instance.
+    if (t.flags & F.TypeParameter && (t as { isThisType?: boolean }).isThisType) {
+      const c = this.checker.getBaseConstraintOfType(t);
+      if (c && c !== t) return this.map(c, at);
+    }
     if (t.flags & (F.Number | F.NumberLiteral)) return 'number';
     if (t.flags & (F.String | F.StringLiteral | F.TemplateLiteral)) return 'string';
     if (t.flags & (F.Boolean | F.BooleanLiteral)) return 'boolean';
@@ -193,6 +200,19 @@ export class TypeMapper {
       );
     if (name && ['Error', 'HTMLElement'].includes(name))
       this.fail(at, 'E_TYPE_UNSUPPORTED', `${name} values are planned for a later milestone`);
+    // Class instances are nominal records (frontend/classes.ts).
+    const cls = t.symbol && t.symbol.flags & ts.SymbolFlags.Class ? t.symbol : undefined;
+    if (cls && !this.fromLib(t)) {
+      if (t.getConstructSignatures().length)
+        this.fail(
+          at,
+          'E_CLASS',
+          `The class ${cls.name} is not a value (construct it with new, or use its static members)`,
+        );
+      if (!this.classRecord)
+        this.fail(at, 'E_CLASS', `Class ${cls.name} instances are unsupported here`);
+      return { record: this.classRecord!(cls, t, at) };
+    }
     return { record: this.record(t, at) };
   }
 

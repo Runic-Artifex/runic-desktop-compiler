@@ -1026,6 +1026,12 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           continue;
         }
       }
+      if (ts.isClassDeclaration(stmt))
+        fail(
+          stmt,
+          'E_CLASS',
+          'Declare classes at module level: a class in a component body is a new class at every render',
+        );
       if (!ts.isVariableStatement(stmt) || !(stmt.declarationList.flags & ts.NodeFlags.Const))
         fail(
           stmt,

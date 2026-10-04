@@ -935,8 +935,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         effect(stmt);
         continue;
       }
-      if (ts.isClassDeclaration(stmt))
-        tsFail(stmt, 'E_TYPE_UNSUPPORTED', 'Classes are planned for later');
+      if (ts.isClassDeclaration(stmt)) {
+        pending.push(...lower.classes.declare(stmt, COMPONENT));
+        continue;
+      }
       if (!ts.isEmptyStatement(stmt))
         tsFail(stmt, 'E_STATEMENT', 'Unsupported component statement');
     }

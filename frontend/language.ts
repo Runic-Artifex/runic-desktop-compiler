@@ -29,6 +29,7 @@ import { DOM } from './program.ts';
 import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
 import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
+import { Classes, type ClassInfo } from './classes.ts';
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -54,7 +55,9 @@ export type Binding =
   /** A component's props object (inlined components): member reads are values. */
   | { kind: 'props'; values: Map<string, Expr> }
   /** A handler's event parameter. */
-  | { kind: 'event'; handler: FnBuilder };
+  | { kind: 'event'; handler: FnBuilder }
+  /** A class declaration (frontend/classes.ts): `new C(…)` and static members. */
+  | { kind: 'class'; cls: ClassInfo };
 
 /** The member of a ref object that holds its value (`value` unless the binding names one). */
 const refField = (b: { field?: string }): string => b.field ?? 'value';
@@ -221,6 +224,27 @@ export class Lowerer {
     this.hooks = hooks;
     this.fail = fail;
     this.sourceOf = sourceOf;
+    this.classes = new Classes(this);
+    types.classRecord = (cls, t, at) => this.classes.record(cls, t, at);
+  }
+
+  /** Classes (frontend/classes.ts). */
+  readonly classes: Classes;
+  /**
+   * Where `this` lives for the code of a class member (method, accessor,
+   * constructor, field initialiser): a local of `owner`, a `maybe` one while
+   * the constructor has not yet built the instance.
+   */
+  readonly thisBindings = new Map<ts.Node, { owner: FnBuilder; local: number; maybe?: boolean }>();
+
+  /** Lower with `overrides` substituted for the given nodes. */
+  withOverrides<T>(overrides: Map<ts.Node, { expr: Expr; type: Type }>, f: () => T): T {
+    for (const [n, o] of overrides) this.overrides.set(n, o);
+    try {
+      return f();
+    } finally {
+      for (const n of overrides.keys()) this.overrides.delete(n);
+    }
   }
 
   symbol(node: ts.Node): ts.Symbol | undefined {
@@ -283,7 +307,13 @@ export class Lowerer {
     reserved?: number,
     paramTypes?: Type[],
     /** Array-pattern parameters of tuple type take one parameter per element (callers pass them separately). */
-    options?: { tupleParams?: boolean },
+    options?: {
+      tupleParams?: boolean;
+      /** A class member: the instance is a first parameter `this` (frontend/classes.ts). */
+      self?: Type;
+      /** Lower the body with this instead of the declaration's statements (constructors). */
+      body?: (b: FnBuilder) => Stmt[];
+    },
   ): { index: number; builder: FnBuilder } {
     const boxed = this.analyseCaptures(decl);
     for (const s of parent?.boxed ?? []) boxed.add(s);
@@ -336,14 +366,22 @@ export class Lowerer {
         this.fail(p, 'E_FUNCTION', 'Destructured parameters are planned for later');
       // An overridden parameter type also holds where the parameter is read.
       const given = paramTypes?.[pending.length];
-      const symbol = this.checker.getSymbolAtLocation(p.name);
+      // A parameter property (class constructors) also declares a field: the body reads the parameter.
+      const symbol = ts.isParameterPropertyDeclaration(p, p.parent)
+        ? this.checker.getSymbolsOfParameterPropertyDeclaration(p, p.name.text)[0]
+        : this.checker.getSymbolAtLocation(p.name);
       if (given && symbol) this.types.override(symbol, given);
       pending.push({
-        symbol: this.checker.getSymbolAtLocation(p.name),
+        symbol,
         type,
         name: p.name.text,
         initializer: p.initializer,
       });
+    }
+    if (options?.self) {
+      // `this` is the first parameter (local 0).
+      pending.unshift({ type: options.self, name: 'this' });
+      this.thisBindings.set(decl, { owner: b, local: 0 });
     }
     const tsResult = sig!.getReturnType();
     let result: Type =
@@ -369,6 +407,7 @@ export class Lowerer {
     if (voidContext || !(tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
       b.result = result;
     const lowered = this.withParams(b, pending, () => {
+      if (options?.body) return options.body(b);
       if (!async) return this.functionBody(decl, b);
       if (!(typeof result === 'object' && 'promise' in result))
         return this.fail(decl, 'E_ASYNC', 'An async function needs a Promise result type');
@@ -412,7 +451,7 @@ export class Lowerer {
   }
 
   /** Params are registered as locals of the builder before the body is lowered. */
-  private withParams(
+  withParams(
     b: FnBuilder,
     pending: { symbol?: ts.Symbol; type: Type; name: string; initializer?: ts.Expression }[],
     lower: () => Stmt[],
@@ -619,7 +658,7 @@ export class Lowerer {
   }
 
   /** `let` statements creating the function values hoisted into root builder `b`. */
-  private hoistedLets(b: FnBuilder): Stmt[] {
+  hoistedLets(b: FnBuilder): Stmt[] {
     return [...b.functionValues].map(([fn, local]) => ({
       op: 'let',
       local,
@@ -852,6 +891,12 @@ export class Lowerer {
       return [{ op: 'let', local, value: this.closure(s, b, name) }];
     }
     if (s.kind === K.TypeAliasDeclaration || s.kind === K.InterfaceDeclaration) return [];
+    if (ts.isClassDeclaration(s))
+      return this.fail(
+        s,
+        'E_CLASS',
+        'Classes are declared at the top level of a module or component script',
+      );
     return this.fail(s, 'E_STATEMENT', `Unsupported statement: ${K[s.kind]}`);
   }
 
@@ -1273,6 +1318,11 @@ export class Lowerer {
           ...this.src(target),
         },
       ];
+    // Class setters and members that are not fields (frontend/classes.ts).
+    if (ts.isPropertyAccessExpression(target)) {
+      const member = this.classes.write(target, value, b);
+      if (member) return member;
+    }
     // T is widened into a nullable target (Maybe<T>).
     const want = this.targetType(target, b);
     const have = this.irType(value, b);
@@ -1436,6 +1486,10 @@ export class Lowerer {
       }
       case K.Identifier:
         return this.identifier(e as ts.Identifier, b);
+      case K.ThisKeyword:
+        return this.classes.thisValue(e, b);
+      case K.SuperKeyword:
+        return this.fail(e, 'E_CLASS', 'super is unsupported (classes have no inheritance)');
       case K.PrefixUnaryExpression:
         return this.prefix(e as ts.PrefixUnaryExpression, b);
       case K.BinaryExpression:
@@ -1613,6 +1667,12 @@ export class Lowerer {
           'E_FUNCTION',
           `${id.text} has untyped parameters, so it can only be called directly; add parameter types to pass it as a value`,
         );
+      case 'class':
+        return this.fail(
+          id,
+          'E_CLASS',
+          `The class ${id.text} is not a value (construct it with new, or use its static members)`,
+        );
     }
   }
 
@@ -1677,6 +1737,10 @@ export class Lowerer {
       const left = this.expr(e.left, b);
       const result = this.types.typeOrUndefined(e) ?? maybeInner(this.irType(left, b)) ?? 'void';
       return { op: 'nullish', left, right: this.coerce(e.right, b, result) };
+    }
+    if (op === K.InstanceOfKeyword && ts.isIdentifier(e.right)) {
+      const cls = this.binding(e.right);
+      if (cls?.kind === 'class') return this.classes.instanceOf(cls.cls, e.left, b);
     }
     if (op === K.InKeyword || op === K.InstanceOfKeyword)
       return this.fail(e, 'E_EXPRESSION', 'in/instanceof are planned for later');
@@ -2147,6 +2211,7 @@ export class Lowerer {
       const special = this.binding(e.expression);
       if (special?.kind === 'props')
         return special.values.get(name) ?? this.fail(e, 'E_PROPS', `Prop ${name} is not passed`);
+      if (special?.kind === 'class') return this.classes.staticRead(special.cls, e, b);
       if (special?.kind === 'ref' && name === refField(special)) {
         const read = this.hooks.readCell(special.cell, b, e);
         const here = this.types.typeOrUndefined(e);
@@ -2278,6 +2343,8 @@ export class Lowerer {
         );
       return { op: 'builtin', name: `event.${name}`, args: [object], type };
     }
+    if (kind === 'record' && this.classes.of(t))
+      return this.classes.read(this.classes.of(t)!, object, e, b);
     if (kind === 'record')
       return {
         op: 'get',
@@ -2504,6 +2571,12 @@ export class Lowerer {
     ts0: Type | undefined,
     at: ts.Node,
   ): Expr {
+    if (CLASS_DATA_BUILTINS.has(name))
+      this.classes.plainData(
+        name,
+        args.map(a => this.irType(a, b)),
+        at,
+      );
     const type =
       ts0 ??
       builtinType(
@@ -2552,6 +2625,10 @@ export class Lowerer {
     }
     if (ts.isPropertyAccessExpression(callee)) {
       const method = callee.name.text;
+      if (method === 'bind') {
+        const bound = this.classes.bind(e, b);
+        if (bound) return bound;
+      }
       const global = this.globalName(callee.expression);
       if (global === 'JSON' && method === 'parse') {
         const ctx = this.checker.getContextualType(e);
@@ -2693,6 +2770,7 @@ export class Lowerer {
         const special = this.binding(callee.expression);
         if (special?.kind === 'props')
           return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
+        if (special?.kind === 'class') return this.classes.callStatic(special.cls, callee, e, b);
       }
       const receiver = this.expr(callee.expression, b);
       const kind = this.receiverKind(this.irType(receiver, b));
@@ -2710,6 +2788,14 @@ export class Lowerer {
         this.types.typeOrUndefined(e.arguments[0]) === 'regexp'
       )
         return this.stringRegexp(method, receiver, e, b);
+      if (kind === 'record' && this.classes.of(this.irType(receiver, b)))
+        return this.classes.callMethod(
+          this.classes.of(this.irType(receiver, b))!,
+          receiver,
+          callee,
+          e,
+          b,
+        );
       if (kind === 'record')
         return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
       if (kind === 'element') return this.elementMethod(method, receiver, e, b);
@@ -2907,21 +2993,22 @@ export class Lowerer {
   }
 
   /** Arguments with optional parameters widened to Maybe and missing ones as undefined. */
-  private callArgs(e: ts.CallExpression, b: FnBuilder): Expr[] {
+  callArgs(e: ts.CallExpression | ts.NewExpression, b: FnBuilder): Expr[] {
+    const argNodes = e.arguments ?? [];
     const sig = this.checker.getResolvedSignature(e);
     // An untyped callee (e.g. a JavaScript callback prop) has no parameter list.
     const untyped = this.checker.getTypeAtLocation(e.expression).flags & ts.TypeFlags.Any;
-    if (!sig || untyped) return e.arguments.map(a => this.expr(a, b));
+    if (!sig || untyped) return argNodes.map(a => this.expr(a, b));
     // A callee with an overridden function type (a promise's resolve) takes its parameters.
     const given = this.types.overridden(e.expression);
     if (typeof given === 'object' && 'fn' in given)
       return given.fn.params.map((pt, i) => {
-        const arg = e.arguments[i];
+        const arg = argNodes[i];
         return arg ? this.coerce(arg, b, pt) : ({ op: 'undefined', type: pt } as Expr);
       });
     return sig.parameters.map((p, i) => {
       const pt = this.types.map(this.checker.getTypeOfSymbolAtLocation(p, e), e);
-      const arg = e.arguments[i];
+      const arg = argNodes[i];
       if (!arg) return { op: 'undefined', type: pt } as Expr;
       return this.coerce(arg, b, pt);
     });
@@ -2929,6 +3016,10 @@ export class Lowerer {
 
   private newExpression(e: ts.NewExpression, b: FnBuilder): Expr {
     const global = this.globalName(e.expression);
+    if (ts.isIdentifier(e.expression)) {
+      const cls = this.binding(e.expression);
+      if (cls?.kind === 'class') return this.classes.construct(cls.cls, e, b);
+    }
     if (global === 'Promise') {
       // new Promise<T>(executor): resolve takes a T, reject an Error.
       const type = this.exprType(e);
@@ -2995,6 +3086,12 @@ export class Lowerer {
     const recordType = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
     if (!(typeof recordType === 'object' && 'record' in recordType))
       return this.fail(e, 'E_OBJECT', 'Object literal without a record type');
+    if (this.types.records[recordType.record].class)
+      return this.fail(
+        e,
+        'E_CLASS',
+        `An object literal is not a ${this.types.records[recordType.record].name} instance (construct one with new)`,
+      );
     const declared = this.types.records[recordType.record];
     // Keys are observable (Object.keys, JSON.stringify): the record has the
     // literal's key order.
@@ -3018,6 +3115,12 @@ export class Lowerer {
         const st = this.types.of(p.expression);
         if (!(typeof st === 'object' && 'record' in st))
           this.fail(p, 'E_OBJECT', 'Spread requires a record value');
+        if (this.classes.of(st))
+          this.fail(
+            p,
+            'E_CLASS',
+            'Spreading a class instance copies only its public own fields; spread a plain object instead',
+          );
         const source = b.local('$spread', st);
         const src = this.types.records[(st as { record: number }).record];
         // Each field that exists in the source overrides earlier values.
@@ -4028,6 +4131,15 @@ const GLOBAL_FUNCTIONS = new Set([
   'decodeURIComponent',
 ]);
 const STATIC_NAMESPACES = new Set(['Math', 'Number', 'String', 'Array', 'Object', 'JSON']);
+/** Built-ins over plain data, which class instances are not (frontend/classes.ts). */
+const CLASS_DATA_BUILTINS = new Set([
+  'structuredClone',
+  'JSON.stringify',
+  'Object.keys',
+  'Object.values',
+  'Object.entries',
+  'Object.assign',
+]);
 
 /** String methods that take a RegExp (`string.regexp-*` built-ins). */
 const REGEXP_STRING_METHODS = new Set([
