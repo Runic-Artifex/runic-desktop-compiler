@@ -1,0 +1,35 @@
+{
+  "description": "Blitz fork, hit testing of a scrolled container: a toolbar button directly above a list scrolled by 90px takes its own clicks (Blitz hit the list's scrolled-out rows in the 90px above it); rows inside the list still take theirs",
+  "fixtures": [
+    "blitz-fork-svelte"
+  ],
+  "viewports": [
+    [
+      800,
+      800
+    ],
+    [
+      420,
+      1000
+    ]
+  ],
+  "actions": [
+    {
+      "kind": "wheel",
+      "id": "list",
+      "deltaY": 90
+    },
+    {
+      "kind": "click",
+      "id": "above"
+    },
+    {
+      "kind": "click",
+      "id": "row-6"
+    },
+    {
+      "kind": "click",
+      "id": "above"
+    }
+  ]
+}

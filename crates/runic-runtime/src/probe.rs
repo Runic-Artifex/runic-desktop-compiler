@@ -271,10 +271,15 @@ fn press<A: App>(native: &mut Native<A>, spec: &str) {
     let text =
         (k.key.chars().count() == 1 && !(k.ctrl || k.alt || k.meta)).then_some(k.key.as_str());
     let (key, code) = (key_of(&k.key), k.code.parse::<Code>().expect("code"));
+    // A modifier pressed on its own is held during its own key down.
+    let own = match k.key.as_str() {
+        "Shift" | "Control" | "Alt" | "Meta" => flag(&k.key),
+        _ => Modifiers::empty(),
+    };
     native.handle_ui_event(UiEvent::KeyDown(key_event(
         key.clone(),
         code,
-        held,
+        held | own,
         text,
         false,
     )));

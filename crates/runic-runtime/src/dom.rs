@@ -194,9 +194,26 @@ pub(crate) struct Listeners {
     /// Scrollers whose offset changed since the last rendering step, in
     /// order (each once): their `scroll` events are pending.
     pub(crate) pending_scroll: Vec<NodeId>,
+    /// Input modality for `:focus-visible`: a key was pressed since the last
+    /// mousedown, and the last focus change by the user was by mouse.
+    pub(crate) had_keyboard_event: bool,
+    pub(crate) mouse_focus: bool,
 }
 
 impl Listeners {
+    /// Whether the focused element matches `:focus-visible`, by Blink's rule
+    /// (`MatchesFocusVisiblePseudoClass`): it takes text input, or a key was
+    /// pressed since the last mousedown, or the last user focus change was
+    /// not by mouse. Script focus leaves the modality as it is.
+    pub(crate) fn sync_focus_visible(&self, doc: &mut BaseDocument) {
+        let Some(f) = crate::events::focused_element(doc) else {
+            return;
+        };
+        let visible =
+            crate::controls::has_editor(doc, f) || self.had_keyboard_event || !self.mouse_focus;
+        doc.set_focus_visible(visible);
+    }
+
     /// A scroller moved: its `scroll` event is pending (once).
     pub(crate) fn scrolled(&mut self, node: Option<NodeId>) {
         if let Some(n) = node.filter(|n| !self.pending_scroll.contains(n)) {
@@ -386,6 +403,7 @@ impl Host {
             }
             None => dom.doc.clear_focus(),
         }
+        dom.listeners.sync_focus_visible(dom.doc);
         let mut out = vec![];
         let mut push = |target: NodeId, kind: Event, related: Option<NodeId>| {
             out.push(focus_event(&dom, target, kind, related));
@@ -921,6 +939,7 @@ impl Dom<'_> {
             return vec![];
         }
         self.doc.set_focus_to(node);
+        self.listeners.sync_focus_visible(self.doc);
         vec![
             focus_event(self, node, Event::Focus, None),
             focus_event(self, node, Event::Focusin, None),

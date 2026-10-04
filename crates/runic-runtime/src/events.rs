@@ -882,6 +882,7 @@ impl<A: App> Handler<'_, A> {
             }
             None => doc.clear_focus(),
         }
+        self.listeners.sync_focus_visible(doc);
         let related = |n: Option<NodeId>| EventData {
             related: n.map(|n| Element(n.as_u64())),
             ..Default::default()
@@ -1343,6 +1344,19 @@ impl<A: App> EventHandler for Handler<'_, A> {
             return;
         }
         let focused = focused_element(doc);
+        // Input modality for `:focus-visible` (Blink: any key down sets it, a
+        // mouse press clears it).
+        match &event.data {
+            DomEventData::KeyDown(_) => {
+                self.listeners.had_keyboard_event = true;
+                self.listeners.sync_focus_visible(doc);
+            }
+            DomEventData::MouseDown(_) => {
+                self.listeners.had_keyboard_event = false;
+                self.listeners.sync_focus_visible(doc);
+            }
+            _ => {}
+        }
         let focused_button = focused.filter(|&f| tag(doc, f) == Some("button"));
         let focused_checkbox = focused.filter(|&f| is_checkbox(doc, f));
         match &event.data {
@@ -1400,6 +1414,9 @@ impl<A: App> EventHandler for Handler<'_, A> {
                         .find(|&n| is_control(doc, n) || tab_index(doc, n).is_some());
                     let next = candidate.filter(|&c| !is_disabled_control(doc, c));
                     // Text controls then get Blitz's caret placement.
+                    if next != focused {
+                        self.listeners.mouse_focus = true;
+                    }
                     self.move_focus(doc, next);
                     // A press on a closed select opens its popup.
                     let select = chain
@@ -1516,6 +1533,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 let backwards = k.modifiers.contains(Modifiers::SHIFT);
                 let next = sequential(doc, focused.or(*self.nav_start), backwards);
                 *self.nav_start = None;
+                self.listeners.mouse_focus = false;
                 self.move_focus(doc, next);
                 // Keyboard focus selects the content of text fields (Chromium).
                 if let Some(n) = next.filter(|&n| controls::has_editor(doc, n)) {

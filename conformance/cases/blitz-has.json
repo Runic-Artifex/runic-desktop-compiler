@@ -1,0 +1,34 @@
+{
+  "description": "Blitz fork, :has(): a label styled by :has(input:checked) restyles when its checkbox is toggled (state invalidation), and a list styled by :has(> span:nth-child(3)) restyles when a third item is added (DOM mutation invalidation); both change layout, so geometry checks them",
+  "fixtures": [
+    "blitz-fork-svelte"
+  ],
+  "viewports": [
+    [
+      800,
+      800
+    ],
+    [
+      420,
+      1000
+    ]
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "has-check"
+    },
+    {
+      "kind": "click",
+      "id": "has-add"
+    },
+    {
+      "kind": "click",
+      "id": "has-check"
+    },
+    {
+      "kind": "click",
+      "id": "has-add"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "description": "Blitz fork, text-overflow: ellipsis on clipping single-line boxes (Tailwind's truncate): a line that fits is drawn whole; an overflowing line shows the glyphs that fit whole before an ellipsis, also across inline elements, the ellipsis in the box's colour. Paint only: the whole-viewport pixel gate cannot see a missing ellipsis, so screenshots of this case are inspected when Blitz changes",
+  "fixtures": ["blitz-fork-svelte"],
+  "viewports": [
+    [800, 800],
+    [420, 1000]
+  ],
+  "actions": []
+}

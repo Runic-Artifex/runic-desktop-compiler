@@ -1,0 +1,42 @@
+{
+  "description": "Blitz fork, placeholders: the placeholder of a text input and a text area is drawn while the control is empty, also when focused, hidden by typed text and shown again when the text is deleted (Chromium's ::placeholder colour). The placeholder is paint only: the pixel gate averages over the whole viewport and cannot see a missing placeholder, so screenshots of this case are inspected when Blitz or the UA sheet changes.",
+  "fixtures": [
+    "blitz-fork-svelte"
+  ],
+  "viewports": [
+    [
+      800,
+      800
+    ],
+    [
+      420,
+      1000
+    ]
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "title"
+    },
+    {
+      "kind": "type",
+      "text": "Buy milk"
+    },
+    {
+      "kind": "press",
+      "key": "Control+a"
+    },
+    {
+      "kind": "press",
+      "key": "Backspace"
+    },
+    {
+      "kind": "click",
+      "id": "notes"
+    },
+    {
+      "kind": "type",
+      "text": "Context"
+    }
+  ]
+}

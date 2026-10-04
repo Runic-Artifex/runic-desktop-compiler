@@ -82,6 +82,42 @@ test('CSS accepts ordinary properties and selectors but not time-based behaviour
   );
 });
 
+test('CSS that Stylo drops is reported unless verified equivalent in Chromium', async () => {
+  const check = (css, expected, line) =>
+    react(
+      'import "./s.css";function App(){return <p>Hi</p>;}',
+      async root =>
+        expected
+          ? assert.rejects(
+              collect(root),
+              e =>
+                e instanceof Diagnostic &&
+                e.code === expected &&
+                e.source?.file === 's.css' &&
+                (line === undefined || e.source.line === line),
+            )
+          : collect(root),
+      { 's.css': css },
+    );
+  // Accepted: cascade layers, registered properties, @supports, :has(),
+  // modern colours, and drops verified equivalent in Chromium.
+  await check(
+    '@layer base, components;\n@layer base { p { color: oklch(0.5 0.1 200) } }\n' +
+      '@property --tw-x { syntax: "<length>"; inherits: false; initial-value: 0px; }\n' +
+      '@supports (color: color-mix(in oklab, red, blue)) { p { color: color-mix(in oklab, red 50%, blue) } }\n' +
+      'p:has(> b) { color: red }\np::-webkit-scrollbar { display: none }\n' +
+      '@media (prefers-reduced-motion: reduce) { p { color: red } }\n' +
+      'p { -webkit-tap-highlight-color: transparent; resize: none }',
+    undefined,
+  );
+  // Reported, with the line of the rule or declaration.
+  await check('p { color: red }\n@container (width > 10px) { p { color: blue } }', 'E_CSS', 2);
+  await check('p { color: red }\np { field-sizing: content }', 'E_CSS_PROPERTY', 2);
+  await check('p { -webkit-line-clamp: 2 }', 'E_CSS_PROPERTY', 1);
+  await check('p { filter: blur(2px) }', 'E_CSS_PROPERTY', 1);
+  await check('p { backdrop-filter: blur(2px) }', 'E_CSS_PROPERTY', 1);
+});
+
 test('malformed Svelte source reports a located parse error', async () => {
   await mkdir('.cache/tests', { recursive: true });
   const root = await mkdtemp(path.resolve('.cache/tests/svelte-'));

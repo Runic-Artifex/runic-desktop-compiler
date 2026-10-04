@@ -18,12 +18,10 @@ pub(crate) type Renderer = anyrender_vello_cpu::VelloCpuWindowRenderer;
 pub(crate) type Renderer = anyrender_vello::VelloWindowRenderer;
 
 /// Chromium's form-control defaults where Blitz's UA stylesheet differs: the
-/// control font size, and checkbox colours (Blitz paints checkboxes in the
-/// element's `color`; Chromium uses a grey border and its blue accent fill).
+/// control font size and radio button metrics (the fork paints checkbox and
+/// radio colours as Chromium does).
 const UA_PARITY: &str = "input, textarea, select, button { font-size: 13.333333px; }\n\
-input[type=checkbox] { color: #767676; }\n\
 input[type=radio] { margin: 3px 3px 0 5px; width: 13px; height: 13px; box-sizing: border-box; }\n\
-input[type=checkbox]:checked { color: #0075ff; }\n\
 svg { overflow: hidden; }";
 
 /// Probe screenshots hide the caret, as the browser harness does.

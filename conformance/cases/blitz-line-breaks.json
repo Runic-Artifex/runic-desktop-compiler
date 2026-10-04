@@ -1,0 +1,22 @@
+{
+  "description": "Blitz fork, line breaking and font loading: the paragraph's font is declared with format(\"woff2-variations\") (Blitz skipped such sources, so the text fell back and collapsed); Chromium's soft wrap opportunities in a narrow paragraph (after the hyphen in 1999-12-31, none inside 1/2 or before -5) and the min-content width they give an inline block. Geometry checks the break opportunities through the min-content width of #date-min; the wrapped paragraph itself is checked by screenshot inspection (the pixel gate averages over the whole viewport).",
+  "fixtures": [
+    "blitz-fork-svelte"
+  ],
+  "viewports": [
+    [
+      800,
+      800
+    ],
+    [
+      420,
+      1000
+    ]
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "above"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { frontendTooling } from './adapters/tooling.mjs';
+import { cssCheck } from './codegen.mjs';
 import { parse as parseHTML } from 'parse5';
 
 export const hash = value =>
@@ -37,6 +38,28 @@ export function fail(node, root, code, message) {
 }
 const mime = { '.woff2': 'font/woff2' };
 /** CSS properties that apply only to SVG content (paint, markers, geometry). */
+// What Stylo (Blitz's preferences) drops and Chromium applies differently is
+// reported; these drops are verified equivalent in Chromium 153
+// (docs/research/M6-CSS.md): vendor pseudo-classes and pseudo-elements
+// (scrollbar and form-control internals Blitz has no parts for), media
+// features Stylo does not know whose Chromium default is false, and vendor
+// properties without effect on desktop or next to their standard property.
+const EQUIVALENT_DROPPED_RULE =
+  /::?-(webkit|moz)-|\((forced-colors|prefers-contrast|prefers-reduced-motion)\b/;
+const EQUIVALENT_DROPPED_PROPERTY = new Set([
+  '-webkit-text-size-adjust',
+  '-webkit-tap-highlight-color',
+  '-ms-overflow-style',
+  '-webkit-overflow-scrolling',
+  '-webkit-text-decoration',
+  '-webkit-backdrop-filter',
+]);
+// Computed by Stylo but not used by Blitz's CPU renderer (docs/BLITZ-GAPS.md).
+const IGNORED_PROPERTY = new Map([
+  ['filter', 'the CPU renderer draws no CSS filters'],
+  ['backdrop-filter', 'the CPU renderer draws no backdrop filters'],
+]);
+
 const SVG_CSS =
   /^(fill|stroke|marker)(-|$)|^(clip-rule|paint-order|vector-effect|shape-rendering|stop-color|stop-opacity|flood-color|flood-opacity|lighting-color|color-interpolation|color-interpolation-filters|color-rendering|text-anchor|dominant-baseline|alignment-baseline|baseline-shift|mask-type|d|cx|cy|r|rx|ry|x|y)$/;
 
@@ -228,59 +251,9 @@ export async function collect(app) {
     const css = postcss.parse(mod.code, { from: mod.id });
     // URL inspection uses a CSS AST; no fetching is available in the native app.
     const jobs = [];
-    css.walkAtRules(rule => {
-      if (!['font-face', 'media'].includes(rule.name))
-        throw new Diagnostic('E_CSS', `Unsupported CSS @${rule.name}`, {
-          file: path.relative(root, mod.id),
-          line: rule.source.start.line,
-          column: rule.source.start.column,
-        });
-    });
-    // The DOM is built without wrapper nodes: selectors and ordinary
-    // properties are rendered by Blitz/Stylo and checked by conformance. Only
-    // time-based behaviour (and @keyframes, above) is outside the contract (M10).
+    if (!tooling.tailwind) checkRules(css, path.relative(root, mod.id));
     css.walkDecls(decl => {
-      if (/^(-webkit-)?(animation|transition)(-|$)/.test(decl.prop))
-        throw new Diagnostic(
-          'E_CSS_PROPERTY',
-          `Unsupported CSS declaration ${decl.prop}; animations are planned for M10`,
-          {
-            file: path.relative(root, mod.id),
-            line: decl.source.start.line,
-            column: decl.source.start.column,
-          },
-        );
-      // Blitz renders an inline <svg> from its subtree's attributes (usvg), so
-      // these SVG-only properties would be ignored natively (docs/BLITZ-GAPS.md).
-      if (SVG_CSS.test(decl.prop))
-        throw new Diagnostic(
-          'E_CSS_PROPERTY',
-          `Unsupported CSS declaration ${decl.prop}: Blitz renders inline SVG from its attributes, so CSS for SVG paint and geometry is ignored; use presentation attributes`,
-          {
-            file: path.relative(root, mod.id),
-            line: decl.source.start.line,
-            column: decl.source.start.column,
-          },
-        );
       const parsed = valueParser(decl.value);
-      if (
-        decl.prop === 'src' &&
-        !parsed.nodes.some(
-          n =>
-            n.type === 'function' &&
-            n.value === 'format' &&
-            valueParser.stringify(n.nodes).replace(/^['"]|['"]$/g, '') === 'woff2',
-        )
-      )
-        throw new Diagnostic(
-          'E_FONT_FORMAT',
-          'Embedded font src requires an explicit format("woff2") hint for the pinned Blitz loader',
-          {
-            file: path.relative(root, mod.id),
-            line: decl.source.start.line,
-            column: decl.source.start.column,
-          },
-        );
       parsed.walk(node => {
         if (node.type !== 'function' || node.value !== 'url') return;
         const url = valueParser.stringify(node.nodes).replace(/^['"]|['"]$/g, '');
@@ -331,6 +304,7 @@ export async function collect(app) {
       );
     });
     await Promise.all(jobs);
+    if (!tooling.tailwind) checkWithStylo(mod.code, path.relative(root, mod.id));
     cssParts.push(css.toString());
   }
   // Preserve Vite's actual entry cascade, rather than sorting source filenames.
@@ -341,6 +315,12 @@ export async function collect(app) {
   let orderedCSS = '';
   if (styles.length) {
     const css = postcss.parse(String(styles[0].source));
+    // Tailwind CSS generates the stylesheet: its output is what Blitz renders.
+    if (tooling.tailwind) {
+      const label = 'stylesheet generated by Tailwind CSS';
+      checkRules(css, label);
+      checkWithStylo(String(styles[0].source), label);
+    }
     css.walkDecls(decl => {
       const parsed = valueParser(decl.value);
       parsed.walk(n => {
@@ -388,4 +368,119 @@ export async function collect(app) {
     manifest,
     hash: hash({ manifest, assets: uniqueAssets, html: hash(htmlSource), config }),
   };
+}
+
+/** Report what Stylo drops from the stylesheet `code` (see EQUIVALENT_*). */
+function checkWithStylo(code, file) {
+  const css = postcss.parse(code);
+  const decls = [];
+  // Declarations of style rules; at-rule descriptors (@font-face, @property)
+  // are checked by the stylesheet parse.
+  css.walkDecls(d => {
+    if (d.parent?.type === 'rule') decls.push(d);
+  });
+  const at = (line, column) => ({ file, line, column });
+  for (const d of decls) {
+    const ignored = IGNORED_PROPERTY.get(d.prop);
+    if (ignored)
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration ${d.prop}: ${ignored}`,
+        at(d.source.start.line, d.source.start.column),
+      );
+  }
+  const result = cssCheck(
+    code,
+    decls.map(d => [d.prop, d.value]),
+  );
+  for (const i of result.invalid) {
+    const d = decls[i];
+    if (EQUIVALENT_DROPPED_PROPERTY.has(d.prop)) continue;
+    // Blitz draws no resize grip whatever `resize` says; Chromium's default
+    // (`both`) already differs, a gap recorded in docs/BLITZ-GAPS.md.
+    if (d.prop === 'resize') continue;
+    // A declaration in a rule Stylo drops as a whole is reported with the rule.
+    const rule = d.parent?.type === 'rule' ? d.parent.selector : '';
+    if (EQUIVALENT_DROPPED_RULE.test(rule)) continue;
+    throw new Diagnostic(
+      'E_CSS_PROPERTY',
+      `Unsupported CSS declaration ${d.prop}: ${d.value}${rule ? ` (in ${rule})` : ''}: Blitz's style engine (Stylo) does not support it`,
+      at(d.source.start.line, d.source.start.column),
+    );
+  }
+  const lines = code.split('\n');
+  for (const d of result.dropped) {
+    if (/Unsupported property declaration/.test(d.message)) continue; // the declarations above
+    const text = lines[d.line - 1]?.slice(d.column - 1) ?? '';
+    if (EQUIVALENT_DROPPED_RULE.test(text) || EQUIVALENT_DROPPED_RULE.test(d.message)) continue;
+    throw new Diagnostic(
+      'E_CSS',
+      `Unsupported CSS rule: Blitz's style engine (Stylo) drops it (${d.message})`,
+      at(d.line, d.column),
+    );
+  }
+}
+
+/**
+ * The CSS contract (docs/CONTRACT.md) for one stylesheet: supported at-rules,
+ * no time-based properties, no SVG-only properties, and font sources Blitz
+ * loads. `file` labels the diagnostics.
+ */
+function checkRules(css, file) {
+  css.walkAtRules(rule => {
+    if (!['font-face', 'media', 'layer', 'property', 'supports'].includes(rule.name))
+      throw new Diagnostic('E_CSS', `Unsupported CSS @${rule.name}`, {
+        file: file,
+        line: rule.source.start.line,
+        column: rule.source.start.column,
+      });
+  });
+  // The DOM is built without wrapper nodes: selectors and ordinary
+  // properties are rendered by Blitz/Stylo and checked by conformance. Only
+  // time-based behaviour (and @keyframes, above) is outside the contract (M10).
+  css.walkDecls(decl => {
+    if (/^(-webkit-)?(animation|transition)(-|$)/.test(decl.prop))
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration ${decl.prop}; animations are planned for M10`,
+        {
+          file: file,
+          line: decl.source.start.line,
+          column: decl.source.start.column,
+        },
+      );
+    // Blitz renders an inline <svg> from its subtree's attributes (usvg), so
+    // these SVG-only properties would be ignored natively (docs/BLITZ-GAPS.md).
+    if (SVG_CSS.test(decl.prop))
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration ${decl.prop}: Blitz renders inline SVG from its attributes, so CSS for SVG paint and geometry is ignored; use presentation attributes`,
+        {
+          file: file,
+          line: decl.source.start.line,
+          column: decl.source.start.column,
+        },
+      );
+    const parsed = valueParser(decl.value);
+    if (
+      decl.prop === 'src' &&
+      !parsed.nodes.some(
+        n =>
+          n.type === 'function' &&
+          n.value === 'format' &&
+          ['woff2', 'woff2-variations'].includes(
+            valueParser.stringify(n.nodes).replace(/^['"]|['"]$/g, ''),
+          ),
+      )
+    )
+      throw new Diagnostic(
+        'E_FONT_FORMAT',
+        'Embedded font src requires an explicit format("woff2") or format("woff2-variations") hint for the pinned Blitz loader',
+        {
+          file: file,
+          line: decl.source.start.line,
+          column: decl.source.start.column,
+        },
+      );
+  });
 }

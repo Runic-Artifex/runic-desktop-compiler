@@ -14,6 +14,8 @@ use style::servo_arc::Arc;
 use style::stylesheets::{CssRuleType, Origin, UrlExtraData};
 use style_traits::{CssStringWriter, ParsingMode};
 
+pub mod check;
+
 fn url_data() -> UrlExtraData {
     thread_local! {
         static URL: UrlExtraData = UrlExtraData(Arc::new(url::Url::parse("about:blank").unwrap()));

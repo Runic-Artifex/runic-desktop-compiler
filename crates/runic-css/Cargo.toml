@@ -11,4 +11,7 @@ license.workspace = true
 style = { version = "=0.22.0", package = "stylo" }
 style_traits = { version = "=0.22.0", package = "stylo_traits" }
 selectors = "=0.41.0"
+# Blitz's Stylo preferences, for the build-time oracle (check.rs).
+style_config = { version = "=0.22.0", package = "stylo_static_prefs" }
+cssparser = "=0.38.0"
 url = "2"

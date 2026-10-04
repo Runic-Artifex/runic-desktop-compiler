@@ -1,0 +1,16 @@
+{
+  "description": "Blitz fork, :placeholder-shown: a text input with a placeholder matches while its value is empty, also when focused, stops matching while it holds typed text and matches again once the text is deleted; the rule moves the input, so geometry checks it",
+  "fixtures": ["blitz-fork-svelte"],
+  "viewports": [
+    [800, 800],
+    [420, 1000]
+  ],
+  "actions": [
+    { "kind": "click", "id": "title" },
+    { "kind": "type", "text": "Buy milk" },
+    { "kind": "press", "key": "Control+a" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "type", "text": "x" },
+    { "kind": "press", "key": "Backspace" }
+  ]
+}

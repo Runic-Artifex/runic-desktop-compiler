@@ -1,0 +1,26 @@
+{
+  "description": "Blitz fork, shrink-to-fit widths: a wrapping flex row of nine content-sized buttons and the marker after them, measured in Chromium's 1/64 px layout units (Blitz rounded each width up to a whole pixel, so the row drifted by the sum)",
+  "fixtures": [
+    "blitz-fork-svelte"
+  ],
+  "viewports": [
+    [
+      800,
+      800
+    ],
+    [
+      420,
+      1000
+    ]
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "tag-India"
+    },
+    {
+      "kind": "click",
+      "id": "tag-Alpha"
+    }
+  ]
+}

@@ -74,6 +74,15 @@ function withIR(ir, f) {
   }
 }
 
+/**
+ * The build-time CSS oracle (runic_css::check): the rules Stylo, with Blitz's
+ * preferences, drops from `css` (`{line, column, message}`) and the indexes of
+ * the `declarations` (`[name, value]`) it does not parse.
+ */
+export function cssCheck(css, declarations) {
+  return withIR({ css, declarations }, file => JSON.parse(run(['css-check', file])));
+}
+
 /** Validate `ir` in the Rust backend (the authoritative schema); throws its diagnostic. */
 export function check(ir) {
   return withIR(ir, file => JSON.parse(run(['check', file])));

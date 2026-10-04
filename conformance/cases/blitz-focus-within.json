@@ -1,0 +1,16 @@
+{
+  "description": "Blitz fork, :focus-within: a row padded while focus is on a button or text input inside it, unpadded once focus moves out (to a button outside, to nothing), so geometry checks it",
+  "fixtures": ["blitz-fork-svelte"],
+  "viewports": [
+    [800, 800],
+    [420, 1000]
+  ],
+  "actions": [
+    { "kind": "click", "id": "fv-c" },
+    { "kind": "click", "id": "above" },
+    { "kind": "click", "id": "fv-t" },
+    { "kind": "click", "id": "dates" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "click", "id": "has-check" }
+  ]
+}

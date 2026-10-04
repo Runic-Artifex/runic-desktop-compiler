@@ -11,4 +11,5 @@ serde.workspace = true
 serde_json.workspace = true
 runic-ir.workspace = true
 runic-js.workspace = true
+runic-css.workspace = true
 base64.workspace = true

@@ -88,6 +88,12 @@ pub fn parse_key_spec(spec: &str) -> Option<KeySpec> {
         }
         name = rest;
     }
+    // A modifier pressed on its own (`Shift`): its key and left code.
+    if let Some(&(key, code)) = MODIFIER_KEYS.iter().find(|(k, _)| *k == name) {
+        out.key = key.into();
+        out.code = code.into();
+        return Some(out);
+    }
     if NAMED.contains(&name) {
         out.key = name.into();
         out.code = name.into();

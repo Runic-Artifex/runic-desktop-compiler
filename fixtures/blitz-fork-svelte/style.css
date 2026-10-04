@@ -1,0 +1,30 @@
+@font-face { font-family: RunicVariations; src: url('./assets/DejaVuSans.woff2') format('woff2-variations'); font-weight: 100 900; }
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 16px; }
+main { max-width: 640px; margin: 0 auto; padding: 16px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 12px; }
+section { margin: 8px 0; }
+p { margin: 6px 0; }
+button { font-family: RunicFixture; font-size: 14px; padding: 4px 9px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+#above { display: flex; align-items: center; justify-content: center; width: 100%; height: 32px; }
+#list { height: 120px; overflow: auto; border: 1px solid #52665b; }
+.row { display: flex; align-items: center; justify-content: center; width: 100%; height: 30px; border-radius: 0; }
+#tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#dates { width: 150px; font-size: 15px; font-family: RunicVariations; background: #dfe7f0; }
+#date-min { display: inline-block; width: min-content; font-size: 15px; background: #f0e3d4; }
+input[type='text'], textarea { display: block; font-family: RunicFixture; font-size: 15px; line-height: 20px; padding: 6px 10px; border: 1px solid #52665b; border-radius: 6px; background: #ffffff; color: #252c28; margin: 6px 0; }
+input[type='text'] { width: 300px; }
+textarea { width: 300px; height: 64px; resize: none; }
+input:focus, textarea:focus { outline: none; border-color: #101010; }
+#has-card { display: flex; align-items: center; gap: 6px; padding: 4px; border: 1px solid #52665b; }
+#has-card:has(input:checked) { padding: 16px; background: #2d4a3e; color: #ffffff; }
+#has-list { display: flex; gap: 6px; margin: 6px 0; }
+#has-list:has(> span:nth-child(3)) { flex-direction: column; }
+#fv { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#fv button, #fv input { outline: none; }
+#fv :focus-visible { padding-left: 30px; }
+#fv input[type='text'] { width: 120px; margin: 0; }
+#fv:focus-within { padding: 8px; background: #dfe7f0; }
+#title:placeholder-shown { margin-left: 12px; }
+.truncate { width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; margin: 4px 0; background: #f0e3d4; }

@@ -48,11 +48,42 @@ fn count(nodes: &[Node]) -> usize {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (Some(command), Some(file)) = (args.first(), args.get(1)) else {
-        eprintln!("usage: runic-codegen check|migrate|emit|interp <ir.json> ...");
+        eprintln!(
+            "usage: runic-codegen check|migrate|emit|interp <ir.json> ... | css-check <input.json>"
+        );
         std::process::exit(2);
     };
     let text = std::fs::read_to_string(file)
         .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e.to_string(), None)));
+    // The build-time CSS oracle (runic_css::check): input
+    // {"css": stylesheet, "declarations": [[name, value], ...]}; output the
+    // rules and declarations Stylo drops and the declarations that do not parse.
+    if command == "css-check" {
+        let input: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e.to_string(), None)));
+        let css = input["css"].as_str().unwrap_or_default();
+        let dropped: Vec<serde_json::Value> = runic_css::check::dropped(css)
+            .into_iter()
+            .map(|d| json!({"line": d.line, "column": d.column, "message": d.message}))
+            .collect();
+        let invalid: Vec<usize> = input["declarations"]
+            .as_array()
+            .map(|ds| {
+                ds.iter()
+                    .enumerate()
+                    .filter(|(_, d)| {
+                        !runic_css::check::declaration_parses(
+                            d[0].as_str().unwrap_or_default(),
+                            d[1].as_str().unwrap_or_default(),
+                        )
+                    })
+                    .map(|(i, _)| i)
+                    .collect()
+            })
+            .unwrap_or_default();
+        println!("{}", json!({"dropped": dropped, "invalid": invalid}));
+        return;
+    }
     let program = runic_ir::load(&text).unwrap_or_else(|d| fail(d));
     match command.as_str() {
         "check" => {
