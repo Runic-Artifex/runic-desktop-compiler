@@ -326,6 +326,7 @@ fn check_replacer(f: &FnType, n: usize, src: Option<&Source>) -> Result<()> {
 }
 
 /// The typing context of an expression or statement.
+#[derive(Clone)]
 struct Scope<'a> {
     program: &'a Program,
     component: Option<usize>,
@@ -675,14 +676,17 @@ impl<'a> Scope<'a> {
             }
             Record { record, fields } => {
                 let rec = self.record(*record, src)?;
-                if rec.fields.len() != fields.len() {
+                // Derived class fields are computed when read: no value here.
+                let given: Vec<&crate::Field> =
+                    rec.fields.iter().filter(|f| !f.is_derived()).collect();
+                if given.len() != fields.len() {
                     return err(
                         "E_IR",
-                        format!("Record {} needs {} fields", rec.name, rec.fields.len()),
+                        format!("Record {} needs {} fields", rec.name, given.len()),
                         src,
                     );
                 }
-                for (f, v) in rec.fields.iter().zip(fields) {
+                for (f, v) in given.into_iter().zip(fields) {
                     let t = self.infer(v, d, src)?;
                     if t != f.ty {
                         return err(
@@ -720,6 +724,23 @@ impl<'a> Scope<'a> {
                 };
                 let rec = self.record(r, src)?;
                 match rec.fields.get(*field) {
+                    // A derived field computes in the component its function belongs to.
+                    Some(f)
+                        if f.derived.is_some_and(|d| {
+                            self.program.functions[d]
+                                .component
+                                .is_some_and(|k| self.component != Some(k))
+                        }) =>
+                    {
+                        return err(
+                            "E_IR",
+                            format!(
+                                "Derived field {}.{} is computed by a function of another component",
+                                rec.name, f.name
+                            ),
+                            src,
+                        );
+                    }
                     Some(f) => f.ty.clone(),
                     None => {
                         return err(
@@ -966,6 +987,17 @@ impl<'a> Scope<'a> {
             Place::Local { local } => Ok(self.local(*local, src)?.ty.clone()),
             Place::Cell { cell } => Ok(self.cell(*cell, src)?.ty.clone()),
             Place::Field { object, field } => {
+                if let Type::Record(r) = self.infer(object, 0, src)? {
+                    if let Some(f) = self.record(r, src)?.fields.get(*field) {
+                        if f.is_derived() {
+                            return err(
+                                "E_IR",
+                                format!("Derived field {} is assigned", f.name),
+                                src,
+                            );
+                        }
+                    }
+                }
                 let e = Expr::Get {
                     object: Box::new(object.clone()),
                     field: *field,
@@ -1219,6 +1251,7 @@ pub fn validate(p: &Program) -> Result<()> {
                 return err("E_IR", format!("Record {i} repeats field {}", f.name), None);
             }
             Scope::new(p, None).check_type(&f.ty, None)?;
+            reactive_field(p, i, f)?;
         }
     }
     for f in &p.functions {
@@ -1268,12 +1301,53 @@ pub fn validate(p: &Program) -> Result<()> {
     untracked_template_reads(p)
 }
 
+/// The markers of a reactive class field (docs/IR.md, "Reactive class fields").
+fn reactive_field(p: &Program, r: usize, f: &crate::Field) -> Result<()> {
+    let rec = &p.records[r];
+    let bad = |m: String| err("E_IR", format!("Field {}.{}: {m}", rec.name, f.name), None);
+    match (f.reactive, f.derived) {
+        (None, None) => Ok(()),
+        (None, Some(_)) => bad("only derived fields name a function".into()),
+        (Some(_), _) if !rec.class => bad("reactive fields belong to class records".into()),
+        (Some(crate::Reactive::Derived), Some(d)) => {
+            let Some(func) = p.functions.get(d) else {
+                return bad(format!("unknown function {d}"));
+            };
+            if !func.captures.is_empty()
+                || func.derived
+                || func.params.len() != 1
+                || func.params[0].ty != Type::Record(r)
+                || func.result != f.ty
+            {
+                return bad(format!(
+                    "{} must take the instance and return the field's type",
+                    func.name
+                ));
+            }
+            Ok(())
+        }
+        (Some(crate::Reactive::Derived), None) => bad("a derived field needs a function".into()),
+        (Some(_), Some(_)) => bad("only derived fields name a function".into()),
+        (Some(_), None) => Ok(()),
+    }
+}
+
 /// Derived values must not use host services (directly or through the
 /// functions they call): the frameworks compute them when they are read,
 /// so console lines, random values and history reads would depend on how
 /// often the view reads them.
 fn derived_host_services(p: &Program) -> Result<()> {
-    for f in p.functions.iter().filter(|f| f.derived) {
+    let fields: HashSet<usize> = p
+        .records
+        .iter()
+        .flat_map(|r| r.fields.iter().filter_map(|f| f.derived))
+        .collect();
+    for (_, f) in p
+        .functions
+        .iter()
+        .enumerate()
+        .filter(|(i, f)| f.derived || fields.contains(i))
+    {
         let mut exprs = vec![];
         collect_exprs(&f.body, &mut exprs);
         let mut seen = HashSet::new();
@@ -2073,10 +2147,27 @@ enum Origin {
     /// A new value (its own contents may still alias others).
     Fresh,
     Unknown,
+    /// Deep state held by a `$state` class field: proxies, whose mutations
+    /// notify (except of class instances, maps and sets, which stay raw).
+    Reactive,
+}
+
+/// Where code runs, for the checks of derived values and templates.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Site {
+    Function(usize),
+    Template(usize),
+    /// Handlers (never checked).
+    Handler,
 }
 
 #[derive(Default)]
 struct Mutations {
+    /// Per site, the first write of reactive state that the site did not
+    /// create (a reactive class field, or deep state through one).
+    reactive_writes: std::collections::HashMap<Site, Option<Source>>,
+    /// Per site, the first change of a value the site did not create.
+    changes: std::collections::HashMap<Site, Option<Source>>,
     /// Non-reactive cells written outside their initialiser.
     written: HashSet<(usize, usize)>,
     /// Values mutated in place, by root.
@@ -2176,7 +2267,8 @@ fn note_date_write(out: &mut Mutations, origin: Origin) {
             out.dates.insert(r);
         }
         Origin::Fresh => {}
-        Origin::Unknown => out.date_unknown = true,
+        // Svelte does not proxy Dates: one held by a $state field is raw.
+        Origin::Unknown | Origin::Reactive => out.date_unknown = true,
     }
 }
 
@@ -2189,7 +2281,7 @@ fn note_regexp_write(p: &Program, out: &mut Mutations, origin: Origin) {
             out.regexps.insert(r);
         }
         Origin::Fresh => {}
-        Origin::Unknown => out.regexp_unknown = true,
+        Origin::Unknown | Origin::Reactive => out.regexp_unknown = true,
     }
 }
 
@@ -2257,15 +2349,56 @@ struct Origins<'a> {
     source: Option<Source>,
     /// An in-place mutation of a read-only cell.
     error: Option<Diagnostic>,
+    /// The code being walked.
+    site: Site,
 }
 
 impl Origins<'_> {
+    /// The reactive marker of field `field` of the record `object` evaluates to.
+    fn reactive_field(&self, object: &Expr, field: usize) -> Option<Reactive> {
+        if !self
+            .p
+            .records
+            .iter()
+            .any(|r| r.fields.get(field).is_some_and(|f| f.reactive.is_some()))
+        {
+            return None;
+        }
+        let mut scope = self.scope.clone();
+        match scope.infer(object, 0, None) {
+            Ok(Type::Record(r)) => self.p.records.get(r)?.fields.get(field)?.reactive,
+            _ => None,
+        }
+    }
+
+    /// A write of reactive state (not a mutation that goes unnoticed).
+    fn reactive_write(&mut self, o: Origin) {
+        if o != Origin::Fresh {
+            let src = self.source.clone();
+            self.out.reactive_writes.entry(self.site).or_insert(src);
+        }
+    }
+
+    /// A change of a value the running code may not have created.
+    fn change(&mut self, o: Origin) {
+        if o != Origin::Fresh {
+            let src = self.source.clone();
+            self.out.changes.entry(self.site).or_insert(src);
+        }
+    }
+
     fn origin(&self, e: &Expr) -> Origin {
         let element = |o: Origin| match o {
             Origin::Root(r) => Origin::Root(r),
+            Origin::Reactive => Origin::Reactive,
             _ => Origin::Unknown,
         };
         match e {
+            Expr::Get { object, field }
+                if self.reactive_field(object, *field) == Some(Reactive::State) =>
+            {
+                Origin::Reactive
+            }
             Expr::Cell { cell, .. } => match self.scope.component {
                 Some(k) => Origin::Root(Root::Cell(k, *cell)),
                 None => Origin::Unknown,
@@ -2289,7 +2422,24 @@ impl Origins<'_> {
     }
 
     fn mutated(&mut self, e: &Expr, collection: bool) {
-        match self.origin(e) {
+        let o = self.origin(e);
+        self.change(o);
+        match o {
+            // Proxies notify; class instances, maps and sets in them are raw.
+            Origin::Reactive => {
+                let raw = match self.scope.infer(e, 0, None) {
+                    Ok(Type::Record(r)) => self.p.records[r].class,
+                    Ok(Type::Map(..) | Type::Set(_)) => true,
+                    _ => false,
+                };
+                if raw {
+                    if let Ok(t) = self.scope.infer(e, 0, None) {
+                        self.out.types.push(t);
+                    }
+                } else {
+                    self.reactive_write(o);
+                }
+            }
             Origin::Root(Root::Cell(k, cell)) if self.p.components[k].cells[cell].readonly => {
                 let c = &self.p.components[k].cells[cell];
                 let what = if c.prop.is_some() { "a prop" } else { "state" };
@@ -2321,10 +2471,14 @@ impl Origins<'_> {
         if let Expr::Builtin { name, args, .. } = e {
             if let Some(re) = regexp_written(name, args) {
                 let o = self.origin(re);
+                if !matches!(o, Origin::Root(r) if stateless_regexp_root(self.p, r)) {
+                    self.change(o);
+                }
                 note_regexp_write(self.p, self.out, o);
             }
             if let Some(d) = date_written(name, args) {
                 let o = self.origin(d);
+                self.change(o);
                 note_date_write(self.out, o);
             }
             if MUTATORS.contains(&name.as_str()) {
@@ -2370,6 +2524,7 @@ impl Origins<'_> {
         match s {
             Stmt::Set { cell, value, .. } => {
                 self.expr(value);
+                self.change(Origin::Unknown);
                 self.written(*cell);
             }
             Stmt::Let { local, value, .. } => {
@@ -2386,7 +2541,19 @@ impl Origins<'_> {
                         let o = self.origin(value);
                         self.bind(*local, o);
                     }
-                    Place::Cell { cell } => self.written(*cell),
+                    Place::Cell { cell } => {
+                        self.change(Origin::Unknown);
+                        self.written(*cell)
+                    }
+                    // A reactive class field notifies: not an unnoticed mutation.
+                    Place::Field { object, field }
+                        if self.reactive_field(object, *field).is_some() =>
+                    {
+                        self.expr(object);
+                        let o = self.origin(object);
+                        self.change(o);
+                        self.reactive_write(o);
+                    }
                     Place::Field { object, .. } => {
                         self.expr(object);
                         self.mutated(object, false);
@@ -2461,6 +2628,199 @@ impl Origins<'_> {
     }
 }
 
+/// The functions an expression calls directly.
+fn direct_calls(e: &Expr, out: &mut Vec<usize>) {
+    if let Expr::Call { function, .. } = e {
+        out.push(*function);
+    }
+    for c in e.children() {
+        direct_calls(c, out);
+    }
+}
+
+/// The functions a function body calls directly (assignment targets included).
+fn body_calls(body: &[Stmt], out: &mut Vec<usize>) {
+    let mut exprs = vec![];
+    collect_exprs(body, &mut exprs);
+    for e in exprs {
+        direct_calls(e, out);
+    }
+    fn targets(body: &[Stmt], out: &mut Vec<usize>) {
+        for s in body {
+            match s {
+                Stmt::Assign {
+                    target: Place::Field { object, .. },
+                    ..
+                } => direct_calls(object, out),
+                Stmt::Assign {
+                    target: Place::Index { array, index },
+                    ..
+                } => {
+                    direct_calls(array, out);
+                    direct_calls(index, out);
+                }
+                Stmt::If {
+                    then, otherwise, ..
+                } => {
+                    targets(then, out);
+                    targets(otherwise, out);
+                }
+                Stmt::While { body, update, .. } => {
+                    targets(body, out);
+                    targets(update, out);
+                }
+                Stmt::ForOf { body, .. } => targets(body, out),
+                Stmt::Try {
+                    body,
+                    catch,
+                    finally,
+                } => {
+                    targets(body, out);
+                    if let Some(c) = catch {
+                        targets(&c.body, out);
+                    }
+                    if let Some(f) = finally {
+                        targets(f, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    targets(body, out);
+}
+
+/// Template expressions with the source of their node.
+fn template_sourced<'a>(
+    nodes: &'a [Node],
+    parent: Option<&'a Source>,
+    out: &mut Vec<(&'a Expr, Option<&'a Source>)>,
+) {
+    for n in nodes {
+        let mut one = vec![];
+        template_exprs(std::slice::from_ref(n), &mut one);
+        let src = match n {
+            Node::Element { source, .. }
+            | Node::Text { source, .. }
+            | Node::If { source, .. }
+            | Node::Component { source, .. }
+            | Node::Slot { source, .. }
+            | Node::Each { source, .. } => source.as_ref().or(parent),
+        };
+        out.extend(one.into_iter().map(|e| (e, src)));
+    }
+}
+
+/// Writes that Svelte rejects or whose timing would show (M6 stage B):
+///
+/// - a template expression or a derived value (component-level or a
+///   derived class field) that writes reactive state it did not create (a
+///   `$state` class field, or deep state through one) makes Svelte throw
+///   `state_unsafe_mutation`;
+/// - a derived class field is computed when it is read and recomputed only
+///   when what it read changed, so it must not change any value it did not
+///   create: how often it runs would show.
+///
+/// Values are "created" by the code when it builds them itself (fresh
+/// records and arrays, such as the instance a constructor builds), which is
+/// how Svelte allows writing the signals a reaction creates.
+fn unsafe_mutations(p: &Program, m: &mut Mutations) -> Result<()> {
+    if !p.has_reactive_fields() {
+        return Ok(());
+    }
+    // The writes of template expressions themselves (array mutators).
+    let mut templates: Vec<Vec<usize>> = vec![];
+    for (k, c) in p.components.iter().enumerate() {
+        let mut exprs = vec![];
+        template_sourced(&c.template, None, &mut exprs);
+        let mut scope = Scope::new(p, Some(k));
+        scope.locals = c.template_locals.clone();
+        let mut own = Mutations::default();
+        let mut o = Origins {
+            p,
+            scope,
+            locals: vec![],
+            out: &mut own,
+            source: None,
+            error: None,
+            site: Site::Template(k),
+        };
+        let mut calls = vec![];
+        for (e, src) in exprs {
+            o.source = src.cloned();
+            o.expr(e);
+            direct_calls(e, &mut calls);
+        }
+        m.reactive_writes.extend(own.reactive_writes);
+        templates.push(calls);
+    }
+    let check = |site: Site, start: Vec<usize>, changes: bool, what: &str| -> Result<()> {
+        let mut sites = vec![site];
+        let mut seen = HashSet::new();
+        let mut stack = start;
+        while let Some(f) = stack.pop() {
+            if seen.insert(f) {
+                sites.push(Site::Function(f));
+                body_calls(&p.functions[f].body, &mut stack);
+            }
+        }
+        for s in &sites {
+            if let Some(src) = m.reactive_writes.get(s) {
+                return err(
+                    "E_REACTIVITY",
+                    format!(
+                        "{what} writes reactive state that it did not create (a $state class field, or what one holds); Svelte throws state_unsafe_mutation (write it in an event handler or an effect)"
+                    ),
+                    src.as_ref(),
+                );
+            }
+            if changes {
+                if let Some(src) = m.changes.get(s) {
+                    return err(
+                        "E_REACTIVITY",
+                        format!(
+                            "{what} changes a value that it did not create; derived fields are computed when they are read and again only when what they read changed, so how often that happens would show (compute a new value instead)"
+                        ),
+                        src.as_ref(),
+                    );
+                }
+            }
+        }
+        Ok(())
+    };
+    for (k, calls) in templates.into_iter().enumerate() {
+        check(
+            Site::Template(k),
+            calls,
+            false,
+            &format!("A template expression of {}", p.components[k].name),
+        )?;
+    }
+    for (i, f) in p.functions.iter().enumerate() {
+        if f.derived {
+            check(
+                Site::Function(i),
+                vec![i],
+                false,
+                &format!("Derived value {}", f.name),
+            )?;
+        }
+    }
+    for r in &p.records {
+        for f in &r.fields {
+            if let Some(d) = f.derived {
+                check(
+                    Site::Function(d),
+                    vec![d],
+                    true,
+                    &format!("Derived field {}.{}", r.name, f.name),
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The class records a value of type `t` can hold (itself included).
 fn class_records(p: &Program, t: &Type, seen: &mut HashSet<usize>, out: &mut Vec<usize>) {
     match t {
@@ -2480,6 +2840,45 @@ fn class_records(p: &Program, t: &Type, seen: &mut HashSet<usize>, out: &mut Vec
             }
         }
         _ => {}
+    }
+}
+
+/// Whether a value of type `outer` can hold a value of type `inner` whose
+/// in-place mutation goes unnoticed (`proxied`: `outer` is deep state held
+/// through proxies, where only class instances, maps and sets stay raw).
+/// The deep state of a `$state` class field is proxied, a `$state.raw`
+/// field's value is not, and derived fields are cached on what they read,
+/// as component-level derived values are (see `reads`).
+fn exposes(
+    p: &Program,
+    outer: &Type,
+    inner: &Type,
+    proxied: bool,
+    seen: &mut HashSet<(usize, bool)>,
+) -> bool {
+    if outer == inner {
+        return !proxied
+            || matches!(inner, Type::Map(..) | Type::Set(_))
+            || matches!(inner, Type::Record(r) if p.records[*r].class);
+    }
+    match outer {
+        Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
+            exposes(p, t, inner, proxied, seen)
+        }
+        Type::Map(k, v) => {
+            exposes(p, k, inner, proxied, seen) || exposes(p, v, inner, proxied, seen)
+        }
+        Type::Record(r) => {
+            let rec = &p.records[*r];
+            seen.insert((*r, proxied))
+                && rec.fields.iter().any(|f| match f.reactive {
+                    Some(Reactive::State) => exposes(p, &f.ty, inner, true, seen),
+                    Some(Reactive::Raw) => exposes(p, &f.ty, inner, false, seen),
+                    Some(Reactive::Derived) => false,
+                    None => exposes(p, &f.ty, inner, proxied && !rec.class, seen),
+                })
+        }
+        _ => false,
     }
 }
 
@@ -2520,7 +2919,7 @@ fn stmt_source(s: &Stmt) -> Option<&Source> {
 
 fn untracked_template_reads(p: &Program) -> Result<()> {
     let mut m = Mutations::default();
-    for f in &p.functions {
+    for (i, f) in p.functions.iter().enumerate() {
         let mut scope = Scope::new(p, f.component);
         scope.locals = f
             .captures
@@ -2536,6 +2935,7 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
             out: &mut m,
             source: f.source.clone(),
             error: None,
+            site: Site::Function(i),
         };
         o.block(&f.body);
         if let Some(d) = o.error {
@@ -2554,6 +2954,7 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 out: &mut m,
                 source: h.source.clone(),
                 error: None,
+                site: Site::Handler,
             };
             o.block(&h.body);
             if let Some(d) = o.error {
@@ -2561,6 +2962,7 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
             }
         }
     }
+    unsafe_mutations(p, &mut m)?;
     // RegExps whose lastIndex changes in template expressions themselves.
     for (k, c) in p.components.iter().enumerate() {
         let mut exprs = vec![];
@@ -2610,9 +3012,12 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
         }
         let mutated_type = |collections: bool| {
             m.types.iter().any(|t| {
-                (!collections || matches!(t, Type::Map(..) | Type::Set(_)))
-                    && t.is_reference()
-                    && holds(p, ty, t, &mut HashSet::new())
+                if collections {
+                    matches!(t, Type::Map(..) | Type::Set(_))
+                        && holds(p, ty, t, &mut HashSet::new())
+                } else {
+                    t.is_reference() && exposes(p, ty, t, false, &mut HashSet::new())
+                }
             })
         };
         match tracking {
@@ -2645,12 +3050,13 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 let class_mutated = (!classes.is_empty() && m.roots.contains(&root))
                     || classes.iter().any(|&r| {
                         m.types.iter().any(|t| {
-                            t.is_reference() && holds(p, &Type::Record(r), t, &mut HashSet::new())
+                            t.is_reference()
+                                && exposes(p, &Type::Record(r), t, false, &mut HashSet::new())
                         })
                     });
                 if class_mutated {
                     return Some(format!(
-                        "{name} holds a class instance that is mutated in place; Svelte's $state proxies only plain objects and arrays, so the change does not update the view (reactive class fields are M6 stage B; or assign a new instance)"
+                        "{name} holds a class instance that is mutated in place; Svelte's $state proxies only plain objects and arrays, so the change does not update the view (declare the fields it changes with $state; or assign a new instance)"
                     ));
                 }
                 (m.collections.contains(&root) || mutated_type(true)).then(|| {

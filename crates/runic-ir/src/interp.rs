@@ -20,9 +20,24 @@ use std::rc::Rc;
 #[derive(Clone, Debug)]
 pub struct RecordData {
     pub record: usize,
+    /// Field values (`undefined` for derived class fields, whose values are
+    /// in `derived`).
     pub fields: Vec<Val>,
     /// A class instance (never proxied by deep state).
     pub class: bool,
+    /// Cached derived class fields by field index (M6 stage B).
+    derived: HashMap<usize, DerivedSlot>,
+}
+
+impl RecordData {
+    pub fn new(record: usize, fields: Vec<Val>, class: bool) -> Self {
+        RecordData {
+            record,
+            fields,
+            class,
+            derived: HashMap::new(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -500,6 +515,7 @@ pub struct Instance<'p> {
     renders: u64,
 }
 
+#[derive(Clone)]
 struct DerivedSlot {
     value: Val,
     /// What its last computation read.
@@ -507,6 +523,12 @@ struct DerivedSlot {
     heap: Vec<js::HeapRead>,
     /// Bumped when a recomputation gives a different value.
     version: u64,
+}
+
+impl std::fmt::Debug for DerivedSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "derived {:?}", self.value)
+    }
 }
 
 /// The run state of one effect of an instance.
@@ -524,12 +546,15 @@ struct EffectState {
 }
 
 /// A read recorded while a tracked effect or a derived value ran: a cell,
-/// or a derived value (`derived`, the function) of the instance.
+/// a derived value (`derived`, the function) of the instance, or a derived
+/// class field (`field`: the object and field index, computed in
+/// `instance` when its function belongs to a component).
 #[derive(Clone)]
 struct Read_ {
     instance: usize,
     cell: usize,
     derived: Option<usize>,
+    field: Option<(js::WeakRef<RecordData>, usize)>,
     version: u64,
 }
 
@@ -919,7 +944,9 @@ impl<'p> Machine<'p> {
             in_event: false,
             epochs: (js::mutation_epoch(), js::owned_epoch()),
             tracks_deep: cells_tracked(program, Tracking::Deep),
-            tracks_owned: cells_tracked(program, Tracking::Proxied),
+            // Reactive class fields hold proxied deep state, read and written as proxies are.
+            tracks_owned: cells_tracked(program, Tracking::Proxied)
+                || program.has_reactive_fields(),
             uncaught: vec![],
             tracking: None,
             phase: None,
@@ -1062,6 +1089,7 @@ impl<'p> Machine<'p> {
                         instance: self.current,
                         cell: *cell,
                         derived: None,
+                        field: None,
                         version: self.instances[self.current].versions[*cell],
                     });
                 }
@@ -1176,15 +1204,26 @@ impl<'p> Machine<'p> {
                 }
             }
             Record { record, fields } => {
-                let values = fields
+                let mut given = fields
                     .iter()
                     .map(|x| self.eval(x, f))
-                    .collect::<Res<Vec<_>>>()?;
-                Val::Record(JsRef::new(RecordData {
-                    record: *record,
-                    fields: values,
-                    class: self.program.records[*record].class,
-                }))
+                    .collect::<Res<Vec<_>>>()?
+                    .into_iter();
+                // Derived class fields have no value until read; `$state`
+                // fields proxy plain objects and arrays.
+                let rec = &self.program.records[*record];
+                let values = rec
+                    .fields
+                    .iter()
+                    .map(|fd| match fd.reactive {
+                        Option::Some(Reactive::Derived) => Val::Undefined,
+                        Option::Some(Reactive::State) => {
+                            js::Own::own(given.next().expect("validated field"))
+                        }
+                        _ => given.next().expect("validated field"),
+                    })
+                    .collect();
+                Val::Record(JsRef::new(RecordData::new(*record, values, rec.class)))
             }
             Array { items, .. } => {
                 let mut out = vec![];
@@ -1199,7 +1238,14 @@ impl<'p> Machine<'p> {
                 Val::Array(js::array(out))
             }
             Get { object, field } => match self.eval(object, f)? {
-                Val::Record(r) => r.read_slot(*field as u32).fields[*field].clone(),
+                Val::Record(r) => {
+                    let reactive = self.program.records[r.peek().record].fields[*field].reactive;
+                    match reactive {
+                        Option::None => r.read_slot(*field as u32).fields[*field].clone(),
+                        Option::Some(Reactive::Derived) => self.read_derived_field(&r, *field)?,
+                        Option::Some(_) => r.read_signal(*field as u32).fields[*field].clone(),
+                    }
+                }
                 other => panic!("validated record, found {other:?}"),
             },
             Index { array, index } => {
@@ -1389,6 +1435,23 @@ impl<'p> Machine<'p> {
     /// Whether a recorded read is out of date; a derived value is brought up
     /// to date first (it changed only if its value did).
     fn read_changed(&mut self, r: &Read_) -> bool {
+        if let Some((object, field)) = &r.field {
+            // A collected object changes nothing any more.
+            let Some(object) = object.upgrade() else {
+                return true;
+            };
+            let saved = std::mem::replace(&mut self.current, r.instance);
+            let refreshed = self.refresh_derived_field(&object, *field);
+            self.current = saved;
+            if refreshed.is_err() {
+                return true;
+            }
+            return object
+                .peek()
+                .derived
+                .get(field)
+                .is_none_or(|d| d.version != r.version);
+        }
         match r.derived {
             Some(f) => {
                 if self.refresh_derived(r.instance, f).is_err() {
@@ -1455,6 +1518,84 @@ impl<'p> Machine<'p> {
         Ok(())
     }
 
+    /// Recompute derived class field `field` of `object` if it was never
+    /// computed or what it read changed (docs/IR.md, "Reactive class
+    /// fields"); a result `===` to the cached value keeps it and its version.
+    /// Its function runs in the current instance when it belongs to a component.
+    fn refresh_derived_field(&mut self, object: &JsRef<RecordData>, field: usize) -> Res<()> {
+        let cached = object.peek().derived.get(&field).cloned();
+        let stale = match cached {
+            None => true,
+            Some(d) => {
+                d.heap.iter().any(js::HeapRead::changed) || {
+                    let mut any = false;
+                    for r in &d.reads {
+                        if self.read_changed(r) {
+                            any = true;
+                            break;
+                        }
+                    }
+                    any
+                }
+            }
+        };
+        if !stale {
+            return Ok(());
+        }
+        let function = self.program.records[object.peek().record].fields[field]
+            .derived
+            .expect("validated derived field");
+        let outer = self.tracking.replace(vec![]);
+        let heap_outer = js::begin_heap_reads(Some(self.tracks_owned));
+        let saved_snap = self.snap.take();
+        let result = self.call(function, vec![], vec![Val::Record(object.clone())]);
+        self.snap = saved_snap;
+        let heap = js::end_heap_reads(heap_outer);
+        let reads = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
+        let value = result?;
+        let mut data = object.peek_mut();
+        match data.derived.get_mut(&field) {
+            Some(slot) if strict_equal(&slot.value, &value) => {
+                slot.reads = reads;
+                slot.heap = heap;
+            }
+            _ => {
+                self.version_clock += 1;
+                data.derived.insert(
+                    field,
+                    DerivedSlot {
+                        value,
+                        reads,
+                        heap,
+                        version: self.version_clock,
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// The value of derived class field `field` of `object` (a dependency of
+    /// a running tracked computation).
+    fn read_derived_field(&mut self, object: &JsRef<RecordData>, field: usize) -> Res<Val> {
+        self.refresh_derived_field(object, field)?;
+        let (value, version) = {
+            let data = object.peek();
+            let d = &data.derived[&field];
+            (d.value.clone(), d.version)
+        };
+        if let Some(reads) = &mut self.tracking {
+            reads.push(Read_ {
+                instance: self.current,
+                cell: 0,
+                derived: None,
+                field: Some((object.downgrade(), field)),
+                version,
+            });
+        }
+        Ok(value)
+    }
+
     /// The value of derived `f` of `inst` (a dependency of a running tracked effect).
     fn read_derived(&mut self, inst: usize, f: usize) -> Res<Val> {
         self.refresh_derived(inst, f)?;
@@ -1465,6 +1606,7 @@ impl<'p> Machine<'p> {
                 instance: inst,
                 cell: 0,
                 derived: Some(f),
+                field: None,
                 version,
             });
         }
@@ -1496,8 +1638,26 @@ impl<'p> Machine<'p> {
             Place::Cell { cell } => self.set_cell(*cell, v)?,
             Place::Field { object, field } => match self.eval(object, f)? {
                 Val::Record(r) => {
-                    let v = js::own_into(&r, v);
-                    r.write_slots(&[*field as u32]).fields[*field] = v
+                    let reactive = self.program.records[r.peek().record].fields[*field].reactive;
+                    match reactive {
+                        Option::None => {
+                            let v = js::own_into(&r, v);
+                            r.write_slots(&[*field as u32]).fields[*field] = v
+                        }
+                        // A reactive class field: `$state` proxies plain objects
+                        // and arrays; a value `===` the old one changes nothing.
+                        Option::Some(kind) => {
+                            let v = if kind == Reactive::State {
+                                js::Own::own(v)
+                            } else {
+                                v
+                            };
+                            if !strict_equal(&r.peek().fields[*field], &v) {
+                                r.write_signal(*field as u32).fields[*field] = v;
+                                self.queue_flush();
+                            }
+                        }
+                    }
                 }
                 other => panic!("validated record, found {other:?}"),
             },
@@ -1649,11 +1809,11 @@ impl<'p> Machine<'p> {
                                 let record = self.error_record();
                                 f.set(
                                     l,
-                                    Val::Record(JsRef::new(RecordData {
+                                    Val::Record(JsRef::new(RecordData::new(
                                         record,
-                                        fields: vec![Val::Str(t.name), Val::Str(t.message)],
-                                        class: false,
-                                    })),
+                                        vec![Val::Str(t.name), Val::Str(t.message)],
+                                        false,
+                                    ))),
                                 );
                             }
                             self.exec_block(&c.body, f)
@@ -2544,11 +2704,11 @@ impl<'p> Machine<'p> {
                         None => return bad(&format!("field {}", f.name)),
                     }
                 }
-                Val::Record(JsRef::new(RecordData {
-                    record: *r,
+                Val::Record(JsRef::new(RecordData::new(
+                    *r,
                     fields,
-                    class: self.program.records[*r].class,
-                }))
+                    self.program.records[*r].class,
+                )))
             }
             (t, _) => return bad(&t.name()),
         })
@@ -2561,11 +2721,11 @@ impl<'p> Machine<'p> {
             )),
             Val::Record(r) => {
                 let r = r.borrow();
-                Val::Record(JsRef::new(RecordData {
-                    record: r.record,
-                    fields: r.fields.iter().map(|x| self.clone_deep(x)).collect(),
-                    class: r.class,
-                }))
+                Val::Record(JsRef::new(RecordData::new(
+                    r.record,
+                    r.fields.iter().map(|x| self.clone_deep(x)).collect(),
+                    r.class,
+                )))
             }
             Val::Map(m) => {
                 let entries = m
@@ -3443,11 +3603,11 @@ impl<'p> Machine<'p> {
     }
 
     fn error_value(&self, t: Throw) -> Val {
-        Val::Record(JsRef::new(RecordData {
-            record: self.error_record(),
-            fields: vec![Val::Str(t.name), Val::Str(t.message)],
-            class: false,
-        }))
+        Val::Record(JsRef::new(RecordData::new(
+            self.error_record(),
+            vec![Val::Str(t.name), Val::Str(t.message)],
+            false,
+        )))
     }
 
     fn promise_job(&mut self, job: PJob) {
