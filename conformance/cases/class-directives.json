@@ -1,5 +1,5 @@
 {
-  "description": "class: directives: composed with a missing, static and dynamic class value when the value changes, toggled by name otherwise (the attribute keeps or normalizes its whitespace and duplicates exactly as the browser does)",
+  "description": "Dynamic classes with each framework's own composition: Svelte class: directives composed with a missing, static and dynamic class value when the value changes and toggled by name otherwise; Vue :class objects, arrays and strings merged with a static class and normalised. The attribute keeps or normalises whitespace and duplicates exactly as the browser does",
   "fixtures": ["classes-svelte", "classes-vue"],
   "actions": [
     { "kind": "click", "id": "toggle" },

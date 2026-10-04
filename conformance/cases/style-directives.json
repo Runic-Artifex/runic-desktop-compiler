@@ -1,5 +1,5 @@
 {
-  "description": "Inline styles through the CSSOM: style: directives, dynamic style values (serialised as the browser does), a static value with a directive, a value whose properties a directive overrides, removal through undefined, and a static literal style",
+  "description": "Inline styles through the CSSOM with each framework's own update model: Svelte style: directives over a dynamic or static style value (properties overridden by a directive, removal through undefined); Vue :style objects, arrays and strings with a static style, all properties set again in order on each patch; serialised as the browser does",
   "fixtures": ["styles-svelte", "styles-vue"],
   "actions": [
     { "kind": "click", "id": "color" },
