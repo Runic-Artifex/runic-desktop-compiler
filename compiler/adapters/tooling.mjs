@@ -35,7 +35,51 @@ function svelteScripts(compiler, root, code, id) {
     });
   }
 }
+/** The checked version of Tailwind CSS (runic.json `"tailwind": true`). */
+export const tailwindVersion = '4.3.3';
+
+/**
+ * The framework tooling for the app, with Tailwind CSS's Vite plugin first
+ * when runic.json opts in (`"tailwind": true`); the app's own Vite config is
+ * never run.
+ */
 export async function frontendTooling(root, config) {
+  const tooling = await frameworkTooling(root, config);
+  if (config.tailwind === undefined || config.tailwind === false) return tooling;
+  if (config.tailwind !== true)
+    throw new Diagnostic('E_CONFIG', 'runic.json tailwind must be true or false', {
+      file: 'runic.json',
+      line: 1,
+      column: 1,
+    });
+  const require = createRequire(path.join(root, 'runic.json'));
+  let entry;
+  try {
+    entry = require.resolve('@tailwindcss/vite');
+  } catch {
+    throw new Diagnostic(
+      'E_FRONTEND_VERSION',
+      'runic.json enables Tailwind CSS, but @tailwindcss/vite is not installed',
+    );
+  }
+  const pluginVersion = (await resolvedPackage(entry, '@tailwindcss/vite')).version;
+  const coreVersion = (await resolvedPackage(require.resolve('tailwindcss'), 'tailwindcss'))
+    .version;
+  if (pluginVersion !== tailwindVersion || coreVersion !== tailwindVersion)
+    throw new Diagnostic(
+      'E_FRONTEND_VERSION',
+      `Unsupported Tailwind CSS version ${coreVersion} (Vite plugin ${pluginVersion}); checked version: ${tailwindVersion}`,
+    );
+  const tailwind = (await import(entry)).default;
+  return {
+    ...tooling,
+    plugins: [tailwind(), ...tooling.plugins],
+    packages: { ...tooling.packages, tailwindcss: coreVersion, '@tailwindcss/vite': pluginVersion },
+    tailwind: true,
+  };
+}
+
+async function frameworkTooling(root, config) {
   const name = config.framework ?? 'react',
     require = createRequire(path.join(root, 'runic.json'));
   if (!Object.hasOwn(supportedVersions, name))

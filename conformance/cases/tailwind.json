@@ -1,0 +1,12 @@
+{
+  "description": "Tailwind CSS 4.3.3 through its Vite plugin (runic.json \"tailwind\": true): preflight, theme variables, utilities with @property-registered values (borders, shadows, divide), hover, has-checked: (:has) and focus-visible: variants, and truncate",
+  "fixtures": ["tailwind-svelte"],
+  "actions": [
+    { "kind": "hover", "id": "inc" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "pick-two" },
+    { "kind": "click", "id": "agree" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "click", "id": "agree" }
+  ]
+}
