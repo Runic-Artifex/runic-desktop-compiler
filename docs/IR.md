@@ -196,6 +196,7 @@ Node =
   - Smooth scrolling is rejected.
   - The reference interpreter has no layout: these built-ins throw `RunicLayoutError` there, and the differential harness reports programs using them as incomplete. They are checked against Chromium only.
 - **Focus:** controls and elements with `tabindex` are focusable. Mousedown focuses the pressed one (or nothing); Tab follows the sequential order (positive `tabindex` first, then tree order) and leaves the document past the end. Every move dispatches `blur` and `focusout` on the old element, then `focus` and `focusin` on the new one, naming each other as `relatedTarget`. Blur on removing or disabling the focused element (Chromium dispatches it during the DOM update) is not modelled: a declared gap.
+- **Scroll events:** a scroller whose offset changed (by script or by the user) has a pending `scroll` event. The rendering step after the task dispatches them in order, once per scroller however often it moved. An element's `scroll` event does not bubble. The viewport's event targets the document and reaches the document's listeners, then the window's. Probes run the rendering step after every action, and windowed apps before painting. Like layout reads, programs with `scroll` listeners are checked against Chromium only.
 
 ## Validation limits
 

@@ -9,6 +9,7 @@
   let rect = $state('');
   let metrics = $state('');
   let scroll = $state('');
+  let scrolls = $state<number[]>([]);
   const first = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
   const second = first.map(i => i + 15);
 
@@ -41,7 +42,7 @@
 
 <main>
   <!-- First: Blitz hit-tests a scrolled container over the area above it (docs/BLITZ-GAPS.md). -->
-  <div id="list" bind:this={list}>
+  <div id="list" bind:this={list} onscroll={() => scrolls.push(list.scrollTop)}>
     {#each first as i (i)}
       <div>Item {i}</div>
     {/each}
@@ -53,7 +54,7 @@
   </div>
   <div class="row">
     <button id="toggle" onclick={() => (wide = !wide)}>Toggle</button>
-    <button id="down" onclick={() => { list.scrollTop += 45; report(); }}>Down</button>
+    <button id="down" onclick={() => { list.scrollTop += 40; list.scrollTop += 5; report(); }}>Down</button>
     <button id="by" onclick={() => { list.scrollBy(0, 33.5); report(); }}>By</button>
     <button id="top" onclick={() => { list.scrollTo({ top: 0 }); report(); }}>Top</button>
   </div>
@@ -67,4 +68,5 @@
   <p id="rect">{rect}</p>
   <p id="metrics">{metrics}</p>
   <p id="scroll">{scroll}</p>
+  <p id="scrolls">{scrolls.join(' ')}</p>
 </main>

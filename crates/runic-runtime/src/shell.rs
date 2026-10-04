@@ -113,6 +113,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         log: vec![],
         started: Instant::now(),
         wake_at: None,
+        waker: None,
     }
 }
 

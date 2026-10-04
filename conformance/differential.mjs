@@ -46,7 +46,10 @@ function layoutBuiltin(v) {
   if (v.op === 'builtin') {
     const [ns, m] = v.name.split('.');
     if ((ns === 'element' && LAYOUT_ELEMENT.has(m)) || (ns === 'window' && LAYOUT_WINDOW.has(m))) return v.name;
+    // Scroll events come from layout (scrolling) too.
+    if (m === 'listen' && v.args[0]?.value === 'scroll') return `${v.name} scroll`;
   }
+  if (v.event === 'scroll' && v.handler !== undefined) return 'scroll listener';
   for (const x of Array.isArray(v) ? v : Object.values(v)) {
     const found = layoutBuiltin(x);
     if (found) return found;

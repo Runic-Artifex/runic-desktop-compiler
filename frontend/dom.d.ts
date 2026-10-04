@@ -117,6 +117,7 @@ interface HostEventMap {
   input: Event;
   change: Event;
   wheel: WheelEvent;
+  scroll: Event;
 }
 // Every event kind (listeners passed through rest props).
 interface RunicEventMap extends HostEventMap {

@@ -31,10 +31,13 @@ pub enum Event {
     Blur,
     Focusin,
     Focusout,
+    /// A scroller moved (not bubbling at elements; at the document it
+    /// bubbles to the window). Dispatched in the rendering step.
+    Scroll,
 }
 
 impl Event {
-    pub const ALL: [Event; 22] = [
+    pub const ALL: [Event; 23] = [
         Event::Click,
         Event::Input,
         Event::Change,
@@ -57,6 +60,7 @@ impl Event {
         Event::Blur,
         Event::Focusin,
         Event::Focusout,
+        Event::Scroll,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -89,6 +93,7 @@ impl Event {
             Event::Blur => "blur",
             Event::Focusin => "focusin",
             Event::Focusout => "focusout",
+            Event::Scroll => "scroll",
         }
     }
 
@@ -101,6 +106,7 @@ impl Event {
                 | Event::Mouseleave
                 | Event::Focus
                 | Event::Blur
+                | Event::Scroll
         )
     }
 
@@ -117,6 +123,7 @@ impl Event {
                 | Event::Blur
                 | Event::Focusin
                 | Event::Focusout
+                | Event::Scroll
         )
     }
 
@@ -139,7 +146,7 @@ impl Event {
             | Event::Mouseleave => "hover",
             Event::Input => "input",
             Event::Keydown | Event::Keyup => "keydown",
-            Event::Wheel => "wheel",
+            Event::Wheel | Event::Scroll => "wheel",
             Event::Focus | Event::Blur | Event::Focusin | Event::Focusout => "focus",
         }
     }

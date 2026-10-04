@@ -59,6 +59,9 @@ pub(crate) struct Native<A: App> {
     pub started: std::time::Instant,
     /// Clock time of the scheduled wake-up for the next timer.
     pub wake_at: Option<f64>,
+    /// Wakes the shell to poll: the next rendering step runs pending
+    /// `scroll` events.
+    pub waker: Option<std::task::Waker>,
 }
 
 impl<A: App> Document for Native<A> {
@@ -72,10 +75,18 @@ impl<A: App> Document for Native<A> {
     /// the next timer.
     fn poll(&mut self, task_context: Option<std::task::Context>) -> bool {
         let now = crate::CLOCK_START + self.started.elapsed().as_secs_f64() * 1000.0;
-        let ran = self.app.next_timer().is_some_and(|t| t <= now);
+        if let Some(cx) = &task_context {
+            self.waker = Some(cx.waker().clone());
+        }
+        let mut ran = self.app.next_timer().is_some_and(|t| t <= now);
         if ran {
             self.advance(now);
             self.wake_at = None;
+        }
+        // The rendering step: scroll events of scrollers that moved.
+        if !self.listeners.pending_scroll.is_empty() {
+            self.run_scroll_steps();
+            ran = true;
         }
         if let (Some(due), Some(cx)) = (self.app.next_timer(), task_context) {
             if self.wake_at.is_none_or(|w| due < w) {
@@ -102,6 +113,11 @@ impl<A: App> Document for Native<A> {
             pointer: &mut self.pointer,
         };
         EventDriver::new(&mut self.doc, handler).handle_ui_event(event);
+        if !self.listeners.pending_scroll.is_empty() {
+            if let Some(w) = &self.waker {
+                w.wake_by_ref();
+            }
+        }
     }
 }
 
@@ -174,6 +190,28 @@ impl<A: App> Native<A> {
             pointer: &mut self.pointer,
         };
         handler.move_focus(&mut self.doc, next);
+        self.doc.shell_provider.request_redraw();
+    }
+
+    /// The scroll steps of a rendering step: a `scroll` event for each
+    /// scroller that moved since the last one, in order. An element's does
+    /// not bubble; the viewport's goes to the document, then the window.
+    pub(crate) fn run_scroll_steps(&mut self) {
+        let pending = std::mem::take(&mut self.listeners.pending_scroll);
+        if pending.is_empty() {
+            return;
+        }
+        let mut handler = Handler {
+            app: &mut self.app,
+            listeners: &mut self.listeners,
+            space_target: &mut self.space_target,
+            nav_start: &mut self.nav_start,
+            log: &mut self.log,
+            pointer: &mut self.pointer,
+        };
+        for target in pending {
+            handler.scroll_event(&mut self.doc, target);
+        }
         self.doc.shell_provider.request_redraw();
     }
 
@@ -518,6 +556,24 @@ impl<A: App> Handler<'_, A> {
         }
         event.finish();
         Some(event)
+    }
+
+    /// The `scroll` event of `target` (the root element: the document's).
+    fn scroll_event(&mut self, doc: &mut BaseDocument, target: NodeId) {
+        if doc.try_root_element().is_some_and(|r| r.id == target) {
+            let event = runic_js::Event::new(EventData {
+                kind: Event::Scroll.name().into(),
+                target: Element::DOCUMENT,
+                ..Default::default()
+            });
+            self.host(doc, Event::Scroll, &event);
+            event.finish();
+        } else if doc
+            .get_node(target)
+            .is_some_and(|n| n.flags.is_in_document())
+        {
+            self.fire(doc, &[target], Event::Scroll, EventData::default());
+        }
     }
 
     /// After the element path: the document's listeners, then the window's,
@@ -887,6 +943,12 @@ impl<A: App> EventHandler for Handler<'_, A> {
             // events are not delivered (Chromium's order is rebuilt).
             DomEventData::PointerLeave(_) => {
                 self.pointer.left.push(event.target);
+                return;
+            }
+            // A user scroll moved a scroller (the root element: the
+            // viewport): its `scroll` event waits for the rendering step.
+            DomEventData::Scroll(_) => {
+                self.listeners.scrolled(Some(event.target));
                 return;
             }
             DomEventData::PointerEnter(_) => {

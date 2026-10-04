@@ -528,6 +528,10 @@ pub(crate) fn run<A: App>() {
         }
         native.doc.resolve(0.0);
         native.listeners.settle(&mut native.doc);
+        // The rendering step after the action: pending scroll events.
+        native.run_scroll_steps();
+        native.doc.resolve(0.0);
+        native.listeners.settle(&mut native.doc);
         let us = t.elapsed().as_secs_f64() * 1e6;
         observe(&mut native, action, i + 1, us);
     }

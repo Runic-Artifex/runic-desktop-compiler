@@ -59,7 +59,8 @@ export type EventKind =
   | 'focus'
   | 'blur'
   | 'focusin'
-  | 'focusout';
+  | 'focusout'
+  | 'scroll';
 
 export const EVENT_KINDS: readonly EventKind[] = [
   'click',
@@ -84,6 +85,7 @@ export const EVENT_KINDS: readonly EventKind[] = [
   'blur',
   'focusin',
   'focusout',
+  'scroll',
 ];
 
 export type Read = 'current' | 'snapshot';

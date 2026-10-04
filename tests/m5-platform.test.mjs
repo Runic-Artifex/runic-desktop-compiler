@@ -128,7 +128,7 @@ test('rejected: spreads other than rest props, rest props reaching declared prop
   );
   await rejects(
     await edits('rest-svelte', 'App.svelte', [
-      ['aria-label="Increment"', 'onscroll={() => count++}'],
+      ['aria-label="Increment"', 'onpaste={() => count++}'],
     ]),
     'E_EVENT',
     'App.svelte',

@@ -1,17 +1,57 @@
 {
-  "description": "Layout reads and scrolling (CSSOM View): getBoundingClientRect, offset/client/scroll metrics of a fractional box pixel-snapped as Chromium snaps them, read by an effect after the DOM update; scrollTop writes, scrollBy and scrollTo on a scroll container read back at once; scrollIntoView with start, nearest, center and end alignment",
-  "fixtures": ["measure-svelte"],
+  "description": "Layout reads and scrolling (CSSOM View): getBoundingClientRect, offset/client/scroll metrics of a fractional box pixel-snapped as Chromium snaps them, read by an effect after the DOM update; scrollTop writes, scrollBy and scrollTo on a scroll container read back at once; scrollIntoView with start, nearest, center and end alignment; one scroll event per moved scroller in the rendering step after the action (none when nothing moved), also for wheel scrolling",
+  "fixtures": [
+    "measure-svelte"
+  ],
   "actions": [
-    { "kind": "click", "id": "toggle" },
-    { "kind": "click", "id": "down" },
-    { "kind": "click", "id": "by" },
-    { "kind": "click", "id": "near" },
-    { "kind": "click", "id": "top" },
-    { "kind": "click", "id": "near" },
-    { "kind": "click", "id": "start" },
-    { "kind": "click", "id": "center" },
-    { "kind": "click", "id": "last" },
-    { "kind": "click", "id": "toggle" },
-    { "kind": "click", "id": "top" }
+    {
+      "kind": "click",
+      "id": "toggle"
+    },
+    {
+      "kind": "click",
+      "id": "down"
+    },
+    {
+      "kind": "click",
+      "id": "by"
+    },
+    {
+      "kind": "click",
+      "id": "near"
+    },
+    {
+      "kind": "click",
+      "id": "top"
+    },
+    {
+      "kind": "wheel",
+      "id": "list",
+      "deltaY": 60
+    },
+    {
+      "kind": "click",
+      "id": "near"
+    },
+    {
+      "kind": "click",
+      "id": "start"
+    },
+    {
+      "kind": "click",
+      "id": "center"
+    },
+    {
+      "kind": "click",
+      "id": "last"
+    },
+    {
+      "kind": "click",
+      "id": "toggle"
+    },
+    {
+      "kind": "click",
+      "id": "top"
+    }
   ]
 }

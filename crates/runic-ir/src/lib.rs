@@ -655,6 +655,9 @@ pub enum EventKind {
     /// Focus moved into / out of the element or a descendant (bubbling).
     Focusin,
     Focusout,
+    /// A scroller moved (not bubbling at elements; at the document it
+    /// bubbles to the window). Dispatched in the rendering step.
+    Scroll,
 }
 
 impl EventKind {
@@ -677,6 +680,7 @@ impl EventKind {
                 | EventKind::Mouseleave
                 | EventKind::Focus
                 | EventKind::Blur
+                | EventKind::Scroll
         )
     }
 
@@ -694,6 +698,7 @@ impl EventKind {
                 | EventKind::Blur
                 | EventKind::Focusin
                 | EventKind::Focusout
+                | EventKind::Scroll
         )
     }
 
@@ -717,14 +722,14 @@ impl EventKind {
             | EventKind::Mouseleave => "hover",
             EventKind::Input => "input",
             EventKind::Keydown | EventKind::Keyup => "keydown",
-            EventKind::Wheel => "wheel",
+            EventKind::Wheel | EventKind::Scroll => "wheel",
             EventKind::Focus | EventKind::Blur | EventKind::Focusin | EventKind::Focusout => {
                 "focus"
             }
         }
     }
 
-    pub const ALL: [EventKind; 22] = [
+    pub const ALL: [EventKind; 23] = [
         EventKind::Click,
         EventKind::Input,
         EventKind::Change,
@@ -747,6 +752,7 @@ impl EventKind {
         EventKind::Blur,
         EventKind::Focusin,
         EventKind::Focusout,
+        EventKind::Scroll,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -779,6 +785,7 @@ impl EventKind {
             EventKind::Blur => "blur",
             EventKind::Focusin => "focusin",
             EventKind::Focusout => "focusout",
+            EventKind::Scroll => "scroll",
         }
     }
 }

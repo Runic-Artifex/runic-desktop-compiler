@@ -158,7 +158,7 @@ Both adapters implement the event model; the shared cases `events` and `shortcut
 | 1. Events, window and document listeners | Done for Svelte, React and Vue (cases `events`, `events-vue`, `shortcuts`) |
 | 2. Rest props and spread, `class:`, `style:`, component refs | Done for Svelte (cases `rest-props`, `class-directives`, `style-directives`, `component-refs`), React (`rest-attrs-react`, `component-refs-react`, `style-objects`) and Vue (attribute fallthrough, `v-bind` spreads, `:class`, `:style`, template refs) |
 | 3. Forms | `textarea` and `label` done for Svelte, React and Vue (cases `forms`, `forms-react`, `forms-vue`); `select` with its popup (cases `select`, `select-popup`) and radio buttons (case `radio`) done for Svelte; React and Vue: to do |
-| 4. Document element, `matchMedia`, layout reads, scrolling | Document element and `matchMedia` done for Svelte, React and Vue (case `theme`, crate `runic-css`); layout reads, scrolling, `ResizeObserver` and media change events to do |
+| 4. Document element, `matchMedia`, layout reads, scrolling | Document element and `matchMedia` done for Svelte, React and Vue (case `theme`, crate `runic-css`); layout reads, scrolling and `scroll` events done (case `measure`; scroll listeners Svelte only); `ResizeObserver` and media change events to do |
 | 5. Services | `RegExp` done (`runic-js` over `regress`, case `patterns`); console, clipboard, history, `Date`/`Intl` and randomness to do |
 | 6. Focus model | Focus events, `focus()`/`blur()`, `tabindex` and Tab order done for Svelte, React and Vue (case `focus`); blur when the focused element is removed or disabled, and the M3 gap (case `reorder-navigation`), to do |
 | 7. Examples | To do |
