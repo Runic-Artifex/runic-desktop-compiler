@@ -112,9 +112,17 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
         };
         if let Some(name) = node.attr("id".into()) {
             if let Some(r) = crate::layout::client_rect(doc, id) {
+                // An element without boxes (display: none, or inside such an
+                // element) has an empty rectangle at the origin, as
+                // getBoundingClientRect() gives it.
+                let (x, y, width, height) = if crate::layout::rendered(doc, id) {
+                    (r.x, r.y, r.width, r.height)
+                } else {
+                    (0.0, 0.0, 0.0, 0.0)
+                };
                 geometry.insert(
                     name.to_owned(),
-                    json!({"x": r.x, "y": r.y, "width": r.width, "height": r.height}),
+                    json!({"x": x, "y": y, "width": width, "height": height}),
                 );
             }
         }

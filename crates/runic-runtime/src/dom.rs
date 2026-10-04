@@ -274,6 +274,9 @@ pub struct Spread<L> {
     bag: Option<runic_js::Attrs<L>>,
     names: Vec<String>,
     listeners: Vec<(Event, u32, usize)>,
+    /// The inline style a `style` entry manages, and whether one does.
+    style: runic_css::StyleState,
+    styled: bool,
 }
 
 impl<L> Default for Spread<L> {
@@ -282,6 +285,8 @@ impl<L> Default for Spread<L> {
             bag: None,
             names: Vec::new(),
             listeners: Vec::new(),
+            style: Default::default(),
+            styled: false,
         }
     }
 }
@@ -321,6 +326,79 @@ impl Host {
         self.dom().map_or([0.0; 8], |dom| {
             crate::layout::rect(dom.doc, NodeId::from_u64(node))
         })
+    }
+
+    /// `element.isConnected`: whether `node` is in the document.
+    pub fn is_connected(&self, node: u64) -> bool {
+        self.dom().is_some_and(|dom| {
+            dom.doc
+                .get_node(NodeId::from_u64(node))
+                .is_some_and(|n| n.flags.is_in_document())
+        })
+    }
+
+    /// `element.hasAttribute(name)`.
+    pub fn has_attribute(&self, node: u64, name: &str) -> bool {
+        let name = name.to_ascii_lowercase();
+        self.dom().is_some_and(|dom| {
+            dom.doc
+                .get_node(NodeId::from_u64(node))
+                .and_then(|n| n.element_data())
+                .is_some_and(|e| e.attrs().iter().any(|a| *a.name.local == *name))
+        })
+    }
+
+    /// `element.style.getPropertyValue(name)` (the inline style).
+    pub fn style_get(&self, node: u64, name: &str) -> String {
+        self.dom().map_or(String::new(), |dom| {
+            let css = dom
+                .doc
+                .get_node(NodeId::from_u64(node))
+                .and_then(|n| n.attr("style".into()))
+                .unwrap_or("");
+            runic_css::get_property(css, name)
+        })
+    }
+
+    /// `element.style[name] = value` (the inline style, through the CSSOM):
+    /// an empty value removes the property; an invalid one changes nothing.
+    pub fn style_set(&self, node: u64, name: &str, value: &str) {
+        let Some(mut dom) = self.dom() else { return };
+        let node = NodeId::from_u64(node);
+        let current = dom
+            .doc
+            .get_node(node)
+            .and_then(|n| n.attr("style".into()))
+            .map(str::to_owned);
+        let next = if value.is_empty() {
+            current
+                .as_deref()
+                .map(|css| runic_css::remove_property(css, name))
+        } else {
+            runic_css::set_property(current.as_deref().unwrap_or(""), name, value, false)
+        };
+        if let Some(css) = next {
+            if current.as_deref() != Some(css.as_str()) {
+                dom.set_attr(node, "style", &css);
+            }
+        }
+    }
+
+    /// `element.getAnimations()` where the element's computed style
+    /// declares no animation and no transition of a positive combined
+    /// duration: none can run, the list is empty. Otherwise the runtime
+    /// cannot list them (Blitz exposes no animation objects): unsupported.
+    pub fn animations_none(&self, node: u64) -> bool {
+        let Some(dom) = self.dom() else { return true };
+        crate::layout::resolve(dom.doc);
+        let declared = dom
+            .doc
+            .get_node(NodeId::from_u64(node))
+            .and_then(|n| n.primary_styles())
+            .is_some_and(|s| {
+                s.get_ui().specifies_animations() || s.get_ui().specifies_transitions()
+            });
+        !declared
     }
 
     /// An element metric (`offsetWidth`, `scrollTop`, …).
@@ -662,29 +740,81 @@ impl Dom<'_> {
     /// Apply an element's attribute bag: attributes it no longer holds are
     /// removed and listener registrations follow its `on<event>` entries
     /// (`listen` registers a listener with the app and gives its key).
+    /// With `boolean_text`, a boolean for a name without a boolean property
+    /// becomes "true"/"false" (Svelte's `setAttribute`); `style` text goes
+    /// through the CSSOM when it changed. Gives the bag's attachments when
+    /// the bag changed (`None`: unchanged).
     pub fn spread<L: Clone>(
         &mut self,
         node: NodeId,
         bag: &runic_js::Attrs<L>,
         applied: &mut Spread<L>,
         listen: &mut dyn FnMut(L) -> u32,
-    ) {
+        boolean_text: bool,
+    ) -> Option<Vec<(runic_js::JsString, std::rc::Rc<dyn std::any::Any>)>> {
         use runic_js::{AttrValue, StrictEq};
         if applied.bag.as_ref().is_some_and(|b| b.strict_eq(bag)) {
-            return;
+            return None;
         }
         let mut names = vec![];
         let mut wanted: Vec<(Event, usize, L)> = vec![];
-        for (name, value) in bag.resolved() {
-            let name = name.to_rust();
+        let mut attachments = vec![];
+        let mut style = false;
+        for (name_js, value) in bag.resolved() {
+            let name = name_js.to_rust();
+            if name.starts_with(runic_js::ATTACHMENT) {
+                if let AttrValue::Attach(f) = value {
+                    attachments.push((name_js.clone(), std::rc::Rc::clone(f)));
+                }
+                continue;
+            }
             if let AttrValue::Listener(id, f) = value {
                 if let Some(event) = name.strip_prefix("on").and_then(Event::parse) {
                     wanted.push((event, *id, f.clone()));
                 }
                 continue;
             }
+            match (name.as_str(), value) {
+                ("style", AttrValue::Text(t)) => {
+                    // `style.cssText`, when the value changed.
+                    let current = self
+                        .doc
+                        .get_node(node)
+                        .and_then(|n| n.attr("style".into()))
+                        .map(str::to_owned);
+                    if let Ok(next) =
+                        applied
+                            .style
+                            .apply(current.as_deref(), Some(t.to_rust()), &[])
+                    {
+                        self.set_opt_attr(node, "style", next.as_deref());
+                    }
+                    style = true;
+                    continue;
+                }
+                ("style", AttrValue::Style(_)) => {
+                    crate::unsupported(
+                        "a style object spread onto an element (set as the string [object Object])",
+                    );
+                    continue;
+                }
+                ("hidden", AttrValue::Text(t))
+                    if t.to_rust().eq_ignore_ascii_case("until-found") =>
+                {
+                    crate::unsupported(
+                        "hidden=\"until-found\" (Blitz has no find-in-page and hides the content)",
+                    );
+                    continue;
+                }
+                _ => {}
+            }
             match value {
                 AttrValue::Text(t) => self.set_attr(node, &name, &t.to_rust()),
+                AttrValue::Flag(b)
+                    if boolean_text && !runic_js::BOOLEAN_PROPERTIES.contains(&name.as_str()) =>
+                {
+                    self.set_attr(node, &name, if *b { "true" } else { "false" })
+                }
                 AttrValue::Flag(true) => self.set_attr(node, &name, ""),
                 _ => continue,
             }
@@ -695,6 +825,12 @@ impl Dom<'_> {
                 self.set_opt_attr(node, old, None);
             }
         }
+        // A style the bag no longer sets is removed; setting it again applies it.
+        if applied.styled && !style {
+            self.set_opt_attr(node, "style", None);
+            applied.style = Default::default();
+        }
+        applied.styled = style;
         // Listeners: keep registrations of the same function, drop the
         // others, register the new ones.
         let mut kept = vec![];
@@ -715,6 +851,7 @@ impl Dom<'_> {
         applied.listeners = kept;
         applied.names = names;
         applied.bag = Some(bag.clone());
+        Some(attachments)
     }
 
     /// Compose the class attribute from the class value and toggles: in full

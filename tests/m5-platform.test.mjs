@@ -114,17 +114,26 @@ test('rest props: call-site attributes and listeners reach the element through t
   assert.equal(text(steps.at(-1), 'log'), 'enter click enter');
 });
 
-test('rejected: spreads other than rest props, rest props reaching declared props, unsupported listeners', async () => {
+test('rest props reaching declared props (M6): a later spread entry overrides the explicit prop', async () => {
+  // IconButton forwards its rest props to Button, which declares `class`
+  // and `variant`; IconButton passes variant="ghost" before the spread.
+  const { ir } = await lower(
+    await edits('rest-svelte', 'App.svelte', [
+      ['label="Icon"', 'label="Icon" class="x" variant={busy ? "outline" : undefined}'],
+    ]),
+  );
+  const steps = interpret(ir, [{ kind: 'click', id: 'toggle' }]);
+  const cls = s => flat(s.state.dom).find(n => n.attrs.id === 'icon').attrs.class;
+  // An undefined entry still wins over the explicit value, and then the
+  // prop takes its default.
+  assert.deepEqual(steps.map(cls), ['btn default x', 'btn outline x']);
+});
+
+test('rejected: spreads of unsupported values, unsupported listeners', async () => {
   await rejects(
     await edits('rest-svelte', 'App.svelte', [['<p id="state">', '<p {...{ a: 1 }} id="state">']]),
     'E_TEMPLATE',
     'App.svelte',
-  );
-  // IconButton forwards its rest props to Button, which declares `class`.
-  await rejects(
-    await edits('rest-svelte', 'App.svelte', [['label="Icon"', 'label="Icon" class="x"']]),
-    'E_PROPS',
-    'IconButton.svelte',
   );
   await rejects(
     await edits('rest-svelte', 'App.svelte', [

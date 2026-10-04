@@ -1,0 +1,16 @@
+{
+  "description": "svelte-toolbelt 0.10.6 and runed 0.35.1 through their mapping packs, in the patterns bits-ui builds on (M6 step 6), in a program the reference interpreter also runs: state classes with boxes (boxWith with and without a setter), a runed Context set by the root and read by its trigger and panel, watch (after the update, with the previous value) and watch.pre, mergeProps of rest props and state props (composed click handlers where the user's handler cancels the state's, joined classes, a style object), attachRef registering the panel's node and clearing it when the panel goes, $props.id(), bind:open with onOpenChange (not called for changes from outside). The disclosure is toggled by its trigger, from outside, blocked through preventDefault, unmounted and mounted again (new ids)",
+  "fixtures": ["toolbelt-svelte"],
+  "actions": [
+    { "kind": "click", "id": "trigger" },
+    { "kind": "click", "id": "outside" },
+    { "kind": "click", "id": "block" },
+    { "kind": "click", "id": "trigger" },
+    { "kind": "click", "id": "block" },
+    { "kind": "click", "id": "trigger" },
+    { "kind": "click", "id": "unmount" },
+    { "kind": "click", "id": "unmount" },
+    { "kind": "click", "id": "trigger" },
+    { "kind": "press", "key": "Enter" }
+  ]
+}

@@ -72,6 +72,12 @@ interface Field {
   rune?: { kind: Rune; call: ts.CallExpression; container: ts.Node };
   /** The function computing a derived field from the instance. */
   derived?: number;
+  /**
+   * Set by a statement of the constructor's top level after the instance
+   * exists, and not read before (`lateFields`): stored as a nullable value
+   * that is undefined until then; reads unwrap it.
+   */
+  late?: boolean;
 }
 
 /** The runes that declare reactive class fields. */
@@ -127,8 +133,12 @@ export interface ClassInfo {
 const RUNES = /^\$(state|derived)(\.|$)/;
 const FIELD_RUNES: Rune[] = ['$state', '$state.raw', '$derived', '$derived.by'];
 
-/** Svelte compiles runes in components and in `.svelte.js`/`.svelte.ts` modules only. */
-const RUNE_FILES = /\.svelte(\.__runic\.ts|\.ts|\.js)$/;
+/**
+ * Svelte compiles runes in components and in `.svelte.js`/`.svelte.ts`
+ * modules only (package modules are read through typed virtual modules,
+ * `x.svelte.js.__runic.ts`, frontend/package-modules.ts).
+ */
+const RUNE_FILES = /\.svelte(\.__runic\.ts|\.ts|\.js|\.js\.__runic\.ts)$/;
 
 export class Classes {
   private readonly lower: Lowerer;
@@ -229,9 +239,14 @@ export class Classes {
     });
   }
 
-  /** Whether `t` is a class type: a class record or a class reference. */
+  /**
+   * Whether `t` is a class type: a class record or a class reference of
+   * classes compiled from source (not a nominal built-in record such as
+   * MutationObserver's).
+   */
   isClass(t: Type | undefined): boolean {
-    return t !== undefined && classMembers(t, this.records) !== undefined;
+    const members = t !== undefined ? classMembers(t, this.records) : undefined;
+    return members !== undefined && members.every(r => this.byRecord.has(r));
   }
 
   /** The type of the instances of `info` and its subclasses. */
@@ -432,6 +447,15 @@ export class Classes {
     const decl = sym.valueDeclaration ?? sym.declarations?.[0];
     if (!decl || !ts.isClassDeclaration(decl))
       return this.fail(at, `${sym.name}: class expressions are unsupported (declare the class)`);
+    // A package's declaration of a class compiled from source: its implementation.
+    const impl = decl.getSourceFile().isDeclarationFile
+      ? this.lower.implementation?.(sym)
+      : undefined;
+    if (impl && impl !== sym) {
+      const info = this.layout(impl, at);
+      this.bySymbol.set(sym, info);
+      return info;
+    }
     if (decl.getSourceFile().isDeclarationFile)
       return this.fail(
         at,
@@ -620,12 +644,108 @@ export class Classes {
       keys.add(key);
     }
     info.fields = [...base, ...info.own];
+    this.lateFields(info);
     this.records[info.record].fields = info.fields.map(f => ({
       name: f.key,
       type: f.type,
       ...(f.rune ? { reactive: reactiveKind(f.rune.kind) } : {}),
     }));
     info.rawThis = this.capturesThis(info) || !!info.base?.rawThis;
+  }
+
+  /**
+   * Fields the constructor sets only after the instance exists (bits-ui's
+   * `this.contentPresence = new PresenceManager({ ref: boxWith(() =>
+   * this.contentNode) })`): an own field of `info` without initialiser, not
+   * set by the leading statements that run before the record is built (see
+   * `constructorBody`, whose steps 2 and 3 this follows over the chain: the
+   * record must be built in `info`'s own constructor, after its `super(…)`),
+   * assigned by a statement at the constructor's top level afterwards, and
+   * not read until then. JavaScript holds `undefined` there meanwhile; the
+   * field is stored as a nullable value, undefined until that statement,
+   * and reads unwrap it. The statements before the assignment (and its
+   * value) must not use `this` other than to read or write other fields
+   * that hold no functions (nor `super`), so no method, accessor or function
+   * given `this` can observe the field early.
+   */
+  private lateFields(info: ClassInfo) {
+    /** Fields set before the record is built (`constructorBody`'s temporaries). */
+    const temps = new Map<Field, number>();
+    let statements: readonly ts.Statement[] = [];
+    let i = 0;
+    for (const x of this.chain(info)) {
+      for (const f of x.own) if (f.param || (f.decl?.initializer && !isDerived(f))) temps.set(f, 0);
+      const all = x.ctor?.body?.statements ?? [];
+      const sc = x.base ? all.findIndex(s => superCallStatement(s)) : -1;
+      if (x.base && x.ctor && sc < 0) return; // rejected when the constructor is lowered
+      statements = all.slice(sc + 1);
+      for (i = 0; i < statements.length; i++) {
+        const s = statements[i];
+        const target = thisAssignment(s);
+        const field = target && this.fieldNamed(info, target.name);
+        if (target && field) {
+          const rhs = ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right;
+          if (field.rune && skipParens(rhs) === field.rune.call) {
+            if (isDerived(field)) continue;
+            const arg = field.rune.call.arguments[0];
+            if (arg && !this.earlyForm(arg, info, temps)) break;
+          } else if (!this.earlyForm(rhs, info, temps)) break;
+          temps.set(field, 0);
+          continue;
+        }
+        if (mentionsThis(s)) break;
+      }
+      if (i < statements.length) {
+        // The record is built in a base constructor: `info` declares no
+        // fields (`constructorBody` rejects them otherwise).
+        if (x !== info) return;
+        break;
+      }
+    }
+    if (i >= statements.length) return;
+    const fnType = (t: Type | undefined) => typeof t === 'object' && 'fn' in t;
+    /** Whether `name` is a method or accessor of `info` or a base class. */
+    const member = (name: ts.MemberName) => {
+      if (ts.isPrivateIdentifier(name)) return !!this.privateOwner(name)?.members.has(name.text);
+      for (let x: ClassInfo | undefined = info; x; x = x.base)
+        if (x.members.has(name.text)) return true;
+      return false;
+    };
+    for (const f of info.own) {
+      if (temps.has(f) || f.rune || maybeInner(f.type) || f.type === 'void') continue;
+      const j = statements.findIndex((s, k) => {
+        const target = k >= i ? thisAssignment(s) : undefined;
+        return !!target && this.fieldNamed(info, target.name) === f;
+      });
+      if (j < 0) continue;
+      const assigned = thisAssignment(statements[j]);
+      // `this` in the window may only reach other fields.
+      let safe = true;
+      const visit = (n: ts.Node) => {
+        if (!safe) return;
+        if (n.kind === ts.SyntaxKind.SuperKeyword) safe = false;
+        if (n.kind === ts.SyntaxKind.ThisKeyword) {
+          const p = n.parent;
+          const other =
+            ts.isPropertyAccessExpression(p) && p.expression === n
+              ? this.fieldNamed(info, p.name)
+              : undefined;
+          const ok =
+            !!other &&
+            other !== f &&
+            !isDerived(other) &&
+            !fnType(other.type) &&
+            !fnType(maybeInner(other.type)) &&
+            !member((p as ts.PropertyAccessExpression).name);
+          if (!ok && p !== assigned) safe = false;
+        }
+        ts.forEachChild(n, visit);
+      };
+      for (let k = i; k <= j; k++) visit(statements[k]);
+      if (!safe) continue;
+      f.late = true;
+      f.type = { maybe: f.type };
+    }
   }
 
   /** Structural checks: what the class lowering supports. */
@@ -976,11 +1096,14 @@ export class Classes {
   }
 
   private declaredOnly(info: ClassInfo, at: ts.Node) {
+    // Classes of package modules are declared when first used.
+    if (!info.declared) this.lower.bindingOf(info.symbol);
     if (!info.declared)
       this.fail(at, `${info.name} is not declared in a module or component script`);
   }
 
   private ensureDeclared(info: ClassInfo, at: ts.Node) {
+    if (!info.declared) this.lower.bindingOf(info.symbol);
     if (!info.declared)
       this.fail(at, `${info.name} is not declared in a module or component script`);
     // A class is not hoisted: using it above its declaration throws.
@@ -1061,6 +1184,7 @@ export class Classes {
         const fn = arg as ts.ArrowFunction;
         lower.function(fn, name, undefined, info.component, index, undefined, {
           self,
+          ...(f.type === 'attrs' ? { result: 'attrs' as Type } : {}),
           body: b => {
             lower.thisBindings.set(container, { owner: b, local: 0 });
             return lower.functionBody(fn, b);
@@ -1277,6 +1401,18 @@ export class Classes {
       const arg = f.rune!.call.arguments[0];
       if (f.rune!.call.arguments.length > 1)
         this.fail(f.rune!.call, `${f.rune!.kind} takes at most one argument`);
+      // `$state(null)`: the literal takes the field's (nullable) type.
+      const literal = arg && skipParens(arg);
+      if (
+        literal &&
+        maybeInner(f.type) &&
+        (literal.kind === ts.SyntaxKind.NullKeyword ||
+          (ts.isIdentifier(literal) && literal.text === 'undefined'))
+      )
+        return {
+          op: literal.kind === ts.SyntaxKind.NullKeyword ? 'null' : 'undefined',
+          type: f.type,
+        };
       return arg ? this.early(arg, b, info, temps, where) : { op: 'undefined', type: f.type };
     };
     /** The statements of `x`'s constructor after its `super(…)` call. */
@@ -1754,7 +1890,15 @@ export class Classes {
               e,
               `${f.owner.name}.${name} is a derived field of a class declared in a component script; read it in that component (or declare the class in a .svelte.ts module)`,
             );
-          return { op: 'get', object: recv, field: c.fields.indexOf(f) };
+          const get: Expr = { op: 'get', object: recv, field: c.fields.indexOf(f) };
+          if (f.late) return lateRead(f, get);
+          // A nullable field TypeScript narrowed to its value here (as for variables).
+          if (maybeInner(f.type)) {
+            const here = lower.types.typeOrUndefined(e);
+            if (here !== undefined && here !== 'void' && !maybeInner(here))
+              return { op: 'unwrap', value: get };
+          }
+          return get;
         }
         case 'accessor':
           if (target.get)
@@ -1808,7 +1952,11 @@ export class Classes {
         case 'field':
           return {
             op: 'call-value',
-            callee: { op: 'get', object: receiver, field: c.fields.indexOf(shared.field) },
+            callee: lateRead(shared.field, {
+              op: 'get',
+              object: receiver,
+              field: c.fields.indexOf(shared.field),
+            }),
             args: lower.callArgs(e, b),
           };
         case 'method': {
@@ -1877,7 +2025,11 @@ export class Classes {
         } else if (target.kind === 'field')
           call = {
             op: 'call-value',
-            callee: { op: 'get', object: local, field: c.fields.indexOf(target.field) },
+            callee: lateRead(target.field, {
+              op: 'get',
+              object: local,
+              field: c.fields.indexOf(target.field),
+            }),
             args: argValues,
           };
         else if (target.kind === 'accessor' && target.get)
@@ -2528,6 +2680,20 @@ function thisAssignment(s: ts.Statement): ts.PropertyAccessExpression | undefine
   return ts.isPropertyAccessExpression(t) && t.expression.kind === ts.SyntaxKind.ThisKeyword
     ? t
     : undefined;
+}
+
+/** Whether `s` is a `super(…)` call statement. */
+function superCallStatement(s: ts.Statement): boolean {
+  return (
+    ts.isExpressionStatement(s) &&
+    ts.isCallExpression(s.expression) &&
+    s.expression.expression.kind === ts.SyntaxKind.SuperKeyword
+  );
+}
+
+/** A read `get` of field `f`: a late field (`lateFields`) holds its value once it is read. */
+function lateRead(f: Field, get: Expr): Expr {
+  return f.late ? { op: 'unwrap', value: get } : get;
 }
 
 function mentionsThis(n: ts.Node): boolean {

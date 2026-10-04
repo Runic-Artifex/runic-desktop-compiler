@@ -40,8 +40,12 @@ export type Type =
 
 export type Literal = boolean | number | string;
 
-/** An attribute bag item: an entry, or the entries of another bag. */
-export type AttrItem = { name: string; value: Expr } | { spread: Expr };
+/**
+ * An attribute bag item: an entry, the entries of another bag, or an
+ * attachment (a function of the element returning its cleanup or nothing)
+ * under a key of its own, created when the bag is (M6).
+ */
+export type AttrItem = { name: string; value: Expr } | { spread: Expr } | { attach: Expr };
 
 /** Event kinds (docs/design/M5-PLATFORM.md). */
 export type EventKind =
@@ -175,6 +179,8 @@ export type Expr =
   | { op: 'builtin'; name: string; args: Expr[]; type: Type }
   /** Evaluate `value`, bind it to `local`, then evaluate `body` (sequencing with a temporary). */
   | { op: 'with'; local: number; value: Expr; body: Expr }
+  /** Whether the running instance's parent provides content for its slot `name` (M6). */
+  | { op: 'slot-provided'; name: string }
   /** Unwrap a Maybe; throws TypeError when nullish (`x!` then member access). */
   | { op: 'unwrap'; value: Expr }
   /** A class instance (or a Maybe of one) as a wider class type (M6 inheritance). */
@@ -265,6 +271,12 @@ export interface Cell {
   domain?: { kind: 'text'; maxUtf16: number };
   /** The prop this cell receives from its parent (`init` is the default). */
   prop?: string;
+  /**
+   * A prop whose parent passes `undefined` takes its default (`init`), as
+   * Svelte's `$props()` defaults do; the parent may then pass a nullable value
+   * of the cell's type (M6).
+   */
+  undefinedDefault?: true;
   source?: Source;
 }
 
@@ -306,6 +318,11 @@ export type Node =
       ref?: number;
       /** An attribute bag applied after `attrs` (whose names it never holds). */
       spread?: Expr;
+      /**
+       * Boolean spread entries of names without a boolean element property
+       * become "true"/"false" (Svelte); otherwise true is empty, false absent.
+       */
+      spreadBooleanText?: true;
       /** Class toggles composed with the (string) class attribute. */
       classes?: Attr[];
       /**
@@ -330,8 +347,13 @@ export type Node =
       kind: 'component';
       component: number;
       props?: { name: string; value: Expr; bind?: Expr }[];
-      /** Parent-owned content for the child's slots; params are template locals. */
-      slots?: { name: string; params?: number[]; body: Node[] }[];
+      /**
+       * Parent-owned content for the child's slots; params are template
+       * locals. With `when`, the content counts as provided only while it
+       * holds (evaluated in the parent: content forwarded from the parent's
+       * own slot, M6).
+       */
+      slots?: { name: string; params?: number[]; body: Node[]; when?: Expr }[];
       source?: Source;
     }
   | { kind: 'slot'; name: string; args?: Expr[]; fallback?: Node[]; source?: Source }

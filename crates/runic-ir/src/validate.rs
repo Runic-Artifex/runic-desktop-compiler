@@ -298,6 +298,46 @@ fn check_intl_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Resul
     checked.or_else(|m| err("E_INTL", m, src))
 }
 
+/// The literal arguments of the built-ins that libraries compiled from
+/// source reach (M6): bag names, context keys, id prefixes, inline style
+/// property names and element listener kinds.
+fn check_library_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Result<()> {
+    let literal = |i: usize| match args.get(i) {
+        Some(Expr::Lit {
+            value: Value::String(s),
+        }) => Some(s.as_str()),
+        _ => None,
+    };
+    let need = |i: usize, what: &str| -> Result<()> {
+        if literal(i).is_none() {
+            return err(
+                "E_BUILTIN",
+                format!("{name}: the {what} must be a string literal"),
+                src,
+            );
+        }
+        Ok(())
+    };
+    match name {
+        "attrs.get" | "attrs.has" => need(1, "attribute name"),
+        "attrs.without" => (1..args.len()).try_for_each(|i| need(i, "attribute name")),
+        "context.set" | "context.get" => need(0, "context key"),
+        "uid.next" => need(0, "id prefix"),
+        "element.style-get" | "element.style-set" => need(1, "property name"),
+        // Element listeners added by script: `beforematch` only, which the
+        // runtime never fires (it has no find-in-page).
+        "element.listen" | "element.unlisten" => match literal(1) {
+            Some("beforematch") => Ok(()),
+            _ => err(
+                "E_BUILTIN",
+                format!("{name}: element listeners added by script are supported for beforematch"),
+                src,
+            ),
+        },
+        _ => Ok(()),
+    }
+}
+
 /// A replacement function for a pattern with `n` captures takes the match,
 /// the captures (`string`, or `string | undefined`), the position and the
 /// string, or a prefix of them.
@@ -690,6 +730,28 @@ impl<'a> Scope<'a> {
                 for item in items {
                     match item {
                         AttrItem::Spread { spread } => self.expect(spread, Type::Attrs, d, src)?,
+                        // An attachment: element => cleanup | nothing.
+                        AttrItem::Attach { attach } => {
+                            let t = self.infer(attach, d, src)?;
+                            let cleanup = |r: &Type| match r {
+                                Type::Void => true,
+                                Type::Fn(f) => f.params.is_empty() && *f.result == Type::Void,
+                                Type::Maybe(i) => matches!(&**i, Type::Fn(f)
+                                    if f.params.is_empty() && *f.result == Type::Void),
+                                _ => false,
+                            };
+                            if !matches!(&t, Type::Fn(f) if f.params == [Type::Element] && cleanup(&f.result))
+                            {
+                                return err(
+                                    "E_IR",
+                                    format!(
+                                        "An attachment takes the element and returns a cleanup or nothing, found {}",
+                                        t.name()
+                                    ),
+                                    src,
+                                );
+                            }
+                        }
                         AttrItem::Entry { name, value } => {
                             let t = self.infer(value, d, src)?;
                             let ok = match name.strip_prefix("on").and_then(EventKind::parse) {
@@ -697,10 +759,23 @@ impl<'a> Scope<'a> {
                                     &t,
                                     Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event]
                                 ),
+                                // A style object (M6): property values, absent when nullish.
+                                None if name == "style" && matches!(t, Type::Record(_)) => {
+                                    let Type::Record(r) = t else { unreachable!() };
+                                    self.record(r, src)?.fields.iter().all(|f| {
+                                        f.reactive.is_none()
+                                            && (f.ty == Type::String
+                                                || f.ty == Type::maybe(Type::String))
+                                    })
+                                }
+                                // A callback for a component that declares it (M6):
+                                // a function under a name that is no event attribute.
+                                None if matches!(t, Type::Fn(_)) => callback_name_ok(name),
                                 None => {
                                     attr_name_ok(name)
                                         && (matches!(t, Type::String | Type::Boolean)
-                                            || t == Type::maybe(Type::String))
+                                            || t == Type::maybe(Type::String)
+                                            || t == Type::maybe(Type::Boolean))
                                 }
                             };
                             if !ok {
@@ -943,6 +1018,7 @@ impl<'a> Scope<'a> {
                     }
                 }
                 check_host_literals(name, args, src)?;
+                check_library_literals(name, args, src)?;
                 if name.starts_with("regexp.")
                     || name.starts_with("string.regexp-")
                     || name.starts_with("match.")
@@ -1105,6 +1181,20 @@ impl<'a> Scope<'a> {
                     Some(r) => r,
                     None => return err("E_IR", "match-class without cases", src),
                 }
+            }
+            SlotProvided { name } => {
+                let Some(c) = self.component else {
+                    return err("E_IR", "slot-provided outside a component", src);
+                };
+                let comp = &self.program.components[c];
+                if comp.slot(name).is_none() {
+                    return err(
+                        "E_IR",
+                        format!("{} declares no slot {name}", comp.name),
+                        src,
+                    );
+                }
+                Type::Boolean
             }
         };
         Ok(t)
@@ -1426,6 +1516,22 @@ pub fn infer_in(
     s.payload = payload;
     s.handler = true;
     s.infer(e, 0, None).expect("validated expression")
+}
+
+/// The name of a callback in an attribute bag (M6, `onOpenChange`): a
+/// prop name, not an event attribute (`on` followed by lowercase letters).
+fn callback_name_ok(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some('a'..='z' | 'A'..='Z'))
+        && name.len() <= 64
+        && chars.all(|c| c.is_ascii_alphanumeric())
+        && !is_event_attribute(name)
+}
+
+/// `on` followed by lowercase letters: an event attribute.
+fn is_event_attribute(name: &str) -> bool {
+    name.strip_prefix("on")
+        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_lowercase()))
 }
 
 fn attr_name_ok(name: &str) -> bool {
@@ -2059,6 +2165,9 @@ impl<'p> NodeCx<'_, 'p> {
                             src,
                         );
                     }
+                    if let Some(when) = &def.when {
+                        s.expect(when, Type::Boolean, 0, src)?;
+                    }
                     self.bind_all(&def.params, types, src, |cx| {
                         cx.nodes(&def.body, src, depth)
                     })?;
@@ -2076,7 +2185,18 @@ impl<'p> NodeCx<'_, 'p> {
                         return err("E_IR", format!("Prop {} is passed twice", a.name), src);
                     }
                     let ty = &child.cells[cell].ty;
-                    s.expect(&a.value, ty.clone(), 0, src)?;
+                    // A prop taking its default when undefined may be passed nullable.
+                    let have = s.infer(&a.value, 0, src)?;
+                    let nullable = child.cells[cell].undefined_default
+                        && !matches!(ty, Type::Maybe(_))
+                        && have == Type::maybe(ty.clone());
+                    if have != *ty && !nullable {
+                        return err(
+                            "E_IR",
+                            format!("Expected {}, found {}", ty.name(), have.name()),
+                            src,
+                        );
+                    }
                     if let Some(b) = &a.bind {
                         let want = Type::Fn(FnType {
                             params: vec![ty.clone()],
@@ -2408,6 +2528,8 @@ struct Mutations {
     collections: HashSet<Root>,
     /// Types of values mutated in place whose root is unknown.
     types: Vec<Type>,
+    /// Plain fields of class instances written after construction (record, field).
+    fields: HashSet<(usize, usize)>,
     /// RegExps whose `lastIndex` may change, by root, and whether one of
     /// unknown root may.
     regexps: HashSet<Root>,
@@ -2801,6 +2923,20 @@ impl Origins<'_> {
                         let o = self.origin(object);
                         self.change(o);
                         self.reactive_write(o);
+                    }
+                    // A plain field of a class instance (M6): the field changes
+                    // unnoticed; templates reading it are reported (below).
+                    Place::Field { object, field }
+                        if matches!(self.scope.infer(object, 0, None),
+                            Ok(Type::Record(r)) if self.p.records[r].class)
+                            && !matches!(self.origin(object), Origin::Fresh | Origin::Reactive) =>
+                    {
+                        self.expr(object);
+                        let o = self.origin(object);
+                        self.change(o);
+                        if let Ok(Type::Record(r)) = self.scope.infer(object, 0, None) {
+                            self.out.fields.insert((r, *field));
+                        }
                     }
                     Place::Field { object, .. } => {
                         self.expr(object);
@@ -3264,6 +3400,16 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
             note_date_write(&mut m, o);
         }
     }
+    // Plain class fields written after construction that templates read
+    // (directly or through the functions they call; derived values are cached
+    // on their tracked reads, natively as in the framework).
+    let read_fields = template_field_reads(p);
+    let field_changed = |ty: &Type| {
+        m.fields.iter().any(|&(r, f)| {
+            read_fields.contains(&(r, f))
+                && exposes(p, ty, &Type::Record(r), false, &mut HashSet::new())
+        })
+    };
     let changes = |root: Root| -> Option<String> {
         let (ty, name, tracking) = match root {
             Root::Host(what) => {
@@ -3318,7 +3464,7 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 })
             }
             Tracking::None | Tracking::Identity => (ty.is_reference()
-                && (m.roots.contains(&root) || mutated_type(false)))
+                && (m.roots.contains(&root) || mutated_type(false) || field_changed(ty)))
             .then(|| match root {
                 Root::Global(_) => format!(
                     "Module value {name} is mutated and read while rendering; module state is not reactive (keep it in component state)"
@@ -3333,6 +3479,7 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 let mut classes = vec![];
                 class_records(p, ty, &mut HashSet::new(), &mut classes);
                 let class_mutated = (!classes.is_empty() && m.roots.contains(&root))
+                    || field_changed(ty)
                     || classes.iter().any(|&r| {
                         m.types.iter().any(|t| {
                             t.is_reference()
@@ -3367,6 +3514,86 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The plain fields of class records, as (record, field), that rendering
+/// reads untracked: template expressions and the functions they call or
+/// create (not derived values, which are cached on their tracked reads, as
+/// `reads` treats them). A class instance handed to a builtin counts as
+/// reading all its fields.
+fn template_field_reads(p: &Program) -> HashSet<(usize, usize)> {
+    fn walk(
+        p: &Program,
+        scope: &mut Scope,
+        e: &Expr,
+        out: &mut HashSet<(usize, usize)>,
+        stack: &mut Vec<usize>,
+    ) {
+        match e {
+            Expr::Get { object, field } => {
+                if let Ok(Type::Record(r)) = scope.infer(object, 0, None) {
+                    let rec = &p.records[r];
+                    if rec.class && rec.fields.get(*field).is_some_and(|f| !f.is_derived()) {
+                        out.insert((r, *field));
+                    }
+                }
+            }
+            Expr::Call { function, .. } | Expr::Closure { function, .. }
+                if !p.functions[*function].derived =>
+            {
+                stack.push(*function)
+            }
+            Expr::Builtin { args, .. } => {
+                for a in args {
+                    if let Ok(t) = scope.infer(a, 0, None) {
+                        let mut classes = vec![];
+                        class_records(p, &t, &mut HashSet::new(), &mut classes);
+                        for r in classes {
+                            for f in 0..p.records[r].fields.len() {
+                                out.insert((r, f));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        for c in e.children() {
+            walk(p, scope, c, out, stack);
+        }
+    }
+    let mut out = HashSet::new();
+    let mut stack = vec![];
+    for (k, c) in p.components.iter().enumerate() {
+        let mut exprs = vec![];
+        template_exprs(&c.template, &mut exprs);
+        let mut scope = Scope::new(p, Some(k));
+        scope.locals = c.template_locals.clone();
+        for e in exprs {
+            walk(p, &mut scope, e, &mut out, &mut stack);
+        }
+    }
+    let mut seen = HashSet::new();
+    while let Some(i) = stack.pop() {
+        if !seen.insert(i) {
+            continue;
+        }
+        let f = &p.functions[i];
+        let mut scope = Scope::new(p, f.component);
+        scope.locals = f
+            .captures
+            .iter()
+            .chain(&f.params)
+            .chain(&f.locals)
+            .cloned()
+            .collect();
+        let mut exprs = vec![];
+        collect_exprs(&f.body, &mut exprs);
+        for e in exprs {
+            walk(p, &mut scope, e, &mut out, &mut stack);
+        }
+    }
+    out
 }
 
 /// The expressions of a template (without the functions they call).

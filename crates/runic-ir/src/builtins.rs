@@ -58,9 +58,20 @@ pub fn needs_layout(name: &str) -> bool {
                 || ELEMENT_METRICS.contains(&m)
                 || matches!(
                     m,
-                    "set-scrollTop" | "set-scrollLeft" | "scrollTo" | "scrollBy" | "scrollIntoView"
+                    "set-scrollTop"
+                        | "set-scrollLeft"
+                        | "scrollTo"
+                        | "scrollBy"
+                        | "scrollIntoView"
+                        // Inline styles and running animations need the
+                        // native style engine (M6).
+                        | "style-get"
+                        | "style-set"
+                        | "getAnimations"
                 )
         }
+        // MutationObservers are reported unsupported when they observe.
+        Some(("mutation", "observe")) => true,
         Some(("window", m)) => WINDOW_METRICS.contains(&m) || matches!(m, "scrollTo" | "scrollBy"),
         _ => false,
     }
@@ -578,6 +589,142 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 3, 3)?;
             expect(&args[0], &Element, "receiver")?;
             all(&args[1..], &s).map(|_| Void)
+        }
+        // Libraries compiled from source (M6, docs/IR.md "Attribute bags").
+        // Element attributes, connection, inline style through the CSSOM, and
+        // the element's running CSS animations and transitions.
+        ("element", "hasAttribute") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "name").map(|_| b)
+        }
+        ("element", "isConnected") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| b)
+        }
+        ("element", "style-get") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "property").map(|_| s)
+        }
+        ("element", "style-set") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            all(&args[1..], &s).map(|_| Void)
+        }
+        ("element", "getAnimations") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver")?;
+            match declared {
+                Array(t) if matches!(**t, Record(_)) => Ok(declared.clone()),
+                other => Err(format!(
+                    "getAnimations returns an array of animation records, found {}",
+                    other.name()
+                )),
+            }
+        }
+        // Listeners added by script (`on` of svelte/events); the kind is a
+        // literal checked by the validator.
+        ("element", "listen" | "unlisten") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "event kind")?;
+            match &args[2] {
+                Fn(f) if f.params.is_empty() || f.params == [Event] => Ok(Void),
+                other => Err(format!(
+                    "listener must take the event or nothing, found {}",
+                    other.name()
+                )),
+            }
+        }
+        // MutationObserver records hold their callback.
+        ("mutation", "observe") => {
+            arity(args, 3, 3)?;
+            if !matches!(args[0], Record(_)) {
+                return Err("the receiver must be an observer record".into());
+            }
+            expect(&args[1], &Element, "target")?;
+            expect(&args[2], &Type::array(s), "attribute filter").map(|_| Void)
+        }
+        ("mutation", "disconnect") => {
+            arity(args, 1, 1)?;
+            if !matches!(args[0], Record(_)) {
+                return Err("the receiver must be an observer record".into());
+            }
+            Ok(Void)
+        }
+        // Attribute bags: svelte-toolbelt's mergeProps rules, reading a
+        // declared prop a spread may hold, and the rest of a bag.
+        ("attrs", "merge-props") => all(args, &Attrs).map(|_| Attrs),
+        ("attrs", "has") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Attrs, "bag")?;
+            expect(&args[1], &s, "name").map(|_| b)
+        }
+        ("attrs", "get") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Attrs, "bag")?;
+            expect(&args[1], &s, "name")?;
+            match declared {
+                Maybe(t) if matches!(**t, String | Boolean | Fn(_)) => Ok(declared.clone()),
+                other => Err(format!(
+                    "bag values are read as nullable strings, booleans or functions, found {}",
+                    other.name()
+                )),
+            }
+        }
+        ("attrs", "without") => {
+            if args.is_empty() {
+                return Err("expects a bag".into());
+            }
+            expect(&args[0], &Attrs, "bag")?;
+            all(&args[1..], &s).map(|_| Attrs)
+        }
+        // Effects created while an instance is created (run, or run when
+        // mounted, as the instance's own; the result is the cleanup).
+        ("effect", "pre" | "post") => {
+            arity(args, 1, 1)?;
+            let cleanup = |r: &Type| match r {
+                Void => true,
+                Fn(f) => f.params.is_empty() && *f.result == Void,
+                Maybe(i) => matches!(&**i, Fn(f) if f.params.is_empty() && *f.result == Void),
+                _ => false,
+            };
+            match &args[0] {
+                Fn(f) if f.params.is_empty() && cleanup(&f.result) => Ok(Void),
+                other => Err(format!(
+                    "the effect takes no arguments and returns a cleanup or nothing, found {}",
+                    other.name()
+                )),
+            }
+        }
+        // A call whose reads are not dependencies of the running effect or derived value.
+        ("reactive", "untrack-call") => {
+            let Some(Fn(f)) = args.first() else {
+                return Err("expects a function".into());
+            };
+            if f.params != args[1..] {
+                return Err("the arguments must match the function's parameters".into());
+            }
+            Ok((*f.result).clone())
+        }
+        // Contexts keyed by compile-time identities (a literal key).
+        ("context", "set") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &s, "key").map(|_| args[1].clone())
+        }
+        ("context", "get") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "key")?;
+            match declared {
+                Maybe(_) => Ok(declared.clone()),
+                other => Err(format!("context.get returns a Maybe, found {}", other.name())),
+            }
+        }
+        // An id unique in the program: the prefix and a counter from 1.
+        ("uid", "next") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "prefix").map(|_| s)
         }
         ("window", m) if WINDOW_METRICS.contains(&m) => arity(args, 0, 0).map(|_| n),
         ("window", "scrollTo" | "scrollBy") => {

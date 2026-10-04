@@ -78,7 +78,8 @@ export const tailwindVariantsPack: Pack = {
       constant(node, name, lower): PackFunction {
         const fail = (n: ts.Node, what: string): never =>
           lower.fail(n, 'E_PACK', `${LABEL}: ${what}`);
-        const [arg, more] = node.arguments;
+        const [arg, more] = node.arguments ?? [];
+        if (!ts.isCallExpression(node)) fail(node, 'tv is called, not constructed');
         if (!arg) fail(node, 'tv() needs a config');
         if (more) fail(more, 'a second (merge) config argument is not covered');
         const config = staticValue(lower, arg);
