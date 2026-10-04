@@ -793,6 +793,14 @@ export class Lowerer {
     }
     if (ts.isExpressionStatement(s)) return this.expressionStatement(s.expression, b, origin);
     if (ts.isIfStatement(s)) {
+      // A test known at build time: the branch never taken is not lowered.
+      const known = this.staticValue(s.expression);
+      if (known)
+        return known.value
+          ? this.statement(s.thenStatement, b)
+          : s.elseStatement
+            ? this.statement(s.elseStatement, b)
+            : [];
       return [
         {
           op: 'if',
@@ -811,9 +819,13 @@ export class Lowerer {
           { op: 'expr', value },
           { op: 'return', ...this.src(s) },
         ];
-      // `T | undefined` results: a returned T is wrapped.
+      // `T | undefined` results: a returned T is wrapped, a literal `null`
+      // or `undefined` takes the result type.
       const inner = b.result && maybeInner(b.result);
-      if (value && inner && sameType(this.irType(value, b), inner)) value = { op: 'some', value };
+      if (value && inner && (value.op === 'null' || value.op === 'undefined'))
+        value = { op: value.op, type: b.result! };
+      else if (value && inner && sameType(this.irType(value, b), inner))
+        value = { op: 'some', value };
       // A class instance returned as a class reference.
       else if (value && b.result)
         value = this.classes.fitAt(value, this.irType(value, b), b.result, s);
@@ -1290,8 +1302,15 @@ export class Lowerer {
         ? valueNode.type
         : (this.types.typeOrUndefined(valueNode) ?? this.irType(lowered, b));
     let value: Expr;
-    if (operator === ts.SyntaxKind.EqualsToken) value = rhs();
-    else if (operator === ts.SyntaxKind.QuestionQuestionEqualsToken)
+    if (operator === ts.SyntaxKind.EqualsToken) {
+      value = rhs();
+      // A literal `null` or `undefined` takes the target's nullable type
+      // (its contextual type may be one the value model maps differently).
+      if (value.op === 'null' || value.op === 'undefined') {
+        const t = this.targetType(target, b);
+        if (maybeInner(t)) value = { op: value.op, type: t };
+      }
+    } else if (operator === ts.SyntaxKind.QuestionQuestionEqualsToken)
       value = { op: 'nullish', left: current(), right: rhs() };
     else if (
       operator === ts.SyntaxKind.BarBarEqualsToken ||
@@ -1549,7 +1568,7 @@ export class Lowerer {
     let own = this.checker.getSymbolAtLocation(id);
     for (let hops = 0; own && hops < 32; hops++) {
       const pack = this.bindingOf(own);
-      if (pack?.kind === 'pack') return pack;
+      if (pack?.kind === 'pack' || pack?.kind === 'constant') return pack;
       if (!(own.flags & ts.SymbolFlags.Alias)) break;
       own = this.checker.getImmediateAliasedSymbol(own);
     }
@@ -1688,6 +1707,8 @@ export class Lowerer {
         return this.binaryExpression(e as ts.BinaryExpression, b);
       case K.ConditionalExpression: {
         const c = e as ts.ConditionalExpression;
+        const known = this.staticValue(c.condition);
+        if (known) return this.coerce(known.value ? c.whenTrue : c.whenFalse, b, this.types.of(e));
         return {
           op: 'cond',
           test: this.condition(c.condition, b),
@@ -1707,6 +1728,9 @@ export class Lowerer {
           path.resolve(member.getSourceFile().fileName) === DOM
         )
           return { op: 'lit', value: 'function' };
+        // The host's globals (`typeof document`): native apps have them.
+        if (ts.isIdentifier(operand) && this.hostGlobal(operand))
+          return { op: 'lit', value: 'object' };
         return { op: 'typeof', arg: this.expr((e as ts.TypeOfExpression).expression, b) };
       }
       case K.PropertyAccessExpression:
@@ -1988,6 +2012,74 @@ export class Lowerer {
     return { element: this.expr(inner.expression, b), property };
   }
 
+  /** Whether `id` names an object global of the host (frontend/dom.d.ts: `document`, `window`, …). */
+  hostGlobal(id: ts.Identifier): boolean {
+    const decls = this.checker.getSymbolAtLocation(id)?.declarations ?? [];
+    return (
+      decls.length > 0 &&
+      decls.every(
+        d => ts.isVariableDeclaration(d) && path.resolve(d.getSourceFile().fileName) === DOM,
+      )
+    );
+  }
+
+  /**
+   * The value of an expression known at build time, or undefined: literals,
+   * constants of packs (esm-env's `BROWSER`) and of package modules
+   * evaluated at build time, `typeof` of the host's globals (objects in a
+   * native app), and `!`, `===`, `!==`, `==`, `!=`, `&&`, `||`, `??` over
+   * them. A condition with such a value is folded: the branch it never takes
+   * is not lowered (it never runs).
+   */
+  staticValue(e: ts.Expression): { value: unknown } | undefined {
+    e = skipParens(e);
+    const K = ts.SyntaxKind;
+    if (e.kind === K.TrueKeyword) return { value: true };
+    if (e.kind === K.FalseKeyword) return { value: false };
+    if (e.kind === K.NullKeyword) return { value: null };
+    if (ts.isStringLiteralLike(e)) return { value: e.text };
+    if (ts.isNumericLiteral(e)) return { value: Number(e.text) };
+    if (ts.isIdentifier(e)) {
+      const bound = this.binding(e);
+      if (e.text === 'undefined' && !bound) return { value: undefined };
+      if (bound?.kind !== 'constant') return undefined;
+      const v = bound.value;
+      return v === null || ['boolean', 'number', 'string', 'undefined'].includes(typeof v)
+        ? { value: v }
+        : undefined;
+    }
+    if (ts.isTypeOfExpression(e)) {
+      const operand = skipParens(e.expression);
+      return ts.isIdentifier(operand) && this.hostGlobal(operand) ? { value: 'object' } : undefined;
+    }
+    if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) {
+      const v = this.staticValue(e.operand);
+      return v && { value: !v.value };
+    }
+    if (ts.isBinaryExpression(e)) {
+      const op = e.operatorToken.kind;
+      const l = this.staticValue(e.left);
+      if (!l) return undefined;
+      if (op === K.AmpersandAmpersandToken) return l.value ? this.staticValue(e.right) : l;
+      if (op === K.BarBarToken) return l.value ? l : this.staticValue(e.right);
+      if (op === K.QuestionQuestionToken)
+        return l.value === null || l.value === undefined ? this.staticValue(e.right) : l;
+      const r = this.staticValue(e.right);
+      if (!r) return undefined;
+      switch (op) {
+        case K.EqualsEqualsEqualsToken:
+          return { value: l.value === r.value };
+        case K.ExclamationEqualsEqualsToken:
+          return { value: l.value !== r.value };
+        case K.EqualsEqualsToken:
+          return { value: l.value == r.value };
+        case K.ExclamationEqualsToken:
+          return { value: l.value != r.value };
+      }
+    }
+    return undefined;
+  }
+
   /** A value computed at build time as an IR literal (strings, numbers, booleans, undefined). */
   constantExpr(value: unknown, label: string, at: ts.Node): Expr {
     if (typeof value === 'string' || typeof value === 'boolean') return { op: 'lit', value };
@@ -2045,6 +2137,20 @@ export class Lowerer {
     if (op === K.CommaToken)
       return this.fail(e, 'E_EXPRESSION', 'Comma expressions are supported as statements');
     if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
+      // A left operand known at build time decides which operand is the
+      // value; the other is never evaluated, so it is not lowered.
+      const known = this.staticValue(e.left);
+      if (known) {
+        const and = op === K.AmpersandAmpersandToken;
+        if (and ? !known.value : !!known.value)
+          return this.constantExpr(known.value, e.left.getText(), e.left);
+        const right = this.expr(e.right, b);
+        const rt = this.irType(right, b);
+        const result = this.types.typeOrUndefined(e) ?? rt;
+        return maybeInner(result) && !maybeInner(rt) && rt !== 'void'
+          ? { op: 'some', value: right }
+          : right;
+      }
       const left = this.expr(e.left, b);
       const lt = this.irType(left, b);
       let right = this.expr(e.right, b);
@@ -2539,6 +2645,28 @@ export class Lowerer {
         'E_HOST',
         `location.${method} navigates to another document, which is unsupported (assign location.hash or use history.pushState)`,
       );
+    // M6 overlays: `querySelector` of a literal selector the model covers:
+    // `body` (where imperative mounts append) and `#id`.
+    if (host === 'document' && method === 'querySelector') {
+      const [sel] = e.arguments;
+      const text = sel && ts.isStringLiteralLike(sel) ? sel.text.trim() : undefined;
+      if (e.arguments.length !== 1 || text === undefined)
+        return this.fail(e, 'E_CALL', 'document.querySelector takes a literal selector');
+      if (text === 'body')
+        return {
+          op: 'some',
+          value: builtin('document.body', [], 'element'),
+        };
+      if (/^#[A-Za-z_][\w-]*$/.test(text))
+        return builtin('document.getElementById', [{ op: 'lit', value: text.slice(1) }], {
+          maybe: 'element',
+        });
+      return this.fail(
+        sel,
+        'E_CALL',
+        `document.querySelector supports the selectors body and #id, not ${JSON.stringify(text)}`,
+      );
+    }
     if (host === 'document' && method === 'getElementById') {
       if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'getElementById takes an id');
       return builtin('document.getElementById', [this.coerce(e.arguments[0], b, STRING)], {
@@ -2635,6 +2763,8 @@ export class Lowerer {
       return this.fail(e, 'E_MEMBER', `${host}.${name} is unsupported here; call its methods`);
     if (host === 'document' && name === 'title')
       return { op: 'builtin', name: 'document.title', args: [], type: STRING };
+    if (host === 'document' && name === 'body')
+      return { op: 'builtin', name: 'document.body', args: [], type: 'element' };
     return undefined;
   }
 

@@ -85,6 +85,13 @@ export function packageBindings(
       return lower.fail(decl, 'E_MODULE', 'Module constants need a name and an initialiser');
     const name = decl.name.text;
     if (lower.isIntlConstant(decl) || lower.isPackConstant(decl)) return lower.bindings.get(symbol);
+    // A value known at build time (`isBrowser = typeof document !== "undefined"`).
+    const known = lower.staticValue(decl.initializer);
+    if (known) {
+      const binding: Binding = { kind: 'constant', label: name, value: known.value };
+      lower.bindings.set(symbol, binding);
+      return binding;
+    }
     const folded = buildTime(decl, m);
     if (folded) {
       const binding: Binding = { kind: 'constant', label: name, value: folded.value };

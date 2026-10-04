@@ -248,6 +248,10 @@ interface HostDocument extends HostEventTarget {
   /** The document title (M6). */
   title: string;
   getElementById(id: string): HTMLElement | null;
+  /** M6 overlays: the body (where imperative mounts append). */
+  readonly body: HTMLElement;
+  /** M6 overlays: a literal selector, `body` or `#id`. */
+  querySelector(selectors: string): HTMLElement | null;
 }
 
 /**
