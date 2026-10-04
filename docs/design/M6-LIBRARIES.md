@@ -155,6 +155,23 @@ Decisions:
 |---|---|---|
 | 2. Packs | Pack mechanism (`frontend/packs.ts`, `E_DEPENDENCY`/`E_PACK_VERSION`/`E_PACK`, `meta.mappings`); `clsx` 2.1.1 as IR expressions (38 vectors, `conformance/packs/clsx.mjs`); `@lucide/svelte` 1.52.0 icon expansion; case `packs` in Svelte, React and Vue; `tailwind-merge` 3.7.0 (`twMerge`, `twJoin`) and `tailwind-variants` 3.3.1 (`tv` constants and their variant functions) evaluated at build time by the pinned packages over constant or finite arguments (`frontend/packs/choice.ts`), shadcn's `cn` inlined, 21 vectors (`conformance/packs/tailwind.mjs`), case `tailwind-packs` in Svelte, React and Vue | Open class strings: 136 of the editor's 141 `cn` calls take a `class` (or similar) prop passed through from the parent, rejected with `E_PACK`. The values are finite in the editor; the exact path is propagating each component prop's set of values from its instantiation sites (shared language layer), not a native port of tailwind-merge. Svelte `<script module>` (10 of the 11 `tv` definitions) |
 
+## Reactive class fields (stage B)
+
+Svelte compiles a `$state` class field to a private signal with an accessor pair, and a `$derived` field to a lazily computed, cached signal. bits-ui's state classes and the shadcn-svelte site's own classes depend on both. The plain-class lowering (stage A) stays; reactive fields add the following.
+
+- **IR.** A class record's field can be marked reactive: `"reactive": "state"` (deep: plain objects and arrays assigned to it are proxied, as Svelte proxies them), `"raw"` (`$state.raw`: tracked by identity) or `"derived"` with a function of the instance (`$derived(expr)` and `$derived.by(fn)`). Plain fields stay untracked. Svelte does not proxy class instances, so a class instance assigned to a `$state` field is stored as it is.
+- **Reads and writes.**
+  - A read of a reactive field is a dependency of the running tracked computation (effect, derived value, render). This is the heap-slot read M4 tracks, now on the class record's slot.
+  - A write of a `state` or `raw` field that changes the value (`raw`: not SameValue; `state`: also mutation of its proxied contents) marks the slot written and sets a program-wide *reactive heap* flag for the next flush.
+- **Derived fields.** They have a per-object cache: the value, plus the cells, heap slots and other derived values the last computation read. They are recomputed when read after one of those changed, and keep their value when the result is SameValue, as component-level derived values do. They are computed on first read, never at construction.
+- **Bindings.** A template binding is re-evaluated when a cell it reads is dirty, as today, or when the reactive heap flag is set and the binding may read a reactive field. Which bindings may read one is decided statically: the expression or the functions it calls read reactive fields, and a call through a function value counts as may. Re-evaluation writes the DOM only where a value changed. Svelte's updates are finer-grained, but the difference is not observable: template expressions must not have side effects, which `E_REACTIVITY` and the effects checks already enforce.
+- **Effects** with tracked dependencies depend on the reactive slots and derived fields they read, exactly as they depend on cells.
+- **Validation.** Writing a reactive field from a derived value or during render is rejected, as for cells (Svelte throws `state_unsafe_mutation`). Reading a plain, non-reactive field that is written after construction in a template stays `E_REACTIVITY`.
+- **Inheritance**, needed by the editor's `extends MediaQuery` and `extends Error` and some shadcn-svelte classes, follows as its own step:
+  - single inheritance, with fields of the base first and `super(…)` in the constructor;
+  - dispatch stays static where the receiver's class is exact, and becomes a per-class method table where it is not;
+  - library base classes (`MediaQuery`, `Error`) are packs.
+
 ## Verification
 
 - Every step adds conformance cases in Chromium. Library steps use small fixtures that import the real packages: one bits-ui primitive per fixture, then the editor's wrappers.
