@@ -1,0 +1,19 @@
+{
+  "description": "TodoMVC's edit mode: Enter saves and leaves edit mode, which removes the focused input, so Chromium dispatches blur and focusout during the DOM update and the blur handler sees edit mode left; clicking elsewhere saves through blur; moving the edited item with a keyed move blurs it when the framework's diff detaches its block",
+  "fixtures": ["edit-svelte"],
+  "actions": [
+    { "kind": "dblclick", "id": "label-2" },
+    { "kind": "focus", "id": "edit-2" },
+    { "kind": "type", "text": " rolls" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "dblclick", "id": "label-1" },
+    { "kind": "focus", "id": "edit-1" },
+    { "kind": "type", "text": "!" },
+    { "kind": "click", "id": "other" },
+    { "kind": "dblclick", "id": "label-3" },
+    { "kind": "focus", "id": "edit-3" },
+    { "kind": "press", "key": "Alt+ArrowUp" },
+    { "kind": "press", "key": "Alt+ArrowUp" },
+    { "kind": "press", "key": "Tab" }
+  ]
+}

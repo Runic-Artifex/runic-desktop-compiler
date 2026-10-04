@@ -19,6 +19,7 @@ mod value;
 pub mod array_ops;
 pub mod json;
 pub mod regexp;
+pub mod reorder;
 pub mod string_ops;
 
 pub use array_ops::join_elements;

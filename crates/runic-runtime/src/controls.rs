@@ -51,6 +51,31 @@ fn locked(doc: &BaseDocument, id: NodeId) -> bool {
         .is_some_and(|n| n.attr("disabled".into()).is_some() || n.attr("readonly".into()).is_some())
 }
 
+/// Keys with no default action in a text control in Chromium on Linux: Alt
+/// with arrows, Home, End, Backspace or Delete (verified in Chromium 153),
+/// and PageUp/PageDown in a single-line input.
+pub fn inert_key(doc: &BaseDocument, id: NodeId, k: &blitz_traits::events::BlitzKeyEvent) -> bool {
+    let Some(editor) = editor(doc, id) else {
+        return false;
+    };
+    let alt_only = k.modifiers.contains(Modifiers::ALT)
+        && !k
+            .modifiers
+            .intersects(Modifiers::CONTROL | Modifiers::SUPER);
+    match k.key {
+        Key::ArrowUp
+        | Key::ArrowDown
+        | Key::ArrowLeft
+        | Key::ArrowRight
+        | Key::Home
+        | Key::End
+        | Key::Backspace
+        | Key::Delete => alt_only,
+        Key::PageUp | Key::PageDown => !editor.is_multiline,
+        _ => false,
+    }
+}
+
 /// Editing keys and IME input on a focused disabled/read-only text control.
 pub fn blocks_edit(doc: &BaseDocument, event: &DomEventData) -> bool {
     let Some(id) = doc.get_focussed_node_id() else {

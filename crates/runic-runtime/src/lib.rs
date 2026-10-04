@@ -13,7 +13,7 @@ mod layout;
 #[cfg(feature = "probe")]
 mod probe;
 pub mod promises;
-pub mod reorder;
+pub use runic_js::reorder;
 mod select;
 mod shell;
 mod storage;

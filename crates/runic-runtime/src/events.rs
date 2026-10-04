@@ -1151,6 +1151,15 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 return;
             }
         }
+        // Keys Chromium (Linux) does nothing with in a text control.
+        if let DomEventData::KeyDown(k) = &event.data {
+            if focused_element(doc).is_some_and(|f| controls::inert_key(doc, f, k)) {
+                state.prevent_default();
+                self.fix_focus(doc);
+                doc.shell_provider.request_redraw();
+                return;
+            }
+        }
         // A focused closed select changes its option with the keyboard.
         if let DomEventData::KeyDown(k) = &event.data {
             if let Some(select) = focused_element(doc).filter(|&f| crate::select::is_select(doc, f))
@@ -1425,6 +1434,14 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 }
             }
             _ => return,
+        }
+        // A target the listeners removed has no default action (Chromium);
+        // Blitz's would use the removed node.
+        if !doc
+            .get_node(event.target)
+            .is_some_and(|n| n.flags.is_in_document())
+        {
+            state.prevent_default();
         }
         self.fix_focus(doc);
         doc.shell_provider.request_redraw();

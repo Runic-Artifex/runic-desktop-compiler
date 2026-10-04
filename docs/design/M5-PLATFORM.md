@@ -160,7 +160,7 @@ Both adapters implement the event model; the shared cases `events` and `shortcut
 | 3. Forms | `textarea` and `label` done for Svelte, React and Vue (cases `forms`, `forms-react`, `forms-vue`); `select` with its popup (cases `select`, `select-popup`) and radio buttons (case `radio`) done for Svelte; React and Vue: to do |
 | 4. Document element, `matchMedia`, layout reads, scrolling | Document element and `matchMedia` done for Svelte, React and Vue (case `theme`, crate `runic-css`); layout reads, scrolling and `scroll` events (case `measure`; scroll listeners Svelte only), media query lists with `change` events and the window `resize` event (case `media-events`) done. `ResizeObserver` moves to M6: the editor uses it only through its libraries (bits-ui, floating-ui) |
 | 5. Services | `RegExp` done (`runic-js` over `regress`, case `patterns`); console, clipboard, history, `Date`/`Intl` and randomness to do |
-| 6. Focus model | Focus events, `focus()`/`blur()`, `tabindex` and Tab order done for Svelte, React and Vue (case `focus`); blur when the focused element is removed or disabled, and the M3 gap (case `reorder-navigation`), to do |
+| 6. Focus model | Focus events, `focus()`/`blur()`, `tabindex` and Tab order done for Svelte, React and Vue (case `focus`); blur and focusout when the focused element is removed or moved by a keyed diff, nested in the update (case `edit-blur`, Svelte); blur on disabling or hiding (rendering-step focus fixup) and the M3 gap (case `reorder-navigation`) to do |
 | 7. Examples | To do |
 
 ## Synchronous DOM access (steps 4 and 6)

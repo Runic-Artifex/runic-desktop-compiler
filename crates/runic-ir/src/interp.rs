@@ -638,6 +638,12 @@ pub struct Machine<'p> {
     /// Elements rendered by the running render (an element that
     /// is not rendered loses its id: a remounted element is a new node).
     rendered_elements: HashSet<(InstKey, usize)>,
+    /// The keys of every keyed list as last rendered (by instance, path and
+    /// node), to know which blocks the framework moves.
+    list_keys: HashMap<(usize, Vec<MapKey>, usize), Vec<MapKey>>,
+    /// Elements of blocks the last render moved (Chromium blurs a focused
+    /// element when it is detached to be moved).
+    moved: HashSet<u64>,
     next_element: u64,
     /// Ref cells set by the last render: (instance, cell) → element id.
     refs: HashMap<(usize, usize), u64>,
@@ -758,6 +764,8 @@ impl<'p> Machine<'p> {
             via: vec![],
             element_ids: HashMap::new(),
             rendered_elements: HashSet::new(),
+            list_keys: HashMap::new(),
+            moved: HashSet::new(),
             next_element: 0,
             refs: HashMap::new(),
             current: 0,
@@ -2326,7 +2334,10 @@ impl<'p> Machine<'p> {
     /// created on first render, receive changed props, and are destroyed when
     /// no longer rendered.
     pub fn render(&mut self) -> Result<Vec<VNode>> {
-        self.listeners.clear();
+        // The listeners of the tree before this update (a focused element
+        // that the update removes gets its blur events on that tree).
+        let previous_listeners = std::mem::take(&mut self.listeners);
+        self.moved.clear();
         self.order.clear();
         let mut visited = HashSet::new();
         let mut out = vec![];
@@ -2357,13 +2368,36 @@ impl<'p> Machine<'p> {
         });
         result.map_err(throw_diag)?;
         let tree = normalize(out);
-        // Focus is lost with its element (Chromium's blur events on removal
-        // are not modelled: a declared gap).
-        if self
+        // Focus is lost with its element: Chromium dispatches `blur` and
+        // `focusout` at once when the element (or an ancestor) is removed,
+        // while it is still in the document, so on the previous tree with
+        // its listeners; they run nested in the update.
+        // A keyed move detaches the moved block first: the same events, and
+        // frameworks that restore focus around their DOM updates (React DOM)
+        // focus it again afterwards.
+        let moved = self.focused.filter(|f| self.moved.contains(f));
+        if let Some(f) = self
             .focused
-            .is_some_and(|f| chain_nodes(&tree, f).is_none())
+            .filter(|&f| chain_nodes(&tree, f).is_none() || moved == Some(f))
         {
             self.focused = None;
+            let current = std::mem::replace(&mut self.listeners, previous_listeners);
+            let value = chain_nodes(&self.last_tree, f).and_then(|n| match n.last() {
+                Some(VNode::Element { value, .. }) => value.clone(),
+                _ => None,
+            });
+            for kind in [EventKind::Blur, EventKind::Focusout] {
+                let data = js::EventData {
+                    value: value.as_deref().unwrap_or_default().into(),
+                    ..Default::default()
+                };
+                self.dispatch_nested(f, kind, data);
+            }
+            self.listeners = current;
+            if moved.is_some() && self.program.restore_focus {
+                self.last_tree = tree.clone();
+                self.move_focus_nested(Some(f));
+            }
         }
         self.last_tree = tree.clone();
         Ok(tree)
@@ -2432,8 +2466,13 @@ impl<'p> Machine<'p> {
                 key,
                 body,
                 otherwise,
+                reorder,
                 ..
             } => {
+                let list_id = (self.current, path.clone(), n as *const Node as usize);
+                let previous = self.list_keys.remove(&list_id).unwrap_or_default();
+                let mut keys = vec![];
+                let mut blocks = vec![];
                 let list = self.eval(items, frame)?.array();
                 let values: Vec<Val> = list.borrow().clone();
                 if values.is_empty() {
@@ -2454,12 +2493,34 @@ impl<'p> Machine<'p> {
                     if !seen.insert(k.clone()) {
                         return Err(Throw::new("RunicKeyError", "Duplicate key in a keyed list"));
                     }
-                    path.push(k);
+                    path.push(k.clone());
+                    let start = out.len();
                     for c in body {
                         self.render_node(c, frame, path, out, visited)?;
                     }
                     path.pop();
+                    blocks.push(start..out.len());
+                    keys.push(k);
                 }
+                // Blocks the framework's keyed diff moves (detaching them).
+                if key.is_some() && !previous.is_empty() {
+                    let old: Vec<Option<usize>> = keys
+                        .iter()
+                        .map(|k| previous.iter().position(|p| p == k))
+                        .collect();
+                    let strategy = match reorder {
+                        Reorder::Lis => js::reorder::Reorder::Lis,
+                        Reorder::Forward => js::reorder::Reorder::Forward,
+                        Reorder::Stash => js::reorder::Reorder::Stash,
+                    };
+                    let keep = js::reorder::keep(strategy, &old, previous.len());
+                    for (j, range) in blocks.into_iter().enumerate() {
+                        if old[j].is_some() && !keep[j] {
+                            element_ids(&out[range], &mut self.moved);
+                        }
+                    }
+                }
+                self.list_keys.insert(list_id, keys);
             }
             Node::Slot {
                 name,
@@ -5046,4 +5107,14 @@ pub fn find<'a>(nodes: &'a [VNode], id: &str) -> Option<&'a VNode> {
         }
         VNode::Text(_) => None,
     })
+}
+
+/// The ids of the elements in `nodes` and their descendants.
+fn element_ids(nodes: &[VNode], out: &mut HashSet<u64>) {
+    for n in nodes {
+        if let VNode::Element { id, children, .. } = n {
+            out.insert(*id);
+            element_ids(children, out);
+        }
+    }
 }

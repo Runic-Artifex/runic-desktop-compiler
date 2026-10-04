@@ -199,7 +199,8 @@ pub(crate) fn shown_index(doc: &BaseDocument, select: NodeId) -> Option<usize> {
         .position(|o| marked(doc, o))
 }
 
-/// Whether an enabled option has `value`.
+/// Whether an enabled option has `value` (probe `choose` actions).
+#[cfg(feature = "probe")]
 pub(crate) fn has_enabled_value(doc: &BaseDocument, select: NodeId, value: &str) -> bool {
     options(doc, select).into_iter().any(|o| {
         option_value(doc, o) == value

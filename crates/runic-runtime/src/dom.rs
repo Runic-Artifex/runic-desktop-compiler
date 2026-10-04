@@ -370,32 +370,7 @@ impl Host {
         }
         let mut out = vec![];
         let mut push = |target: NodeId, kind: Event, related: Option<NodeId>| {
-            let chain = crate::events::element_chain(dom.doc, target);
-            let path = if kind.bubbles() {
-                &chain[..]
-            } else {
-                &chain[..1.min(chain.len())]
-            };
-            let event = runic_js::Event::new(runic_js::EventData {
-                kind: kind.name().into(),
-                target: runic_js::Element(target.as_u64()),
-                related: related.map(|r| runic_js::Element(r.as_u64())),
-                ..Default::default()
-            });
-            let deliveries = path
-                .iter()
-                .flat_map(|&n| {
-                    let event = &event;
-                    dom.listeners
-                        .all(n, kind)
-                        .map(move |listener| crate::Delivery {
-                            listener,
-                            event: event.clone(),
-                            current: n.as_u64(),
-                        })
-                })
-                .collect();
-            out.push((event, kind, deliveries));
+            out.push(focus_event(&dom, target, kind, related));
         };
         if let Some(o) = old {
             push(o, Event::Blur, next);
@@ -407,6 +382,46 @@ impl Host {
         }
         out
     }
+}
+
+/// A focus event at `target` with its deliveries along the current
+/// ancestor chain (bubbling kinds) or at the target: the event, its kind and
+/// the listener calls, for a nested run.
+fn focus_event(
+    dom: &Dom,
+    target: NodeId,
+    kind: Event,
+    related: Option<NodeId>,
+) -> (runic_js::Event, Event, Vec<crate::Delivery>) {
+    let chain = crate::events::element_chain(dom.doc, target);
+    let path = if kind.bubbles() {
+        &chain[..]
+    } else {
+        &chain[..1.min(chain.len())]
+    };
+    let value =
+        crate::controls::value(dom.doc, target).or_else(|| crate::select::value(dom.doc, target));
+    let event = runic_js::Event::new(runic_js::EventData {
+        kind: kind.name().into(),
+        target: runic_js::Element(target.as_u64()),
+        related: related.map(|r| runic_js::Element(r.as_u64())),
+        value: value.map(|v| v.as_str().into()).unwrap_or_default(),
+        ..Default::default()
+    });
+    let deliveries = path
+        .iter()
+        .flat_map(|&n| {
+            let event = &event;
+            dom.listeners
+                .all(n, kind)
+                .map(move |listener| crate::Delivery {
+                    listener,
+                    event: event.clone(),
+                    current: n.as_u64(),
+                })
+        })
+        .collect();
+    (event, kind, deliveries)
 }
 
 pub struct Dom<'a> {
@@ -529,6 +544,33 @@ impl Dom<'_> {
                     freed.extend(list.into_iter().map(|(_, key)| key));
                 }
             });
+    }
+
+    /// Chromium blurs the focused element when it, or an ancestor, is removed
+    /// or moved: `blur` and `focusout` (with no related target) run at once,
+    /// while it is still in the document. Gives those events for a nested
+    /// run before `nodes` are removed or moved, and clears focus.
+    pub fn focus_loss(
+        &mut self,
+        nodes: &[NodeId],
+    ) -> Vec<(runic_js::Event, Event, Vec<crate::Delivery>)> {
+        let Some(focused) = crate::events::focused_element(self.doc) else {
+            return vec![];
+        };
+        let mut cur = Some(focused);
+        while let Some(c) = cur {
+            if nodes.contains(&c) {
+                self.doc.clear_focus();
+                // Sequential navigation continues from where it was.
+                self.listeners.blurred = Some(focused);
+                return vec![
+                    focus_event(self, focused, Event::Blur, None),
+                    focus_event(self, focused, Event::Focusout, None),
+                ];
+            }
+            cur = self.doc.get_node(c).and_then(|n| n.parent);
+        }
+        vec![]
     }
 
     /// Listener keys released by removed elements since the last call.
@@ -781,17 +823,25 @@ impl Dom<'_> {
     }
 
     /// Focus again an element that a list move blurred, if it is still in the
-    /// document (frameworks that restore focus around their DOM updates).
-    pub fn restore_focus(&mut self) {
-        if let Some(node) = self.listeners.blurred.take() {
-            if self
-                .doc
-                .get_node(node)
-                .is_some_and(|n| n.flags.is_in_document())
-            {
-                self.doc.set_focus_to(node);
-            }
+    /// document (frameworks that restore focus around their DOM updates, by
+    /// `focus()`): gives its `focus` and `focusin` events for a nested run.
+    pub fn restore_focus(&mut self) -> Vec<(runic_js::Event, Event, Vec<crate::Delivery>)> {
+        let Some(node) = self.listeners.blurred.take() else {
+            return vec![];
+        };
+        if !self
+            .doc
+            .get_node(node)
+            .is_some_and(|n| n.flags.is_in_document())
+            || crate::events::focused_element(self.doc).is_some()
+        {
+            return vec![];
         }
+        self.doc.set_focus_to(node);
+        vec![
+            focus_event(self, node, Event::Focus, None),
+            focus_event(self, node, Event::Focusin, None),
+        ]
     }
 
     /// The live value of a text control, once its editor exists.
