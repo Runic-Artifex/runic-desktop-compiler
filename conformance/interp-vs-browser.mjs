@@ -39,21 +39,23 @@ let mismatches = 0;
 try {
   for (const fixture of c.fixtures.filter(f => !only.length || only.includes(f))) {
     const dir = path.join(repo, fixture.includes('/') ? fixture : `fixtures/${fixture}`);
-    const b = await browser.run(dir, {
-      actions: c.actions,
+    const env = {
       storage: c.storage,
       timezone: c.timezone,
       locale: c.locale,
+      url: c.url,
+      clipboard: c.clipboard,
+      seed: c.seed,
+    };
+    const b = await browser.run(dir, {
+      actions: c.actions,
+      ...env,
       clock: c.clock === true,
       out: path.join(repo, '.cache/interp-vs-browser', path.basename(fixture)),
     });
     let steps;
     try {
-      steps = interpret((await lower(await collect(dir))).ir, c.actions, {
-        storage: c.storage,
-        timezone: c.timezone,
-        locale: c.locale,
-      });
+      steps = interpret((await lower(await collect(dir))).ir, c.actions, env);
     } catch (e) {
       console.log(`${fixture}: interpreter failed: ${e.code ?? ''} ${e.message}`);
       mismatches++;

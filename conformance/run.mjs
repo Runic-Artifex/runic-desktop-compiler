@@ -72,7 +72,16 @@ try {
             throw new Error(
               'The program reads the clock (Date.now(), new Date(), performance.now()), which Chromium shows in real time: give the case "clock": true or a wait action',
             );
-          const env = { storage: c.storage, timezone: c.timezone, locale: c.locale };
+          // The case's environment: localStorage, time zone and locale, start
+          // URL, clipboard text, random seed.
+          const env = {
+            storage: c.storage,
+            timezone: c.timezone,
+            locale: c.locale,
+            url: c.url,
+            clipboard: c.clipboard,
+            seed: c.seed,
+          };
           const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
           const n = runProbe(binary, { viewport, actions, ...env, out: values.pixels ? path.join(shots, 'native') : undefined });
           run.browser = { framework: b.framework, browserVersion: browser.browserVersion, errors: b.errors };

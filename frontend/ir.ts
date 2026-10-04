@@ -64,7 +64,9 @@ export type EventKind =
   | 'focusin'
   | 'focusout'
   | 'scroll'
-  | 'resize';
+  | 'resize'
+  | 'popstate'
+  | 'hashchange';
 
 export const EVENT_KINDS: readonly EventKind[] = [
   'click',
@@ -92,6 +94,9 @@ export const EVENT_KINDS: readonly EventKind[] = [
   'scroll',
   'resize',
 ];
+
+/** Session history events: fired at the window only (window listeners). */
+export const WINDOW_EVENT_KINDS: readonly EventKind[] = ['popstate', 'hashchange'];
 
 export type Read = 'current' | 'snapshot';
 

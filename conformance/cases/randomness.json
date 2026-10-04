@@ -1,0 +1,16 @@
+{
+  "description": "Math.random (a Fisher-Yates shuffle in a module, a die) and crypto.randomUUID on the seeded generator the browser harness installs for app code; a reload restarts the sequence",
+  "fixtures": ["host-svelte"],
+  "seed": 7,
+  "actions": [
+    { "kind": "click", "id": "shuffle" },
+    { "kind": "click", "id": "dice" },
+    { "kind": "click", "id": "uuid" },
+    { "kind": "click", "id": "shuffle" },
+    { "kind": "click", "id": "uuid" },
+    { "kind": "click", "id": "dice" },
+    { "kind": "reload" },
+    { "kind": "click", "id": "dice" },
+    { "kind": "click", "id": "uuid" }
+  ]
+}

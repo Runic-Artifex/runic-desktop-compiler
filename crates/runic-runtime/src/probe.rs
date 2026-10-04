@@ -157,7 +157,39 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
     if !instances.is_empty() {
         state["instances"] = Value::Array(instances);
     }
+    // Host effects (console lines since the last snapshot, the clipboard,
+    // the location and the history length), without their defaults.
+    let mut host = Map::new();
+    let lines: Vec<Value> = crate::console::take()
+        .into_iter()
+        .map(|(level, text)| json!({"level": level, "text": text_json(&text)}))
+        .collect();
+    if !lines.is_empty() {
+        host.insert("console".into(), Value::Array(lines));
+    }
+    if let Some(text) = crate::clipboard::text().filter(|t| !t.is_empty()) {
+        host.insert("clipboard".into(), text_json(&text));
+    }
+    let (href, length) = crate::history::state();
+    if href != "/" {
+        host.insert("href".into(), json!(href));
+    }
+    if length != 1 {
+        host.insert("historyLength".into(), json!(length));
+    }
+    if !host.is_empty() {
+        state["host"] = Value::Object(host);
+    }
     state
+}
+
+/// A string as snapshot JSON: text, or its UTF-16 code units when it holds
+/// a lone surrogate (as the browser harness and the interpreter encode it).
+fn text_json(s: &runic_js::JsString) -> Value {
+    match String::from_utf16(s.units()) {
+        Ok(t) => json!(t),
+        Err(_) => json!({ "units": s.units() }),
+    }
 }
 
 fn pointer(x: f32, y: f32, buttons: MouseEventButtons) -> BlitzPointerEvent {
@@ -429,6 +461,9 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
             }
         }
         "blur" => native.focus_to(None),
+        // The user traverses the session history (browser back and forward).
+        "back" => native.traverse(-1),
+        "forward" => native.traverse(1),
         "input" => {
             // Semantic value change (differential tests): the control's new
             // value arrives through the normal Input event path, unless the
@@ -524,6 +559,17 @@ pub(crate) fn run<A: App>() {
     if let Some(locale) = flag("--locale") {
         runic_js::env::set_locale(&locale).expect("--locale takes a verified locale");
     }
+    // The rest of the case's host environment (docs/design/M5-PLATFORM.md):
+    // the clipboard text, the start URL and the random seed.
+    crate::clipboard::seed(runic_js::JsString::from(
+        flag("--clipboard").unwrap_or_default(),
+    ));
+    crate::history::seed(flag("--url").unwrap_or_else(|| "/".into()));
+    crate::random::seed(
+        flag("--seed")
+            .map(|s| s.parse().expect("--seed takes an integer"))
+            .unwrap_or(1),
+    );
     let actions: Value = serde_json::from_reader(std::io::stdin()).expect("action list on stdin");
     let mut native = shell::document::<A>(width, height);
     let mount_us = start.elapsed().as_secs_f64() * 1e6;
@@ -555,10 +601,13 @@ pub(crate) fn run<A: App>() {
     {
         let t = Instant::now();
         if action["kind"] == "reload" {
-            // A new app instance on the same (in-memory) localStorage.
+            // A new app instance on the same (in-memory) localStorage,
+            // clipboard and session history.
             native = shell::document::<A>(width, height);
         } else {
             perform(&mut native, &action);
+            // The host's work queued by the action follows it.
+            native.host_tasks();
         }
         native.doc.resolve(0.0);
         native.listeners.settle(&mut native.doc);

@@ -261,6 +261,49 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("storage", "set") => format!("{{ cx.storage.set({}, {}); }}", t[0], t[1]),
         ("storage", "remove") => format!("{{ cx.storage.remove(&{}); }}", t[0]),
         ("storage", "clear") => "{ cx.storage.clear(); }".into(),
+        // Host services (docs/design/M5-PLATFORM.md).
+        ("console", level) => {
+            let level = match level {
+                "log" | "info" | "warn" | "error" => level,
+                _ => "debug",
+            };
+            let parts: Vec<String> = t
+                .iter()
+                .zip(&types)
+                .map(|(v, ty)| match ty {
+                    Type::String => format!("{v}.clone()"),
+                    // Typed: a null or undefined literal has no other use.
+                    _ => format!(
+                        "{{ let x: {} = {v}.clone(); js::ToJsString::to_js_string(&x) }}",
+                        rust_type(ty)
+                    ),
+                })
+                .collect();
+            format!(
+                "runic_runtime::console::write({level:?}, &[{}])",
+                parts.join(", ")
+            )
+        }
+        ("clipboard", "write") => format!("cx.clipboard_write({})?", t[0]),
+        ("clipboard", "read") => "cx.clipboard_read()?".into(),
+        ("history", "back") => "cx.traverse(-1)?".into(),
+        ("history", "forward") => "cx.traverse(1)?".into(),
+        ("history", "go") => format!("cx.traverse({} as i64)?", t[0]),
+        ("history", m @ ("push" | "replace")) => {
+            let url = match (t.first(), types.first()) {
+                (Some(u), Some(Type::String)) => format!("Some(&{u})"),
+                (Some(u), Some(_)) => format!("match &{u} {{ Maybe::Some(u) => Some(u), _ => None }}"),
+                _ => "None".into(),
+            };
+            format!("runic_runtime::history::{m}({url})?")
+        }
+        ("history", "length") => "runic_runtime::history::length()".into(),
+        ("location", m @ ("pathname" | "search" | "hash")) => {
+            format!("runic_runtime::history::{m}()")
+        }
+        ("location", "set-hash") => format!("cx.set_hash(&{})?", t[0]),
+        ("random", "number") => "cx.random.number()".into(),
+        ("random", "uuid") => "cx.random.uuid()".into(),
         ("promise", "new") => {
             let Type::Fn(exec) = &types[0] else {
                 unreachable!("validated executor")

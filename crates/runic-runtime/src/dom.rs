@@ -36,10 +36,13 @@ pub enum Event {
     Scroll,
     /// The viewport changed size (window listeners; rendering step).
     Resize,
+    /// Session history events, fired at the window only.
+    Popstate,
+    Hashchange,
 }
 
 impl Event {
-    pub const ALL: [Event; 24] = [
+    pub const ALL: [Event; 26] = [
         Event::Click,
         Event::Input,
         Event::Change,
@@ -64,6 +67,8 @@ impl Event {
         Event::Focusout,
         Event::Scroll,
         Event::Resize,
+        Event::Popstate,
+        Event::Hashchange,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -98,6 +103,8 @@ impl Event {
             Event::Focusout => "focusout",
             Event::Scroll => "scroll",
             Event::Resize => "resize",
+            Event::Popstate => "popstate",
+            Event::Hashchange => "hashchange",
         }
     }
 
@@ -112,6 +119,8 @@ impl Event {
                 | Event::Blur
                 | Event::Scroll
                 | Event::Resize
+                | Event::Popstate
+                | Event::Hashchange
         )
     }
 
@@ -130,6 +139,8 @@ impl Event {
                 | Event::Focusout
                 | Event::Scroll
                 | Event::Resize
+                | Event::Popstate
+                | Event::Hashchange
         )
     }
 
@@ -155,6 +166,7 @@ impl Event {
             Event::Wheel | Event::Scroll => "wheel",
             Event::Resize => "resize",
             Event::Focus | Event::Blur | Event::Focusin | Event::Focusout => "focus",
+            Event::Popstate | Event::Hashchange => "back",
         }
     }
 }

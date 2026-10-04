@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 indexmap = "=2.14.2"
+url.workspace = true
 regress = { version = "=0.12.0", default-features = false, features = ["std", "utf16"] }
 # Time zones (Date local time): the IANA database bundled into the binary,
 # so offsets do not depend on the host's zoneinfo files.

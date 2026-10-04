@@ -5275,7 +5275,9 @@ const IMPURE_BUILTINS = new Set([
 ]);
 const pureBuiltin = (name: string): boolean =>
   !IMPURE_BUILTINS.has(name) &&
-  !/^(timer|microtask|promise|flush|window|document|element|console)\./.test(name) &&
+  !/^(timer|microtask|promise|flush|window|document|element|console|clipboard|history|location|random)\./.test(
+    name,
+  ) &&
   !/^root\.(set-attr|remove-attr|class-toggle|class-add|class-remove|style-set|style-remove)$/.test(
     name,
   );

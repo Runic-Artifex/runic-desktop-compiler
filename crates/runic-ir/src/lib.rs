@@ -667,6 +667,11 @@ pub enum EventKind {
     Scroll,
     /// The viewport changed size (window listeners only; rendering step).
     Resize,
+    /// Session history: a traversal or fragment navigation changed the
+    /// current entry; fired at the window only.
+    Popstate,
+    /// The fragment changed (a task after `popstate`); window only.
+    Hashchange,
 }
 
 impl EventKind {
@@ -691,6 +696,8 @@ impl EventKind {
                 | EventKind::Blur
                 | EventKind::Scroll
                 | EventKind::Resize
+                | EventKind::Popstate
+                | EventKind::Hashchange
         )
     }
 
@@ -710,6 +717,16 @@ impl EventKind {
                 | EventKind::Focusout
                 | EventKind::Scroll
                 | EventKind::Resize
+                | EventKind::Popstate
+                | EventKind::Hashchange
+        )
+    }
+
+    /// Fired at the window only (no element or document listeners).
+    pub fn window_only(self) -> bool {
+        matches!(
+            self,
+            EventKind::Popstate | EventKind::Hashchange | EventKind::Resize
         )
     }
 
@@ -738,10 +755,11 @@ impl EventKind {
             EventKind::Focus | EventKind::Blur | EventKind::Focusin | EventKind::Focusout => {
                 "focus"
             }
+            EventKind::Popstate | EventKind::Hashchange => "back",
         }
     }
 
-    pub const ALL: [EventKind; 24] = [
+    pub const ALL: [EventKind; 26] = [
         EventKind::Click,
         EventKind::Input,
         EventKind::Change,
@@ -766,6 +784,8 @@ impl EventKind {
         EventKind::Focusout,
         EventKind::Scroll,
         EventKind::Resize,
+        EventKind::Popstate,
+        EventKind::Hashchange,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -800,6 +820,8 @@ impl EventKind {
             EventKind::Focusout => "focusout",
             EventKind::Scroll => "scroll",
             EventKind::Resize => "resize",
+            EventKind::Popstate => "popstate",
+            EventKind::Hashchange => "hashchange",
         }
     }
 }

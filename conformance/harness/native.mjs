@@ -18,12 +18,29 @@ export async function buildProbe(fixture, { release = false, noOpt = false } = {
 }
 
 /** Run the probe binary; returns { mountUs, steps: [{ action, dom, focused, geometry, ... }] }. */
-export function runProbe(binary, { viewport = { width: 800, height: 600 }, actions = [], out, storage, timezone, locale } = {}) {
+export function runProbe(
+  binary,
+  {
+    viewport = { width: 800, height: 600 },
+    actions = [],
+    out,
+    storage,
+    timezone,
+    locale,
+    url,
+    clipboard,
+    seed,
+  } = {},
+) {
   const args = ['--probe', '--width', String(viewport.width), '--height', String(viewport.height)];
   if (out) args.push('--out', out);
   if (storage) args.push('--storage', JSON.stringify(storage));
+  // The case's host environment (docs/design/M5-PLATFORM.md).
   if (timezone) args.push('--timezone', timezone);
   if (locale) args.push('--locale', locale);
+  if (url !== undefined) args.push('--url', url);
+  if (clipboard !== undefined) args.push('--clipboard', clipboard);
+  if (seed !== undefined) args.push('--seed', String(seed));
   const r = spawnSync(binary, args, {
     input: JSON.stringify(actions),
     encoding: 'utf8',

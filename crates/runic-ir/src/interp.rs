@@ -121,6 +121,13 @@ impl Val {
             other => panic!("validated string, found {other:?}"),
         }
     }
+    /// A string, or nothing for undefined and null.
+    fn as_string(&self) -> Option<JsString> {
+        match self {
+            Val::Str(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
     fn array(&self) -> JsArray<Val> {
         match self {
             Val::Array(a) => a.clone(),
@@ -695,6 +702,62 @@ pub struct Machine<'p> {
     flush_promise: Option<Promise>,
     /// localStorage items in insertion order.
     storage: Vec<(JsString, JsString)>,
+    /// Host services in probe mode (docs/design/M5-PLATFORM.md).
+    host: HostState,
+}
+
+/// The environment a probe starts with (the case manifest's `storage`,
+/// `clipboard`, `url` and `seed`), kept across a `reload` except randomness.
+#[derive(Clone, Debug)]
+pub struct Env {
+    pub storage: Vec<(JsString, JsString)>,
+    pub clipboard: JsString,
+    pub session: js::history::Session,
+    pub seed: u64,
+}
+
+impl Default for Env {
+    fn default() -> Self {
+        Env {
+            storage: vec![],
+            clipboard: JsString::new(),
+            session: js::history::Session::new("/").expect("start URL"),
+            seed: 1,
+        }
+    }
+}
+
+/// Work the host does between tasks: clipboard replies, history
+/// traversals and `hashchange` dispatches, in order.
+enum HostTask {
+    ClipboardWrite(JsString, Promise),
+    ClipboardRead(Promise),
+    Traverse(i64),
+    HashChange,
+}
+
+struct HostState {
+    /// Console lines since the last snapshot: (level, text).
+    console: Vec<(&'static str, JsString)>,
+    clipboard: JsString,
+    session: js::history::Session,
+    random: js::random::SplitMix64,
+    seed: u64,
+    tasks: VecDeque<HostTask>,
+}
+
+/// A string as snapshot JSON: text, or its code units when it holds a lone
+/// surrogate (the browser harness encodes such console text the same way).
+pub fn text_json(s: &JsString) -> Json {
+    match String::from_utf16(s.units()) {
+        Ok(t) => json!(t),
+        Err(_) => json!({ "units": s.units() }),
+    }
+}
+
+/// A clipboard holds text: lone surrogates become U+FFFD (as in Chromium).
+fn well_formed(s: &JsString) -> JsString {
+    JsString::from(s.to_rust())
 }
 
 /// Converts a capture to a match array element: `string | undefined`, or
@@ -766,6 +829,37 @@ impl<'p> Machine<'p> {
 
     /// A machine whose localStorage starts with `storage`.
     pub fn with_storage(program: &'p Program, storage: Vec<(JsString, JsString)>) -> Result<Self> {
+        Self::with_env(
+            program,
+            Env {
+                storage,
+                ..Env::default()
+            },
+        )
+    }
+
+    /// The environment to start the same program again on (`reload`): the
+    /// storage, clipboard and session history persist, and the session
+    /// starts a new document at its current entry.
+    pub fn reload_env(&self) -> Env {
+        let mut session = self.host.session.clone();
+        session.start_document();
+        Env {
+            storage: self.storage.clone(),
+            clipboard: self.host.clipboard.clone(),
+            session,
+            seed: self.host.seed,
+        }
+    }
+
+    /// A machine started in environment `env`.
+    pub fn with_env(program: &'p Program, env: Env) -> Result<Self> {
+        let Env {
+            storage,
+            clipboard,
+            session,
+            seed,
+        } = env;
         let mut m = Machine {
             program,
             now: CLOCK_START,
@@ -828,6 +922,14 @@ impl<'p> Machine<'p> {
             version_clock: 0,
             flush_promise: None,
             storage,
+            host: HostState {
+                console: vec![],
+                clipboard,
+                session,
+                random: js::random::SplitMix64::new(seed),
+                seed,
+                tasks: VecDeque::new(),
+            },
         };
         for g in &program.globals {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
@@ -835,7 +937,14 @@ impl<'p> Machine<'p> {
         }
         m.create(program.root, &[], None).map_err(throw_diag)?;
         m.mount()?;
-        Ok(m)
+        // The document has loaded; then the host's replies run.
+        m.host.session.loaded();
+        let mut run = Run::default();
+        m.host_tasks(&mut run);
+        match run.error {
+            Some(d) => Err(d),
+            None => Ok(m),
+        }
     }
 
     /// Create an instance of `component` with the props passed by its parent
@@ -2050,6 +2159,76 @@ impl<'p> Machine<'p> {
                 self.storage.clear();
                 Val::Undefined
             }
+            ("console", level) => {
+                let level = match level {
+                    "log" => "log",
+                    "info" => "info",
+                    "warn" => "warn",
+                    "error" => "error",
+                    _ => "debug",
+                };
+                let mut text: Vec<u16> = vec![];
+                for (i, v) in a.iter().enumerate() {
+                    if i > 0 {
+                        text.push(u16::from(b' '));
+                    }
+                    text.extend_from_slice(js::ToJsString::to_js_string(v).units());
+                }
+                self.host.console.push((level, JsString::from_units(text)));
+                Val::Undefined
+            }
+            ("clipboard", m) => {
+                // Chromium settles overlapping operations in an order that
+                // depends on their kinds, which the model does not cover.
+                let pending = self.host.tasks.iter().any(|t| {
+                    matches!(t, HostTask::ClipboardWrite(..) | HostTask::ClipboardRead(_))
+                });
+                if pending {
+                    return Err(Throw::new(
+                        "RunicHostError",
+                        "a clipboard operation while another is pending",
+                    ));
+                }
+                let p = Promise::pending();
+                self.host.tasks.push_back(match m {
+                    "write" => HostTask::ClipboardWrite(a[0].string(), p.clone()),
+                    _ => HostTask::ClipboardRead(p.clone()),
+                });
+                Val::Promise(p)
+            }
+            ("history", m @ ("back" | "forward" | "go")) => {
+                let delta = match m {
+                    "back" => -1,
+                    "forward" => 1,
+                    _ => a[0].num() as i64,
+                };
+                self.traverse(delta)?;
+                Val::Undefined
+            }
+            ("history", "push") => {
+                let url = a.first().and_then(Val::as_string);
+                self.host.session.push(url.as_ref())?;
+                Val::Undefined
+            }
+            ("history", "replace") => {
+                let url = a.first().and_then(Val::as_string);
+                self.host.session.replace(url.as_ref())?;
+                Val::Undefined
+            }
+            ("history", "length") => Val::Num(self.host.session.length() as f64),
+            ("location", "pathname") => Val::Str(JsString::from(self.host.session.pathname())),
+            ("location", "search") => Val::Str(JsString::from(self.host.session.search())),
+            ("location", "hash") => Val::Str(JsString::from(self.host.session.hash())),
+            ("location", "set-hash") => {
+                if self.host.session.set_hash(&a[0].string())? {
+                    // popstate at once (nested in the setter), hashchange as a task.
+                    self.dispatch_window_nested(EventKind::Popstate);
+                    self.host.tasks.push_back(HostTask::HashChange);
+                }
+                Val::Undefined
+            }
+            ("random", "number") => Val::Num(self.host.random.number()),
+            ("random", "uuid") => Val::Str(JsString::from(self.host.random.uuid())),
             ("promise", m) => self.promise_builtin(m, a)?,
             ("flush", "tick") => {
                 let p = Promise::pending();
@@ -3018,6 +3197,30 @@ impl<'p> Machine<'p> {
         if !self.root.attrs().is_empty() {
             state["document"] = json!(self.root.attrs());
         }
+        // Host effects (console lines since the last snapshot, the
+        // clipboard, the location and the history length), without defaults.
+        let mut host = Map::new();
+        let lines = std::mem::take(&mut self.host.console);
+        if !lines.is_empty() {
+            let lines: Vec<Json> = lines
+                .iter()
+                .map(|(level, text)| json!({ "level": level, "text": text_json(text) }))
+                .collect();
+            host.insert("console".into(), Json::Array(lines));
+        }
+        if !self.host.clipboard.is_empty() {
+            host.insert("clipboard".into(), text_json(&self.host.clipboard));
+        }
+        let href = self.host.session.href();
+        if href != "/" {
+            host.insert("href".into(), json!(href));
+        }
+        if self.host.session.length() != 1 {
+            host.insert("historyLength".into(), json!(self.host.session.length()));
+        }
+        if !host.is_empty() {
+            state["host"] = Json::Object(host);
+        }
         if !self.order.is_empty() {
             state["instances"] = Json::Array(
                 self.order
@@ -3820,7 +4023,11 @@ impl<'p> Machine<'p> {
             r?;
         }
         self.now = self.now.max(to);
-        Ok(())
+        // The host's work queued by the timers runs after them (as the
+        // browser's after Playwright's fake clock ran them).
+        let mut run = Run::default();
+        self.host_tasks(&mut run);
+        run.error.map_or(Ok(()), Err)
     }
 
     /// Index of the first timer due at or before `to`.
@@ -3870,8 +4077,24 @@ impl<'p> Machine<'p> {
     /// specification; the key is pressed and released) or `wheel` (`data`:
     /// `"dx,dy"`). Returns whether any listener ran. The interpreter has no
     /// layout: pointer events target the element itself rather than the
-    /// element hit at its centre, and carry zero coordinates.
+    /// element hit at its centre, and carry zero coordinates. The host's
+    /// work queued by the action (clipboard replies, traversals) runs after it.
     pub fn fire(&mut self, target: Target<'_>, action: &str, data: Option<&str>) -> Result<bool> {
+        let result = self.fire_action(target, action, data);
+        let mut run = Run::default();
+        self.host_tasks(&mut run);
+        match (result, run.error) {
+            (Err(d), _) | (Ok(_), Some(d)) => Err(d),
+            (Ok(ran), None) => Ok(ran || run.ran),
+        }
+    }
+
+    fn fire_action(
+        &mut self,
+        target: Target<'_>,
+        action: &str,
+        data: Option<&str>,
+    ) -> Result<bool> {
         let tree = self.render()?;
         let Some(path) = locate(&tree, &target) else {
             return match target {
@@ -4641,6 +4864,118 @@ impl<'p> Machine<'p> {
             e2.finish();
         }
         Ok(Some(event))
+    }
+
+    /// Queue a traversal of the session history by `delta` entries.
+    /// Traversals queued while one is pending interact in Chromium (a
+    /// second may be dropped), which the model does not cover.
+    fn traverse(&mut self, delta: i64) -> Res<()> {
+        if self
+            .host
+            .tasks
+            .iter()
+            .any(|t| matches!(t, HostTask::Traverse(_)))
+        {
+            return Err(Throw::new(
+                "RunicHistoryError",
+                "a history traversal while another is pending",
+            ));
+        }
+        self.host.tasks.push_back(HostTask::Traverse(delta));
+        Ok(())
+    }
+
+    /// A user traversal (the harness's `back` and `forward` actions): the
+    /// browser traverses, then the host's work runs. Returns whether a
+    /// listener ran.
+    pub fn navigate(&mut self, delta: i64) -> Result<bool> {
+        self.render()?;
+        self.traverse(delta).map_err(throw_diag)?;
+        let mut run = Run::default();
+        self.host_tasks(&mut run);
+        match run.error {
+            Some(d) => Err(d),
+            None => Ok(run.ran),
+        }
+    }
+
+    /// Run the host's queued work, each item a task of its own: clipboard
+    /// replies settle their promises, traversals fire `popstate` (and queue
+    /// `hashchange` when only the fragment changed).
+    fn host_tasks(&mut self, s: &mut Run) {
+        while let Some(t) = self.host.tasks.pop_front() {
+            let result = match t {
+                HostTask::ClipboardWrite(text, p) => self.task(None, false, |m| {
+                    m.host.clipboard = well_formed(&text);
+                    m.settle_promise(&p, Ok(Val::Undefined));
+                    Ok(())
+                }),
+                HostTask::ClipboardRead(p) => self.task(None, false, |m| {
+                    let text = m.host.clipboard.clone();
+                    m.settle_promise(&p, Ok(Val::Str(text)));
+                    Ok(())
+                }),
+                HostTask::Traverse(delta) => match self.host.session.traverse(delta) {
+                    Ok(Some(t)) => {
+                        if t.hashchange {
+                            self.host.tasks.push_front(HostTask::HashChange);
+                        }
+                        self.window_event(EventKind::Popstate, s);
+                        Ok(())
+                    }
+                    Ok(None) => Ok(()),
+                    Err(t) => Err(throw_diag(t)),
+                },
+                HostTask::HashChange => {
+                    self.window_event(EventKind::Hashchange, s);
+                    Ok(())
+                }
+            };
+            if let Err(d) = result {
+                s.error.get_or_insert(d);
+            }
+        }
+    }
+
+    /// Fire `kind` at the window: its listeners, each a callback of its own.
+    fn window_event(&mut self, kind: EventKind, s: &mut Run) {
+        let event = js::Event::new(js::EventData {
+            kind: JsString::from(kind.name()),
+            target: js::Element::WINDOW,
+            ..Default::default()
+        });
+        self.dispatch_globals(kind, &event, s);
+        event.finish();
+    }
+
+    /// Fire `kind` at the window nested in the running script (`popstate`
+    /// from `location.hash = …`): the listeners run at once, with no
+    /// microtask checkpoint; their exceptions are reported.
+    fn dispatch_window_nested(&mut self, kind: EventKind) {
+        let event = js::Event::new(js::EventData {
+            kind: JsString::from(kind.name()),
+            target: js::Element::WINDOW,
+            ..Default::default()
+        });
+        let listeners: Vec<Val> = self
+            .host_listeners
+            .iter()
+            .filter(|g| g.0 && g.1 == kind)
+            .map(|g| g.2.clone())
+            .collect();
+        for f in listeners {
+            let live = self
+                .host_listeners
+                .iter()
+                .any(|g| g.0 && g.1 == kind && g.2.same(&f));
+            if !live || !event.enter(js::Element::WINDOW) {
+                continue;
+            }
+            if let Err(t) = self.call_value(&f, vec![Val::Event(event.clone())]) {
+                self.uncaught.push(t);
+            }
+        }
+        event.finish();
     }
 
     /// After the element path: the document's listeners, then the window's,

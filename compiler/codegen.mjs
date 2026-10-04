@@ -112,12 +112,19 @@ export function migrate(ir) {
   return withIR(ir, file => JSON.parse(run(['migrate', file])));
 }
 
-/** Run `actions` through the reference interpreter. */
-export function interpret(ir, actions, { storage, timezone, locale } = {}) {
+/**
+ * Run `actions` through the reference interpreter in a case's environment
+ * (localStorage items, time zone and locale, start URL, clipboard text,
+ * random seed).
+ */
+export function interpret(ir, actions, { storage, timezone, locale, url, clipboard, seed } = {}) {
   return withIR(ir, file => {
     const extra = storage ? ['--storage', JSON.stringify(storage)] : [];
     if (timezone) extra.push('--timezone', timezone);
     if (locale) extra.push('--locale', locale);
+    if (url !== undefined) extra.push('--url', url);
+    if (clipboard !== undefined) extra.push('--clipboard', clipboard);
+    if (seed !== undefined) extra.push('--seed', String(seed));
     const r = spawnSync(codegenBinary(), ['interp', file, ...extra], {
       input: JSON.stringify(actions),
       encoding: 'utf8',

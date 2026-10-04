@@ -413,7 +413,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         const name = `__runic_${target}_${hosts++}`;
         s += `const ${name} = (`;
         copy(a.value.expression.start, a.value.expression.end);
-        s += `) satisfies (event: HostEventMap[${event}]) => void;\n$effect.pre(() => { ${target}.addEventListener(${event}, ${name}); return () => ${target}.removeEventListener(${event}, ${name}); });\n`;
+        const map = target === 'window' ? 'WindowEventMap' : 'HostEventMap';
+        s += `) satisfies (event: ${map}[${event}]) => void;\n$effect.pre(() => { ${target}.addEventListener(${event}, ${name}); return () => ${target}.removeEventListener(${event}, ${name}); });\n`;
       }
     }
     u.statementsEnd = s.length;

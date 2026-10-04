@@ -386,6 +386,51 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &s, "key").map(|_| Void)
         }
         ("storage", "clear") => arity(args, 0, 0).map(|_| Void),
+        // Host services (M5, docs/design/M5-PLATFORM.md). Console lines join
+        // their arguments' ToString with spaces, as Chromium's message text.
+        ("console", "log" | "info" | "warn" | "error" | "debug") => {
+            if args.is_empty() {
+                return Err("console calls take at least one argument".into());
+            }
+            if args.iter().all(primitive) {
+                Ok(Void)
+            } else {
+                Err(
+                    "console arguments must be strings, numbers, booleans, null or undefined"
+                        .into(),
+                )
+            }
+        }
+        // navigator.clipboard: the promise settles in a later task.
+        ("clipboard", "write") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "text").map(|_| Promise(Box::new(Void)))
+        }
+        ("clipboard", "read") => arity(args, 0, 0).map(|_| Promise(Box::new(s))),
+        // Session history: pushState/replaceState with an optional URL (the
+        // state is null), traversals by a literal delta, the entry count.
+        ("history", "push" | "replace") => {
+            arity(args, 0, 1)?;
+            match args.first() {
+                None | Some(String) => Ok(Void),
+                Some(Maybe(t)) if **t == String => Ok(Void),
+                Some(other) => Err(format!("the URL must be a string, found {}", other.name())),
+            }
+        }
+        ("history", "back" | "forward") => arity(args, 0, 0).map(|_| Void),
+        ("history", "go") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &n, "delta").map(|_| Void)
+        }
+        ("history", "length") => arity(args, 0, 0).map(|_| n),
+        ("location", "pathname" | "search" | "hash") => arity(args, 0, 0).map(|_| s),
+        ("location", "set-hash") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "hash").map(|_| Void)
+        }
+        // Math.random() and crypto.randomUUID().
+        ("random", "number") => arity(args, 0, 0).map(|_| n),
+        ("random", "uuid") => arity(args, 0, 0).map(|_| s),
         // Framework flush timing: `tick` is a microtask that runs any
         // pending flush, then fulfils; `after` fulfils when the pending (or
         // running) flush ends, or is fulfilled already.

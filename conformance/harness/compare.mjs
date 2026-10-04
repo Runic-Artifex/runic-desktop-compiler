@@ -35,6 +35,20 @@ export function canonical(node) {
   return out;
 }
 
+/**
+ * The host section of a snapshot (docs/design/M5-PLATFORM.md) in a fixed
+ * key order: console lines ({ level, text }), clipboard text, location
+ * relative to the origin and history length; absent fields are defaults.
+ */
+export function canonicalHost(host = {}) {
+  const out = {};
+  if (host.console?.length) out.console = host.console.map(({ level, text }) => ({ level, text }));
+  if (host.clipboard !== undefined) out.clipboard = host.clipboard;
+  if (host.href !== undefined) out.href = host.href;
+  if (host.historyLength !== undefined) out.historyLength = host.historyLength;
+  return out;
+}
+
 function diffTree(a, b, at, out) {
   const ja = JSON.stringify(a);
   const jb = JSON.stringify(b);
@@ -75,6 +89,9 @@ export function compareTraces(browser, native, { pixels = false } = {}) {
     if (JSON.stringify(b.document ?? {}) !== JSON.stringify(nv.document ?? {}))
       step.dom.push({ at: 'document', browser: b.document ?? {}, native: nv.document ?? {} });
     if ((b.focused ?? null) !== (nv.focused ?? null)) step.focus = { browser: b.focused, native: nv.focused };
+    // Host effects: console lines, clipboard, location, history length.
+    if (JSON.stringify(canonicalHost(b.host)) !== JSON.stringify(canonicalHost(nv.host)))
+      step.host = { browser: b.host ?? {}, native: nv.host ?? {} };
     for (const [id, rb] of Object.entries(b.geometry ?? {})) {
       const rn = nv.geometry?.[id];
       if (!rn) {
@@ -91,7 +108,7 @@ export function compareTraces(browser, native, { pixels = false } = {}) {
     }
     steps.push(step);
   }
-  const ok = s => !s.missing && !s.dom.length && !s.focus;
+  const ok = s => !s.missing && !s.dom.length && !s.focus && !s.host;
   return {
     steps,
     passed: {

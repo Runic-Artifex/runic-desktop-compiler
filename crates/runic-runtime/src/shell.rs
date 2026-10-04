@@ -89,6 +89,8 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     }
     // Media queries evaluated while the app starts see this viewport.
     crate::set_media_viewport(width as f64, height as f64);
+    // The document loads at the session history's current entry.
+    crate::history::begin_document();
     let mut app = A::new();
     let mut listeners = Listeners::default();
     app.mount(
@@ -103,7 +105,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         doc.resolve(0.0);
     }
     listeners.settle(&mut doc);
-    Native {
+    let mut native = Native {
         doc,
         app,
         listeners,
@@ -114,7 +116,13 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         started: Instant::now(),
         wake_at: None,
         waker: None,
-    }
+    };
+    // Loaded: then the host's work queued while the app mounted.
+    crate::history::loaded();
+    native.host_tasks();
+    native.doc.resolve(0.0);
+    native.listeners.settle(&mut native.doc);
+    native
 }
 
 /// Wraps the window renderer to report the time to first presented frame.

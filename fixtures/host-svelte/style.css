@@ -1,0 +1,16 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 16px; }
+main { max-width: 620px; margin: 0 auto; padding: 16px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 12px; }
+h2 { margin: 4px 0; font-size: 20px; }
+p { margin: 6px 0; overflow-wrap: anywhere; }
+ul { margin: 4px 0; padding-left: 20px; font-size: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+#view { padding: 6px 10px; background: #dfe7f0; border: 1px solid #52665b; border-radius: 6px; }
+#events { font-size: 12px; }
+button, input[type='text'] { font-family: RunicFixture; font-size: 14px; padding: 4px 8px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+input[type='text'] { width: 200px; line-height: 16px; }
+input:focus { outline: none; border-color: #101010; }
+/* Fixed widths keep sub-pixel text advances from adding up along a row. */
+button { width: 84px; }

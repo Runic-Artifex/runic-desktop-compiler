@@ -1,0 +1,9 @@
+{
+  "description": "Console lines at every level (log, info, warn, error, debug) with strings, numbers (-0, 1e21, 0.1 + 0.2, NaN, -Infinity), booleans, null, undefined and an empty string, one at mount; compared as Chromium's message text, app console errors included",
+  "fixtures": ["host-svelte"],
+  "actions": [
+    { "kind": "click", "id": "log" },
+    { "kind": "click", "id": "log" },
+    { "kind": "click", "id": "nav-items" }
+  ]
+}

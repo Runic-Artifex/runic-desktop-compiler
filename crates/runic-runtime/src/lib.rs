@@ -5,14 +5,18 @@
 //! controlled text inputs) and, behind the `probe` feature, scripted input and
 //! DOM snapshots for conformance runs.
 
+pub mod clipboard;
+pub mod console;
 mod controls;
 mod dom;
 mod events;
+pub mod history;
 mod jobs;
 mod layout;
 #[cfg(feature = "probe")]
 mod probe;
 pub mod promises;
+mod random;
 pub use runic_js::reorder;
 mod select;
 mod shell;
@@ -21,6 +25,30 @@ mod timers;
 
 pub use blitz_traits::node_id::NodeId;
 pub use dom::{ClassState, Dom, Event, Host, Spread};
+pub use random::Random;
+
+/// Whether this process runs as a conformance probe (host services keep
+/// their state in memory, seeded by the case).
+pub(crate) fn probe_mode() -> bool {
+    #[cfg(feature = "probe")]
+    {
+        probe::active()
+    }
+    #[cfg(not(feature = "probe"))]
+    {
+        false
+    }
+}
+
+/// A runtime shape the host-service model does not cover (a history
+/// traversal to a document before a reload): probes stop, so that
+/// conformance cannot pass on it; apps report it.
+pub fn unsupported(what: &str) {
+    if probe_mode() {
+        panic!("unsupported: {what}");
+    }
+    eprintln!("runic: unsupported: {what}");
+}
 /// CSSOM inline styles, media queries and the document element.
 pub use runic_css as css;
 
@@ -146,6 +174,18 @@ pub trait App: 'static {
     /// The current clock time (milliseconds).
     fn now(&self) -> f64 {
         0.0
+    }
+    /// Run the next piece of host work the app queued (a clipboard reply,
+    /// a history traversal) as a task of its own (docs/design/M5-PLATFORM.md):
+    /// `None` when there is none, `Some(Some(kind))` when the window must
+    /// receive event `kind` next (`popstate`, `hashchange`).
+    fn host_task(&mut self, dom: &mut Dom) -> Option<Option<Event>> {
+        let _ = dom;
+        None
+    }
+    /// Queue a traversal of the session history by the user (back, forward).
+    fn traverse(&mut self, delta: i64) {
+        let _ = delta;
     }
 }
 

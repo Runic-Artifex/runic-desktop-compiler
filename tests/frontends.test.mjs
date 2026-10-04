@@ -268,7 +268,8 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
     ['counter-svelte', 'const initial=n;', '$effect(async () => {}); const initial=n;', 'E_EFFECT'],
     ['counter-svelte', 'const initial=n;', 'n; const initial=n;', 'E_STATEMENT'],
     ['counter-svelte', 'n=2;', 'doubled=2;', 'E_ASSIGN'],
-    ['counter-svelte', '()=>n*2', '() => { console.log(n); return n*2; }', 'E_UNRESOLVED'],
+    // A derived value using a host service (M5).
+    ['counter-svelte', '()=>n*2', '() => { console.log(n); return n*2; }', 'E_REACTIVITY'],
     ['counter-svelte', '<script>', '<script context="module">', 'E_TEMPLATE'],
     ['counter-svelte', '</script>', '</script><style>p { color:red; }</style>', 'E_TEMPLATE'],
     ['counter-svelte', 'onclick={toggle}', 'on:click={toggle}', 'E_TEMPLATE'],
@@ -588,16 +589,17 @@ test('React rejects uncovered behaviour with locations', async () => {
     // React throws for style strings.
     ['function App(){return <p style="color:red">a</p>;}', 'E_JSX'],
     ['function App(){return <p onMouseOver={()=>1}>a</p>;}', 'E_EVENT'],
+    // Host services while rendering (M5): the console, randomness.
     [
       'const helper=x=>{console.log(x);return x;};const App=()=> <p>{helper(1)}</p>;',
-      'E_UNRESOLVED',
+      'E_REACTIVITY',
     ],
     // Found by the Rust validator during analysis.
     [
       'const App=()=>{const[x,set]=useState("a");return <button onClick={()=>set(2)}>{x}</button>;}',
       'E_IR',
     ],
-    ['function App(){return <p>{Math.random()}</p>;}', 'E_BUILTIN'],
+    ['function App(){return <p>{Math.random()}</p>;}', 'E_REACTIVITY'],
   ];
   for (const [source, code] of cases)
     await react(source, async root =>

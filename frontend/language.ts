@@ -5,6 +5,7 @@ import ts from 'typescript';
 import path from 'node:path';
 import {
   EVENT_KINDS,
+  WINDOW_EVENT_KINDS,
   type EventKind,
   type Expr,
   type Fn,
@@ -1192,6 +1193,32 @@ export class Lowerer {
   }
 
   writeTo(target: ts.Expression, value: Expr, b: FnBuilder): Stmt[] {
+    // location.hash = value: a fragment navigation.
+    if (
+      ts.isPropertyAccessExpression(target) &&
+      this.hostName(skipParens(target.expression)) === 'location'
+    ) {
+      if (target.name.text !== 'hash')
+        return this.fail(
+          target,
+          'E_HOST',
+          `Assigning location.${target.name.text} navigates to another document, which is unsupported (assign location.hash or use history.pushState)`,
+        );
+      const text: Expr =
+        this.irType(value, b) === 'string' ? value : { op: 'to-string', arg: value };
+      return [
+        {
+          op: 'expr',
+          value: { op: 'builtin', name: 'location.set-hash', args: [text], type: 'void' },
+          ...this.src(target),
+        },
+      ];
+    }
+    if (ts.isPropertyAccessExpression(target)) {
+      const host = this.hostName(skipParens(target.expression));
+      if (host === 'history' || host === 'navigator' || host === 'console' || host === 'crypto')
+        return this.fail(target, 'E_HOST', `${host}.${target.name.text} cannot be assigned`);
+    }
     const root = this.rootMember(target);
     if (root) {
       const text: Expr =
@@ -1897,6 +1924,211 @@ export class Lowerer {
     return undefined;
   }
 
+  /**
+   * Host-service calls (docs/design/M5-PLATFORM.md): console, the
+   * clipboard, session history and randomness. Undefined for other calls.
+   */
+  private hostServiceCall(
+    e: ts.CallExpression,
+    callee: ts.PropertyAccessExpression,
+    b: FnBuilder,
+  ): Expr | undefined {
+    const method = callee.name.text;
+    const owner = skipParens(callee.expression);
+    const host = this.hostName(owner);
+    const builtin = (name: string, args: Expr[], type: Type): Expr => ({
+      op: 'builtin',
+      name,
+      args,
+      type,
+    });
+    const noSpread = () => {
+      const s = e.arguments.find(ts.isSpreadElement);
+      if (s) this.fail(s, 'E_HOST', `Spread arguments to ${host}.${method} are unsupported`);
+    };
+    if (this.globalName(owner) === 'Math' && method === 'random') {
+      if (e.arguments.length) this.fail(e, 'E_CALL', 'Math.random takes no arguments');
+      return builtin('random.number', [], NUMBER);
+    }
+    if (host === 'crypto') {
+      if (method === 'randomUUID') return builtin('random.uuid', [], STRING);
+      if (method === 'getRandomValues')
+        return this.fail(
+          e,
+          'E_HOST',
+          'crypto.getRandomValues fills a typed array; typed arrays are outside the value model (use crypto.randomUUID or Math.random)',
+        );
+      return this.fail(e, 'E_MEMBER', `crypto.${method} is unsupported`);
+    }
+    if (host === 'console') {
+      if (!['log', 'info', 'warn', 'error', 'debug'].includes(method))
+        return this.fail(e, 'E_MEMBER', `console.${method} is unsupported`);
+      noSpread();
+      if (!e.arguments.length)
+        this.fail(
+          e,
+          'E_HOST',
+          `console.${method}() without arguments is unsupported (Chromium reports no message for it)`,
+        );
+      // null and undefined literals print as such whatever their type.
+      const args = e.arguments.map((a): Expr => {
+        const n = skipParens(a);
+        if (n.kind === ts.SyntaxKind.NullKeyword) return { op: 'null', type: { maybe: STRING } };
+        if (ts.isIdentifier(n) && n.text === 'undefined' && !this.binding(n))
+          return { op: 'undefined', type: { maybe: STRING } };
+        return this.expr(a, b);
+      });
+      args.forEach((a, i) => {
+        const t = this.irType(a, b);
+        const inner = maybeInner(t) ?? t;
+        if (!['string', 'number', 'boolean'].includes(inner as string))
+          this.fail(
+            e.arguments[i],
+            'E_HOST',
+            `console arguments must be strings, numbers, booleans, null or undefined (Chromium previews objects; found ${JSON.stringify(t)})`,
+          );
+      });
+      // A first string argument followed by more arguments is a format
+      // string: Chromium's message text keeps it and converts the arguments
+      // of %d/%i/%f/%s, while DevTools substitutes them.
+      if (args.length > 1) {
+        const first = skipParens(e.arguments[0]);
+        const t = this.irType(args[0], b);
+        const literal = ts.isStringLiteralLike(first) ? first.text : undefined;
+        if ((t === 'string' || maybeInner(t) === 'string') && (literal ?? '%').includes('%'))
+          this.fail(
+            first,
+            'E_HOST',
+            'A console call with more arguments needs a first argument that is a string literal without % (or not a string): Chromium treats a first string argument as a format string',
+          );
+      }
+      return builtin(`console.${method}`, args, 'void');
+    }
+    if (
+      ts.isPropertyAccessExpression(owner) &&
+      owner.name.text === 'clipboard' &&
+      this.hostName(skipParens(owner.expression)) === 'navigator'
+    ) {
+      if (method === 'writeText') {
+        if (e.arguments.length !== 1)
+          this.fail(e, 'E_CALL', 'navigator.clipboard.writeText takes the text');
+        return builtin('clipboard.write', [this.coerce(e.arguments[0], b, STRING)], {
+          promise: 'void',
+        });
+      }
+      if (method === 'readText') {
+        if (e.arguments.length) this.fail(e, 'E_CALL', 'readText takes no arguments');
+        return builtin('clipboard.read', [], { promise: STRING });
+      }
+      return this.fail(
+        e,
+        'E_MEMBER',
+        `navigator.clipboard.${method} is unsupported (only text: writeText, readText)`,
+      );
+    }
+    if (host === 'navigator') return this.fail(e, 'E_MEMBER', `navigator.${method} is unsupported`);
+    if (host === 'history') {
+      noSpread();
+      if (method === 'pushState' || method === 'replaceState') {
+        const [state, title, url] = e.arguments;
+        const nullish = (n: ts.Expression | undefined) =>
+          n !== undefined &&
+          (skipParens(n).kind === ts.SyntaxKind.NullKeyword ||
+            (ts.isIdentifier(skipParens(n)) &&
+              (skipParens(n) as ts.Identifier).text === 'undefined'));
+        if (!nullish(state))
+          this.fail(
+            state ?? e,
+            'E_HOST',
+            `history.${method} state objects are unsupported: pass null (history.state and popstate's state are untyped structured clones)`,
+          );
+        if (!title || !ts.isStringLiteralLike(skipParens(title)))
+          this.fail(
+            title ?? e,
+            'E_HOST',
+            `history.${method} takes a string literal title (ignored)`,
+          );
+        if (e.arguments.length > 3) this.fail(e.arguments[3], 'E_CALL', 'Extra arguments');
+        const args: Expr[] = [];
+        if (url && !nullish(url)) {
+          const v = this.expr(url, b);
+          const t = this.irType(v, b);
+          if (t !== 'string' && maybeInner(t) !== 'string')
+            this.fail(url, 'E_HOST', `history.${method} takes a string URL`);
+          args.push(v);
+        }
+        return builtin(`history.${method === 'pushState' ? 'push' : 'replace'}`, args, 'void');
+      }
+      if (method === 'back' || method === 'forward') {
+        if (e.arguments.length) this.fail(e, 'E_CALL', `history.${method} takes no arguments`);
+        return builtin(`history.${method}`, [], 'void');
+      }
+      if (method === 'go') {
+        const arg = e.arguments[0] && skipParens(e.arguments[0]);
+        let delta: number | undefined;
+        if (arg && ts.isNumericLiteral(arg)) delta = Number(arg.text);
+        else if (
+          arg &&
+          ts.isPrefixUnaryExpression(arg) &&
+          arg.operator === ts.SyntaxKind.MinusToken &&
+          ts.isNumericLiteral(arg.operand)
+        )
+          delta = -Number(arg.operand.text);
+        if (
+          delta === undefined ||
+          delta === 0 ||
+          !Number.isInteger(delta) ||
+          e.arguments.length > 1
+        )
+          this.fail(
+            arg ?? e,
+            'E_HOST',
+            'history.go takes a non-zero integer literal (go(0) and go() reload the page)',
+          );
+        return builtin('history.go', [{ op: 'lit', value: delta! }], 'void');
+      }
+      return this.fail(e, 'E_MEMBER', `history.${method} is unsupported`);
+    }
+    if (host === 'location')
+      return this.fail(
+        e,
+        'E_HOST',
+        `location.${method} navigates to another document, which is unsupported (assign location.hash or use history.pushState)`,
+      );
+    return undefined;
+  }
+
+  /** Reads of host-service properties: `history.length`, `location.*`. */
+  private hostServiceRead(e: ts.PropertyAccessExpression): Expr | undefined {
+    const name = e.name.text;
+    const host = this.hostName(skipParens(e.expression));
+    if (host === 'history') {
+      if (name === 'length')
+        return { op: 'builtin', name: 'history.length', args: [], type: NUMBER };
+      if (name === 'state')
+        return this.fail(
+          e,
+          'E_HOST',
+          'history.state is unsupported: state objects are untyped structured clones (keep the state in the URL)',
+        );
+      return this.fail(e, 'E_MEMBER', `history.${name} is unsupported`);
+    }
+    if (host === 'location') {
+      if (['pathname', 'search', 'hash'].includes(name))
+        return { op: 'builtin', name: `location.${name}`, args: [], type: STRING };
+      if (['href', 'origin', 'host', 'hostname', 'port', 'protocol'].includes(name))
+        return this.fail(
+          e,
+          'E_HOST',
+          `location.${name} includes the origin, which differs between the browser and the native app; use pathname, search and hash`,
+        );
+      return this.fail(e, 'E_MEMBER', `location.${name} is unsupported`);
+    }
+    if (host === 'navigator' || host === 'console' || host === 'crypto')
+      return this.fail(e, 'E_MEMBER', `${host}.${name} is unsupported here; call its methods`);
+    return undefined;
+  }
+
   private property(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
     const name = e.name.text;
     // `collator.compare` as a function value; other members of Intl constants.
@@ -1909,6 +2141,8 @@ export class Lowerer {
         `Intl.${intl.ctor} members are supported as calls (${intl.kind === 'collator' ? 'compare(a, b), or compare as a comparator' : 'format(x)'})`,
       );
     }
+    const service = this.hostServiceRead(e);
+    if (service) return service;
     if (ts.isIdentifier(e.expression)) {
       const special = this.binding(e.expression);
       if (special?.kind === 'props')
@@ -2413,7 +2647,10 @@ export class Lowerer {
             'E_EVENT',
             'Listener options (capture, passive, once) are planned for a later milestone',
           );
-        if (!type || !ts.isStringLiteralLike(type) || !EVENT_KINDS.includes(type.text as EventKind))
+        const supported = (k: string) =>
+          EVENT_KINDS.includes(k as EventKind) ||
+          (host === 'window' && WINDOW_EVENT_KINDS.includes(k as EventKind));
+        if (!type || !ts.isStringLiteralLike(type) || !supported(type.text))
           this.fail(type ?? e, 'E_EVENT', `${host}.${method} takes a supported event name literal`);
         return {
           op: 'builtin',
@@ -2422,6 +2659,8 @@ export class Lowerer {
           type: 'void',
         };
       }
+      const service = this.hostServiceCall(e, callee, b);
+      if (service) return service;
       if (host === 'localStorage') {
         const name = { getItem: 'get', setItem: 'set', removeItem: 'remove', clear: 'clear' }[
           method
