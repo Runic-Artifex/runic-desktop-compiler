@@ -276,7 +276,17 @@ fn nth<A: App>(native: &Native<A>, kind: &str, n: u64) -> Option<NodeId> {
     let all: Vec<NodeId> = order[start + 1..]
         .iter()
         .copied()
-        .filter(|&x| native.listeners.listens(x, kind))
+        .filter(|&x| {
+            // Selects are targets of `choose`, not of the other actions.
+            let select = crate::select::is_select(&native.doc, x);
+            if kind == "choose" {
+                select
+                    && (native.listeners.listens(x, "click")
+                        || native.listeners.listens(x, "input"))
+            } else {
+                !select && native.listeners.listens(x, kind)
+            }
+        })
         .collect();
     (!all.is_empty()).then(|| all[(n as usize) % all.len()])
 }

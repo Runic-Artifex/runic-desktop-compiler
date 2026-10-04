@@ -199,6 +199,24 @@ pub(crate) fn shown_index(doc: &BaseDocument, select: NodeId) -> Option<usize> {
         .position(|o| marked(doc, o))
 }
 
+/// Whether an enabled option has `value`.
+pub(crate) fn has_enabled_value(doc: &BaseDocument, select: NodeId, value: &str) -> bool {
+    options(doc, select).into_iter().any(|o| {
+        option_value(doc, o) == value
+            && doc
+                .get_node(o)
+                .is_some_and(|n| n.attr("disabled".into()).is_none())
+    })
+}
+
+/// Whether option `i` is enabled.
+pub(crate) fn option_enabled(doc: &BaseDocument, select: NodeId, i: usize) -> bool {
+    options(doc, select)
+        .get(i)
+        .and_then(|&o| doc.get_node(o))
+        .is_some_and(|n| n.attr("disabled".into()).is_none())
+}
+
 /// The value of option `i`.
 pub(crate) fn value_at(doc: &BaseDocument, select: NodeId, i: usize) -> Option<String> {
     options(doc, select).get(i).map(|&o| option_value(doc, o))

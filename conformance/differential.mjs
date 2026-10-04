@@ -61,12 +61,19 @@ const ACTION = {
   wheel: 'wheel',
 };
 
+/** Literal option values of selects in the program (for `choose`). */
+const optionValues = new Set();
+
 /** Actions that deliver an event some listener in the program handles (any component). */
 function eventKinds(ir) {
   const kinds = new Set();
   const walk = nodes => {
     for (const n of nodes ?? []) {
-      for (const l of n.listeners ?? []) kinds.add(ACTION[l.event]);
+      // Selects are chosen (a click would open a popup over other targets).
+      if (n.tag === 'select' && n.listeners?.length) kinds.add('choose');
+      else for (const l of n.listeners ?? []) kinds.add(ACTION[l.event]);
+      if (n.tag === 'option')
+        for (const a of n.attrs ?? []) if (a.name === 'value' && a.value.op === 'lit') optionValues.add(a.value.value);
       for (const k of ['children', 'then', 'else', 'body', 'fallback']) walk(n[k]);
       for (const s of n.slots ?? []) walk(s.body);
     }
@@ -121,6 +128,7 @@ for (const fixture of fixtures) {
     ['contextmenu', 0.1],
     ['hover', 0.2],
     ['wheel', 0.1],
+    ['choose', 0.2],
   ].filter(([k]) => kinds.has(k));
   const total = weights.reduce((a, [, w]) => a + w, 0);
   let fixtureFailures = 0;
@@ -133,6 +141,10 @@ for (const fixture of fixtures) {
       if (kind === 'input') actions.push({ kind, nth, value: TEXTS[Math.floor(random() * TEXTS.length)] });
       else if (kind === 'keydown') actions.push({ kind, nth, key: random() < 0.7 ? 'Enter' : 'Escape' });
       else if (kind === 'wheel') actions.push({ kind, nth, deltaX: 0, deltaY: random() < 0.5 ? 100 : -40 });
+      else if (kind === 'choose') {
+        const values = [...optionValues];
+        actions.push({ kind, nth, value: values[Math.floor(random() * values.length)] });
+      }
       else actions.push({ kind, nth });
     }
     const expected = interpret(ir, actions);

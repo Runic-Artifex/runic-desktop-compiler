@@ -132,6 +132,11 @@ impl<A: App> Native<A> {
     #[cfg(feature = "probe")]
     pub(crate) fn choose(&mut self, select: NodeId, value: &str) {
         self.listeners.settle(&mut self.doc);
+        // A value no enabled option has cannot be picked.
+        if !crate::select::has_enabled_value(&self.doc, select, value) {
+            self.log.push(format!("no option {value}"));
+            return;
+        }
         let mut dom = Dom {
             doc: &mut self.doc,
             listeners: &mut self.listeners,
@@ -855,9 +860,51 @@ impl<A: App> EventHandler for Handler<'_, A> {
                     doc.shell_provider.request_redraw();
                     return;
                 }
+                // Presses on the popup choose an item (highlighted on press,
+                // committed on release); the page sees none of them.
+                DomEventData::PointerDown(_)
+                | DomEventData::PointerUp(_)
+                | DomEventData::MouseDown(_)
+                | DomEventData::MouseUp(_)
+                | DomEventData::Click(_)
+                | DomEventData::PointerMove(_)
+                | DomEventData::MouseMove(_)
+                    if popup.list.is_some_and(|l| chain.contains(&l)) =>
+                {
+                    state.prevent_default();
+                    let item = popup.list.and_then(|l| {
+                        let items = doc
+                            .get_node(l)
+                            .map(|n| n.children.clone())
+                            .unwrap_or_default();
+                        items.iter().position(|i| chain.contains(i))
+                    });
+                    let enabled = |doc: &BaseDocument, i: usize| {
+                        crate::select::option_enabled(doc, select, i)
+                    };
+                    match (&event.data, item) {
+                        (DomEventData::PointerDown(_) | DomEventData::PointerMove(_), Some(i))
+                            if enabled(doc, i) && from != Some(i) =>
+                        {
+                            self.highlight(doc, i);
+                        }
+                        (DomEventData::PointerUp(_), Some(i)) if enabled(doc, i) => {
+                            self.highlight(doc, i);
+                            self.close_popup(doc, false);
+                        }
+                        _ => {}
+                    }
+                    doc.shell_provider.request_redraw();
+                    return;
+                }
                 DomEventData::PointerDown(_) => {
                     self.close_popup(doc, false);
                     self.pointer.closed_popup = true;
+                    // The press may have hit what the popup covered.
+                    if doc.get_node(event.target).is_none() {
+                        state.prevent_default();
+                        return;
+                    }
                 }
                 _ => {}
             }

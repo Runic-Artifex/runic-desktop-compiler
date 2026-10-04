@@ -3520,8 +3520,12 @@ impl<'p> Machine<'p> {
                 self.dispatch(id, EventKind::Wheel, data, None, s)?;
             }
             "choose" => {
-                // Picking an option: it is shown, then input and change.
-                if !self.inside_disabled(id)? {
+                // Picking an option: it is shown, then input and change (a
+                // value no option has cannot be picked).
+                let tree = self.render()?;
+                let exists = select_options(&tree, id)
+                    .is_some_and(|(o, _)| o.iter().any(|o| Some(o.0.as_str()) == data && o.1));
+                if exists && !self.inside_disabled(id)? {
                     let v = data.unwrap_or_default().to_owned();
                     self.live_values.insert(id, v.clone());
                     let data = js::EventData {
@@ -4460,9 +4464,16 @@ fn locate(tree: &[VNode], target: &Target<'_>) -> Option<Vec<usize>> {
         })
         .then_some(path),
         Target::Nth(action, k) => {
+            // Selects are targets of `choose`, not of the other actions.
             let listens = |n: &VNode| match n {
-                VNode::Element { listeners, .. } => {
-                    listeners.iter().any(|(e, _)| e.action() == *action)
+                VNode::Element { tag, listeners, .. } if *action == "choose" => {
+                    tag == "select"
+                        && listeners
+                            .iter()
+                            .any(|(e, _)| matches!(e.action(), "click" | "input"))
+                }
+                VNode::Element { tag, listeners, .. } => {
+                    tag != "select" && listeners.iter().any(|(e, _)| e.action() == *action)
                 }
                 VNode::Text(_) => false,
             };
