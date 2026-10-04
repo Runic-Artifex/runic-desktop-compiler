@@ -1,0 +1,15 @@
+@font-face { font-family: RunicExample; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eef0ea; color: #22302a; font-family: RunicExample; font-size: 16px; }
+body { padding: 24px; }
+main { max-width: 720px; margin: 0 auto; padding: 24px; background: #fbfbf7; border: 1px solid #b9c0b4; border-radius: 10px; }
+h1 { margin: 0 0 16px; font-size: 24px; font-weight: 400; }
+.sheet { height: 420px; overflow: auto; border: 1px solid #4f6357; background: #ffffff; }
+.row { display: flex; width: 2120px; }
+.corner, .head, .side { flex: none; height: 24px; font-size: 13px; line-height: 23px; text-align: center; background: #e3e9e0; color: #4f6357; border-right: 1px solid #c2c9bd; border-bottom: 1px solid #c2c9bd; }
+.corner, .side { width: 40px; }
+.head { width: 80px; }
+.cell { flex: none; display: block; width: 80px; height: 24px; margin: 0; padding: 2px 4px; font-family: RunicExample; font-size: 13px; line-height: 19px; color: #22302a; background: #ffffff; border: 0; border-right: 1px solid #dde2d9; border-bottom: 1px solid #dde2d9; border-radius: 0; }
+.cell:focus { outline: none; background: #fff8d8; }
+.cell.error { color: #b3261e; }
+@media (max-width: 480px) { body { padding: 8px; } main { padding: 12px; } }

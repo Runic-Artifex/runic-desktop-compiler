@@ -349,10 +349,12 @@ thread_local! {
     static STRICT_TARGETS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// The centre of a rendered element, the target of a pointer action.
-/// Playwright first scrolls the target into view where it is not fully
-/// visible, which the probe does not model: cases target visible elements.
-fn centre<A: App>(native: &mut Native<A>, id: NodeId) -> (f32, f32) {
+/// The point a pointer action aims at: the centre of a rendered element, or
+/// the action's `position` (`{x, y}` from the top-left corner of the
+/// element's padding box, as Playwright places it). Playwright first scrolls
+/// the target into view where it is not fully visible, which the probe does
+/// not model: cases target visible elements.
+fn centre<A: App>(native: &mut Native<A>, id: NodeId, action: &Value) -> (f32, f32) {
     // Checked against the browser only (`--visible-targets`): differential
     // traces compare with the interpreter, which has no layout.
     if STRICT_TARGETS.with(|s| s.get()) && !crate::layout::fully_visible(&mut native.doc, id) {
@@ -367,6 +369,21 @@ fn centre<A: App>(native: &mut Native<A>, id: NodeId) -> (f32, f32) {
         );
     }
     let r = crate::layout::client_rect(&native.doc, id).expect("rendered pointer target");
+    let position = &action["position"];
+    if position.is_object() {
+        let border = native
+            .doc
+            .get_node(id)
+            .expect("pointer target")
+            .unrounded_layout()
+            .border;
+        let x = position["x"].as_f64().expect("position.x");
+        let y = position["y"].as_f64().expect("position.y");
+        return (
+            (r.x + border.left as f64 + x) as f32,
+            (r.y + border.top as f64 + y) as f32,
+        );
+    }
     ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32)
 }
 
@@ -396,7 +413,7 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
         // Pointer input at the element centre, as Playwright's click,
         // dblclick, right click (`contextmenu`), hover and wheel.
         kind @ ("click" | "dblclick" | "contextmenu") => {
-            let (x, y) = centre(native, target.expect("pointer target"));
+            let (x, y) = centre(native, target.expect("pointer target"), action);
             native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
             if kind == "contextmenu" {
                 press_button(native, x, y, MouseEventButton::Secondary, 1);
@@ -408,11 +425,11 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
             }
         }
         "hover" => {
-            let (x, y) = centre(native, target.expect("hover target"));
+            let (x, y) = centre(native, target.expect("hover target"), action);
             native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
         }
         "wheel" => {
-            let (x, y) = centre(native, target.expect("wheel target"));
+            let (x, y) = centre(native, target.expect("wheel target"), action);
             native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
             // Blitz's deltas point the other way from the DOM's.
             let dx = action["deltaX"].as_f64().unwrap_or(0.0);

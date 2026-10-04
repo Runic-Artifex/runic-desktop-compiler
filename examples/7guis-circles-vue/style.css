@@ -1,0 +1,20 @@
+@font-face { font-family: RunicExample; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eef0ea; color: #22302a; font-family: RunicExample; font-size: 16px; }
+body { padding: 24px; }
+main { width: 368px; margin: 0 auto; padding: 23px; background: #fbfbf7; border: 1px solid #b9c0b4; border-radius: 10px; }
+h1 { margin: 0 0 16px; font-size: 24px; font-weight: 400; }
+.bar { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+button { flex: none; width: 72px; font-family: RunicExample; font-size: 15px; padding: 6px 0; border: 1px solid #4f6357; border-radius: 6px; background: #e3e9e0; color: #22302a; }
+button:disabled { background: #ececea; color: #8a8d88; border-color: #c2c4bd; }
+.stage { position: relative; }
+.canvas { position: relative; width: 320px; height: 220px; overflow: hidden; background: #ffffff; border: 1px solid #4f6357; }
+.circle { position: absolute; border: 1px solid #22302a; border-radius: 50%; }
+.menu { position: absolute; padding: 4px; background: #fbfbf7; border: 1px solid #4f6357; border-radius: 4px; }
+.menu button { display: block; width: 160px; border: 0; background: #e3e9e0; }
+.dialog { margin: 12px 0 0; padding: 12px; border: 1px solid #b9c0b4; border-radius: 6px; }
+.dialog p { margin: 0 0 8px; font-size: 14px; line-height: 20px; }
+.dialog button { width: 40px; }
+.dialog #done { width: 72px; }
+#diameter { width: 40px; text-align: center; }
+@media (max-width: 480px) { body { padding: 12px 26px; } }

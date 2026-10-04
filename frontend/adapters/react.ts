@@ -191,6 +191,25 @@ const CONTINUOUS = new Set<HandlerEvent>([
   'pointerenter',
   'pointerleave',
 ]);
+/**
+ * Inline style properties that change only how an element is painted, not
+ * its layout, hit testing or focusability. State that continuous events
+ * update may be rendered in them as in text: what renders it later is not
+ * observable before the frame is painted (and less so than text, which
+ * changes layout).
+ */
+const PAINT_ONLY_STYLES = new Set([
+  'color',
+  'background-color',
+  'border-color',
+  'border-top-color',
+  'border-right-color',
+  'border-bottom-color',
+  'border-left-color',
+  'outline-color',
+  'text-decoration-color',
+  'caret-color',
+]);
 const ENTER_LEAVE = new Set<HandlerEvent>([
   'mouseenter',
   'mouseleave',
@@ -3175,8 +3194,10 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   const propOf = (event: HandlerEvent) =>
     Object.entries(EVENT_PROPS).find(([, e]) => e === event)?.[0] ?? 'onChange';
   /**
-   * Template expressions of `nodes`, split into text parts and the rest
-   * (attributes, properties, listener arguments, conditions, lists, props).
+   * Template expressions of `nodes`, split into text parts (with inline
+   * style properties that only change painting) and the rest (attributes,
+   * other style properties, properties, listener arguments, conditions,
+   * lists, props).
    */
   const templateExprs = (nodes: Node[], text: Expr[], rest: unknown[]) => {
     for (const n of nodes)
@@ -3190,7 +3211,11 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
             n.props ?? [],
             (n.listeners ?? []).map(l => l.args ?? []),
             n.spread ?? [],
+            n.classes ?? [],
+            n.styleText ?? [],
           );
+          for (const s of n.styles ?? [])
+            (PAINT_ONLY_STYLES.has(s.name) ? text : rest).push(s.value);
           templateExprs(n.children ?? [], text, rest);
           break;
         case 'if':

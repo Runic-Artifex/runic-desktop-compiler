@@ -888,6 +888,7 @@ impl<A: App> Handler<'_, A> {
         };
         if let Some(o) = old.filter(|&o| doc.get_node(o).is_some_and(|n| n.flags.is_in_document()))
         {
+            crate::controls::reset_scroll_on_blur(doc, o);
             self.fire(doc, &[o], Event::Blur, related(next));
             let chain = chain_of(doc, o);
             self.fire(doc, &chain, Event::Focusout, related(next));
