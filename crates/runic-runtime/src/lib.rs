@@ -39,6 +39,11 @@ pub(crate) fn set_media_viewport(width: f64, height: f64) {
     });
 }
 
+/// The viewport and user preferences changed (the shell or probe actions).
+pub(crate) fn set_media_env(env: css::MediaEnv) {
+    MEDIA.with(|m| m.set(env));
+}
+
 /// What media queries see: the viewport and the user preferences (light,
 /// no contrast or motion preference, as the probe emulates them).
 pub fn media_env() -> css::MediaEnv {
@@ -127,6 +132,12 @@ pub trait App: 'static {
     /// stands at `to`.
     fn advance(&mut self, dom: &mut Dom, to: f64) {
         let _ = (dom, to);
+    }
+    /// The media environment changed (viewport size or user preferences):
+    /// refresh what queries see, and give the `change` events due, oldest
+    /// media query list first, each with its listener keys.
+    fn media_changed(&mut self) -> Vec<(runic_js::Event, Vec<u32>)> {
+        Vec::new()
     }
     /// Clock time of the next timer.
     fn next_timer(&self) -> Option<f64> {

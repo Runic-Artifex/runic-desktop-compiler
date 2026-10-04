@@ -1756,6 +1756,7 @@ export class Lowerer {
     if (t === 'element') return 'element';
     if (t === 'event') return 'event';
     if (t === 'regexp') return 'regexp';
+    if (t === 'media-query') return 'media-query';
     if (typeof t === 'object') {
       if ('array' in t) return 'array';
       if ('map' in t) return 'map';
@@ -1843,6 +1844,8 @@ export class Lowerer {
       type,
     });
     switch (name) {
+      case 'matchMedia':
+        return builtin('media.query', [args[0]], 'media-query');
       case 'setTimeout':
       case 'setInterval':
         if (e.arguments.length > 2)
@@ -1992,6 +1995,15 @@ export class Lowerer {
     const object = this.expr(e.expression, b);
     const t = this.irType(object, b);
     const kind = this.receiverKind(t);
+    if (kind === 'media-query') {
+      if (name !== 'matches')
+        return this.fail(
+          e,
+          'E_MEMBER',
+          `MediaQueryList ${name} is unsupported (matches is supported)`,
+        );
+      return { op: 'builtin', name: 'media-query.matches', args: [object], type: 'boolean' };
+    }
     if (kind === 'element') {
       if (!ELEMENT_METRICS.includes(name))
         return this.fail(
@@ -2345,6 +2357,13 @@ export class Lowerer {
         );
       }
       const host = this.hostName(callee.expression);
+      if (host === 'window' && method === 'matchMedia')
+        return {
+          op: 'builtin',
+          name: 'media.query',
+          args: [this.expr(e.arguments[0], b)],
+          type: 'media-query',
+        };
       if (host === 'window' && (method === 'scrollTo' || method === 'scrollBy'))
         return {
           op: 'builtin',
@@ -2410,6 +2429,21 @@ export class Lowerer {
       if (kind === 'record')
         return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
       if (kind === 'element') return this.elementMethod(method, receiver, e, b);
+      if (kind === 'media-query') {
+        const [type, listener, options] = e.arguments;
+        if (method !== 'addEventListener' && method !== 'removeEventListener')
+          return this.fail(e, 'E_CALL', `MediaQueryList ${method}() is unsupported`);
+        if (options)
+          this.fail(options, 'E_EVENT', 'Listener options are planned for a later milestone');
+        if (!type || !ts.isStringLiteralLike(type) || type.text !== 'change')
+          this.fail(type ?? e, 'E_EVENT', 'Media query lists have change listeners');
+        return {
+          op: 'builtin',
+          name: `media-query.${method === 'addEventListener' ? 'listen' : 'unlisten'}`,
+          args: [receiver, this.expr(listener, b)],
+          type: 'void',
+        };
+      }
       if (kind)
         return this.builtinCall(
           `${kind}.${method}`,

@@ -35,6 +35,8 @@ pub struct EventData {
     pub related: Option<Element>,
     /// Whether the event is cancelable (`preventDefault` has an effect).
     pub cancelable: bool,
+    /// A `MediaQueryList` change event: whether the query matches now.
+    pub matches: bool,
 }
 
 #[derive(Debug)]

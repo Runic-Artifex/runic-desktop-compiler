@@ -29,6 +29,7 @@ export type Type =
   | 'attrs'
   /** A RegExp object (identity; mutable lastIndex). */
   | 'regexp'
+  | 'media-query'
   | 'void';
 
 export type Literal = boolean | number | string;
@@ -60,7 +61,8 @@ export type EventKind =
   | 'blur'
   | 'focusin'
   | 'focusout'
-  | 'scroll';
+  | 'scroll'
+  | 'resize';
 
 export const EVENT_KINDS: readonly EventKind[] = [
   'click',
@@ -86,6 +88,7 @@ export const EVENT_KINDS: readonly EventKind[] = [
   'focusin',
   'focusout',
   'scroll',
+  'resize',
 ];
 
 export type Read = 'current' | 'snapshot';

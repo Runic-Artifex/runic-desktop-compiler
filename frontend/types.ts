@@ -119,6 +119,7 @@ export class TypeMapper {
     if (t.getProperty('__runicElement')) return 'element';
     // Event objects (frontend/dom.d.ts) are opaque values read through built-ins.
     if (t.getProperty('__runicEvent')) return 'event';
+    if (t.getProperty('__runicMediaQuery')) return 'media-query';
     const name = t.symbol?.name ?? t.aliasSymbol?.name;
     const args = (t as ts.TypeReference).target
       ? this.checker.getTypeArguments(t as ts.TypeReference)

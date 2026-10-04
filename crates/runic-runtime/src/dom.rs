@@ -34,10 +34,12 @@ pub enum Event {
     /// A scroller moved (not bubbling at elements; at the document it
     /// bubbles to the window). Dispatched in the rendering step.
     Scroll,
+    /// The viewport changed size (window listeners; rendering step).
+    Resize,
 }
 
 impl Event {
-    pub const ALL: [Event; 23] = [
+    pub const ALL: [Event; 24] = [
         Event::Click,
         Event::Input,
         Event::Change,
@@ -61,6 +63,7 @@ impl Event {
         Event::Focusin,
         Event::Focusout,
         Event::Scroll,
+        Event::Resize,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -94,6 +97,7 @@ impl Event {
             Event::Focusin => "focusin",
             Event::Focusout => "focusout",
             Event::Scroll => "scroll",
+            Event::Resize => "resize",
         }
     }
 
@@ -107,6 +111,7 @@ impl Event {
                 | Event::Focus
                 | Event::Blur
                 | Event::Scroll
+                | Event::Resize
         )
     }
 
@@ -124,6 +129,7 @@ impl Event {
                 | Event::Focusin
                 | Event::Focusout
                 | Event::Scroll
+                | Event::Resize
         )
     }
 
@@ -147,6 +153,7 @@ impl Event {
             Event::Input => "input",
             Event::Keydown | Event::Keyup => "keydown",
             Event::Wheel | Event::Scroll => "wheel",
+            Event::Resize => "resize",
             Event::Focus | Event::Blur | Event::Focusin | Event::Focusout => "focus",
         }
     }

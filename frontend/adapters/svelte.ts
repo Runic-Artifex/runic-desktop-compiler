@@ -1211,6 +1211,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (kind) {
         const listener =
           EVENT_KINDS.includes(kind as HandlerEvent) &&
+          kind !== 'resize' &&
           typeof t === 'object' &&
           'fn' in t &&
           (t.fn.params.length === 0 || (t.fn.params.length === 1 && t.fn.params[0] === 'event'));
@@ -1368,6 +1369,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             const event = name.slice(2);
             if (!EVENT_KINDS.includes(event as HandlerEvent))
               fail('E_EVENT', `on${event} handlers are planned for a later milestone`, loc(a));
+            if (event === 'resize')
+              fail('E_EVENT', 'resize events go to the window (svelte:window onresize)', loc(a));
             if (event === 'change' && !checkbox && n.name !== 'select')
               fail(
                 'E_EVENT',

@@ -386,6 +386,26 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
             let id = target.expect("choose target");
             native.choose(id, action["value"].as_str().expect("value"));
         }
+        // The viewport or the user preferences change (Playwright's
+        // setViewportSize and emulateMedia).
+        "resize" | "emulate" => {
+            let mut env = crate::media_env();
+            if action["kind"] == "resize" {
+                env.width = action["width"].as_f64().expect("width");
+                env.height = action["height"].as_f64().expect("height");
+            } else {
+                if let Some(c) = action["colorScheme"].as_str() {
+                    env.dark = c == "dark";
+                }
+                if let Some(r) = action["reducedMotion"].as_str() {
+                    env.reduced_motion = r == "reduce";
+                }
+                if let Some(c) = action["contrast"].as_str() {
+                    env.contrast_more = c == "more";
+                }
+            }
+            native.environ(env);
+        }
         "wait" => {
             // Virtual time: run every timer and frame due within the wait.
             let to = native.app.now() + action["ms"].as_f64().expect("ms");
@@ -500,6 +520,8 @@ pub(crate) fn run<A: App>() {
     }
     let mut steps = vec![];
     let mut observe = |native: &mut Native<A>, action: Value, index: usize, action_us: f64| {
+        // The viewport as resize actions left it.
+        let (width, height) = native.doc.viewport().window_size;
         let mut step = snapshot(native, width, height);
         step["action"] = action;
         step["outcomes"] = json!(std::mem::take(&mut native.log));
@@ -529,7 +551,7 @@ pub(crate) fn run<A: App>() {
         native.doc.resolve(0.0);
         native.listeners.settle(&mut native.doc);
         // The rendering step after the action: pending scroll events.
-        native.run_scroll_steps();
+        native.rendering_step(false);
         native.doc.resolve(0.0);
         native.listeners.settle(&mut native.doc);
         let us = t.elapsed().as_secs_f64() * 1e6;

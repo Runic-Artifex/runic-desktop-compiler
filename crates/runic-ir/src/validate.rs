@@ -581,7 +581,7 @@ impl<'a> Scope<'a> {
             }
             Builtin { name, args, ty } => {
                 self.check_type(ty, src)?;
-                if name == "media.matches" {
+                if name == "media.matches" || name == "media.query" {
                     let supported = match args.first() {
                         Some(Lit {
                             value: Value::String(q),
@@ -628,6 +628,9 @@ impl<'a> Scope<'a> {
                             format!("{name}: the event kind must be a supported event name"),
                             src,
                         );
+                    }
+                    if kind == Some(EventKind::Resize) && name.starts_with("document.") {
+                        return err("E_BUILTIN", "Resize events go to the window", src);
                     }
                 }
                 if name.starts_with("regexp.")
@@ -1667,6 +1670,9 @@ impl<'p> NodeCx<'_, 'p> {
                         && !((tag == "input" && !checkbox) || tag == "textarea" || tag == "select")
                     {
                         return err("E_IR", "Input listeners require a text input", src);
+                    }
+                    if l.event == EventKind::Resize {
+                        return err("E_IR", "Resize listeners belong to the window", src);
                     }
                     if l.event == EventKind::Change && !checkbox && tag != "select" {
                         return err(

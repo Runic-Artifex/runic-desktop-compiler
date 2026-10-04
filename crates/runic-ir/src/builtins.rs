@@ -415,6 +415,26 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &s, "query").map(|_| b)
         }
+        // MediaQueryList objects: matches (evaluated now) and change listeners.
+        ("media", "query") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "query").map(|_| MediaQuery)
+        }
+        ("media-query", "matches") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &MediaQuery, "receiver").map(|_| b)
+        }
+        ("media-query", "listen" | "unlisten") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &MediaQuery, "receiver")?;
+            match &args[1] {
+                Fn(f) if f.params.is_empty() || f.params == [Event] => Ok(Void),
+                other => Err(format!(
+                    "listener must take the event or nothing, found {}",
+                    other.name()
+                )),
+            }
+        }
         // Window and document listeners: the event kind (a literal, checked by
         // the validator) and a listener taking the event or nothing.
         ("window" | "document", "listen" | "unlisten") => {
@@ -435,7 +455,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             match m {
                 "type" | "key" | "code" | "value" => Ok(s),
                 "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "checked"
-                | "defaultPrevented" => Ok(b),
+                | "defaultPrevented" | "matches" => Ok(b),
                 "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" => Ok(n),
                 "target" => Ok(Element),
                 "relatedTarget" => Ok(Maybe(Box::new(Element))),

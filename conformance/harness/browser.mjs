@@ -167,6 +167,16 @@ async function perform(page, action, timeout) {
     case 'reload': // The app starts again on the same localStorage.
       await page.reload({ waitUntil: 'load' });
       break;
+    case 'resize': // The viewport changes size.
+      await page.setViewportSize({ width: action.width, height: action.height });
+      break;
+    case 'emulate': // User preferences change (prefers-color-scheme, -reduced-motion, -contrast).
+      await page.emulateMedia({
+        ...(action.colorScheme && { colorScheme: action.colorScheme }),
+        ...(action.reducedMotion && { reducedMotion: action.reducedMotion }),
+        ...(action.contrast && { contrast: action.contrast }),
+      });
+      break;
     case 'wait': // Virtual time (the fake clock is installed for such cases).
       await page.clock.runFor(action.ms);
       break;

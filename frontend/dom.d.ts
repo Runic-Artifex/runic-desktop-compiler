@@ -118,6 +118,7 @@ interface HostEventMap {
   change: Event;
   wheel: WheelEvent;
   scroll: Event;
+  resize: Event;
 }
 // Every event kind (listeners passed through rest props).
 interface RunicEventMap extends HostEventMap {
@@ -139,6 +140,7 @@ interface HostEventTarget {
   ): void;
 }
 interface HostWindow extends HostEventTarget {
+  matchMedia(query: string): MediaQueryList;
   readonly innerWidth: number;
   readonly innerHeight: number;
   readonly scrollX: number;
@@ -174,7 +176,19 @@ interface HostRootElement {
   setAttribute(name: string, value: string): void;
   removeAttribute(name: string): void;
 }
-declare function matchMedia(query: string): { readonly matches: boolean };
+// Media query lists: matches (evaluated when read) and change listeners.
+interface MediaQueryList {
+  readonly __runicMediaQuery: true;
+  readonly matches: boolean;
+  addEventListener(type: 'change', listener: (event: MediaQueryListEvent) => void): void;
+  removeEventListener(type: 'change', listener: (event: MediaQueryListEvent) => void): void;
+}
+interface MediaQueryListEvent {
+  readonly __runicEvent: true;
+  readonly type: string;
+  readonly matches: boolean;
+}
+declare function matchMedia(query: string): MediaQueryList;
 
 declare function setTimeout(handler: () => void, timeout?: number): number;
 declare function setInterval(handler: () => void, timeout?: number): number;

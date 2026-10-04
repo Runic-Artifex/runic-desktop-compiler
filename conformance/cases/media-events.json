@@ -1,0 +1,17 @@
+{
+  "description": "Media query lists (matchMedia, window.matchMedia): matches read when asked, change events oldest list first when the color scheme or the viewport width changes (one listener added twice runs once, a removed one not at all), the window's resize event first, all in the rendering step after the change; the page's stylesheet follows prefers-color-scheme and the width",
+  "fixtures": ["viewport-svelte"],
+  "actions": [
+    { "kind": "click", "id": "read" },
+    { "kind": "emulate", "colorScheme": "dark" },
+    { "kind": "click", "id": "read" },
+    { "kind": "resize", "width": 500, "height": 600 },
+    { "kind": "click", "id": "read" },
+    { "kind": "resize", "width": 700, "height": 560 },
+    { "kind": "emulate", "colorScheme": "light" },
+    { "kind": "click", "id": "quiet" },
+    { "kind": "resize", "width": 460, "height": 600 },
+    { "kind": "resize", "width": 460, "height": 600 },
+    { "kind": "click", "id": "read" }
+  ]
+}

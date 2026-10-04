@@ -69,6 +69,13 @@ impl<A: App> Document for Native<A> {
         DocGuard::Ref(&self.doc)
     }
     fn inner_mut(&mut self) -> DocGuardMut<'_> {
+        // The shell resizes the viewport or changes its color scheme and
+        // then redraws: the next poll runs the rendering step for it.
+        if self.environ_changed().is_some() {
+            if let Some(w) = &self.waker {
+                w.wake_by_ref();
+            }
+        }
         DocGuardMut::Ref(&mut self.doc)
     }
     /// Production timers: run what is due by real time, then wake again for
@@ -83,9 +90,14 @@ impl<A: App> Document for Native<A> {
             self.advance(now);
             self.wake_at = None;
         }
-        // The rendering step: scroll events of scrollers that moved.
-        if !self.listeners.pending_scroll.is_empty() {
-            self.run_scroll_steps();
+        // The rendering step: resize, scroll and media query events due.
+        let environ = self.environ_changed();
+        if environ.is_some() || !self.listeners.pending_scroll.is_empty() {
+            let resized = environ.is_some_and(|(_, resized)| resized);
+            if let Some((env, _)) = environ {
+                crate::set_media_env(env);
+            }
+            self.rendering_step(resized);
             ran = true;
         }
         if let (Some(due), Some(cx)) = (self.app.next_timer(), task_context) {
@@ -191,6 +203,90 @@ impl<A: App> Native<A> {
         };
         handler.move_focus(&mut self.doc, next);
         self.doc.shell_provider.request_redraw();
+    }
+
+    /// The media environment of the shell's viewport when it differs from
+    /// what queries see, and whether the size changed.
+    fn environ_changed(&self) -> Option<(crate::css::MediaEnv, bool)> {
+        let v = self.doc.viewport();
+        let scale = v.scale() as f64;
+        let current = crate::media_env();
+        let env = crate::css::MediaEnv {
+            width: v.window_size.0 as f64 / scale,
+            height: v.window_size.1 as f64 / scale,
+            dark: v.color_scheme == blitz_traits::shell::ColorScheme::Dark,
+            ..current
+        };
+        let resized = env.width != current.width || env.height != current.height;
+        (env != current).then_some((env, resized))
+    }
+
+    /// A rendering step: the window's `resize` event when the viewport size
+    /// changed, the scroll steps, then the `change` events of media query
+    /// lists whose state changed (Chromium's order).
+    pub(crate) fn rendering_step(&mut self, resized: bool) {
+        if resized {
+            let event = runic_js::Event::new(EventData {
+                kind: Event::Resize.name().into(),
+                target: Element::WINDOW,
+                ..Default::default()
+            });
+            let mut handler = Handler {
+                app: &mut self.app,
+                listeners: &mut self.listeners,
+                space_target: &mut self.space_target,
+                nav_start: &mut self.nav_start,
+                log: &mut self.log,
+                pointer: &mut self.pointer,
+            };
+            handler.host(&mut self.doc, Event::Resize, &event);
+            event.finish();
+        }
+        self.run_scroll_steps();
+        let changes = self.app.media_changed();
+        for (event, keys) in changes {
+            let mut handler = Handler {
+                app: &mut self.app,
+                listeners: &mut self.listeners,
+                space_target: &mut self.space_target,
+                nav_start: &mut self.nav_start,
+                log: &mut self.log,
+                pointer: &mut self.pointer,
+            };
+            for listener in keys {
+                let delivery = Delivery {
+                    listener,
+                    event: event.clone(),
+                    current: 0,
+                };
+                handler.dispatch(&mut self.doc, &[delivery]);
+            }
+            event.finish();
+        }
+        self.doc.shell_provider.request_redraw();
+    }
+
+    /// The viewport or the user preferences change (probe actions): what
+    /// queries see and Blitz's viewport, then a rendering step.
+    #[cfg(feature = "probe")]
+    pub(crate) fn environ(&mut self, env: crate::css::MediaEnv) {
+        let resized = env != crate::media_env()
+            && (env.width != crate::media_env().width || env.height != crate::media_env().height);
+        crate::set_media_env(env);
+        let scheme = if env.dark {
+            blitz_traits::shell::ColorScheme::Dark
+        } else {
+            blitz_traits::shell::ColorScheme::Light
+        };
+        self.doc.set_viewport(blitz_traits::shell::Viewport::new(
+            env.width as u32,
+            env.height as u32,
+            1.0,
+            scheme,
+        ));
+        self.doc.resolve(0.0);
+        self.listeners.settle(&mut self.doc);
+        self.rendering_step(resized);
     }
 
     /// The scroll steps of a rendering step: a `scroll` event for each

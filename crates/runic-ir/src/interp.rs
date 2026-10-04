@@ -55,6 +55,7 @@ pub enum Val {
     /// A promise's resolve or reject function.
     Resolver(Rc<Resolver>),
     RegExp(js::RegExp),
+    MediaQuery(js::MediaQueryList),
 }
 
 /// Promises of the interpreter: reactions become [`PJob`]s on the microtask queue.
@@ -179,6 +180,7 @@ impl js::StrictEq for Val {
             (Val::Element(a), Val::Element(b)) => a == b,
             (Val::Event(a), Val::Event(b)) => a == b,
             (Val::RegExp(a), Val::RegExp(b)) => a == b,
+            (Val::MediaQuery(a), Val::MediaQuery(b)) => a == b,
             (Val::Attrs(a), Val::Attrs(b)) => {
                 a.len() == b.len()
                     && a.iter()
@@ -224,6 +226,7 @@ impl js::ToJsString for Val {
             Val::Element(e) => e.to_js_string(),
             Val::Event(e) => e.to_js_string(),
             Val::RegExp(r) => r.to_js_string(),
+            Val::MediaQuery(_) => JsString::from("[object MediaQueryList]"),
             Val::Attrs(_) => JsString::from("[object Object]"),
             Val::Promise(_) => JsString::from("[object Promise]"),
         }
@@ -318,6 +321,7 @@ impl ToMapKey for Val {
             Val::Element(e) => e.map_key(),
             Val::Event(e) => e.map_key(),
             Val::RegExp(r) => r.map_key(),
+            Val::MediaQuery(m) => MapKey::Ref(m.id()),
             Val::Attrs(a) => MapKey::Ref(Rc::as_ptr(a) as *const u8 as usize),
         }
     }
@@ -621,6 +625,9 @@ pub struct Machine<'p> {
     media: runic_css::MediaEnv,
     /// Document and window listeners in registration order: (window, kind, listener).
     host_listeners: Vec<(bool, EventKind, Val)>,
+    /// MediaQueryList change listeners: each list (in creation order) with
+    /// its listeners in registration order.
+    media_lists: Vec<(js::MediaQueryList, Vec<Val>)>,
     children: HashMap<InstKey, usize>,
     /// Listeners of the last render, indexed by `VNode` listener ids.
     listeners: Vec<ListenerRef>,
@@ -768,6 +775,7 @@ impl<'p> Machine<'p> {
             style_states: HashMap::new(),
             replace_states: HashMap::new(),
             host_listeners: vec![],
+            media_lists: vec![],
             root: runic_css::Root::with_attrs(
                 program
                     .document
@@ -2058,6 +2066,45 @@ impl<'p> Machine<'p> {
             ("media", "matches") => Val::Bool(
                 runic_css::media_matches(&a[0].string().to_rust(), &self.media).unwrap_or(false),
             ),
+            ("media", "query") => {
+                let q = a[0].string().to_rust();
+                let matches = runic_css::media_matches(&q, &self.media).unwrap_or(false);
+                Val::MediaQuery(js::MediaQueryList::new(&q, matches))
+            }
+            ("media-query", m) => {
+                let Val::MediaQuery(list) = &a[0] else {
+                    panic!("validated media query list")
+                };
+                match m {
+                    "matches" => Val::Bool(
+                        runic_css::media_matches(list.query(), &self.media).unwrap_or(false),
+                    ),
+                    "listen" | "unlisten" => {
+                        let f = a[1].clone();
+                        let at = self.media_lists.iter().position(|(l, _)| l == list);
+                        match (m, at) {
+                            ("listen", None) => {
+                                // Lists notify oldest first.
+                                let i = self
+                                    .media_lists
+                                    .iter()
+                                    .position(|(l, _)| l.order() > list.order())
+                                    .unwrap_or(self.media_lists.len());
+                                self.media_lists.insert(i, (list.clone(), vec![f]));
+                            }
+                            ("listen", Some(i)) => {
+                                if !self.media_lists[i].1.iter().any(|g| g.same(&f)) {
+                                    self.media_lists[i].1.push(f);
+                                }
+                            }
+                            ("unlisten", Some(i)) => self.media_lists[i].1.retain(|g| !g.same(&f)),
+                            _ => {}
+                        }
+                        Val::Undefined
+                    }
+                    other => panic!("validated media query list member {other}"),
+                }
+            }
             (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
                 let window = target == "window";
                 let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
@@ -2092,6 +2139,7 @@ impl<'p> Machine<'p> {
                     "metaKey" => Val::Bool(d.meta),
                     "repeat" => Val::Bool(d.repeat),
                     "checked" => Val::Bool(d.checked),
+                    "matches" => Val::Bool(d.matches),
                     "defaultPrevented" => Val::Bool(e.default_prevented()),
                     "clientX" => Val::Num(d.client_x),
                     "clientY" => Val::Num(d.client_y),
@@ -2167,6 +2215,7 @@ impl<'p> Machine<'p> {
             | Val::Element(_)
             | Val::Event(_)
             | Val::RegExp(_)
+            | Val::MediaQuery(_)
             | Val::Attrs(_) => return None,
             // A promise has no own enumerable properties.
             Val::Promise(_) => J::Object(Default::default()),
@@ -3754,6 +3803,71 @@ impl<'p> Machine<'p> {
         }
     }
 
+    /// The viewport or the user preferences changed (probe actions `resize`
+    /// and `emulate`). The rendering step dispatches the window's `resize`
+    /// event when the size changed, then a `change` event at each media
+    /// query list whose state changed since it was created or last
+    /// notified, oldest first.
+    pub fn environ(&mut self, env: runic_css::MediaEnv) -> Result<bool> {
+        let resized = env.width != self.media.width || env.height != self.media.height;
+        self.media = env;
+        let mut run = Run::default();
+        let s = &mut run;
+        if resized {
+            let event = js::Event::new(js::EventData {
+                kind: "resize".into(),
+                target: js::Element::WINDOW,
+                ..Default::default()
+            });
+            self.dispatch_globals(EventKind::Resize, &event, s);
+            event.finish();
+        }
+        let lists: Vec<js::MediaQueryList> =
+            self.media_lists.iter().map(|(l, _)| l.clone()).collect();
+        for list in lists {
+            let matches = runic_css::media_matches(list.query(), &self.media).unwrap_or(false);
+            if !list.update(matches) {
+                continue;
+            }
+            let event = js::Event::new(js::EventData {
+                kind: "change".into(),
+                matches,
+                ..Default::default()
+            });
+            let listeners = self
+                .media_lists
+                .iter()
+                .find(|(l, _)| *l == list)
+                .map(|(_, fs)| fs.clone())
+                .unwrap_or_default();
+            for f in listeners {
+                let live = self
+                    .media_lists
+                    .iter()
+                    .any(|(l, fs)| *l == list && fs.iter().any(|g| g.same(&f)));
+                if !live {
+                    continue;
+                }
+                s.ran = true;
+                let arg = Val::Event(event.clone());
+                let result = self.task(None, true, |m| m.call_value(&f, vec![arg]).map(|_| ()));
+                if let Err(d) = result {
+                    s.error.get_or_insert(d);
+                }
+            }
+            event.finish();
+        }
+        match run.error {
+            Some(d) => Err(d),
+            None => Ok(run.ran),
+        }
+    }
+
+    /// The media environment (the probe's viewport and preferences).
+    pub fn media(&self) -> runic_css::MediaEnv {
+        self.media
+    }
+
     /// Whether `target` is (inside) a disabled button or input.
     fn inside_disabled(&mut self, target: u64) -> Result<bool> {
         let tree = self.render()?;
@@ -4851,6 +4965,7 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Element(_) => json!("element"),
         Val::Event(_) => json!("event"),
         Val::RegExp(r) => json!(js::ToJsString::to_js_string(r).to_rust()),
+        Val::MediaQuery(_) => json!("media-query"),
         Val::Attrs(_) => json!("attrs"),
     }
 }

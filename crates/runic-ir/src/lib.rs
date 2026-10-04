@@ -286,6 +286,8 @@ pub enum Type {
     /// A RegExp object (`js::RegExp`), compared by identity; its
     /// `lastIndex` is mutable.
     Regexp,
+    /// A `MediaQueryList` (`matchMedia(query)`), compared by identity.
+    MediaQuery,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -312,6 +314,7 @@ impl Type {
             Type::Event => "event".into(),
             Type::Attrs => "attrs".into(),
             Type::Regexp => "regexp".into(),
+            Type::MediaQuery => "media-query".into(),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params
@@ -658,6 +661,8 @@ pub enum EventKind {
     /// A scroller moved (not bubbling at elements; at the document it
     /// bubbles to the window). Dispatched in the rendering step.
     Scroll,
+    /// The viewport changed size (window listeners only; rendering step).
+    Resize,
 }
 
 impl EventKind {
@@ -681,6 +686,7 @@ impl EventKind {
                 | EventKind::Focus
                 | EventKind::Blur
                 | EventKind::Scroll
+                | EventKind::Resize
         )
     }
 
@@ -699,6 +705,7 @@ impl EventKind {
                 | EventKind::Focusin
                 | EventKind::Focusout
                 | EventKind::Scroll
+                | EventKind::Resize
         )
     }
 
@@ -723,13 +730,14 @@ impl EventKind {
             EventKind::Input => "input",
             EventKind::Keydown | EventKind::Keyup => "keydown",
             EventKind::Wheel | EventKind::Scroll => "wheel",
+            EventKind::Resize => "resize",
             EventKind::Focus | EventKind::Blur | EventKind::Focusin | EventKind::Focusout => {
                 "focus"
             }
         }
     }
 
-    pub const ALL: [EventKind; 23] = [
+    pub const ALL: [EventKind; 24] = [
         EventKind::Click,
         EventKind::Input,
         EventKind::Change,
@@ -753,6 +761,7 @@ impl EventKind {
         EventKind::Focusin,
         EventKind::Focusout,
         EventKind::Scroll,
+        EventKind::Resize,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -786,6 +795,7 @@ impl EventKind {
             EventKind::Focusin => "focusin",
             EventKind::Focusout => "focusout",
             EventKind::Scroll => "scroll",
+            EventKind::Resize => "resize",
         }
     }
 }

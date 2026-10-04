@@ -195,3 +195,26 @@ test('layout reads and scrolling lower to element built-ins; unsupported shapes 
       'App.svelte',
     );
 });
+
+test('media query lists: change events after emulate and resize, in the rendering step', async () => {
+  const { ir } = await lower(await graph('viewport-svelte'));
+  const actions = JSON.parse(
+    await (
+      await import('node:fs/promises')
+    ).readFile('conformance/cases/media-events.json', 'utf8'),
+  ).actions;
+  const steps = interpret(ir, actions);
+  // As Chromium logs it (conformance case media-events, 800x600).
+  assert.equal(
+    text(steps.at(-1), 'log'),
+    'dark true change, resize, wide false, resize, wide true, dark false change, resize',
+  );
+  assert.equal(text(steps.at(-1), 'now'), 'false false false');
+  await rejects(
+    await edits('viewport-svelte', 'App.svelte', [
+      ["dark.addEventListener('change', onDark)", "dark.addEventListener('input', onDark)"],
+    ]),
+    'E_EVENT',
+    'App.svelte',
+  );
+});

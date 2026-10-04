@@ -158,6 +158,7 @@ export const EVENT_MEMBERS: Record<string, Type> = {
   currentTarget: { maybe: 'element' },
   value: S,
   checked: B,
+  matches: B,
   preventDefault: 'void',
   stopPropagation: 'void',
   stopImmediatePropagation: 'void',

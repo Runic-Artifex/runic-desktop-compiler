@@ -433,6 +433,33 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "runic_runtime::css::media_matches(&{}.to_rust(), &cx.media).unwrap_or(false)",
             t[0]
         ),
+        ("media", "query") => format!(
+            "{{ let q = {}.to_rust(); let m = runic_runtime::css::media_matches(&q, &cx.media).unwrap_or(false); js::MediaQueryList::new(&q, m) }}",
+            t[0]
+        ),
+        ("media-query", "matches") => format!(
+            "runic_runtime::css::media_matches({}.query(), &cx.media).unwrap_or(false)",
+            t[0]
+        ),
+        // Change listeners, identified by their function value.
+        ("media-query", m @ ("listen" | "unlisten")) => {
+            let find = "cx.media_host.iter().position(|h| h.0 == list && h.1 == id)";
+            if m == "unlisten" {
+                format!(
+                    "{{ let list = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.media_host.remove(i).2; cx.listeners[key as usize] = None; cx.free.push(key); }} }}",
+                    t[0], t[1]
+                )
+            } else {
+                let call = match &types[1] {
+                    Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                    _ => "f(cx, cx.event.clone().expect(\"event context\"))",
+                };
+                format!(
+                    "{{ let list = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if {find}.is_none() {{ let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); let key = cx.listen(g); cx.media_host.push((list, id, key)); }} }}",
+                    t[0], t[1]
+                )
+            }
+        }
         // Window and document listeners, identified by their function value.
         (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
             let Some(Expr::Lit {
@@ -473,6 +500,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "shiftKey" => format!("{e}.data().shift"),
                 "altKey" => format!("{e}.data().alt"),
                 "metaKey" => format!("{e}.data().meta"),
+                "matches" => format!("{e}.data().matches"),
                 "repeat" => format!("{e}.data().repeat"),
                 "checked" => format!("{e}.data().checked"),
                 "clientX" => format!("{e}.data().client_x"),

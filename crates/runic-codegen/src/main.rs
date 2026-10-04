@@ -122,6 +122,33 @@ fn main() {
                         );
                         continue;
                     }
+                    Some(k @ ("resize" | "emulate")) => {
+                        // The viewport or the user preferences change.
+                        let mut env = m.media();
+                        if k == "resize" {
+                            env.width = action["width"].as_f64().unwrap_or(env.width);
+                            env.height = action["height"].as_f64().unwrap_or(env.height);
+                        } else {
+                            if let Some(c) = action["colorScheme"].as_str() {
+                                env.dark = c == "dark";
+                            }
+                            if let Some(r) = action["reducedMotion"].as_str() {
+                                env.reduced_motion = r == "reduce";
+                            }
+                            if let Some(c) = action["contrast"].as_str() {
+                                env.contrast_more = c == "more";
+                            }
+                        }
+                        let outcome = match m.environ(env) {
+                            Ok(true) => json!("handled"),
+                            Ok(false) => json!("ignored"),
+                            Err(d) => json!({"rejected": d}),
+                        };
+                        steps.push(
+                            json!({"action": action, "outcome": outcome, "state": m.snapshot()}),
+                        );
+                        continue;
+                    }
                     Some("wait") => {
                         let result = m.advance(action["ms"].as_f64().unwrap_or(0.0));
                         let outcome = match result {
