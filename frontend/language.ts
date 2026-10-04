@@ -29,6 +29,8 @@ import { DOM } from './program.ts';
 import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
 import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
+import { bindPackConstant } from './packs.ts';
+import type { Choice } from './packs/choice.ts';
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -63,6 +65,12 @@ export type Binding =
       kind: 'pack';
       label: string;
       call?: (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr;
+      /** The exact values a call can return (calls evaluated at build time, frontend/packs/choice.ts). */
+      choice?: (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Choice;
+      /** A call initialising a const that becomes a pack function (`tv(config)`). */
+      constant?: (node: ts.CallExpression, name: string, lower: Lowerer) => Binding;
+      /** Wrappers returning a call of this function over a rest parameter are inlined. */
+      inline?: boolean;
     };
 
 /** The member of a ref object that holds its value (`value` unless the binding names one). */
@@ -958,8 +966,8 @@ export class Lowerer {
   }
 
   private declaration(d: ts.VariableDeclaration, b: FnBuilder): Stmt[] {
-    // Intl constants have no runtime value (their uses are lowered).
-    if (this.isIntlConstant(d)) return [];
+    // Intl and pack constants have no runtime value (their uses are lowered).
+    if (this.isIntlConstant(d) || this.isPackConstant(d)) return [];
     if (ts.isIdentifier(d.name)) {
       const sym = this.checker.getSymbolAtLocation(d.name)!;
       if (d.initializer && !d.type && this.isRegexpResult(d.initializer)) {
@@ -3408,6 +3416,14 @@ export class Lowerer {
     }
     const init = this.constInitializer(e, depth);
     return init ? this.intlObject(init, depth + 1) : undefined;
+  }
+
+  /**
+   * Whether `d` declares a pack constant such as `const button = tv({...})`
+   * (bound to a pack function; no runtime value: its calls are lowered).
+   */
+  isPackConstant(d: ts.VariableDeclaration): boolean {
+    return bindPackConstant(d, this);
   }
 
   /** Whether `d` declares an Intl constant (no runtime value: its uses are lowered). */

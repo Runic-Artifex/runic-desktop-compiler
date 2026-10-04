@@ -2766,8 +2766,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
       }
       if (ts.isVariableStatement(stmt) && stmt.declarationList.flags & ts.NodeFlags.Const) {
         for (const d of stmt.declarationList.declarations) {
-          // Intl constants have no runtime value (their uses are lowered).
-          if (lower.isIntlConstant(d)) continue;
+          // Intl and pack constants have no runtime value (their uses are lowered).
+          if (lower.isIntlConstant(d) || lower.isPackConstant(d)) continue;
           const init = d.initializer && skipParens(d.initializer);
           const kind = vueCall(init);
           if (kind === 'defineProps' || kind === 'withDefaults') {

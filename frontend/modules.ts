@@ -6,7 +6,7 @@
 import ts from 'typescript';
 import path from 'node:path';
 import { skipParens, type Lowerer } from './language.ts';
-import { bindPackImport, type Edge } from './packs.ts';
+import { bindPackImport, bindPackWrapper, type Edge } from './packs.ts';
 
 export interface ModuleGraph {
   root: string;
@@ -87,12 +87,10 @@ export function lowerModules(
       if (ts.isExportAssignment(stmt))
         fail(stmt, 'E_IMPORT', 'Default exports from modules are planned for M3');
       if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-        const p = lower.declare(
-          checker.getSymbolAtLocation(stmt.name)!,
-          stmt,
-          stmt.name.text,
-          undefined,
-        );
+        const sym = checker.getSymbolAtLocation(stmt.name)!;
+        // Wrappers of calls evaluated at build time are inlined (packs.ts).
+        if (bindPackWrapper(sym, stmt, stmt.name.text, lower)) continue;
+        const p = lower.declare(sym, stmt, stmt.name.text, undefined);
         if (p) pending.push(p);
         continue;
       }
@@ -102,12 +100,13 @@ export function lowerModules(
         for (const d of stmt.declarationList.declarations) {
           if (!ts.isIdentifier(d.name) || !d.initializer)
             fail(d, 'E_MODULE', 'Module constants need a name and an initialiser');
-          // Intl constants have no runtime value (their uses are lowered).
-          if (lower.isIntlConstant(d)) continue;
+          // Intl and pack constants have no runtime value (their uses are lowered).
+          if (lower.isIntlConstant(d) || lower.isPackConstant(d)) continue;
           const sym = checker.getSymbolAtLocation(d.name)!;
           const name = (d.name as ts.Identifier).text;
           const init = skipParens(d.initializer!);
           if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+            if (bindPackWrapper(sym, init, name, lower)) continue;
             const p = lower.declare(sym, init, name, undefined);
             if (p) pending.push(p);
             continue;

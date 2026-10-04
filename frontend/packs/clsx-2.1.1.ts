@@ -25,6 +25,12 @@ import ts from 'typescript';
 import type { Expr, Fn, Local, Type } from '../ir.ts';
 import type { FnBuilder, Lowerer } from '../language.ts';
 import type { Pack } from '../packs.ts';
+import { evaluatedChoice } from './choice.ts';
+import { pinnedCheck, pinnedLoad } from './pinned.ts';
+
+/** The ESM build, run when clsx is an argument of a call evaluated at build time. */
+const ENTRY = 'dist/clsx.mjs';
+const FILES = { [ENTRY]: 'd949e5cdbfebc76a6642b1901095e900fc3f2262d8dc0373aa44850a9bc75522' };
 
 const STRING: Type = 'string';
 const EMPTY: Expr = { op: 'lit', value: '' };
@@ -402,6 +408,15 @@ export const clsxPack: Pack = {
           out = join(lower, out, classValue(a, b, lower));
         }
         return out;
+      },
+      // Inside a call evaluated at build time (twMerge(clsx(...))): the real
+      // clsx over each combination of its arguments' values.
+      choice(node, b, lower) {
+        const label = 'clsx@2.1.1 pack';
+        const problem = pinnedCheck(pkg, FILES);
+        if (problem) lower.fail(node, 'E_PACK', `${label}: ${problem}`);
+        const clsx = pinnedLoad<{ clsx: (...args: unknown[]) => string }>(pkg, ENTRY).clsx;
+        return evaluatedChoice({ lower, b, label }, node, args => clsx(...args));
       },
     };
   },
