@@ -1,0 +1,10 @@
+{
+  "description": "Blitz fork, anonymous blocks follow their parent's restyle: text directly in a flex container (a default inline-flex button, a flex div) takes a :hover colour and a state colour (Blitz kept the colour the anonymous block got at box construction). A large solid glyph makes the colour visible to the whole-viewport pixel gate",
+  "fixtures": ["anonymous-restyle-svelte"],
+  "actions": [
+    { "kind": "hover", "id": "swatch" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "hover", "id": "box" },
+    { "kind": "click", "id": "toggle" }
+  ]
+}

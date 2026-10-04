@@ -1,0 +1,10 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); }
+body { font-family: RunicFixture; margin: 16px; }
+.row { display: flex; gap: 24px; align-items: flex-start; }
+/* Text directly in a flex container (a default button is inline-flex): its
+   colour comes through an anonymous block. */
+.swatch { font-family: RunicFixture; font-size: 200px; line-height: 1; padding: 0; border: 0; background: transparent; color: #222222; }
+.swatch:hover { color: #dd2222; }
+.box { display: flex; font-size: 200px; line-height: 1; color: #222222; }
+.box.on { color: #2255dd; }
+#toggle { font-family: RunicFixture; font-size: 14px; }
