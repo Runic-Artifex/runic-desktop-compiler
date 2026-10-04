@@ -238,7 +238,7 @@ test('React rest props and ref props reject what they cannot lower, with locatio
     [
       `${BUTTON}export function App() { return <Button style={{ color: 'red' }}>a</Button>; }`,
       'E_JSX',
-      /Style objects/,
+      /style in the rest props/,
     ],
     [
       `${BUTTON}export function App() { return <Button type="submit">a</Button>; }`,

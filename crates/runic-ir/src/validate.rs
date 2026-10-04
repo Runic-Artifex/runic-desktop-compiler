@@ -1465,12 +1465,14 @@ impl<'p> NodeCx<'_, 'p> {
                     });
                 for prop in props {
                     let want = match (prop.name.as_str(), tag, checkbox) {
-                        ("value", "input", false) | ("value", "textarea", _) => Type::String,
+                        ("value", "input", false)
+                        | ("value", "textarea", _)
+                        | ("defaultValue", "textarea", _) => Type::String,
                         ("checked", "input", true) => Type::Boolean,
                         _ => {
                             return err(
                                 "E_IR",
-                                "Live properties are value (text inputs, text areas) and checked (checkboxes)",
+                                "Live properties are value (text inputs, text areas), checked (checkboxes) and defaultValue (text areas)",
                                 src,
                             );
                         }
@@ -1485,6 +1487,17 @@ impl<'p> NodeCx<'_, 'p> {
                 }
                 if checkbox && !props.iter().any(|p| p.name == "checked") {
                     return err("E_IR", "Checkboxes need a live checked property", src);
+                }
+                // The text content follows a controlled value (React DOM);
+                // alone it would also be the live value until edited.
+                if props.iter().any(|p| p.name == "defaultValue")
+                    && !props.iter().any(|p| p.name == "value")
+                {
+                    return err(
+                        "E_IR",
+                        "A text area's defaultValue needs a live value property",
+                        src,
+                    );
                 }
                 let mut kinds = HashSet::new();
                 for l in listeners {

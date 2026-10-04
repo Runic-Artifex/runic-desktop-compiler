@@ -156,19 +156,30 @@ pub(crate) struct Listeners {
     /// Inputs whose value was set by script before their editor existed: the
     /// caret moves to the end once the editor is created (as `input.value = v`).
     pending_caret: Vec<NodeId>,
+    /// The text content (`defaultValue`) of text areas whose editor is still
+    /// to be created from a value set by script: it replaces that seed once
+    /// the editor exists.
+    pending_default: HashMap<NodeId, String>,
 }
 
 impl Listeners {
     /// Apply pending caret moves for editors created since (call after layout).
+    /// A text area's children seeded its editor with a value set by script;
+    /// they are replaced by its text content (none unless one was set).
     pub(crate) fn settle(&mut self, doc: &mut BaseDocument) {
+        let pending_default = &mut self.pending_default;
         self.pending_caret.retain(|&id| {
             if doc.get_node(id).is_none() {
+                pending_default.remove(&id);
                 return false;
             }
             if !crate::controls::has_editor(doc, id) {
                 return true;
             }
             doc.with_text_input(id, |mut editor| editor.move_to_text_end());
+            if let Some(text) = pending_default.remove(&id) {
+                replace_text_content(doc, id, &text);
+            }
             false
         });
     }
@@ -327,6 +338,23 @@ impl Host {
 pub struct Dom<'a> {
     pub(crate) doc: &'a mut BaseDocument,
     pub(crate) listeners: &'a mut Listeners,
+}
+
+/// `node.textContent = text`: the children are replaced by one text node,
+/// or none for the empty string.
+fn replace_text_content(doc: &mut BaseDocument, node: NodeId, text: &str) {
+    let children: Vec<_> = doc
+        .get_node(node)
+        .map(|n| n.children.to_vec())
+        .unwrap_or_default();
+    let mut m = doc.mutate();
+    for c in children {
+        m.remove_and_drop_node(c);
+    }
+    if !text.is_empty() {
+        let t = m.create_text_node(text);
+        m.append_children(node, &[t]);
+    }
 }
 
 fn attr(name: &str) -> QualName {
@@ -556,6 +584,24 @@ impl Dom<'_> {
         }
     }
 
+    /// Manage an inline style of properties only (React DOM's
+    /// `setValueForStyles`, through the CSSOM).
+    pub fn style_properties(
+        &mut self,
+        node: NodeId,
+        properties: &[(&str, Option<String>)],
+        state: &mut runic_css::StyleState,
+    ) {
+        let current = self
+            .doc
+            .get_node(node)
+            .and_then(|n| n.attr("style".into()))
+            .map(str::to_owned);
+        if let Ok(next) = state.apply_properties(current.as_deref(), properties) {
+            self.set_opt_attr(node, "style", next.as_deref());
+        }
+    }
+
     /// Remove one listener registration; its key is released like those of
     /// removed elements.
     pub fn unlisten(&mut self, node: NodeId, key: u32) {
@@ -629,21 +675,40 @@ impl Dom<'_> {
             .and_then(|n| n.element_data())
             .is_some_and(|e| &*e.name.local == "textarea")
         {
-            // A text area's editor starts from its text content.
-            let children: Vec<_> = self
-                .doc
-                .get_node(node)
-                .map(|n| n.children.to_vec())
-                .unwrap_or_default();
-            for c in children {
-                self.doc.mutate().remove_and_drop_node(c);
+            // A text area's editor starts from its text content. A value
+            // equal to it changes nothing (the caret stays at the start, as
+            // after `textarea.value = v` with the same value); another one
+            // seeds the editor, and the text content replaces the seed once
+            // the editor exists.
+            if !self.listeners.pending_caret.contains(&node) {
+                let current = self
+                    .doc
+                    .get_node(node)
+                    .map(|n| n.text_content())
+                    .unwrap_or_default();
+                if current == value {
+                    return;
+                }
+                self.listeners.pending_default.insert(node, current);
+                self.listeners.pending_caret.push(node);
             }
-            let text = self.text(value);
-            self.append(node, text);
-            self.listeners.pending_caret.push(node);
+            replace_text_content(self.doc, node, value);
         } else {
             self.set_attr(node, "value", value);
             self.listeners.pending_caret.push(node);
+        }
+    }
+
+    /// Set a text area's text content (`defaultValue`), which is not its
+    /// live value. While its editor is still to be created from a value set
+    /// by script, the text content replaces that seed afterwards.
+    pub fn set_default_value(&mut self, node: NodeId, text: &str) {
+        if !crate::controls::has_editor(self.doc, node)
+            && self.listeners.pending_caret.contains(&node)
+        {
+            self.listeners.pending_default.insert(node, text.to_owned());
+        } else {
+            replace_text_content(self.doc, node, text);
         }
     }
 }

@@ -653,24 +653,31 @@ impl Gen<'_> {
                         let v = cx.expr(e);
                         match cx.ty(e) {
                             Type::String => format!("Some({v}.to_rust())"),
+                            // Typed: a value that is only `undefined` infers nothing.
                             _ => format!(
-                                "(match {v} {{ Maybe::Some(s) => Some(s.to_rust()), _ => None }})"
+                                "(match {{ let m: Maybe<JsString> = {v}; m }} {{ Maybe::Some(s) => Some(s.to_rust()), _ => None }})"
                             ),
                         }
                     };
-                    let value = style_text
-                        .as_ref()
-                        .map_or("Some(String::new())".to_string(), |e| opt(&mut cx, e));
+                    // Without a style value: properties only (React DOM).
+                    let value = style_text.as_ref().map(|e| opt(&mut cx, e));
                     let props: Vec<String> = styles
                         .iter()
                         .map(|p| format!("({}, {})", rust_str(&p.name), opt(&mut cx, &p.value)))
                         .collect();
                     let props = props.join(", ");
+                    let apply = |n: &str, st: &str| match &value {
+                        Some(value) => format!(
+                            "{{ let v = {value}; dom.styles({n}, v, &[{props}], &mut {st}); }}"
+                        ),
+                        None => format!("dom.style_properties({n}, &[{props}], &mut {st});"),
+                    };
                     o.fields
                         .push((format!("st{key}"), "runic_runtime::css::StyleState".into()));
                     let _ = writeln!(
                         o.mount,
-                        "let mut st{key} = runic_runtime::css::StyleState::default(); {{ let v = {value}; dom.styles(n{key}, v, &[{props}], &mut st{key}); }}"
+                        "let mut st{key} = runic_runtime::css::StyleState::default(); {}",
+                        apply(&format!("n{key}"), &format!("st{key}"))
                     );
                     let exprs: Vec<&Expr> = style_text
                         .iter()
@@ -680,7 +687,8 @@ impl Gen<'_> {
                         let guard = self.guard(&exprs);
                         let _ = writeln!(
                             o.update,
-                            "if {guard} {{ let v = {value}; dom.styles(s.n{key}, v, &[{props}], &mut s.st{key}); }}"
+                            "if {guard} {{ {} }}",
+                            apply(&format!("s.n{key}"), &format!("s.st{key}"))
                         );
                     }
                 }
@@ -793,6 +801,22 @@ impl Gen<'_> {
                 let restore = self.p.schedule.controlled_restore;
                 for p in props {
                     let v = self.ctx(k).expr(&p.value);
+                    if p.name == "defaultValue" {
+                        // A text area's text content, set when it changes
+                        // (not a controlled value).
+                        let _ = writeln!(
+                            o.mount,
+                            "{{ let v = {v}.to_rust(); dom.set_default_value(n{key}, &v); }}"
+                        );
+                        if !self.is_static(&[&p.value]) {
+                            let guard = self.guard(&[&p.value]);
+                            let _ = writeln!(
+                                o.update,
+                                "if {guard} {{ let v = {v}.to_rust(); dom.set_default_value(s.n{key}, &v); }}"
+                            );
+                        }
+                        continue;
+                    }
                     let (rty, conv, set) = if p.name == "checked" {
                         ("bool", "", "dom.set_checked(N, v)")
                     } else {

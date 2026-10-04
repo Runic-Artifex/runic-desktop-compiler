@@ -26,6 +26,13 @@
 //   attributes (restEntry) and spread onto elements with `{...rest}`;
 // - `ref` as a prop (React 19), attached to an element or passed on: the
 //   parent's ref object receives the element through a bound prop;
+// - inline style objects with static keys → a managed style of properties
+//   only, as setValueForStyles applies them (styleObject);
+// - onFocus/onBlur → focusin/focusout listeners (they bubble in React);
+//   focus() and blur() with focus listeners only in discrete handlers
+//   (checkFocusCalls);
+// - controlled text areas (value, and defaultValue: React DOM keeps the
+//   text content equal to the value) and labels (`htmlFor`);
 // - JSX → IR nodes with React's whitespace and child rendering rules.
 import ts from 'typescript';
 import path from 'node:path';
@@ -82,6 +89,8 @@ const TAGS = new Set([
   'pre',
   'br',
   'hr',
+  'textarea',
+  'label',
 ]);
 /** React prop names → DOM attribute names. */
 const ATTRS: Record<string, string> = {
@@ -89,6 +98,7 @@ const ATTRS: Record<string, string> = {
   maxLength: 'maxlength',
   readOnly: 'readonly',
   tabIndex: 'tabindex',
+  htmlFor: 'for',
 };
 /**
  * React event props → IR event kinds (onChange: see `jsx`). React DOM runs
@@ -111,6 +121,9 @@ const EVENT_PROPS: Record<string, HandlerEvent> = {
   onPointerLeave: 'pointerleave',
   onKeyDown: 'keydown',
   onKeyUp: 'keyup',
+  // React DOM listens for focusin and focusout: onFocus and onBlur bubble.
+  onFocus: 'focusin',
+  onBlur: 'focusout',
 };
 /**
  * Continuous events: React gives their updates a lower priority and renders
@@ -245,6 +258,26 @@ function restAttribute(key: string): string | undefined {
 }
 /** The type of element refs and ref props: the element while mounted, null after. */
 const REF_TYPE: Type = { maybe: 'element' };
+/** Style keys whose numbers React DOM sets without a unit (react-dom 19.3 unitlessNumbers). */
+const UNITLESS = new Set(
+  'animationIterationCount aspectRatio borderImageOutset borderImageSlice borderImageWidth boxFlex boxFlexGroup boxOrdinalGroup columnCount columns flex flexGrow flexPositive flexShrink flexNegative flexOrder gridArea gridRow gridRowEnd gridRowSpan gridRowStart gridColumn gridColumnEnd gridColumnSpan gridColumnStart fontWeight lineClamp lineHeight opacity order orphans scale tabSize widows zIndex zoom fillOpacity floodOpacity stopOpacity strokeDasharray strokeDashoffset strokeMiterlimit strokeOpacity strokeWidth'.split(
+    ' ',
+  ),
+);
+/** CSSStyleDeclaration members that are not properties (React assigns `style[key]`). */
+const DECLARATION_MEMBERS = new Set([
+  'cssText',
+  'cssFloat',
+  'length',
+  'parentRule',
+  'item',
+  'getPropertyValue',
+  'getPropertyPriority',
+  'setProperty',
+  'removeProperty',
+]);
+/** A React style key's CSS property (`backgroundColor` → `background-color`). */
+const kebab = (key: string): string => key.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
 
 interface Graph {
   root: string;
@@ -933,12 +966,19 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           continue;
         }
         if (init && ts.isCallExpression(init) && isHook(init.expression, 'useState')) {
-          if (!ts.isArrayBindingPattern(d.name) || d.name.elements.length !== 2)
+          // `const [value, setValue]`, or `const [value]` for state nothing sets.
+          const elements = ts.isArrayBindingPattern(d.name) ? d.name.elements : undefined;
+          if (!elements || (elements.length !== 1 && elements.length !== 2))
             fail(d, 'E_STATE', 'Use const [value, setValue] = useState(initial)');
-          const [v, s] = (d.name as ts.ArrayBindingPattern)
-            .elements as unknown as ts.BindingElement[];
-          if (!ts.isIdentifier(v.name) || !ts.isIdentifier(s.name))
-            fail(d, 'E_STATE', 'useState names must be identifiers');
+          const [v, s] = elements as unknown as (ts.BindingElement | undefined)[];
+          if (
+            !v ||
+            !ts.isBindingElement(v) ||
+            !ts.isIdentifier(v.name) ||
+            v.initializer ||
+            (s && (!ts.isBindingElement(s) || !ts.isIdentifier(s.name) || s.initializer))
+          )
+            return fail(d, 'E_STATE', 'useState names must be identifiers');
           const cell = cells.length;
           const type = types.of(v.name);
           const arg = init.arguments[0];
@@ -953,10 +993,10 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
             source: sourceOf(d),
           });
           lower.bindings.set(checker.getSymbolAtLocation(v.name)!, { kind: 'cell', cell });
-          const setter = checker.getSymbolAtLocation(s.name)!;
-          setters.set(setter, cell);
+          const setter = s && checker.getSymbolAtLocation(s.name)!;
+          if (setter) setters.set(setter, cell);
           // A setter passed as a value (e.g. a callback prop): a function writing the cell.
-          if (usedAsValue(setter, body!)) {
+          if (s && setter && usedAsValue(setter, body!)) {
             const fn = lower.reserve();
             lower.functions[fn] = {
               name: (s.name as ts.Identifier).text,
@@ -1570,6 +1610,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       return { name: `on${event}`, value: v };
     }
     if (key === 'onWheel') return wheelUnsupported(attr);
+    if (/^on[A-Z].*Capture$/.test(key)) return captureUnsupported(attr, key);
     if (key === 'onChange')
       return fail(
         attr,
@@ -1595,7 +1636,11 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         `ref goes into the rest props of ${child}, which is unsupported; destructure ref ({ ref, ...rest }) and attach it`,
       );
     if (key === 'style')
-      return fail(attr, 'E_JSX', 'Style objects are planned for a later milestone');
+      return fail(
+        attr,
+        'E_JSX',
+        `style in the rest props of ${child} is unsupported (React applies style objects by a rule of its own); write style={{ … }} on the element`,
+      );
     const name = restAttribute(key);
     if (!name)
       return fail(
@@ -1643,12 +1688,163 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       },
     };
   };
+  const captureUnsupported = (attr: ts.Node, prop: string): never =>
+    fail(
+      attr,
+      'E_EVENT',
+      `${prop} is unsupported: React runs capture handlers in the capture phase, before the target's own handlers, while the IR's listeners run in the bubbling phase`,
+    );
   const wheelUnsupported = (attr: ts.Node): never =>
     fail(
       attr,
       'E_EVENT',
       "onWheel is unsupported: React's root wheel listener is passive, so preventDefault() has no effect and Chromium scrolls before it dispatches the event, to the element under the pointer after scrolling",
     );
+  /**
+   * `style={{ color: c, width: w }}` → the element's managed style as
+   * properties only, set as React DOM's setValueForStyles does: each key
+   * through the CSSOM (`style[key] = value`, setProperty for custom
+   * properties) at mount, then the keys whose value changed; numbers get
+   * `px` unless 0 or unitless; other values are trimmed strings; null,
+   * undefined, booleans and '' remove the property. The keys must be static.
+   */
+  const styleObject = (attr: ts.JsxAttribute): { name: string; value: Expr }[] => {
+    const init = attr.initializer;
+    if (!init || ts.isStringLiteral(init))
+      return fail(
+        attr,
+        'E_JSX',
+        'React takes style as an object (style={{ color: c }}); a style string makes it throw',
+      );
+    const e = ts.isJsxExpression(init) && init.expression ? skipParens(init.expression) : undefined;
+    if (!e || !ts.isObjectLiteralExpression(e))
+      return fail(
+        attr,
+        'E_JSX',
+        'Write the style object inline with static keys (style={{ color: c }}); style values computed elsewhere are unsupported',
+      );
+    const styles: { name: string; value: Expr }[] = [];
+    const seen = new Set<string>();
+    for (const p of e.properties) {
+      let key: string;
+      let value: ts.Expression | { shorthand: ts.ShorthandPropertyAssignment };
+      if (ts.isPropertyAssignment(p)) {
+        if (!ts.isIdentifier(p.name) && !ts.isStringLiteral(p.name))
+          return fail(
+            p.name,
+            'E_JSX',
+            'Style keys must be static names (computed keys are unsupported)',
+          );
+        key = p.name.text;
+        value = p.initializer;
+      } else if (ts.isShorthandPropertyAssignment(p)) {
+        key = p.name.text;
+        value = { shorthand: p };
+      } else if (ts.isSpreadAssignment(p))
+        return fail(
+          p,
+          'E_JSX',
+          'Spreads in style objects are unsupported (the keys must be static)',
+        );
+      else return fail(p, 'E_JSX', 'Style objects hold properties (no methods or accessors)');
+      const custom = key.startsWith('--');
+      if (!custom && !/^[a-z][a-zA-Z]*$/.test(key))
+        fail(
+          p,
+          'E_JSX',
+          `Style key ${key} is unsupported: use camelCase CSS properties (backgroundColor) or custom properties ('--accent')`,
+        );
+      if (!custom && (/^(webkit|moz|ms|o)[A-Z]/.test(key) || DECLARATION_MEMBERS.has(key)))
+        fail(
+          p,
+          'E_JSX',
+          `Style key ${key} is unsupported (vendor prefixes and CSSStyleDeclaration members such as cssText, which React would assign)`,
+        );
+      if (seen.has(key)) fail(p, 'E_JSX', `Duplicate style key ${key}`);
+      seen.add(key);
+      styles.push({ name: custom ? key : kebab(key), value: styleValue(key, value, custom) });
+    }
+    return styles;
+  };
+  /** One style value as React DOM sets it (setValueForStyle); absent removes. */
+  const styleValue = (
+    key: string,
+    e: ts.Expression | { shorthand: ts.ShorthandPropertyAssignment },
+    custom: boolean,
+  ): Expr => {
+    const absent: Expr = { op: 'undefined', type: { maybe: 'string' } };
+    let v: Expr;
+    let t: Type;
+    if ('shorthand' in e) {
+      // `{ color }`: the variable named by the key.
+      const sym = checker.getShorthandAssignmentValueSymbol(e.shorthand);
+      const b = sym && lower.bindings.get(sym);
+      if (!b) return fail(e.shorthand, 'E_UNRESOLVED', `${key} is not a supported binding here`);
+      v = lower.bindingExpr(b, e.shorthand.name, cur.tb);
+      t = typeOf(e.shorthand.name, v);
+    } else {
+      const bare = skipParens(e);
+      if (isNothing(bare)) return absent;
+      if (ts.isConditionalExpression(bare)) {
+        // Each branch converted on its own (`c ? 'green' : undefined`).
+        const c = expr(bare.condition);
+        const optional = (x: Expr): Expr =>
+          lower.irType(x, cur.tb) === 'string' ? { op: 'some', value: x } : x;
+        return {
+          op: 'cond',
+          test: lower.truthy(c, typeOf(bare.condition, c)),
+          then: optional(styleValue(key, bare.whenTrue, custom)),
+          else: optional(styleValue(key, bare.whenFalse, custom)),
+        };
+      }
+      v = expr(bare);
+      t = typeOf(bare, v);
+    }
+    const base = maybeInner(t) ?? t;
+    /** The text of a defined value `x` of the base type. */
+    const text = (x: Expr): Expr => {
+      if (base === 'string')
+        return custom ? x : { op: 'builtin', name: 'string.trim', args: [x], type: 'string' };
+      // A number: `px` unless 0, unitless or a custom property.
+      if (custom || UNITLESS.has(key)) return { op: 'to-string', arg: x };
+      const n = cur.tb.local('$style', 'number');
+      const read: Expr = { op: 'local', local: n };
+      return {
+        op: 'with',
+        local: n,
+        value: x,
+        body: {
+          op: 'cond',
+          test: { op: 'eq', left: read, right: { op: 'lit', value: 0 } },
+          then: { op: 'to-string', arg: read },
+          else: {
+            op: 'concat',
+            left: { op: 'to-string', arg: read },
+            right: { op: 'lit', value: 'px' },
+          },
+        },
+      };
+    };
+    if (base === 'boolean') {
+      // React removes the property for booleans (the value is still evaluated).
+      const local = cur.tb.local('$unset', t);
+      return { op: 'with', local, value: v, body: absent };
+    }
+    if (base !== 'string' && base !== 'number')
+      return fail(
+        'shorthand' in e ? e.shorthand : e,
+        'E_JSX',
+        `Style value of type ${JSON.stringify(t)} is unsupported (strings, numbers, booleans, null and undefined)`,
+      );
+    if (t === base) return text(v);
+    const local = cur.tb.local('$style', base);
+    return {
+      op: 'optional',
+      value: v,
+      local,
+      then: { op: 'some', value: text({ op: 'local', local }) },
+    };
+  };
   /** `ref={r}` on an element: the cell of a useRef object of this component. */
   const elementRef = (attr: ts.JsxAttribute): number => {
     const init = attr.initializer;
@@ -2009,6 +2205,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     const props: { name: string; value: Expr }[] = [];
     const listeners: Listener[] = [];
     let ref: number | undefined;
+    let styles: { name: string; value: Expr }[] | undefined;
     const checkbox =
       name === 'input' &&
       opening.attributes.properties.some(a => {
@@ -2035,11 +2232,11 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       const raw = attr.name.getText();
       const init = attr.initializer;
       if (raw === 'key') continue;
-      if (raw in EVENT_PROPS || (raw === 'onChange' && name === 'input')) {
+      if (raw in EVENT_PROPS || (raw === 'onChange' && (name === 'input' || name === 'textarea'))) {
         if (!init || !ts.isJsxExpression(init) || !init.expression)
           fail(attr, 'E_EVENT', 'Event props need a handler expression');
-        // React's onChange is the input event on text inputs and the change
-        // (dispatched on click) on checkboxes.
+        // React's onChange is the input event on text inputs and text areas
+        // and the change (dispatched on click) on checkboxes.
         const event: HandlerEvent =
           raw === 'onChange' ? (checkbox ? 'change' : 'input') : EVENT_PROPS[raw];
         // React DOM drops these listeners of disabled controls (getListener),
@@ -2061,12 +2258,42 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         continue;
       }
       if (raw === 'onWheel') wheelUnsupported(attr);
+      if (/^on[A-Z].*Capture$/.test(raw)) captureUnsupported(attr, raw);
       if (/^on[A-Z]/.test(raw))
         fail(
           attr,
           'E_EVENT',
-          `${raw} is unsupported (supported: ${Object.keys(EVENT_PROPS).join(', ')} and onChange on inputs)`,
+          `${raw} is unsupported (supported: ${Object.keys(EVENT_PROPS).join(', ')} and onChange on inputs and text areas)`,
         );
+      if (name === 'textarea' && (raw === 'value' || raw === 'defaultValue')) {
+        if (raw === 'defaultValue')
+          fail(
+            attr,
+            'E_JSX',
+            'Uncontrolled text areas (defaultValue) are planned for later; control the text area with value and onChange',
+          );
+        const e = init && ts.isJsxExpression(init) ? init.expression : undefined;
+        let value: Expr;
+        if (init && ts.isStringLiteral(init))
+          value = { op: 'lit', value: decodeHTMLStrict(init.text) };
+        else if (!e) return fail(attr, 'E_JSX', 'value takes a string');
+        else {
+          const v = expr(e);
+          const t = typeOf(e, v);
+          if (t !== 'string' && t !== 'number')
+            fail(
+              attr,
+              'E_JSX',
+              `The value of a text area must be a string or number, not ${JSON.stringify(t)} (null and undefined make it uncontrolled)`,
+            );
+          value = t === 'string' ? v : { op: 'to-string', arg: v };
+        }
+        // React DOM also keeps the text content (defaultValue) equal to the
+        // controlled value, setting it first (initTextarea, updateTextarea):
+        // the value starts from it, with the caret at the start.
+        props.push({ name: 'defaultValue', value }, { name: 'value', value });
+        continue;
+      }
       if (checkbox && raw === 'checked') {
         // A controlled checkbox: the live checked property.
         let value: Expr = { op: 'lit', value: true };
@@ -2087,7 +2314,10 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         props.push({ name: 'checked', value });
         continue;
       }
-      if (raw === 'style') fail(attr, 'E_JSX', 'Style objects are planned for a later milestone');
+      if (raw === 'style') {
+        styles = styleObject(attr);
+        continue;
+      }
       if (raw === 'ref') {
         ref = elementRef(attr);
         continue;
@@ -2122,6 +2352,12 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         opening,
         'E_JSX',
         'Checkboxes must be controlled with checked={…} (uncontrolled checkboxes and defaultChecked are planned for M5)',
+      );
+    if (name === 'textarea' && kids.some(k => !ts.isJsxText(k) || cleanText(k.text)))
+      fail(
+        opening,
+        'E_JSX',
+        'A text area shows its value, not its children; use value and onChange',
       );
     // With rest props spread, the element's own attributes that the bag may
     // also hold join it in source order: React builds one props object, in
@@ -2181,6 +2417,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           ...(listeners.length ? { listeners } : {}),
           ...(ref !== undefined ? { ref } : {}),
           ...(spread ? { spread } : {}),
+          ...(styles?.length ? { styles } : {}),
           ...(kids.length ? { children: children(kids) } : {}),
           source: sourceOf(n),
         },
@@ -2915,6 +3152,14 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
               h.source,
               `onChange of a text input reads e.${member}: React's change event comes from the input event (type "change"; preventDefault() marks it prevented though input events cannot be cancelled)`,
             );
+          if (
+            (h.event === 'focusin' || h.event === 'focusout') &&
+            ['type', 'preventDefault', 'defaultPrevented'].includes(member ?? '')
+          )
+            rejectEvent(
+              h.source,
+              `${prop} uses e.${member}: React dispatches it from ${h.event} as a synthetic event of type "${h.event === 'focusin' ? 'focus' : 'blur'}" whose preventDefault() marks it prevented though focus events cannot be cancelled, which is unsupported`,
+            );
           if (h.event === 'change' && (member === 'preventDefault' || member === 'stopPropagation'))
             rejectEvent(
               h.source,
@@ -3121,6 +3366,90 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   };
 
   /**
+   * Script `focus()` and `blur()` run the focus listeners nested in the call.
+   * React DOM gives updates from focusin and focusout (discrete events) the
+   * sync lane: inside a discrete event handler they render with the
+   * handler's own updates, as the IR models (case focus). Called from
+   * effects, timers, promises or continuous events, React renders them
+   * apart from the caller's (react-dom 19.3: sync work is flushed at the end
+   * of passive effects or in a microtask, other lanes later), which the IR
+   * does not model. With focus listeners in the program, focus() and blur()
+   * are therefore supported in discrete event handlers and in functions
+   * that only such handlers call.
+   */
+  const checkFocusCalls = () => {
+    const kinds = ['focus', 'blur', 'focusin', 'focusout'];
+    let listened =
+      components.some(c => c.handlers.some(h => kinds.includes(h.event))) ||
+      bagListeners.some(l => kinds.includes(l.event));
+    const scan = (n: unknown, f: (o: Obj) => void) => {
+      if (Array.isArray(n)) return n.forEach(x => scan(x, f));
+      if (!n || typeof n !== 'object') return;
+      f(n as Obj);
+      for (const v of Object.values(n as Obj)) scan(v, f);
+    };
+    scan([lower.functions, lower.globals, components], o => {
+      if (
+        o.op === 'builtin' &&
+        /^(window|document)\.listen$/.test(o.name as string) &&
+        kinds.includes(((o.args as Obj[])[0].value as string) ?? '')
+      )
+        listened = true;
+    });
+    if (!listened) return;
+    // Functions every use of which is a direct call from a discrete handler
+    // or from another such function (a greatest fixpoint).
+    const discreteClosures = new Set<unknown>(
+      bagListeners.filter(l => !CONTINUOUS.has(l.event)).map(l => l.value),
+    );
+    /** References to functions: [function, container (-1: a discrete handler, -2: elsewhere)]. */
+    const uses: [number, number][] = [];
+    const collect = (n: unknown, container: number) =>
+      scan(n, o => {
+        if (o.op === 'call') uses.push([o.function as number, container]);
+        if (o.op === 'closure')
+          uses.push([o.function as number, discreteClosures.has(o) ? -1 : -2]);
+      });
+    components.forEach(c => {
+      for (const h of c.handlers) collect(h.body, CONTINUOUS.has(h.event) ? -2 : -1);
+      collect([c.template, c.cells.map(x => x.init), c.effects ?? []], -2);
+      for (const e of c.effects ?? []) uses.push([e.run, -2]);
+    });
+    collect(lower.globals, -2);
+    lower.functions.forEach((f, i) => collect(f.body, i));
+    const ok = lower.functions.map(() => true);
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const [fn, container] of uses)
+        if (ok[fn] && (container === -2 || (container >= 0 && !ok[container]))) {
+          ok[fn] = false;
+          changed = true;
+        }
+    }
+    const reject = (source: Handler['source']): never =>
+      rejectEvent(
+        source,
+        "focus() and blur() outside event handlers (in effects, timers, promises or continuous events) are unsupported in a program with focus listeners: React renders the updates of the focus listeners they run apart from the caller's",
+      );
+    const check = (n: unknown, source: Handler['source']) => {
+      let statement = source;
+      scan(n, o => {
+        if (o.source && typeof o.op === 'string') statement = o.source as Handler['source'];
+        if (o.op === 'builtin' && (o.name === 'element.focus' || o.name === 'element.blur'))
+          reject(statement);
+      });
+    };
+    lower.functions.forEach((f, i) => {
+      if (!ok[i]) check(f.body, f.source);
+    });
+    components.forEach(c => {
+      for (const h of c.handlers) if (CONTINUOUS.has(h.event)) check(h.body, h.source);
+      check([c.template, c.cells.map(x => x.init)], undefined);
+    });
+    check(lower.globals, undefined);
+  };
+
+  /**
    * React creates component functions on every render: an `addEventListener`
    * and the `removeEventListener` meant to undo it agree only within one
    * render. The IR creates one object per invocation of the function around
@@ -3187,6 +3516,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   lower.settleFunctionValues();
   checkListenerIdentity();
   checkEvents();
+  checkFocusCalls();
   checkDependencies();
   checkUnmountOrder();
   checkChildrenEffects();

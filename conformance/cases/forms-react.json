@@ -1,0 +1,19 @@
+{
+  "description": "The forms case for React: a controlled textarea (onChange is the input event; React DOM keeps its text content, defaultValue, equal to the value), a label htmlFor focusing it, a label wrapping a checkbox toggling it, a label wrapping a text input focusing it. Unlike Svelte, controlled values that nothing writes are restored after every event (React DOM's restoreControlledState): the toggled checkbox and the typed text revert at once. Their onChange handlers do nothing (without one React warns about a read-only field). The actions are the forms case's",
+  "fixtures": ["forms-react"],
+  "actions": [
+    { "kind": "type", "id": "notes", "text": "\nthree" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "blur", "id": "notes" },
+    { "kind": "click", "id": "notes-label" },
+    { "kind": "type", "text": "!" },
+    { "kind": "click", "id": "agree-label" },
+    { "kind": "click", "id": "agree-label" },
+    { "kind": "click", "id": "name-label" },
+    { "kind": "type", "text": "Ada" },
+    { "kind": "click", "id": "frozen" },
+    { "kind": "type", "id": "fixed", "text": "!" },
+    { "kind": "click", "id": "other" },
+    { "kind": "click", "id": "frozen" }
+  ]
+}

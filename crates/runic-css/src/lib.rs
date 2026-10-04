@@ -82,6 +82,45 @@ pub fn set_property(css: &str, name: &str, value: &str, important: bool) -> Opti
     Some(text(&block))
 }
 
+/// `style.setProperty(name, value)` exactly as the CSSOM defines it (and
+/// Chromium does): the empty string removes the property; any other value is
+/// parsed as given, so a whitespace-only value is an empty custom property
+/// and invalid for other properties. `None`: invalid, nothing changes.
+pub fn set_property_value(css: &str, name: &str, value: &str) -> Option<String> {
+    let id = PropertyId::parse_enabled_for_all_content(name).ok()?;
+    let mut block = block(css);
+    if value.is_empty() {
+        if let Some(first) = block.first_declaration_to_remove(&id) {
+            block.remove_property(&id, first);
+        }
+    } else {
+        let mut source = SourcePropertyDeclaration::default();
+        parse_one_declaration_into(
+            &mut source,
+            id,
+            value,
+            Origin::Author,
+            &url_data(),
+            None,
+            ParsingMode::DEFAULT,
+            QuirksMode::NoQuirks,
+            CssRuleType::Style,
+        )
+        .ok()?;
+        let mut updates = SourcePropertyDeclarationUpdate::default();
+        if block.prepare_for_update(&source, Importance::Normal, &mut updates) {
+            block.update(source.drain(), Importance::Normal, &mut updates);
+        }
+    }
+    Some(text(&block))
+}
+
+/// Whether the declarations `css` hold `name` (also with an empty value).
+pub fn has_property(css: &str, name: &str) -> bool {
+    PropertyId::parse_enabled_for_all_content(name)
+        .is_ok_and(|id| block(css).first_declaration_to_remove(&id).is_some())
+}
+
 /// `style.removeProperty(name)` on the declarations `css`: the new
 /// serialization (unchanged for unknown properties).
 pub fn remove_property(css: &str, name: &str) -> String {
@@ -192,5 +231,128 @@ impl StyleState {
         };
         self.properties = values;
         result
+    }
+
+    /// An inline style of properties only, as React DOM's
+    /// `setValueForStyles` manages it: each property whose value changed
+    /// (initially: each property) is set through the CSSOM
+    /// ([`set_property_value`]); an absent value removes it. Returns the new
+    /// `style` attribute, or `Err(())` when it does not change.
+    pub fn apply_properties(
+        &mut self,
+        current: Option<&str>,
+        properties: &[(&str, Option<String>)],
+    ) -> Result<Option<String>, ()> {
+        let mut css = current.map(str::to_owned);
+        let mut changed = false;
+        for (i, (name, v)) in properties.iter().enumerate() {
+            if self.properties.get(i) == Some(v) {
+                continue;
+            }
+            let base = css.as_deref().unwrap_or("");
+            match v.as_deref().filter(|v| !v.is_empty()) {
+                Some(v) => {
+                    if let Some(next) = set_property_value(base, name, v) {
+                        css = Some(next);
+                        changed = true;
+                    }
+                }
+                None => {
+                    if css.is_some() && has_property(base, name) {
+                        css = Some(remove_property(base, name));
+                        changed = true;
+                    }
+                }
+            }
+        }
+        self.properties = properties.iter().map(|p| p.1.clone()).collect();
+        if changed { Ok(css) } else { Err(()) }
+    }
+}
+
+#[cfg(test)]
+mod properties_tests {
+    use super::*;
+
+    /// Apply successive property lists from no `style` attribute.
+    fn run(steps: &[&[(&str, Option<&str>)]]) -> Vec<Option<String>> {
+        let mut state = StyleState::default();
+        let mut attr: Option<String> = None;
+        steps
+            .iter()
+            .map(|props| {
+                let props: Vec<(&str, Option<String>)> = props
+                    .iter()
+                    .map(|(n, v)| (*n, v.map(str::to_owned)))
+                    .collect();
+                if let Ok(next) = state.apply_properties(attr.as_deref(), &props) {
+                    attr = next;
+                }
+                attr.clone()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sets_properties_one_by_one_like_react_dom() {
+        // Initially each defined property in order; absent ones create no attribute.
+        assert_eq!(run(&[&[("color", None)]]), vec![None]);
+        assert_eq!(run(&[&[("color", Some("nonsense"))]]), vec![None]);
+        let s = run(&[
+            &[
+                ("margin", Some("4px")),
+                ("padding", Some("6px")),
+                ("color", None),
+            ],
+            &[
+                ("margin", None),
+                ("padding", Some("2px")),
+                ("color", Some("green")),
+            ],
+            // A property set again is appended, as setProperty does.
+            &[
+                ("margin", Some("4px")),
+                ("padding", Some("6px")),
+                ("color", None),
+            ],
+            &[("margin", None), ("padding", None), ("color", None)],
+        ]);
+        assert_eq!(
+            s,
+            vec![
+                Some("margin: 4px; padding: 6px;".into()),
+                Some("padding: 2px; color: green;".into()),
+                Some("padding: 6px; margin: 4px;".into()),
+                Some("".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn values_follow_setproperty() {
+        // Not split at semicolons, no priority in the value.
+        assert_eq!(run(&[&[("color", Some("red; width: 5px"))]]), vec![None]);
+        assert_eq!(run(&[&[("color", Some("red !important"))]]), vec![None]);
+        // Whitespace only: invalid for properties, an empty custom property.
+        assert_eq!(
+            run(&[&[("color", Some("red"))], &[("color", Some("  "))]]),
+            vec![Some("color: red;".into()), Some("color: red;".into())]
+        );
+        assert_eq!(
+            run(&[
+                &[("--a", Some(" #204080 "))],
+                &[("--a", Some("  "))],
+                &[("--a", None)]
+            ]),
+            vec![
+                Some("--a: #204080;".into()),
+                Some("--a: ;".into()),
+                Some("".into())
+            ]
+        );
+        assert_eq!(
+            run(&[&[("margin-top", Some("0"))]]),
+            vec![Some("margin-top: 0px;".into())]
+        );
     }
 }

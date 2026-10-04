@@ -1326,6 +1326,8 @@ pub enum Node {
         tag: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attrs: Vec<Attr>,
+        /// Live properties: `value`, `checked`, and a text area's
+        /// `defaultValue` (its text content).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         props: Vec<Attr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1346,6 +1348,7 @@ pub enum Node {
         /// A style value (`maybe<string>`) and style properties (values
         /// `maybe<string>`, absent removing): the inline style is managed as
         /// docs/IR.md describes, through the CSSOM. Then `attrs` has no `style`.
+        /// Without a style value, properties only (React DOM).
         #[serde(rename = "styleText", default, skip_serializing_if = "Option::is_none")]
         style_text: Option<Expr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]

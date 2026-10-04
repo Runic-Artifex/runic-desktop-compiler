@@ -255,7 +255,10 @@ export type Node =
       spread?: Expr;
       /** Class toggles composed with the (string) class attribute. */
       classes?: Attr[];
-      /** A managed inline style: value and properties (through the CSSOM). */
+      /**
+       * A managed inline style: value and properties (through the CSSOM);
+       * without `styleText`, properties only (React DOM).
+       */
       styleText?: Expr;
       styles?: Attr[];
       children?: Node[];
