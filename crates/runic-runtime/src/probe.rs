@@ -111,7 +111,7 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
             continue;
         };
         if let Some(name) = node.attr("id".into()) {
-            if let Some(r) = doc.get_client_bounding_rect(id) {
+            if let Some(r) = crate::layout::client_rect(doc, id) {
                 geometry.insert(
                     name.to_owned(),
                     json!({"x": r.x, "y": r.y, "width": r.width, "height": r.height}),
@@ -314,10 +314,7 @@ fn perform<A: App>(native: &mut Native<A>, action: &Value) {
 
 /// The centre of a rendered element.
 fn centre<A: App>(native: &Native<A>, id: NodeId) -> (f32, f32) {
-    let r = native
-        .doc
-        .get_client_bounding_rect(id)
-        .expect("rendered pointer target");
+    let r = crate::layout::client_rect(&native.doc, id).expect("rendered pointer target");
     ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32)
 }
 

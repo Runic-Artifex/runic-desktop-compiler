@@ -6,6 +6,47 @@ interface HTMLElement {
   readonly __runicElement: true;
   focus(): void;
   blur(): void;
+  // Layout reads and scrolling (CSSOM View), from the native layout.
+  getBoundingClientRect(): DOMRect;
+  readonly offsetWidth: number;
+  readonly offsetHeight: number;
+  readonly offsetLeft: number;
+  readonly offsetTop: number;
+  readonly clientWidth: number;
+  readonly clientHeight: number;
+  readonly clientLeft: number;
+  readonly clientTop: number;
+  readonly scrollWidth: number;
+  readonly scrollHeight: number;
+  scrollTop: number;
+  scrollLeft: number;
+  scrollTo(options?: ScrollToOptions): void;
+  scrollTo(x: number, y: number): void;
+  scrollBy(options?: ScrollToOptions): void;
+  scrollBy(x: number, y: number): void;
+  scrollIntoView(arg?: boolean | ScrollIntoViewOptions): void;
+}
+interface DOMRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+type ScrollBehavior = 'auto' | 'instant' | 'smooth';
+type ScrollLogicalPosition = 'start' | 'center' | 'end' | 'nearest';
+interface ScrollToOptions {
+  left?: number;
+  top?: number;
+  behavior?: ScrollBehavior;
+}
+interface ScrollIntoViewOptions {
+  block?: ScrollLogicalPosition;
+  inline?: ScrollLogicalPosition;
+  behavior?: ScrollBehavior;
 }
 interface HTMLInputElement extends HTMLElement {}
 interface HTMLButtonElement extends HTMLElement {}
@@ -96,7 +137,17 @@ interface HostEventTarget {
     listener: (event: HostEventMap[K]) => void,
   ): void;
 }
-declare const window: HostEventTarget;
+interface HostWindow extends HostEventTarget {
+  readonly innerWidth: number;
+  readonly innerHeight: number;
+  readonly scrollX: number;
+  readonly scrollY: number;
+  scrollTo(options?: ScrollToOptions): void;
+  scrollTo(x: number, y: number): void;
+  scrollBy(options?: ScrollToOptions): void;
+  scrollBy(x: number, y: number): void;
+}
+declare const window: HostWindow;
 declare const document: HostDocument;
 
 // The document element (theming): attributes, class list, inline style.

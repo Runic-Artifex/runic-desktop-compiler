@@ -20,6 +20,8 @@ Layers: **UA** is Blitz's user-agent stylesheet (`blitz-dom/assets/default.css`)
 | `<select>` | paint, events | nothing is drawn for a select: no closed control, no popup | runtime: a UA sheet draws the closed control from its options (grid-stacked, the shown one marked by an attribute that snapshots omit, a rotated-border arrow), and the runtime draws the popup into the page and implements its keyboard and pointer model. Headless Chromium also draws the popup into the page; windowed Chromium uses a separate widget that can extend past the window, which the runtime cannot | M5, `select-svelte`, `select-popup` |
 | Overflowing textarea | layout | a textarea whose text is taller than its box shows scrolled in Blitz and unscrolled in Chromium | fixtures: a textarea tall enough for its text | M5, `patterns-svelte` |
 | Text controls in an overflowing flex row | layout | text inputs and text areas in a flex row too narrow for them are laid out about 53px narrower than in Chromium (their automatic minimum size); a text area with text also adds about 0.4 pixel error at 420px | fixtures: the text area on its own row, sized by the fixture's CSS | M5, `forms-vue` |
+| Fractional lengths | layout | Chromium converts each CSS length to a layout unit (1/64 px, truncated: `7.7px` is 7.6875px) before layout; Blitz lays out the exact floats, so boxes and positions differ by up to 1/64 px per length, and printed geometry differs | fixtures: lengths that are multiples of 1/64 px | M5, `measure-svelte` |
+| Hit testing a scrolled container | events | a scroll container scrolled by *d* also takes pointer hits in the *d* pixels above (and left of) its box: `Node::hit_inner` tests the container's own box in scrolled coordinates | fixtures: no click targets above a scrolled container (`measure-svelte` puts the list first). A real toolbar above a scrolled list is affected | M5, `measure-svelte` |
 | Line breaks after hyphens | Parley | Chromium breaks a full line after the hyphen in `1999-12-31`; Blitz does not | fixtures: shorter sample text | M5, `patterns-svelte` |
 
 ## Behaviour the runtime implements
@@ -34,6 +36,8 @@ These work today and are covered by conformance. The cost is code in `runic-runt
 | `dblclick` | events | Blitz drops `dblclick` when the click was cancelled (which the runtime always does) | counts clicks itself | M5, `events` |
 | Text control guards | events | Blitz dispatches `input` after the editor changed, not cancelable; no read-only or disabled guards, no `maxlength` | checks before mutation (`controls.rs`) | M3 |
 | Wheel deltas | events | Blitz's wheel deltas have the opposite sign to the DOM's (a convention, not a defect) | negated when the DOM event is built (line deltas as 20px) | M5, `events` |
+| Bounding rect of a scroll container | layout | `get_client_bounding_rect` subtracts the node's own scroll offset, which only moves its content | `layout::client_rect` adds it back (layout reads, probes, the select popup) | M5, `measure` |
+| Programmatic scrolling | layout | Blitz keeps fractional scroll offsets, where Chromium rounds them to device pixels (`scrollBy(0, 33.5)` from 45 gives 79); `scroll_into_view` scrolls only the viewport, where Chromium scrolls every scroll container; no `scroll` event for programmatic scrolls | `layout.rs`: rounding, every scroller in `scrollIntoView` with Blink's closest-edge rule | M5, `measure` |
 | Inline style CSSOM | API | no `CSSStyleDeclaration`: inline styles exist only as the `style` attribute | crate `runic-css` parses and serialises with Stylo | M5, `style-directives` |
 
 ## Fork assessment
@@ -49,6 +53,8 @@ D11 already allows local patches in a documented patch set. The question is whet
 | Line breaks after hyphens | Parley already has `CHROMIUM_LINE_BREAK_OVERRIDE` (Parley #640) at the version Blitz uses; Blitz does not set it | a few lines in `layout/construct.rs`; inputs and textareas also need a small Parley `PlainEditor` setter |
 | `dblclick` | it is dispatched from click's default action, so a cancelled click drops it | dispatch it after the click in `handle_pointerup`, about 10 lines |
 | Text input line height, inline baselines | text inputs are layout leaves using `font-size * 1.2` for `line-height: normal`, with no baseline | about 15–30 lines each in `dispatch_child_layout` |
+| Hit testing a scrolled container | `hit_inner` adds the scroll offset before testing the node's own box | test the own box in unscrolled coordinates, a few lines |
+| Fractional lengths | Taffy works in `f32` | quantise lengths to 1/64 px in the Stylo-to-Taffy conversion (`stylo_taffy`); intermediate results (percentages, flex distribution) stay floats, so how exact this gets needs measuring |
 | Overflowing textarea | likely cause (not reproduced): after any click or key down Blitz scrolls the focused text control to its caret, even when the event targeted something else | limit that to events on the control, about 10 lines |
 | Focus ring | `outline: auto` is not painted and `outline-offset` is ignored; open PR #799 moves the UA rule to `:focus-visible` | 15–25 lines for the offset, 30–50 for an `auto` ring |
 | Checkbox box model | no issue or PR | about 30–60 lines, gated on `appearance` |
@@ -78,7 +84,7 @@ Neither is urgent.
 - **Commits.** One commit per gap, each with the conformance case that shows it, each offered upstream. A patch is dropped when the pin moves past an upstream fix.
 - **Wiring.** Cargo `[patch]` on the Blitz git URL.
 - **Order.** Each patch is roughly 2–60 lines:
-  1. 1/64 px rounding;
+  1. hit testing of scrolled containers, and 1/64 px rounding;
   2. placeholders (#552);
   3. the line-break override;
   4. `dblclick`;

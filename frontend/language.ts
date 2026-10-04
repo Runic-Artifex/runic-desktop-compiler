@@ -15,7 +15,14 @@ import {
   type Type,
 } from './ir.ts';
 import { sameType, TypeMapper, type Fail } from './types.ts';
-import { builtinType, EVENT_MEMBERS, irType, maybeInner } from './irtype.ts';
+import {
+  builtinType,
+  ELEMENT_METRICS,
+  EVENT_MEMBERS,
+  irType,
+  maybeInner,
+  WINDOW_METRICS,
+} from './irtype.ts';
 import { DOM } from './program.ts';
 import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
@@ -1218,6 +1225,23 @@ export class Lowerer {
         },
       ];
     }
+    if (
+      ts.isPropertyAccessExpression(target) &&
+      (target.name.text === 'scrollTop' || target.name.text === 'scrollLeft') &&
+      this.types.typeOrUndefined(target.expression) === 'element'
+    )
+      return [
+        {
+          op: 'expr',
+          value: {
+            op: 'builtin',
+            name: `element.set-${target.name.text}`,
+            args: [this.expr(target.expression, b), value],
+            type: 'void',
+          },
+          ...this.src(target),
+        },
+      ];
     // T is widened into a nullable target (Maybe<T>).
     const want = this.targetType(target, b);
     const have = this.irType(value, b);
@@ -1925,6 +1949,11 @@ export class Lowerer {
         type: 'boolean',
       };
     }
+    if (this.hostName(e.expression) === 'window') {
+      if (!WINDOW_METRICS.includes(name))
+        return this.fail(e, 'E_MEMBER', `window.${name} is unsupported`);
+      return { op: 'builtin', name: `window.${name}`, args: [], type: NUMBER };
+    }
     const global = this.globalName(e.expression);
     if (global === 'Math' || global === 'Number')
       return { op: 'builtin', name: `${global}.${name}`, args: [], type: NUMBER };
@@ -1963,6 +1992,15 @@ export class Lowerer {
     const object = this.expr(e.expression, b);
     const t = this.irType(object, b);
     const kind = this.receiverKind(t);
+    if (kind === 'element') {
+      if (!ELEMENT_METRICS.includes(name))
+        return this.fail(
+          e,
+          'E_MEMBER',
+          `Element ${name} is unsupported (${ELEMENT_METRICS.join(', ')} are supported)`,
+        );
+      return { op: 'builtin', name: `element.${name}`, args: [object], type: NUMBER };
+    }
     if (kind === 'event') {
       const type = EVENT_MEMBERS[name];
       if (type === undefined || type === 'void' || name === 'value' || name === 'checked')
@@ -2307,6 +2345,13 @@ export class Lowerer {
         );
       }
       const host = this.hostName(callee.expression);
+      if (host === 'window' && (method === 'scrollTo' || method === 'scrollBy'))
+        return {
+          op: 'builtin',
+          name: `window.${method}`,
+          args: this.scrollCoordinates(e, b),
+          type: 'void',
+        };
       if (
         (host === 'window' || host === 'document') &&
         (method === 'addEventListener' || method === 'removeEventListener')
@@ -2364,6 +2409,7 @@ export class Lowerer {
         return this.stringRegexp(method, receiver, e, b);
       if (kind === 'record')
         return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
+      if (kind === 'element') return this.elementMethod(method, receiver, e, b);
       if (kind)
         return this.builtinCall(
           `${kind}.${method}`,
@@ -2374,6 +2420,105 @@ export class Lowerer {
         );
     }
     return this.fail(e, 'E_CALL', 'Unsupported call');
+  }
+
+  /** Element methods: focus and blur, layout reads and scrolling. */
+  private elementMethod(method: string, receiver: Expr, e: ts.CallExpression, b: FnBuilder): Expr {
+    const call = (name: string, args: Expr[], type: Type): Expr => ({
+      op: 'builtin',
+      name: `element.${name}`,
+      args: [receiver, ...args],
+      type,
+    });
+    switch (method) {
+      case 'focus':
+      case 'blur':
+        if (e.arguments.length)
+          this.fail(e.arguments[0], 'E_CALL', `${method}() options are unsupported`);
+        return call(method, [], 'void');
+      case 'getBoundingClientRect': {
+        const type = this.tsCallType(e);
+        if (!type)
+          return this.fail(e, 'E_TYPE_UNSUPPORTED', 'getBoundingClientRect needs the DOMRect type');
+        return call(method, [], type);
+      }
+      case 'scrollTo':
+      case 'scrollBy':
+        return call(method, this.scrollCoordinates(e, b), 'void');
+      case 'scrollIntoView': {
+        // Defaults: block start, inline nearest; false aligns the block end.
+        let block = 'start';
+        let inline = 'nearest';
+        const [arg] = e.arguments;
+        if (arg?.kind === ts.SyntaxKind.FalseKeyword) block = 'end';
+        else if (arg && arg.kind !== ts.SyntaxKind.TrueKeyword) {
+          const options = this.literalOptions(arg, ['block', 'inline', 'behavior']);
+          block = options.get('block') ?? block;
+          inline = options.get('inline') ?? inline;
+          this.instantScroll(arg, options);
+        }
+        return call(method, [lit(block), lit(inline)], 'void');
+      }
+    }
+    return this.fail(e, 'E_CALL', `Element ${method}() is unsupported`);
+  }
+
+  /** The (left, top) coordinates of scrollTo/scrollBy: two numbers or options. */
+  private scrollCoordinates(e: ts.CallExpression, b: FnBuilder): Expr[] {
+    const absent: Expr = { op: 'undefined', type: { maybe: NUMBER } };
+    const some = (x: ts.Expression): Expr => {
+      const v = this.expr(x, b);
+      if (this.irType(v, b) !== NUMBER) this.fail(x, 'E_CALL', 'Scroll coordinates are numbers');
+      return { op: 'some', value: v };
+    };
+    const [first, second] = e.arguments;
+    if (second) return [some(first), some(second)];
+    if (!first) return [absent, absent];
+    const o = skipParens(first);
+    if (!ts.isObjectLiteralExpression(o))
+      return this.fail(first, 'E_CALL', 'Scroll options are an object literal');
+    const values = new Map<string, Expr>();
+    const strings = new Map<string, string>();
+    for (const p of o.properties) {
+      const key = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
+      if (!ts.isPropertyAssignment(p) || !key || !['left', 'top', 'behavior'].includes(key))
+        return this.fail(p, 'E_CALL', 'Scroll options are left, top and behavior');
+      if (key === 'behavior') {
+        if (!ts.isStringLiteralLike(p.initializer))
+          return this.fail(p.initializer, 'E_CALL', 'Scroll behavior is a literal');
+        strings.set(key, p.initializer.text);
+      } else values.set(key, some(p.initializer));
+    }
+    this.instantScroll(first, strings);
+    return [values.get('left') ?? absent, values.get('top') ?? absent];
+  }
+
+  /** Literal string options of an object literal (others rejected). */
+  private literalOptions(arg: ts.Expression, keys: string[]): Map<string, string> {
+    const o = skipParens(arg);
+    if (!ts.isObjectLiteralExpression(o)) {
+      this.fail(arg, 'E_CALL', 'Options are an object literal or a boolean literal');
+    }
+    const out = new Map<string, string>();
+    for (const p of (o as ts.ObjectLiteralExpression).properties) {
+      const key = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
+      if (
+        !ts.isPropertyAssignment(p) ||
+        !key ||
+        !keys.includes(key) ||
+        !ts.isStringLiteralLike(p.initializer)
+      )
+        this.fail(p, 'E_CALL', `Options are literal ${keys.join(', ')}`);
+      out.set(key!, ((p as ts.PropertyAssignment).initializer as ts.StringLiteral).text);
+    }
+    return out;
+  }
+
+  /** Smooth scrolling animates over frames: only instant scrolls are supported. */
+  private instantScroll(at: ts.Node, options: Map<string, string>) {
+    const behavior = options.get('behavior');
+    if (behavior !== undefined && behavior !== 'auto' && behavior !== 'instant')
+      this.fail(at, 'E_CALL', 'Smooth scrolling is unsupported (behavior auto or instant)');
   }
 
   /** Call a function with untyped parameters, specialised to the argument types. */
@@ -3164,3 +3309,5 @@ export function remapLocals<T>(node: T, map: (i: number) => number): T {
   };
   return visit(node) as T;
 }
+
+const lit = (value: string): Expr => ({ op: 'lit', value });

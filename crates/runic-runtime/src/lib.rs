@@ -9,6 +9,7 @@ mod controls;
 mod dom;
 mod events;
 mod jobs;
+mod layout;
 #[cfg(feature = "probe")]
 mod probe;
 pub mod promises;

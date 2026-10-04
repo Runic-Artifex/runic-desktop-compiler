@@ -1996,6 +1996,14 @@ impl<'p> Machine<'p> {
             // Focus has no interpreter observable (the snapshot has no focus).
             // focus() and blur() move focus at once; the focus listeners run
             // nested, before the call returns.
+            // No layout here: such programs are compared against the browser
+            // only (the differential reports them incomplete).
+            _ if crate::builtins::needs_layout(name) => {
+                return Err(Throw::new(
+                    "RunicLayoutError",
+                    format!("{name} needs the native layout, which the interpreter does not have"),
+                ));
+            }
             ("element", m @ ("focus" | "blur")) => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")

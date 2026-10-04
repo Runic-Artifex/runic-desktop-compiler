@@ -162,9 +162,19 @@ pub(crate) struct Listeners {
     /// to be created from a value set by script: it replaces that seed once
     /// the editor exists.
     pending_default: HashMap<NodeId, String>,
+    /// Scrollers whose offset changed since the last rendering step, in
+    /// order (each once): their `scroll` events are pending.
+    pub(crate) pending_scroll: Vec<NodeId>,
 }
 
 impl Listeners {
+    /// A scroller moved: its `scroll` event is pending (once).
+    pub(crate) fn scrolled(&mut self, node: Option<NodeId>) {
+        if let Some(n) = node.filter(|n| !self.pending_scroll.contains(n)) {
+            self.pending_scroll.push(n);
+        }
+    }
+
     /// Apply pending caret moves for editors created since (call after layout).
     /// A text area's children seeded its editor with a value set by script;
     /// they are replaced by its text content (none unless one was set).
@@ -256,6 +266,54 @@ impl Host {
                 doc: &mut *self.doc?,
                 listeners: &mut *self.listeners?,
             })
+        }
+    }
+
+    /// `getBoundingClientRect()` of `node`: x, y, width, height, top, right,
+    /// bottom, left.
+    pub fn rect(&self, node: u64) -> [f64; 8] {
+        self.dom().map_or([0.0; 8], |dom| {
+            crate::layout::rect(dom.doc, NodeId::from_u64(node))
+        })
+    }
+
+    /// An element metric (`offsetWidth`, `scrollTop`, …).
+    pub fn metric(&self, node: u64, name: &str) -> f64 {
+        self.dom().map_or(0.0, |dom| {
+            crate::layout::metric(dom.doc, NodeId::from_u64(node), name)
+        })
+    }
+
+    /// A window metric (`innerWidth`, `scrollY`, …).
+    pub fn window_metric(&self, name: &str) -> f64 {
+        self.dom()
+            .map_or(0.0, |dom| crate::layout::window_metric(dom.doc, name))
+    }
+
+    /// `scrollTop = value` (`vertical`) or `scrollLeft = value`.
+    pub fn set_scroll(&self, node: u64, vertical: bool, value: f64) {
+        if let Some(dom) = self.dom() {
+            let moved = crate::layout::set_scroll(dom.doc, NodeId::from_u64(node), vertical, value);
+            dom.listeners.scrolled(moved);
+        }
+    }
+
+    /// `scrollTo` (`by`: `scrollBy`) on `node`, or on the window.
+    pub fn scroll(&self, node: Option<u64>, by: bool, left: Option<f64>, top: Option<f64>) {
+        if let Some(dom) = self.dom() {
+            let moved = crate::layout::scroll(dom.doc, node.map(NodeId::from_u64), by, left, top);
+            dom.listeners.scrolled(moved);
+        }
+    }
+
+    /// `scrollIntoView({ block, inline })`.
+    pub fn scroll_into_view(&self, node: u64, block: &str, inline: &str) {
+        if let Some(dom) = self.dom() {
+            for moved in
+                crate::layout::scroll_into_view(dom.doc, NodeId::from_u64(node), block, inline)
+            {
+                dom.listeners.scrolled(Some(moved));
+            }
         }
     }
 

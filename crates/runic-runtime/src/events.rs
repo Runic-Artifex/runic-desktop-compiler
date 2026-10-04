@@ -348,9 +348,7 @@ pub(crate) fn is_focusable_element(doc: &BaseDocument, id: NodeId) -> bool {
 /// negative values, disabled controls and elements without a box.
 fn tab_order(doc: &BaseDocument, id: NodeId) -> Option<i32> {
     if !is_focusable_element(doc, id)
-        || !doc
-            .get_client_bounding_rect(id)
-            .is_some_and(|r| r.width > 0.0 && r.height > 0.0)
+        || !crate::layout::client_rect(doc, id).is_some_and(|r| r.width > 0.0 && r.height > 0.0)
     {
         return None;
     }

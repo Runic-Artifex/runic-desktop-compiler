@@ -26,6 +26,34 @@ const { values, positionals } = parseArgs({
   },
 });
 
+/** Built-ins that read or change the native layout (runic_ir::builtins::needs_layout). */
+const LAYOUT_ELEMENT = new Set([
+  'getBoundingClientRect',
+  ...['offset', 'client'].flatMap(p => ['Width', 'Height', 'Left', 'Top'].map(s => p + s)),
+  'scrollWidth',
+  'scrollHeight',
+  'scrollTop',
+  'scrollLeft',
+  'set-scrollTop',
+  'set-scrollLeft',
+  'scrollTo',
+  'scrollBy',
+  'scrollIntoView',
+]);
+const LAYOUT_WINDOW = new Set(['innerWidth', 'innerHeight', 'scrollX', 'scrollY', 'scrollTo', 'scrollBy']);
+function layoutBuiltin(v) {
+  if (!v || typeof v !== 'object') return undefined;
+  if (v.op === 'builtin') {
+    const [ns, m] = v.name.split('.');
+    if ((ns === 'element' && LAYOUT_ELEMENT.has(m)) || (ns === 'window' && LAYOUT_WINDOW.has(m))) return v.name;
+  }
+  for (const x of Array.isArray(v) ? v : Object.values(v)) {
+    const found = layoutBuiltin(x);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 // Small deterministic PRNG (mulberry32).
 function rng(seed) {
   let a = seed >>> 0;
@@ -111,9 +139,18 @@ const fixtures = positionals.length
 const random = rng(Number(values.seed));
 let failures = 0;
 let steps = 0;
+const incomplete = [];
 for (const fixture of fixtures) {
   const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
   const { ir } = await lower(await collect(dir));
+  // The interpreter has no layout: such programs are compared against the
+  // browser only (conformance/run.mjs), and reported here as incomplete.
+  const layout = layoutBuiltin(ir);
+  if (layout) {
+    incomplete.push(fixture);
+    console.log(`${fixture.padEnd(20)} incomplete (reads layout: ${layout})`);
+    continue;
+  }
   const kinds = eventKinds(migrate(ir));
   const out = path.join(repo, '.cache/conformance/diff-bin', path.basename(fixture) + (values['no-opt'] ? '-no-opt' : ''));
   await buildApp(dir, { out, probe: true, noOpt: values['no-opt'] });
@@ -174,5 +211,5 @@ for (const fixture of fixtures) {
   failures += fixtureFailures;
   console.log(`${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : 'ok'} (${values.traces} traces x ${values.length} actions)`);
 }
-console.log(JSON.stringify({ fixtures: fixtures.length, steps, failures, seed: Number(values.seed), optimize: !values['no-opt'] }));
+console.log(JSON.stringify({ fixtures: fixtures.length, steps, failures, incomplete, seed: Number(values.seed), optimize: !values['no-opt'] }));
 process.exitCode = failures ? 1 : 0;

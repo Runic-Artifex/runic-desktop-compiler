@@ -263,7 +263,7 @@ pub(crate) fn draw_popup(
     select: NodeId,
     highlighted: Option<usize>,
 ) -> Option<NodeId> {
-    let rect = dom.doc.get_client_bounding_rect(select)?;
+    let rect = crate::layout::client_rect(dom.doc, select)?;
     let body = dom.doc.query_selector("body").ok().flatten()?;
     let font = dom.doc.resolved_style_value(select, "font");
     let color = dom.doc.resolved_style_value(select, "color");

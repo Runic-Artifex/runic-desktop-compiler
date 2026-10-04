@@ -159,3 +159,39 @@ test('forms: text areas take line breaks; labels activate their checkbox', async
     ['true', 'false', 'true'],
   );
 });
+
+test('layout reads and scrolling lower to element built-ins; unsupported shapes are rejected', async () => {
+  const { ir } = await lower(await graph('measure-svelte'));
+  const names = new Set();
+  const walk = v => {
+    if (!v || typeof v !== 'object') return;
+    if (v.op === 'builtin') names.add(v.name);
+    for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x);
+  };
+  walk(ir);
+  for (const n of [
+    'element.getBoundingClientRect',
+    'element.offsetWidth',
+    'element.set-scrollTop',
+    'element.scrollBy',
+    'element.scrollTo',
+    'element.scrollIntoView',
+    'window.innerWidth',
+  ])
+    assert.ok(names.has(n), n);
+  // The interpreter has no layout: it throws rather than guessing.
+  assert.throws(() => interpret(ir, []), /RunicLayoutError|needs the native layout/);
+  for (const [from, to] of [
+    ['list.scrollTo({ top: 0 })', "list.scrollTo({ top: 0, behavior: 'smooth' })"],
+    [
+      "mid.scrollIntoView({ block: 'nearest' })",
+      "mid.scrollIntoView({ block: wide ? 'start' : 'end' })",
+    ],
+    ['list.scrollBy(0, 33.5)', 'list.scrollBy({ top: 1, extra: 2 } as ScrollToOptions)'],
+  ])
+    await rejects(
+      await edits('measure-svelte', 'App.svelte', [[from, to]]),
+      'E_CALL',
+      'App.svelte',
+    );
+});

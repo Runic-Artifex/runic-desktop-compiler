@@ -598,6 +598,20 @@ impl<'a> Scope<'a> {
                         );
                     }
                 }
+                if name == "element.scrollIntoView" {
+                    let aligned = args.len() == 3
+                        && args[1..].iter().all(|a| {
+                            matches!(a, Lit { value: Value::String(p) }
+                            if matches!(p.as_str(), "start" | "center" | "end" | "nearest"))
+                        });
+                    if !aligned {
+                        return err(
+                            "E_BUILTIN",
+                            "scrollIntoView takes literal alignments (start, center, end, nearest)",
+                            src,
+                        );
+                    }
+                }
                 if matches!(
                     name.as_str(),
                     "window.listen" | "window.unlisten" | "document.listen" | "document.unlisten"

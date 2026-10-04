@@ -26,6 +26,45 @@ const NUMBER_CONSTANTS: &[&str] = &[
     "NEGATIVE_INFINITY",
     "NaN",
 ];
+/// The fields of `getBoundingClientRect()`'s record, in order.
+pub const DOM_RECT: [&str; 8] = [
+    "x", "y", "width", "height", "top", "right", "bottom", "left",
+];
+/// Element metrics read from the native layout (CSSOM View).
+pub const ELEMENT_METRICS: &[&str] = &[
+    "offsetWidth",
+    "offsetHeight",
+    "offsetLeft",
+    "offsetTop",
+    "clientWidth",
+    "clientHeight",
+    "clientLeft",
+    "clientTop",
+    "scrollWidth",
+    "scrollHeight",
+    "scrollTop",
+    "scrollLeft",
+];
+/// Window metrics: the viewport size and its scroll position.
+pub const WINDOW_METRICS: &[&str] = &["innerWidth", "innerHeight", "scrollX", "scrollY"];
+
+/// Whether built-in `name` reads or changes the native layout (the
+/// interpreter has none: programs using them are compared against the
+/// browser only).
+pub fn needs_layout(name: &str) -> bool {
+    match name.split_once('.') {
+        Some(("element", m)) => {
+            m == "getBoundingClientRect"
+                || ELEMENT_METRICS.contains(&m)
+                || matches!(
+                    m,
+                    "set-scrollTop" | "set-scrollLeft" | "scrollTo" | "scrollBy" | "scrollIntoView"
+                )
+        }
+        Some(("window", m)) => WINDOW_METRICS.contains(&m) || matches!(m, "scrollTo" | "scrollBy"),
+        _ => false,
+    }
+}
 
 fn arity(args: &[Type], min: usize, max: usize) -> std::result::Result<(), std::string::String> {
     if args.len() < min || args.len() > max {
@@ -419,6 +458,63 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("element", "focus" | "blur") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| Void)
+        }
+        // Layout reads and scrolling (CSSOM View): they read the native
+        // layout, which the interpreter does not have.
+        ("element", "getBoundingClientRect") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver")?;
+            match declared {
+                Record(r)
+                    if records.get(*r).is_some_and(|r| {
+                        r.fields.len() == DOM_RECT.len()
+                            && r.fields
+                                .iter()
+                                .zip(DOM_RECT)
+                                .all(|(f, name)| f.name == name && f.ty == Number)
+                    }) =>
+                {
+                    Ok(declared.clone())
+                }
+                other => Err(format!(
+                    "getBoundingClientRect returns a record of {}, found {}",
+                    DOM_RECT.join(", "),
+                    other.name()
+                )),
+            }
+        }
+        ("element", m) if ELEMENT_METRICS.contains(&m) => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| n)
+        }
+        ("element", "set-scrollTop" | "set-scrollLeft") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &n, "scroll offset").map(|_| Void)
+        }
+        // Coordinates left and top; an absent one keeps (scrollTo) or does not
+        // move (scrollBy) that axis.
+        ("element", "scrollTo" | "scrollBy") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            for a in &args[1..] {
+                expect(a, &Maybe(Box::new(n.clone())), "coordinate")?;
+            }
+            Ok(Void)
+        }
+        // Block and inline alignment (literals, checked by the validator).
+        ("element", "scrollIntoView") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            all(&args[1..], &s).map(|_| Void)
+        }
+        ("window", m) if WINDOW_METRICS.contains(&m) => arity(args, 0, 0).map(|_| n),
+        ("window", "scrollTo" | "scrollBy") => {
+            arity(args, 2, 2)?;
+            for a in args {
+                expect(a, &Maybe(Box::new(n.clone())), "coordinate")?;
+            }
+            Ok(Void)
         }
         ("Math", m) if MATH_UNARY.contains(&m) => {
             arity(args, 1, 1)?;

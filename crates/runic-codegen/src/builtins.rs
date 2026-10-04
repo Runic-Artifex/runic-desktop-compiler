@@ -362,6 +362,46 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             t[0],
             m == "focus"
         ),
+        // Layout reads and scrolling resolve the native layout first.
+        ("element", "getBoundingClientRect") => {
+            let Type::Record(r) = ty else {
+                panic!("validated DOMRect record")
+            };
+            let fields: String = (0..8).map(|i| format!("f{i}: v[{i}], ")).collect();
+            format!(
+                "{{ let v = cx.dom.rect({}.0); JsRef::new(R{r} {{ {fields}}}) }}",
+                t[0]
+            )
+        }
+        ("element", m) if runic_ir::builtins::ELEMENT_METRICS.contains(&m) => {
+            format!("cx.dom.metric({}.0, {m:?})", t[0])
+        }
+        ("element", m @ ("set-scrollTop" | "set-scrollLeft")) => format!(
+            "cx.dom.set_scroll({}.0, {}, {})",
+            t[0],
+            m == "set-scrollTop",
+            t[1]
+        ),
+        ("element", m @ ("scrollTo" | "scrollBy")) => format!(
+            "cx.dom.scroll(Some({}.0), {}, {}, {})",
+            t[0],
+            m == "scrollBy",
+            opt_number(&t[1]),
+            opt_number(&t[2])
+        ),
+        ("element", "scrollIntoView") => format!(
+            "cx.dom.scroll_into_view({}.0, &{}.to_rust(), &{}.to_rust())",
+            t[0], t[1], t[2]
+        ),
+        ("window", m) if runic_ir::builtins::WINDOW_METRICS.contains(&m) => {
+            format!("cx.dom.window_metric({m:?})")
+        }
+        ("window", m @ ("scrollTo" | "scrollBy")) => format!(
+            "cx.dom.scroll(None, {}, {}, {})",
+            m == "scrollBy",
+            opt_number(&t[0]),
+            opt_number(&t[1])
+        ),
         // The document element and media queries (runic_css, applied to
         // <html> by the runtime).
         ("root", m) => {
@@ -868,4 +908,9 @@ pub fn deep_clone(t: &Type, v: &str, p: &Program) -> String {
         ),
         _ => format!("{v}.clone()"),
     }
+}
+
+/// A `maybe<number>` value as an `Option<f64>`.
+fn opt_number(v: &str) -> String {
+    format!("(match {v} {{ Maybe::Some(n) => Some(n), _ => None }})")
 }

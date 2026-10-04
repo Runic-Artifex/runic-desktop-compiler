@@ -119,6 +119,24 @@ export function irType(e: Expr, env: TypeEnv): Type {
  * builtins.rs, for calls whose TypeScript result type is `any`).
  */
 /** Event object members (`event.*` built-ins) and their types. */
+/** Element metrics read from the native layout (runic_ir::builtins::ELEMENT_METRICS). */
+export const ELEMENT_METRICS = [
+  'offsetWidth',
+  'offsetHeight',
+  'offsetLeft',
+  'offsetTop',
+  'clientWidth',
+  'clientHeight',
+  'clientLeft',
+  'clientTop',
+  'scrollWidth',
+  'scrollHeight',
+  'scrollTop',
+  'scrollLeft',
+];
+/** Window metrics (runic_ir::builtins::WINDOW_METRICS). */
+export const WINDOW_METRICS = ['innerWidth', 'innerHeight', 'scrollX', 'scrollY'];
+
 export const EVENT_MEMBERS: Record<string, Type> = {
   type: S,
   key: S,
