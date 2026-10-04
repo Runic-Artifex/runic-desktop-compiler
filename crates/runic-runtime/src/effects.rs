@@ -37,8 +37,11 @@ fn filter_deviations(doc: &BaseDocument) -> Vec<String> {
             continue;
         };
         let effects = style.get_effects();
-        let filter = !effects.filter.0.is_empty();
-        let backdrop = !effects.backdrop_filter.0.is_empty();
+        // An identity filter (`blur(0)`, `brightness(1)`, …: tw-animate-css's
+        // keyframes when nothing sets their blur) draws nothing, so where Blitz
+        // paints the rest of the element does not show.
+        let filter = !effects.filter.0.iter().all(is_identity);
+        let backdrop = !effects.backdrop_filter.0.iter().all(is_identity);
         if !filter && !backdrop {
             continue;
         }
@@ -146,4 +149,17 @@ fn backdrop_root(doc: &BaseDocument, node: &Node) -> Option<String> {
         parent = ancestor.parent.and_then(|p| doc.get_node(p));
     }
     None
+}
+
+/// Whether a filter function leaves its input unchanged.
+fn is_identity(f: &style::values::computed::effects::Filter) -> bool {
+    use style::values::generics::effects::GenericFilter as F;
+    match f {
+        F::Blur(l) => l.0.px() == 0.0,
+        F::Brightness(n) | F::Contrast(n) | F::Saturate(n) => n.0 == 1.0,
+        F::Opacity(n) => n.0 == 1.0,
+        F::Grayscale(n) | F::Invert(n) | F::Sepia(n) => n.0 == 0.0,
+        F::HueRotate(a) => a.radians() == 0.0,
+        F::DropShadow(_) | F::Url(_) => false,
+    }
 }
