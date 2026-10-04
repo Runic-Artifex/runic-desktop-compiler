@@ -421,28 +421,93 @@ function checkWithStylo(code, file) {
   }
 }
 
+/** The values each custom property is declared with in a stylesheet, and its `@property` initial value. */
+function customPropertyValues(css) {
+  const values = new Map();
+  const add = (name, value) => values.set(name, [...(values.get(name) ?? []), value]);
+  css.walkDecls(d => {
+    if (d.prop.startsWith('--')) add(d.prop, d.value);
+  });
+  css.walkAtRules('property', rule =>
+    rule.walkDecls('initial-value', d => add(rule.params.trim(), d.value)),
+  );
+  return values;
+}
+
+/**
+ * The keywords a declaration value can hold: its own, and through each
+ * `var()` its fallback and every value the stylesheet gives the custom
+ * property (a superset: any element may match any of them).
+ */
+function possibleKeywords(value, values, seen = new Set()) {
+  const words = new Set();
+  const walk = nodes => {
+    for (const n of nodes) {
+      if (n.type === 'word') words.add(n.value.toLowerCase());
+      else if (n.type === 'function' && n.value === 'var') {
+        const comma = n.nodes.findIndex(x => x.type === 'div' && x.value === ',');
+        if (comma >= 0) walk(n.nodes.slice(comma + 1));
+        const name = n.nodes[0]?.value;
+        if (name && !seen.has(name)) {
+          seen.add(name);
+          for (const v of values.get(name) ?? [])
+            for (const w of possibleKeywords(v, values, seen)) words.add(w);
+        }
+      } else if (n.nodes) walk(n.nodes);
+    }
+  };
+  walk(valueParser(value).nodes);
+  return words;
+}
+
+const SCROLL_DRIVEN =
+  /^(animation-timeline|animation-range(-start|-end)?|scroll-timeline(-name|-axis)?|view-timeline(-name|-axis|-inset)?|timeline-scope)$/;
+
+/**
+ * Why a time-based declaration is outside what the runtime reproduces
+ * (docs/design/M6-LIBRARIES.md#animations), or undefined. Animations and
+ * transitions run on Stylo's engine in Blitz; these parts of it differ
+ * from Chromium or are missing.
+ */
+function unsupportedTimeBased(decl, values) {
+  if (SCROLL_DRIVEN.test(decl.prop))
+    return 'scroll-driven animations (animation and scroll timelines) are not supported';
+  if (decl.prop === 'animation' || decl.prop === 'animation-fill-mode') {
+    const words = possibleKeywords(decl.value, values);
+    if (words.has('forwards') || words.has('both'))
+      return "animation-fill-mode forwards and both are not supported: Blitz's style engine (Stylo) discards a finished animation when its element is next restyled, so the filled values would not stay as in Chromium";
+  }
+  if (
+    (decl.prop === 'transition' || decl.prop === 'transition-behavior') &&
+    possibleKeywords(decl.value, values).has('allow-discrete')
+  )
+    return 'transition-behavior: allow-discrete (discrete transitions, display transitions with @starting-style) is not supported';
+  return undefined;
+}
+
 /**
  * The CSS contract (docs/CONTRACT.md) for one stylesheet: supported at-rules,
- * no time-based properties, no SVG-only properties, and font sources Blitz
- * loads. `file` labels the diagnostics.
+ * the time-based properties the runtime reproduces, no SVG-only properties,
+ * and font sources Blitz loads. `file` labels the diagnostics.
  */
 function checkRules(css, file) {
   css.walkAtRules(rule => {
-    if (!['font-face', 'media', 'layer', 'property', 'supports'].includes(rule.name))
+    if (!['font-face', 'media', 'layer', 'property', 'supports', 'keyframes'].includes(rule.name))
       throw new Diagnostic('E_CSS', `Unsupported CSS @${rule.name}`, {
         file: file,
         line: rule.source.start.line,
         column: rule.source.start.column,
       });
   });
+  const values = customPropertyValues(css);
   // The DOM is built without wrapper nodes: selectors and ordinary
-  // properties are rendered by Blitz/Stylo and checked by conformance. Only
-  // time-based behaviour (and @keyframes, above) is outside the contract (M10).
+  // properties are rendered by Blitz/Stylo and checked by conformance.
   css.walkDecls(decl => {
-    if (/^(-webkit-)?(animation|transition)(-|$)/.test(decl.prop))
+    const unsupported = unsupportedTimeBased(decl, values);
+    if (unsupported)
       throw new Diagnostic(
         'E_CSS_PROPERTY',
-        `Unsupported CSS declaration ${decl.prop}; animations are planned for M10`,
+        `Unsupported CSS declaration ${decl.prop}: ${unsupported}`,
         {
           file: file,
           line: decl.source.start.line,
