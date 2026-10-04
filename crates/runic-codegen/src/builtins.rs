@@ -171,6 +171,15 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             cx,
             format!("js::to_exponential({}, {})", t[0], opt_num(t.get(1))),
         ),
+        ("regexp", m) => regexp(cx, m, &t, ty),
+        ("string", m) if m.starts_with("regexp-") => string_regexp(cx, m, &t, &types, ty, args),
+        ("match", m) => match m {
+            "index" => format!("js::regexp::match_index(&{})", t[0]),
+            "input" => format!("js::regexp::match_input(&{})", t[0]),
+            "has-groups" => format!("js::regexp::match_has_groups(&{})", t[0]),
+            "group" => q(cx, format!("js::regexp::match_group(&{}, &{})", t[0], t[1])),
+            other => unreachable!("validated match member {other}"),
+        },
         ("string", m) => string(cx, m, &t),
         ("array", m) => array(cx, m, &t, &types),
         ("Array", "from") => {
@@ -501,6 +510,121 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         _ => unreachable!("validated builtin {name}"),
     };
     format!("{{ {code}{body} }}")
+}
+
+/// Whether a declared match result has `string` elements (every capture
+/// declared present): captures convert with `js::regexp::present`.
+fn present_strings(ty: &Type) -> bool {
+    match ty {
+        Type::Maybe(a) | Type::Array(a) => match &**a {
+            Type::Array(e) => **e == Type::String,
+            Type::String => true,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn regexp(cx: &FnCtx, m: &str, t: &[String], ty: &Type) -> String {
+    let r = &t[0];
+    match m {
+        "new" => cx.q(&format!("js::RegExp::new(&{}, &{})", t[0], t[1])),
+        "source" => format!("{r}.source()"),
+        "flags" => format!("{r}.flags_string()"),
+        "toString" => format!("js::ToJsString::to_js_string(&{r})"),
+        "global" => format!("{r}.flags().global"),
+        "ignoreCase" => format!("{r}.flags().ignore_case"),
+        "multiline" => format!("{r}.flags().multiline"),
+        "dotAll" => format!("{r}.flags().dot_all"),
+        "unicode" => format!("{r}.flags().unicode"),
+        "unicodeSets" => format!("{r}.flags().unicode_sets"),
+        "sticky" => format!("{r}.flags().sticky"),
+        "hasIndices" => format!("{r}.flags().has_indices"),
+        "lastIndex" => format!("{r}.last_index()"),
+        "set-lastIndex" => format!("{{ {r}.set_last_index({}); }}", t[1]),
+        "test" => format!("{r}.test(&{})", t[1]),
+        "exec" if present_strings(ty) => {
+            cx.q(&format!("{r}.exec_with(&{}, js::regexp::present)", t[1]))
+        }
+        "exec" => format!("{r}.exec(&{})", t[1]),
+        other => unreachable!("validated RegExp member {other}"),
+    }
+}
+
+/// String methods with a RegExp argument (`js::regexp`).
+fn string_regexp(
+    cx: &FnCtx,
+    m: &str,
+    t: &[String],
+    types: &[Type],
+    ty: &Type,
+    args: &[Expr],
+) -> String {
+    let (s, re) = (&t[0], &t[1]);
+    let rx = "js::regexp";
+    let conv = if present_strings(ty) {
+        "js::regexp::present"
+    } else {
+        "Ok"
+    };
+    match m {
+        "regexp-replace" | "regexp-replaceAll" => {
+            let all = m == "regexp-replaceAll";
+            match (&types[2], args.get(3)) {
+                (Type::String, _) if all => {
+                    cx.q(&format!("{rx}::replace_all(&{s}, &{re}, &{})", t[2]))
+                }
+                (Type::String, _) => format!("{rx}::replace(&{s}, &{re}, &{})", t[2]),
+                (
+                    Type::Fn(sig),
+                    Some(Expr::Lit {
+                        value: runic_ir::Value::Number(n),
+                    }),
+                ) => {
+                    let n = *n as usize;
+                    let call_args: String = sig
+                        .params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            let arg = if i == n + 1 {
+                                "pos".to_string()
+                            } else if i == n + 2 {
+                                "input.clone()".to_string()
+                            } else if *p == Type::String {
+                                format!("js::regexp::present(caps[{i}].clone())?")
+                            } else {
+                                format!("caps[{i}].clone()")
+                            };
+                            format!(", {arg}")
+                        })
+                        .collect();
+                    let which = if all {
+                        "replace_all_with"
+                    } else {
+                        "replace_with"
+                    };
+                    format!(
+                        "{{ let f = {}; {} }}",
+                        t[2],
+                        cx.q(&format!(
+                            "{rx}::{which}(&{s}, &{re}, |caps: &[Maybe<JsString>], pos: f64, input: &JsString| -> JsResult<JsString> {{ let _ = (&caps, &pos, &input); f(cx{call_args}) }})"
+                        ))
+                    )
+                }
+                _ => unreachable!("validated replacement"),
+            }
+        }
+        "regexp-match" if conv == "Ok" => format!("{rx}::match_(&{s}, &{re})"),
+        "regexp-match" => cx.q(&format!("{rx}::match_with(&{s}, &{re}, {conv})")),
+        "regexp-matchAll" => cx.q(&format!("{rx}::match_all_with(&{s}, &{re}, {conv})")),
+        "regexp-search" => format!("{rx}::search(&{s}, &{re})"),
+        "regexp-split" => cx.q(&format!(
+            "{rx}::split_with(&{s}, &{re}, {}, {conv})",
+            opt_num(t.get(2))
+        )),
+        other => unreachable!("validated string method {other}"),
+    }
 }
 
 fn string(cx: &FnCtx, m: &str, t: &[String]) -> String {

@@ -29,6 +29,85 @@ fn err<T>(code: &str, message: impl Into<String>, source: Option<&Source>) -> Re
     Err(Diagnostic::new(code, message, source))
 }
 
+/// The literal arguments of the RegExp built-ins: flags are a literal
+/// without `v` (unsupported), a literal pattern compiles, a capture count
+/// and a group name are literals.
+fn check_regexp_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Result<()> {
+    let lit_string = |e: Option<&Expr>| match e {
+        Some(Expr::Lit {
+            value: Value::String(s),
+        }) => Some(s.clone()),
+        _ => None,
+    };
+    match name {
+        "regexp.new" => {
+            let Some(flags) = lit_string(args.get(1)) else {
+                return err("E_REGEXP", "RegExp flags must be a literal", src);
+            };
+            if flags.contains('v') {
+                return err(
+                    "E_REGEXP",
+                    "The v flag (unicodeSets) is unsupported; use u",
+                    src,
+                );
+            }
+            let flags = runic_js::JsString::from(flags.as_str());
+            let pattern = lit_string(args.first());
+            let checked = match &pattern {
+                Some(p) => {
+                    runic_js::RegExp::new(&runic_js::JsString::from(p.as_str()), &flags).map(|_| ())
+                }
+                None => match runic_js::regexp::Flags::parse(flags.units()) {
+                    Some(_) => Ok(()),
+                    None => runic_js::RegExp::new(&runic_js::JsString::new(), &flags).map(|_| ()),
+                },
+            };
+            if let Err(t) = checked {
+                return err("E_REGEXP", t.to_string(), src);
+            }
+        }
+        "string.regexp-replace" | "string.regexp-replaceAll" if args.len() == 4 => {
+            let ok = matches!(&args[3], Expr::Lit { value: Value::Number(n) } if *n >= 0.0 && n.fract() == 0.0);
+            if !ok {
+                return err("E_REGEXP", "The capture count must be a literal", src);
+            }
+        }
+        "match.group" if lit_string(args.get(1)).is_none() => {
+            return err("E_REGEXP", "A group name must be a literal", src);
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// A replacement function for a pattern with `n` captures takes the match,
+/// the captures (`string`, or `string | undefined`), the position and the
+/// string, or a prefix of them.
+fn check_replacer(f: &FnType, n: usize, src: Option<&Source>) -> Result<()> {
+    let maybe_string = Type::maybe(Type::String);
+    for (i, p) in f.params.iter().enumerate() {
+        let ok = match i {
+            0 => *p == Type::String,
+            i if i <= n => *p == Type::String || *p == maybe_string,
+            i if i == n + 1 => *p == Type::Number,
+            i if i == n + 2 => *p == Type::String,
+            _ => false,
+        };
+        if !ok {
+            return err(
+                "E_BUILTIN",
+                format!(
+                    "Replacement function parameter {} has type {} (a pattern with {n} captures passes the match, the captures, the position and the string)",
+                    i + 1,
+                    p.name()
+                ),
+                src,
+            );
+        }
+    }
+    Ok(())
+}
+
 /// The typing context of an expression or statement.
 struct Scope<'a> {
     program: &'a Program,
@@ -537,10 +616,27 @@ impl<'a> Scope<'a> {
                         );
                     }
                 }
+                if name.starts_with("regexp.")
+                    || name.starts_with("string.regexp-")
+                    || name.starts_with("match.")
+                {
+                    check_regexp_literals(name, args, src)?;
+                }
                 let types = args
                     .iter()
                     .map(|a| self.infer(a, d, src))
                     .collect::<Result<Vec<_>>>()?;
+                if let (
+                    Some(Type::Fn(f)),
+                    Some(Lit {
+                        value: Value::Number(n),
+                    }),
+                ) = (types.get(2), args.get(3))
+                {
+                    if name.starts_with("string.regexp-replace") {
+                        check_replacer(f, *n as usize, src)?;
+                    }
+                }
                 match builtins::result_type(name, &types, ty, &self.program.records) {
                     Ok(t) if t == *ty => t,
                     Ok(t) => {
@@ -1562,6 +1658,88 @@ struct Mutations {
     collections: HashSet<Root>,
     /// Types of values mutated in place whose root is unknown.
     types: Vec<Type>,
+    /// RegExps whose `lastIndex` may change, by root, and whether one of
+    /// unknown root may.
+    regexps: HashSet<Root>,
+    regexp_unknown: bool,
+}
+
+/// The RegExp whose `lastIndex` a built-in may change (global and sticky
+/// expressions in exec, test, replace and match; setting it).
+fn regexp_written<'e>(name: &str, args: &'e [Expr]) -> Option<&'e Expr> {
+    match name {
+        "regexp.exec" | "regexp.test" | "regexp.set-lastIndex" => args.first(),
+        "string.regexp-replace" | "string.regexp-replaceAll" | "string.regexp-match" => args.get(1),
+        _ => None,
+    }
+}
+
+/// A RegExp literal without the g and y flags, whose `lastIndex` built-ins
+/// never change.
+fn stateless_regexp(init: &Expr) -> bool {
+    matches!(
+        init,
+        Expr::Builtin { name, args, .. } if name == "regexp.new"
+            && matches!(args.get(1), Some(Expr::Lit { value: Value::String(f) }) if !f.contains('g') && !f.contains('y'))
+    )
+}
+
+/// Whether a statement of `body` writes cell `cell`.
+fn writes_cell(body: &[Stmt], cell: usize) -> bool {
+    body.iter().any(|s| match s {
+        Stmt::Set { cell: c, .. } => *c == cell,
+        Stmt::Assign {
+            target: Place::Cell { cell: c },
+            ..
+        } => *c == cell,
+        Stmt::If {
+            then, otherwise, ..
+        } => writes_cell(then, cell) || writes_cell(otherwise, cell),
+        Stmt::While { body, update, .. } => writes_cell(body, cell) || writes_cell(update, cell),
+        Stmt::ForOf { body, .. } => writes_cell(body, cell),
+        Stmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            writes_cell(body, cell)
+                || catch.as_ref().is_some_and(|c| writes_cell(&c.body, cell))
+                || finally.as_ref().is_some_and(|f| writes_cell(f, cell))
+        }
+        _ => false,
+    })
+}
+
+/// Whether `root` always holds one RegExp literal without g and y: a
+/// module constant, or a cell initialised so and never written.
+fn stateless_regexp_root(p: &Program, root: Root) -> bool {
+    match root {
+        Root::Global(g) => stateless_regexp(&p.globals[g].init),
+        Root::Cell(k, c) => {
+            let comp = &p.components[k];
+            comp.cells[c].prop.is_none()
+                && stateless_regexp(&comp.cells[c].init)
+                && !p
+                    .functions
+                    .iter()
+                    .filter(|f| f.component == Some(k))
+                    .any(|f| writes_cell(&f.body, c))
+                && !comp.handlers.iter().any(|h| writes_cell(&h.body, c))
+        }
+    }
+}
+
+/// Records a RegExp built-in that may change `lastIndex` of `receiver`
+/// (with its origin).
+fn note_regexp_write(p: &Program, out: &mut Mutations, origin: Origin) {
+    match origin {
+        Origin::Root(r) if stateless_regexp_root(p, r) => {}
+        Origin::Root(r) => {
+            out.regexps.insert(r);
+        }
+        Origin::Fresh => {}
+        Origin::Unknown => out.regexp_unknown = true,
+    }
 }
 
 const MUTATORS: &[&str] = &[
@@ -1606,6 +1784,7 @@ const FRESH: &[&str] = &[
     "structuredClone",
     "JSON.parse",
     "string.split",
+    "regexp.new",
 ];
 /// Built-ins returning an element of their receiver.
 const ELEMENT: &[&str] = &[
@@ -1688,6 +1867,10 @@ impl Origins<'_> {
 
     fn expr(&mut self, e: &Expr) {
         if let Expr::Builtin { name, args, .. } = e {
+            if let Some(re) = regexp_written(name, args) {
+                let o = self.origin(re);
+                note_regexp_write(self.p, self.out, o);
+            }
             if MUTATORS.contains(&name.as_str()) {
                 if let Some(receiver) = args.first() {
                     self.mutated(
@@ -1900,6 +2083,18 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
             }
         }
     }
+    // RegExps whose lastIndex changes in template expressions themselves.
+    for (k, c) in p.components.iter().enumerate() {
+        let mut exprs = vec![];
+        template_exprs(&c.template, &mut exprs);
+        let mut found = vec![];
+        for e in exprs {
+            template_regexp_writes(k, e, &mut found);
+        }
+        for o in found {
+            note_regexp_write(p, &mut m, o);
+        }
+    }
     let changes = |root: Root| -> Option<String> {
         let (ty, name, tracking) = match root {
             Root::Cell(k, cell) => {
@@ -1912,6 +2107,13 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 Tracking::Identity,
             ),
         };
+        if (m.regexp_unknown || m.regexps.contains(&root))
+            && holds(p, ty, &Type::Regexp, &mut HashSet::new())
+        {
+            return Some(format!(
+                "{name} holds a RegExp whose lastIndex changes (exec, test, replace or match with a global or sticky RegExp, or setting lastIndex) and is read while rendering; no framework tracks lastIndex, so the view would depend on how often it renders"
+            ));
+        }
         let mutated_type = |collections: bool| {
             m.types.iter().any(|t| {
                 (!collections || matches!(t, Type::Map(..) | Type::Set(_)))
@@ -1963,6 +2165,87 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The expressions of a template (without the functions they call).
+fn template_exprs<'a>(nodes: &'a [Node], out: &mut Vec<&'a Expr>) {
+    for n in nodes {
+        match n {
+            Node::Element {
+                attrs,
+                props,
+                children,
+                spread,
+                classes,
+                style_text,
+                styles,
+                ..
+            } => {
+                out.extend(
+                    attrs
+                        .iter()
+                        .chain(props)
+                        .chain(classes)
+                        .chain(styles)
+                        .map(|a| &a.value),
+                );
+                out.extend(spread);
+                out.extend(style_text);
+                template_exprs(children, out);
+            }
+            Node::Text { parts, .. } => out.extend(parts),
+            Node::If {
+                test,
+                then,
+                otherwise,
+                ..
+            } => {
+                out.push(test);
+                template_exprs(then, out);
+                template_exprs(otherwise, out);
+            }
+            Node::Component { props, slots, .. } => {
+                out.extend(props.iter().map(|a| &a.value));
+                for s in slots {
+                    template_exprs(&s.body, out);
+                }
+            }
+            Node::Slot { args, fallback, .. } => {
+                out.extend(args);
+                template_exprs(fallback, out);
+            }
+            Node::Each {
+                items,
+                key,
+                body,
+                otherwise,
+                ..
+            } => {
+                out.push(items);
+                out.extend(key.as_ref());
+                template_exprs(body, out);
+                template_exprs(otherwise, out);
+            }
+        }
+    }
+}
+
+/// The origins of RegExps whose lastIndex a template expression of
+/// component `k` may change.
+fn template_regexp_writes(k: usize, e: &Expr, out: &mut Vec<Origin>) {
+    if let Expr::Builtin { name, args, .. } = e {
+        if let Some(re) = regexp_written(name, args) {
+            out.push(match re {
+                Expr::Cell { cell, .. } => Origin::Root(Root::Cell(k, *cell)),
+                Expr::Global { global } => Origin::Root(Root::Global(*global)),
+                Expr::Builtin { name, .. } if name == "regexp.new" => Origin::Fresh,
+                _ => Origin::Unknown,
+            });
+        }
+    }
+    for c in e.children() {
+        template_regexp_writes(k, c, out);
+    }
 }
 
 /// The roots read while rendering `nodes` of component `k` (through the

@@ -16,6 +16,7 @@ pub fn rust_type(t: &Type) -> String {
         Type::Element => "js::Element".into(),
         Type::Event => "js::Event".into(),
         Type::Attrs => "js::Attrs<Bag>".into(),
+        Type::Regexp => "js::RegExp".into(),
         // Reactions are microtask jobs of the generated app.
         Type::Promise(i) => format!("js::JsPromise<{}, Lst>", rust_type(i)),
         Type::Fn(f) => format!(
@@ -46,6 +47,7 @@ pub fn default_value(t: &Type, p: &Program) -> String {
         Type::Element => "js::Element(0)".into(),
         Type::Event => "js::Event::new(Default::default())".into(),
         Type::Attrs => "js::Attrs::default()".into(),
+        Type::Regexp => "js::RegExp::default()".into(),
         Type::Promise(_) => "js::JsPromise::pending()".into(),
         Type::Fn(f) => format!(
             "{{ let f: {} = Rc::new(|_: &mut Cx{}| -> JsResult<{}> {{ unreachable!(\"uninitialised function\") }}); f }}",

@@ -282,6 +282,9 @@ pub enum Type {
     Event,
     /// An attribute bag (rest props, spread attributes), compared by entries.
     Attrs,
+    /// A RegExp object (`js::RegExp`), compared by identity; its
+    /// `lastIndex` is mutable.
+    Regexp,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -307,6 +310,7 @@ impl Type {
             Type::Promise(t) => format!("Promise<{}>", t.name()),
             Type::Event => "event".into(),
             Type::Attrs => "attrs".into(),
+            Type::Regexp => "regexp".into(),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params

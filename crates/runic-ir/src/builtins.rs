@@ -65,7 +65,12 @@ fn primitive(t: &Type) -> bool {
 
 fn stringable(t: &Type) -> bool {
     match t {
-        Type::Number | Type::String | Type::Boolean | Type::Array(_) | Type::Record(_) => true,
+        Type::Number
+        | Type::String
+        | Type::Boolean
+        | Type::Array(_)
+        | Type::Record(_)
+        | Type::Regexp => true,
         Type::Maybe(inner) => stringable(inner),
         _ => false,
     }
@@ -484,6 +489,26 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 _ => Err(format!("unknown number method {m}")),
             }
         }
+        // Regular expressions: RegExp objects, the String methods taking
+        // one, and the extra properties of match arrays.
+        ("regexp", m) => regexp_type(m, args, declared),
+        ("string", m) if m.starts_with("regexp-") => string_regexp_type(m, args, declared),
+        ("match", m) => {
+            let a = args.first().ok_or("missing match array")?;
+            if !match_array(a) {
+                return Err(format!("{} is not a match array", a.name()));
+            }
+            match m {
+                "index" => arity(args, 1, 1).map(|_| Type::maybe(n)),
+                "input" => arity(args, 1, 1).map(|_| Type::maybe(s)),
+                "has-groups" => arity(args, 1, 1).map(|_| b),
+                "group" => {
+                    arity(args, 2, 2)?;
+                    expect(&args[1], &s, "group name").map(|_| Type::maybe(s))
+                }
+                other => Err(format!("unknown match array member {other}")),
+            }
+        }
         ("string", m) => string_method(m, args),
         ("array", m) => array_method(m, args, declared),
         ("Array", "from") => {
@@ -613,6 +638,100 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             _ => Err("Object.values takes one record".into()),
         },
         _ => Err(format!("unknown builtin {name}")),
+    }
+}
+
+/// A match array: captures are `maybe<string>`, or `string` where the
+/// frontend proved that every capture participates in every match (a
+/// capture that does not throws `TypeError`).
+pub fn match_array(t: &Type) -> bool {
+    matches!(t, Type::Array(e) if **e == Type::String || **e == Type::maybe(Type::String))
+}
+
+/// `exec`/`match` results: null or a match array (the declared form).
+fn match_result(declared: &Type) -> R {
+    match declared {
+        Type::Maybe(a) if match_array(a) => Ok(declared.clone()),
+        _ => Err("a match result is maybe<array<maybe<string>>> or maybe<array<string>>".into()),
+    }
+}
+
+fn regexp_type(m: &str, args: &[Type], declared: &Type) -> R {
+    use Type::*;
+    if m == "new" {
+        arity(args, 2, 2)?;
+        return all(args, &String).map(|_| Regexp);
+    }
+    let recv = args.first().ok_or("missing receiver")?;
+    expect(recv, &Regexp, "receiver")?;
+    match m {
+        "source" | "flags" | "toString" => arity(args, 1, 1).map(|_| String),
+        "global" | "ignoreCase" | "multiline" | "dotAll" | "unicode" | "unicodeSets" | "sticky"
+        | "hasIndices" => arity(args, 1, 1).map(|_| Boolean),
+        "lastIndex" => arity(args, 1, 1).map(|_| Number),
+        "set-lastIndex" => {
+            arity(args, 2, 2)?;
+            expect(&args[1], &Number, "lastIndex").map(|_| Void)
+        }
+        "test" => {
+            arity(args, 2, 2)?;
+            expect(&args[1], &String, "argument").map(|_| Boolean)
+        }
+        "exec" => {
+            arity(args, 2, 2)?;
+            expect(&args[1], &String, "argument")?;
+            match_result(declared)
+        }
+        other => Err(format!("unknown RegExp member {other}")),
+    }
+}
+
+/// `string.regexp-*`: String methods with a RegExp argument.
+fn string_regexp_type(m: &str, args: &[Type], declared: &Type) -> R {
+    use Type::*;
+    let [recv, re, rest @ ..] = args else {
+        return Err(format!("{m} takes a string and a RegExp"));
+    };
+    expect(recv, &String, "receiver")?;
+    expect(re, &Regexp, "pattern")?;
+    match m {
+        // A replacement function takes the match, the captures, the position
+        // and the string, in that order; the capture count (a literal) lets
+        // the validator check their types.
+        "regexp-replace" | "regexp-replaceAll" => match rest {
+            [String] => Ok(String),
+            [Fn(f), Number] => {
+                if *f.result != String {
+                    return Err("a replacement function returns a string".into());
+                }
+                if f.params.is_empty() || f.params[0] != String {
+                    return Err("a replacement function takes the matched string first".into());
+                }
+                Ok(String)
+            }
+            _ => Err("the replacement is a string, or a function with the capture count".into()),
+        },
+        "regexp-match" => arity(rest, 0, 0).and(match_result(declared)),
+        "regexp-matchAll" => {
+            arity(rest, 0, 0)?;
+            match declared {
+                Array(a) if match_array(a) => Ok(declared.clone()),
+                _ => Err("matchAll yields match arrays".into()),
+            }
+        }
+        "regexp-search" => arity(rest, 0, 0).map(|_| Number),
+        "regexp-split" => {
+            arity(rest, 0, 1)?;
+            if let Some(l) = rest.first() {
+                expect(l, &Number, "limit")?;
+            }
+            if match_array(declared) {
+                Ok(declared.clone())
+            } else {
+                Err("split with a RegExp returns string[] or (string | undefined)[]".into())
+            }
+        }
+        other => Err(format!("unknown string method {other}")),
     }
 }
 

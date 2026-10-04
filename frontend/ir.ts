@@ -27,6 +27,8 @@ export type Type =
   | 'event'
   /** An attribute bag (rest props, spread attributes). */
   | 'attrs'
+  /** A RegExp object (identity; mutable lastIndex). */
+  | 'regexp'
   | 'void';
 
 export type Literal = boolean | number | string;
