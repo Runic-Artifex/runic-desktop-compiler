@@ -167,7 +167,8 @@ export class PropDomains implements DomainHook {
     if (passed.spread) {
       const bag = checker.getTypeAtLocation(passed.spread);
       const prop = checker.getPropertyOfType(bag, key);
-      return prop ? [checker.getTypeOfSymbolAtLocation(prop, passed.spread)] : undefined;
+      // The bag may also not hold it (a spread is read with attrs.has).
+      return prop ? [checker.getTypeOfSymbolAtLocation(prop, passed.spread), undefined] : undefined;
     }
     return undefined;
   }

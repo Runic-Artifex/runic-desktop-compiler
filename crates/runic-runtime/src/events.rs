@@ -1424,6 +1424,13 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 _ => {}
             }
         }
+        // Input modality for `:focus-visible`: a key down sets it before its
+        // listeners run, also when they cancel it (Blink's keyboard event
+        // manager; bits-ui cancels Space and Enter on its buttons).
+        if let DomEventData::KeyDown(_) = &event.data {
+            self.listeners.had_keyboard_event = true;
+            self.listeners.sync_focus_visible(doc);
+        }
         // Keydown listeners (target first, bubbling) run before default
         // actions; a cancelled keydown has none (no text insertion,
         // activation or focus navigation).
@@ -1479,13 +1486,9 @@ impl<A: App> EventHandler for Handler<'_, A> {
             return;
         }
         let focused = focused_element(doc);
-        // Input modality for `:focus-visible` (Blink: any key down sets it, a
-        // mouse press clears it).
+        // Input modality for `:focus-visible` (Blink: any key down sets it,
+        // above; a mouse press clears it).
         match &event.data {
-            DomEventData::KeyDown(_) => {
-                self.listeners.had_keyboard_event = true;
-                self.listeners.sync_focus_visible(doc);
-            }
             DomEventData::MouseDown(_) => {
                 self.listeners.had_keyboard_event = false;
                 self.listeners.sync_focus_visible(doc);

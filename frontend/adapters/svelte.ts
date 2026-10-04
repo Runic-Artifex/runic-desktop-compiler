@@ -2393,7 +2393,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       for (const sn of n.fragment.nodes.filter((c: SNode) => c.type === 'SnippetBlock')) {
         const name: string = sn.expression.name;
         const decl = declOf(name, sn);
-        if (sn.parameters.length !== (decl.params?.length ?? 0))
+        // A snippet may take fewer parameters than it is called with.
+        if (sn.parameters.length > (decl.params?.length ?? 0))
           fail(
             'E_TEMPLATE',
             `Snippet ${name} takes ${decl.params?.length ?? 0} parameters`,
@@ -2427,12 +2428,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           lower.bindings.set(checker.getSymbolAtLocation(id)!, { kind: 'local', owner: tb, local });
           return local;
         });
+        // The arguments it does not name.
+        for (const t of (decl.params ?? []).slice(params.length))
+          params.push(tb.local('$unused', t));
         defs.push({ name, ...(params.length ? { params } : {}), body: children(sn.body) });
       }
       const content = n.fragment.nodes.filter((c: SNode) => c.type !== 'SnippetBlock');
       if (content.some((c: SNode) => c.type !== 'Text' || c.data.trim())) {
-        declOf('children', n);
-        defs.push({ name: 'children', body: children({ nodes: content }) });
+        // Children content ignores the arguments the child renders it with
+        // (bits-ui's Switch.Root renders children with its snippet props).
+        const params = (declOf('children', n).params ?? []).map(t => tb.local('$unused', t));
+        defs.push({
+          name: 'children',
+          ...(params.length ? { params } : {}),
+          body: children({ nodes: content }),
+        });
       }
       // Snippets this component received through its rest props, forwarded
       // where it spreads them: provided to the child when they were to this

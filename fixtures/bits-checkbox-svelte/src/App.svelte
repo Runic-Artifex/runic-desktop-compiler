@@ -17,7 +17,7 @@
 <div class="style-vega flex flex-col gap-6 bg-background p-4 font-sans text-foreground">
   <div id="demo"><CheckboxDemo /></div>
   <div id="label-demo"><LabelDemo /></div>
-  <div class="flex items-center gap-2">
+  <div id="row" class="flex items-center gap-2">
     <Checkbox
       id="bound"
       name="bound"

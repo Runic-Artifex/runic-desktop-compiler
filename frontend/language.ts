@@ -4071,8 +4071,14 @@ export class Lowerer {
           continue;
         }
         value = this.expr(p.initializer, b);
-      } else if (ts.isShorthandPropertyAssignment(p)) value = this.expr(p.name, b);
-      else return this.fail(p, 'E_ATTRS', 'Unsupported attribute bag member');
+      } else if (ts.isShorthandPropertyAssignment(p)) {
+        // `{ type }`: the variable the shorthand names.
+        const sym = this.checker.getShorthandAssignmentValueSymbol(p);
+        const binding = sym && this.bindingOf(sym);
+        value = binding
+          ? this.bindingExpr(binding, p.name, b, this.types.of(p.name))
+          : this.fail(p, 'E_UNRESOLVED', `${p.name.text} is not a supported binding`);
+      } else return this.fail(p, 'E_ATTRS', 'Unsupported attribute bag member');
       items.push({ name, value: this.bagEntry(name, value, p, b) });
     }
     return { op: 'attrs', items };

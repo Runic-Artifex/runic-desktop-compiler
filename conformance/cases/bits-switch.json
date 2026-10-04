@@ -1,0 +1,116 @@
+{
+  "description": "bits-ui's Switch compiled from its published source through shadcn-svelte's unmodified switch and label wrappers and the switch demo, and a small switch bound to the app (bind:checked, disabled, onCheckedChange, a name and so a hidden input). Toggled by clicks on the switch and on its label, by Space and Enter on the focused switch (bits-ui's keydown handler toggles and cancels the key), from outside through the bound value; disabled, it ignores clicks and keys. The thumb's translate transition and the track's colour transition are sampled while they run (pixel regions) and once settled",
+  "fixtures": [
+    "bits-switch-svelte"
+  ],
+  "pixelRegions": [
+    "demo",
+    "row"
+  ],
+  "knownGaps": {
+    "geometry": "Blitz centres the content of buttons with an author display: flex (its UA sheet gives buttons justify-content: center); Chromium starts it, so the thumb (no justify-content in the switch track) sits 5-7px further right natively (docs/BLITZ-GAPS.md, buttons with an author display; a fork patch)",
+    "pixels": "The same thumb offset (docs/BLITZ-GAPS.md, buttons with an author display)"
+  },
+  "actions": [
+    {
+      "kind": "click",
+      "id": "airplane-mode"
+    },
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "click",
+      "id": "bound-label"
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "press",
+      "key": "Space"
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "press",
+      "key": "Shift+Tab"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "press",
+      "key": "Space"
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "click",
+      "id": "toggle"
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "click",
+      "id": "disable"
+    },
+    {
+      "kind": "click",
+      "id": "bound"
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "click",
+      "id": "bound-label"
+    },
+    {
+      "kind": "press",
+      "key": "Space"
+    },
+    {
+      "kind": "click",
+      "id": "disable"
+    },
+    {
+      "kind": "click",
+      "id": "bound"
+    },
+    {
+      "kind": "wait",
+      "ms": 300
+    },
+    {
+      "kind": "hover",
+      "id": "airplane-mode"
+    }
+  ]
+}
