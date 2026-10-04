@@ -16,13 +16,13 @@ rust-version = "1.98"
 license = "MIT"
 
 [workspace.dependencies]
-blitz-dom = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "0dd2c290da56231a3a0db8bb8547d582846388c2", default-features = false, features = ["woff"] }
-blitz-html = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "0dd2c290da56231a3a0db8bb8547d582846388c2", default-features = false }
-blitz-shell = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "0dd2c290da56231a3a0db8bb8547d582846388c2", default-features = false, features = ["data-uri"] }
+blitz-dom = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "64a252a21639639dceb8cfae1bf872a76feddda4", default-features = false, features = ["woff"] }
+blitz-html = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "64a252a21639639dceb8cfae1bf872a76feddda4", default-features = false }
+blitz-shell = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "64a252a21639639dceb8cfae1bf872a76feddda4", default-features = false, features = ["data-uri"] }
 # Element state bits for checkbox state changes (the version Blitz uses).
 style_dom = { version = "=0.22.0", package = "stylo_dom" }
-blitz-traits = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "0dd2c290da56231a3a0db8bb8547d582846388c2", default-features = false }
-blitz-paint = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "0dd2c290da56231a3a0db8bb8547d582846388c2", default-features = false }
+blitz-traits = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "64a252a21639639dceb8cfae1bf872a76feddda4", default-features = false }
+blitz-paint = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "64a252a21639639dceb8cfae1bf872a76feddda4", default-features = false }
 anyrender = "=0.14.0"
 kurbo = "=0.13.1"
 peniko = "=0.6.1"
