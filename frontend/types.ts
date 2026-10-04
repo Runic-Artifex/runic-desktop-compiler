@@ -29,6 +29,20 @@ export class TypeMapper {
    * their key order is not tracked (key-observing built-ins reject them).
    */
   readonly packageRecords = new Set<number>();
+  /**
+   * Records `mergeRecords` made: a field's type is the union of the merged
+   * types', so a read is narrowed to TypeScript's type where it is used.
+   */
+  readonly merged = new Set<number>();
+  /**
+   * Object types some literal of the program implements with getters
+   * (shadcn-svelte's `setToggleGroupCtx({ get variant() { … } })`), filled
+   * by the language layer: their records hold a getter per property, which
+   * every read calls (`accessors`).
+   */
+  readonly accessorTypes = new Set<ts.Type>();
+  /** Records of `accessorTypes`: fields are getters (`() => T`). */
+  readonly accessors = new Set<number>();
   /** The record of image objects (frontend/dom.d.ts), once used. */
   image: number | undefined;
 
@@ -166,6 +180,7 @@ export class TypeMapper {
     else if (rest.length === 1) base = this.map(rest[0], at);
     else if (this.classUnion && rest.every(p => this.sourceClass(p)))
       base = this.classUnion(rest, at);
+    else if (this.classRecords(rest, at)) base = this.classRecords(rest, at)!;
     else if (rest.every(p => this.plainObject(p)) && this.mergeable(rest, at))
       base = { record: this.unionRecord(rest, at) };
     else {
@@ -381,6 +396,21 @@ export class TypeMapper {
   private record(t: ts.Type, at: ts.Node): number {
     const known = this.byType.get(t);
     if (known !== undefined) return known;
+    // Required<T>, Partial<T> and Readonly<T> of a type implemented with
+    // getters: its record (the getters give what they give, whatever the
+    // optionality TypeScript states; shadcn-svelte's
+    // `getContext<Required<ToggleGroupContext>>`).
+    const alias = t.aliasSymbol?.name;
+    const of = t.aliasTypeArguments?.[0];
+    if (
+      of &&
+      ['Required', 'Partial', 'Readonly'].includes(alias ?? '') &&
+      this.accessorTypes.has(of)
+    ) {
+      const index = this.record(of, at);
+      this.byType.set(t, index);
+      return index;
+    }
     const index = this.records.length;
     // Register before mapping fields so recursive types terminate.
     this.byType.set(t, index);
@@ -389,6 +419,7 @@ export class TypeMapper {
       fields: [],
     };
     this.records.push(placeholder);
+    const accessors = this.accessorTypes.has(t);
     for (const p of this.checker.getPropertiesOfType(t)) {
       const decl = p.valueDeclaration ?? p.declarations?.[0];
       let pt = this.checker.getTypeOfSymbolAtLocation(p, decl ?? at);
@@ -404,7 +435,15 @@ export class TypeMapper {
         )
           ? decl
           : at;
-      placeholder.fields.push({ name: p.name, type: this.map(pt, where) });
+      const mapped = this.map(pt, where);
+      placeholder.fields.push({
+        name: p.name,
+        type: accessors ? { fn: { params: [], result: mapped } } : mapped,
+      });
+    }
+    if (accessors) {
+      this.accessors.add(index);
+      this.packageRecords.add(index);
     }
     // An object literal's keys are in JavaScript order (TypeScript orders
     // spread types differently).
@@ -429,7 +468,7 @@ export class TypeMapper {
     )
       this.packageRecords.add(index);
     // Structurally identical records share one IR record.
-    const shape = JSON.stringify(placeholder.fields);
+    const shape = (accessors ? 'accessors:' : '') + JSON.stringify(placeholder.fields);
     const same = this.byShape.get(shape);
     const last = index === this.records.length - 1;
     if (same !== undefined && same !== index && last && !this.referencesSelf(placeholder, index)) {
@@ -439,6 +478,26 @@ export class TypeMapper {
     }
     this.byShape.set(shape, index);
     return index;
+  }
+
+  /**
+   * A union of types that map to different class records not compiled from
+   * source (svelte-toolbelt's boxes: `WritableBox<string> |
+   * WritableBox<string[]>`): a class reference to them. Undefined otherwise.
+   */
+  private classRecords(parts: ts.Type[], at: ts.Node): Type | undefined {
+    if (parts.length < 2 || parts.some(p => this.sourceClass(p))) return undefined;
+    const records: number[] = [];
+    for (const p of parts) {
+      if (!(p.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection))) return undefined;
+      const m = this.tryMap(p, at);
+      if (!(typeof m === 'object' && 'record' in m) || !this.records[m.record].class)
+        return undefined;
+      if (this.records[m.record].extends !== undefined) return undefined;
+      records.push(m.record);
+    }
+    const unique = [...new Set(records)].sort((a, b) => a - b);
+    return unique.length === 1 ? { record: unique[0] } : { classes: unique };
   }
 
   /** Whether `t` is a plain object type (a record), not a DOM handle, bag, class or pack type. */
@@ -526,6 +585,66 @@ export class TypeMapper {
     this.records.push({ name: 'Object', fields });
     this.byShape.set(shape, index);
     this.packageRecords.add(index);
+    return index;
+  }
+
+  /**
+   * One record for several plain object types (a field's options types
+   * along a class hierarchy, bits-ui's `ToggleGroupBaseStateOpts`,
+   * `…SingleStateOpts` and `…MultipleStateOpts`): every property of any of
+   * them, nullable where one lacks it; a property whose types are different
+   * class records (svelte-toolbelt's boxes of different values) a class
+   * reference to them. Each type maps to it from then on. Undefined when the
+   * types cannot share a record (other differing types, or one already
+   * mapped).
+   */
+  mergeRecords(parts: ts.Type[], at: ts.Node): number | undefined {
+    const unique = [...new Set(parts)];
+    // Merged already (the field of another subclass of the hierarchy).
+    const done = new Set(unique.map(p => this.byType.get(p)));
+    if (done.size === 1 && !done.has(undefined)) return [...done][0];
+    if (unique.some(p => this.byType.has(p) || !this.plainObject(p))) return undefined;
+    const names: string[] = [];
+    for (const p of unique)
+      for (const prop of this.checker.getPropertiesOfType(p))
+        if (!names.includes(prop.name)) names.push(prop.name);
+    const fields: { name: string; type: Type }[] = [];
+    for (const name of names) {
+      const types: Type[] = [];
+      let nullable = false;
+      for (const p of unique) {
+        const prop = this.checker.getPropertyOfType(p, name);
+        if (!prop) {
+          nullable = true;
+          continue;
+        }
+        let pt = this.checker.getTypeOfSymbolAtLocation(prop, prop.valueDeclaration ?? at);
+        if (prop.flags & ts.SymbolFlags.Optional)
+          pt = this.checker.getNullableType(pt, ts.TypeFlags.Undefined);
+        const m = this.tryMap(pt, at);
+        if (m === undefined) return undefined;
+        if (maybeInner(m)) nullable = true;
+        types.push(maybeInner(m) ?? m);
+      }
+      const keys = [...new Set(types.map(x => JSON.stringify(x)))];
+      let type: Type;
+      if (keys.length === 1) type = types[0];
+      else if (
+        types.every(x => typeof x === 'object' && 'record' in x && this.records[x.record].class)
+      )
+        type = {
+          classes: [...new Set(types.map(x => (x as { record: number }).record))].sort(
+            (a, b) => a - b,
+          ),
+        };
+      else return undefined;
+      fields.push({ name, type: nullable ? { maybe: type } : type });
+    }
+    const index = this.records.length;
+    this.records.push({ name: 'Object', fields });
+    this.packageRecords.add(index);
+    this.merged.add(index);
+    for (const p of unique) this.byType.set(p, index);
     return index;
   }
 

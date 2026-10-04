@@ -119,6 +119,37 @@ function declarations(dts: string): Declared {
   return out;
 }
 
+/**
+ * A package declaration file with its module-private declarations exported:
+ * the typed virtual modules annotate a module's classes from their
+ * declarations (`__dts.C["opts"]`), also of classes and interfaces the
+ * declaration file does not export (bits-ui's `ToggleGroupBaseState`).
+ * Exporting more names changes no other module's types.
+ */
+export function exportAllDeclarations(dts: string): string {
+  const text = readFileSync(dts, 'utf8');
+  const sf = ts.createSourceFile(dts, text, ts.ScriptTarget.Latest, true);
+  const at: number[] = [];
+  for (const stmt of sf.statements) {
+    const declaration =
+      ts.isClassDeclaration(stmt) ||
+      ts.isInterfaceDeclaration(stmt) ||
+      ts.isTypeAliasDeclaration(stmt) ||
+      ts.isFunctionDeclaration(stmt) ||
+      ts.isVariableStatement(stmt) ||
+      ts.isEnumDeclaration(stmt);
+    const exported = ts
+      .getModifiers(stmt as ts.HasModifiers)
+      ?.some(
+        m => m.kind === ts.SyntaxKind.ExportKeyword || m.kind === ts.SyntaxKind.DefaultKeyword,
+      );
+    if (declaration && !exported) at.push(stmt.getStart(sf));
+  }
+  let out = text;
+  for (const pos of at.reverse()) out = out.slice(0, pos) + 'export ' + out.slice(pos);
+  return out;
+}
+
 /** The declaration file next to a JavaScript module (`x.js` → `x.d.ts`). */
 export function declarationFile(file: string): string | undefined {
   const dts = file.replace(/\.(m?)js$/, '.d.$1ts');

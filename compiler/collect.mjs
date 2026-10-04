@@ -639,6 +639,13 @@ function checkRules(css, file) {
           column: decl.source.start.column,
         },
       );
+    // Blitz transforms text to upper and lower case only (docs/BLITZ-GAPS.md).
+    if (decl.prop === 'text-transform' && /capitalize|full-width|full-size-kana/.test(decl.value))
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration text-transform: ${decl.value}: Blitz lays text out in upper or lower case only (uppercase, lowercase and none are supported)`,
+        { file, line: decl.source.start.line, column: decl.source.start.column },
+      );
     // Blitz renders an inline <svg> from its subtree's attributes (usvg), so
     // these SVG-only properties would be ignored natively (docs/BLITZ-GAPS.md).
     if (SVG_CSS.test(decl.prop))

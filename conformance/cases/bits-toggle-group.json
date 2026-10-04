@@ -1,0 +1,48 @@
+{
+  "description": "bits-ui's ToggleGroup of type multiple compiled from its published source (one record for the options types of its class hierarchy, the discriminant type narrowing the props) through shadcn-svelte's unmodified toggle-group wrappers (svelte's setContext/getContext with a getter object, bind:value={value as never}, the --gap custom property) and the toggle-group-demo and toggle-group-vertical demos, and a group bound to the app's string array with a disabled item. Pressed by clicks, by Space and Enter on the focused item; arrow keys move focus through bits-ui's roving focus group (looping, skipping the disabled item, ArrowDown in the vertical group), Home and End; set from outside through the bound value; onValueChange counts the group's own changes. aria-pressed, data-state, tabindex (roving), the pressed backgrounds and focus rings (pixel regions)",
+  "fixtures": ["bits-toggle-group-svelte"],
+  "viewports": [
+    [800, 700],
+    [420, 700]
+  ],
+  "pixelRegions": ["demo", "vertical", "bound"],
+  "knownGaps": {
+    "pixels": "At 420px the bound row (four 14px toggle labels and the centred label of the reset button in a 388x36 region) differs by 3.8-3.9/255: with identical boxes Chromium draws glyphs on whole pixel columns and Blitz at their fractional positions (docs/BLITZ-GAPS.md, glyph origins; a fork patch)"
+  },
+  "actions": [
+    { "kind": "click", "id": "bold" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "italic" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowRight" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Home" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "End" },
+    { "kind": "press", "key": "ArrowRight" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowLeft" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "underline" },
+    { "kind": "click", "id": "reset" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "bits-c2" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowRight" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "bits-c6" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowUp" },
+    { "kind": "wait", "ms": 200 }
+  ]
+}

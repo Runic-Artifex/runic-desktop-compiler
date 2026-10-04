@@ -131,7 +131,26 @@ function boxValue(lower: Lowerer, t: Type): Type | undefined {
 
 /** A function value lowered for a parameter of type `want` (a closure or an expression). */
 function functionArg(e: ts.Expression, b: FnBuilder, lower: Lowerer, want: Type): Expr {
-  const v = lower.expr(e, b);
+  // An inline function whose parameters TypeScript types wider than the
+  // value model (a setter of a union TypeScript infers from a prop a
+  // discriminant narrowed): the wanted parameter types.
+  const fn = skipParens(e);
+  const untyped =
+    (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) &&
+    typeof want === 'object' &&
+    'fn' in want &&
+    fn.parameters.length === want.fn.params.length &&
+    fn.parameters.some(
+      p => lower.types.tryMap(lower.checker.getTypeAtLocation(p), p) === undefined,
+    );
+  const v = untyped
+    ? lower.closure(
+        fn as ts.ArrowFunction,
+        b,
+        'closure',
+        (want as { fn: { params: Type[] } }).fn.params,
+      )
+    : lower.expr(e, b);
   const have = lower.irType(v, b);
   // A function whose result is ignored, or taking fewer parameters.
   const adapted = lower.adaptFunction(v, have, want);
@@ -168,13 +187,15 @@ function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const [getter, setter] = node.arguments;
   if (!getter || node.arguments.length > 2 || node.arguments.some(ts.isSpreadElement))
     return lower.fail(node, 'E_PACK', `${LABEL}: boxWith takes a getter and an optional setter`);
-  // A box of a value TypeScript types `any` (a prop typed wider than the
-  // value model, typed from its sites): the getter's result type.
+  // A box of a value TypeScript types `any` or wider than the value model (a
+  // prop typed from its sites, or narrowed by a discriminant): the getter's
+  // result type.
   const current = lower.checker.getTypeAtLocation(node).getProperty('current');
+  const currentType = current && lower.checker.getTypeOfSymbolAtLocation(current, node);
   const untyped =
-    current &&
-    lower.checker.getTypeOfSymbolAtLocation(current, node).flags &
-      (ts.TypeFlags.Any | ts.TypeFlags.Unknown);
+    currentType &&
+    (currentType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) ||
+      lower.types.tryMap(currentType, node) === undefined);
   let box: Type;
   if (untyped) {
     const g = lower.expr(getter, b);

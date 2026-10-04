@@ -14,6 +14,7 @@ import type { Binding, FnBuilder, Lowerer } from './language.ts';
 import { valueChoice, withRest, wrapperValues, type Choice } from './packs/choice.ts';
 import { sourceVersions } from './sources.ts';
 import { svelteReactivityImport } from './svelte-reactivity.ts';
+import { svelteContextImport } from './svelte-context.ts';
 import { cnPack } from './packs/cn-0.3.0.ts';
 import { esmEnvPack } from './packs/esm-env-1.2.2.ts';
 import { clsxPack } from './packs/clsx-2.1.1.ts';
@@ -243,6 +244,11 @@ export function bindPackImport(
   // (frontend/svelte-reactivity.ts), in Svelte modules.
   if (pkg?.name === 'svelte' && spec === 'svelte/reactivity') {
     svelteReactivityImport(stmt, (n, code, message) => lower.fail(n, code, message));
+    return true;
+  }
+  // svelte's setContext/getContext with string keys (frontend/svelte-context.ts).
+  if (pkg?.name === 'svelte' && spec === 'svelte') {
+    svelteContextImport(stmt, lower);
     return true;
   }
   const fail = (n: ts.Node, e: unknown): never => {

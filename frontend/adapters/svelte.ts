@@ -37,6 +37,7 @@ import {
   annotate,
   displayPath,
   DTS_PREFIX,
+  exportAllDeclarations,
   implementationOf,
   inferFields,
   reachedPackageModules,
@@ -263,6 +264,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // program never renders).
   const units = new Map<string, Unit>();
   const order: Unit[] = [];
+  /** Optional props bound to variables of the present type (`bind:` on components). */
+  const presentWrites: { component: number; cell: number; name: string; at: Source }[] = [];
+  /** `bind:` setters (function index) by the child component and prop cell they follow. */
+  const bindSetters = new Map<number, { component: number; cell: number }>();
   const walkTemplate = (node: unknown, f: (n: SNode) => void, seen = new Set<unknown>()) => {
     if (!node || typeof node !== 'object' || seen.has(node)) return;
     seen.add(node);
@@ -724,7 +729,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     for (const [id, m] of graph.modules)
       if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep) && !isPackageModule(id))
         files.set(id, m.code);
-    for (const m of packageModules.values()) files.set(m.virtual, m.text);
+    for (const m of packageModules.values()) {
+      files.set(m.virtual, m.text);
+      if (m.dts) files.set(m.dts, exportAllDeclarations(m.dts));
+    }
     // Imports resolve as the collector resolved them (aliases included); a
     // component file stands for its virtual module, a reached package module
     // for its typed virtual module. Other package modules (barrels, packs)
@@ -1431,10 +1439,93 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       return nullable && !fallback ? { maybe: base } : base;
     };
 
+    /**
+     * The member of a discriminated union props type that every instance of
+     * the component takes: bits-ui's ToggleGroup and Accordion take
+     * `type: "single"` with `value?: string` or `type: "multiple"` with
+     * `value?: string[]`. When all sites pass one literal for the
+     * discriminant (also through wrappers' rest props), the props have that
+     * member's types (a program mixing both is rejected where the union
+     * meets the value model, `mixed` naming the discriminant's values).
+     * Undefined otherwise.
+     */
+    let mixed: string | undefined;
+    const discriminated = (d: ts.VariableDeclaration): ts.Type | undefined => {
+      mixed = undefined;
+      const declared = d.type ? checker.getTypeFromTypeNode(d.type) : undefined;
+      if (!declared || !ts.isObjectBindingPattern(d.name)) return undefined;
+      // The union may sit inside an intersection (`(A | B) & Without<…>`).
+      const parts = declared.isIntersection() ? declared.types : [declared];
+      const union = parts.find(
+        p =>
+          p.isUnion() &&
+          p.types.every(m => m.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection)),
+      );
+      if (!union || !union.isUnion()) return undefined;
+      // The discriminant: a destructured prop, or one the rest props take
+      // (shadcn-svelte's wrappers pass `type` on in `restProps`).
+      const elements = new Map<string, ts.BindingElement>();
+      let hasRest = false;
+      for (const el of d.name.elements) {
+        if (el.dotDotDotToken) hasRest = true;
+        else if (ts.isIdentifier(el.name))
+          elements.set(
+            el.propertyName ? (el.propertyName as ts.Identifier).text : el.name.text,
+            el,
+          );
+      }
+      for (const prop of checker.getPropertiesOfType(union.types[0])) {
+        const key = prop.name;
+        const el = elements.get(key);
+        if (!el && !hasRest) continue;
+        const literals = union.types.map(m => {
+          const p = checker.getPropertyOfType(m, key);
+          const t = p && checker.getTypeOfSymbolAtLocation(p, d);
+          return t && t.isStringLiteral() ? t.value : undefined;
+        });
+        if (literals.some(l => l === undefined) || new Set(literals).size !== literals.length)
+          continue;
+        const sym = el && checker.getSymbolAtLocation(el.name);
+        const values = el ? sym && domains.values(sym) : domains.restValues(u.index, key);
+        if (values && values.length > 1 && values.every(v => literals.includes(v as string)))
+          mixed = `${key} is ${values.map(v => JSON.stringify(v)).join(' and ')} at different sites`;
+        if (!values || values.length !== 1 || typeof values[0] !== 'string') continue;
+        const i = literals.indexOf(values[0]);
+        if (i < 0) continue;
+        // (Props of the intersection's other parts keep TypeScript's types.)
+        return union.types[i];
+      }
+      return undefined;
+    };
+    /** The IR type of prop `key` in props type `member` (optional: nullable unless defaulted). */
+    const propTypeIn = (
+      member: ts.Type,
+      key: string,
+      at: ts.Node,
+      defaulted: boolean,
+    ): Type | undefined => {
+      const p = checker.getPropertyOfType(member, key);
+      if (!p) return undefined;
+      let t = checker.getTypeOfSymbolAtLocation(p, at);
+      if (p.flags & ts.SymbolFlags.Optional && !defaulted)
+        t = checker.getNullableType(t, ts.TypeFlags.Undefined);
+      // A default replaces undefined (null stays).
+      if (defaulted && t.isUnion()) {
+        const kept = t.types.filter(m => !(m.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)));
+        if (kept.length < t.types.length) {
+          const out = types.tryMap(kept.length === 1 ? kept[0] : t, at);
+          if (kept.length === 1 || !out) return out;
+          return kept.some(m => m.flags & ts.TypeFlags.Null) ? out : (maybeInner(out) ?? out);
+        }
+      }
+      return types.tryMap(t, at);
+    };
+
     /** `let { a, b = 1, c = $bindable() }: Props = $props()` → prop cells. */
     const props = (d: ts.VariableDeclaration) => {
       if (!ts.isObjectBindingPattern(d.name))
         return tsFail(d, 'E_PROPS', 'Destructure $props(): let { a, b } = $props()');
+      const member = discriminated(d);
       for (const el of d.name.elements) {
         if (el.dotDotDotToken) {
           // Rest props: an attribute bag of the props the parent passes beyond these.
@@ -1462,14 +1553,31 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           snippetOf.set(sym, key);
           continue;
         }
+        // A default (not `$bindable()` without one) replaces undefined.
+        const defaulted =
+          !!el.initializer &&
+          !(
+            runeName(el.initializer) === '$bindable' &&
+            !(el.initializer as ts.CallExpression).arguments.length
+          );
+        const inMember = member && propTypeIn(member, key, el, defaulted);
         let type =
-          types.overridden(el.name) ?? types.tryMap(checker.getTypeAtLocation(el.name), el.name);
+          types.overridden(el.name) ??
+          inMember ??
+          types.tryMap(checker.getTypeAtLocation(el.name), el.name);
+        if (member && type && !types.overridden(el.name)) types.override(sym, type);
         if (!type) {
           // A prop typed wider than the value model (svelte/elements'
           // `class?: ClassValue`) takes the type of the values its sites pass.
           const values = domains.values(sym);
           const t = (values && typeOfValues(values)) ?? typeOfSites(sym, el);
           if (!t) {
+            if (mixed)
+              tsFail(
+                el,
+                'E_TYPE_UNION',
+                `The type of ${name} (${checker.typeToString(checker.getTypeAtLocation(el.name))}) depends on the discriminant, and ${mixed}: one program can use one of them (a value of either type is planned with a later value model)`,
+              );
             const why = domains.explain(sym);
             if (why)
               tsFail(
@@ -1820,9 +1928,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const typeOf = (e: ts.Expression, v: Expr): Type =>
       types.typeOrUndefined(e) ?? lower.irType(v, tb);
     const display = (e: ts.Expression): Expr => {
-      // Svelte renders `value ?? ''` stringified.
+      // Svelte renders `value ?? ''` stringified (by the value's type: a
+      // getter of an optional property may be undefined where TypeScript's
+      // `Required<…>` says otherwise).
       const v = value(e);
-      const t = typeOf(e, v);
+      const t = lower.irType(v, tb);
       if (t === 'string') return v;
       if (typeof t === 'object' && 'maybe' in t) return maybeText(lower, v, t);
       return { op: 'to-string', arg: v };
@@ -2346,23 +2456,42 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           else passed.push({ name: a.name, value: v });
         } else if (a.type === 'BindDirective') {
           const want = target.cells[propCell(a)].type;
-          const e = exprNode(a.expression);
+          // A type assertion binds the variable (shadcn-svelte's
+          // `bind:value={value as never}` quiets TypeScript's union).
+          let e = exprNode(a.expression);
+          while (ts.isAsExpression(e) || ts.isParenthesizedExpression(e)) e = e.expression;
           const b = ts.isIdentifier(e) ? lower.binding(e) : undefined;
-          if (b?.kind !== 'cell' || JSON.stringify(cells[b.cell].type) !== JSON.stringify(want))
+          const have = b?.kind === 'cell' ? JSON.stringify(cells[b.cell].type) : undefined;
+          // A variable of the present type bound to an optional prop (bits-ui's
+          // `value = $bindable()`): the child must never write undefined to it
+          // (checked once every function is lowered, `presentWrites`).
+          const present = !!maybeInner(want) && have === JSON.stringify(maybeInner(want));
+          if (have !== JSON.stringify(want) && !present)
             fail('E_TEMPLATE', `bind:${a.name} needs a $state variable of the prop's type`, loc(a));
           const own = (b as { cell: number }).cell;
+          if (present)
+            presentWrites.push({
+              component: child.index,
+              cell: propCell(a),
+              name: a.name,
+              at: loc(a),
+            });
           const setter = lower.reserve();
+          bindSetters.set(setter, { component: child.index, cell: propCell(a) });
+          const arg: Expr = { op: 'local', local: 0 };
           lower.functions[setter] = {
             name: `bind:${a.name}`,
             component: COMPONENT,
             params: [{ name: 'v', type: want }],
             locals: [],
             result: 'void',
-            body: [{ op: 'set', cell: own, value: { op: 'local', local: 0 } }],
+            body: [{ op: 'set', cell: own, value: present ? { op: 'unwrap', value: arg } : arg }],
           };
           passed.push({
             name: a.name,
-            value: { op: 'cell', cell: own, read: 'current' },
+            value: present
+              ? { op: 'some', value: { op: 'cell', cell: own, read: 'current' } }
+              : { op: 'cell', cell: own, read: 'current' },
             bind: { op: 'closure', function: setter, captures: [] },
           });
         } else fail('E_TEMPLATE', `${a.type} on components is planned for a later M3 step`, loc(a));
@@ -2944,6 +3073,41 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // read state as it was before the batch that destroys or re-runs them.
     schedule: { cleanupReadsPrevious: true },
   };
+  // A bound optional prop the child writes: only present values (`some`),
+  // which the parent's variable of the present type can hold.
+  // A `bind:` setter passes on what its own child writes.
+  const writesPresent = (component: number, cell: number, seen: Set<string>): boolean => {
+    const id = `${component}:${cell}`;
+    if (seen.has(id)) return true;
+    seen.add(id);
+    let absent = false;
+    const visit = (v: unknown, fn: number | undefined) => {
+      if (absent || !v || typeof v !== 'object') return;
+      const x = v as { op?: string; cell?: number; value?: { op?: string; local?: number } };
+      if (x.op === 'set' && x.cell === cell && x.value?.op !== 'some') {
+        const follows = fn !== undefined ? bindSetters.get(fn) : undefined;
+        if (
+          !follows ||
+          x.value?.op !== 'local' ||
+          x.value.local !== 0 ||
+          !writesPresent(follows.component, follows.cell, seen)
+        )
+          absent = true;
+      }
+      for (const c of Array.isArray(v) ? v : Object.values(v)) visit(c, fn);
+    };
+    lower.functions.forEach((f, i) => f?.component === component && visit(f.body, i));
+    for (const h of components[component].handlers ?? []) visit(h, undefined);
+    return !absent;
+  };
+  for (const w of presentWrites) {
+    if (!writesPresent(w.component, w.cell, new Set()))
+      fail(
+        'E_TEMPLATE',
+        `bind:${w.name} binds a variable that cannot be undefined to a prop its component may set to undefined; declare the variable with undefined in its type`,
+        w.at,
+      );
+  }
   // SvelteMap reads only in derived values (frontend/svelte-reactivity.ts).
   const mapRead = checkMapReads(lower);
   if (mapRead) {

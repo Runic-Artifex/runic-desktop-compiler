@@ -128,6 +128,13 @@ export interface ClassInfo {
   declared: boolean;
   /** Construction creates closures holding `this` (arrow fields, bound methods). */
   rawThis: boolean;
+  /**
+   * Fields of its base classes that it declares again without an
+   * initialiser and assigns at the top level of its constructor (bits-ui's
+   * `opts` of a narrower options type): one field, of a record merging the
+   * declared types.
+   */
+  redeclared?: ts.PropertyDeclaration[];
 }
 
 const RUNES = /^\$(state|derived)(\.|$)/;
@@ -392,11 +399,42 @@ export class Classes {
   // Declarations
 
   /** Direct subclass declarations of the class `sym` among the program's sources. */
+  /**
+   * Whether the constructor assigns `this.name` at its top level after
+   * super(…) and before any other statement uses `this`.
+   */
+  private reassigned(name: string, ctor: ts.ConstructorDeclaration | undefined): boolean {
+    const statements = ctor?.body?.statements ?? [];
+    const sup = statements.findIndex(
+      s =>
+        ts.isExpressionStatement(s) &&
+        ts.isCallExpression(s.expression) &&
+        s.expression.expression.kind === ts.SyntaxKind.SuperKeyword,
+    );
+    for (const s of statements.slice(sup + 1)) {
+      const target = thisAssignment(s);
+      if (target?.name.text === name) return true;
+      let usesThis = false;
+      const visit = (n: ts.Node) => {
+        if (n.kind === ts.SyntaxKind.ThisKeyword) usesThis = true;
+        ts.forEachChild(n, visit);
+      };
+      visit(s);
+      if (usesThis) return false;
+    }
+    return false;
+  }
+
   private subclassDecls(sym: ts.Symbol): ts.ClassDeclaration[] {
     if (!this.subclassIndex) {
       const index = new Map<ts.Symbol, ts.ClassDeclaration[]>();
       for (const sf of this.lower.program.getSourceFiles()) {
-        if (sf.isDeclarationFile || /[\\/]node_modules[\\/]/.test(sf.fileName)) continue;
+        // Package modules compiled from source are typed virtual modules.
+        if (
+          sf.isDeclarationFile ||
+          (/[\\/]node_modules[\\/]/.test(sf.fileName) && !sf.fileName.endsWith('.__runic.ts'))
+        )
+          continue;
         for (const s of sf.statements) {
           if (!ts.isClassDeclaration(s) || !s.name) continue;
           const base = this.baseExpression(s);
@@ -477,6 +515,24 @@ export class Classes {
       for (const sub of this.subclassDecls(s)) visit(sub, info);
     };
     visit(root);
+    // Fields declared again with other options types (`opts`): one record
+    // for all of the declared types (frontend/types.ts `mergeRecords`).
+    for (const info of infos)
+      for (const decl of info.redeclared ?? []) {
+        const name = memberName(decl.name);
+        const declared: ts.Type[] = [];
+        for (const x of infos) {
+          const f = x.own.find(o => o.name === name && o.decl);
+          if (f?.decl) declared.push(this.declaredType(f.decl));
+          for (const r of x.redeclared ?? [])
+            if (memberName(r.name) === name) declared.push(this.declaredType(r));
+        }
+        if (!this.lower.types.mergeRecords(declared, decl))
+          this.fail(
+            decl,
+            `${info.name} declares the field ${name} again with a type that cannot share its base's record`,
+          );
+      }
     // Fields are typed once every class of the hierarchy has its record.
     for (const info of infos) for (const f of info.own) f.type = this.fieldType(f, info);
     for (const info of infos) this.assemble(info);
@@ -559,6 +615,19 @@ export class Classes {
     const fields: Field[] = [];
     const add = (f: Omit<Field, 'type' | 'owner' | 'key'>) => {
       if (fields.some(x => x.name === f.name)) return;
+      // A field declared again without an initialiser and assigned at the top
+      // level of the constructor before it is read: JavaScript sets it to
+      // undefined after super(…) and then to the assigned value, which is all
+      // anything can see. It stays the base's field.
+      if (
+        inheritedField(f.name) &&
+        f.decl &&
+        !f.decl.initializer &&
+        this.reassigned(f.name, ctor)
+      ) {
+        (info.redeclared ??= []).push(f.decl);
+        return;
+      }
       if (inheritedField(f.name) && (f.param || f.decl))
         this.fail(
           f.node,
@@ -803,6 +872,13 @@ export class Classes {
     }
   }
 
+  /** The TypeScript type a field declaration gives. */
+  private declaredType(decl: ts.PropertyDeclaration): ts.Type {
+    const checker = this.lower.checker;
+    const sym = checker.getSymbolAtLocation(decl.name);
+    return sym ? checker.getTypeOfSymbolAtLocation(sym, decl) : checker.getTypeAtLocation(decl);
+  }
+
   private fieldType(f: Field, info: ClassInfo): Type {
     const checker = this.lower.checker;
     let t: ts.Type;
@@ -871,7 +947,19 @@ export class Classes {
     const sym = lower.checker.getSymbolAtLocation(decl.name!)!;
     const info = this.layout(sym, decl);
     if (info.declared) return [];
+    // Classes of package modules are declared when first used; a base
+    // declared above in the module first, its members lowered once this
+    // class is declared too (they may dispatch over it).
+    const basePending: (() => void)[] = [];
     if (info.base) {
+      if (
+        !info.base.declared &&
+        component === undefined &&
+        decl.getSourceFile().fileName.includes('/node_modules/') &&
+        info.base.decl.getSourceFile() === decl.getSourceFile() &&
+        info.base.decl.end <= decl.pos
+      )
+        basePending.push(...this.declare(info.base.decl, undefined));
       if (!info.base.declared)
         this.fail(
           this.baseExpression(decl)!,
@@ -973,7 +1061,7 @@ export class Classes {
         });
       }
     }
-    return pending;
+    return [...basePending, ...pending];
   }
 
   /** `info` and every class below it. */
@@ -1334,6 +1422,23 @@ export class Classes {
   }
 
   private constructorBody(
+    info: ClassInfo,
+    b: FnBuilder,
+    top: ts.ConstructorDeclaration | undefined,
+  ): Stmt[] {
+    // A constructor may be lowered while a member of a base class is (a
+    // package class declared when first used): `this` of the chain's
+    // members is the constructor's only while it is lowered.
+    const saved = new Map(this.lower.thisBindings);
+    try {
+      return this.constructorSteps(info, b, top);
+    } finally {
+      this.lower.thisBindings.clear();
+      for (const [k, v] of saved) this.lower.thisBindings.set(k, v);
+    }
+  }
+
+  private constructorSteps(
     info: ClassInfo,
     b: FnBuilder,
     top: ts.ConstructorDeclaration | undefined,

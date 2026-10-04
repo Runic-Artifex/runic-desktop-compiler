@@ -280,6 +280,19 @@ export class Lowerer {
     types.classType = (cls, t, at) => this.classes.typeOf(cls, t, at);
     types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
     types.packType = (t, at) => packType(t, at, this) ?? svelteMapType(t, at, this);
+    // Object types implemented with getters (frontend/types.ts `accessorTypes`).
+    for (const sf of program.getSourceFiles()) {
+      if (sf.isDeclarationFile) continue;
+      const visit = (n: ts.Node) => {
+        if (ts.isObjectLiteralExpression(n) && n.properties.some(ts.isGetAccessorDeclaration)) {
+          const contextual = checker.getContextualType(n);
+          if (contextual) types.accessorTypes.add(contextual);
+          types.accessorTypes.add(checker.getTypeAtLocation(n));
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
   }
 
   /** Classes (frontend/classes.ts). */
@@ -456,11 +469,13 @@ export class Lowerer {
       this.thisBindings.set(decl, { owner: b, local: 0 });
     }
     const tsResult = sig!.getReturnType();
-    let result: Type =
-      options?.result ??
-      (tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
-        ? 'void'
-        : this.types.map(tsResult, decl));
+    // A result TypeScript types as `any`, or wider than the value model
+    // where the values returned have one type (a getter of a prop a
+    // discriminant narrowed, `() => value`): the returned values' type.
+    const untypedResult = !!(tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown));
+    const mapped = options?.result ?? (untypedResult ? 'void' : this.types.tryMap(tsResult, decl));
+    const inferred = !options?.result && (untypedResult || mapped === undefined);
+    let result: Type = mapped ?? 'void';
     // A function expression where a void-returning function is expected
     // (a listener, a callback): its value is never observed.
     // (Not under `satisfies`, which keeps the expression's own type.)
@@ -478,8 +493,7 @@ export class Lowerer {
     if (options?.result) result = options.result;
     // Body lowering may add captures; params/locals are appended after, so we
     // lower into a staging builder and rebase indices at the end.
-    if (voidContext || !(tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
-      b.result = result;
+    if (voidContext || !inferred) b.result = result;
     const lowered = this.withParams(b, pending, () => {
       if (options?.body) return options.body(b);
       if (!async) return this.functionBody(decl, b);
@@ -487,8 +501,7 @@ export class Lowerer {
         return this.fail(decl, 'E_ASYNC', 'An async function needs a Promise result type');
       return asyncBody(this, decl, b, result.promise);
     });
-    if (!voidContext && tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
-      result = this.returnType(lowered, b);
+    if (!voidContext && inferred) result = this.returnType(lowered, b);
     lowered.unshift(...this.hoistedLets(b));
     const body = remapLocals(lowered, i => b.final(i));
     const fn: Fn = {
@@ -749,6 +762,12 @@ export class Lowerer {
       }
       const eq = [K.EqualsEqualsEqualsToken, K.EqualsEqualsToken].includes(op);
       const ne = [K.ExclamationEqualsEqualsToken, K.ExclamationEqualsToken].includes(op);
+      // A prop that takes one value at every site (a discriminant, bits-ui's
+      // `type`) compared with a string.
+      if ((eq || ne) && ts.isStringLiteralLike(e.right)) {
+        const one = this.oneValue(e.left);
+        if (one !== undefined) return (one === e.right.text) === eq;
+      }
       if ((eq || ne) && ts.isTypeOfExpression(e.left) && ts.isStringLiteralLike(e.right)) {
         const t = typeOfLocal(e.left.expression);
         const name =
@@ -1011,6 +1030,44 @@ export class Lowerer {
     };
   }
 
+  /** The one value a prop takes at every site (its domain), if `e` reads such a prop. */
+  private oneValue(e: ts.Expression): unknown {
+    e = skipParens(e);
+    if (!ts.isIdentifier(e) || !this.domains) return undefined;
+    const sym = this.symbol(e);
+    const binding = sym && this.bindingOf(sym);
+    if (binding?.kind !== 'cell') return undefined;
+    const values = this.domains.values(sym!);
+    return values?.length === 1 ? values[0] : undefined;
+  }
+
+  /** The type a branch of a decided conditional takes: TypeScript's at `e`, or the branch's own. */
+  private contextualOr(e: ts.Expression, branch: ts.Expression): Type {
+    // Assigned to a variable or prop: its IR type (which a discriminant may
+    // have narrowed from TypeScript's).
+    let node: ts.Node = e;
+    while (ts.isParenthesizedExpression(node.parent)) node = node.parent;
+    const p = node.parent;
+    if (
+      ts.isBinaryExpression(p) &&
+      p.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      p.right === node &&
+      ts.isIdentifier(p.left)
+    ) {
+      const binding = this.binding(p.left);
+      if (binding?.kind === 'cell') {
+        const t = this.hooks.cellType(binding.cell);
+        return maybeInner(t) ?? t;
+      }
+      if (binding?.kind === 'local') return binding.owner.typeOf(binding.local);
+    }
+    const contextual = this.checker.getContextualType(e);
+    const mapped = contextual && this.types.tryMap(contextual, e);
+    return (
+      mapped ?? this.types.tryMap(this.checker.getTypeAtLocation(e), e) ?? this.types.of(branch)
+    );
+  }
+
   /**
    * `$state.snapshot(v)`: primitives as they are, plain arrays and objects
    * (and nullable ones) copied deeply without proxies, as `structuredClone`
@@ -1084,8 +1141,22 @@ export class Lowerer {
   }
 
   /** A closure expression for an inline function. */
-  closure(decl: ts.FunctionLikeDeclaration, ctx: FnBuilder, name = 'closure'): Expr {
-    const { index, builder } = this.function(decl, `${ctx.name}.${name}`, ctx, ctx.component);
+  closure(
+    decl: ts.FunctionLikeDeclaration,
+    ctx: FnBuilder,
+    name = 'closure',
+    paramTypes?: Type[],
+    result?: Type,
+  ): Expr {
+    const { index, builder } = this.function(
+      decl,
+      `${ctx.name}.${name}`,
+      ctx,
+      ctx.component,
+      undefined,
+      paramTypes,
+      result !== undefined ? { result } : undefined,
+    );
     return { op: 'closure', function: index, captures: builder.captureSources.map(c => c.local) };
   }
 
@@ -1543,9 +1614,17 @@ export class Lowerer {
       if (typeof type !== 'object' || !('record' in type))
         this.fail(pattern, 'E_DESTRUCTURE', 'Object destructuring requires a record value');
       const record = (type as { record: number }).record;
+      if (this.types.accessors.has(record))
+        this.fail(
+          pattern,
+          'E_DESTRUCTURE',
+          'Destructuring objects implemented with getters is unsupported; read their properties',
+        );
       for (const el of pattern.elements) {
-        if (el.dotDotDotToken)
-          this.fail(el, 'E_DESTRUCTURE', 'Rest properties are planned for later');
+        if (el.dotDotDotToken) {
+          bind(el.name, this.restRecord(el, source, record), this.types.of(el.name));
+          continue;
+        }
         const key = (el.propertyName ?? el.name) as ts.Identifier;
         if (!ts.isIdentifier(key))
           this.fail(el, 'E_DESTRUCTURE', 'Computed destructuring keys are unsupported');
@@ -1592,6 +1671,82 @@ export class Lowerer {
       });
     }
     return out;
+  }
+
+  /**
+   * A field of a merged record (frontend/types.ts `mergeRecords`, bits-ui's
+   * options of a class hierarchy) as TypeScript types it where it is read: a
+   * field some of the merged types lack is present where it is used as a
+   * receiver (JavaScript throws a TypeError there too), and a class union
+   * narrows to the class TypeScript names (TypeError when it is another).
+   */
+  private mergedRead(
+    read: Expr,
+    record: number,
+    field: number,
+    e: ts.PropertyAccessExpression,
+  ): Expr {
+    const have = this.types.records[record].fields[field].type;
+    const here = this.types.tryMap(this.checker.getTypeAtLocation(e), e);
+    if (here === undefined) return read;
+    let value = read;
+    let type = have;
+    if (maybeInner(have) && !maybeInner(here)) {
+      if (!this.isReceiver(e))
+        return this.fail(
+          e,
+          'E_MEMBER',
+          `${e.getText()} is absent from some of the options types sharing its record; read it as a receiver (x.${e.name.getText()}.member) or as optional`,
+        );
+      value = { op: 'unwrap', value };
+      type = maybeInner(have)!;
+    }
+    return this.classes.narrow(value, type, here);
+  }
+
+  /** Whether `e` is the object of a member access (`e.x`, `e[i]`, `e.m()`). */
+  private isReceiver(e: ts.Expression): boolean {
+    let use: ts.Node = e;
+    while (ts.isParenthesizedExpression(use.parent) || ts.isNonNullExpression(use.parent))
+      use = use.parent;
+    return (
+      (ts.isPropertyAccessExpression(use.parent) || ts.isElementAccessExpression(use.parent)) &&
+      use.parent.expression === use
+    );
+  }
+
+  /**
+   * `...rest` of an object pattern: a new record (TypeScript's type of the
+   * rest, the source's other properties) of the source's fields.
+   */
+  private restRecord(el: ts.BindingElement, source: Expr, record: number): Expr {
+    const type = this.types.of(el.name);
+    if (typeof type !== 'object' || !('record' in type) || this.types.records[type.record].class)
+      return this.fail(el, 'E_DESTRUCTURE', 'Rest properties require a plain object value');
+    // The source is read once per field: a local or fields of one.
+    let s = source;
+    while (s.op === 'get') s = s.object;
+    if (s.op !== 'local')
+      return this.fail(
+        el,
+        'E_DESTRUCTURE',
+        'Rest properties of a defaulted nested pattern are unsupported',
+      );
+    const src = this.types.records[record];
+    const fields = this.types.records[type.record].fields.map((f): Expr => {
+      const j = src.fields.findIndex(s => s.name === f.name);
+      if (j < 0) return this.fail(el, 'E_DESTRUCTURE', `The rest has no source field ${f.name}`);
+      const value: Expr = { op: 'get', object: source, field: j };
+      const have = src.fields[j].type;
+      if (sameType(have, f.type)) return value;
+      if (maybeInner(f.type) && sameType(maybeInner(f.type)!, have)) return { op: 'some', value };
+      return this.fail(
+        el,
+        'E_DESTRUCTURE',
+        `The rest's field ${f.name} has another type than its source`,
+      );
+    });
+    return { op: 'record', record: type.record, fields };
   }
 
   private expressionStatement(e: ts.Expression, b: FnBuilder, origin: ts.Node): Stmt[] {
@@ -1877,6 +2032,8 @@ export class Lowerer {
   private place(target: ts.Expression, b: FnBuilder): Place {
     if (ts.isPropertyAccessExpression(target)) {
       const type = this.typeAt(target.expression);
+      if (typeof type === 'object' && 'record' in type && this.types.accessors.has(type.record))
+        return this.fail(target, 'E_ASSIGN', 'Properties implemented with getters are read-only');
       if (typeof type === 'object' && 'record' in type)
         return {
           place: 'field',
@@ -2075,6 +2232,15 @@ export class Lowerer {
         return this.binaryExpression(e as ts.BinaryExpression, b);
       case K.ConditionalExpression: {
         const c = e as ts.ConditionalExpression;
+        // A test the types or a prop's one value decide: its branch only (the
+        // other may not be typable: bits-ui's `type === "single" ? "" : []`).
+        const known = this.staticTruth(c.condition, b);
+        if (known !== undefined)
+          return this.coerce(
+            known ? c.whenTrue : c.whenFalse,
+            b,
+            this.contextualOr(e, known ? c.whenTrue : c.whenFalse),
+          );
         return {
           op: 'cond',
           test: this.condition(c.condition, b),
@@ -2227,7 +2393,94 @@ export class Lowerer {
       const adapted = this.adaptFunction(v, t, maybeInner(target) ?? target);
       if (adapted) return maybeInner(target) ? { op: 'some', value: adapted } : adapted;
     }
+    const merged = this.toMerged(e, v, t, target, b);
+    if (merged) return merged;
     return this.classes.fitAt(v, t, target, e);
+  }
+
+  /**
+   * A plain record passed where a merged record (frontend/types.ts
+   * `mergeRecords`) is expected: a copy holding its fields, where nothing
+   * else can see the original (a `const` read only here: bits-ui's
+   * `new ToggleGroupMultipleState(rest)`), so the copy's identity is
+   * unobservable.
+   */
+  private toMerged(
+    e: ts.Expression,
+    v: Expr,
+    have: Type,
+    want: Type,
+    b: FnBuilder,
+  ): Expr | undefined {
+    if (
+      typeof have !== 'object' ||
+      !('record' in have) ||
+      typeof want !== 'object' ||
+      !('record' in want) ||
+      have.record === want.record ||
+      !this.types.merged.has(want.record) ||
+      this.types.records[have.record].class
+    )
+      return undefined;
+    const id = skipParens(e);
+    const sym = ts.isIdentifier(id) ? this.symbol(id) : undefined;
+    const decl = sym?.valueDeclaration;
+    let list: ts.Node | undefined = decl;
+    while (list && !ts.isVariableDeclarationList(list)) list = list.parent;
+    const constant = !!list && !!((list as ts.VariableDeclarationList).flags & ts.NodeFlags.Const);
+    let scope: ts.Node | undefined = list;
+    while (scope && !ts.isBlock(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+    const reads: ts.Node[] = [];
+    const visit = (n: ts.Node) => {
+      if (ts.isIdentifier(n) && n !== (decl as ts.NamedDeclaration).name && this.symbol(n) === sym)
+        reads.push(n);
+      ts.forEachChild(n, visit);
+    };
+    if (scope && sym) visit(scope);
+    // Read once, or once in each branch of one conditional (`c ? new A(o) : new B(o)`).
+    const within = (n: ts.Node, root: ts.Node) => {
+      for (let p: ts.Node | undefined = n; p; p = p.parent) if (p === root) return true;
+      return false;
+    };
+    let branches = false;
+    if (reads.length === 2)
+      for (let p = reads[0].parent; p; p = p.parent)
+        if (ts.isConditionalExpression(p) && within(reads[1], p)) {
+          branches =
+            (within(reads[0], p.whenTrue) && within(reads[1], p.whenFalse)) ||
+            (within(reads[0], p.whenFalse) && within(reads[1], p.whenTrue));
+          break;
+        }
+    if (!constant || !(reads.length === 1 || branches))
+      return this.fail(
+        e,
+        'E_OBJECT',
+        'An object passed as another options type is copied, which only a const read once can be',
+      );
+    const src = this.types.records[have.record];
+    const tmp = b.local('$copy', have);
+    const fields = this.types.records[want.record].fields.map((f): Expr => {
+      const j = src.fields.findIndex(s => s.name === f.name);
+      if (j < 0) {
+        if (maybeInner(f.type)) return { op: 'undefined', type: f.type };
+        return this.fail(e, 'E_OBJECT', `The object has no ${f.name} for its options type`);
+      }
+      const value: Expr = { op: 'get', object: { op: 'local', local: tmp }, field: j };
+      const out = this.classes.fit(value, src.fields[j].type, f.type);
+      if (out === value && !sameType(src.fields[j].type, f.type))
+        return this.fail(
+          e,
+          'E_OBJECT',
+          `The object's ${f.name} has another type than its options type's`,
+        );
+      return out;
+    });
+    return {
+      op: 'with',
+      local: tmp,
+      value: v,
+      body: { op: 'record', record: want.record, fields },
+    };
   }
 
   private contextual(e: ts.Expression): Type {
@@ -2448,8 +2701,11 @@ export class Lowerer {
       const rt = this.irType(right, b);
       // The result type: TypeScript's (narrowed) type, or the operands' common type.
       const ts0 = this.types.typeOrUndefined(e);
-      const result: Type =
+      let result: Type =
         ts0 ?? (sameType(lt, rt) ? lt : maybeInner(lt) && sameType(maybeInner(lt)!, rt) ? rt : rt);
+      // A nullable right operand TypeScript deems unreachable (a left typed
+      // truthy, which a getter of an optional property may yet not be).
+      if (!maybeInner(result) && maybeInner(rt) && sameType(maybeInner(rt)!, result)) result = rt;
       if (maybeInner(result) && !maybeInner(rt) && rt !== 'void')
         right = { op: 'some', value: right };
       if (lt === 'boolean' && rt === 'boolean')
@@ -2519,8 +2775,22 @@ export class Lowerer {
     }
     if (op === K.InKeyword || op === K.InstanceOfKeyword)
       return this.fail(e, 'E_EXPRESSION', 'in/instanceof are planned for later');
-    const left = this.expr(e.left, b);
-    const right = this.expr(e.right, b);
+    // An array element compared for equality: undefined past the end
+    // (`items[0] === node` with no items), not a RangeError.
+    const equality = [
+      K.EqualsEqualsEqualsToken,
+      K.ExclamationEqualsEqualsToken,
+      K.EqualsEqualsToken,
+      K.ExclamationEqualsToken,
+    ].includes(op);
+    const operand = (x: ts.Expression): Expr => {
+      const v = this.expr(x, b);
+      if (!equality || v.op !== 'index') return v;
+      const el = (this.irType(v.array, b) as { array: Type }).array;
+      return { op: 'builtin', name: 'array.get', args: [v.array, v.index], type: { maybe: el } };
+    };
+    const left = operand(e.left);
+    const right = operand(e.right);
     return this.binary(op, left, this.irType(left, b), right, this.irType(right, b), e);
   }
 
@@ -3165,12 +3435,13 @@ export class Lowerer {
     if (this.classes.isClass(t)) return this.classes.read(t, object, e, b);
     const members = kind === 'record' && this.recordMembers.get((t as { record: number }).record);
     if (members) return members.read(name, object, e, b);
-    if (kind === 'record')
-      return {
-        op: 'get',
-        object,
-        field: this.types.fieldIndex((t as { record: number }).record, name, e),
-      };
+    if (kind === 'record') {
+      const record = (t as { record: number }).record;
+      if (this.types.accessors.has(record)) return this.accessorRead(object, record, name, e);
+      const field = this.types.fieldIndex(record, name, e);
+      const read: Expr = { op: 'get', object, field };
+      return this.types.merged.has(record) ? this.mergedRead(read, record, field, e) : read;
+    }
     if (kind === 'regexp') {
       const type = REGEXP_PROPERTIES[name];
       if (type === undefined)
@@ -4272,6 +4543,53 @@ export class Lowerer {
     return this.fail(e, 'E_NEW', 'Unsupported constructor');
   }
 
+  /**
+   * A literal of an object type implemented with getters (frontend/types.ts
+   * `accessors`): each property a getter, called where it is read.
+   */
+  private accessorLiteral(e: ts.ObjectLiteralExpression, record: number, b: FnBuilder): Expr {
+    const r = this.types.records[record];
+    const values: (Expr | undefined)[] = r.fields.map(() => undefined);
+    for (const p of e.properties) {
+      if (!ts.isGetAccessorDeclaration(p) || !ts.isIdentifier(p.name))
+        return this.fail(
+          p,
+          'E_OBJECT',
+          'Objects of this type are implemented with getters elsewhere: write every property as a getter (get name() { … })',
+        );
+      const i = this.types.fieldIndex(record, p.name.text, p);
+      const want = r.fields[i].type as { fn: { params: Type[]; result: Type } };
+      values[i] = this.closure(p, b, `get ${p.name.text}`, [], want.fn.result);
+    }
+    const fields = r.fields.map(
+      (f, i): Expr =>
+        values[i] ??
+        this.fail(
+          e,
+          'E_OBJECT',
+          `Missing getter ${f.name} (objects of this type are implemented with a getter per property)`,
+        ),
+    );
+    return { op: 'record', record, fields };
+  }
+
+  /**
+   * A property read of a record implemented with getters: the getter's
+   * call. An optional property TypeScript types as present (`Required<…>`)
+   * read as a receiver is unwrapped (JavaScript throws a TypeError there
+   * too); elsewhere it stays nullable.
+   */
+  accessorRead(object: Expr, record: number, name: string, at: ts.PropertyAccessExpression): Expr {
+    const field = this.types.fieldIndex(record, name, at);
+    const read: Expr = { op: 'call-value', callee: { op: 'get', object, field }, args: [] };
+    const result = (this.types.records[record].fields[field].type as { fn: { result: Type } }).fn
+      .result;
+    const here = this.types.tryMap(this.checker.getTypeAtLocation(at), at);
+    if (maybeInner(result) && here !== undefined && !maybeInner(here) && this.isReceiver(at))
+      return this.classes.narrow({ op: 'unwrap', value: read }, maybeInner(result)!, here);
+    return read;
+  }
+
   private object(e: ts.ObjectLiteralExpression, b: FnBuilder): Expr {
     const t = this.checker.getContextualType(e) ?? this.checker.getTypeAtLocation(e);
     // Attribute bags: literals with computed keys or spreads of bags, or
@@ -4296,6 +4614,8 @@ export class Lowerer {
         `An object literal is not a ${this.types.records[recordType.record].name} instance (construct one with new)`,
       );
     const declared = this.types.records[recordType.record];
+    if (this.types.accessors.has(recordType.record))
+      return this.accessorLiteral(e, recordType.record, b);
     // Keys are observable (Object.keys, JSON.stringify): the record has the
     // literal's key order.
     const order = this.types.keyOrder(e, declared.fields);
@@ -4643,7 +4963,13 @@ export class Lowerer {
           ts.isArrowFunction(p.initializer) || ts.isFunctionExpression(p.initializer)
             ? this.closure(p.initializer, b, name)
             : this.coerce(p.initializer, b, t);
-      else value = this.expr(p.name, b);
+      else {
+        const sym = this.checker.getShorthandAssignmentValueSymbol(p);
+        const binding = sym && this.bindingOf(sym);
+        value = binding
+          ? this.bindingExpr(binding, p.name, b, this.types.of(p.name))
+          : this.fail(p, 'E_UNRESOLVED', `${name} is not a supported binding`);
+      }
       if (maybeInner(t) && !maybeInner(this.irType(value, b))) value = { op: 'some', value };
       const local = b.local(`$${name}`, t);
       temps.set(name, local);

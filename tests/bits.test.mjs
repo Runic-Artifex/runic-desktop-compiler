@@ -358,3 +358,149 @@ test('SvelteMap reads outside derived values are rejected; dictionary objects gu
     },
   );
 });
+
+test('ToggleGroup: multiple and single programs, one type per program', async () => {
+  const multiple = (await lowered('fixtures/bits-toggle-group-svelte')).ir;
+  const m = interpret(multiple, [
+    { kind: 'click', id: 'italic' },
+    { kind: 'click', id: 'bold' },
+    { kind: 'click', id: 'underline' },
+    { kind: 'click', id: 'reset' },
+  ]);
+  assert.deepEqual(
+    m.map(s => text(byId(s, 'state'))),
+    ['bold 0', 'bold,italic 1', 'italic 2', 'italic 2', 'italic 2'],
+  );
+  assert.equal(byId(m[1], 'italic').attrs['aria-pressed'], 'true');
+  assert.equal(byId(m[1], 'italic').attrs['data-variant'], 'default');
+  const single = (await lowered('fixtures/bits-toggle-group-single-svelte')).ir;
+  const s = interpret(single, [
+    { kind: 'click', id: 'center' },
+    { kind: 'click', id: 'center' },
+    { kind: 'click', id: 'reset' },
+  ]);
+  assert.deepEqual(
+    s.map(x => text(byId(x, 'state'))),
+    ['left 0', 'center 1', ' 2', 'center 2'],
+  );
+  assert.equal(byId(s[1], 'center').attrs['aria-checked'], 'true');
+  assert.equal(byId(s[1], 'center').attrs.role, 'radio');
+  // Both types in one program: the value is a string or an array.
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { ToggleGroup } from 'bits-ui';
+  let one = $state('a');
+  let many = $state<string[]>([]);
+</script>
+<ToggleGroup.Root type="single" bind:value={one}><ToggleGroup.Item value="a">A</ToggleGroup.Item></ToggleGroup.Root>
+<ToggleGroup.Root type="multiple" bind:value={many}><ToggleGroup.Item value="a">A</ToggleGroup.Item></ToggleGroup.Root>
+`,
+    },
+    async root =>
+      assert.rejects(
+        lowered(root),
+        failWith(
+          'E_TYPE_UNION',
+          'node_modules/bits-ui/dist/bits/toggle-group/components/toggle-group.svelte',
+          /type is "single" and "multiple" at different sites/,
+        ),
+      ),
+  );
+});
+
+test('svelte contexts with string keys, getter objects, bound optional props, capitalize', async () => {
+  const context = (body, get) => ({
+    'Ctx.svelte': `<script lang="ts" module>
+  import { getContext, setContext } from 'svelte';
+  interface C { tone?: string }
+  export function setC(c: C) { setContext('c', c); }
+  export function getC() { return ${get}; }
+</script>
+<script lang="ts">
+  let { children }: { children?: import('svelte').Snippet } = $props();
+  let tone = $state('loud');
+  setC({ get tone() { return tone; } });
+</script>
+<button id="t" onclick={() => (tone = tone === 'loud' ? 'soft' : 'loud')}>t</button>
+{@render children?.()}
+`,
+    'Show.svelte': `<script lang="ts">
+  import { getC } from './Ctx.svelte';
+  const c = getC();
+</script>
+<p id="show">${body}</p>
+`,
+    'App.svelte': `<script lang="ts">
+  import Ctx from './Ctx.svelte';
+  import Show from './Show.svelte';
+</script>
+<Ctx><Show /></Ctx>
+<Show />
+`,
+  });
+  // A getter is read each time: the context follows the state. A component
+  // outside the provider reads undefined where the type allows it, and
+  // throws RunicUnsupportedError where it does not.
+  await withApp(context("{c?.tone ?? 'none'}", "getContext<C | undefined>('c')"), async root => {
+    const { ir } = await lowered(root);
+    const steps = interpret(ir, [{ kind: 'click', id: 't' }]);
+    const shown = st =>
+      flat(st.state.dom)
+        .filter(n => n.attrs.id === 'show')
+        .map(text);
+    assert.deepEqual(shown(steps[0]), ['loud', 'none']);
+    assert.deepEqual(shown(steps[1]), ['soft', 'none']);
+  });
+  await withApp(context('{c.tone}', "getContext<Required<C>>('c')"), async root => {
+    const { ir } = await lowered(root);
+    assert.throws(
+      () => interpret(ir, []),
+      /RunicUnsupportedError: getContext\(\\?"c\\?"\): no parent/,
+    );
+  });
+  await withApp(
+    {
+      ...context('{c.tone}', "getContext<Required<C>>('c' + '')"),
+      'App.svelte': `<script lang="ts">
+  import Ctx from './Ctx.svelte';
+  import Show from './Show.svelte';
+</script>
+<Ctx><Show /></Ctx>
+`,
+    },
+    async root =>
+      assert.rejects(lowered(root), failWith('E_CAPABILITY', 'Ctx.svelte', /string literal key/)),
+  );
+  // A variable of the present type bound to an optional prop its component
+  // may set to undefined.
+  await withApp(
+    {
+      'Child.svelte': `<script lang="ts">
+  let { value = $bindable() }: { value?: string } = $props();
+</script>
+<button id="clear" onclick={() => (value = undefined)}>{value}</button>
+`,
+      'App.svelte': `<script lang="ts">
+  import Child from './Child.svelte';
+  let v = $state('a');
+</script>
+<Child bind:value={v} />
+`,
+    },
+    async root => assert.rejects(lowered(root), failWith('E_TEMPLATE', 'App.svelte', /undefined/)),
+  );
+  // Blitz transforms text to upper and lower case only.
+  await withApp(
+    {
+      'style.css': '.c { text-transform: capitalize; }\n',
+      'App.svelte': '<p class="c">a</p>\n',
+    },
+    async root =>
+      assert.rejects(lowered(root), e => {
+        assert.equal(e.code, 'E_CSS_PROPERTY');
+        assert.match(e.message, /capitalize/);
+        return true;
+      }),
+  );
+});

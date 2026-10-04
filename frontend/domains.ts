@@ -195,6 +195,21 @@ export class PropDomains implements DomainHook {
     return out;
   }
 
+  /**
+   * The values the sites of `component` pass for `key`, a prop it does not
+   * declare (it lands in its rest props); undefined when any is open.
+   */
+  restValues(component: number, key: string): unknown[] | undefined {
+    const sites = this.byComponent.get(component) ?? [];
+    let out: unknown[] | undefined = sites.length ? [] : undefined;
+    for (const site of sites) {
+      const v = this.passedValues(site.values.get(key), key, new Set([component]));
+      out = v && out && [...out, ...v];
+      if (!out) break;
+    }
+    return out && distinct(out);
+  }
+
   /** The index of `site` among its component's sites. */
   indexOf(site: Site): number {
     return this.byComponent.get(site.component)?.indexOf(site) ?? -1;
