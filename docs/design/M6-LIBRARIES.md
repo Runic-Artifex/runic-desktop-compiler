@@ -49,22 +49,21 @@ A pack covers one package at one version. It is how the compiler handles a libra
 Steps 0 to 2 can run in parallel. Steps 3 to 6 share the language layer and IR, and go in order.
 
 0. **Blitz fork** (in progress).
-   - **Done on `runic`:**
+   - **Done on `runic`** (each with its case, [BLITZ-GAPS](../BLITZ-GAPS.md#fixed-in-the-fork)):
      - hit testing of scrolled containers;
-     - 1/64 px shrink-to-fit rounding;
+     - 1/64 px shrink-to-fit rounding, with whole-pixel option widths for the runtime's selects;
      - Chromium's line breaks;
-     - placeholders.
-   - **Next** ([M6-CSS](../research/M6-CSS.md#fork-patches-by-value-for-the-editor)):
-     - `:has()` with invalidation;
-     - `text-overflow: ellipsis`;
-     - `:focus-visible` (keyboard and programmatic focus only);
-     - `woff2-variations` and `data:` font sniffing;
-     - the CPU renderer's `filters` feature.
+     - placeholders;
+     - `:has()` with coarse invalidation;
+     - `:focus-visible` (the runtime applies Blink's modality rule), `:focus-within` and `:placeholder-shown`;
+     - `woff2-variations` and `data:` font sources (the collector accepts the hint; no rewrite needed);
+     - `text-overflow: ellipsis`.
+   - **Next:** button content centring (found on the way), then the lower-value items below.
+   - **Rejected instead:** `filter` and `backdrop-filter`. vello_cpu 0.3 panics on colour-matrix filters and draws only the first function of a list, so the CPU renderer's `filters` feature stays off until it supports them.
    - **Lower value for the editor:** text input line height, inline control baselines and the focus ring. Tailwind's preflight sets explicit line heights and draws its own rings, so these come later.
 1. **CSS pipeline.**
    - The collector runs the app's CSS plugins (`@tailwindcss/vite`).
    - It accepts `@layer`, `@property` and `@supports`, and SvelteKit's per-route stylesheets in order.
-   - It rewrites `woff2-variations` hints after checking the bytes.
    - Stylo becomes the build-time oracle: every rule or declaration it drops is a located diagnostic, except an allow-list of drops verified equivalent in Chromium. A hand-kept list names the properties Blitz computes but ignores, and shrinks as fork patches land.
    - Rules are first reported, then pruned by reachability once class strings are analysable (step 2).
 2. **Packs:** `clsx`, `tailwind-merge`, `tailwind-variants` and `@lucide/svelte`, with vector validation against the pinned packages. This gives an intermediate milestone: app screens without bits-ui.
@@ -113,6 +112,42 @@ Steps 0 to 2 can run in parallel. Steps 3 to 6 share the language layer and IR, 
     - `runic scan` over 20–50 open-source Svelte, React and Vue apps;
     - QuickJS islands with island and coverage reports;
     - model-assisted discovery generalised to library packs, as an explicit separate operation.
+
+## Library code (steps 3 to 6)
+
+What bits-ui's sources look like, taking Collapsible as the example (`bits/collapsible/collapsible.svelte.js` and `components/*.svelte`, 2.19):
+
+- **State classes.** Each part of a component is a class:
+  - its fields are `$state` or `$derived`, and some are `#private`;
+  - a `static create` registers the instance in a context, or reads its root from one;
+  - methods are bound with `.bind(this)`;
+  - getters read other instances.
+- **Options as boxes.** `boxWith(getter, setter?)` objects; `opts.open.current` reads and writes them.
+- **The `props` bag.** A `$derived.by` object literal holding attribute values, listeners (`onclick: this.onclick`), a computed key (`[attrs.root]: ""`), a `style` object and a spread attachment (`...this.attachment`, keyed by a symbol).
+- **Components.** They merge rest props with the state's bag (`mergeProps`), then spread the result onto an element or pass it to a `child` snippet.
+
+Decisions:
+
+- **svelte-toolbelt and runed are packs, not source.**
+  - Their sources dispatch on runtime types. `mergeProps` checks `typeof` per key, and boxes are getter objects with symbol brands. Compiling them would mean modelling dynamic typing for code whose behaviour is small and documented.
+  - The packs cover `boxWith`, `mergeProps`, `attachRef`, runed's `Context` and `watch`/`watch.pre`, and the helpers bits-ui calls (`afterTick`, `executeCallbacks`, `composeHandlers`). Each lowers to IR constructs below, validated against the real packages on vectors and fixtures.
+- **bits-ui compiles from its published source.**
+  - Its `dist` JavaScript is typed by combining two sources. The package's `.d.ts` files give public fields, methods and options. The language layer's existing inference for untyped JavaScript gives private fields and locals, specialising per call site where needed.
+  - Where the two disagree, compilation fails with a diagnostic rather than guessing.
+- **Classes are records with methods.**
+  - A class instance is a record with one field per declared field, including `#private` ones, which are not visible outside the class.
+  - `$state` fields are tracked like Svelte deep state. `$derived` fields are per-instance cached slots, as component-level derived values are since M4.
+  - Methods and getters are functions taking the instance, dispatched statically, since the receiver's class is known. `.bind(this)` yields a closure.
+  - Statics are module globals.
+  - No inheritance until a reached source needs it.
+- **Boxes are an IR type**, `box<T>`: a getter closure, plus a setter closure if writable. Reading `.current` calls the getter (cached as a derived value for writable boxes, as `boxWith` does), and writing calls the setter.
+- **Attribute bags extend M5's `attrs` type.**
+  - A bag maps attribute names to values (string, number, boolean, nullish), plus listeners, a style value, and attachments.
+  - Keys must be compile-time strings. Computed keys from module constants (`createBitsAttrs`) are folded at build time.
+  - Attachments are an IR value: an element callback returning a cleanup, run when the element mounts and before it unmounts, as `{@attach}` is.
+  - `mergeProps` is a built-in over bags with svelte-toolbelt's rules: listeners compose, functions chain, `class` goes through clsx, `style` objects and strings merge, otherwise the last value wins, and `hidden`/`disabled` `false` are dropped.
+  - A bag spreads onto an element as rest props do, or flows into a `child` snippet argument.
+- **Context.** Svelte's `setContext`/`getContext` and runed's `Context` lower to one IR context mechanism, keyed by a compile-time identity (a module-level `Symbol` or `Context` instance).
 
 ## Verification
 
