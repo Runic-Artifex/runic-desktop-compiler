@@ -1,0 +1,53 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 24px; }
+main { max-width: 640px; margin: 0 auto; padding: 24px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 12px; }
+h1 { margin: 0 0 12px; font-weight: 400; }
+p { margin: 6px 0; }
+code { display: block; font-family: RunicFixture; font-size: 11px; line-height: 14px; overflow-wrap: anywhere; }
+.row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+button { font-family: RunicFixture; line-height: 16px; justify-content: center; }
+/* Hand-written stand-ins for the Tailwind utilities the fixture uses: the
+   merged class attribute decides which of two conflicting rules apply. */
+.text-base { font-size: 18px; }
+.text-lg { font-size: 22px; }
+.text-sm { font-size: 14px; }
+.text-xs { font-size: 12px; }
+.inline-flex { display: inline-flex; }
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.w-28 { width: 112px; }
+.border { border: 1px solid #52665b; }
+.border-blue { border-color: #2f5a7a; }
+.border-transparent { border-color: transparent; }
+.rounded-md { border-radius: 6px; }
+.rounded-lg { border-radius: 10px; }
+.rounded-full { border-radius: 999px; }
+.rounded-none { border-radius: 0; }
+.px-1 { padding-left: 4px; padding-right: 4px; }
+.px-2 { padding-left: 8px; padding-right: 8px; }
+.px-3 { padding-left: 12px; padding-right: 12px; }
+.px-4 { padding-left: 16px; padding-right: 16px; }
+.px-5 { padding-left: 20px; padding-right: 20px; }
+.px-6 { padding-left: 24px; padding-right: 24px; }
+.px-8 { padding-left: 32px; padding-right: 32px; }
+.py-1 { padding-top: 4px; padding-bottom: 4px; }
+.py-2 { padding-top: 8px; padding-bottom: 8px; }
+.py-3 { padding-top: 12px; padding-bottom: 12px; }
+.bg-blue { background: #2f5a7a; }
+.bg-white { background: #ffffff; }
+.bg-transparent { background: transparent; }
+.bg-green { background: #3c6b3c; color: #ffffff; }
+.bg-warm { background: #f0d9c8; }
+.bg-cool { background: #c8dcf0; }
+.text-white { color: #ffffff; }
+.text-blue { color: #2f5a7a; }
+.text-dark { color: #252c28; }
+.font-bold { font-weight: 700; }
+.font-normal { font-weight: 400; }
+.ring-2 { outline: 2px solid #52665b; }
+.ring-warm { outline-color: #a0452a; }
+.badge { display: inline-block; border: 1px solid #b7b7a9; }
+.item { border: 1px dashed #b7b7a9; }
+.group { border: 1px solid #b7b7a9; }
