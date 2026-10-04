@@ -65,8 +65,16 @@ try {
         const shots = path.join(out, 'shots', c.name, fixture, `${viewport.width}x${viewport.height}`);
         const run = { case: c.name, fixture, viewport, irHash: ir.irHash };
         try {
-          const b = await browser.run(dir, { viewport, actions, storage: c.storage, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
-          const n = runProbe(binary, { viewport, actions, storage: c.storage, out: values.pixels ? path.join(shots, 'native') : undefined });
+          // Chromium's real clock is observable without the fake clock, so a
+          // program reading the wall clock (Date.now, new Date()) needs it.
+          const fakeClock = c.clock === true || actions.some(a => a.kind === 'wait');
+          if (!fakeClock && /"clock\.(date|now)"/.test(JSON.stringify(ir)))
+            throw new Error(
+              'The program reads the clock (Date.now(), new Date(), performance.now()), which Chromium shows in real time: give the case "clock": true or a wait action',
+            );
+          const env = { storage: c.storage, timezone: c.timezone, locale: c.locale };
+          const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
+          const n = runProbe(binary, { viewport, actions, ...env, out: values.pixels ? path.join(shots, 'native') : undefined });
           run.browser = { framework: b.framework, browserVersion: browser.browserVersion, errors: b.errors };
           run.mountUs = n.mountUs;
           const cmp = compareTraces(b.steps, n.steps, { pixels: values.pixels });

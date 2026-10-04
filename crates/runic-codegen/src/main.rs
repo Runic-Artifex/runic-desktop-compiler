@@ -104,6 +104,19 @@ fn main() {
                     )
                 })
                 .collect();
+            // The case's time zone and locale (Date and Intl).
+            if let Some(zone) = flag(&args, "--timezone") {
+                if !runic_js::intl::is_verified_zone(&zone) {
+                    let m = format!("time zone {zone} is not verified against Chromium");
+                    fail(Diagnostic::new("E_INPUT", m, None));
+                }
+                runic_js::env::set_time_zone(&zone)
+                    .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e, None)));
+            }
+            if let Some(locale) = flag(&args, "--locale") {
+                runic_js::env::set_locale(&locale)
+                    .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e, None)));
+            }
             let mut m = Machine::with_storage(&program, storage).unwrap_or_else(|d| fail(d));
             let mut steps = vec![json!({"action": null, "state": m.snapshot()})];
             for action in actions.as_array().cloned().unwrap_or_default() {

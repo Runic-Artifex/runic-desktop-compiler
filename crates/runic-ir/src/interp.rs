@@ -55,6 +55,7 @@ pub enum Val {
     /// A promise's resolve or reject function.
     Resolver(Rc<Resolver>),
     RegExp(js::RegExp),
+    Date(js::Date),
 }
 
 /// Promises of the interpreter: reactions become [`PJob`]s on the microtask queue.
@@ -179,6 +180,7 @@ impl js::StrictEq for Val {
             (Val::Element(a), Val::Element(b)) => a == b,
             (Val::Event(a), Val::Event(b)) => a == b,
             (Val::RegExp(a), Val::RegExp(b)) => a == b,
+            (Val::Date(a), Val::Date(b)) => a == b,
             (Val::Attrs(a), Val::Attrs(b)) => {
                 a.len() == b.len()
                     && a.iter()
@@ -224,6 +226,7 @@ impl js::ToJsString for Val {
             Val::Element(e) => e.to_js_string(),
             Val::Event(e) => e.to_js_string(),
             Val::RegExp(r) => r.to_js_string(),
+            Val::Date(d) => d.to_js_string(),
             Val::Attrs(_) => JsString::from("[object Object]"),
             Val::Promise(_) => JsString::from("[object Promise]"),
         }
@@ -247,6 +250,7 @@ impl js::ToNumber for Val {
             Val::Bool(b) => b.to_number(),
             Val::Num(n) => *n,
             Val::Str(s) => s.to_number(),
+            Val::Date(d) => d.time(),
             _ => f64::NAN,
         }
     }
@@ -318,6 +322,7 @@ impl ToMapKey for Val {
             Val::Element(e) => e.map_key(),
             Val::Event(e) => e.map_key(),
             Val::RegExp(r) => r.map_key(),
+            Val::Date(d) => d.map_key(),
             Val::Attrs(a) => MapKey::Ref(Rc::as_ptr(a) as *const u8 as usize),
         }
     }
@@ -1599,6 +1604,54 @@ impl<'p> Machine<'p> {
             }),
             ("number", "toPrecision") => Val::Str(js::to_precision(n(0), opt_n(1))?),
             ("number", "toExponential") => Val::Str(js::to_exponential(n(0), opt_n(1))?),
+            ("date", "new") => Val::Date(js::Date::new(n(0))),
+            ("date", "local" | "utc") => {
+                let f = if method == "local" {
+                    js::date::local_time_value
+                } else {
+                    js::date::utc_time_value
+                };
+                Val::Num(f(n(0), n(1), n(2), n(3), n(4), n(5), n(6)))
+            }
+            ("date", "parse") => Val::Num(js::date::parse(&s(0))),
+            ("date", m) => {
+                let Val::Date(d) = &a[0] else {
+                    panic!("validated Date")
+                };
+                let tv = d.time();
+                match m {
+                    "getTime" => Val::Num(tv),
+                    "toString" => Val::Str(js::date::to_string(tv)),
+                    "toDateString" => Val::Str(js::date::to_date_string_local(tv)),
+                    "toTimeString" => Val::Str(js::date::to_time_string(tv)),
+                    "toUTCString" => Val::Str(js::date::to_utc_string(tv)),
+                    "toISOString" => Val::Str(js::date::to_iso_string(tv)?),
+                    "toJSON" => js::date::to_json(tv).map_or(Val::Null, Val::Str),
+                    m if m.starts_with("set") => Val::Num(d.set(m, &nums(1))),
+                    m => Val::Num(js::date::get(tv, m)),
+                }
+            }
+            ("intl", m) => {
+                let operands = if m == "compare" { 2 } else { 1 };
+                let spec = s(operands);
+                let locale = a.get(operands + 1).map(Val::string);
+                let locale = locale.as_ref();
+                match m {
+                    "format-date" => {
+                        let spec = js::intl::DateSpec::parse(&spec.to_rust()).expect("validated");
+                        Val::Str(js::intl::format_date(n(0), &spec, locale)?)
+                    }
+                    "format-number" => {
+                        let spec = js::intl::NumberSpec::parse(&spec.to_rust()).expect("validated");
+                        Val::Str(js::intl::format_number(n(0), &spec, locale)?)
+                    }
+                    _ => {
+                        let spec =
+                            js::intl::CollatorSpec::parse(&spec.to_rust()).expect("validated");
+                        Val::Num(js::intl::compare(&s(0), &s(1), &spec, locale)?)
+                    }
+                }
+            }
             ("regexp", "new") => Val::RegExp(js::RegExp::new(&s(0), &s(1))?),
             ("regexp", m) => {
                 let Val::RegExp(re) = &a[0] else {
@@ -2159,6 +2212,7 @@ impl<'p> Machine<'p> {
             | Val::Element(_)
             | Val::Event(_)
             | Val::RegExp(_)
+            | Val::Date(_)
             | Val::Attrs(_) => return None,
             // A promise has no own enumerable properties.
             Val::Promise(_) => J::Object(Default::default()),
@@ -4843,6 +4897,10 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Element(_) => json!("element"),
         Val::Event(_) => json!("event"),
         Val::RegExp(r) => json!(js::ToJsString::to_js_string(r).to_rust()),
+        // A Date as its ISO string (or "Invalid Date").
+        Val::Date(d) => {
+            json!(js::date::to_json(d.time()).map_or("Invalid Date".into(), |s| s.to_rust()))
+        }
         Val::Attrs(_) => json!("attrs"),
     }
 }

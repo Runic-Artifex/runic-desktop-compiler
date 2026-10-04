@@ -428,7 +428,7 @@ fn round_digits(digits: &[u8], dp: i32, keep: i32) -> (Vec<u8>, i32) {
 
 /// The shortest round-tripping digits of a positive finite `x` and the
 /// decimal exponent of the first digit (as used by Number::toString).
-fn shortest_digits(x: f64) -> (Vec<u8>, i32) {
+pub(crate) fn shortest_digits(x: f64) -> (Vec<u8>, i32) {
     let sci = format!("{x:e}");
     let (mantissa, exponent) = sci.split_once('e').expect("scientific notation");
     let digits = mantissa

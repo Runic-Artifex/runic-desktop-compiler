@@ -42,11 +42,18 @@ try {
     const b = await browser.run(dir, {
       actions: c.actions,
       storage: c.storage,
+      timezone: c.timezone,
+      locale: c.locale,
+      clock: c.clock === true,
       out: path.join(repo, '.cache/interp-vs-browser', path.basename(fixture)),
     });
     let steps;
     try {
-      steps = interpret((await lower(await collect(dir))).ir, c.actions, { storage: c.storage });
+      steps = interpret((await lower(await collect(dir))).ir, c.actions, {
+        storage: c.storage,
+        timezone: c.timezone,
+        locale: c.locale,
+      });
     } catch (e) {
       console.log(`${fixture}: interpreter failed: ${e.code ?? ''} ${e.message}`);
       mismatches++;

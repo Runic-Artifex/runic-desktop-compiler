@@ -286,6 +286,9 @@ pub enum Type {
     /// A RegExp object (`js::RegExp`), compared by identity; its
     /// `lastIndex` is mutable.
     Regexp,
+    /// A Date object (`js::Date`), compared by identity; its time value is
+    /// mutable (setters).
+    Date,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -312,6 +315,7 @@ impl Type {
             Type::Event => "event".into(),
             Type::Attrs => "attrs".into(),
             Type::Regexp => "regexp".into(),
+            Type::Date => "date".into(),
             Type::Fn(f) => format!(
                 "({}) => {}",
                 f.params

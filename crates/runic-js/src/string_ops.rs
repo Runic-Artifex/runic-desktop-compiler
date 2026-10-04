@@ -596,16 +596,10 @@ pub fn compare(a: &JsString, b: &JsString) -> Ordering {
     a.units().cmp(b.units())
 }
 
-/// `localeCompare` without locales: M2 uses code-unit order, returning -1/0/1.
-/// This deliberately differs from engines, which use ICU root collation
-/// (e.g. `"a".localeCompare("B")` is -1 there and 1 here); real collation
-/// arrives in M5.
+/// `a.localeCompare(b)` without locales or options: ICU collation for the
+/// default locale (`crate::intl`), returning -1, 0 or 1.
 pub fn locale_compare(a: &JsString, b: &JsString) -> f64 {
-    match compare(a, b) {
-        Ordering::Less => -1.0,
-        Ordering::Equal => 0.0,
-        Ordering::Greater => 1.0,
-    }
+    crate::intl::compare_default(a, b)
 }
 
 /// `String.fromCharCode(...units)`: ToUint16 of each argument.

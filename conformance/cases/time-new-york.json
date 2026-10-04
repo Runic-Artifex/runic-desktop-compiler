@@ -1,0 +1,20 @@
+{
+  "description": "The time case in America/New_York with the fr-FR default locale: negative offsets (the opening date is the previous evening there), French formats with narrow no-break spaces in numbers and no-break spaces before units, and a typed ISO date without offset read as local time",
+  "fixtures": ["time-svelte"],
+  "timezone": "America/New_York",
+  "locale": "fr-FR",
+  "actions": [
+    { "kind": "wait", "ms": 1000 },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "late" },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "more" },
+    { "kind": "type", "id": "when", "text": "Z" },
+    { "kind": "wait", "ms": 61000 },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "next" },
+    { "kind": "type", "id": "when", "text": "x" },
+    { "kind": "click", "id": "locale" },
+    { "kind": "click", "id": "more" }
+  ]
+}

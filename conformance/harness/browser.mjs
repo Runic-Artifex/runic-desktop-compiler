@@ -211,7 +211,19 @@ export async function createBrowserHarness() {
      * Returns { steps: [{ action, dom, focused, geometry, screenshotPath, ms }] }
      * where step 0 is the initial state after mount.
      */
-    async run(fixture, { viewport = { width: 800, height: 600 }, actions = [], out, timeout = 5000, storage } = {}) {
+    async run(
+      fixture,
+      {
+        viewport = { width: 800, height: 600 },
+        actions = [],
+        out,
+        timeout = 5000,
+        storage,
+        timezone = 'UTC',
+        locale = 'en-US',
+        clock: fakeClock = false,
+      } = {},
+    ) {
       const name = path.basename(path.resolve(fixture));
       const folder = path.resolve(
         out ?? path.join(repo, 'artifacts/harness', name, `${viewport.width}x${viewport.height}`),
@@ -220,7 +232,14 @@ export async function createBrowserHarness() {
       const t0 = performance.now();
       const server = await serveFixture(fixture);
       const serveMs = performance.now() - t0;
-      const context = await instance.newContext({ viewport, deviceScaleFactor: 1 });
+      // The case's time zone and default locale (Date, Intl), as the probe
+      // and the interpreter get them (docs/design/M5-PLATFORM.md).
+      const context = await instance.newContext({
+        viewport,
+        deviceScaleFactor: 1,
+        timezoneId: timezone,
+        locale,
+      });
       const errors = [];
       try {
         // Full Chromium requests a favicon the fixtures do not have; answer it
@@ -235,11 +254,11 @@ export async function createBrowserHarness() {
             sessionStorage.setItem('runic-seeded', '1');
             for (const [k, v] of Object.entries(items)) localStorage.setItem(k, v);
           }, storage);
-        // Cases with `wait` actions run on Playwright's fake clock, paused at
-        // the shared origin and advanced to 1000 ms before the page loads (the
-        // native probe and the interpreter start their virtual clocks there).
-        // Time then only advances through `wait`.
-        const clock = actions.some(a => a.kind === 'wait');
+        // Cases with `wait` actions (or `clock: true`) run on Playwright's fake
+        // clock, paused at the shared origin and advanced to 1000 ms before the
+        // page loads (the native probe and the interpreter start their virtual
+        // clocks there). Time then only advances through `wait`.
+        const clock = fakeClock || actions.some(a => a.kind === 'wait');
         if (clock) {
           // pauseAt first: the clock starts paused at tick 0 (an install call
           // before it would let real time leak into the ticks when Playwright

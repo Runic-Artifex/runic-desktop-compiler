@@ -175,6 +175,14 @@ export function builtinType(name: string, args: Type[]): Type | undefined {
         } as Record<string, Type>
       )[method] ?? (method === 'exec' ? undefined : B)
     );
+  // Dates (docs/IR.md): Date objects and time values.
+  if (ns === 'date') {
+    if (method === 'new') return 'date';
+    if (method === 'toJSON') return { maybe: S };
+    if (method.startsWith('to')) return S;
+    return N;
+  }
+  if (ns === 'intl') return method === 'compare' ? N : S;
   if (ns === 'match')
     return (
       { index: { maybe: N }, input: { maybe: S }, 'has-groups': B, group: { maybe: S } } as Record<

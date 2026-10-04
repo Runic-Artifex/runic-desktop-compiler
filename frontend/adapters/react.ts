@@ -960,6 +960,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           'Component bodies support const declarations, useState, useRef, useEffect, useLayoutEffect and nested functions',
         );
       for (const d of (stmt as ts.VariableStatement).declarationList.declarations) {
+        // Intl constants have no runtime value (their uses are lowered).
+        if (lower.isIntlConstant(d)) continue;
         const init = d.initializer && skipParens(d.initializer);
         if (init && ts.isCallExpression(init) && isHook(init.expression, 'useRef')) {
           lowerUseRef(d, init, COMPONENT, pending);

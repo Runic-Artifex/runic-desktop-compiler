@@ -278,15 +278,14 @@ for (const s of strings) {
   record("concat", [s, ["\ude00"]], () => s.concat("\ude00"));
 }
 
-// Comparison. `localeCompare` is specified for M2 as code-unit order (real
-// ICU collation is M5), so its expected values come from `<`/`>` too.
+// Comparison (`<` and `>`: code-unit order). `localeCompare` collates with
+// ICU; its vectors come from Chromium (intl.mjs).
 const compareInputs = [...strings, "B", "b", "a\u0000", "ab", "\ud800", "￿", "😀a", ""];
 for (const a of compareInputs) {
   for (const b of compareInputs) {
     if (rand() < 0.4 || a === b) {
       const order = () => (a < b ? -1 : a > b ? 1 : 0);
       record("compare", [a, b], order);
-      record("localeCompare", [a, b], order);
     }
   }
 }

@@ -144,5 +144,7 @@ pub fn launch<A: App>() {
         probe::run::<A>();
         return;
     }
+    // Date and Intl see the system's time zone and locale.
+    runic_js::env::init_from_system();
     shell::run::<A>();
 }

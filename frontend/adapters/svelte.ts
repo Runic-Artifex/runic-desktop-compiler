@@ -845,6 +845,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         const isConst = (stmt.declarationList.flags & ts.NodeFlags.Const) !== 0;
         for (const d of stmt.declarationList.declarations) {
           const init = d.initializer;
+          // Intl constants have no runtime value (their uses are lowered).
+          if (lower.isIntlConstant(d)) continue;
           const rune = runeName(init);
           if (rune === '$props') {
             props(d);

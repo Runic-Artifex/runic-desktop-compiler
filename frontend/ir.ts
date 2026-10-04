@@ -29,6 +29,8 @@ export type Type =
   | 'attrs'
   /** A RegExp object (identity; mutable lastIndex). */
   | 'regexp'
+  /** A Date object (identity; mutable time value). */
+  | 'date'
   | 'void';
 
 export type Literal = boolean | number | string;
