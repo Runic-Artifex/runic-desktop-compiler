@@ -317,6 +317,13 @@ export class Lowerer {
     return s && s.flags & ts.SymbolFlags.Alias ? this.checker.getAliasedSymbol(s) : s;
   }
 
+  /**
+   * Variables captured by a closure created in their own initialiser
+   * (`analyseCaptures`): declared by a binding, then assigned, so that the
+   * closure shares the binding the value is stored in.
+   */
+  readonly selfCaptured = new Set<ts.Symbol>();
+
   /** Symbols in `body` that are captured by nested functions and assigned anywhere. */
   analyseCaptures(body: ts.Node): Set<ts.Symbol> {
     const declaredIn = new Map<ts.Symbol, ts.Node>();
@@ -327,10 +334,30 @@ export class Lowerer {
         if (ts.isFunctionLike(p)) return p;
       return undefined;
     };
+    /**
+     * Variables a closure in their own initialiser captures (`const o = new
+     * ResizeObserver(() => … o …)`): the closure must see the value assigned
+     * after it was created, so they are shared by reference (boxed).
+     */
+    const early = new Set<ts.Symbol>();
     const visit = (n: ts.Node) => {
       if (ts.isVariableDeclaration(n) || ts.isParameter(n)) {
         const s = ts.isIdentifier(n.name) ? this.checker.getSymbolAtLocation(n.name) : undefined;
         if (s) declaredIn.set(s, fnOf(n) ?? body);
+      }
+      if (ts.isIdentifier(n) && !ts.isVariableDeclaration(n.parent)) {
+        const s = this.checker.getSymbolAtLocation(n);
+        const decl = s?.valueDeclaration;
+        if (
+          s &&
+          decl &&
+          ts.isVariableDeclaration(decl) &&
+          decl.initializer &&
+          n.pos >= decl.initializer.pos &&
+          n.end <= decl.initializer.end &&
+          fnOf(n) !== fnOf(decl)
+        )
+          early.add(s);
       }
       if (ts.isIdentifier(n)) {
         const s = this.checker.getSymbolAtLocation(n);
@@ -351,7 +378,8 @@ export class Lowerer {
       ts.forEachChild(n, visit);
     };
     visit(body);
-    return new Set([...captured].filter(s => mutated.has(s)));
+    for (const s of early) this.selfCaptured.add(s);
+    return new Set([...[...captured].filter(s => mutated.has(s)), ...early]);
   }
 
   // -------------------------------------------------------------------------
@@ -1130,9 +1158,27 @@ export class Lowerer {
       if (
         d.initializer &&
         (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
-      )
-        return [{ op: 'let', local, value: this.closure(d.initializer, b, d.name.text) }];
+      ) {
+        const value = this.closure(d.initializer, b, d.name.text);
+        // A function calling itself through the variable shares its binding.
+        if (this.selfCaptured.has(sym))
+          return [
+            { op: 'let', local },
+            { op: 'assign', target: { place: 'local', local }, value },
+          ];
+        return [{ op: 'let', local, value }];
+      }
       const init = d.initializer && this.expr(d.initializer, b);
+      if (init && this.selfCaptured.has(sym))
+        return [
+          { op: 'let', local, ...this.src(d) },
+          {
+            op: 'assign',
+            target: { place: 'local', local },
+            value: this.classes.fitAt(init, this.irType(init, b), type, d),
+            ...this.src(d),
+          },
+        ];
       return [
         {
           op: 'let',
@@ -3450,6 +3496,53 @@ export class Lowerer {
         return this.stringRegexp(method, receiver, e, b);
       if (this.classes.isClass(this.irType(receiver, b)))
         return this.classes.callMethod(this.irType(receiver, b), receiver, callee, e, b);
+      // ResizeObserver methods (M6): observe with a literal box option.
+      if (
+        kind === 'record' &&
+        (this.irType(receiver, b) as { record: number }).record === this.types.resizeObserver
+      ) {
+        const [target, options, ...rest] = e.arguments;
+        if (method === 'disconnect' && !e.arguments.length)
+          return { op: 'builtin', name: 'resize.disconnect', args: [receiver], type: 'void' };
+        if (method === 'unobserve' && target && !options)
+          return {
+            op: 'builtin',
+            name: 'resize.unobserve',
+            args: [receiver, this.coerce(target, b, 'element')],
+            type: 'void',
+          };
+        if (method !== 'observe' || !target || rest.length)
+          return this.fail(e, 'E_CALL', `ResizeObserver ${method}() is unsupported`);
+        let box = 'content-box';
+        if (options) {
+          const o = skipParens(options);
+          const p = ts.isObjectLiteralExpression(o) ? o.properties : undefined;
+          const boxProp = p?.[0];
+          if (
+            !p ||
+            p.length > 1 ||
+            (boxProp &&
+              !(
+                ts.isPropertyAssignment(boxProp) &&
+                boxProp.name.getText() === 'box' &&
+                ts.isStringLiteralLike(boxProp.initializer)
+              ))
+          )
+            return this.fail(
+              options,
+              'E_CALL',
+              'ResizeObserver observe takes { box: "content-box" | "border-box" | "device-pixel-content-box" }',
+            );
+          if (boxProp)
+            box = ((boxProp as ts.PropertyAssignment).initializer as ts.StringLiteral).text;
+        }
+        return {
+          op: 'builtin',
+          name: 'resize.observe',
+          args: [receiver, this.coerce(target, b, 'element'), { op: 'lit', value: box }],
+          type: 'void',
+        };
+      }
       // MutationObserver methods.
       if (
         kind === 'record' &&
@@ -3772,6 +3865,20 @@ export class Lowerer {
     }
     if (global === 'RegExp') return this.regexpNew(e, e.arguments ?? [], b);
     if (global === 'Date') return this.dateNew(e, b);
+    // new ResizeObserver(callback) (M6): an observer record holding the
+    // callback, registered in creation order (deliveries follow it).
+    if (this.hostName(e.expression) === 'ResizeObserver') {
+      const [cb] = e.arguments ?? [];
+      const type = this.types.of(e);
+      if (!cb || e.arguments!.length !== 1 || typeof type !== 'object' || !('record' in type))
+        return this.fail(e, 'E_NEW', 'new ResizeObserver takes a callback');
+      return {
+        op: 'builtin',
+        name: 'resize.new',
+        args: [this.coerce(cb, b, this.types.records[type.record].fields[0].type)],
+        type,
+      };
+    }
     // new MutationObserver(callback): a record holding the callback.
     if (this.hostName(e.expression) === 'MutationObserver') {
       const [cb] = e.arguments ?? [];

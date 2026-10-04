@@ -56,6 +56,8 @@ function layoutBuiltin(v) {
     if ((ns === 'element' && LAYOUT_ELEMENT.has(m)) || (ns === 'window' && LAYOUT_WINDOW.has(m))) return v.name;
     // MutationObservers are reported unsupported when they observe.
     if (v.name === 'mutation.observe') return v.name;
+    // ResizeObservers report sizes from layout (M6).
+    if (v.name === 'resize.observe') return v.name;
     // Scroll events come from layout (scrolling) too.
     if (m === 'listen' && v.args[0]?.value === 'scroll') return `${v.name} scroll`;
   }

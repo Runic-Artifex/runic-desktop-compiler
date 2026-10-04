@@ -184,3 +184,64 @@ test('conditions known at build time are folded (the branch never taken is not l
     },
   );
 });
+
+test('ResizeObserver lowers to observer records and resize built-ins', async () => {
+  const { ir } = await lowered('fixtures/resize-svelte');
+  const ro = ir.records.findIndex(r => r.name === 'ResizeObserver');
+  assert.ok(ro >= 0);
+  assert.equal(ir.records[ro].fields[0].name, 'callback');
+  const json = JSON.stringify(ir);
+  assert.match(json, /"name":"resize\.new"/);
+  assert.match(json, /"name":"resize\.observe","args":\[[^\]]*\{"op":"lit","value":"border-box"\}/);
+  assert.match(json, /"name":"resize\.unobserve"/);
+  assert.match(json, /"name":"resize\.disconnect"/);
+  // The interpreter has no layout: observing is reported there.
+  assert.throws(() => interpret(ir, []), /RunicLayoutError: resize\.observe/);
+});
+
+test('ResizeObserver options outside the model are rejected', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let box = $state<HTMLElement | null>(null);
+  $effect(() => {
+    if (!box) return;
+    const o = new ResizeObserver(() => {});
+    const which = Math.random() > 2 ? 'border-box' : 'content-box';
+    o.observe(box, { box: which });
+  });
+</script>
+
+<div bind:this={box}></div>
+`,
+    },
+    root =>
+      assert.rejects(
+        lowered(root),
+        failWith('E_CALL', 'App.svelte', /ResizeObserver observe takes/),
+      ),
+  );
+});
+
+test('a closure created in its variable’s initialiser sees the variable', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let same = $state('');
+  function run() {
+    const count: (n: number) => number = n => (n > 0 ? 1 + count(n - 1) : 0);
+    const o: { n: number; get: () => number } = { n: 2, get: () => o.n };
+    same = \`\${count(3)} \${o.get()}\`;
+  }
+</script>
+
+<button id="b" onclick={run}>{same}</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.equal(text(steps[1].state.dom[0]), '3 2');
+    },
+  );
+});
