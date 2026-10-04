@@ -430,9 +430,13 @@ function checkWithStylo(code, file) {
     if (d.parent?.type === 'rule') decls.push(d);
   });
   const at = (line, column) => ({ file, line, column });
+  const filterValues = customPropertyValues(css);
   for (const d of decls) {
     const ignored = IGNORED_PROPERTY.get(d.prop);
-    if (ignored)
+    // A filter that is the identity on every path the stylesheet allows
+    // (tw-animate-css's blur(var(--tw-enter-blur, 0)) when nothing sets the
+    // blur) draws nothing in Chromium either.
+    if (ignored && !identityFilter(d.value, filterValues))
       throw new Diagnostic(
         'E_CSS_PROPERTY',
         `Unsupported CSS declaration ${d.prop}: ${ignored}`,
@@ -607,5 +611,73 @@ function checkRules(css, file) {
           column: decl.source.start.column,
         },
       );
+  });
+}
+
+/**
+ * The values `value` can take with each `var()` replaced by its fallback or
+ * by a value the stylesheet gives the custom property; undefined beyond
+ * `limit` combinations.
+ */
+function expandVars(value, values, limit = 256, seen = new Set()) {
+  const nodes = valueParser(value).nodes;
+  // Replace the first var() (searching nested functions) by each choice.
+  let target;
+  const find = list => {
+    for (const n of list) {
+      if (target) return;
+      if (n.type === 'function' && n.value === 'var') target = n;
+      else if (n.nodes) find(n.nodes);
+    }
+  };
+  find(nodes);
+  if (!target) return [value];
+  const name = target.nodes[0]?.value;
+  const comma = target.nodes.findIndex(x => x.type === 'div' && x.value === ',');
+  const fallback =
+    comma >= 0 ? valueParser.stringify(target.nodes.slice(comma + 1)).trim() : undefined;
+  const choices = [];
+  // Any element may leave the property unset: the fallback (none: invalid).
+  choices.push(fallback ?? 'none');
+  if (!seen.has(name)) for (const v of values.get(name) ?? []) choices.push(v);
+  const out = [];
+  for (const choice of choices) {
+    const original = { ...target };
+    Object.assign(target, { type: 'word', value: choice, nodes: undefined });
+    const text = valueParser.stringify(nodes);
+    Object.assign(target, original);
+    const rest = expandVars(text, values, limit, new Set([...seen, name]));
+    if (!rest) return undefined;
+    out.push(...rest);
+    if (out.length > limit) return undefined;
+  }
+  return out;
+}
+
+const IDENTITY_FILTER = {
+  blur: ['0', '0px'],
+  brightness: ['1', '100%'],
+  contrast: ['1', '100%'],
+  grayscale: ['0', '0%'],
+  'hue-rotate': ['0', '0deg'],
+  invert: ['0', '0%'],
+  opacity: ['1', '100%'],
+  saturate: ['1', '100%'],
+  sepia: ['0', '0%'],
+};
+
+/** Whether every value `value` can take (see expandVars) is the identity filter. */
+function identityFilter(value, values) {
+  const all = expandVars(value, values);
+  if (!all) return false;
+  return all.every(v => {
+    const text = v.trim();
+    if (text === '' || text === 'none') return true;
+    return valueParser(text).nodes.every(
+      n =>
+        n.type === 'space' ||
+        (n.type === 'function' &&
+          IDENTITY_FILTER[n.value]?.includes(valueParser.stringify(n.nodes).trim())),
+    );
   });
 }

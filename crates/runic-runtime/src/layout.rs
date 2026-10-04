@@ -159,6 +159,57 @@ fn offset_rect(doc: &BaseDocument, node: NodeId) -> Option<(f64, f64, f64, f64)>
 /// The border box relative to the viewport. Blitz offsets a scroller by its
 /// own scroll offset, which only moves its content: that is added back.
 pub(crate) fn client_rect(doc: &BaseDocument, node: NodeId) -> Option<blitz_dom::BoundingRect> {
+    let mut r = untransformed_rect(doc, node)?;
+    // CSS transforms of the node and its ancestors: the bounding box of the
+    // transformed border box, as getBoundingClientRect reports it. Each
+    // transform applies about its own element's untransformed box
+    // (`Node::transform` is relative to the border box, its translation in
+    // device pixels), innermost first.
+    let scale = doc.viewport().scale_f64();
+    let mut corners = [
+        (r.x, r.y),
+        (r.x + r.width, r.y),
+        (r.x, r.y + r.height),
+        (r.x + r.width, r.y + r.height),
+    ];
+    let mut transformed = false;
+    let mut next = Some(node);
+    while let Some(id) = next {
+        let Some(n) = doc.get_node(id) else { break };
+        if let Some(t) = n.transform().as_deref() {
+            if let Some(origin) = untransformed_rect(doc, id) {
+                for (x, y) in corners.iter_mut() {
+                    let p =
+                        *t * kurbo::Point::new((*x - origin.x) * scale, (*y - origin.y) * scale);
+                    *x = p.x / scale + origin.x;
+                    *y = p.y / scale + origin.y;
+                }
+                transformed = true;
+            }
+        }
+        next = n.parent;
+    }
+    if transformed {
+        let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
+        let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for (x, y) in corners {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+        r.x = x0;
+        r.y = y0;
+        r.width = x1 - x0;
+        r.height = y1 - y0;
+    }
+    Some(r)
+}
+
+/// The border box relative to the viewport without CSS transforms (Blitz's
+/// bounding rect, corrected for the node's own scroll offset, which only
+/// moves its content).
+fn untransformed_rect(doc: &BaseDocument, node: NodeId) -> Option<blitz_dom::BoundingRect> {
     let mut r = doc.get_client_bounding_rect(node)?;
     if !is_root(doc, node) {
         if let Some(n) = doc.get_node(node) {

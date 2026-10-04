@@ -156,6 +156,14 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   await check('p { color: red }\np { field-sizing: content }', 'E_CSS_PROPERTY', 2);
   await check('p { -webkit-line-clamp: 2 }', 'E_CSS_PROPERTY', 1);
   await check('p { filter: blur(2px) }', 'E_CSS_PROPERTY', 1);
+  // Identity filters on every path the stylesheet allows draw nothing in Chromium either.
+  await check('p { filter: blur(var(--tw-enter-blur, 0)); }\nb { filter: none }', undefined);
+  await check(
+    'p { filter: blur(var(--tw-enter-blur, 0)) }\n.in { --tw-enter-blur: 4px }',
+    'E_CSS_PROPERTY',
+    1,
+  );
+  await check('p { filter: brightness(var(--b, 1)) blur(0px) }\n.x { --b: 100% }', undefined);
   await check('p { backdrop-filter: blur(2px) }', 'E_CSS_PROPERTY', 1);
 });
 

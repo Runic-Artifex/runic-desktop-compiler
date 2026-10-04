@@ -2,6 +2,7 @@
   let count = $state(0);
   let selected = $state('one');
   let agree = $state(false);
+  let shown = $state(false);
 </script>
 
 <main class="mx-auto max-w-xl p-6 font-sans text-slate-800">
@@ -22,4 +23,8 @@
     <span class="text-sm">Agree</span>
   </label>
   <p class="mt-4 w-48 truncate text-sm text-slate-500">A long line of text that does not fit the box</p>
+  <button id="show" class="mt-4 rounded-md border border-slate-300 px-3 py-1.5 text-sm" onclick={() => (shown = !shown)}>Toggle panel</button>
+  {#if shown}
+    <div id="panel" class="animate-in fade-in-0 zoom-in-95 mt-2 rounded-md border border-slate-200 bg-white p-4 text-sm shadow-md">An animated panel</div>
+  {/if}
 </main>
