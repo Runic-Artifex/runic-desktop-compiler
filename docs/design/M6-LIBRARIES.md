@@ -98,7 +98,7 @@ Steps 0 to 2 can run in parallel. Steps 3 to 6 share the language layer and IR, 
    - presence with `getAnimations`.
    
    `ResizeObserver` comes from M5.
-8. **SvelteKit SPA subset:**
+8. **SvelteKit SPA subset** ([research](../research/M6-SVELTEKIT.md)): a native router over a route manifest built with Kit's own route-tree code; layouts nest and stay mounted; universal loads run natively; server loads and prerendered endpoints become build-time data tables; per-route lazy initialisation and per-route-chunk code generation (whole-site builds are M7); the shadcn-svelte site's build-time generators (velite, the registry script) and markdown preprocessors (mdsx) run as explicit, hash-recorded build steps. The editor needs only layout and page composition, the hash router and `<svelte:head>`. Also: Svelte 5.54.0 and Vite 8.1.5 (the docs' pins) join the checked versions. Items:
    - `adapter-static` routes and layouts;
    - the `$app`/`$lib` modules the editor uses;
    - `import.meta.env.MODE`;
