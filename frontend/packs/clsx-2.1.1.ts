@@ -5,7 +5,8 @@
 //
 //   toVal(x): strings and numbers as String(x); arrays: the non-empty toVal of
 //   each truthy element, joined; other objects: the keys (for-in order) whose
-//   values are truthy, joined; anything else ''.
+//   values are truthy, each after a space once the string is non-empty (so a
+//   truthy '' key adds a trailing space); anything else ''.
 //   clsx(...a): the non-empty toVal of each truthy argument, joined.
 //
 // Strings are not trimmed or split, so 'a ' and 'b' give 'a  b'. Each call
