@@ -73,7 +73,7 @@ dependencies = [
 [[package]]
 name = "anyrender"
 version = "0.14.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=81b105821711f9c9ba7fb0f4d617dc25ee314f13#81b105821711f9c9ba7fb0f4d617dc25ee314f13"
 dependencies = [
  "kurbo",
  "peniko",
@@ -84,7 +84,7 @@ dependencies = [
 [[package]]
 name = "anyrender_svg"
 version = "0.15.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=81b105821711f9c9ba7fb0f4d617dc25ee314f13#81b105821711f9c9ba7fb0f4d617dc25ee314f13"
 dependencies = [
  "anyrender",
  "image",
@@ -96,7 +96,7 @@ dependencies = [
 [[package]]
 name = "anyrender_vello"
 version = "0.15.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=81b105821711f9c9ba7fb0f4d617dc25ee314f13#81b105821711f9c9ba7fb0f4d617dc25ee314f13"
 dependencies = [
  "anyrender",
  "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -114,7 +114,7 @@ dependencies = [
 [[package]]
 name = "anyrender_vello_cpu"
 version = "0.18.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=81b105821711f9c9ba7fb0f4d617dc25ee314f13#81b105821711f9c9ba7fb0f4d617dc25ee314f13"
 dependencies = [
  "anyrender",
  "bytemuck",
@@ -1112,7 +1112,7 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.4.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3#8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3"
+source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=914d01463d8d07a5b22d600ff138aaed1455c0df#914d01463d8d07a5b22d600ff138aaed1455c0df"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -3029,7 +3029,7 @@ dependencies = [
 [[package]]
 name = "softbuffer_window_renderer"
 version = "0.9.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=81b105821711f9c9ba7fb0f4d617dc25ee314f13#81b105821711f9c9ba7fb0f4d617dc25ee314f13"
 dependencies = [
  "anyrender",
  "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -3701,7 +3701,7 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.3.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3#8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3"
+source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=914d01463d8d07a5b22d600ff138aaed1455c0df#914d01463d8d07a5b22d600ff138aaed1455c0df"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -3716,7 +3716,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.3.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3#8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3"
+source = "git+file:///home/viktor/Development/RunicArtifex/vello?rev=914d01463d8d07a5b22d600ff138aaed1455c0df#914d01463d8d07a5b22d600ff138aaed1455c0df"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -4177,7 +4177,7 @@ dependencies = [
 [[package]]
 name = "wgpu_context"
 version = "0.10.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=d585cd1a27d80f2b6018a0ce6f609364b22ee6aa#d585cd1a27d80f2b6018a0ce6f609364b22ee6aa"
+source = "git+file:///home/viktor/Development/RunicArtifex/anyrender?rev=81b105821711f9c9ba7fb0f4d617dc25ee314f13#81b105821711f9c9ba7fb0f4d617dc25ee314f13"
 dependencies = [
  "futures-intrusive",
  "wgpu",

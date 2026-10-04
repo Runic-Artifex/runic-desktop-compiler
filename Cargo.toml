@@ -51,15 +51,15 @@ runic-css = { path = "crates/runic-css" }
 # lists and backdrop filters. Every crate of each repository in the graph is patched,
 # so that crates.io and git copies are never mixed.
 [patch.crates-io]
-vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3" }
-vello_common = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3" }
-glifo = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "8c7a8b6e9b789a0c0fa5a179c12ffa9dff7d20a3" }
-anyrender = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
-anyrender_vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
-anyrender_vello = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
-anyrender_svg = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
-softbuffer_window_renderer = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
-wgpu_context = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "d585cd1a27d80f2b6018a0ce6f609364b22ee6aa" }
+vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "914d01463d8d07a5b22d600ff138aaed1455c0df" }
+vello_common = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "914d01463d8d07a5b22d600ff138aaed1455c0df" }
+glifo = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "914d01463d8d07a5b22d600ff138aaed1455c0df" }
+anyrender = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "81b105821711f9c9ba7fb0f4d617dc25ee314f13" }
+anyrender_vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "81b105821711f9c9ba7fb0f4d617dc25ee314f13" }
+anyrender_vello = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "81b105821711f9c9ba7fb0f4d617dc25ee314f13" }
+anyrender_svg = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "81b105821711f9c9ba7fb0f4d617dc25ee314f13" }
+softbuffer_window_renderer = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "81b105821711f9c9ba7fb0f4d617dc25ee314f13" }
+wgpu_context = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "81b105821711f9c9ba7fb0f4d617dc25ee314f13" }
 
 [profile.dev]
 debug = 0
