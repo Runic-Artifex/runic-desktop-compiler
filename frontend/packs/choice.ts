@@ -21,7 +21,10 @@
 //   union of string literals, booleans, null and undefined: the value is read
 //   once and compared with each member. A value outside its declared type
 //   (possible only through unsound casts) throws instead of selecting a
-//   wrong result.
+//   wrong result;
+// - a component prop with a domain (frontend/domains.ts): the values its
+//   instantiation sites pass, compared the same way; a call reading props
+//   whose values depend on the site is enumerated once per site.
 // Anything else (a plain `string`, numbers, objects) is open and rejected
 // with E_PACK; pack modules explain the cheapest exact alternative.
 import ts from 'typescript';
@@ -462,14 +465,23 @@ export function valueChoice(ctx: Ctx, e: ts.Expression): Choice {
     });
   }
   if (ts.isIdentifier(node)) {
-    const rest = restOf(lower, lower.checker.getSymbolAtLocation(node));
+    const sym = lower.checker.getSymbolAtLocation(node);
+    const rest = restOf(lower, sym);
     if (rest) return argsChoice(ctx, node, rest);
+    const members = sym && lower.domains?.values(sym);
+    if (members) return domainChoice(ctx, node, members, () => lower.expr(node, b));
   }
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
     const binding = lower.binding(node.expression);
     if (binding?.kind === 'pack' && binding.choice) return binding.choice(node, b, lower);
   }
-  return typedChoice(ctx, node, lower.checker.getTypeAtLocation(node), () => lower.expr(node, b));
+  return typedChoice(
+    ctx,
+    node,
+    lower.checker.getTypeAtLocation(node),
+    () => lower.expr(node, b),
+    ts.isIdentifier(node) ? lower.checker.getSymbolAtLocation(node) : undefined,
+  );
 }
 
 /** `{ x }`: the value of the variable x. */
@@ -482,20 +494,49 @@ function shorthandChoice(ctx: Ctx, p: ts.ShorthandPropertyAssignment): Choice {
   if (constant) return leaf(constant.value);
   const binding = sym && lower.bindings.get(sym);
   if (!binding) return lower.fail(p, 'E_UNRESOLVED', `${p.name.text} is not a supported binding`);
-  return typedChoice(ctx, p.name, lower.checker.getTypeOfSymbolAtLocation(sym, p.name), () =>
-    lower.bindingExpr(binding, p.name, b, lower.types.of(p.name)),
+  const read = () => lower.bindingExpr(binding, p.name, b, lower.types.of(p.name));
+  const members = lower.domains?.values(sym);
+  if (members) return domainChoice(ctx, p.name, members, read);
+  return typedChoice(ctx, p.name, lower.checker.getTypeOfSymbolAtLocation(sym, p.name), read, sym);
+}
+
+/**
+ * A prop that takes a finite set of values at its instantiation sites
+ * (frontend/domains.ts): read once and compared with each value.
+ */
+function domainChoice(ctx: Ctx, node: ts.Node, members: unknown[], read: () => Expr): Choice {
+  const scalar = members.every(
+    m => m === undefined || m === null || typeof m === 'string' || typeof m === 'boolean',
   );
+  if (!scalar)
+    fail(
+      ctx,
+      node,
+      `${node.getText()} takes values other than strings, booleans, null and undefined at its instantiation sites (${members.map(m => JSON.stringify(m) ?? 'undefined').join(', ')})`,
+    );
+  const v = read();
+  const t = ctx.lower.irType(v, ctx.b);
+  if (t === 'boolean' && members.length === 2 && members.every(m => typeof m === 'boolean'))
+    return { kind: 'test', test: v, then: leaf(true), else: leaf(false) };
+  return switchOn(ctx, node, v, t, members);
 }
 
 /** A value read once and compared with the members of its finite type. */
-function typedChoice(ctx: Ctx, node: ts.Expression, type: ts.Type, read: () => Expr): Choice {
+function typedChoice(
+  ctx: Ctx,
+  node: ts.Expression,
+  type: ts.Type,
+  read: () => Expr,
+  sym?: ts.Symbol,
+): Choice {
   const { lower, b } = ctx;
   const members = domain(type);
+  const why = sym && lower.domains?.explain(sym);
   if (!members)
     return fail(
       ctx,
       node,
-      `a value of type ${lower.checker.typeToString(type)} is not covered: the arguments of calls evaluated at build time must be compile-time constants or range over string literals, booleans, null and undefined (an open string, such as a class prop passed through from a parent, has no finite set of values)`,
+      `a value of type ${lower.checker.typeToString(type)} is not covered: the arguments of calls evaluated at build time must be compile-time constants or range over string literals, booleans, null and undefined${why ? `, and ${why}` : ' (an open string has no finite set of values)'}`,
     );
   if (members.every(m => typeof m === 'boolean') && members.length === 2) {
     const v = read();
@@ -527,6 +568,35 @@ export function evaluatedChoice(
   node: ts.CallExpression,
   evaluate: (args: unknown[]) => unknown,
 ): Choice {
+  // Props whose values depend on the instantiation site: one choice per
+  // site, each over that site's values (frontend/domains.ts), selected by
+  // the instance's site index, so that the combinations add up over the
+  // sites instead of multiplying across all of them.
+  const domains = ctx.lower.domains;
+  const split = domains && !domains.site ? siteSplit(ctx.lower, node) : undefined;
+  if (split !== undefined) {
+    const read = domains!.siteRead(split, ctx.b);
+    let out: Choice | undefined;
+    for (let site = domains!.sites(split) - 1; site >= 0; site--) {
+      domains!.site = { component: split, index: site };
+      let body: Choice;
+      try {
+        body = evaluatedChoice(ctx, node, evaluate);
+      } finally {
+        domains!.site = undefined;
+      }
+      out =
+        out === undefined
+          ? body
+          : {
+              kind: 'test',
+              test: { op: 'eq', left: read, right: { op: 'lit', value: site } },
+              then: body,
+              else: out,
+            };
+    }
+    return bounded(ctx, node, out!);
+  }
   return graft(argsChoice(ctx, node, node.arguments), vs => {
     try {
       return leaf(evaluate(vs as unknown[]));
@@ -547,4 +617,227 @@ export function stringCall(ctx: Ctx, node: ts.CallExpression, c: Choice): Expr {
           `the call can return ${v === undefined ? 'undefined' : typeof v}, not a string`,
         ),
   );
+}
+
+/**
+ * The component whose site-dependent props (frontend/domains.ts) `node`
+ * reads, including through the arguments an inlined wrapper's rest
+ * parameter stands for; undefined when it reads none or the component has
+ * one site.
+ */
+function siteSplit(lower: Lowerer, node: ts.Node): number | undefined {
+  const domains = lower.domains!;
+  let found: number | undefined;
+  const visit = (n: ts.Node) => {
+    if (found !== undefined) return;
+    if (ts.isIdentifier(n)) {
+      const sym =
+        ts.isShorthandPropertyAssignment(n.parent) && n.parent.name === n
+          ? lower.checker.getShorthandAssignmentValueSymbol(n.parent)
+          : lower.checker.getSymbolAtLocation(n);
+      const rest = restOf(lower, sym);
+      if (rest) rest.forEach(visit);
+      const component = sym && domains.componentOf(sym);
+      if (component !== undefined && domains.sites(component) > 1) found = component;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** Context of a value-set analysis: no IR is built. */
+export interface SetCtx {
+  lower: Lowerer;
+  label: string;
+}
+
+/** A key identifying a JavaScript value of a value set (structural). */
+export function valueKey(v: unknown): string {
+  if (v === undefined) return 'u';
+  if (typeof v === 'number' && Object.is(v, -0)) return 'n-0';
+  if (Array.isArray(v)) return `[${v.map(valueKey).join(',')}]`;
+  if (v && typeof v === 'object')
+    return `{${Object.entries(v)
+      .map(([k, x]) => `${JSON.stringify(k)}:${valueKey(x)}`)
+      .join(',')}}`;
+  return `${typeof v}:${String(v)}`;
+}
+
+/** The distinct values of `values`, in order of first occurrence. */
+export function distinct(values: unknown[]): unknown[] {
+  const seen = new Map<string, unknown>();
+  for (const v of values) {
+    const k = valueKey(v);
+    if (!seen.has(k)) seen.set(k, v);
+  }
+  return [...seen.values()];
+}
+
+/** Every combination of one value of each set, in order. */
+function product(sets: unknown[][]): unknown[][] | undefined {
+  let acc: unknown[][] = [[]];
+  for (const set of sets) {
+    const next: unknown[][] = [];
+    for (const done of acc) for (const v of set) next.push([...done, v]);
+    if (next.length > LIMIT) return undefined;
+    acc = next;
+  }
+  return acc;
+}
+
+/**
+ * The values `e` can take, without building IR: the same syntax and types
+ * as `valueChoice`, with both branches of a test (a superset where tests
+ * correlate), for the analysis of what props receive at their
+ * instantiation sites (frontend/domains.ts). Undefined when `e` is open
+ * (or takes more than LIMIT values).
+ */
+export function valueSet(ctx: SetCtx, e: ts.Expression): unknown[] | undefined {
+  const { lower } = ctx;
+  const node = skip(e);
+  const K = ts.SyntaxKind;
+  const constant = staticValue(lower, node);
+  if (constant) return [constant.value];
+  if (ts.isConditionalExpression(node)) {
+    const a = valueSet(ctx, node.whenTrue);
+    const b = a && valueSet(ctx, node.whenFalse);
+    return b && distinct([...a!, ...b]);
+  }
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind;
+    if (
+      op === K.AmpersandAmpersandToken ||
+      op === K.BarBarToken ||
+      op === K.QuestionQuestionToken
+    ) {
+      const left = valueSet(ctx, node.left);
+      if (!left) return undefined;
+      const out: unknown[] = [];
+      for (const v of left) {
+        const takeRight =
+          op === K.AmpersandAmpersandToken ? !!v : op === K.BarBarToken ? !v : v == null;
+        if (!takeRight) out.push(v);
+        else {
+          const right = valueSet(ctx, node.right);
+          if (!right) return undefined;
+          out.push(...right);
+        }
+      }
+      return distinct(out);
+    }
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    const sets: unknown[][] = [];
+    for (const el of node.elements) {
+      if (ts.isSpreadElement(el) || ts.isOmittedExpression(el)) return undefined;
+      const s = valueSet(ctx, el);
+      if (!s) return undefined;
+      sets.push(s);
+    }
+    return product(sets);
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    const keys: string[] = [];
+    const sets: unknown[][] = [];
+    for (const p of node.properties) {
+      let s: unknown[] | undefined;
+      if (ts.isShorthandPropertyAssignment(p) && !p.objectAssignmentInitializer) {
+        keys.push(p.name.text);
+        s = identifierSet(ctx, p.name, lower.checker.getShorthandAssignmentValueSymbol(p));
+      } else if (ts.isPropertyAssignment(p)) {
+        const key = staticKey(p.name);
+        if (key === undefined || key === '__proto__') return undefined;
+        keys.push(key);
+        s = valueSet(ctx, p.initializer);
+      }
+      if (!s) return undefined;
+      sets.push(s);
+    }
+    return product(sets)?.map(vs => {
+      const o: Record<string, unknown> = {};
+      keys.forEach((k, i) =>
+        Object.defineProperty(o, k, {
+          value: vs[i],
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        }),
+      );
+      return o;
+    });
+  }
+  if (ts.isIdentifier(node))
+    return identifierSet(ctx, node, lower.checker.getSymbolAtLocation(node));
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+    const binding = lower.binding(node.expression);
+    if (binding?.kind === 'pack') return binding.values?.(node, lower);
+  }
+  return typedSet(lower.checker.getTypeAtLocation(node));
+}
+
+function identifierSet(
+  ctx: SetCtx,
+  node: ts.Identifier,
+  sym: ts.Symbol | undefined,
+): unknown[] | undefined {
+  const { lower } = ctx;
+  const rest = restOf(lower, sym);
+  if (rest) return argsSet(ctx, rest);
+  const members = sym && lower.domains?.values(sym);
+  if (members) return members;
+  const constant = staticValue(lower, node);
+  if (constant) return [constant.value];
+  return typedSet(
+    sym
+      ? lower.checker.getTypeOfSymbolAtLocation(sym, node)
+      : lower.checker.getTypeAtLocation(node),
+  );
+}
+
+function typedSet(type: ts.Type): unknown[] | undefined {
+  const members = domain(type);
+  return members && distinct(members);
+}
+
+/** An argument list, as the set of the arrays of its arguments' values. */
+function argsSet(ctx: SetCtx, args: readonly ts.Expression[]): unknown[][] | undefined {
+  const sets: unknown[][] = [];
+  for (const a of args) {
+    if (ts.isSpreadElement(a)) return undefined;
+    const s = valueSet(ctx, a);
+    if (!s) return undefined;
+    sets.push(s);
+  }
+  return product(sets);
+}
+
+/** The values of a call evaluated at build time over its arguments' value sets. */
+export function evaluatedValues(
+  ctx: SetCtx,
+  node: ts.CallExpression,
+  evaluate: (args: unknown[]) => unknown,
+): unknown[] | undefined {
+  const combos = argsSet(ctx, node.arguments);
+  if (!combos) return undefined;
+  const out: unknown[] = [];
+  for (const args of combos) {
+    try {
+      out.push(evaluate(args));
+    } catch {
+      return undefined;
+    }
+  }
+  return distinct(out);
+}
+
+/** The values of an inlined wrapper's call (its rest parameter standing for the arguments). */
+export function wrapperValues(
+  ctx: SetCtx,
+  rest: ts.Symbol,
+  args: readonly ts.Expression[],
+  expr: ts.Expression,
+): unknown[] | undefined {
+  return withRest(ctx.lower, rest, args, () => valueSet(ctx, expr));
 }

@@ -23,7 +23,9 @@ import { EVENT_KINDS } from '../ir.ts';
 import { FnBuilder, Lowerer, remapLocals, type HandlerEvent, type Hooks } from '../language.ts';
 import { createProgram, RUNES } from '../program.ts';
 import { TypeMapper } from '../types.ts';
-import { lowerModules } from '../modules.ts';
+import { lowerModules, ModuleResolver } from '../modules.ts';
+import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domains.ts';
+import { valueSet } from '../packs/choice.ts';
 import { arrayElement } from '../irtype.ts';
 import {
   bindPackImport,
@@ -45,6 +47,7 @@ type SNode = any;
 const SVG_TAGS = ['svg', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'rect'];
 
 const TAGS = new Set([
+  'a',
   'select',
   'option',
   'textarea',
@@ -126,19 +129,26 @@ interface Unit {
   index: number;
   virtual: string;
   synthetic: string;
-  /** Script length and its offset in the original file. */
+  /** Instance script length and its offset in the original file. */
   scriptLength: number;
+  scriptStart: number;
+  /** `<script module>` length and offset in the original file (0, 0 without one). */
+  moduleLength: number;
+  moduleStart: number;
+  /** Where the instance script starts in the virtual module (after the module script). */
+  instanceSynth: number;
   /** End of the script statements in the virtual module (the script and synthesized code). */
   statementsEnd: number;
-  scriptStart: number;
-  /** Synthetic ranges copied from the original (template expressions, patterns). */
+  /** Synthetic ranges copied from the original (scripts, template expressions, patterns). */
   segments: { synth: number; orig: number; length: number }[];
   /** Synthetic start of each template expression, each pattern and each index. */
   starts: Map<SNode, number>;
-  /** Child components by local name. */
+  /** Child components by tag name (`Button`, `Card.Root`). */
   children: Map<string, string>;
-  /** Components supplied by mapping packs (expanded in place), by local name. */
+  /** Components supplied by mapping packs (expanded in place), by tag name. */
   packs: Map<string, { pack: Pack; component: PackComponent }>;
+  /** Instantiated from the root component (lowered); other components only provide modules. */
+  reached: boolean;
 }
 
 export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
@@ -207,10 +217,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       bootstrap ? at(entry, bootstrap) : undefined,
     );
 
-  // --- Components: parse, then build each virtual module (children first) ---
+  // --- Components: every collected component file is parsed. Those the
+  // root instantiates (children first) are lowered; the others only provide
+  // their `<script module>` exports (a barrel may import components the
+  // program never renders).
   const units = new Map<string, Unit>();
   const order: Unit[] = [];
-  const parse = (file: string, from?: Source): Unit => {
+  const walkTemplate = (node: unknown, f: (n: SNode) => void, seen = new Set<unknown>()) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const x of node) walkTemplate(x, f, seen);
+      return;
+    }
+    const n = node as SNode;
+    if (typeof n.type === 'string') f(n);
+    for (const [k, v] of Object.entries(n)) if (k !== 'parent') walkTemplate(v, f, seen);
+  };
+  const unitOfFile = (file: string, from?: Source): Unit => {
+    const known = units.get(file);
+    if (known) return known;
     const original = graph.modules.get(file)?.code;
     if (original === undefined)
       return fail('E_IMPORT', `Component ${rel(file)} was not collected`, from);
@@ -226,52 +252,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         column: (err.start?.column ?? 0) + 1,
       });
     }
-    const loc = (n: SNode) => locate(original, n.start ?? 0, fileRel);
-    if (ast.module)
-      fail('E_TEMPLATE', '<script module> is planned for a later milestone', loc(ast.module));
-    if (ast.css)
-      fail(
-        'E_TEMPLATE',
-        'Component styles (scoped CSS) are planned for M6; import local CSS instead',
-        loc(ast.css),
-      );
-    if (ast.options) fail('E_TEMPLATE', '<svelte:options> is unsupported', loc(ast.options));
-    const script = ast.instance
-      ? original.slice(ast.instance.content.start, ast.instance.content.end)
-      : '';
-    // Child components imported by the instance script.
-    const children = new Map<string, string>();
-    const packs = new Map<string, { pack: Pack; component: PackComponent }>();
-    const scriptSf = ts.createSourceFile(file + '.ts', script, ts.ScriptTarget.Latest, true);
-    for (const stmt of scriptSf.statements) {
-      if (!ts.isImportDeclaration(stmt)) continue;
-      const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
-      // Components of mapping packs (default imports of a package module).
-      const pkg = graph.modules.get(file)!.imports.find(i => i.specifier === spec)?.package;
-      const own = stmt.importClause?.name;
-      const framework = spec === 'svelte' || spec.startsWith('svelte/');
-      if (pkg && own && !framework && !stmt.importClause!.isTypeOnly) {
-        const at = locate(original, ast.instance.content.start + own.getStart(scriptSf), fileRel);
-        try {
-          const { pack, value } = packExport(pkg, 'default');
-          if (value.kind === 'component') packs.set(own.text, { pack, component: value });
-        } catch (e) {
-          if (e instanceof PackError) fail(e.code, e.message, at);
-          throw e;
-        }
-      }
-      if (!spec.endsWith('.svelte')) continue;
-      const edge = graph.modules.get(file)!.imports.find(i => i.specifier === spec);
-      const name = stmt.importClause?.name?.text;
-      if (!edge || !name || stmt.importClause?.namedBindings)
-        fail(
-          'E_IMPORT',
-          'Import components as `import Name from "./Name.svelte"`',
-          locate(original, ast.instance.content.start + stmt.getStart(scriptSf), fileRel),
-        );
-      children.set(name!, edge!.resolved);
-    }
-    return {
+    const u: Unit = {
       file,
       rel: fileRel,
       original,
@@ -279,27 +260,90 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       index: -1,
       virtual: file + '.__runic.ts',
       synthetic: '',
-      scriptLength: script.length,
-      statementsEnd: script.length,
+      scriptLength: ast.instance ? ast.instance.content.end - ast.instance.content.start : 0,
       scriptStart: ast.instance ? ast.instance.content.start : 0,
+      moduleLength: ast.module ? ast.module.content.end - ast.module.content.start : 0,
+      moduleStart: ast.module ? ast.module.content.start : 0,
+      instanceSynth: 0,
+      statementsEnd: 0,
       segments: [],
       starts: new Map(),
-      children,
-      packs,
+      children: new Map(),
+      packs: new Map(),
+      reached: false,
     };
+    units.set(file, u);
+    return u;
+  };
+  // Imports and re-exports, followed syntactically (frontend/modules.ts).
+  const resolver = new ModuleResolver(graph, file => {
+    if (!file.endsWith('.svelte') || !graph.modules.has(file)) return undefined;
+    const u = unitOfFile(file);
+    return [u.ast.module, u.ast.instance]
+      .filter(Boolean)
+      .map((s: SNode) =>
+        ts.createSourceFile(
+          file + '.ts',
+          u.original.slice(s.content.start, s.content.end),
+          ts.ScriptTarget.Latest,
+          true,
+        ),
+      );
+  });
+  /** A reached component: its checks, and the components its template instantiates. */
+  const reach = (u: Unit) => {
+    const loc = (n: SNode) => locate(u.original, n.start ?? 0, u.rel);
+    const { ast } = u;
+    if (ast.css)
+      fail(
+        'E_TEMPLATE',
+        'Component styles (scoped CSS) are planned for M6; import local CSS instead',
+        loc(ast.css),
+      );
+    if (ast.options) fail('E_TEMPLATE', '<svelte:options> is unsupported', loc(ast.options));
+    // `<Name>` and `<Namespace.Name>` tags, through imports, barrels and
+    // namespace imports; default imports of a package are pack components.
+    walkTemplate(ast.fragment, n => {
+      if (n.type !== 'Component' || u.children.has(n.name) || u.packs.has(n.name)) return;
+      const ref = resolver.dotted(u.file, n.name);
+      if (ref?.kind === 'component') u.children.set(n.name, ref.file);
+      else if (ref?.kind === 'package' && ref.edge.package) {
+        try {
+          const { pack, value } = packExport(ref.edge.package, ref.name);
+          if (value.kind !== 'component')
+            fail('E_TEMPLATE', `${n.name} is not a component`, loc(n));
+          u.packs.set(n.name, { pack, component: value as PackComponent });
+        } catch (e) {
+          if (e instanceof PackError) fail(e.code, e.message, loc(n));
+          throw e;
+        }
+      } else fail('E_TEMPLATE', `${n.name} is not an imported component`, loc(n));
+    });
   };
   const visit = (file: string, stack: string[], from?: Source) => {
     if (stack.includes(file))
       fail('E_COMPONENT', 'Recursive components are planned for a later milestone', from);
-    if (units.has(file)) return;
-    const u = parse(file, from);
-    units.set(file, u);
-    for (const [, child] of u.children)
-      visit(child, [...stack, file], { file: u.rel, line: 1, column: 1 });
+    const u = unitOfFile(file, from);
+    if (u.reached) return;
+    u.reached = true;
+    reach(u);
+    for (const [tag, child] of u.children) {
+      const n = u.ast.fragment && findComponent(u.ast.fragment, tag);
+      visit(child, [...stack, file], n ? locate(u.original, n.start, u.rel) : undefined);
+    }
     u.index = order.length;
     order.push(u);
   };
+  const findComponent = (fragment: SNode, tag: string): SNode | undefined => {
+    let found: SNode | undefined;
+    walkTemplate(fragment, n => {
+      if (!found && n.type === 'Component' && n.name === tag) found = n;
+    });
+    return found;
+  };
   visit(rootFile!, []);
+  for (const id of graph.modules.keys())
+    if (id.endsWith('.svelte') && id.startsWith(root + path.sep)) unitOfFile(id);
 
   // Rest props (docs/design/M5-PLATFORM.md): each component's declared prop
   // names and rest binding, and the names its rest bag may hold, gathered
@@ -334,21 +378,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const restKeys = new Map<string, Set<string>>();
   for (const [file, d] of decls) if (d.rest) restKeys.set(file, new Set());
   const forwards: { from: string; to: string; at: Source }[] = [];
-  const walkTemplate = (node: unknown, f: (n: SNode) => void, seen = new Set<unknown>()) => {
-    if (!node || typeof node !== 'object' || seen.has(node)) return;
-    seen.add(node);
-    if (Array.isArray(node)) {
-      for (const x of node) walkTemplate(x, f, seen);
-      return;
-    }
-    const n = node as SNode;
-    if (typeof n.type === 'string') f(n);
-    for (const [k, v] of Object.entries(n)) if (k !== 'parent') walkTemplate(v, f, seen);
-  };
   for (const u of order) {
     const rest = decls.get(u.file)!.rest;
     walkTemplate(u.ast.fragment, n => {
-      if (n.type !== 'Component' && n.type !== 'RegularElement') return;
+      if (n.type !== 'Component' && n.type !== 'RegularElement' && n.type !== 'SvelteElement')
+        return;
       for (const a of n.attributes ?? []) {
         if (a.type === 'SpreadAttribute') {
           if (!rest || a.expression.type !== 'Identifier' || a.expression.name !== rest)
@@ -394,6 +428,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         );
 
   // The props type each component exports to its parents' virtual modules.
+  /** The local name of a child's props type in a virtual module (`Card.Root` → `__RunicProps_Card$Root`). */
+  const propsAlias = (tag: string) => `__RunicProps_${tag.replace(/\./g, '$')}`;
   const propsType = (u: Unit): string => {
     const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
     const sf = ts.createSourceFile(u.file + '.ts', script, ts.ScriptTarget.Latest, true);
@@ -416,14 +452,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     return 'Record<string, never>';
   };
 
-  // Virtual modules: the script, then the template as typed statements.
-  for (const u of order) {
-    const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
-    let s = script + '\n';
+  // Virtual modules: the module script, the instance script, then the
+  // template as typed statements. Components that are not reached only
+  // provide their scripts' declarations and types.
+  for (const u of units.values()) {
+    let s = '';
     const copy = (start: number, end: number) => {
       u.segments.push({ synth: s.length, orig: start, length: end - start });
       s += u.original.slice(start, end);
     };
+    copy(u.moduleStart, u.moduleStart + u.moduleLength);
+    s += '\n';
+    u.instanceSynth = s.length;
+    copy(u.scriptStart, u.scriptStart + u.scriptLength);
+    s += '\n';
+    if (!u.reached) {
+      u.statementsEnd = s.length;
+      s += `export type __RunicProps = ${propsType(u)};\n`;
+      u.synthetic = s;
+      continue;
+    }
     // <svelte:window> and <svelte:document> listeners: added when the
     // component mounts and removed when it unmounts, as script code would.
     let hosts = 0;
@@ -513,7 +561,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               locate(u.original, n.start, u.rel),
             );
           // Props are checked against the child's props type (typing inline callbacks).
-          s += `((__p: __RunicProps_${n.name}) => 0)({\n`;
+          s += `((__p: ${propsAlias(n.name)}) => 0)({\n`;
           const childDecl = decls.get(u.children.get(n.name)!)!;
           for (const a of n.attributes) {
             if (a.type === 'Attribute' && a.value !== true && !Array.isArray(a.value)) {
@@ -574,25 +622,38 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         else if (n.type === 'RegularElement') {
           attrs(n.attributes);
           fragment(n.fragment);
+        } else if (n.type === 'SvelteElement') {
+          expr(n.tag);
+          attrs(n.attributes);
+          fragment(n.fragment);
         }
       }
     };
     fragment(u.ast.fragment);
     s += '}\n';
     for (const [name, file] of u.children)
-      s += `import type { __RunicProps as __RunicProps_${name} } from ${JSON.stringify(units.get(file)!.virtual)};\n`;
+      s += `import type { __RunicProps as ${propsAlias(name)} } from ${JSON.stringify(units.get(file)!.virtual)};\n`;
     s += `export type __RunicProps = ${propsType(u)};\n`;
     u.synthetic = s;
   }
   const files = new Map<string, string>();
-  for (const u of order) files.set(u.virtual, u.synthetic);
+  for (const u of units.values()) files.set(u.virtual, u.synthetic);
   for (const [id, m] of graph.modules)
     if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep)) files.set(id, m.code);
-  const program = createProgram(files, [RUNES]);
+  // Imports resolve as the collector resolved them (aliases included); a
+  // component file stands for its virtual module.
+  const program = createProgram(files, [RUNES], (specifier, containing) => {
+    const from = containing.endsWith('.__runic.ts')
+      ? containing.slice(0, -'.__runic.ts'.length)
+      : containing;
+    const edge = graph.modules.get(from)?.imports.find(i => i.specifier === specifier);
+    if (!edge || edge.package) return undefined;
+    const target = units.get(edge.resolved)?.virtual ?? edge.resolved;
+    return files.has(target) ? target : undefined;
+  });
   const unitOf = new Map<ts.SourceFile, Unit>();
-  for (const u of order) unitOf.set(program.getSourceFile(u.virtual)!, u);
+  for (const u of units.values()) unitOf.set(program.getSourceFile(u.virtual)!, u);
   const sourceAt = (u: Unit, pos: number): Source => {
-    if (pos < u.scriptLength) return locate(u.original, u.scriptStart + pos, u.rel);
     const seg = u.segments.find(s => pos >= s.synth && pos <= s.synth + s.length);
     return seg
       ? locate(u.original, seg.orig + (pos - seg.synth), u.rel)
@@ -607,7 +668,25 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     }
     return sourceAt(u, n.getStart(f));
   };
-  for (const u of order) {
+  /** The TS node of a template expression (or each pattern) by its synthetic span. */
+  const nodeIn = (u: Unit, n: SNode, length = n.end - n.start): ts.Node => {
+    const sf = program.getSourceFile(u.virtual)!;
+    const where = locate(u.original, n.start ?? 0, u.rel);
+    const start = u.starts.get(n);
+    if (start === undefined) return fail('E_INTERNAL', 'Template expression not mapped', where);
+    let found: ts.Node | undefined;
+    const walk = (x: ts.Node) => {
+      if (found) return;
+      if (x.getStart(sf) === start && x.end === start + length) {
+        found = x;
+        return;
+      }
+      if (x.getStart(sf) <= start && x.end >= start + length) ts.forEachChild(x, walk);
+    };
+    walk(sf);
+    return found ?? fail('E_INTERNAL', 'Template expression not found', where);
+  };
+  for (const u of units.values()) {
     const sf = program.getSourceFile(u.virtual)!;
     const syntax = program.getSyntacticDiagnostics(sf);
     if (syntax.length) {
@@ -673,18 +752,181 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       return `${callee.expression.text}.${callee.name.text}`;
     return undefined;
   };
-  // Ordinary local modules initialise first (dependencies first).
-  for (const p of lowerModules(graph, program, lower, { skip: f => f === graph.entry })) p();
+  /** A component's `<script module>` statements in its virtual module. */
+  const moduleStatements = (u: Unit) => {
+    const sf = program.getSourceFile(u.virtual)!;
+    return sf.statements.filter(s => s.getStart(sf) < u.instanceSynth);
+  };
+  /** A component's instance script statements (and synthesized host listeners). */
+  const instanceStatements = (u: Unit) => {
+    const sf = program.getSourceFile(u.virtual)!;
+    return sf.statements.filter(
+      s => s.getStart(sf) >= u.instanceSynth && s.getStart(sf) < u.statementsEnd,
+    );
+  };
+  // Ordinary local modules and components' `<script module>`s initialise
+  // first (dependencies first): their constants are program globals, their
+  // functions shared by every instance.
+  for (const p of lowerModules(graph, program, lower, {
+    skip: f => f === graph.entry,
+    componentModule: f => {
+      const u = units.get(f);
+      return u?.moduleLength ? moduleStatements(u) : undefined;
+    },
+  }))
+    p();
+  // Package imports and pack constants of instance scripts, bound before
+  // any component is lowered: the analysis of what props receive evaluates
+  // the parents' pack calls.
+  for (const u of order)
+    for (const stmt of instanceStatements(u)) {
+      if (ts.isImportDeclaration(stmt) && !stmt.importClause?.isTypeOnly) {
+        const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
+        if (spec === 'svelte' || spec.startsWith('svelte/') || spec.endsWith('.svelte')) continue;
+        bindPackImport(
+          stmt,
+          graph.modules.get(u.file)!.imports.find(i => i.specifier === spec),
+          lower,
+        );
+      } else if (ts.isVariableStatement(stmt) && stmt.declarationList.flags & ts.NodeFlags.Const)
+        for (const d of stmt.declarationList.declarations)
+          if (!runeName(d.initializer)) lower.isPackConstant(d);
+    }
 
+  // Prop domains (frontend/domains.ts): what every instantiation site
+  // passes for each declared prop; a component with several sites gets a
+  // `$site` prop when a call is enumerated per site.
+  const propDecls: PropDecl[] = [];
+  const sites: Site[] = [];
+  const siteOfNode = new Map<string, Site>();
+  for (const u of order) {
+    const sf = program.getSourceFile(u.virtual)!;
+    const bound = new Set<string>();
+    walkTemplate(u.ast.fragment, n => {
+      if (n.type === 'BindDirective' && n.expression?.type === 'Identifier')
+        bound.add(n.expression.name);
+    });
+    for (const stmt of instanceStatements(u)) {
+      if (!ts.isVariableStatement(stmt)) continue;
+      for (const d of stmt.declarationList.declarations) {
+        if (runeName(d.initializer) !== '$props' || !ts.isObjectBindingPattern(d.name)) continue;
+        for (const el of d.name.elements) {
+          if (el.dotDotDotToken || !ts.isIdentifier(el.name)) continue;
+          const symbol = checker.getSymbolAtLocation(el.name);
+          if (!symbol) continue;
+          let fallback = el.initializer;
+          if (fallback && runeName(fallback) === '$bindable')
+            fallback = (fallback as ts.CallExpression).arguments[0];
+          propDecls.push({
+            component: u.index,
+            key: el.propertyName ? (el.propertyName as ts.Identifier).text : el.name.text,
+            symbol,
+            fallback,
+            written: bound.has(el.name.text) || assigned(checker, sf, symbol),
+          });
+        }
+      }
+    }
+    walkTemplate(u.ast.fragment, n => {
+      if (n.type !== 'Component') return;
+      const child = u.children.get(n.name);
+      if (!child) return;
+      const values = new Map<string, SiteValue>();
+      for (const a of n.attributes) {
+        if (a.type === 'Attribute')
+          values.set(
+            a.name,
+            a.value === true
+              ? { value: true }
+              : !Array.isArray(a.value)
+                ? { expr: nodeIn(u, a.value.expression) as ts.Expression }
+                : a.value.length === 1 && a.value[0].type === 'Text'
+                  ? { value: a.value[0].data }
+                  : { open: true },
+          );
+        else if (a.type === 'BindDirective')
+          values.set(a.name, { expr: nodeIn(u, a.expression) as ts.Expression });
+      }
+      const site: Site = {
+        component: units.get(child)!.index,
+        values,
+        at: locate(u.original, n.start, u.rel),
+      };
+      sites.push(site);
+      siteOfNode.set(`${u.file}:${n.start}`, site);
+    });
+  }
+  // mount(App, { target }) passes no props.
+  sites.push({ component: units.get(rootFile!)!.index, values: new Map() });
+  /** The `$site` prop cell of each component that has one. */
+  const siteCells = new Map<number, number>();
+  let lowering: number | undefined;
+  const domains = new PropDomains(lower, propDecls, sites, (component, _b) => {
+    if (component !== lowering) fail('E_INTERNAL', 'A site index was read outside its component');
+    let cell = siteCells.get(component);
+    if (cell === undefined) {
+      cell = cells.length;
+      cells.push({
+        name: '$site',
+        type: 'number',
+        init: { op: 'lit', value: 0 },
+        tracking: 'identity',
+        prop: '$site',
+      });
+      siteCells.set(component, cell);
+    }
+    return { op: 'cell', cell, read: 'current' };
+  });
+  lower.domains = domains;
+
+  /** The fragments links may navigate to (checked against the element ids below). */
+  const linkFragments: { name: string; at: Source }[] = [];
   const components: Component[] = [];
-  for (const u of order) components[u.index] = lowerComponent(u);
+  for (const u of order) {
+    lowering = u.index;
+    components[u.index] = lowerComponent(u);
+  }
+  lowering = undefined;
+  // A link to a fragment that names an element would scroll to it and move
+  // focus, which the runtime does not model: the ids the program can give
+  // elements (literals and finite sets) must not be link targets. Ids of
+  // open values are checked by the runtime when a link is followed.
+  if (linkFragments.length)
+    for (const u of order)
+      walkTemplate(u.ast.fragment, n => {
+        if (!['RegularElement', 'SvelteElement', 'Component'].includes(n.type)) return;
+        for (const a of n.attributes ?? []) {
+          if (a.type !== 'Attribute' || (a.name !== 'id' && a.name !== 'name')) continue;
+          if (a.name === 'name' && !(n.type === 'RegularElement' && n.name === 'a')) continue;
+          const ids =
+            a.value === true
+              ? ['']
+              : Array.isArray(a.value)
+                ? a.value.length === 1 && a.value[0].type === 'Text'
+                  ? [a.value[0].data]
+                  : []
+                : (valueSet(
+                    { lower, label: 'element ids' },
+                    nodeIn(u, a.value.expression) as ts.Expression,
+                  ) ?? []);
+          for (const id of ids) {
+            const link = linkFragments.find(f => f.name === id);
+            if (link)
+              fail(
+                'E_TEMPLATE',
+                `This link's fragment #${link.name} names an element (${locate(u.original, a.start, u.rel).file}:${locate(u.original, a.start, u.rel).line}); scrolling to and focusing fragment targets is not supported`,
+                link.at,
+              );
+          }
+        }
+      });
 
   function lowerComponent(u: Unit): Component {
     cells = [];
     const COMPONENT = u.index;
     const sf = program.getSourceFile(u.virtual)!;
     const loc = (n: SNode) => locate(u.original, n.start ?? 0, u.rel);
-    const statements = [...sf.statements].filter(s => s.getStart(sf) < u.statementsEnd);
+    const statements = instanceStatements(u);
     const pending: (() => void)[] = [];
     /** Snippet props become slots: declaration and the prop's symbol. */
     const slots: { name: string; params?: Type[] }[] = [];
@@ -736,7 +978,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           snippetOf.set(sym, key);
           continue;
         }
-        const type = types.of(el.name) as Type;
+        let type =
+          types.overridden(el.name) ?? types.tryMap(checker.getTypeAtLocation(el.name), el.name);
+        if (!type) {
+          // A prop typed wider than the value model (svelte/elements'
+          // `class?: ClassValue`) takes the type of the values its sites pass.
+          const values = domains.values(sym);
+          const t = values && typeOfValues(values);
+          if (!t) {
+            const why = domains.explain(sym);
+            if (why)
+              tsFail(
+                el,
+                'E_TYPE_UNION',
+                `The type of ${name} (${checker.typeToString(checker.getTypeAtLocation(el.name))}) is outside the value model, so it takes the values its sites pass, but ${why}`,
+              );
+            types.of(el.name); // the type's own diagnostic
+          }
+          types.override(sym, t!);
+          type = t!;
+        }
         const cell = cells.length;
         cells.push({
           name,
@@ -983,22 +1244,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // --- Template ---
     const tb: FnBuilder = lower.template(COMPONENT);
     const handlers: Handler[] = [];
-    /** The TS node of a template expression (or each pattern) by its synthetic span. */
-    const nodeAt = (n: SNode, length = n.end - n.start): ts.Node => {
-      const start = u.starts.get(n);
-      if (start === undefined) return fail('E_INTERNAL', 'Template expression not mapped', loc(n));
-      let found: ts.Node | undefined;
-      const walk = (x: ts.Node) => {
-        if (found) return;
-        if (x.getStart(sf) === start && x.end === start + length) {
-          found = x;
-          return;
-        }
-        if (x.getStart(sf) <= start && x.end >= start + length) ts.forEachChild(x, walk);
-      };
-      walk(sf);
-      return found ?? fail('E_INTERNAL', 'Template expression not found', loc(n));
-    };
+    const nodeAt = (n: SNode, length?: number): ts.Node => nodeIn(u, n, length);
     const exprNode = (e: SNode) => nodeAt(e) as ts.Expression;
     const value = (e: ts.Expression): Expr => lower.expr(e, tb);
     const typeOf = (e: ts.Expression, v: Expr): Type =>
@@ -1111,6 +1357,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         else if (n.type === 'RegularElement') {
           flush();
           out.push(element(n));
+        } else if (n.type === 'SvelteElement') {
+          flush();
+          out.push(...dynamicElement(n));
         } else if (n.type === 'IfBlock') {
           flush();
           const testNode = exprNode(n.test);
@@ -1156,6 +1405,67 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else fail('E_TEMPLATE', `Unsupported template node ${n.type}`, loc(n));
       }
       flush();
+      return out;
+    };
+    /**
+     * `<svelte:element this={tag}>` whose tag takes a finite set of values
+     * (literals, conditionals, literal-union values, props whose sites pass
+     * them; frontend/domains.ts): one branch per tag, as an `if` chain on
+     * the tag's value. Svelte recreates the element (and its content) when
+     * the tag changes, as switching branches does; a nullish tag renders
+     * nothing.
+     */
+    const dynamicElement = (n: SNode): Node[] => {
+      const tagNode = exprNode(n.tag);
+      const tags = valueSet({ lower, label: '<svelte:element>' }, tagNode);
+      if (!tags)
+        return fail(
+          'E_TEMPLATE',
+          '<svelte:element this={…}> needs a tag from a finite set of values (string literals, conditionals between them, literal-union values)',
+          loc(n),
+        );
+      const names: string[] = [];
+      for (const t of tags) {
+        if (t === null || t === undefined) continue;
+        if (typeof t !== 'string' || !TAGS.has(t) || SVG_TAGS.includes(t))
+          fail(
+            'E_TEMPLATE',
+            `<svelte:element> may be <${String(t)}>, which is outside the supported HTML elements`,
+            loc(n),
+          );
+        names.push(t as string);
+      }
+      let out: Node[] = [];
+      for (const name of names.reverse()) {
+        const tagValue = value(tagNode);
+        const tagType = typeOf(tagNode, tagValue);
+        let test: Expr;
+        if (tagType === 'string')
+          test = { op: 'eq', left: tagValue, right: { op: 'lit', value: name } };
+        else {
+          const local = tb.local('$tag', tagType);
+          const read: Expr = { op: 'local', local };
+          test = {
+            op: 'with',
+            local,
+            value: tagValue,
+            body: {
+              op: 'cond',
+              test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: 'boolean' },
+              then: { op: 'lit', value: false },
+              else: {
+                op: 'eq',
+                left: { op: 'unwrap', value: read },
+                right: { op: 'lit', value: name },
+              },
+            },
+          };
+        }
+        const el = element({ ...n, type: 'RegularElement', name });
+        out = [
+          { kind: 'if', test, then: [el], ...(out.length ? { else: out } : {}), source: loc(n) },
+        ];
+      }
       return out;
     };
     const each = (n: SNode): Node => {
@@ -1279,11 +1589,36 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       }
       if (BOOLEAN_ATTRS.has(name))
         return { name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } };
-      if (t === 'string' || (typeof t === 'object' && 'maybe' in t && t.maybe === 'string'))
-        return { name, value: v };
-      if (typeof t === 'object' && 'maybe' in t)
-        fail('E_TEMPLATE', `Attribute ${name} of type ${JSON.stringify(t)} is unsupported`, loc(a));
+      if (t === 'string') return { name, value: v };
+      if (typeof t === 'object' && 'maybe' in t) return { name, value: maybeAttribute(v, t, a) };
       return { name, value: { op: 'to-string', arg: v } };
+    };
+    /**
+     * A nullable attribute value as Svelte's set_attribute applies it:
+     * absent when null or undefined, otherwise the value as a string
+     * (`aria-disabled={false}` is "false", `tabindex={-1}` is "-1").
+     */
+    const maybeAttribute = (v: Expr, t: { maybe: Type }, a: SNode): Expr => {
+      if (t.maybe === 'string') return v;
+      if (t.maybe !== 'number' && t.maybe !== 'boolean')
+        fail(
+          'E_TEMPLATE',
+          `Attribute ${a.name} of type ${JSON.stringify(t)} is unsupported`,
+          loc(a),
+        );
+      const local = tb.local('$attr', t);
+      const read: Expr = { op: 'local', local };
+      return {
+        op: 'with',
+        local,
+        value: v,
+        body: {
+          op: 'cond',
+          test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: 'boolean' },
+          then: { op: 'undefined', type: { maybe: 'string' } },
+          else: { op: 'some', value: { op: 'to-string', arg: { op: 'unwrap', value: read } } },
+        },
+      };
     };
     /** An instance of a pack component, expanded by its pack. */
     const packComponent = (
@@ -1343,7 +1678,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (a.type === 'Attribute') {
           const want = target.cells[propCell(a)].type;
           let v: Expr;
-          if (a.value === true) v = { op: 'lit', value: true };
+          if (a.value === true) v = coerceInit({ op: 'lit', value: true }, 'boolean', want);
           else if (Array.isArray(a.value)) {
             let joined: Expr | undefined;
             for (const part of a.value) {
@@ -1353,7 +1688,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                   : display(exprNode(part.expression));
               joined = joined ? { op: 'concat', left: joined, right: p } : p;
             }
-            v = joined ?? { op: 'lit', value: '' };
+            v = coerceInit(joined ?? { op: 'lit', value: '' }, 'string', want);
           } else {
             const e = exprNode(a.value.expression);
             v = value(e);
@@ -1384,6 +1719,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else fail('E_TEMPLATE', `${a.type} on components is planned for a later M3 step`, loc(a));
       }
       if (bag.length) passed.push({ name: '...', value: { op: 'attrs', items: bag } });
+      // The index of this instantiation site (frontend/domains.ts).
+      if (siteCells.has(child.index)) {
+        const site = siteOfNode.get(`${u.file}:${n.start}`);
+        if (!site) fail('E_INTERNAL', 'Instantiation site not analysed', loc(n));
+        passed.push({ name: '$site', value: { op: 'lit', value: domains.indexOf(site!) } });
+      }
       for (const c of target.cells)
         if (c.prop && !passed.some(p => p.name === c.prop) && isRequired(c.init))
           fail('E_PROPS', `${n.name} requires the prop ${c.prop}`, loc(n));
@@ -1425,9 +1766,46 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         source: loc(n),
       };
     };
+    /**
+     * A link's `href` values: following a link is a fragment navigation of
+     * this document (`#name`); the values must be known (literals, finite
+     * sets), name no element (scrolling to and focusing a fragment's target
+     * are not modelled) and not be the document top (`#`, `#top`).
+     */
+    const linkTargets = (n: SNode) => {
+      const at = n.attributes.find((a: SNode) => a.type === 'Attribute' && a.name === 'href');
+      const spread = n.attributes.some((a: SNode) => a.type === 'SpreadAttribute');
+      if (spread && restKeys.get(u.file)?.has('href'))
+        fail(
+          'E_TEMPLATE',
+          'A link whose href comes from rest props is not supported; pass href explicitly',
+          loc(n),
+        );
+      if (!at) return;
+      const values: unknown[] | undefined =
+        at.value === true
+          ? ['']
+          : Array.isArray(at.value)
+            ? at.value.length === 1 && at.value[0].type === 'Text'
+              ? [at.value[0].data]
+              : undefined
+            : valueSet({ lower, label: '<a href>' }, exprNode(at.value.expression));
+      const what =
+        'links are supported to fragments of this document (#name) that name no element, with a finite set of values';
+      if (!values) fail('E_TEMPLATE', `The href of this <a> is open: ${what}`, loc(at));
+      for (const v of values!) {
+        if (v === undefined || v === null) continue;
+        const name =
+          typeof v === 'string' && v.startsWith('#') ? decodeFragment(v.slice(1)) : undefined;
+        if (name === undefined || name === '' || name.toLowerCase() === 'top')
+          fail('E_TEMPLATE', `The <a> may link to ${JSON.stringify(v)}: ${what}`, loc(at));
+        linkFragments.push({ name: name!, at: loc(at) });
+      }
+    };
     const element = (n: SNode): Node => {
       if (!TAGS.has(n.name))
         fail('E_TEMPLATE', `<${n.name}> is outside the supported elements`, loc(n));
+      if (n.name === 'a') linkTargets(n);
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];
@@ -1538,17 +1916,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             else if (BOOLEAN_ATTRS.has(name))
               attrs.push({ name, value: t === 'boolean' ? v : { op: 'to-boolean', arg: v } });
             else if (typeof t === 'object' && 'maybe' in t)
-              attrs.push({
-                name,
-                value:
-                  t.maybe === 'string'
-                    ? v
-                    : fail(
-                        'E_TEMPLATE',
-                        `Attribute ${name} of type ${JSON.stringify(t)} is unsupported`,
-                        loc(a),
-                      ),
-              });
+              attrs.push({ name, value: maybeAttribute(v, t, a) });
             else attrs.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
             continue;
           }
@@ -1825,6 +2193,61 @@ function mergeHandlers(
     },
     ...(args.length ? { args } : {}),
   };
+}
+
+/**
+ * A URL fragment percent-decoded as UTF-8. A malformed run of escapes is
+ * kept as written (the runtime checks the targets of followed links again).
+ */
+function decodeFragment(s: string): string {
+  return s.replace(/(?:%[0-9a-fA-F]{2})+/g, run => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return run;
+    }
+  });
+}
+
+/** The IR type of a prop that takes `values` (strings or booleans, possibly nullish). */
+function typeOfValues(values: unknown[]): Type | undefined {
+  const present = values.filter(v => v !== undefined && v !== null);
+  let base: Type;
+  if (present.every(v => typeof v === 'string')) base = 'string';
+  else if (present.every(v => typeof v === 'boolean')) base = 'boolean';
+  else return undefined;
+  return present.length < values.length ? { maybe: base } : base;
+}
+
+/** Whether `sf` assigns to `sym` (`x = …`, `x += …`, `x++`, destructuring targets). */
+function assigned(checker: ts.TypeChecker, sf: ts.SourceFile, sym: ts.Symbol): boolean {
+  let found = false;
+  const targets = (n: ts.Node, f: (id: ts.Identifier) => void) => {
+    if (ts.isIdentifier(n)) f(n);
+    else ts.forEachChild(n, c => targets(c, f));
+  };
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    let target: ts.Node | undefined;
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    )
+      target = n.left;
+    else if (
+      (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)
+    )
+      target = n.operand;
+    if (target)
+      targets(target, id => {
+        if (id.text === sym.name && checker.getSymbolAtLocation(id) === sym) found = true;
+      });
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return found;
 }
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */

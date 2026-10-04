@@ -32,6 +32,7 @@ import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
 import { Classes, type ClassInfo } from './classes.ts';
 import { bindPackConstant } from './packs.ts';
 import type { Choice } from './packs/choice.ts';
+import type { DomainHook } from './domains.ts';
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -68,6 +69,8 @@ export type Binding =
       call?: (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr;
       /** The exact values a call can return (calls evaluated at build time, frontend/packs/choice.ts). */
       choice?: (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Choice;
+      /** The values a call can return, without IR (frontend/domains.ts); undefined if open. */
+      values?: (node: ts.CallExpression, lower: Lowerer) => unknown[] | undefined;
       /** A call initialising a const that becomes a pack function (`tv(config)`). */
       constant?: (node: ts.CallExpression, name: string, lower: Lowerer) => Binding;
       /** Wrappers returning a call of this function over a rest parameter are inlined. */
@@ -247,6 +250,8 @@ export class Lowerer {
 
   /** Classes (frontend/classes.ts). */
   readonly classes: Classes;
+  /** The values props receive from their instantiation sites (frontend/domains.ts), if analysed. */
+  domains?: DomainHook;
   /**
    * Where `this` lives for the code of a class member (method, accessor,
    * constructor, field initialiser): a local of `owner`, a `maybe` one while
@@ -1398,10 +1403,15 @@ export class Lowerer {
   // Expressions
 
   binding(id: ts.Identifier): Binding | undefined {
-    // Package imports are bound by their import symbol (frontend/packs.ts).
-    const own = this.checker.getSymbolAtLocation(id);
-    const pack = own && this.bindings.get(own);
-    if (pack?.kind === 'pack') return pack;
+    // Package imports and re-exports are bound by their own symbols
+    // (frontend/packs.ts): follow the alias chain through local re-exports.
+    let own = this.checker.getSymbolAtLocation(id);
+    for (let hops = 0; own && hops < 32; hops++) {
+      const pack = this.bindings.get(own);
+      if (pack?.kind === 'pack') return pack;
+      if (!(own.flags & ts.SymbolFlags.Alias)) break;
+      own = this.checker.getImmediateAliasedSymbol(own);
+    }
     const s = this.symbol(id);
     return s ? this.bindings.get(s) : undefined;
   }
@@ -1595,18 +1605,23 @@ export class Lowerer {
   }
 
   private contextual(e: ts.Expression): Type {
-    let t = this.checker.getContextualType(e);
-    if (!t) {
-      // A branch of a conditional without a contextual type (an untyped
-      // `const`): the conditional's type.
+    // A branch of a conditional without a usable contextual type (an
+    // untyped `const`, or a prop typed wider than the value model, such as
+    // svelte/elements' `class`): the conditional's type.
+    const conditional = () => {
       let node: ts.Node = e;
       while (ts.isParenthesizedExpression(node.parent)) node = node.parent;
       const p = node.parent;
-      if (ts.isConditionalExpression(p) && p.condition !== node)
-        t = this.checker.getTypeAtLocation(p);
-    }
-    if (!t) return { maybe: NUMBER };
-    const mapped = this.types.map(t, e);
+      return ts.isConditionalExpression(p) && p.condition !== node
+        ? this.checker.getTypeAtLocation(p)
+        : undefined;
+    };
+    const t = this.checker.getContextualType(e);
+    const alternative = conditional();
+    if (!t && !alternative) return { maybe: NUMBER };
+    const mapped =
+      (t && alternative ? this.types.tryMap(t, e) : undefined) ??
+      (alternative ? this.types.map(alternative, e) : this.types.map(t!, e));
     return typeof mapped === 'object' && 'maybe' in mapped ? mapped : { maybe: mapped };
   }
 
@@ -1628,6 +1643,12 @@ export class Lowerer {
         id,
         'E_INTL',
         `${id.text} is an Intl constant: use its methods (format, compare) directly`,
+      );
+    if (!binding && this.checker.getSymbolAtLocation(id)?.declarations?.some(ts.isNamespaceImport))
+      return this.fail(
+        id,
+        'E_IMPORT',
+        `${id.text} is a namespace import: namespaces are supported as component tags (<${id.text}.Name>) and re-exports; import the names the code uses`,
       );
     if (!binding)
       return this.fail(id, 'E_UNRESOLVED', `${id.text} is not a supported binding here`);
@@ -1658,8 +1679,13 @@ export class Lowerer {
         for (const field of binding.path) e = { op: 'get', object: e, field };
         return narrow(e, this.irType(e, b));
       }
-      case 'cell':
-        return narrow(this.hooks.readCell(binding.cell, b, id), this.hooks.cellType(binding.cell));
+      case 'cell': {
+        const declared = this.hooks.cellType(binding.cell);
+        // A rest-props bag has no narrower type (its TypeScript type, such as
+        // svelte/elements' attribute interfaces, is not a value type).
+        if (declared === 'attrs') return this.hooks.readCell(binding.cell, b, id);
+        return narrow(this.hooks.readCell(binding.cell, b, id), declared);
+      }
       case 'derived':
         return { op: 'call', function: binding.fn, args: [] };
       case 'value':

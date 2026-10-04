@@ -26,9 +26,32 @@ export const OPTIONS: ts.CompilerOptions = {
   moduleDetection: ts.ModuleDetectionKind.Force,
 };
 
-/** Create a program whose root files are `files` (path → source text). */
-export function createProgram(files: Map<string, string>, extraRoots: string[] = []): ts.Program {
+/**
+ * Create a program whose root files are `files` (path → source text).
+ * `resolve(specifier, containingFile)` resolves imports as the collector
+ * did (aliases, component files to their virtual modules); undefined leaves
+ * the specifier to TypeScript (packages and their declaration files).
+ */
+export function createProgram(
+  files: Map<string, string>,
+  extraRoots: string[] = [],
+  resolve?: (specifier: string, containingFile: string) => string | undefined,
+): ts.Program {
   const host = ts.createCompilerHost(OPTIONS, true);
+  if (resolve)
+    host.resolveModuleNameLiterals = (literals, containingFile, _redirect, options) =>
+      literals.map(literal => {
+        const file = resolve(literal.text, containingFile);
+        if (file)
+          return {
+            resolvedModule: {
+              resolvedFileName: file,
+              extension: extensionOf(file),
+              isExternalLibraryImport: false,
+            },
+          };
+        return ts.resolveModuleName(literal.text, containingFile, options, host);
+      });
   const read = host.getSourceFile.bind(host);
   host.getSourceFile = (name, version, onError, create) => {
     const text = files.get(name);
@@ -44,6 +67,15 @@ export function createProgram(files: Map<string, string>, extraRoots: string[] =
     options: OPTIONS,
     host,
   });
+}
+
+function extensionOf(name: string): ts.Extension {
+  if (name.endsWith('.d.ts')) return ts.Extension.Dts;
+  if (name.endsWith('.tsx')) return ts.Extension.Tsx;
+  if (name.endsWith('.jsx')) return ts.Extension.Jsx;
+  if (name.endsWith('.js')) return ts.Extension.Js;
+  if (name.endsWith('.mjs')) return ts.Extension.Mjs;
+  return ts.Extension.Ts;
 }
 
 function scriptKind(name: string): ts.ScriptKind {
