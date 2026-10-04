@@ -1,0 +1,27 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/progress-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/progress-demo.svelte",
+      "sha256": "5538f3b96e866468087369d32ce392f34a89b22f4777ae4dcaf909d22ab0996d"
+    },
+    "src/lib/registry/ui/progress/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/progress/index.ts",
+      "sha256": "047b1de9082bd67dde821e907845484557cfbac5525dd672434250420d61e6d6"
+    },
+    "src/lib/registry/ui/progress/progress.svelte": {
+      "upstream": "docs/src/lib/registry/ui/progress/progress.svelte",
+      "sha256": "0709b4bdd66e3eed5c5991798da720cf66f2de8b927cb8367bed6d869ecaa79f"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

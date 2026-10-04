@@ -1,0 +1,23 @@
+{
+  "description": "bits-ui's Progress compiled from its published source through shadcn-svelte's unmodified progress wrapper and its demo: the demo's onMount timer moves the value from 13 to 66 after 500 ms and the indicator's transform transitions (transition-all, sampled on the stopped timeline at 16 ms frames); a second bar's value and max change from the app (role progressbar, aria-valuenow/min/max, data-state loading/loaded/indeterminate, data-value, data-indeterminate for a null value, the indicator's style text built from value and max). The bars' areas are compared as pixel regions while the transitions run and once they settled",
+  "fixtures": ["bits-progress-svelte"],
+  "pixelRegions": ["demo", "bar"],
+  "actions": [
+    { "kind": "wait", "ms": 400 },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "wait", "ms": 600 },
+    { "kind": "click", "id": "more" },
+    { "kind": "wait", "ms": 80 },
+    { "kind": "wait", "ms": 600 },
+    { "kind": "click", "id": "more" },
+    { "kind": "click", "id": "more" },
+    { "kind": "wait", "ms": 600 },
+    { "kind": "click", "id": "unknown" },
+    { "kind": "wait", "ms": 600 },
+    { "kind": "click", "id": "max" },
+    { "kind": "click", "id": "more" },
+    { "kind": "wait", "ms": 600 },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 600 }
+  ]
+}
