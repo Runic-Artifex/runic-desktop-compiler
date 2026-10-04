@@ -1,0 +1,10 @@
+{
+  "description": "Gradients Blitz draws differently from Chromium (BLITZ-GAPS): an angle gradient under a border, an angle gradient with background-size 200%, and conic colour stops that need the CSS fix-up (positions below an earlier one); every cell is a pixel region. The CPU renderer draws the unsorted stops as one colour, the GPU renderer as Chromium",
+  "fixtures": ["blitz-gradients-svelte"],
+  "viewports": [[800, 600]],
+  "pixelRegions": ["angle-border", "angle-size", "stop-fixup"],
+  "knownGaps": {
+    "pixels": "blitz-paint centres angle gradients on the border box instead of the background positioning area, and does not raise colour stop positions to the largest earlier one; vello_cpu then rejects the unsorted stops (BLITZ-GAPS, gradients)"
+  },
+  "actions": []
+}

@@ -12,7 +12,7 @@ default = ["renderer-cpu"]
 renderer-cpu = ["dep:anyrender_vello_cpu"]
 renderer-gpu = ["dep:anyrender_vello"]
 # Scripted input, DOM snapshots and screenshots for conformance runs.
-probe = ["dep:anyrender_vello_cpu", "dep:png"]
+probe = ["dep:png"]
 # Inline SVG drawing (usvg, about 1.6 MiB); codegen enables it for programs
 # with an `<svg>`.
 svg = ["blitz-dom/svg", "blitz-paint/svg"]

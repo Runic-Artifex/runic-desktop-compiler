@@ -1,0 +1,39 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 16px; }
+.controls { display: flex; gap: 8px; margin-bottom: 12px; }
+button { font-family: RunicFixture; font-size: 14px; height: 36px; padding: 0 16px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+
+/* Large gradient areas so that the whole-viewport pixel gate sees each kind.
+   Angle gradients only where the background area is the border box, and stop
+   positions only ascending: Blitz gaps (case blitz-gradients). */
+.grid { display: grid; grid-template-columns: repeat(5, 148px); gap: 8px; }
+.cell { height: 112px; background-color: #f6f3ec; }
+
+/* Linear gradients: two stops, an angle, several stops, hard stops,
+   transparency, and repetition. */
+.linear { background-image: linear-gradient(to right, rgb(214, 64, 52), rgb(52, 92, 196)); }
+.linear-angle { background-image: linear-gradient(35deg, #fde68a, #10b981 60%, #1e3a8a); }
+.linear-stops { background-image: linear-gradient(to bottom, #000 0%, #fff 25%, #f00 50%, #0f0 75%, #00f 100%); }
+.linear-hard { background-image: linear-gradient(90deg, #d64034 33%, #2e8c56 33%, #2e8c56 66%, #345cc4 66%); }
+.linear-alpha { background-image: linear-gradient(to right, rgb(20 30 120 / 0), rgb(20 30 120 / 1)), linear-gradient(to bottom, #fbbf24, #f6f3ec); }
+.linear-repeating { background-image: repeating-linear-gradient(45deg, #252c28 0 6px, #f6f3ec 6px 14px); }
+
+/* Radial gradients: a circle, an ellipse, hard stops and repetition. */
+.radial { background-image: radial-gradient(circle at 40% 40%, #fff7ed, #f97316 45%, #7c2d12); }
+.radial-ellipse { background-image: radial-gradient(ellipse farthest-corner at 70% 30%, #a7f3d0, #065f46); }
+.radial-hard { background-image: radial-gradient(circle closest-side, #345cc4 60%, #f6f3ec 60%); }
+.radial-repeating { background-image: repeating-radial-gradient(circle at center, #d64034 0 5px, #fde68a 5px 10px); }
+
+/* Conic gradients. */
+.conic { background-image: conic-gradient(from 30deg at 50% 50%, #d64034, #fde68a, #2e8c56, #345cc4, #d64034); }
+.conic-hard { background-image: conic-gradient(#252c28 0 25%, #f6f3ec 25% 50%, #252c28 50% 75%, #f6f3ec 75%); }
+
+/* Several layers, and a gradient clipped by rounded corners and a border. */
+.layered { background-image: linear-gradient(rgb(255 255 255 / 0.4), rgb(255 255 255 / 0)), radial-gradient(circle at 20% 80%, #f472b6, transparent 60%), linear-gradient(120deg, #4338ca, #0ea5e9); }
+.rounded { border: 6px solid #252c28; border-radius: 28px; background-image: linear-gradient(to bottom, #fef3c7, #b45309); }
+
+/* A transition of the background position moves the gradient. */
+.animated { background-image: linear-gradient(to right, #345cc4, #fde68a, #d64034); background-size: 200% 100%; background-position: 0% 0%; transition: background-position 400ms linear; }
+.animated.shifted { background-position: 100% 0%; }

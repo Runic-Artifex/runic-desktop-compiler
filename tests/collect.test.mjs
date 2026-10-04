@@ -157,7 +157,7 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   await check('p { -webkit-line-clamp: 2 }', 'E_CSS_PROPERTY', 1);
 });
 
-test('CSS filter lists are accepted where the CPU renderer draws them', async () => {
+test('CSS filter lists are accepted where the renderers draw them', async () => {
   const check = (css, expected, line) =>
     react(
       'import "./s.css";function App(){return <p>Hi</p>;}',

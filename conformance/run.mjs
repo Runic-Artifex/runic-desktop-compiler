@@ -3,6 +3,13 @@
 // application, per case, fixture and viewport.
 //
 //   node conformance/run.mjs [case-name ...] [--pixels] [--release] [--no-opt] [--out DIR]
+//                            [--renderer cpu|gpu] [--gpu-adapter lavapipe|system]
+//
+// `--renderer gpu` builds the fixtures with the GPU renderer (D12) whatever
+// runic.json selects, and the probe draws its screenshots with it: by default
+// on Mesa's software Vulkan driver (lavapipe) from the locked shell, with
+// `--gpu-adapter system` on the adapter wgpu picks from the host's drivers.
+// The gates and tolerances are the same.
 //
 // Exit codes: 0 all gates passed, 1 a failure, 2 incomplete (a stage could
 // not run). Reports: <out>/report.json and one file per run.
@@ -24,8 +31,14 @@ const { values, positionals } = parseArgs({
     'no-opt': { type: 'boolean' },
     out: { type: 'string' },
     quiet: { type: 'boolean' },
+    renderer: { type: 'string' },
+    'gpu-adapter': { type: 'string' },
   },
 });
+const renderer = values.renderer;
+if (renderer !== undefined && !['cpu', 'gpu'].includes(renderer)) throw new Error('--renderer takes cpu or gpu');
+const gpuAdapter = renderer === 'gpu' ? (values['gpu-adapter'] ?? 'lavapipe') : undefined;
+if (values['gpu-adapter'] && renderer !== 'gpu') throw new Error('--gpu-adapter needs --renderer gpu');
 
 /** Expand shorthands identically for both sides. */
 function expand(actions) {
@@ -58,7 +71,7 @@ try {
     const actions = expand(c.actions);
     for (const fixture of c.fixtures) {
       const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
-      if (!binaries.has(fixture)) binaries.set(fixture, await buildProbe(dir, { release: values.release, noOpt: values['no-opt'] }));
+      if (!binaries.has(fixture)) binaries.set(fixture, await buildProbe(dir, { release: values.release, noOpt: values['no-opt'], renderer }));
       const { binary, ir } = binaries.get(fixture);
       for (const viewport of viewports) {
         const label = `${c.name}/${fixture}/${viewport.width}x${viewport.height}`;
@@ -85,7 +98,8 @@ try {
           // document.title is a host effect of programs that set it (M6).
           const trackTitle = /"document\.set-title"/.test(JSON.stringify(ir));
           const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, trackTitle, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
-          const n = runProbe(binary, { viewport, actions, ...env, visibleTargets: true, out: values.pixels ? path.join(shots, 'native') : undefined });
+          const n = runProbe(binary, { viewport, actions, ...env, visibleTargets: true, gpuAdapter, out: values.pixels ? path.join(shots, 'native') : undefined });
+          if (n.renderer) run.renderer = n.renderer;
           run.browser = { framework: b.framework, browserVersion: browser.browserVersion, errors: b.errors };
           run.mountUs = n.mountUs;
           const cmp = compareTraces(b.steps, n.steps, { pixels: values.pixels, pixelRegions: c.pixelRegions });
@@ -127,6 +141,8 @@ const summary = {
   schema: 1,
   runs: runs.length,
   browserVersion: browser.browserVersion,
+  ...(renderer ? { renderer } : {}),
+  ...(gpuAdapter ? { gpuAdapters: [...new Set(runs.map(r => r.renderer?.adapter).filter(Boolean))] } : {}),
   gates: { semantics: gate('semantics'), geometry: gate('geometry'), ...(values.pixels ? { pixels: gate('pixels') } : {}) },
   knownGaps: runs
     .filter(r => r.knownGap)

@@ -1,0 +1,15 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 16px; }
+.grid { display: grid; grid-template-columns: repeat(3, 148px); gap: 8px; }
+.cell { height: 112px; background-color: #f6f3ec; }
+
+/* An angle gradient is centred on the border box, not on the background
+   positioning area: off by the border width here. */
+.angle-border { border: 6px solid #252c28; border-radius: 28px; background-image: linear-gradient(160deg, #fef3c7, #b45309); }
+/* ... and off by half a tile when the background is larger than the box. */
+.angle-size { background-image: linear-gradient(90deg, #345cc4, #fde68a, #d64034); background-size: 200% 100%; }
+/* A stop position below an earlier one is not raised to it (CSS Images 3,
+   colour stop fix-up): the stops reach the renderers unsorted. */
+.stop-fixup { background-image: conic-gradient(#252c28 0 25%, #f6f3ec 0 50%, #252c28 0 75%, #f6f3ec 0); }

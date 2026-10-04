@@ -55,8 +55,8 @@ const EQUIVALENT_DROPPED_PROPERTY = new Set([
   '-webkit-text-decoration',
   '-webkit-backdrop-filter',
 ]);
-// The CSS filter functions the CPU renderer draws in `filter` and
-// `backdrop-filter` (docs/research/M6-CPU-RENDERER.md).
+// The CSS filter functions both renderers draw in `filter` and
+// `backdrop-filter` (docs/research/M6-CPU-RENDERER.md, GPU section).
 const FILTER_FUNCTIONS = new Set([
   'blur',
   'brightness',
@@ -630,7 +630,7 @@ function namesColor(nodes, values, seen = new Set()) {
 }
 
 /**
- * Why a `filter` or `backdrop-filter` value is outside what the CPU renderer
+ * Why a `filter` or `backdrop-filter` value is outside what the renderers
  * draws, or undefined: functions other than the CSS filter functions (SVG
  * filter references with url()), and drop-shadow() without its own colour,
  * which Blitz draws black instead of in currentColor. Through each var()
@@ -651,7 +651,7 @@ function unsupportedFilter(value, values) {
         continue;
       }
       if (!FILTER_FUNCTIONS.has(name))
-        return `${name}() is not a CSS filter function the CPU renderer draws (SVG filter references are not supported)`;
+        return `${name}() is not a CSS filter function the renderers draw (SVG filter references are not supported)`;
       if (
         name === 'drop-shadow' &&
         (!namesColor(n.nodes, values) ||

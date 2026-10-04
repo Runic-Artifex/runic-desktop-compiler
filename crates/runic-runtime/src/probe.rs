@@ -589,16 +589,74 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
     }
 }
 
+/// The image renderer of the project's renderer (D12): screenshots are drawn
+/// as the window draws them.
+#[cfg(feature = "renderer-cpu")]
+type ScreenshotRenderer = anyrender_vello_cpu::VelloCpuImageRenderer;
+#[cfg(all(feature = "renderer-gpu", not(feature = "renderer-cpu")))]
+type ScreenshotRenderer = anyrender_vello::VelloImageRenderer;
+
+thread_local! {
+    /// One image renderer per probe, resized with the viewport: a GPU
+    /// renderer creates its device and compiles its pipelines once.
+    static SCREENSHOTS: std::cell::RefCell<Option<(ScreenshotRenderer, (u32, u32))>> =
+        const { std::cell::RefCell::new(None) };
+    /// The renderer that drew the screenshots, for the trace.
+    static RENDERER_INFO: std::cell::RefCell<Value> = const { std::cell::RefCell::new(Value::Null) };
+}
+
+fn screenshot_renderer(width: u32, height: u32) -> ScreenshotRenderer {
+    #[cfg(all(feature = "renderer-gpu", not(feature = "renderer-cpu")))]
+    return ScreenshotRenderer::with_options(width, height, None, shell::gpu_antialiasing());
+    #[cfg(feature = "renderer-cpu")]
+    ScreenshotRenderer::new(width, height)
+}
+
+/// The renderer that draws the screenshots, for the trace: `cpu`, or `gpu`
+/// with the adapter wgpu chose and the anti-aliasing.
+fn renderer_info(renderer: &ScreenshotRenderer) -> Value {
+    #[cfg(all(feature = "renderer-gpu", not(feature = "renderer-cpu")))]
+    {
+        let info = renderer.adapter_info();
+        json!({
+            "kind": "gpu",
+            "adapter": info.name,
+            "driver": info.driver,
+            "driverInfo": info.driver_info,
+            "backend": info.backend.to_string(),
+            "antialiasing": format!("{:?}", renderer.antialiasing_method()),
+        })
+    }
+    #[cfg(feature = "renderer-cpu")]
+    {
+        let _ = renderer;
+        json!({"kind": "cpu"})
+    }
+}
+
 fn screenshot(doc: &mut BaseDocument, width: u32, height: u32, file: &std::path::Path) {
-    let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);
     let mut buffer = Vec::new();
-    renderer.render_to_vec(
-        |scene| {
-            shell::canvas(scene, width, height);
-            blitz_paint::paint_scene(scene, doc, 1.0, width, height, 0, 0);
-        },
-        &mut buffer,
-    );
+    SCREENSHOTS.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        // The CPU renderer is cheap to create and keeps no state between frames.
+        if cfg!(feature = "renderer-cpu") {
+            *cell = None;
+        }
+        let (renderer, size) =
+            cell.get_or_insert_with(|| (screenshot_renderer(width, height), (width, height)));
+        if *size != (width, height) {
+            renderer.resize(width, height);
+            *size = (width, height);
+        }
+        RENDERER_INFO.with(|info| *info.borrow_mut() = renderer_info(renderer));
+        renderer.render_to_vec(
+            |scene| {
+                shell::canvas(scene, width, height);
+                blitz_paint::paint_scene(scene, doc, 1.0, width, height, 0, 0);
+            },
+            &mut buffer,
+        );
+    });
     let file = std::fs::File::create(file).expect("screenshot file");
     let mut encoder = png::Encoder::new(file, width, height);
     encoder.set_color(png::ColorType::Rgba);
@@ -728,6 +786,13 @@ pub(crate) fn run<A: App>() {
         observe(&mut native, action, i + 1, us);
     }
     let mut trace = json!({"irHash": A::IR_HASH, "mountUs": mount_us, "steps": steps});
+    // Drop the image renderer now: a GPU renderer's destructor uses
+    // thread-locals of wgpu that are gone when this thread's are destroyed.
+    drop(SCREENSHOTS.with(|cell| cell.borrow_mut().take()));
+    let renderer = RENDERER_INFO.with(|cell| cell.borrow().clone());
+    if !renderer.is_null() {
+        trace["renderer"] = renderer;
+    }
     if let Some(reason) = stopped {
         trace["stopped"] = json!(reason);
     }
