@@ -1,0 +1,13 @@
+{
+  "description": "Regular expressions as the Translations Editor uses them: an identifier check (test), placeholders found with matchAll (captures and index), highlighted by split with a capture group, rewritten by replace with a replacement function and a global Unicode pattern, words counted by split with \\p{L}, an optional capture read through exec(...)?.[1] with the m flag, search, and dates rewritten with named groups ($<name>)",
+  "fixtures": ["patterns-svelte"],
+  "actions": [
+    { "kind": "type", "id": "name", "text": "_2" },
+    { "kind": "click", "id": "plural" },
+    { "kind": "type", "id": "message", "text": " {$ünï_2 :x} 2020-10-04 😀" },
+    { "kind": "type", "id": "name", "text": "-z" },
+    { "kind": "click", "id": "plain" },
+    { "kind": "type", "id": "message", "text": "{$a}{$b}" },
+    { "kind": "click", "id": "stats" }
+  ]
+}

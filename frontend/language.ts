@@ -18,6 +18,7 @@ import { sameType, TypeMapper, type Fail } from './types.ts';
 import { builtinType, EVENT_MEMBERS, irType, maybeInner } from './irtype.ts';
 import { DOM } from './program.ts';
 import { asyncBody, isAsync } from './async.ts';
+import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -940,6 +941,13 @@ export class Lowerer {
   private declaration(d: ts.VariableDeclaration, b: FnBuilder): Stmt[] {
     if (ts.isIdentifier(d.name)) {
       const sym = this.checker.getSymbolAtLocation(d.name)!;
+      if (d.initializer && !d.type && this.isRegexpResult(d.initializer)) {
+        // Captures that may not participate are `string | undefined`.
+        const value = this.expr(d.initializer, b);
+        const local = b.local(d.name.text, this.irType(value, b), b.boxed.has(sym));
+        this.bindings.set(sym, { kind: 'local', owner: b, local });
+        return [{ op: 'let', local, value, ...this.src(d) }];
+      }
       const declared = this.types.typeOrUndefined(d.name);
       if (declared === undefined) {
         // TypeScript only knows `any`: the initialiser's IR type decides.
@@ -1042,6 +1050,12 @@ export class Lowerer {
         }
         const declared = this.types.typeOrUndefined(el.name);
         const maybe = typeof declared === 'object' && 'maybe' in declared;
+        if (maybeInner(element) && !maybe && !el.initializer)
+          this.fail(
+            el,
+            'E_REGEXP',
+            'This capture group may not participate in the match, so its value can be undefined; give the binding a default or the type string | undefined',
+          );
         const read: Expr =
           el.initializer || maybe
             ? {
@@ -1184,6 +1198,26 @@ export class Lowerer {
         },
       ];
     }
+    if (
+      ts.isPropertyAccessExpression(target) &&
+      target.name.text === 'lastIndex' &&
+      this.types.typeOrUndefined(target.expression) === 'regexp'
+    ) {
+      if (!ts.isIdentifier(skipParens(target.expression)))
+        return this.fail(target, 'E_REGEXP', 'Assign lastIndex of a RegExp held by a variable');
+      return [
+        {
+          op: 'expr',
+          value: {
+            op: 'builtin',
+            name: 'regexp.set-lastIndex',
+            args: [this.expr(target.expression, b), value],
+            type: 'void',
+          },
+          ...this.src(target),
+        },
+      ];
+    }
     // T is widened into a nullable target (Maybe<T>).
     const want = this.targetType(target, b);
     const have = this.irType(value, b);
@@ -1294,6 +1328,8 @@ export class Lowerer {
     const K = ts.SyntaxKind;
     const override = this.overrides.get(e);
     if (override) return override.expr;
+    const groups = this.groupsAccess(e, b);
+    if (groups) return groups;
     if (ts.isOptionalChain(e)) {
       const link = this.pendingLink(e);
       if (link) return this.optionalChain(e, link, b);
@@ -1308,13 +1344,17 @@ export class Lowerer {
         const inner = (e as ts.NonNullExpression).expression;
         const t = this.types.of(inner);
         const v = this.expr(inner, b);
-        return typeof t === 'object' && 'maybe' in t ? { op: 'unwrap', value: v } : v;
+        return (typeof t === 'object' && 'maybe' in t) || maybeInner(this.irType(v, b))
+          ? { op: 'unwrap', value: v }
+          : v;
       }
       case K.NumericLiteral:
         return { op: 'lit', value: Number((e as ts.NumericLiteral).text) };
       case K.StringLiteral:
       case K.NoSubstitutionTemplateLiteral:
         return this.stringLiteral(e, (e as ts.StringLiteral).text);
+      case K.RegularExpressionLiteral:
+        return this.regexLiteral(e as ts.RegularExpressionLiteral);
       case K.TrueKeyword:
         return { op: 'lit', value: true };
       case K.FalseKeyword:
@@ -1682,6 +1722,7 @@ export class Lowerer {
     if (t === 'boolean') return 'boolean';
     if (t === 'element') return 'element';
     if (t === 'event') return 'event';
+    if (t === 'regexp') return 'regexp';
     if (typeof t === 'object') {
       if ('array' in t) return 'array';
       if ('map' in t) return 'map';
@@ -1929,6 +1970,43 @@ export class Lowerer {
         object,
         field: this.types.fieldIndex((t as { record: number }).record, name, e),
       };
+    if (kind === 'regexp') {
+      const type = REGEXP_PROPERTIES[name];
+      if (type === undefined)
+        return this.fail(
+          e,
+          'E_REGEXP',
+          `RegExp property ${name} is unsupported (source, flags, global, ignoreCase, multiline, dotAll, unicode, unicodeSets, sticky, hasIndices and lastIndex are supported)`,
+        );
+      return { op: 'builtin', name: `regexp.${name}`, args: [object], type };
+    }
+    if (kind === 'array' && this.isMatchArray(e.expression)) {
+      let inner: ts.Expression = e.expression;
+      while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+      if (ts.isAsExpression(inner) || ts.isTypeAssertionExpression(inner))
+        return this.fail(
+          e,
+          'E_REGEXP',
+          'Match array properties of an asserted value are unsupported',
+        );
+      if (name === 'index' || name === 'input') {
+        const read: Expr = {
+          op: 'builtin',
+          name: `match.${name}`,
+          args: [object],
+          type: { maybe: name === 'index' ? NUMBER : STRING },
+        };
+        // RegExpExecArray: always present.
+        const here = this.types.typeOrUndefined(e);
+        return here && !maybeInner(here) ? { op: 'unwrap', value: read } : read;
+      }
+      if (name === 'groups')
+        return this.fail(
+          e,
+          'E_REGEXP',
+          'Named groups are read as m.groups.name, m.groups?.name or m.groups!.name',
+        );
+    }
     if (kind === 'string' && name === 'length') return { op: 'utf16-length', arg: object };
     if (kind && ['array', 'map', 'set'].includes(kind) && ['length', 'size'].includes(name))
       return { op: 'builtin', name: `${kind}.${name}`, args: [object], type: NUMBER };
@@ -2008,8 +2086,12 @@ export class Lowerer {
 
   private optionalChain(e: ts.Expression, link: ts.Expression, b: FnBuilder): Expr {
     const base = (link as ts.PropertyAccessExpression).expression;
-    const bt = this.typeAt(base);
+    let bt = this.typeAt(base);
     const bv = this.expr(base, b);
+    // The lowered value's own nullable type where it is more precise (match
+    // arrays with captures that may be undefined).
+    const lowered = this.irType(bv, b);
+    if (maybeInner(bt) && maybeInner(lowered)) bt = lowered;
     if (!(typeof bt === 'object' && 'maybe' in bt)) {
       // `?.` on a value that cannot be nullish behaves like `.`.
       this.overrides.set(base, { expr: bv, type: bt });
@@ -2028,7 +2110,10 @@ export class Lowerer {
       const nested = this.pendingLink(e) !== undefined;
       then = this.expr(e, b);
       const thenType = this.typeAt(e);
-      alreadyMaybe = nested || (typeof thenType === 'object' && 'maybe' in thenType);
+      alreadyMaybe =
+        nested ||
+        (typeof thenType === 'object' && 'maybe' in thenType) ||
+        maybeInner(this.irType(then, b)) !== undefined;
     } finally {
       this.overrides.delete(base);
     }
@@ -2056,8 +2141,14 @@ export class Lowerer {
     const object = this.expr(e.expression, b);
     const t = this.irType(object, b);
     const kind = this.receiverKind(t);
-    if (kind === 'array')
-      return { op: 'index', array: object, index: this.expr(e.argumentExpression, b) };
+    if (kind === 'array') {
+      const index = this.expr(e.argumentExpression, b);
+      const el = (t as { array: Type }).array;
+      const here = this.types.typeOrUndefined(e);
+      if (maybeInner(el) && here !== undefined && !maybeInner(here))
+        return this.captureRead(e, object, index, b);
+      return { op: 'index', array: object, index };
+    }
     if (kind === 'string')
       return {
         op: 'builtin',
@@ -2120,6 +2211,10 @@ export class Lowerer {
       const hosted = host && this.hostCall(host, e, b);
       if (hosted) return hosted;
       const global = this.globalName(callee);
+      if (global === 'RegExp') return this.regexpNew(e, e.arguments, b);
+      // A copy of a match array keeps index, input and groups in JavaScript.
+      if (global === 'structuredClone' && e.arguments[0] && this.isMatchArray(e.arguments[0]))
+        return this.fail(e, 'E_REGEXP', 'structuredClone of a match array is unsupported');
       if (global && GLOBAL_FUNCTIONS.has(global))
         return this.builtinCall(global, args(), b, this.tsCallType(e), e);
       const binding = this.binding(callee);
@@ -2142,6 +2237,12 @@ export class Lowerer {
             'JSON.parse needs a declared result type (e.g. const v: Item = JSON.parse(text))',
           );
         return { op: 'builtin', name: 'JSON.parse', args: args(), type: this.types.map(ctx!, e) };
+      }
+      if (global === 'RegExp') return this.fail(e, 'E_REGEXP', `RegExp.${method} is unsupported`);
+      if (global === 'Array' && method === 'from' && e.arguments.length === 1) {
+        // Array.from(s.matchAll(re)): the matches are a new array already.
+        const source = skipParens(e.arguments[0]);
+        if (this.isMatchAll(source)) return this.expr(source, b);
       }
       if (global === 'Date' && method === 'now' && !e.arguments.length)
         return { op: 'builtin', name: 'clock.date', args: [], type: NUMBER };
@@ -2244,6 +2345,14 @@ export class Lowerer {
       const receiver = this.expr(callee.expression, b);
       const kind = this.receiverKind(this.irType(receiver, b));
       if (kind === 'promise') return this.promiseMethod(method, receiver, e, b);
+      if (kind === 'regexp') return this.regexpMethod(method, receiver, callee.expression, e, b);
+      if (
+        kind === 'string' &&
+        REGEXP_STRING_METHODS.has(method) &&
+        e.arguments[0] &&
+        this.types.typeOrUndefined(e.arguments[0]) === 'regexp'
+      )
+        return this.stringRegexp(method, receiver, e, b);
       if (kind === 'record')
         return { op: 'call-value', callee: this.property(callee, b), args: this.callArgs(e, b) };
       if (kind)
@@ -2383,6 +2492,7 @@ export class Lowerer {
         type,
       };
     }
+    if (global === 'RegExp') return this.regexpNew(e, e.arguments ?? [], b);
     const args = (e.arguments ?? []).map(a => this.expr(a, b));
     if (global === 'Map' || global === 'Set')
       return { op: 'builtin', name: `${global}.new`, args, type: this.exprType(e) };
@@ -2480,7 +2590,471 @@ export class Lowerer {
     return out;
   }
 
+  // Regular expressions (docs/IR.md) ---------------------------------------
+  //
+  // Match arrays (exec, match, matchAll) and split results are string
+  // arrays. Captures that may not participate in a match are undefined there,
+  // which TypeScript's types do not express: such results are typed
+  // `(string | undefined)[]` unless the pattern is known (a literal, or a
+  // const initialised with one) and every capture participates in every
+  // match. Reads that TypeScript types as `string` are then unwrapped where
+  // the pattern proves the capture present, kept nullable where undefined is
+  // handled (`??`, conditions, templates), and rejected otherwise.
+
+  /** `/source/flags` */
+  private regexLiteral(e: ts.RegularExpressionLiteral): Expr {
+    const { source, flags } = literalParts(e.text);
+    this.checkRegex(e, source, flags);
+    return {
+      op: 'builtin',
+      name: 'regexp.new',
+      args: [
+        { op: 'lit', value: source },
+        { op: 'lit', value: flags },
+      ],
+      type: 'regexp',
+    };
+  }
+
+  /** Literal flags (without v) and, when known, the pattern compile (V8's errors). */
+  private checkRegex(at: ts.Node, source: string | undefined, flags: string) {
+    if (flags.includes('v'))
+      this.fail(at, 'E_REGEXP', 'The v flag (unicodeSets) is unsupported; use u');
+    const error = syntaxError(source ?? '', flags);
+    if (error) this.fail(at, 'E_REGEXP', error);
+  }
+
+  /** `new RegExp(pattern, flags)` and `RegExp(pattern, flags)`. */
+  private regexpNew(
+    e: ts.NewExpression | ts.CallExpression,
+    args: readonly ts.Expression[],
+    b: FnBuilder,
+  ): Expr {
+    const [pattern, flagsNode, ...rest] = args;
+    if (!pattern || rest.length)
+      return this.fail(e, 'E_REGEXP', 'new RegExp takes a pattern and optional literal flags');
+    if (this.types.typeOrUndefined(pattern) === 'regexp')
+      return this.fail(
+        pattern,
+        'E_REGEXP',
+        'new RegExp(regexp) is unsupported; pass the pattern source string',
+      );
+    if (flagsNode && !ts.isStringLiteralLike(flagsNode))
+      return this.fail(flagsNode, 'E_REGEXP', 'RegExp flags must be a string literal');
+    const flags = flagsNode ? (flagsNode as ts.StringLiteralLike).text : '';
+    this.checkRegex(e, ts.isStringLiteralLike(pattern) ? pattern.text : undefined, flags);
+    const source = this.expr(pattern, b);
+    if (this.irType(source, b) !== 'string')
+      return this.fail(pattern, 'E_REGEXP', 'The pattern of new RegExp must be a string');
+    return {
+      op: 'builtin',
+      name: 'regexp.new',
+      args: [source, { op: 'lit', value: flags }],
+      type: 'regexp',
+    };
+  }
+
+  /** The pattern of a RegExp expression, when it is known at compile time. */
+  regexInfo(e: ts.Expression, depth = 0): RegexInfo | undefined {
+    e = skipParens(e);
+    while (ts.isNonNullExpression(e)) e = skipParens(e.expression);
+    if (ts.isRegularExpressionLiteral(e)) {
+      const { source, flags } = literalParts(e.text);
+      return syntaxError(source, flags) === undefined ? analyze(source, flags) : undefined;
+    }
+    if (
+      (ts.isNewExpression(e) || ts.isCallExpression(e)) &&
+      this.globalName(e.expression) === 'RegExp'
+    ) {
+      const [pattern, flagsNode] = e.arguments ?? [];
+      if (!pattern || !ts.isStringLiteralLike(pattern)) return undefined;
+      if (flagsNode && !ts.isStringLiteralLike(flagsNode)) return undefined;
+      const flags = flagsNode ? (flagsNode as ts.StringLiteralLike).text : '';
+      return syntaxError(pattern.text, flags) === undefined
+        ? analyze(pattern.text, flags)
+        : undefined;
+    }
+    if (ts.isIdentifier(e) && depth < 8) {
+      const decl = this.symbol(e)?.valueDeclaration;
+      if (
+        decl &&
+        ts.isVariableDeclaration(decl) &&
+        decl.initializer &&
+        ts.isVariableDeclarationList(decl.parent) &&
+        decl.parent.flags & ts.NodeFlags.Const
+      )
+        return this.regexInfo(decl.initializer, depth + 1);
+    }
+    return undefined;
+  }
+
+  /** Whether TypeScript types `e` as a match array (RegExpExecArray, RegExpMatchArray). */
+  private isMatchArray(e: ts.Expression): boolean {
+    const t = this.checker.getNonNullableType(this.checker.getTypeAtLocation(e));
+    return /^RegExp(Exec|Match)Array$/.test(t.symbol?.name ?? '');
+  }
+
+  /** `s.matchAll(…)` */
+  private isMatchAll(e: ts.Expression): boolean {
+    return (
+      ts.isCallExpression(e) &&
+      ts.isPropertyAccessExpression(e.expression) &&
+      e.expression.name.text === 'matchAll'
+    );
+  }
+
+  /** A call whose result is a match array or split result of a RegExp. */
+  private isRegexpResult(e: ts.Expression): boolean {
+    e = skipParens(e);
+    while (ts.isNonNullExpression(e)) e = skipParens(e.expression);
+    if (!ts.isCallExpression(e) || !ts.isPropertyAccessExpression(e.expression)) return false;
+    const m = e.expression.name.text;
+    if (m === 'exec') return this.types.typeOrUndefined(e.expression.expression) === 'regexp';
+    return (
+      (m === 'match' || m === 'split') &&
+      !!e.arguments[0] &&
+      this.types.typeOrUndefined(e.arguments[0]) === 'regexp'
+    );
+  }
+
+  /** The pattern a match array comes from, when known (and whether it is a global match's list of matched strings). */
+  private matchSource(
+    e: ts.Expression,
+    depth = 0,
+  ): { info: RegexInfo; matches: boolean } | undefined {
+    e = skipParens(e);
+    while (ts.isNonNullExpression(e)) e = skipParens(e.expression);
+    if (ts.isCallExpression(e) && ts.isPropertyAccessExpression(e.expression)) {
+      const m = e.expression.name.text;
+      if (m === 'exec') {
+        const info = this.regexInfo(e.expression.expression);
+        return info && { info, matches: false };
+      }
+      if (m === 'match' && e.arguments[0]) {
+        const info = this.regexInfo(e.arguments[0]);
+        return info && { info, matches: info.flags.includes('g') };
+      }
+      return undefined;
+    }
+    if (ts.isIdentifier(e) && depth < 8) {
+      const decl = this.symbol(e)?.valueDeclaration;
+      if (!decl || !ts.isVariableDeclaration(decl) || !ts.isVariableDeclarationList(decl.parent))
+        return undefined;
+      const list = decl.parent;
+      // for (const m of s.matchAll(re))
+      if (ts.isForOfStatement(list.parent)) {
+        const it = skipParens(list.parent.expression);
+        if (this.isMatchAll(it)) {
+          const arg = (it as ts.CallExpression).arguments[0];
+          const info = arg && this.regexInfo(arg);
+          return info && { info, matches: false };
+        }
+        return undefined;
+      }
+      if (list.flags & ts.NodeFlags.Const && decl.initializer)
+        return this.matchSource(decl.initializer, depth + 1);
+    }
+    return undefined;
+  }
+
+  /** Match array elements: strings where the pattern proves every capture present. */
+  private captureType(info: RegexInfo | undefined): Type {
+    return info && allCertain(info) ? STRING : { maybe: STRING };
+  }
+
+  /** Whether the value of `e` may be undefined where it is used (`??`, conditions, `!`, templates). */
+  private undefinedHandled(e: ts.Expression): boolean {
+    let n: ts.Node = e;
+    while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
+    const p = n.parent;
+    if (ts.isBinaryExpression(p))
+      return p.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken && p.left === n;
+    if (ts.isPrefixUnaryExpression(p)) return p.operator === ts.SyntaxKind.ExclamationToken;
+    if (ts.isNonNullExpression(p) || ts.isTemplateSpan(p)) return true;
+    if (ts.isConditionalExpression(p)) return p.condition === n;
+    if (ts.isIfStatement(p) || ts.isWhileStatement(p) || ts.isDoStatement(p))
+      return p.expression === n;
+    return false;
+  }
+
+  /**
+   * `m[k]` of a match array (or split result) whose elements may be
+   * undefined where TypeScript types the read as `string`.
+   */
+  private captureRead(e: ts.ElementAccessExpression, array: Expr, index: Expr, b: FnBuilder): Expr {
+    const arg = skipParens(e.argumentExpression);
+    const k = ts.isNumericLiteral(arg) ? Number(arg.text) : undefined;
+    const source = this.matchSource(e.expression);
+    if (
+      !this.undefinedHandled(e) &&
+      k !== undefined &&
+      source &&
+      !source.matches &&
+      k <= source.info.captures &&
+      source.info.certain[k]
+    )
+      return { op: 'unwrap', value: { op: 'index', array, index } };
+    if (!this.undefinedHandled(e))
+      return this.fail(
+        e,
+        'E_REGEXP',
+        'This capture group may not participate in the match, so the value can be undefined (TypeScript types it as string); handle undefined, e.g. m[1] ?? ""',
+      );
+    // Out of range reads undefined, as in JavaScript.
+    const arr = b.local('$match', this.irType(array, b));
+    const i = b.local('$index', NUMBER);
+    const a: Expr = { op: 'local', local: arr };
+    const at: Expr = { op: 'local', local: i };
+    return {
+      op: 'with',
+      local: arr,
+      value: array,
+      body: {
+        op: 'with',
+        local: i,
+        value: index,
+        body: {
+          op: 'cond',
+          test: {
+            op: 'lt',
+            left: at,
+            right: { op: 'builtin', name: 'array.length', args: [a], type: NUMBER },
+          },
+          then: { op: 'index', array: a, index: at },
+          else: { op: 'undefined', type: { maybe: STRING } },
+        },
+      },
+    };
+  }
+
+  /** `m.groups.name`, `m.groups?.name`, `m.groups!.name` of a match array. */
+  private groupsAccess(e: ts.Expression, b: FnBuilder): Expr | undefined {
+    if (!ts.isPropertyAccessExpression(e)) return undefined;
+    let g = skipParens(e.expression);
+    while (ts.isNonNullExpression(g)) g = skipParens(g.expression);
+    if (!ts.isPropertyAccessExpression(g) || g.name.text !== 'groups' || g.questionDotToken)
+      return undefined;
+    const node = g.expression;
+    if (ts.isOptionalChain(node) || !this.isMatchArray(node)) return undefined;
+    const name = e.name.text;
+    const array = this.expr(node, b);
+    const tmp = b.local('$match', this.irType(array, b));
+    const m: Expr = { op: 'local', local: tmp };
+    const read: Expr = {
+      op: 'builtin',
+      name: 'match.group',
+      args: [m, { op: 'lit', value: name }],
+      type: { maybe: STRING },
+    };
+    const optional = !!e.questionDotToken;
+    const value: Expr = {
+      op: 'with',
+      local: tmp,
+      value: array,
+      body: optional
+        ? {
+            op: 'cond',
+            test: { op: 'builtin', name: 'match.has-groups', args: [m], type: BOOLEAN },
+            then: read,
+            else: { op: 'undefined', type: { maybe: STRING } },
+          }
+        : read,
+    };
+    const here = this.types.typeOrUndefined(e);
+    if (here !== undefined && !maybeInner(here)) {
+      const source = this.matchSource(node);
+      const at = source?.info.names.indexOf(name) ?? -1;
+      if (source && !optional && at > 0 && source.info.certain[at] && !this.undefinedHandled(e))
+        return { op: 'unwrap', value };
+      if (!this.undefinedHandled(e))
+        return this.fail(
+          e,
+          'E_REGEXP',
+          `Group ${name} may not participate in the match, so its value can be undefined; handle undefined, e.g. m.groups?.${name} ?? ""`,
+        );
+    }
+    return value;
+  }
+
+  /** `re.exec(s)`, `re.test(s)`, `re.toString()`. */
+  private regexpMethod(
+    method: string,
+    receiver: Expr,
+    node: ts.Expression,
+    e: ts.CallExpression,
+    b: FnBuilder,
+  ): Expr {
+    const string = (): Expr => {
+      if (e.arguments.length !== 1) return this.fail(e, 'E_REGEXP', `${method} takes one string`);
+      const v = this.expr(e.arguments[0], b);
+      if (this.irType(v, b) !== 'string')
+        return this.fail(e.arguments[0], 'E_REGEXP', `${method} takes a string`);
+      return v;
+    };
+    const call = (name: string, args: Expr[], type: Type): Expr => ({
+      op: 'builtin',
+      name: `regexp.${name}`,
+      args: [receiver, ...args],
+      type,
+    });
+    switch (method) {
+      case 'test':
+        return call('test', [string()], BOOLEAN);
+      case 'exec':
+        return call('exec', [string()], {
+          maybe: { array: this.captureType(this.regexInfo(node)) },
+        });
+      case 'toString':
+        if (e.arguments.length) return this.fail(e, 'E_REGEXP', 'toString takes no arguments');
+        return call('toString', [], STRING);
+    }
+    return this.fail(
+      e,
+      'E_REGEXP',
+      `RegExp.prototype.${method} is unsupported (exec, test and toString are supported)`,
+    );
+  }
+
+  /** String methods with a RegExp argument. */
+  private stringRegexp(method: string, receiver: Expr, e: ts.CallExpression, b: FnBuilder): Expr {
+    const [patternNode, second, ...rest] = e.arguments;
+    const pattern = this.expr(patternNode, b);
+    const info = this.regexInfo(patternNode);
+    const call = (extra: Expr[], type: Type): Expr => ({
+      op: 'builtin',
+      name: `string.regexp-${method}`,
+      args: [receiver, pattern, ...extra],
+      type,
+    });
+    const arity = (n: number) => {
+      if (e.arguments.length > n)
+        this.fail(e, 'E_REGEXP', `${method} with a RegExp takes ${n} argument${n > 1 ? 's' : ''}`);
+    };
+    switch (method) {
+      case 'replace':
+      case 'replaceAll': {
+        if (!second || rest.length)
+          return this.fail(e, 'E_REGEXP', `${method} takes a RegExp and a replacement`);
+        const fn = skipParens(second);
+        if (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))
+          return call(
+            [this.replacer(fn, info, b), { op: 'lit', value: info?.captures ?? 0 }],
+            STRING,
+          );
+        const value = this.expr(second, b);
+        const t = this.irType(value, b);
+        if (t === 'string') return call([value], STRING);
+        if (typeof t === 'object' && 'fn' in t) {
+          if (t.fn.params.length > 1 && !info)
+            return this.fail(
+              second,
+              'E_REGEXP',
+              'A replacement function taking captures needs a RegExp literal (or a const initialised with one), whose captures are known',
+            );
+          return call([value, { op: 'lit', value: info?.captures ?? 0 }], STRING);
+        }
+        return this.fail(second, 'E_REGEXP', 'The replacement must be a string or a function');
+      }
+      case 'match': {
+        arity(1);
+        const element = info && info.flags.includes('g') ? STRING : this.captureType(info);
+        return call([], { maybe: { array: element } });
+      }
+      case 'matchAll': {
+        arity(1);
+        let n: ts.Node = e;
+        while (ts.isParenthesizedExpression(n.parent)) n = n.parent;
+        const p = n.parent;
+        const allowed =
+          (ts.isForOfStatement(p) && p.expression === n) ||
+          ts.isSpreadElement(p) ||
+          (ts.isCallExpression(p) &&
+            this.globalName(
+              ts.isPropertyAccessExpression(p.expression) ? p.expression.expression : p.expression,
+            ) === 'Array');
+        if (!allowed)
+          return this.fail(
+            e,
+            'E_REGEXP',
+            'matchAll results are supported directly in for-of, Array.from(…) and [...…]',
+          );
+        return call([], { array: { array: this.captureType(info) } });
+      }
+      case 'search':
+        arity(1);
+        return call([], NUMBER);
+      case 'split': {
+        arity(2);
+        const limit = second ? [this.expr(second, b)] : [];
+        if (limit.length && this.irType(limit[0], b) !== 'number')
+          return this.fail(second, 'E_REGEXP', 'The split limit must be a number');
+        return call(limit, { array: this.captureType(info) });
+      }
+    }
+    return this.fail(e, 'E_REGEXP', `String.prototype.${method} with a RegExp is unsupported`);
+  }
+
+  /**
+   * A replacement function: the match, then each capture (`string` where
+   * the pattern proves it present, else `string | undefined`), the position
+   * and the string.
+   */
+  private replacer(
+    fn: ts.ArrowFunction | ts.FunctionExpression,
+    info: RegexInfo | undefined,
+    b: FnBuilder,
+  ): Expr {
+    const ps = fn.parameters;
+    if (ps.some(p => p.dotDotDotToken))
+      this.fail(fn, 'E_REGEXP', 'Rest parameters of replacement functions are unsupported');
+    if (!info && ps.length > 1)
+      this.fail(
+        fn,
+        'E_REGEXP',
+        'A replacement function taking captures needs a RegExp literal (or a const initialised with one), whose captures are known',
+      );
+    const n = info?.captures ?? 0;
+    const types: Type[] = ps.map((p, i) => {
+      if (i === 0) return STRING;
+      if (i <= n) {
+        const certain = info!.certain[i];
+        if (!p.type) return certain ? STRING : { maybe: STRING };
+        const declared = this.types.map(this.checker.getTypeFromTypeNode(p.type), p);
+        if (declared === 'string' && !certain)
+          this.fail(
+            p,
+            'E_REGEXP',
+            `Capture ${i} may not participate in a match, so this parameter can be undefined; declare it string | undefined`,
+          );
+        return declared;
+      }
+      if (i === n + 1) return NUMBER;
+      if (i === n + 2) return STRING;
+      return this.fail(
+        p,
+        'E_REGEXP',
+        'The groups parameter of replacement functions is unsupported',
+      );
+    });
+    const { index, builder } = this.function(
+      fn,
+      `${b.name}.replacer`,
+      b,
+      b.component,
+      undefined,
+      types,
+    );
+    return { op: 'closure', function: index, captures: builder.captureSources.map(c => c.local) };
+  }
+
   private array(e: ts.ArrayLiteralExpression, b: FnBuilder): Expr {
+    const [only] = e.elements;
+    if (
+      e.elements.length === 1 &&
+      ts.isSpreadElement(only) &&
+      this.isMatchAll(skipParens(only.expression))
+    )
+      return this.expr(only.expression, b);
     const type = this.exprType(e);
     const t = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
     if (!(typeof t === 'object' && 'array' in t))
@@ -2511,6 +3085,31 @@ const GLOBAL_FUNCTIONS = new Set([
   'decodeURIComponent',
 ]);
 const STATIC_NAMESPACES = new Set(['Math', 'Number', 'String', 'Array', 'Object', 'JSON']);
+
+/** String methods that take a RegExp (`string.regexp-*` built-ins). */
+const REGEXP_STRING_METHODS = new Set([
+  'replace',
+  'replaceAll',
+  'match',
+  'matchAll',
+  'search',
+  'split',
+]);
+
+/** RegExp properties (`regexp.*` built-ins). */
+const REGEXP_PROPERTIES: Record<string, Type> = {
+  source: STRING,
+  flags: STRING,
+  global: BOOLEAN,
+  ignoreCase: BOOLEAN,
+  multiline: BOOLEAN,
+  dotAll: BOOLEAN,
+  unicode: BOOLEAN,
+  unicodeSets: BOOLEAN,
+  sticky: BOOLEAN,
+  hasIndices: BOOLEAN,
+  lastIndex: NUMBER,
+};
 
 export const COMPOUND: Record<number, ts.SyntaxKind> = {
   [ts.SyntaxKind.PlusEqualsToken]: ts.SyntaxKind.PlusToken,

@@ -1307,6 +1307,9 @@ fn probe_json(t: &Type, v: &str) -> String {
         Type::Attrs => {
             format!("{{ let _ = &{v}; runic_runtime::Json::String(\"attrs\".into()) }}")
         }
+        Type::Regexp => {
+            format!("runic_runtime::Json::String(js::ToJsString::to_js_string(&{v}).to_rust())")
+        }
     }
 }
 

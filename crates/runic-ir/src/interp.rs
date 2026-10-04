@@ -54,6 +54,7 @@ pub enum Val {
     Promise(Promise),
     /// A promise's resolve or reject function.
     Resolver(Rc<Resolver>),
+    RegExp(js::RegExp),
 }
 
 /// Promises of the interpreter: reactions become [`PJob`]s on the microtask queue.
@@ -177,6 +178,7 @@ impl js::StrictEq for Val {
             (Val::Promise(a), Val::Promise(b)) => a == b,
             (Val::Element(a), Val::Element(b)) => a == b,
             (Val::Event(a), Val::Event(b)) => a == b,
+            (Val::RegExp(a), Val::RegExp(b)) => a == b,
             (Val::Attrs(a), Val::Attrs(b)) => {
                 a.len() == b.len()
                     && a.iter()
@@ -221,6 +223,7 @@ impl js::ToJsString for Val {
             Val::Closure(_) | Val::Resolver(_) => JsString::from("function"),
             Val::Element(e) => e.to_js_string(),
             Val::Event(e) => e.to_js_string(),
+            Val::RegExp(r) => r.to_js_string(),
             Val::Attrs(_) => JsString::from("[object Object]"),
             Val::Promise(_) => JsString::from("[object Promise]"),
         }
@@ -314,6 +317,7 @@ impl ToMapKey for Val {
             Val::Promise(p) => MapKey::Ref(p.addr()),
             Val::Element(e) => e.map_key(),
             Val::Event(e) => e.map_key(),
+            Val::RegExp(r) => r.map_key(),
             Val::Attrs(a) => MapKey::Ref(Rc::as_ptr(a) as *const u8 as usize),
         }
     }
@@ -659,6 +663,18 @@ pub struct Machine<'p> {
     flush_promise: Option<Promise>,
     /// localStorage items in insertion order.
     storage: Vec<(JsString, JsString)>,
+}
+
+/// Converts a capture to a match array element: `string | undefined`, or
+/// `string` where the program declares every capture present (`ty` is
+/// the declared `maybe<array<…>>`).
+fn capture_conversion(ty: &Type) -> fn(Maybe<JsString>) -> Res<Val> {
+    let strings = matches!(ty, Type::Maybe(a) if **a == Type::array(Type::String));
+    if strings {
+        |c| js::regexp::present(c).map(Val::Str)
+    } else {
+        |c| Ok(Val::from_maybe(c.map_val(Val::Str)))
+    }
 }
 
 /// The exception an Error record value stands for.
@@ -1574,6 +1590,119 @@ impl<'p> Machine<'p> {
             }),
             ("number", "toPrecision") => Val::Str(js::to_precision(n(0), opt_n(1))?),
             ("number", "toExponential") => Val::Str(js::to_exponential(n(0), opt_n(1))?),
+            ("regexp", "new") => Val::RegExp(js::RegExp::new(&s(0), &s(1))?),
+            ("regexp", m) => {
+                let Val::RegExp(re) = &a[0] else {
+                    panic!("validated RegExp")
+                };
+                let f = re.flags();
+                match m {
+                    "source" => Val::Str(re.source()),
+                    "flags" => Val::Str(re.flags_string()),
+                    "toString" => Val::Str(js::ToJsString::to_js_string(re)),
+                    "global" => Val::Bool(f.global),
+                    "ignoreCase" => Val::Bool(f.ignore_case),
+                    "multiline" => Val::Bool(f.multiline),
+                    "dotAll" => Val::Bool(f.dot_all),
+                    "unicode" => Val::Bool(f.unicode),
+                    "unicodeSets" => Val::Bool(f.unicode_sets),
+                    "sticky" => Val::Bool(f.sticky),
+                    "hasIndices" => Val::Bool(f.has_indices),
+                    "lastIndex" => Val::Num(re.last_index()),
+                    "set-lastIndex" => {
+                        re.set_last_index(n(1));
+                        Val::Undefined
+                    }
+                    "test" => Val::Bool(re.test(&s(1))),
+                    "exec" => {
+                        let conv = capture_conversion(ty);
+                        Val::from_maybe(re.exec_with(&s(1), conv)?.map_val(Val::Array))
+                    }
+                    other => unreachable!("validated RegExp member {other}"),
+                }
+            }
+            ("string", m) if m.starts_with("regexp-") => {
+                let Val::RegExp(re) = &a[1] else {
+                    panic!("validated RegExp")
+                };
+                let text = s(0);
+                match m {
+                    "regexp-replace" | "regexp-replaceAll" => match &a[2] {
+                        Val::Str(t) => Val::Str(if m == "regexp-replace" {
+                            js::regexp::replace(&text, re, t)
+                        } else {
+                            js::regexp::replace_all(&text, re, t)?
+                        }),
+                        f => {
+                            let Val::Closure(c) = f else {
+                                panic!("validated replacer")
+                            };
+                            let params: Vec<Type> = self.program.functions[c.function]
+                                .params
+                                .iter()
+                                .map(|p| p.ty.clone())
+                                .collect();
+                            let f = f.clone();
+                            let mut call =
+                                |caps: &[Maybe<JsString>], pos: f64, input: &JsString| {
+                                    let mut args = vec![];
+                                    for (i, c) in caps.iter().enumerate() {
+                                        // A capture declared present.
+                                        if params.get(i) == Some(&Type::String) {
+                                            js::regexp::present(c.clone())?;
+                                        }
+                                        args.push(Val::from_maybe(c.clone().map_val(Val::Str)));
+                                    }
+                                    args.push(Val::Num(pos));
+                                    args.push(Val::Str(input.clone()));
+                                    Ok(self.callback(&f, args)?.string())
+                                };
+                            Val::Str(if m == "regexp-replace" {
+                                js::regexp::replace_with(&text, re, &mut call)?
+                            } else {
+                                js::regexp::replace_all_with(&text, re, &mut call)?
+                            })
+                        }
+                    },
+                    "regexp-match" => {
+                        let conv = capture_conversion(ty);
+                        Val::from_maybe(
+                            js::regexp::match_with(&text, re, conv)?.map_val(Val::Array),
+                        )
+                    }
+                    "regexp-matchAll" => {
+                        let Type::Array(item) = ty else {
+                            panic!("validated matchAll")
+                        };
+                        let all = js::regexp::match_all_with(
+                            &text,
+                            re,
+                            capture_conversion(&Type::maybe((**item).clone())),
+                        )?;
+                        Val::Array(js::array(
+                            all.borrow().iter().cloned().map(Val::Array).collect(),
+                        ))
+                    }
+                    "regexp-search" => Val::Num(js::regexp::search(&text, re)),
+                    "regexp-split" => {
+                        let conv = capture_conversion(&Type::maybe(ty.clone()));
+                        Val::Array(js::regexp::split_with(&text, re, opt_n(2), conv)?)
+                    }
+                    other => unreachable!("validated string method {other}"),
+                }
+            }
+            ("match", m) => {
+                let arr = a[0].array();
+                match m {
+                    "index" => Val::from_maybe(js::regexp::match_index(&arr).map_val(Val::Num)),
+                    "input" => Val::from_maybe(js::regexp::match_input(&arr).map_val(Val::Str)),
+                    "has-groups" => Val::Bool(js::regexp::match_has_groups(&arr)),
+                    "group" => {
+                        Val::from_maybe(js::regexp::match_group(&arr, &s(1))?.map_val(Val::Str))
+                    }
+                    other => unreachable!("validated match member {other}"),
+                }
+            }
             ("string", m) => {
                 let r = s(0);
                 match m {
@@ -2020,6 +2149,7 @@ impl<'p> Machine<'p> {
             | Val::Resolver(_)
             | Val::Element(_)
             | Val::Event(_)
+            | Val::RegExp(_)
             | Val::Attrs(_) => return None,
             // A promise has no own enumerable properties.
             Val::Promise(_) => J::Object(Default::default()),
@@ -4662,6 +4792,7 @@ pub fn cell_json(v: &Val) -> Json {
         // Element ids differ between the interpreter and the native app.
         Val::Element(_) => json!("element"),
         Val::Event(_) => json!("event"),
+        Val::RegExp(r) => json!(js::ToJsString::to_js_string(r).to_rust()),
         Val::Attrs(_) => json!("attrs"),
     }
 }

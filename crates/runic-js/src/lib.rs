@@ -17,6 +17,7 @@ mod value;
 
 pub mod array_ops;
 pub mod json;
+pub mod regexp;
 pub mod string_ops;
 
 pub use array_ops::join_elements;
@@ -30,5 +31,6 @@ pub use heap::*;
 pub use keys::{KeySpec, MODIFIER_KEYS, parse_key_spec};
 pub use number::*;
 pub use promise::{JsPromise, Reaction};
+pub use regexp::RegExp;
 pub use string::JsString;
 pub use value::*;

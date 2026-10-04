@@ -213,6 +213,16 @@ impl<T> JsRef<T> {
             Some(Visit)
         })
     }
+    /// The identity of this value's storage (shared by its proxies) and a
+    /// weak handle telling whether it is still alive (RegExp match arrays'
+    /// extra properties, `regexp.rs`).
+    pub(crate) fn storage_identity(&self) -> (usize, std::rc::Weak<dyn std::any::Any>) {
+        let counts: Rc<dyn std::any::Any> = self.0.storage.counts.clone();
+        (
+            Rc::as_ptr(&self.0.storage.counts) as *const u8 as usize,
+            Rc::downgrade(&counts),
+        )
+    }
     /// Whether this is a proxy of deep state.
     pub fn is_owned(&self) -> bool {
         self.0.owned

@@ -159,6 +159,32 @@ export function builtinType(name: string, args: Type[]): Type | undefined {
     );
   if (ns === 'number') return S;
   if (ns === 'event') return EVENT_MEMBERS[method];
+  // RegExp members (match results depend on the pattern: the frontend
+  // declares them where it lowers the call).
+  if (ns === 'regexp')
+    return (
+      (
+        {
+          new: 'regexp',
+          source: S,
+          flags: S,
+          toString: S,
+          lastIndex: N,
+          'set-lastIndex': 'void',
+          test: B,
+        } as Record<string, Type>
+      )[method] ?? (method === 'exec' ? undefined : B)
+    );
+  if (ns === 'match')
+    return (
+      { index: { maybe: N }, input: { maybe: S }, 'has-groups': B, group: { maybe: S } } as Record<
+        string,
+        Type
+      >
+    )[method];
+  if (ns === 'string' && method === 'regexp-search') return N;
+  if (ns === 'string' && method.startsWith('regexp-replace')) return S;
+  if (ns === 'string' && method.startsWith('regexp-')) return undefined;
   if (ns === 'string') {
     if (['at', 'index'].includes(method)) return { maybe: S };
     if (method === 'codePointAt') return { maybe: N };

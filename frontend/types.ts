@@ -159,9 +159,31 @@ export class TypeMapper {
         this.fail(at, 'E_TYPE_UNSUPPORTED', 'Promises of promises are unsupported');
       return { promise: inner };
     }
-    if (name && ['Date', 'RegExp', 'Error', 'HTMLElement'].includes(name))
+    // Regular expressions (docs/IR.md): RegExp objects, and match arrays as
+    // arrays of strings (frontend/language.ts types captures that may not
+    // participate as `string | undefined` from the pattern).
+    if (name === 'RegExp' && this.fromLib(t)) return 'regexp';
+    if ((name === 'RegExpExecArray' || name === 'RegExpMatchArray') && this.fromLib(t))
+      return { array: 'string' };
+    if (
+      name === 'RegExpStringIterator' ||
+      (name === 'IterableIterator' &&
+        args.some(a => /^RegExp(Exec|Match)Array$/.test(a.symbol?.name ?? '')))
+    )
+      this.fail(
+        at,
+        'E_REGEXP',
+        'matchAll results are supported directly in for-of, Array.from(…) and [...…]',
+      );
+    if (name && ['Date', 'Error', 'HTMLElement'].includes(name))
       this.fail(at, 'E_TYPE_UNSUPPORTED', `${name} values are planned for a later milestone`);
     return { record: this.record(t, at) };
+  }
+
+  /** Whether `t` is declared by TypeScript's standard library. */
+  private fromLib(t: ts.Type): boolean {
+    const file = t.symbol?.declarations?.[0]?.getSourceFile();
+    return !!file && /[\\/]lib\.[\w.]*\.d\.ts$/.test(file.fileName);
   }
 
   private record(t: ts.Type, at: ts.Node): number {
