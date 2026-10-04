@@ -19,6 +19,8 @@ pub fn rust_type(t: &Type) -> String {
         Type::Regexp => "js::RegExp".into(),
         Type::MediaQuery => "js::MediaQueryList".into(),
         Type::Date => "js::Date".into(),
+        // Every class reference is the program's enum of instances by class.
+        Type::Class(_) | Type::Classes(_) => "Obj".into(),
         // Reactions are microtask jobs of the generated app.
         Type::Promise(i) => format!("js::JsPromise<{}, Lst>", rust_type(i)),
         Type::Fn(f) => format!(
@@ -35,8 +37,13 @@ pub fn rust_type(t: &Type) -> String {
 /// A value of type `t` used for not-yet-assigned locals and default cells.
 /// Programs never observe it (TypeScript's definite assignment holds).
 pub fn default_value(t: &Type, p: &Program) -> String {
-    let _ = p;
     match t {
+        Type::Class(_) | Type::Classes(_) => {
+            match p.concrete_members(t).unwrap_or_default().first() {
+                Some(r) => format!("Obj::R{r}(JsRef::new(R{r}::default()))"),
+                None => "unreachable!(\"a class without instances\")".into(),
+            }
+        }
         Type::Number => "0.0f64".into(),
         Type::String => "JsString::new()".into(),
         Type::Boolean => "false".into(),
@@ -63,6 +70,30 @@ pub fn default_value(t: &Type, p: &Program) -> String {
             rust_type(&f.result)
         ),
     }
+}
+
+/// The classes a class reference can hold: the variants of the generated
+/// `Obj` enum (every concrete class record, as a union may name classes
+/// without a hierarchy). None in programs without class references.
+pub fn obj_variants(p: &Program) -> Vec<usize> {
+    p.records
+        .iter()
+        .enumerate()
+        .filter(|(_, rec)| rec.class && !rec.is_abstract)
+        .map(|(r, _)| r)
+        .collect()
+}
+
+/// Whether the program has class references (class types with subclasses,
+/// or unions of classes).
+pub fn has_class_refs(p: &Program) -> bool {
+    p.has_subclasses() || serde_json::to_string(p).is_ok_and(|s| s.contains("\"classes\":["))
+}
+
+/// The catch-all arm of a `match` over `Obj` (classes a value's type
+/// excludes; unreachable patterns are allowed in generated code).
+pub fn obj_rest(_p: &Program, _covered: &[usize]) -> &'static str {
+    "_ => unreachable!(\"validated class\"), "
 }
 
 /// Whether values of `t` compare by SameValue for change detection.

@@ -9,7 +9,7 @@
 //! immediately; errors propagate with `?`, or to the innermost `try` through
 //! `tri!` and labelled-block breaks.
 
-use crate::types::{default_value, rust_type, same_expr};
+use crate::types::{default_value, obj_rest, rust_type, same_expr};
 use runic_ir::validate::infer_in;
 use runic_ir::*;
 use std::fmt::Write as _;
@@ -145,17 +145,47 @@ impl<'a> FnCtx<'a> {
         }
     }
 
-    /// A reactive class field read or written through `object`: its record,
-    /// its kind and (derived fields) its function.
-    fn record_field(&self, object: &Expr, field: usize) -> Option<(usize, Reactive, usize)> {
-        if !self.p.has_reactive_fields() {
-            return None;
-        }
-        let Type::Record(r) = self.ty(object) else {
-            return None;
-        };
+    /// Reading field `field` of the instance `o` (a `JsRef<R{r}>` in scope):
+    /// reactive class fields are signals, derived ones computed caches.
+    fn field_read(&self, r: usize, field: usize) -> String {
         let f = &self.p.records[r].fields[field];
-        f.reactive.map(|k| (r, k, f.derived.unwrap_or(0)))
+        match (f.reactive, f.derived) {
+            (Option::Some(Reactive::Derived), Option::Some(d)) => {
+                let inst = if self.p.functions[d].component.is_some() {
+                    format!(", inst, {}", self.snap_ref())
+                } else {
+                    String::new()
+                };
+                self.q(&format!("dfield_{r}_{field}(cx{inst}, &o)"))
+            }
+            (Option::Some(_), _) => {
+                format!("{{ let v = o.read_signal({field}).f{field}.clone(); v }}")
+            }
+            (Option::None, _) => format!("{{ let v = o.read_slot({field}).f{field}.clone(); v }}"),
+        }
+    }
+
+    /// Writing `v` to field `field` of the instance `o` (a `JsRef<R{r}>`):
+    /// a reactive class field's `$state` proxies plain objects and arrays,
+    /// and a value `===` the old one changes nothing.
+    fn field_write(&self, r: usize, field: usize) -> String {
+        let f = &self.p.records[r].fields[field];
+        match f.reactive {
+            Option::Some(kind) => {
+                let own = if kind == Reactive::State {
+                    "let v = js::Own::own(v); "
+                } else {
+                    ""
+                };
+                let same = crate::strict_expr(&f.ty, &format!("b.f{field}"), "v");
+                format!(
+                    "{own}let same = {{ let b = o.peek(); {same} }}; if !same {{ o.write_signal({field}).f{field} = v; cx.jobs.queue_flush(); }}"
+                )
+            }
+            Option::None => {
+                format!("let v = js::own_into(&o, v); o.write_slots(&[{field}]).f{field} = v;")
+            }
+        }
     }
 
     /// The render snapshot passed to component functions.
@@ -439,24 +469,23 @@ impl<'a> FnCtx<'a> {
                 code
             }
             Get { object, field } => {
-                let fd = self.record_field(object, *field);
+                let t = self.ty(object);
                 let o = self.expr(object);
-                match fd {
-                    Option::Some((r, Reactive::Derived, d)) => {
-                        let inst = if self.p.functions[d].component.is_some() {
-                            format!(", inst, {}", self.snap_ref())
-                        } else {
-                            String::new()
-                        };
-                        let call = self.q(&format!("dfield_{r}_{field}(cx{inst}, &o)"));
-                        format!("{{ let o = {o}; {call} }}")
+                match &t {
+                    // Through a class reference: the field of the instance's class.
+                    Type::Class(_) | Type::Classes(_) => {
+                        let members = self.p.concrete_members(&t).unwrap_or_default();
+                        let arms: String = members
+                            .iter()
+                            .map(|&r| format!("Obj::R{r}(o) => {}, ", self.field_read(r, *field)))
+                            .collect();
+                        let rest = obj_rest(self.p, &members);
+                        format!("{{ let v = {o}; match v {{ {arms}{rest}}} }}")
                     }
-                    Option::Some(_) => format!(
-                        "{{ let o = {o}; let v = o.read_signal({field}).f{field}.clone(); v }}"
-                    ),
-                    Option::None => format!(
-                        "{{ let o = {o}; let v = o.read_slot({field}).f{field}.clone(); v }}"
-                    ),
+                    Type::Record(r) => {
+                        format!("{{ let o = {o}; {} }}", self.field_read(*r, *field))
+                    }
+                    other => unreachable!("validated field access on {other:?}"),
                 }
             }
             Index { array, index } => {
@@ -516,6 +545,85 @@ impl<'a> FnCtx<'a> {
                 }
             }
             Builtin { name, args, ty } => crate::builtins::emit(self, name, args, ty),
+            Upcast { value, ty } => {
+                let from = self.ty(value);
+                let v = self.expr(value);
+                match (&from, ty) {
+                    (Type::Maybe(inner), _) => match &**inner {
+                        Type::Record(r) => format!(
+                            "(match {v} {{ Maybe::Some(x) => Maybe::Some(Obj::R{r}(x)), Maybe::Null => Maybe::Null, Maybe::Undefined => Maybe::Undefined }})"
+                        ),
+                        _ => v,
+                    },
+                    (Type::Record(r), _) => format!("Obj::R{r}({v})"),
+                    // A class reference is already an `Obj`.
+                    _ => v,
+                }
+            }
+            Downcast { value, ty } => {
+                let from = self.ty(value);
+                let v = self.expr(value);
+                let (from, to, maybe) = match (&from, ty) {
+                    (Type::Maybe(a), Type::Maybe(b)) => (&**a, &**b, true),
+                    (a, b) => (a, b, false),
+                };
+                let have = self.p.concrete_members(from).unwrap_or_default();
+                let want = self.p.class_members(to).unwrap_or_default();
+                let wrap = |x: &str| {
+                    if maybe {
+                        format!("Maybe::Some({x})")
+                    } else {
+                        x.to_string()
+                    }
+                };
+                let arms: String = have
+                    .iter()
+                    .map(|&r| {
+                        if !want.contains(&r) {
+                            format!(
+                                "Obj::R{r}(_) => Err(js::Throw::type_error({})), ",
+                                rust_str(&self.p.downcast_message(r, to))
+                            )
+                        } else if let Type::Record(_) = to {
+                            format!("Obj::R{r}(x) => Ok({}), ", wrap("x"))
+                        } else {
+                            format!("x @ Obj::R{r}(_) => Ok({}), ", wrap("x"))
+                        }
+                    })
+                    .collect();
+                let rest = obj_rest(self.p, &have);
+                let result = rust_type(ty);
+                let check = format!("match x {{ {arms}{rest}}}");
+                let body = if maybe {
+                    format!(
+                        "match {v} {{ Maybe::Some(x) => {check}, Maybe::Null => Ok(Maybe::Null), Maybe::Undefined => Ok(Maybe::Undefined) }}"
+                    )
+                } else {
+                    format!("{{ let x = {v}; {check} }}")
+                };
+                let r: String = format!("{{ let r: JsResult<{result}> = {body}; r }}");
+                self.q(&r)
+            }
+            MatchClass {
+                value,
+                cases,
+                otherwise,
+            } => {
+                let v = self.expr(value);
+                let mut covered = vec![];
+                let mut arms = String::new();
+                for c in cases {
+                    let assign = self.assign_local(c.local, "x");
+                    let body = self.expr(&c.body);
+                    covered.push(c.record);
+                    let _ = write!(arms, "Obj::R{}(x) => {{ {assign} {body} }} ", c.record);
+                }
+                let rest = match otherwise {
+                    Option::Some(e) => format!("_ => {{ {} }}", self.expr(e)),
+                    Option::None => obj_rest(self.p, &covered).to_string(),
+                };
+                format!("(match {v} {{ {arms}{rest}}})")
+            }
             With { local, value, body } => {
                 let v = self.expr(value);
                 let assign = self.assign_local(*local, &v);
@@ -694,31 +802,35 @@ impl<'a> FnCtx<'a> {
                     let _ = writeln!(out, "{{ let v = {v}; {write}}}");
                 }
                 Place::Field { object, field } => {
-                    let fd = self.record_field(object, *field);
+                    let t = self.ty(object);
                     let o = self.expr(object);
                     let v = self.expr(value);
-                    match fd {
-                        // A reactive class field: `$state` proxies plain objects
-                        // and arrays; a value `===` the old one changes nothing.
-                        Option::Some((r, kind, _)) => {
-                            let ty = &self.p.records[r].fields[*field].ty;
-                            let own = if kind == Reactive::State {
-                                "let v = js::Own::own(v); "
-                            } else {
-                                ""
-                            };
-                            let same = crate::strict_expr(ty, &format!("b.f{field}"), "v");
+                    match &t {
+                        Type::Class(_) | Type::Classes(_) => {
+                            let members = self.p.concrete_members(&t).unwrap_or_default();
+                            let arms: String = members
+                                .iter()
+                                .map(|&r| {
+                                    format!(
+                                        "Obj::R{r}(o) => {{ {} }} ",
+                                        self.field_write(r, *field)
+                                    )
+                                })
+                                .collect();
+                            let rest = obj_rest(self.p, &members);
                             let _ = writeln!(
                                 out,
-                                "{{ let o = {o}; let v = {v}; {own}let same = {{ let b = o.peek(); {same} }}; if !same {{ o.write_signal({field}).f{field} = v; cx.jobs.queue_flush(); }} }}"
+                                "{{ let x = {o}; let v = {v}; match x {{ {arms}{rest}}} }}"
                             );
                         }
-                        Option::None => {
+                        Type::Record(r) => {
                             let _ = writeln!(
                                 out,
-                                "{{ let o = {o}; let v = {v}; let v = js::own_into(&o, v); o.write_slots(&[{field}]).f{field} = v; }}"
+                                "{{ let o = {o}; let v = {v}; {} }}",
+                                self.field_write(*r, *field)
                             );
                         }
+                        other => unreachable!("validated field place on {other:?}"),
                     }
                 }
                 Place::Index { array, index } => {
