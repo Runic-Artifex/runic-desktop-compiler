@@ -218,3 +218,28 @@ test('media query lists: change events after emulate and resize, in the renderin
     'App.svelte',
   );
 });
+
+test('window.setTimeout and the other window timer functions are the global ones', async () => {
+  const plain = (await lower(await graph('timers-svelte'))).ir;
+  const prefixed = (
+    await lower(
+      await edits('timers-svelte', 'App.svelte', [
+        [
+          "setTimeout(() => (log = log + ' 250'), 250);",
+          "window.setTimeout(() => (log = log + ' 250'), 250);",
+        ],
+      ]),
+    )
+  ).ir;
+  const names = ir => {
+    const out = [];
+    const walk = v => {
+      if (!v || typeof v !== 'object') return;
+      if (v.op === 'builtin') out.push(v.name);
+      for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x);
+    };
+    walk(ir.components);
+    return out;
+  };
+  assert.deepEqual(names(prefixed), names(plain));
+});

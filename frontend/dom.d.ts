@@ -156,6 +156,13 @@ interface WindowEventTarget {
 }
 interface HostWindow extends WindowEventTarget {
   matchMedia(query: string): MediaQueryList;
+  setTimeout: typeof setTimeout;
+  setInterval: typeof setInterval;
+  clearTimeout: typeof clearTimeout;
+  clearInterval: typeof clearInterval;
+  requestAnimationFrame: typeof requestAnimationFrame;
+  cancelAnimationFrame: typeof cancelAnimationFrame;
+  queueMicrotask: typeof queueMicrotask;
   readonly innerWidth: number;
   readonly innerHeight: number;
   readonly scrollX: number;

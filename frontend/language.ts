@@ -2622,6 +2622,11 @@ export class Lowerer {
         );
       }
       const host = this.hostName(callee.expression);
+      // Timers and microtasks through `window.` are the global functions.
+      if (host === 'window' && WINDOW_FUNCTIONS.has(method)) {
+        const hosted = this.hostCall(method, e, b);
+        if (hosted) return hosted;
+      }
       if (host === 'window' && method === 'matchMedia')
         return {
           op: 'builtin',
@@ -4138,3 +4143,14 @@ export function remapLocals<T>(node: T, map: (i: number) => number): T {
 }
 
 const lit = (value: string): Expr => ({ op: 'lit', value });
+
+/** Global host functions also called as `window.f(…)`. */
+const WINDOW_FUNCTIONS = new Set([
+  'setTimeout',
+  'setInterval',
+  'clearTimeout',
+  'clearInterval',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'queueMicrotask',
+]);
