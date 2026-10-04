@@ -92,7 +92,8 @@ impl<A: App> Document for Native<A> {
         }
         // The rendering step: resize, scroll and media query events due.
         let environ = self.environ_changed();
-        if environ.is_some() || !self.listeners.pending_scroll.is_empty() {
+        if environ.is_some() || !self.listeners.pending_scroll.is_empty() || self.focus_fixup_due()
+        {
             let resized = environ.is_some_and(|(_, resized)| resized);
             if let Some((env, _)) = environ {
                 crate::set_media_env(env);
@@ -125,7 +126,7 @@ impl<A: App> Document for Native<A> {
             pointer: &mut self.pointer,
         };
         EventDriver::new(&mut self.doc, handler).handle_ui_event(event);
-        if !self.listeners.pending_scroll.is_empty() {
+        if !self.listeners.pending_scroll.is_empty() || self.focus_fixup_due() {
             if let Some(w) = &self.waker {
                 w.wake_by_ref();
             }
@@ -158,12 +159,6 @@ impl<A: App> Native<A> {
     fn fix_focus_after_update(&mut self) {
         if let Some(b) = self.listeners.blurred.take() {
             self.nav_start = Some(b);
-        }
-        if let Some(f) = focused_element(&self.doc) {
-            if is_disabled_control(&self.doc, f) {
-                self.doc.clear_focus();
-                self.nav_start = Some(f);
-            }
         }
         self.doc.shell_provider.request_redraw();
     }
@@ -254,6 +249,12 @@ impl<A: App> Native<A> {
         self.doc.shell_provider.request_redraw();
     }
 
+    /// Whether the focused element became disabled (the next rendering step
+    /// blurs it).
+    fn focus_fixup_due(&self) -> bool {
+        focused_element(&self.doc).is_some_and(|f| is_disabled_control(&self.doc, f))
+    }
+
     /// The media environment of the shell's viewport when it differs from
     /// what queries see, and whether the size changed.
     fn environ_changed(&self) -> Option<(crate::css::MediaEnv, bool)> {
@@ -311,6 +312,26 @@ impl<A: App> Native<A> {
                 handler.dispatch(&mut self.doc, &[delivery]);
             }
             event.finish();
+        }
+        // Focus fixup (after animation frames in Chromium): a focused element
+        // that became disabled or lost its box is blurred, with `blur` and
+        // `focusout` as events of their own.
+        self.doc.resolve(0.0);
+        if let Some(f) = focused_element(&self.doc) {
+            let boxless = !crate::layout::client_rect(&self.doc, f).is_some()
+                || !self.doc.get_node(f).is_some_and(|n| n.has_boxes());
+            if is_disabled_control(&self.doc, f) || boxless {
+                let mut handler = Handler {
+                    app: &mut self.app,
+                    listeners: &mut self.listeners,
+                    space_target: &mut self.space_target,
+                    nav_start: &mut self.nav_start,
+                    log: &mut self.log,
+                    pointer: &mut self.pointer,
+                };
+                handler.move_focus(&mut self.doc, None);
+                self.nav_start = Some(f);
+            }
         }
         self.doc.shell_provider.request_redraw();
     }
@@ -1104,13 +1125,10 @@ impl<A: App> Handler<'_, A> {
 
     /// A focused element that became disabled loses focus (browser focus
     /// fixup); it stays the sequential navigation starting point.
+    /// A focused element that became disabled keeps focus until the
+    /// rendering step's focus fixup (`Native::rendering_step`).
     fn fix_focus(&mut self, doc: &mut BaseDocument) {
-        if let Some(f) = focused_element(doc) {
-            if is_disabled_control(doc, f) {
-                doc.clear_focus();
-                *self.nav_start = Some(f);
-            }
-        }
+        let _ = doc;
     }
 }
 

@@ -4051,7 +4051,33 @@ impl<'p> Machine<'p> {
         // browser's after Playwright's fake clock ran them).
         let mut run = Run::default();
         self.host_tasks(&mut run);
+        self.focus_fixup(&mut run);
         run.error.map_or(Ok(()), Err)
+    }
+
+    /// The rendering step's focus fixup: a focused control that became
+    /// disabled is blurred, with `blur` and `focusout` as events of their
+    /// own. (Elements hidden by CSS are not modelled here: the interpreter
+    /// has no style.)
+    fn focus_fixup(&mut self, s: &mut Run) {
+        let Some(f) = self.focused else { return };
+        let tree = match self.render() {
+            Ok(t) => t,
+            Err(d) => {
+                s.error.get_or_insert(d);
+                return;
+            }
+        };
+        let disabled = chain_nodes(&tree, f).is_some_and(|nodes| {
+            matches!(nodes.last(), Some(VNode::Element { tag, attrs, .. })
+                if matches!(tag.as_str(), "button" | "input" | "textarea" | "select")
+                    && attrs.contains_key("disabled"))
+        });
+        if disabled {
+            if let Err(d) = self.move_focus(None, s) {
+                s.error.get_or_insert(d);
+            }
+        }
     }
 
     /// Index of the first timer due at or before `to`.
@@ -4197,6 +4223,7 @@ impl<'p> Machine<'p> {
                 ));
             }
         }
+        self.focus_fixup(&mut run);
         match run.error {
             Some(d) => Err(d),
             None => Ok(run.ran),
@@ -4257,6 +4284,7 @@ impl<'p> Machine<'p> {
             }
             event.finish();
         }
+        self.focus_fixup(&mut run);
         match run.error {
             Some(d) => Err(d),
             None => Ok(run.ran),
@@ -4917,6 +4945,7 @@ impl<'p> Machine<'p> {
         self.traverse(delta).map_err(throw_diag)?;
         let mut run = Run::default();
         self.host_tasks(&mut run);
+        self.focus_fixup(&mut run);
         match run.error {
             Some(d) => Err(d),
             None => Ok(run.ran),

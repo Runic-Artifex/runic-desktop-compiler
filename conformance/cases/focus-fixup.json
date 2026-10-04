@@ -1,0 +1,11 @@
+{
+  "description": "Focus fixup: a focused button that its click disables keeps focus until the rendering step, which dispatches blur and a bubbling focusout; Tab then starts from where it was",
+  "fixtures": ["fixup-svelte"],
+  "actions": [
+    { "kind": "click", "id": "lock" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "click", "id": "unlock" },
+    { "kind": "click", "id": "lock" },
+    { "kind": "press", "key": "Shift+Tab" }
+  ]
+}
