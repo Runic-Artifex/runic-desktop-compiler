@@ -166,7 +166,7 @@ Fork unit tests (`anyrender_vello`, run on lavapipe): Chromium's values for each
 
 ### Gaps found on the way (both renderers)
 
-The `gradients` case found two Blitz gaps (BLITZ-GAPS, case `blitz-gradients`, a known gap): blitz-paint centres angle gradients on the border box instead of the background positioning area (a 6 px border 6.4/255, `background-size: 200%` 52.6/255), and passes colour stops with positions below an earlier one unsorted (CSS Images 3 raises them), which vello_cpu rejects by filling the gradient with its first colour (100.7/255) while Vello happens to draw it as Chromium. Both are small blitz-paint patches; the Blitz fork was not changed here.
+The `gradients` case found two Blitz gaps (BLITZ-GAPS, case `blitz-gradients`, a known gap): blitz-paint centres angle gradients on the border box instead of the background positioning area (a 6 px border 6.4/255, `background-size: 200%` 52.6/255), and passes colour stops with positions below an earlier one unsorted (CSS Images 3 raises them), which vello_cpu rejects by filling the gradient with its first colour (100.7/255) while Vello happens to draw it as Chromium. Both are small blitz-paint patches; the Blitz fork was not changed here. They were fixed in the fork afterwards (2026-10-05, BLITZ-GAPS), and `blitz-gradients` now passes on both renderers.
 
 **Upstream.** No vello issue or PR covers the pixel-corner sampling of gradients (searched 2026-10-05); the commit is written to be offered upstream. The anyrender commit is written to be offered too; it keeps the offscreen approach inside anyrender, since classic Vello has no filter primitives (#784 is stale).
 
