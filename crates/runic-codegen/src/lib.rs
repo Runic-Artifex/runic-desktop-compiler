@@ -611,6 +611,8 @@ impl Gen<'_> {
                     classes,
                     style_text,
                     styles,
+                    style_update,
+                    restore: restore_mode,
                     ..
                 } = node
                 else {
@@ -666,11 +668,27 @@ impl Gen<'_> {
                         .map(|p| format!("({}, {})", rust_str(&p.name), opt(&mut cx, &p.value)))
                         .collect();
                     let props = props.join(", ");
+                    let state = match style_update {
+                        StyleUpdate::Compose => "StyleState",
+                        StyleUpdate::Replace => "ReplaceState",
+                    };
+                    let apply = |n: &str, st: &str| match (style_update, style_text) {
+                        (StyleUpdate::Compose, _) => format!(
+                            "{{ let v = {value}; dom.styles({n}, v, &[{props}], &mut {st}); }}"
+                        ),
+                        (StyleUpdate::Replace, Some(_)) => format!(
+                            "{{ let v = {value}; dom.style_text_replace({n}, v, &mut {st}); }}"
+                        ),
+                        (StyleUpdate::Replace, None) => format!(
+                            "{{ dom.style_properties_replace({n}, &[{props}], &mut {st}); }}"
+                        ),
+                    };
                     o.fields
-                        .push((format!("st{key}"), "runic_runtime::css::StyleState".into()));
+                        .push((format!("st{key}"), format!("runic_runtime::css::{state}")));
                     let _ = writeln!(
                         o.mount,
-                        "let mut st{key} = runic_runtime::css::StyleState::default(); {{ let v = {value}; dom.styles(n{key}, v, &[{props}], &mut st{key}); }}"
+                        "let mut st{key} = runic_runtime::css::{state}::default(); {}",
+                        apply(&format!("n{key}"), &format!("st{key}"))
                     );
                     let exprs: Vec<&Expr> = style_text
                         .iter()
@@ -680,7 +698,8 @@ impl Gen<'_> {
                         let guard = self.guard(&exprs);
                         let _ = writeln!(
                             o.update,
-                            "if {guard} {{ let v = {value}; dom.styles(s.n{key}, v, &[{props}], &mut s.st{key}); }}"
+                            "if {guard} {}",
+                            apply(&format!("s.n{key}"), &format!("s.st{key}"))
                         );
                     }
                 }
@@ -791,6 +810,18 @@ impl Gen<'_> {
                 // Controlled values: restored at every sync (restore), or
                 // applied when they differ from the value last applied.
                 let restore = self.p.schedule.controlled_restore;
+                // With `restore: render`, also at each re-render of the instance.
+                let rerender = if *restore_mode == Some(Restore::Render) {
+                    o.fields
+                        .push((format!("pr{key}"), "std::cell::Cell<u64>".into()));
+                    let _ = writeln!(
+                        o.mount,
+                        "let pr{key} = std::cell::Cell::new(inst.borrow().renders);"
+                    );
+                    format!("{{ let r = inst.borrow().renders; s.pr{key}.replace(r) != r }}")
+                } else {
+                    "false".to_string()
+                };
                 for p in props {
                     let v = self.ctx(k).expr(&p.value);
                     let (rty, conv, set) = if p.name == "checked" {
@@ -820,7 +851,7 @@ impl Gen<'_> {
                         );
                         let _ = writeln!(
                             o.sync,
-                            "{{ let v = {v}{conv}; if cx.force_sync || *s.{cache}.borrow() != v {{ {}; *s.{cache}.borrow_mut() = v; }} }}",
+                            "{{ let v = {v}{conv}; let rerendered = {rerender}; if cx.force_sync || rerendered || *s.{cache}.borrow() != v {{ {}; *s.{cache}.borrow_mut() = v; }} }}",
                             set_n(&format!("s.n{key}"))
                         );
                     }
@@ -1400,9 +1431,9 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
          /// Template locals of component {name}.\n#[derive(Clone)]\npub struct T{k} {{ {locals}}}\n\
          impl Default for T{k} {{ fn default() -> Self {{ T{k} {{ {local_defaults}}} }} }}\n\
          /// An instance of {name}: current, snapshot and pre-handler cells, dirty bits and props.\n\
-         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub prev: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub changed: bool, pub ver: [u64; {n}], pub fx: Vec<runic_runtime::Fx<Lst, Cx>>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, {props}{fx_values}}}\n\
+         pub struct St{k} {{ pub c: Cells{k}, pub snap: Rc<Cells{k}>, pub prev: Rc<Cells{k}>, pub before: Cells{k}, pub dirty: [bool; {n}], pub changed: bool, pub ver: [u64; {n}], pub fx: Vec<runic_runtime::Fx<Lst, Cx>>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub renders: u64, {props}{fx_values}}}\n\
          pub type I{k} = Rc<RefCell<St{k}>>;\n\
-         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), prev: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], changed: false, ver: [0; {n}], fx: (0..{m}).map(|_| runic_runtime::Fx::default()).collect(), stable: std::collections::HashMap::new(), {prop_defaults}{fx_value_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
+         fn new_i{k}(cx: &mut Cx) -> I{k} {{ let i = Rc::new(RefCell::new(St{k} {{ c: Cells{k}::default(), snap: Rc::new(Cells{k}::default()), prev: Rc::new(Cells{k}::default()), before: Cells{k}::default(), dirty: [false; {n}], changed: false, ver: [0; {n}], fx: (0..{m}).map(|_| runic_runtime::Fx::default()).collect(), stable: std::collections::HashMap::new(), renders: 0, {prop_defaults}{fx_value_defaults}}})); cx.live{k}.push(Rc::clone(&i)); i }}\n\
          fn destroy_i{k}(cx: &mut Cx, inst: &I{k}) {{ cx.live{k}.retain(|x| !Rc::ptr_eq(x, inst)); let stable = std::mem::take(&mut inst.borrow_mut().stable); drop(stable); clear_derived_i{k}(inst); }}",
         name = c.name.replace('\n', " "),
     );
@@ -1625,6 +1656,10 @@ fn component_effects(p: &Program, k: usize, out: &mut String) {
             }
             _ => "Ok(f) => inst.borrow_mut().fx[e].cleanup = Some(f),".into(),
         };
+        // A run of the render effect is a re-render (docs/IR.md, `restore`).
+        if effect.render {
+            prologue.push_str("inst.borrow_mut().renders += 1; ");
+        }
         let _ = writeln!(
             run,
             "{e} => {{ {prologue}{begin} let snap = {{ let s = Rc::clone(&inst.borrow().snap); s }}; let r = f{fun}(cx, inst, &snap{args}); {end} inst.borrow_mut().fx[e].started = true; match r {{ {cleanup} Err(err) => eprintln!(\"runic: uncaught exception in an effect: {{err}}\"), }} }}",

@@ -45,11 +45,12 @@ pub fn css_text(css: &str) -> String {
 
 /// `style.setProperty(name, value, priority)` on the declarations `css`:
 /// the new serialization, or `None` when the value is invalid (nothing
-/// changes). An empty value removes the property.
+/// changes). An empty value removes the property; a value of whitespace is
+/// parsed like any other, as in Chromium.
 pub fn set_property(css: &str, name: &str, value: &str, important: bool) -> Option<String> {
     let id = PropertyId::parse_enabled_for_all_content(name).ok()?;
     let mut block = block(css);
-    if value.trim().is_empty() {
+    if value.is_empty() {
         if let Some(first) = block.first_declaration_to_remove(&id) {
             block.remove_property(&id, first);
         }
@@ -80,6 +81,11 @@ pub fn set_property(css: &str, name: &str, value: &str, important: bool) -> Opti
         }
     }
     Some(text(&block))
+}
+
+/// Whether `name` is a CSS property (or a custom property).
+pub fn is_property(name: &str) -> bool {
+    PropertyId::parse_enabled_for_all_content(name).is_ok()
 }
 
 /// `style.removeProperty(name)` on the declarations `css`: the new
@@ -139,6 +145,8 @@ pub use media::{MediaEnv, matches as media_matches};
 pub mod root;
 pub use root::Root;
 pub mod compose;
+pub mod replace;
+pub use replace::ReplaceState;
 
 /// The inline style of an element as Svelte's `set_style` manages it: when
 /// the style value changes, the value composed with the properties is set

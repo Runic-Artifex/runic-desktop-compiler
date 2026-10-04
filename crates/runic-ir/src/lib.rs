@@ -144,7 +144,8 @@ pub struct Schedule {
     pub cleanup_reads_previous: bool,
     /// Controlled values (`value`, `checked`) are restored after every
     /// event (React); otherwise they are applied when they change, and what
-    /// the user typed or toggled stays until then (Svelte, Vue).
+    /// the user typed or toggled stays until then (Svelte, Vue; see also
+    /// elements with `restore`).
     #[serde(
         default,
         rename = "controlledRestore",
@@ -466,6 +467,11 @@ pub struct Effect {
     pub phase: EffectPhase,
     pub deps: EffectDeps,
     pub unmount: Unmount,
+    /// The instance's render (Vue's render effect): a tracked pre effect
+    /// reading what the template reads. Each run is a re-render, which
+    /// re-applies the live properties of elements with `restore: render`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub render: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Source>,
 }
@@ -1308,6 +1314,35 @@ fn is_lis(r: &Reorder) -> bool {
     *r == Reorder::Lis
 }
 
+/// How an element's managed inline style (`styleText`, `styles`) is updated.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StyleUpdate {
+    /// The style value composed with the properties through `cssText` when
+    /// the value changes, changed properties otherwise (Svelte's `set_style`).
+    #[default]
+    Compose,
+    /// Either a style text, set through `cssText` when it changes, or
+    /// properties, all set again in order whenever one changes (Vue's
+    /// runtime-dom `patchStyle`).
+    Replace,
+}
+
+/// When an element's live properties are applied besides when they change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Restore {
+    /// At every re-render of its instance (each run of the component's
+    /// render effect), where the live value differs (Vue patching `value`).
+    Render,
+}
+
+impl StyleUpdate {
+    fn is_compose(&self) -> bool {
+        *self == StyleUpdate::Compose
+    }
+}
+
 /// A prop passed to a component instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1350,6 +1385,17 @@ pub enum Node {
         style_text: Option<Expr>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         styles: Vec<Attr>,
+        /// How the managed inline style is updated (docs/IR.md).
+        #[serde(
+            rename = "styleUpdate",
+            default,
+            skip_serializing_if = "StyleUpdate::is_compose"
+        )]
+        style_update: StyleUpdate,
+        /// When the live properties are applied besides when they change
+        /// (docs/IR.md "Live properties").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        restore: Option<Restore>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         children: Vec<Node>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1087,6 +1087,20 @@ fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
     }
     for e in &c.effects {
         validate_effect(p, ci, e)?;
+        if e.render
+            && (e.phase != EffectPhase::Pre
+                || e.deps != EffectDeps::Tracked
+                || p.functions[e.run].result != Type::Void)
+        {
+            return err(
+                "E_IR",
+                "A render effect is a tracked pre effect without a cleanup",
+                e.source.as_ref(),
+            );
+        }
+    }
+    if c.effects.iter().filter(|e| e.render).count() > 1 {
+        return err("E_IR", "A component has at most one render effect", None);
     }
     Ok(())
 }
@@ -1367,6 +1381,8 @@ impl<'p> NodeCx<'_, 'p> {
                 classes,
                 style_text,
                 styles,
+                style_update,
+                restore,
                 ..
             } => {
                 let text = |t: &Type| *t == Type::String || *t == Type::maybe(Type::String);
@@ -1395,6 +1411,32 @@ impl<'p> NodeCx<'_, 'p> {
                             format!("Class toggle {} must be boolean", t.name),
                             src,
                         );
+                    }
+                }
+                if restore.is_some()
+                    && (!props.iter().any(|p| p.name == "value")
+                        || !c.effects.iter().any(|e| e.render))
+                {
+                    return err(
+                        "E_IR",
+                        "Restoring live values at re-renders needs a value property and a render effect",
+                        src,
+                    );
+                }
+                if *style_update == StyleUpdate::Replace {
+                    // A text or properties, not both; property names the
+                    // CSSOM knows (custom properties included).
+                    if style_text.is_some() == !styles.is_empty() {
+                        return err(
+                            "E_IR",
+                            "A replaced inline style has a style text or style properties",
+                            src,
+                        );
+                    }
+                    for p in styles {
+                        if !runic_css::is_property(&p.name) {
+                            return err("E_IR", format!("Unknown style property {}", p.name), src);
+                        }
                     }
                 }
                 if !classes.is_empty() {

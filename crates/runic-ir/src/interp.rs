@@ -471,6 +471,8 @@ pub struct Instance<'p> {
     effects: Vec<EffectState>,
     /// Cached derived values by function.
     derived: HashMap<usize, DerivedSlot>,
+    /// Runs of the component's render effect (its re-renders).
+    renders: u64,
 }
 
 struct DerivedSlot {
@@ -598,11 +600,15 @@ pub struct Machine<'p> {
     live_checked: HashMap<u64, bool>,
     /// The controlled `value` and `checked` last applied, by element id.
     control_cache: HashMap<u64, (Option<String>, Option<bool>)>,
+    /// The re-render of its instance each `restore: render` control last applied.
+    control_renders: HashMap<u64, u64>,
     /// Class toggle state by element id: the class value, the toggles and
     /// the attribute they produced.
     class_states: HashMap<u64, (JsString, Vec<bool>, Option<JsString>)>,
     /// Managed inline style state by element id, with the attribute it produced.
     style_states: HashMap<u64, (runic_css::StyleState, Option<String>)>,
+    /// The same in `replace` mode.
+    replace_states: HashMap<u64, (runic_css::ReplaceState, Option<String>)>,
     /// The document element as scripts changed it.
     root: runic_css::Root,
     /// What media queries see (the probe's default viewport and preferences).
@@ -738,8 +744,10 @@ impl<'p> Machine<'p> {
             live_values: HashMap::new(),
             live_checked: HashMap::new(),
             control_cache: HashMap::new(),
+            control_renders: HashMap::new(),
             class_states: HashMap::new(),
             style_states: HashMap::new(),
+            replace_states: HashMap::new(),
             host_listeners: vec![],
             root: runic_css::Root::with_attrs(
                 program
@@ -807,6 +815,7 @@ impl<'p> Machine<'p> {
                 .map(|_| EffectState::default())
                 .collect(),
             derived: HashMap::new(),
+            renders: 0,
         });
         let saved = std::mem::replace(&mut self.current, id);
         let result = (|| -> Res<()> {
@@ -2379,6 +2388,8 @@ impl<'p> Machine<'p> {
                 classes,
                 style_text,
                 styles,
+                style_update,
+                restore: restore_mode,
                 ..
             } => {
                 let key = (
@@ -2473,20 +2484,36 @@ impl<'p> Machine<'p> {
                     for p in styles {
                         properties.push((p.name.as_str(), text(self.eval(&p.value, frame)?)));
                     }
-                    let (mut state, current) = self.style_states.remove(&id).unwrap_or_default();
-                    let current = match state.apply(current.as_deref(), value, &properties) {
-                        Ok(next) => next,
-                        Err(()) => current,
-                    };
-                    match &current {
-                        Some(c) => {
+                    if *style_update == StyleUpdate::Replace {
+                        let (mut state, current) =
+                            self.replace_states.remove(&id).unwrap_or_default();
+                        let next = if style_text.is_some() {
+                            state.apply_text(value)
+                        } else {
+                            state.apply_properties(current.as_deref(), &properties)
+                        };
+                        let current = next.unwrap_or(current);
+                        if let Some(c) = &current {
                             map.insert("style".into(), c.clone());
                         }
-                        None => {
-                            map.remove("style");
+                        self.replace_states.insert(id, (state, current));
+                    } else {
+                        let (mut state, current) =
+                            self.style_states.remove(&id).unwrap_or_default();
+                        let current = match state.apply(current.as_deref(), value, &properties) {
+                            Ok(next) => next,
+                            Err(()) => current,
+                        };
+                        match &current {
+                            Some(c) => {
+                                map.insert("style".into(), c.clone());
+                            }
+                            None => {
+                                map.remove("style");
+                            }
                         }
+                        self.style_states.insert(id, (state, current));
                     }
-                    self.style_states.insert(id, (state, current));
                 }
                 let mut refs = vec![];
                 if let Some(bag) = spread {
@@ -2522,12 +2549,20 @@ impl<'p> Machine<'p> {
                 let mut checked = None;
                 // Controlled values: applied always (restore) or when they change.
                 let restore = self.program.schedule.controlled_restore;
+                let restore_render = *restore_mode == Some(Restore::Render);
                 for p in props {
                     match p.name.as_str() {
                         "value" => {
                             let v = self.eval(&p.value, frame)?.string().to_rust();
+                            // A re-render of the instance since the value was last applied.
+                            let renders = self.instances[self.current].renders;
+                            let rerendered = restore_render
+                                && self
+                                    .control_renders
+                                    .insert(id, renders)
+                                    .is_some_and(|r| r != renders);
                             let cache = self.control_cache.entry(id).or_default();
-                            if restore || cache.0.as_ref() != Some(&v) {
+                            if restore || rerendered || cache.0.as_ref() != Some(&v) {
                                 cache.0 = Some(v.clone());
                                 self.live_values.insert(id, v);
                             }
@@ -3150,6 +3185,9 @@ impl<'p> Machine<'p> {
     fn run_effect(&mut self, i: usize, e: usize) {
         let comp = self.instances[i].component;
         let effect = &self.program.components[comp].effects[e];
+        if effect.render {
+            self.instances[i].renders += 1;
+        }
         let func = &self.program.functions[effect.run];
         let mut args = vec![];
         if let EffectDeps::Values { values, .. } = &effect.deps {

@@ -1,0 +1,75 @@
+{
+  "description": "The forms case for Vue: a v-model textarea (typing with Enter inserting line breaks), a label for= focusing it, a label wrapping a v-model checkbox toggling it, a label wrapping a :value/@input text input focusing it. Controlled values without writes differ from Svelte: Vue patches the value of a text input or text area with :value (or v-model) at every re-render of its component where the live value differs (runtime-dom patchProp forces value; vModelText beforeUpdate), so typed text stays until an unrelated update re-renders the component and is then restored; a :checked checkbox is patched only when its value changes, so a toggle stays. The :value of a text area is also its value attribute (patchProp sets it)",
+  "fixtures": [
+    "forms-vue"
+  ],
+  "actions": [
+    {
+      "kind": "type",
+      "id": "notes",
+      "text": "\nthree"
+    },
+    {
+      "kind": "press",
+      "key": "Backspace"
+    },
+    {
+      "kind": "blur",
+      "id": "notes"
+    },
+    {
+      "kind": "click",
+      "id": "notes-label"
+    },
+    {
+      "kind": "type",
+      "text": "!"
+    },
+    {
+      "kind": "click",
+      "id": "agree-label"
+    },
+    {
+      "kind": "click",
+      "id": "agree-label"
+    },
+    {
+      "kind": "click",
+      "id": "name-label"
+    },
+    {
+      "kind": "type",
+      "text": "Ada"
+    },
+    {
+      "kind": "click",
+      "id": "frozen"
+    },
+    {
+      "kind": "type",
+      "id": "fixed",
+      "text": "!"
+    },
+    {
+      "kind": "click",
+      "id": "other"
+    },
+    {
+      "kind": "click",
+      "id": "frozen"
+    },
+    {
+      "kind": "type",
+      "id": "memo",
+      "text": "?"
+    },
+    {
+      "kind": "click",
+      "id": "frozen"
+    },
+    {
+      "kind": "click",
+      "id": "other"
+    }
+  ]
+}
