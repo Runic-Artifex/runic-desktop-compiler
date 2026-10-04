@@ -86,6 +86,30 @@ A capability interface in `runic-runtime` (one module per service, each with a p
 | Randomness | `Math.random`, `crypto.randomUUID` (seeded in probes) |
 | Patterns | `RegExp` with JavaScript semantics |
 
+**The capability interface.** Every service follows the shape `localStorage` set in M4:
+- **IR.** Built-ins in the service's own namespace (`clipboard.*`, `history.*`, `console.*`, `date.*`, `intl.*`, `random.*`). Frontends lower the browser API to them in the shared language layer: the APIs are the same in every framework.
+- **Runtime.** One `runic-runtime` module per service. Production uses the platform: the system clock, time zone and locale, the OS clipboard, OS randomness, and an in-process history whose initial location is the app's start URL. JavaScript value semantics that need no platform (`Date` arithmetic and formatting, `Intl` formatting given a locale and time zone, collation) live in `runic-js`, so the interpreter and generated code share them.
+- **Probe mode.** Each module has a probe mode seeded from the case manifest, as `storage` is. The interpreter models the probe mode, and the browser harness sets up the same environment in Chromium.
+- **Manifest keys.**
+
+  | Key | Default | Meaning |
+  |---|---|---|
+  | `timezone` | `"UTC"` | IANA zone; Chromium gets it through Playwright's `timezoneId` |
+  | `locale` | `"en-US"` | the default locale; Playwright's `locale` |
+  | `url` | `"/"` | the initial path, query and hash |
+  | `clipboard` | `""` | the initial clipboard text |
+  | `seed` | `1` | the random seed |
+
+  The clock stays as it is: the fake clock starts at `CLOCK_ORIGIN` for cases with `wait`.
+- **Randomness in Chromium.** Chromium's `Math.random` cannot be seeded. The harness replaces it, and `crypto.randomUUID`, with the generator the probe uses (an init script, the same kind of emulation as the fake clock). Only the case environment changes; the app runs unchanged.
+- **Snapshots.** Effects outside the DOM are part of each step's snapshot under `host`, compared like the DOM:
+  - console lines (`level`, text);
+  - clipboard text;
+  - `location.href` relative to the origin;
+  - `history.length`.
+- **Builds stay deterministic.** Clock, zone, locale, clipboard and randomness are runtime inputs, never build inputs.
+- **Unsupported shapes are rejected.** Values, options and locales without verified parity are rejected with a located diagnostic. Examples: console arguments other than primitives, `Intl` options outside the verified subset, locales without vectors. Each supported formatting surface is pinned by vectors generated in Chromium or Node, like the RegExp vectors.
+
 ## Work order
 
 1. Event objects, event kinds and default-action cancellation; window and document listeners.
