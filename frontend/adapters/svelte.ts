@@ -5,6 +5,7 @@
 // events → handlers. Ordinary code goes through frontend/language.ts.
 import ts from 'typescript';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
 import type {
   AttrItem,
@@ -649,7 +650,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const edge = graph.modules.get(from)?.imports.find(i => i.specifier === specifier);
     if (!edge || edge.package) return undefined;
     const target = units.get(edge.resolved)?.virtual ?? edge.resolved;
-    return files.has(target) ? target : undefined;
+    // A module only imported for its types is not collected; TypeScript reads it.
+    return files.has(target) || (/\.(ts|js|mjs)$/.test(target) && existsSync(target))
+      ? target
+      : undefined;
   });
   const unitOf = new Map<ts.SourceFile, Unit>();
   for (const u of units.values()) unitOf.set(program.getSourceFile(u.virtual)!, u);

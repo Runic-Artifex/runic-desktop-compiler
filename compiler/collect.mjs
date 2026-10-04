@@ -158,10 +158,31 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic) {
             );
             for (const stmt of ast.statements) {
               if (
-                (ts.isImportDeclaration(stmt) && !typeOnly(stmt)) ||
-                (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier && !typeOnly(stmt))
+                ts.isImportDeclaration(stmt) ||
+                (ts.isExportDeclaration(stmt) && stmt.moduleSpecifier)
               ) {
                 const specifier = stmt.moduleSpecifier.text;
+                // Types only: recorded where Vite resolves them (the type
+                // checker follows the edge), skipped where it cannot.
+                if (typeOnly(stmt)) {
+                  let resolved = null;
+                  try {
+                    resolved = await this.resolve(specifier, id);
+                  } catch {
+                    resolved = null;
+                  }
+                  if (resolved && path.isAbsolute(resolved.id.split('?')[0])) {
+                    const file = resolved.id.split('?')[0];
+                    const pkg = await packageOf(specifier, file);
+                    imports.push({
+                      specifier,
+                      resolved: file,
+                      typeOnly: true,
+                      ...(pkg ? { package: pkg } : {}),
+                    });
+                  }
+                  continue;
+                }
                 const resolved = await this.resolve(specifier, id);
                 if (!resolved)
                   throw new Diagnostic(

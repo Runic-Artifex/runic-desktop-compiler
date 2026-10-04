@@ -227,7 +227,7 @@ export function moduleOrder(
     if (seen.has(id)) return;
     seen.add(id);
     for (const edge of graph.modules.get(id)?.imports ?? [])
-      if (graph.modules.has(edge.resolved)) visit(edge.resolved);
+      if (graph.modules.has(edge.resolved) && !edge.typeOnly) visit(edge.resolved);
     order.push(id);
   };
   visit(graph.entry);

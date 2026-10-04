@@ -140,10 +140,14 @@ test('module scripts, barrels, namespace tags and aliases', async () => {
       "  export function label(tone: 'plain' | 'loud') { return tone === 'loud' ? 'LOUD' : 'plain'; }",
       '</script>',
       '<script lang="ts">',
-      "  let { tone = 'plain' }: { tone?: 'plain' | 'loud' } = $props();",
+      // A type-only import through the alias: no module is loaded, the
+      // type checker still reads the file.
+      "  import type { Tone } from '$lib/ui/types';",
+      "  let { tone = 'plain' }: { tone?: Tone } = $props();",
       '</script>',
       '<span class="tag">{label(tone)} {TONES.length}</span>',
     ].join('\n'),
+    'src/lib/ui/types.ts': "export type Tone = 'plain' | 'loud';\n",
     'src/lib/ui/tag/index.ts':
       "import Root, { label } from './tag.svelte';\nexport { Root, Root as Tag, label };\nexport { default as Other } from './tag.svelte';\n",
     'src/lib/ui/index.ts':

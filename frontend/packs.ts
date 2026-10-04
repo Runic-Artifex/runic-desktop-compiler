@@ -34,6 +34,8 @@ export interface Edge {
   specifier: string;
   resolved: string;
   package?: PackageRef;
+  /** An import or re-export of types only (it loads nothing). */
+  typeOnly?: boolean;
 }
 
 /** A function export: calls lower to IR expressions. */
