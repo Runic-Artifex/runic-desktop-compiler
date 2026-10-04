@@ -84,7 +84,7 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
   const self: Type = { record };
   const map: Type = { map: [k, v] };
   lower.types.records.push({
-    name: 'SvelteMap',
+    name: 'ReactiveMap',
     class: true,
     fields: [{ name: 'map', type: map, reactive: 'raw' }],
   });
@@ -104,7 +104,7 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
     value: (m: Expr) => Expr,
   ) => {
     const f = define(lower, {
-      name: `SvelteMap.${name}`,
+      name: `ReactiveMap.${name}`,
       params: [{ name: 'this', type: self }, ...params],
       locals: [],
       result,
@@ -171,7 +171,7 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
   // set(key, value): a new key or a different value replaces the map (so it
   // notifies, the map being a raw reactive field); returns the SvelteMap.
   const setFn = define(lower, {
-    name: 'SvelteMap.set',
+    name: 'ReactiveMap.set',
     params: [
       { name: 'this', type: self },
       { name: 'key', type: k },
@@ -205,7 +205,7 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
   });
   // delete(key): a present key replaces the map without it.
   const deleteFn = define(lower, {
-    name: 'SvelteMap.delete',
+    name: 'ReactiveMap.delete',
     params: [
       { name: 'this', type: self },
       { name: 'key', type: k },
@@ -229,7 +229,7 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
   });
   // clear(): a non-empty map is replaced by an empty one.
   const clearFn = define(lower, {
-    name: 'SvelteMap.clear',
+    name: 'ReactiveMap.clear',
     params: [{ name: 'this', type: self }],
     locals: [],
     result: 'void',
