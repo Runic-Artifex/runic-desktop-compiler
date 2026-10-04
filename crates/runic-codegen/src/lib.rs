@@ -498,7 +498,7 @@ impl Gen<'_> {
              #[allow(unused_variables)]\nfn nodes_s{id}(s: &S{id}, out: &mut Vec<NodeId>) {{\n{nodes}}}\n\
              #[allow(unused_variables)]\nfn walk_s{id}(s: &S{id}, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{\n{instances}}}\n\
              fn first_s{id}(s: &S{id}) -> Option<NodeId> {{ {first} }}\n\
-             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_nested(cx, events); }} dispose_s{id}(s, cx); for n in ns {{ dom.remove(n); }} }}\n{extra}\n",
+             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); let events = commit_events(dom.focus_loss(&ns)); if !events.is_empty() {{ run_nested(cx, events); }} dispose_s{id}(s, cx); for n in ns {{ dom.remove(n); }} }}\n{extra}\n",
             extra = o.extra,
             mount = o.mount,
             update = o.update,
@@ -1185,7 +1185,7 @@ impl Gen<'_> {
                      let mut err = None;\n\
                      for (j, (bk, tt, b, _)) in next.into_iter().enumerate().rev() {{\n\
                      let b = match b {{\n\
-                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_nested(cx, events); }} dom.insert_all({up}, &ns, anchor); }} if let Err(e) = update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor) {{ err.get_or_insert(e); }} Some(b) }}\n\
+                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); let events = commit_events(dom.focus_loss(&ns)); if !events.is_empty() {{ run_nested(cx, events); }} dom.insert_all({up}, &ns, anchor); }} if let Err(e) = update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor) {{ err.get_or_insert(e); }} Some(b) }}\n\
                      None => match mount_s{bd}(cx, dom, inst, &tt, {up}, anchor) {{ Ok(b) => Some(b), Err(e) => {{ err.get_or_insert(e); None }} }},\n\
                      }};\n\
                      if let Some(b) = b {{ if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }} out.push((bk, tt, b)); }}\n\
@@ -1924,6 +1924,7 @@ pub fn generate(
         let v = cx.expr(&g.init);
         let _ = writeln!(init_globals, "{{ let v = {v}; cx.g{i} = v; }}");
     }
+    let commit_ignored = p.schedule.commit_events_ignored;
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
@@ -1932,6 +1933,10 @@ pub fn generate(
          /// Run event listeners nested in the running script (focus events of\n\
          /// focus()/blur()): at once, with no microtask checkpoint; their\n\
          /// exceptions are reported, not propagated.\n\
+         /// Focus events dispatched during the DOM update: without element\n\
+         /// listeners where the framework ignores them during its commit.\n\
+         #[allow(unused_mut)]\n\
+         fn commit_events(mut events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) -> Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)> {{ if {commit_ignored} {{ for e in events.iter_mut() {{ e.2.clear(); }} }} events }}\n\
          fn run_nested(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) {{\n\
          for (ev, kind, deliveries) in events {{\n\
          let mut calls: Vec<(u32, u64)> = deliveries.iter().map(|d| (d.listener, d.current)).collect();\n\
@@ -2190,7 +2195,7 @@ pub fn generate(
         css = rust_str(css),
         hash = rust_str(ir_hash),
         restore = if p.restore_focus {
-            "{ let events = dom.restore_focus(); if !events.is_empty() { run_nested(&mut self.cx, events); } }\n"
+            "{ let events = commit_events(dom.restore_focus()); if !events.is_empty() { run_nested(&mut self.cx, events); } }\n"
         } else {
             ""
         },

@@ -2651,12 +2651,16 @@ impl<'p> Machine<'p> {
                     value: value.as_deref().unwrap_or_default().into(),
                     ..Default::default()
                 };
-                self.dispatch_nested(f, kind, data);
+                let elements = !self.program.schedule.commit_events_ignored;
+                self.dispatch_nested(f, kind, data, elements);
             }
             self.listeners = current;
             if moved.is_some() && self.program.restore_focus {
                 self.last_tree = tree.clone();
-                self.move_focus_nested(Some(f));
+                let elements = !self.program.schedule.commit_events_ignored;
+                for (target, kind, data) in self.focus_events(Some(f)) {
+                    self.dispatch_nested(target, kind, data, elements);
+                }
             }
         }
         self.last_tree = tree.clone();
@@ -4705,14 +4709,20 @@ impl<'p> Machine<'p> {
     /// focus()/blur() move focus: the listeners run nested in the script.
     fn move_focus_nested(&mut self, next: Option<u64>) {
         for (target, kind, data) in self.focus_events(next) {
-            self.dispatch_nested(target, kind, data);
+            self.dispatch_nested(target, kind, data, true);
         }
     }
 
     /// Dispatch an event nested in the running script, on the tree as last
     /// rendered: its listeners run at once, without a task or microtask
     /// checkpoint; their exceptions are reported, not propagated.
-    fn dispatch_nested(&mut self, target: u64, kind: EventKind, mut data: js::EventData) {
+    fn dispatch_nested(
+        &mut self,
+        target: u64,
+        kind: EventKind,
+        mut data: js::EventData,
+        elements: bool,
+    ) {
         let tree = std::mem::take(&mut self.last_tree);
         let Some(nodes) = chain_nodes(&tree, target) else {
             self.last_tree = tree;
@@ -4728,6 +4738,9 @@ impl<'p> Machine<'p> {
             vec![*nodes.last().expect("element chain")]
         };
         let mut calls: Vec<(usize, u64)> = vec![];
+        // Without element listeners where the framework ignores events
+        // dispatched during its DOM update.
+        let path = if elements { path } else { vec![] };
         for n in path {
             if let VNode::Element { id, listeners, .. } = n {
                 for &(k, l) in listeners {

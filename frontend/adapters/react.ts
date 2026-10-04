@@ -3754,6 +3754,8 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       flush: 'event-microtask',
       changeWithClick: true,
       controlledRestore: true,
+      // React DOM disables its event system while it commits.
+      commitEventsIgnored: true,
       cleanups: 'batched',
       postWritesDeferred: true,
       mount: 'task',

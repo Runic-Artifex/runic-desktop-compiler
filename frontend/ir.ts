@@ -356,6 +356,8 @@ export interface Schedule {
   changeWithClick?: boolean;
   /** Controlled values are restored after every event (React). */
   controlledRestore?: boolean;
+  /** The framework ignores events dispatched during its DOM update (React DOM's commit). */
+  commitEventsIgnored?: boolean;
   /**
    * `batched`: all cleanups of a phase run before its effects, in one walk
    * (children first) that includes the layout and post cleanups of

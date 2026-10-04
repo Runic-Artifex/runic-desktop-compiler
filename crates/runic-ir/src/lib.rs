@@ -152,6 +152,16 @@ pub struct Schedule {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub controlled_restore: bool,
+    /// The framework ignores the events the browser dispatches during its
+    /// DOM update (React DOM disables its event system while it commits):
+    /// focus events from removing, moving or refocusing elements then reach
+    /// only window and document listeners.
+    #[serde(
+        default,
+        rename = "commitEventsIgnored",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub commit_events_ignored: bool,
 }
 
 /// How cleanups of re-running effects are ordered within a phase.
