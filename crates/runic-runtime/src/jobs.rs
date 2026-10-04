@@ -274,6 +274,17 @@ pub struct Derived<T, X> {
     pub version: u64,
 }
 
+/// Derived class fields live in records, which are cloneable.
+impl<T: Clone, X> Clone for Derived<T, X> {
+    fn clone(&self) -> Self {
+        Derived {
+            cached: self.cached.clone(),
+            deps: self.deps.clone(),
+            version: self.version,
+        }
+    }
+}
+
 /// The run state of one effect of an instance.
 pub struct Fx<C, X> {
     pub started: bool,

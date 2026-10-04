@@ -1,6 +1,7 @@
 //! Reference values (objects, arrays, maps, sets) with JavaScript identity,
-//! the mutation epochs that drive "deep" cell tracking, and proxies of
-//! proxied deep state (Svelte's `$state`).
+//! the mutation epochs that drive "deep" cell tracking, proxies of
+//! proxied deep state (Svelte's `$state`) and the slots of reactive class
+//! fields (M6 stage B).
 
 use crate::{Element, JsString, Maybe};
 use std::cell::{Cell, Ref, RefCell, RefMut};
@@ -13,7 +14,12 @@ thread_local! {
     static OWNED_EPOCH: Cell<u64> = const { Cell::new(0) };
     /// Objects read by the running tracked effect or derived value, and
     /// whether only reads through proxies count.
-    static HEAP_READS: RefCell<Option<(bool, Vec<HeapRead>)>> = const { RefCell::new(None) };
+    static HEAP_READS: RefCell<Option<HeapFrame>> = const { RefCell::new(None) };
+    /// Heap objects created so far (their creation stamps).
+    static BORN: Cell<u64> = const { Cell::new(0) };
+    /// A reactive class field changed, or deep state through a proxy, since
+    /// [`take_signal_writes`].
+    static SIGNAL_WRITES: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Write counters of one heap object (shared by its proxies), for all writes
@@ -23,6 +29,8 @@ thread_local! {
 struct Counts {
     /// Reachable from deep reactive state (Vue): reads of it are dependencies.
     reactive: Cell<bool>,
+    /// When the object was created (see [`HeapFrame`]).
+    born: u64,
     /// Every write.
     any: [Cell<u64>; 2],
     /// Writes of the whole object (all slots).
@@ -88,18 +96,38 @@ impl HeapRead {
 
 /// Start recording heap reads (`Some(owned_only)`) or stop (`None`); returns
 /// the previous frame for [`end_heap_reads`].
-pub fn begin_heap_reads(owned_only: Option<bool>) -> Option<(bool, Vec<HeapRead>)> {
-    HEAP_READS
-        .with(|t| std::mem::replace(&mut *t.borrow_mut(), owned_only.map(|o| (o, Vec::new()))))
+pub fn begin_heap_reads(owned_only: Option<bool>) -> Option<HeapFrame> {
+    let start = BORN.with(Cell::get);
+    HEAP_READS.with(|t| {
+        std::mem::replace(
+            &mut *t.borrow_mut(),
+            owned_only.map(|owned_only| HeapFrame {
+                owned_only,
+                reads: Vec::new(),
+                start,
+            }),
+        )
+    })
+}
+
+/// The heap reads of one running tracked effect or derived value.
+pub struct HeapFrame {
+    /// Only reads through proxies (and of reactive class fields) count.
+    owned_only: bool,
+    reads: Vec<HeapRead>,
+    /// Objects created after this stamp were created by the running
+    /// computation: reading their reactive fields is not a dependency, as
+    /// Svelte does not track the signals a reaction creates itself.
+    start: u64,
 }
 
 /// End the frame begun by [`begin_heap_reads`]: the objects and slots read,
 /// each once, with their counts now (writes of the running code itself do
 /// not count).
-pub fn end_heap_reads(previous: Option<(bool, Vec<HeapRead>)>) -> Vec<HeapRead> {
+pub fn end_heap_reads(previous: Option<HeapFrame>) -> Vec<HeapRead> {
     let mine = HEAP_READS.with(|t| std::mem::replace(&mut *t.borrow_mut(), previous));
     let mut seen = std::collections::HashSet::new();
-    mine.map(|(_, reads)| reads)
+    mine.map(|f| f.reads)
         .unwrap_or_default()
         .into_iter()
         .filter(|r| seen.insert((Rc::as_ptr(&r.storage) as *const u8 as usize, r.slot)))
@@ -124,6 +152,13 @@ pub fn owned_epoch() -> u64 {
     OWNED_EPOCH.with(Cell::get)
 }
 
+/// Whether a reactive class field changed, or deep state was mutated
+/// through a proxy, since the last call (resetting it). Template bindings
+/// that may read reactive fields are re-evaluated after such writes.
+pub fn take_signal_writes() -> bool {
+    SIGNAL_WRITES.with(|w| w.replace(false))
+}
+
 struct Inner<T> {
     storage: Rc<Storage<T>>,
     /// A proxy of deep state (as opposed to the raw value).
@@ -136,26 +171,33 @@ pub struct JsRef<T>(Rc<Inner<T>>);
 
 impl<T> JsRef<T> {
     pub fn new(value: T) -> Self {
+        let born = BORN.with(|b| {
+            b.set(b.get() + 1);
+            b.get()
+        });
         JsRef(Rc::new(Inner {
             storage: Rc::new(Storage {
                 value: RefCell::new(value),
-                counts: Rc::default(),
+                counts: Rc::new(Counts {
+                    born,
+                    ..Counts::default()
+                }),
             }),
             owned: false,
         }))
     }
     fn record_read(&self, slot: Option<u32>) {
         HEAP_READS.with(|t| {
-            if let Some((owned_only, reads)) = &mut *t.borrow_mut() {
-                let tracked = if *owned_only {
+            if let Some(frame) = &mut *t.borrow_mut() {
+                let tracked = if frame.owned_only {
                     self.0.owned
                 } else {
                     self.0.storage.counts.reactive.get()
                 };
                 if tracked {
-                    reads.push(HeapRead {
+                    frame.reads.push(HeapRead {
                         storage: self.0.storage.counts.clone(),
-                        owned: *owned_only,
+                        owned: frame.owned_only,
                         slot,
                         seen: (0, 0),
                     });
@@ -169,8 +211,50 @@ impl<T> JsRef<T> {
         c.write(0, slots);
         if self.0.owned {
             OWNED_EPOCH.with(|e| e.set(e.get() + 1));
+            SIGNAL_WRITES.with(|w| w.set(true));
             c.write(1, slots);
         }
+    }
+    /// Shared access to read reactive class field `slot`: a dependency of
+    /// the running tracked effect or derived value, unless that computation
+    /// created this object.
+    pub fn read_signal(&self, slot: u32) -> Ref<'_, T> {
+        HEAP_READS.with(|t| {
+            if let Some(frame) = &mut *t.borrow_mut() {
+                if self.0.storage.counts.born <= frame.start {
+                    frame.reads.push(HeapRead {
+                        storage: self.0.storage.counts.clone(),
+                        owned: true,
+                        slot: Some(slot),
+                        seen: (0, 0),
+                    });
+                }
+            }
+        });
+        self.0.storage.value.borrow()
+    }
+    /// Mutable access to write reactive class field `slot` with a value
+    /// that is not `===` the old one: the dependencies of its readers change.
+    pub fn write_signal(&self, slot: u32) -> RefMut<'_, T> {
+        EPOCH.with(|e| e.set(e.get() + 1));
+        SIGNAL_WRITES.with(|w| w.set(true));
+        let c = &self.0.storage.counts;
+        c.write(0, Some(&[slot]));
+        c.write(1, Some(&[slot]));
+        self.0.storage.value.borrow_mut()
+    }
+    /// Shared access that is not a read of the program (caches, probes).
+    pub fn peek(&self) -> Ref<'_, T> {
+        self.0.storage.value.borrow()
+    }
+    /// Mutable access that is not a write of the program (the cache of a
+    /// derived class field).
+    pub fn peek_mut(&self) -> RefMut<'_, T> {
+        self.0.storage.value.borrow_mut()
+    }
+    /// A weak handle (dependencies on derived class fields).
+    pub fn downgrade(&self) -> WeakRef<T> {
+        WeakRef(Rc::downgrade(&self.0))
     }
     /// Shared access to the whole value; a dependency of a running tracked
     /// effect or derived value.
@@ -237,6 +321,21 @@ impl<T> JsRef<T> {
             storage: Rc::clone(&self.0.storage),
             owned: true,
         }))
+    }
+}
+
+/// A weak handle on a [`JsRef`].
+pub struct WeakRef<T>(std::rc::Weak<Inner<T>>);
+
+impl<T> WeakRef<T> {
+    pub fn upgrade(&self) -> Option<JsRef<T>> {
+        self.0.upgrade().map(JsRef)
+    }
+}
+
+impl<T> Clone for WeakRef<T> {
+    fn clone(&self) -> Self {
+        WeakRef(self.0.clone())
     }
 }
 
@@ -401,6 +500,40 @@ mod tests {
         fn own_fields(&mut self) {
             self.inner = self.inner.clone().own();
         }
+    }
+
+    #[test]
+    fn reactive_field_slots() {
+        // An instance (never a proxy) with two reactive slots.
+        let instance = JsRef::new(vec![1.0, 2.0]);
+        let frame = begin_heap_reads(Some(true));
+        let _ = instance.read_signal(0)[0];
+        // Plain reads of a raw object do not count; peeks never do.
+        let _ = instance.read_slot(1)[1];
+        let _ = instance.peek()[1];
+        // Objects the computation creates are not its dependencies.
+        let fresh = JsRef::new(vec![0.0]);
+        let _ = fresh.read_signal(0)[0];
+        let reads = end_heap_reads(frame);
+        assert_eq!(reads.len(), 1);
+        assert!(!reads[0].changed());
+        // Writing another slot, or mutating without notifying, is no change.
+        take_signal_writes();
+        instance.write_signal(1)[1] = 3.0;
+        instance.peek_mut()[0] = 5.0;
+        assert!(!reads[0].changed());
+        assert!(take_signal_writes() && !take_signal_writes());
+        instance.write_signal(0)[0] = 4.0;
+        assert!(reads[0].changed());
+        // Writes through proxies are reactive writes too.
+        let proxy = array(vec![1.0]).proxy();
+        proxy.borrow_mut().push(2.0);
+        assert!(take_signal_writes());
+        // Weak handles do not keep objects alive.
+        let weak = fresh.downgrade();
+        assert!(weak.upgrade().is_some_and(|f| f == fresh));
+        drop(fresh);
+        assert!(weak.upgrade().is_none());
     }
 
     #[test]
