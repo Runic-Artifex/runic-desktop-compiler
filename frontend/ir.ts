@@ -217,9 +217,21 @@ export interface Fn {
 
 export interface RecordType {
   name: string;
-  fields: { name: string; type: Type }[];
+  fields: RecordField[];
   /** A class instance record (nominal: never shared by shape; not proxied, not plain data). */
   class?: true;
+}
+
+export interface RecordField {
+  name: string;
+  type: Type;
+  /**
+   * A reactive class field (M6 stage B): Svelte's `$state` (deep: plain
+   * objects and arrays stored into it become proxies), `$state.raw` or
+   * `$derived` (computed from the instance by function `derived` when read).
+   */
+  reactive?: 'state' | 'raw' | 'derived';
+  derived?: number;
 }
 
 export interface Cell {

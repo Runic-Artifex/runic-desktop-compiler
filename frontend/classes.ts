@@ -44,7 +44,17 @@ interface Field {
   param?: ts.ParameterDeclaration;
   /** A field declaration. */
   decl?: ts.PropertyDeclaration;
+  /**
+   * A reactive field (M6 stage B): the Svelte rune creating it, in the
+   * field's initialiser or a top-level constructor assignment.
+   */
+  rune?: { kind: Rune; call: ts.CallExpression; container: ts.Node };
+  /** The function computing a derived field from the instance. */
+  derived?: number;
 }
+
+/** The runes that declare reactive class fields. */
+type Rune = '$state' | '$state.raw' | '$derived' | '$derived.by';
 
 interface Member {
   method?: Callable;
@@ -80,6 +90,10 @@ export interface ClassInfo {
 }
 
 const RUNES = /^\$(state|derived)(\.|$)/;
+const FIELD_RUNES: Rune[] = ['$state', '$state.raw', '$derived', '$derived.by'];
+
+/** Svelte compiles runes in components and in `.svelte.js`/`.svelte.ts` modules only. */
+const RUNE_FILES = /\.svelte(\.__runic\.ts|\.ts|\.js)$/;
 
 export class Classes {
   private readonly lower: Lowerer;
@@ -95,6 +109,41 @@ export class Classes {
 
   private fail(n: ts.Node, message: string): never {
     return this.lower.fail(n, 'E_CLASS', message);
+  }
+
+  /**
+   * The rune `e` calls if it is a Svelte field rune (`$state`, `$state.raw`,
+   * `$derived`, `$derived.by`, declared by the Svelte rune declarations of
+   * Svelte programs) in a file Svelte compiles runes in. Other calls of
+   * rune-like names in class fields are rejected.
+   */
+  private rune(e: ts.Expression | undefined): Rune | undefined {
+    if (!e) return undefined;
+    const call = skipParens(e);
+    if (!ts.isCallExpression(call)) return undefined;
+    const text = call.expression.getText();
+    if (!RUNES.test(text)) return undefined;
+    const id = ts.isPropertyAccessExpression(call.expression)
+      ? call.expression.expression
+      : call.expression;
+    const decl = this.lower.checker.getSymbolAtLocation(id)?.declarations?.[0];
+    // The runes Svelte declares (its package types, or the adapter's declarations).
+    const declared =
+      !!decl &&
+      /(svelte-runes\.d\.ts|[\\/]node_modules[\\/]svelte[\\/].*\.d\.ts)$/.test(
+        decl.getSourceFile().fileName,
+      );
+    if (!declared || !FIELD_RUNES.includes(text as Rune))
+      return this.fail(
+        call,
+        `${text} in a class field is unsupported (the reactive fields are Svelte's $state, $state.raw, $derived and $derived.by)`,
+      );
+    if (!RUNE_FILES.test(call.getSourceFile().fileName))
+      return this.fail(
+        call,
+        `${text}: Svelte compiles runes only in components and .svelte.js/.svelte.ts modules`,
+      );
+    return text as Rune;
   }
 
   /** The class whose instances have IR type `t`, if any. */
@@ -200,9 +249,40 @@ export class Classes {
       ts.forEachChild(n, visit);
     };
     for (const m of decl.members) if (!isStatic(m)) visit(m);
+    // Reactive fields (M6 stage B): a rune initialising a field declaration
+    // or assigned to a field at the top level of the constructor (Svelte
+    // rejects other placements, and a second declaration, when it compiles).
+    for (const m of decl.members)
+      if (ts.isPropertyDeclaration(m) && !isStatic(m)) {
+        const kind = this.rune(m.initializer);
+        const field = fields.find(f => f.decl === m);
+        if (kind && field)
+          field.rune = {
+            kind,
+            call: skipParens(m.initializer!) as ts.CallExpression,
+            container: m,
+          };
+      } else if (isStatic(m) && ts.isPropertyDeclaration(m) && this.rune(m.initializer))
+        this.fail(m, 'Static reactive fields are unsupported (Svelte rejects them)');
+    for (const s of ctor?.body?.statements ?? []) {
+      const target = thisAssignment(s);
+      if (!target) continue;
+      const rhs = ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right;
+      const kind = this.rune(rhs);
+      const field = fields.find(f => f.name === target.name.text);
+      if (kind && field) {
+        if (field.rune || field.decl?.initializer)
+          this.fail(s, `${target.name.text} has already been declared on this class`);
+        field.rune = { kind, call: skipParens(rhs) as ts.CallExpression, container: ctor! };
+      }
+    }
     for (const f of fields) f.type = this.fieldType(f, info);
     info.fields = fields;
-    types.records[record].fields = fields.map(f => ({ name: f.name, type: f.type }));
+    types.records[record].fields = fields.map(f => ({
+      name: f.name,
+      type: f.type,
+      ...(f.rune ? { reactive: reactiveKind(f.rune.kind) } : {}),
+    }));
     info.rawThis = this.capturesThis(info);
     return info;
   }
@@ -252,14 +332,6 @@ export class Classes {
       }
       if ((ts.isGetAccessor(m) || ts.isSetAccessor(m)) && isStatic(m))
         this.fail(m, 'Static accessors are unsupported');
-      if (ts.isPropertyDeclaration(m) && m.initializer) {
-        const init = skipParens(m.initializer);
-        if (ts.isCallExpression(init) && RUNES.test(init.expression.getText()))
-          this.fail(
-            m,
-            'Reactive class fields ($state, $derived) are M6 stage B; declare the state in a component',
-          );
-      }
       // Methods and accessors may share a name (get/set pairs); fields not.
       const key = `${isStatic(m) ? 'static ' : ''}${memberName(name!)}`;
       const other = seen.get(key);
@@ -346,6 +418,20 @@ export class Classes {
       info.construct = { fn };
       pending.push(() => this.lowerConstructor(info, fn));
     }
+    // Derived fields: functions of the instance, computed when read (M6 stage B).
+    info.fields.forEach((f, i) => {
+      if (!isDerived(f)) return;
+      const fn = lower.reserve();
+      f.derived = fn;
+      lower.types.records[info.record].fields[i].derived = fn;
+      lower.functions[fn] = this.placeholder(
+        `${info.name}.${f.name}$derived`,
+        info,
+        [{ name: 'this', type: self }],
+        f.type,
+      );
+      pending.push(() => this.lowerDerived(info, f, fn));
+    });
     // Methods and accessors.
     for (const [, member] of info.members)
       for (const kind of ['method', 'get', 'set'] as const) {
@@ -570,6 +656,95 @@ export class Classes {
     };
   }
 
+  /**
+   * The function computing derived field `f` from the instance (its only
+   * parameter): `$derived(expr)` returns `expr`, `$derived.by(fn)` is `fn`'s
+   * body. Svelte creates the derived signal with a closure over `this` and
+   * computes it when read; `this` in the expression is the parameter.
+   */
+  private lowerDerived(info: ClassInfo, f: Field, index: number) {
+    const lower = this.lower;
+    const self: Type = { record: info.record };
+    const name = `${info.name}.${f.name}$derived`;
+    const { call, kind, container } = f.rune!;
+    const arg = call.arguments[0];
+    if (!arg || call.arguments.length !== 1) this.fail(call, `${kind} takes one argument`);
+    if (ts.isConstructorDeclaration(container)) this.constructorFree(arg, container, kind);
+    const previous = lower.thisBindings.get(container);
+    try {
+      if (kind === '$derived.by') {
+        if (!(ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) || arg.parameters.length)
+          this.fail(call, '$derived.by takes a function without parameters');
+        if (
+          (arg as ts.FunctionLikeDeclaration).modifiers?.some(
+            m => m.kind === ts.SyntaxKind.AsyncKeyword,
+          )
+        )
+          this.fail(call, '$derived.by with an async function is unsupported');
+        const fn = arg as ts.ArrowFunction;
+        lower.function(fn, name, undefined, info.component, index, undefined, {
+          self,
+          body: b => {
+            lower.thisBindings.set(container, { owner: b, local: 0 });
+            return lower.functionBody(fn, b);
+          },
+        });
+      } else {
+        const b = new FnBuilder(name, undefined, info.component, new Set(), false);
+        const local = b.param('this', self);
+        lower.thisBindings.set(container, { owner: b, local });
+        const value = lower.expr(arg, b);
+        const body: Stmt[] = [...lower.hoistedLets(b), { op: 'return', value }];
+        const source = lower.sourceOf(call);
+        lower.functions[index] = {
+          name,
+          ...(info.component !== undefined ? { component: info.component } : {}),
+          params: b.params,
+          locals: b.locals,
+          result: lower.irType(value, b),
+          body: remapLocals(body, i => b.final(i)),
+          ...(source ? { source } : {}),
+        };
+      }
+    } finally {
+      if (previous) lower.thisBindings.set(container, previous);
+      else lower.thisBindings.delete(container);
+    }
+    // The field's type: a value of the inner type is wrapped (`T | undefined` fields).
+    const fn = lower.functions[index];
+    if (JSON.stringify(fn.result) !== JSON.stringify(f.type)) {
+      const inner = maybeInner(f.type);
+      if (!inner || JSON.stringify(inner) !== JSON.stringify(fn.result))
+        this.fail(
+          call,
+          `${info.name}.${f.name}: the derived value's type differs from the field's`,
+        );
+      fn.body = wrapReturns(fn.body);
+      fn.result = f.type;
+    }
+  }
+
+  /** A derived field assigned in the constructor computes later: it cannot read the constructor's parameters or locals. */
+  private constructorFree(e: ts.Expression, ctor: ts.ConstructorDeclaration, kind: string) {
+    const checker = this.lower.checker;
+    const visit = (n: ts.Node) => {
+      if (ts.isIdentifier(n)) {
+        const decl = checker.getSymbolAtLocation(n)?.valueDeclaration;
+        let inside = false;
+        for (let p = decl?.parent; p; p = p.parent) if (p === ctor) inside = true;
+        let own = false;
+        for (let p = decl?.parent; p; p = p.parent) if (p === e) own = true;
+        if (decl && inside && !own)
+          this.fail(
+            n,
+            `${kind} in the constructor reads ${n.text}, a constructor parameter or local; derived fields are computed from the instance (store the value in a field and read it through this)`,
+          );
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(e);
+  }
+
   private constructorBody(info: ClassInfo, b: FnBuilder): Stmt[] {
     const lower = this.lower;
     const self: Type = { record: info.record };
@@ -612,15 +787,46 @@ export class Classes {
         if (binding?.kind !== 'local') return this.fail(f.param, 'Unresolved parameter property');
         assign(f, local(binding.local), f.param);
       }
+    /** The initial value of a `$state`/`$state.raw` field (`undefined` without an argument). */
+    const runeValue = (f: Field, where: 'initialiser' | 'constructor'): Expr => {
+      const arg = f.rune!.call.arguments[0];
+      if (f.rune!.call.arguments.length > 1)
+        this.fail(f.rune!.call, `${f.rune!.kind} takes at most one argument`);
+      return arg ? this.early(arg, b, info, temps, where) : { op: 'undefined', type: f.type };
+    };
     for (const f of info.fields)
-      if (f.decl?.initializer)
-        assign(f, this.early(f.decl.initializer, b, info, temps, 'initialiser'), f.decl);
+      if (f.decl?.initializer) {
+        // Derived fields are functions of the instance, computed when read.
+        if (isDerived(f)) continue;
+        assign(
+          f,
+          f.rune
+            ? runeValue(f, 'initialiser')
+            : this.early(f.decl.initializer, b, info, temps, 'initialiser'),
+          f.decl,
+        );
+      }
     // 2. Leading `this.f = …` statements and statements that do not use `this`.
     const statements = info.ctor?.body?.statements ?? [];
+    /** Whether `s` assigns a reactive field its rune. */
+    const runeStatement = (s: ts.Statement) => {
+      const target = thisAssignment(s);
+      const field = target && info.fields.find(f => f.name === target.name.text);
+      const rhs = target && ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right;
+      return field?.rune && rhs && field.rune.call === skipParens(rhs) ? field : undefined;
+    };
     let i = 0;
     for (; i < statements.length; i++) {
       const s = statements[i];
       this.noReturn(s);
+      const reactive = runeStatement(s);
+      if (reactive) {
+        if (isDerived(reactive)) continue;
+        const arg = reactive.rune!.call.arguments[0];
+        if (arg && !this.earlyForm(arg, info, temps)) break;
+        assign(reactive, runeValue(reactive, 'constructor'), s);
+        continue;
+      }
       const target = thisAssignment(s);
       const field = target && info.fields.find(f => f.name === target.name.text);
       if (target && field) {
@@ -632,16 +838,24 @@ export class Classes {
       if (mentionsThis(s)) break;
       out.push(...lower.statement(s, b));
     }
-    // 3. The record.
-    const fields: Expr[] = info.fields.map(f => {
-      const t = temps.get(f.name);
-      if (t !== undefined) return local(t);
-      if (maybeInner(f.type)) return { op: 'undefined', type: f.type };
-      return this.fail(
-        f.node,
-        `${info.name}.${f.name} is not set before the constructor otherwise uses this: give it an initialiser, assign it at the start of the constructor, or make it optional`,
-      );
-    });
+    for (let j = i; j < statements.length; j++)
+      if (runeStatement(statements[j]))
+        this.fail(
+          statements[j],
+          'Assign reactive fields ($state, $derived) at the start of the constructor, before it otherwise uses this',
+        );
+    // 3. The record (derived fields have no value: they are computed when read).
+    const fields: Expr[] = info.fields
+      .filter(f => !isDerived(f))
+      .map(f => {
+        const t = temps.get(f.name);
+        if (t !== undefined) return local(t);
+        if (maybeInner(f.type)) return { op: 'undefined', type: f.type };
+        return this.fail(
+          f.node,
+          `${info.name}.${f.name} is not set before the constructor otherwise uses this: give it an initialiser, assign it at the start of the constructor, or make it optional`,
+        );
+      });
     const instance = b.local('this', self);
     out.push({ op: 'let', local: instance, value: { op: 'record', record: info.record, fields } });
     out.push({
@@ -730,7 +944,7 @@ export class Classes {
     if (ts.isCallExpression(inner) && RUNES.test(inner.expression.getText()))
       this.fail(
         inner,
-        'Reactive class fields ($state, $derived) are M6 stage B; declare the state in a component',
+        'A rune here is unsupported: reactive fields are declared by a rune that is the whole field initialiser or constructor assignment',
       );
     if (ts.isArrowFunction(inner)) return lower.expr(e, b);
     if (ts.isCallExpression(inner) && this.ownBind(inner, info, temps))
@@ -901,7 +1115,13 @@ export class Classes {
         );
     }
     const info = this.classOfNode(target.expression);
-    if (!info || this.fieldIndex(info, name) >= 0) return undefined;
+    const field = info ? this.fieldIndex(info, name) : -1;
+    if (info && field >= 0 && isDerived(info.fields[field]))
+      return this.fail(
+        target,
+        `${info.name}.${name} is a $derived field; assigning it (overriding a derived value, Svelte 5.25+) is unsupported`,
+      );
+    if (!info || field >= 0) return undefined;
     this.declaredOnly(info, target);
     const member = info.members.get(name);
     const source = lower.sourceOf(target);
@@ -1262,6 +1482,47 @@ function modifier(n: ts.Node, kind: ts.SyntaxKind): boolean {
 
 function memberName(n: ts.PropertyName): string {
   return ts.isIdentifier(n) || ts.isPrivateIdentifier(n) ? n.text : n.getText();
+}
+
+/** `body` with every returned value wrapped into a Maybe. */
+function wrapReturns(body: Stmt[]): Stmt[] {
+  return body.map((s): Stmt => {
+    switch (s.op) {
+      case 'return':
+        return s.value ? { ...s, value: { op: 'some', value: s.value } } : s;
+      case 'if':
+        return {
+          ...s,
+          then: wrapReturns(s.then),
+          ...(s.else ? { else: wrapReturns(s.else) } : {}),
+        };
+      case 'while':
+        return {
+          ...s,
+          body: wrapReturns(s.body),
+          ...(s.update ? { update: wrapReturns(s.update) } : {}),
+        };
+      case 'for-of':
+        return { ...s, body: wrapReturns(s.body) };
+      case 'try':
+        return {
+          ...s,
+          body: wrapReturns(s.body),
+          ...(s.catch ? { catch: { ...s.catch, body: wrapReturns(s.catch.body) } } : {}),
+          ...(s.finally ? { finally: wrapReturns(s.finally) } : {}),
+        };
+      default:
+        return s;
+    }
+  });
+}
+
+function isDerived(f: Field): boolean {
+  return f.rune?.kind === '$derived' || f.rune?.kind === '$derived.by';
+}
+
+function reactiveKind(r: Rune): 'state' | 'raw' | 'derived' {
+  return r === '$state' ? 'state' : r === '$state.raw' ? 'raw' : 'derived';
 }
 
 /** `this.name = …` as a statement: its target. */
