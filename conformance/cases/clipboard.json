@@ -1,0 +1,17 @@
+{
+  "description": "navigator.clipboard: readText of the system's text, writeText of a draft with non-ASCII text, of the draft extended by typing and of an empty draft, each read back; each promise settles in a task after the click, and the clipboard text is part of the host snapshot",
+  "fixtures": ["host-svelte"],
+  "clipboard": "From the system ✓",
+  "actions": [
+    { "kind": "click", "id": "paste" },
+    { "kind": "click", "id": "copy" },
+    { "kind": "type", "id": "draft", "text": " ok" },
+    { "kind": "click", "id": "copy" },
+    { "kind": "click", "id": "paste" },
+    { "kind": "focus", "id": "draft" },
+    { "kind": "select", "id": "draft", "start": 0, "end": 11 },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "click", "id": "copy" },
+    { "kind": "click", "id": "paste" }
+  ]
+}

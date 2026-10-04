@@ -102,6 +102,12 @@ impl<A: App> Document for Native<A> {
             pointer: &mut self.pointer,
         };
         EventDriver::new(&mut self.doc, handler).handle_ui_event(event);
+        // Apps: the host's work queued by the event follows it. Probes run
+        // it after the whole action (a key press is a key down and a key
+        // up; Chromium's clipboard and history replies may come after both).
+        if !crate::probe_mode() {
+            self.host_tasks();
+        }
     }
 }
 
@@ -115,6 +121,13 @@ impl<A: App> Native<A> {
             listeners: &mut self.listeners,
         };
         self.app.advance(&mut dom, to);
+        self.fix_focus_after_update();
+        // The host's work queued by the timers runs after them.
+        self.host_tasks();
+    }
+
+    /// Focus fixups that follow any update outside an event dispatch.
+    fn fix_focus_after_update(&mut self) {
         if let Some(b) = self.listeners.blurred.take() {
             self.nav_start = Some(b);
         }
@@ -125,6 +138,42 @@ impl<A: App> Native<A> {
             }
         }
         self.doc.shell_provider.request_redraw();
+    }
+
+    /// Run the host's work the app queued (clipboard replies, history
+    /// traversals), each a task of its own, with the window events it
+    /// brings (`popstate`, `hashchange`).
+    pub(crate) fn host_tasks(&mut self) {
+        loop {
+            self.listeners.settle(&mut self.doc);
+            let mut dom = Dom {
+                doc: &mut self.doc,
+                listeners: &mut self.listeners,
+            };
+            match self.app.host_task(&mut dom) {
+                None => break,
+                Some(None) => {}
+                Some(Some(kind)) => {
+                    let mut handler = Handler {
+                        app: &mut self.app,
+                        listeners: &mut self.listeners,
+                        space_target: &mut self.space_target,
+                        nav_start: &mut self.nav_start,
+                        log: &mut self.log,
+                        pointer: &mut self.pointer,
+                    };
+                    handler.window(&mut self.doc, kind);
+                }
+            }
+            self.fix_focus_after_update();
+        }
+    }
+
+    /// The user traverses the session history (`back`: -1, `forward`: 1).
+    #[cfg(feature = "probe")]
+    pub(crate) fn traverse(&mut self, delta: i64) {
+        self.app.traverse(delta);
+        self.host_tasks();
     }
 
     /// Pick an option of a select as the user does (probe `choose`): the
@@ -542,6 +591,18 @@ impl<A: App> Handler<'_, A> {
                 self.dispatch(doc, &[delivery]);
             }
         }
+    }
+
+    /// Fire `kind` at the window (`popstate`, `hashchange`): its listeners,
+    /// each a callback of its own.
+    fn window(&mut self, doc: &mut BaseDocument, kind: Event) {
+        let event = runic_js::Event::new(EventData {
+            kind: kind.name().into(),
+            target: Element::WINDOW,
+            ..Default::default()
+        });
+        self.host(doc, kind, &event);
+        event.finish();
     }
 
     /// Run one dispatch of listeners.

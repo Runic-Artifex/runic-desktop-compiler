@@ -96,8 +96,53 @@ interface HostEventTarget {
     listener: (event: HostEventMap[K]) => void,
   ): void;
 }
-declare const window: HostEventTarget;
+// The window also receives the session history events.
+interface WindowEventMap extends HostEventMap {
+  popstate: Event;
+  hashchange: Event;
+}
+interface WindowEventTarget {
+  addEventListener<K extends keyof WindowEventMap>(
+    type: K,
+    listener: (event: WindowEventMap[K]) => void,
+  ): void;
+  removeEventListener<K extends keyof WindowEventMap>(
+    type: K,
+    listener: (event: WindowEventMap[K]) => void,
+  ): void;
+}
+declare const window: WindowEventTarget;
 declare const document: HostDocument;
+
+// Host services (docs/design/M5-PLATFORM.md); members lower to `console.*`,
+// `clipboard.*`, `history.*`, `location.*` and `random.*` built-ins.
+declare const console: {
+  log(...data: any[]): void;
+  info(...data: any[]): void;
+  warn(...data: any[]): void;
+  error(...data: any[]): void;
+  debug(...data: any[]): void;
+};
+declare const navigator: {
+  readonly clipboard: {
+    writeText(data: string): Promise<void>;
+    readText(): Promise<string>;
+  };
+};
+declare const history: {
+  readonly length: number;
+  pushState(data: null, unused: string, url?: string | null): void;
+  replaceState(data: null, unused: string, url?: string | null): void;
+  back(): void;
+  forward(): void;
+  go(delta: number): void;
+};
+declare const location: {
+  readonly pathname: string;
+  readonly search: string;
+  hash: string;
+};
+declare const crypto: { randomUUID(): string };
 
 // The document element (theming): attributes, class list, inline style.
 interface HostDocument extends HostEventTarget {

@@ -9,7 +9,7 @@
 //! Diagnostics are printed as JSON on stderr with exit code 1.
 
 use runic_codegen::{Options, emit};
-use runic_ir::interp::{Machine, Target};
+use runic_ir::interp::{Env, Machine, Target};
 use runic_ir::{Diagnostic, Node};
 use serde_json::json;
 use std::path::Path;
@@ -104,7 +104,22 @@ fn main() {
                     )
                 })
                 .collect();
-            let mut m = Machine::with_storage(&program, storage).unwrap_or_else(|d| fail(d));
+            // The rest of the case's host environment (docs/design/M5-PLATFORM.md).
+            let url = flag(&args, "--url").unwrap_or_else(|| "/".into());
+            let env = Env {
+                storage,
+                clipboard: runic_js::JsString::from(flag(&args, "--clipboard").unwrap_or_default()),
+                session: runic_js::history::Session::new(&url)
+                    .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e, None))),
+                seed: flag(&args, "--seed")
+                    .map(|s| {
+                        s.parse().unwrap_or_else(|_| {
+                            fail(Diagnostic::new("E_INPUT", "--seed takes an integer", None))
+                        })
+                    })
+                    .unwrap_or(1),
+            };
+            let mut m = Machine::with_env(&program, env).unwrap_or_else(|d| fail(d));
             let mut steps = vec![json!({"action": null, "state": m.snapshot()})];
             for action in actions.as_array().cloned().unwrap_or_default() {
                 // Targets: an element id, or the n-th element listening for the action's event.
@@ -114,11 +129,24 @@ fn main() {
                         | "wheel" | "choose"),
                     ) => k,
                     Some("reload") => {
-                        // A new program instance on the same localStorage.
-                        let storage = m.storage();
-                        m = Machine::with_storage(&program, storage).unwrap_or_else(|d| fail(d));
+                        // A new program instance on the same localStorage,
+                        // clipboard and session history.
+                        let env = m.reload_env();
+                        m = Machine::with_env(&program, env).unwrap_or_else(|d| fail(d));
                         steps.push(
                             json!({"action": action, "outcome": "reloaded", "state": m.snapshot()}),
+                        );
+                        continue;
+                    }
+                    Some(k @ ("back" | "forward")) => {
+                        // The user traverses the session history.
+                        let outcome = match m.navigate(if k == "back" { -1 } else { 1 }) {
+                            Ok(true) => json!("handled"),
+                            Ok(false) => json!("ignored"),
+                            Err(d) => json!({"rejected": d}),
+                        };
+                        steps.push(
+                            json!({"action": action, "outcome": outcome, "state": m.snapshot()}),
                         );
                         continue;
                     }

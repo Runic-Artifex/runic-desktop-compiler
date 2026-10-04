@@ -1,0 +1,13 @@
+{
+  "description": "A hash router started without a fragment and a query in the URL: the app sets location.hash while the document loads (the entry is replaced, popstate fires at once and hashchange after the load), then navigates and goes back to the start, and a reload restarts the app at the current entry with the session history kept",
+  "fixtures": ["host-svelte"],
+  "url": "/start/page?lang=de",
+  "actions": [
+    { "kind": "click", "id": "nav-about" },
+    { "kind": "click", "id": "filter" },
+    { "kind": "back" },
+    { "kind": "back" },
+    { "kind": "reload" },
+    { "kind": "click", "id": "nav-items" }
+  ]
+}

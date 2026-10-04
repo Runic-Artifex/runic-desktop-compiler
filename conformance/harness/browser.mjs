@@ -58,7 +58,10 @@ export async function serveFixture(fixture) {
     plugins: tooling.plugins,
     // A concrete port: the injected Vite client derives its WebSocket port
     // from the configured one, and port 0 would make it fail to connect.
-    server: { host: '127.0.0.1', port: await freePort(), strictPort: true },
+    // forwardConsole off: Vite turns it on when it detects a coding agent in
+    // the environment, wrapping console.warn/error in the page (the calls
+    // would then come from Vite's client instead of the app).
+    server: { host: '127.0.0.1', port: await freePort(), strictPort: true, forwardConsole: false },
     logLevel: 'error',
   });
   await server.listen();
@@ -115,11 +118,142 @@ function pageSnapshot() {
   };
 }
 
+/** The location and history length (host snapshot fields; clipboard text is read separately). */
+function pageLocation() {
+  return { href: location.href.slice(location.origin.length), historyLength: history.length };
+}
+
+/**
+ * Whether a script URL is the app's own source (not the framework's
+ * dependencies or Vite's client): console lines and random values of app
+ * code are the app's host effects.
+ */
+function appSource(url, origin) {
+  try {
+    const u = new URL(url);
+    return (
+      u.origin === origin &&
+      !u.pathname.startsWith('/@') &&
+      !u.pathname.includes('/node_modules/') &&
+      !u.pathname.includes('/.cache/')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The host section of a step snapshot (docs/design/M5-PLATFORM.md): console
+ * lines since the last step, clipboard text, location and history length,
+ * each omitted at its default, in the order the probe and interpreter use.
+ */
+export function hostSnapshot({ console: lines = [], clipboard = '', href = '/', historyLength = 1 }) {
+  const host = {};
+  if (lines.length) host.console = lines;
+  if (clipboard !== '') host.clipboard = clipboard;
+  if (href !== '/') host.href = href;
+  if (historyLength !== 1) host.historyLength = historyLength;
+  return Object.keys(host).length ? host : undefined;
+}
+
+/** Text as snapshot JSON: a string, or its UTF-16 code units when it holds a lone surrogate. */
+const textJson = s =>
+  s.isWellFormed() ? s : { units: Array.from({ length: s.length }, (_, i) => s.charCodeAt(i)) };
+
+/**
+ * The seeded generator replacing `Math.random` and `crypto.randomUUID` for
+ * app code (runic_js::random: SplitMix64; a number is the top 53 bits over
+ * 2^53, a UUID two outputs big-endian with the version 4 and variant bits).
+ * Calls from the framework's dependencies and Vite's client keep the real
+ * functions, so they do not shift the app's sequence. An init script: the
+ * emulation is part of the case environment, like the fake clock.
+ */
+function seedRandomness([seed, appSourceText]) {
+  // eslint-disable-next-line no-new-func
+  const appSource = new Function(`return (${appSourceText})`)();
+  let state = BigInt.asUintN(64, BigInt(seed));
+  const next = () => {
+    state = BigInt.asUintN(64, state + 0x9e3779b97f4a7c15n);
+    let z = state;
+    z = BigInt.asUintN(64, (z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n);
+    z = BigInt.asUintN(64, (z ^ (z >> 27n)) * 0x94d049bb133111ebn);
+    return z ^ (z >> 31n);
+  };
+  // The first script frame with a URL above the replaced function.
+  const fromApp = () => {
+    for (const line of new Error().stack.split('\n').slice(1)) {
+      const m = /(https?:\/\/[^\s()]+?):\d+:\d+\)?$/.exec(line.trim());
+      if (m) return appSource(m[1], location.origin);
+    }
+    return false;
+  };
+  const random = Math.random;
+  const randomUUID = crypto.randomUUID.bind(crypto);
+  Math.random = function random_() {
+    return fromApp() ? Number(next() >> 11n) / 2 ** 53 : random();
+  };
+  crypto.randomUUID = function randomUUID_() {
+    if (!fromApp()) return randomUUID();
+    const hex = (next().toString(16).padStart(16, '0') + next().toString(16).padStart(16, '0')).split('');
+    hex[12] = '4';
+    hex[16] = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+    const h = hex.join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  };
+}
+
+/**
+ * Records the text of each fulfilled `navigator.clipboard.writeText`, from
+ * the case's initial text: reading the clipboard needs a focused document,
+ * and an app may move focus out of it (Tab past the last control). The
+ * recorder adds one reaction ahead of the app's, which runs nothing the app
+ * observes. Where the document has focus, the snapshot checks the record
+ * against the clipboard (`clipboardState`).
+ */
+function trackClipboard(initial) {
+  const clipboard = navigator.clipboard;
+  const writeText = clipboard.writeText.bind(clipboard);
+  window.__runicClipboard = String(initial).toWellFormed();
+  Object.defineProperty(clipboard, 'writeText', {
+    configurable: true,
+    writable: true,
+    value: function writeText_(data) {
+      const p = writeText(data);
+      // Chromium stores well-formed text (lone surrogates become U+FFFD).
+      p.then(
+        () => (window.__runicClipboard = String(data).toWellFormed()),
+        () => {},
+      );
+      return p;
+    },
+  });
+}
+
+/** The clipboard text: the record, checked against the clipboard where it can be read. */
+async function clipboardState() {
+  const recorded = window.__runicClipboard;
+  if (!document.hasFocus()) return { recorded };
+  return { recorded, actual: await navigator.clipboard.readText() };
+}
+
 /** `Date.now()` at clock time 0 (shared with the probe and the interpreter). */
 const CLOCK_ORIGIN = 1_767_225_600_000;
 
 const twoFrames = () =>
   new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+/**
+ * A loaded document (the first load and every reload): the app has
+ * rendered and its fonts are ready, and the caret is hidden with a head
+ * stylesheet (Playwright's caret:'hide' leaves an empty style attribute on
+ * the focused element). A reload used to skip this, so its snapshot could
+ * catch the fallback font.
+ */
+async function loaded(page) {
+  await page.waitForFunction(() => document.getElementById('root')?.childNodes.length > 0);
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
+  await page.addStyleTag({ content: '* { caret-color: transparent !important; }' });
+}
 
 // --- Actions ---
 
@@ -166,12 +300,19 @@ async function perform(page, action, timeout) {
       break;
     case 'reload': // The app starts again on the same localStorage.
       await page.reload({ waitUntil: 'load' });
+      await loaded(page);
       break;
     case 'wait': // Virtual time (the fake clock is installed for such cases).
       await page.clock.runFor(action.ms);
       break;
     case 'focus':
       await target.evaluate(e => e.focus());
+      break;
+    case 'back': // The user traverses the session history.
+      await page.goBack();
+      break;
+    case 'forward':
+      await page.goForward();
       break;
     case 'blur': // An explicit scripted step, never used to settle focus.
       await target.blur({ timeout });
@@ -211,22 +352,55 @@ export async function createBrowserHarness() {
      * Returns { steps: [{ action, dom, focused, geometry, screenshotPath, ms }] }
      * where step 0 is the initial state after mount.
      */
-    async run(fixture, { viewport = { width: 800, height: 600 }, actions = [], out, timeout = 5000, storage } = {}) {
+    async run(
+      fixture,
+      {
+        viewport = { width: 800, height: 600 },
+        actions = [],
+        out,
+        timeout = 5000,
+        storage,
+        url = '/',
+        clipboard = '',
+        seed = 1,
+      } = {},
+    ) {
       const name = path.basename(path.resolve(fixture));
       const folder = path.resolve(
         out ?? path.join(repo, 'artifacts/harness', name, `${viewport.width}x${viewport.height}`),
       );
       await mkdir(folder, { recursive: true });
+      if (!url.startsWith('/') || url.startsWith('//'))
+        throw new Error(`The case url must be a path, found ${url}`);
+      if (!Number.isSafeInteger(seed) || seed < 0)
+        throw new Error(`The case seed must be a non-negative integer, found ${seed}`);
       const t0 = performance.now();
       const server = await serveFixture(fixture);
       const serveMs = performance.now() - t0;
-      const context = await instance.newContext({ viewport, deviceScaleFactor: 1 });
+      // The app may use the clipboard (a desktop app's permission).
+      const context = await instance.newContext({
+        viewport,
+        deviceScaleFactor: 1,
+        permissions: ['clipboard-read', 'clipboard-write'],
+      });
       const errors = [];
       try {
         // Full Chromium requests a favicon the fixtures do not have; answer it
         // so real 404s still surface as console errors.
         await context.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
+        // The clipboard is the browser's, shared by every run: it starts with
+        // the case's text, written from a blank page of the app's origin.
+        const blank = server.url + '__runic_clipboard';
+        await context.route(blank, route =>
+          route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html>' }),
+        );
+        const seeder = await context.newPage();
+        await seeder.goto(blank);
+        await seeder.evaluate(text => navigator.clipboard.writeText(text), clipboard);
+        await seeder.close();
         const page = await context.newPage();
+        await page.addInitScript(seedRandomness, [seed, appSource.toString()]);
+        await page.addInitScript(trackClipboard, clipboard);
         // localStorage items the case starts with.
         if (storage)
           await page.addInitScript(items => {
@@ -253,20 +427,42 @@ export async function createBrowserHarness() {
           clock ? new Promise(r => setTimeout(r, 50)) : page.evaluate(twoFrames);
         page.setDefaultTimeout(timeout);
         page.on('pageerror', e => errors.push({ kind: 'pageerror', message: e.message }));
-        page.on('console', m => m.type() === 'error' && errors.push({ kind: 'console', message: m.text() }));
+        // Console lines of app code are host effects of the step (compared
+        // like the DOM); other console errors (the framework's, failed
+        // loads) remain harness errors.
+        const origin = new URL(server.url).origin;
+        const LEVELS = { log: 'log', info: 'info', warning: 'warn', error: 'error', debug: 'debug' };
+        let lines = [];
+        page.on('console', m => {
+          if (appSource(m.location().url, origin))
+            lines.push({ level: LEVELS[m.type()] ?? m.type(), text: textJson(m.text()) });
+          else if (m.type() === 'error') errors.push({ kind: 'console', message: m.text() });
+        });
         const t1 = performance.now();
-        await page.goto(server.url, { waitUntil: 'load' });
-        await page.waitForFunction(() => document.getElementById('root')?.childNodes.length > 0);
-        await page.evaluate(() => document.fonts.ready.then(() => undefined));
-        // Hide the caret with a head stylesheet: Playwright's caret:'hide'
-        // leaves an empty style attribute on the focused element.
-        await page.addStyleTag({ content: '* { caret-color: transparent !important; }' });
+        // The app's document replaces the new page's initial entry, so the
+        // session history starts with one entry, as a native app's does.
+        const start = new URL(url.slice(1), server.url).href;
+        await page.evaluate(u => location.replace(u), start).catch(() => {});
+        await page.waitForURL(u => u.origin === origin, { waitUntil: 'load' });
+        await loaded(page);
         await settle();
         const mountMs = performance.now() - t1;
         const steps = [];
         const observe = async (action, index, timing) => {
           let t = performance.now();
           const snapshot = await page.evaluate(pageSnapshot);
+          const clip = await page.evaluate(clipboardState);
+          if ('actual' in clip && clip.actual !== clip.recorded)
+            throw new Error(
+              `The clipboard holds ${JSON.stringify(clip.actual)}, not the recorded ${JSON.stringify(clip.recorded)}`,
+            );
+          const host = hostSnapshot({
+            console: lines,
+            clipboard: clip.recorded,
+            ...(await page.evaluate(pageLocation)),
+          });
+          lines = [];
+          if (host) snapshot.host = host;
           timing.snapshotMs = performance.now() - t;
           const screenshotPath = path.join(folder, `step-${String(index).padStart(3, '0')}.png`);
           t = performance.now();

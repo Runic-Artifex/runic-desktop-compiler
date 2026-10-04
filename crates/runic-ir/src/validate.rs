@@ -29,6 +29,43 @@ fn err<T>(code: &str, message: impl Into<String>, source: Option<&Source>) -> Re
     Err(Diagnostic::new(code, message, source))
 }
 
+/// Literal arguments of host-service built-ins (docs/design/M5-PLATFORM.md):
+/// - a console call whose first argument is a string followed by more
+///   arguments uses it as a format string: Chromium converts the arguments
+///   of `%d`/`%i`/`%f`/`%s` in its message text while DevTools substitutes
+///   them, so the first argument must then be a literal without `%`;
+/// - `history.go` takes a non-zero integer literal (`go(0)` reloads).
+fn check_host_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Result<()> {
+    if name.starts_with("console.") && args.len() > 1 {
+        let format = match &args[0] {
+            Expr::Lit {
+                value: Value::String(s),
+            } => Some(s.contains('%')),
+            Expr::Lit { .. } => Some(false),
+            _ => None,
+        };
+        // Non-literal first arguments are checked by type in the scope.
+        if format == Some(true) {
+            return err(
+                "E_BUILTIN",
+                "A console format string (a first string argument with % followed by more arguments) is unsupported: Chromium's message text keeps the format and converts the arguments, while DevTools substitutes them",
+                src,
+            );
+        }
+    }
+    if name == "history.go" {
+        let ok = matches!(args.first(), Some(Expr::Lit { value: Value::Number(n) }) if *n != 0.0 && n.fract() == 0.0 && n.abs() < 1e9);
+        if !ok {
+            return err(
+                "E_BUILTIN",
+                "history.go takes a non-zero integer literal (go(0) reloads the page)",
+                src,
+            );
+        }
+    }
+    Ok(())
+}
+
 /// The literal arguments of the RegExp built-ins: flags are a literal
 /// without `v` (unsupported), a literal pattern compiles, a capture count
 /// and a group name are literals.
@@ -615,7 +652,15 @@ impl<'a> Scope<'a> {
                             src,
                         );
                     }
+                    if kind.is_some_and(EventKind::window_only) && name.starts_with("document.") {
+                        return err(
+                            "E_BUILTIN",
+                            "popstate and hashchange are fired at the window only",
+                            src,
+                        );
+                    }
                 }
+                check_host_literals(name, args, src)?;
                 if name.starts_with("regexp.")
                     || name.starts_with("string.regexp-")
                     || name.starts_with("match.")
@@ -626,6 +671,17 @@ impl<'a> Scope<'a> {
                     .iter()
                     .map(|a| self.infer(a, d, src))
                     .collect::<Result<Vec<_>>>()?;
+                if name.starts_with("console.")
+                    && args.len() > 1
+                    && (types[0] == Type::String || types[0] == Type::Maybe(Box::new(Type::String)))
+                    && !matches!(&args[0], Lit { .. } | Undefined { .. } | Null { .. })
+                {
+                    return err(
+                        "E_BUILTIN",
+                        "A console call with more than one argument needs a first argument that is not a string, or a string literal without %: Chromium treats a first string argument as a format string",
+                        src,
+                    );
+                }
                 if let (
                     Some(Type::Fn(f)),
                     Some(Lit {
@@ -994,7 +1050,38 @@ pub fn validate(p: &Program) -> Result<()> {
     for ci in 0..p.components.len() {
         validate_component(p, ci, &mut nodes)?;
     }
+    derived_host_services(p)?;
     untracked_template_reads(p)
+}
+
+/// Derived values must not use host services (directly or through the
+/// functions they call): the frameworks compute them when they are read,
+/// so console lines, random values and history reads would depend on how
+/// often the view reads them.
+fn derived_host_services(p: &Program) -> Result<()> {
+    for f in p.functions.iter().filter(|f| f.derived) {
+        let mut exprs = vec![];
+        collect_exprs(&f.body, &mut exprs);
+        let mut seen = HashSet::new();
+        let mut found = None;
+        for e in exprs {
+            reads(p, f.component, e, &mut seen, &mut |r| {
+                if let Root::Host(what) = r {
+                    found.get_or_insert(what);
+                }
+            });
+        }
+        if let Some(what) = found {
+            return err(
+                "E_REACTIVITY",
+                format!(
+                    "{what} is used in a derived value; the frameworks compute derived values when they are read (use it in a handler or an effect)"
+                ),
+                f.source.as_ref(),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Reject components that instantiate themselves without a condition or list
@@ -1649,6 +1736,13 @@ impl<'p> NodeCx<'_, 'p> {
                             src,
                         );
                     }
+                    if l.event.window_only() {
+                        return err(
+                            "E_IR",
+                            "popstate and hashchange are fired at the window only",
+                            src,
+                        );
+                    }
                     if l.event == EventKind::Input
                         && !((tag == "input" && !checkbox) || tag == "textarea" || tag == "select")
                     {
@@ -1697,6 +1791,20 @@ impl<'p> NodeCx<'_, 'p> {
 enum Root {
     Cell(usize, usize),
     Global(usize),
+    /// A host service (console, clipboard, history and location,
+    /// randomness): its values change without notifying the framework.
+    Host(&'static str),
+}
+
+/// The host service a built-in uses, if any.
+fn host_service(name: &str) -> Option<&'static str> {
+    match name.split_once('.')?.0 {
+        "console" => Some("The console"),
+        "clipboard" => Some("The clipboard"),
+        "history" | "location" => Some("The session history (history, location)"),
+        "random" => Some("Randomness (Math.random, crypto.randomUUID)"),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1773,6 +1881,7 @@ fn writes_cell(body: &[Stmt], cell: usize) -> bool {
 /// module constant, or a cell initialised so and never written.
 fn stateless_regexp_root(p: &Program, root: Root) -> bool {
     match root {
+        Root::Host(_) => false,
         Root::Global(g) => stateless_regexp(&p.globals[g].init),
         Root::Cell(k, c) => {
             let comp = &p.components[k];
@@ -2156,6 +2265,11 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
     }
     let changes = |root: Root| -> Option<String> {
         let (ty, name, tracking) = match root {
+            Root::Host(what) => {
+                return Some(format!(
+                    "{what} is used while rendering; the frameworks do not render again when it changes (keep the value in state, set by the code that changes it or by a popstate or hashchange listener)"
+                ));
+            }
             Root::Cell(k, cell) => {
                 let c = &p.components[k].cells[cell];
                 (&c.ty, c.name.clone(), c.tracking)
@@ -2198,7 +2312,7 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 Root::Global(_) => format!(
                     "Module value {name} is mutated and read while rendering; module state is not reactive (keep it in component state)"
                 ),
-                Root::Cell(..) => format!(
+                Root::Cell(..) | Root::Host(_) => format!(
                     "{name} is mutated in place, which does not update the view (Svelte: use $state, not $state.raw; React: set a new value instead of mutating state)"
                 ),
             }),
@@ -2405,6 +2519,11 @@ fn reads(
             }
         }
         Expr::Global { global } => f(Root::Global(*global)),
+        Expr::Builtin { name, .. } => {
+            if let Some(what) = host_service(name) {
+                f(Root::Host(what));
+            }
+        }
         // A derived value is cached on its tracked dependencies, natively as
         // in the frameworks: what its getter reads otherwise does not show.
         Expr::Call { function, .. } if p.functions[*function].derived => {}

@@ -1,0 +1,23 @@
+{
+  "description": "A hash router started at a deep link: location.hash navigations (popstate at once, hashchange as a task), a navigation to the current hash doing nothing, pushState and replaceState of the query (no events), the user's back and forward (popstate, and hashchange when only the fragment changed), script history.back/forward/go(-2), back at the first entry doing nothing; location and history.length in the host snapshot",
+  "fixtures": ["host-svelte"],
+  "url": "/#/items/2",
+  "actions": [
+    { "kind": "click", "id": "nav-about" },
+    { "kind": "click", "id": "nav-same" },
+    { "kind": "click", "id": "nav-item" },
+    { "kind": "click", "id": "filter" },
+    { "kind": "click", "id": "unfilter" },
+    { "kind": "back" },
+    { "kind": "back" },
+    { "kind": "forward" },
+    { "kind": "click", "id": "back" },
+    { "kind": "click", "id": "forward" },
+    { "kind": "click", "id": "go-2" },
+    { "kind": "click", "id": "nav-items" },
+    { "kind": "back" },
+    { "kind": "back" },
+    { "kind": "back" },
+    { "kind": "click", "id": "nav-home" }
+  ]
+}

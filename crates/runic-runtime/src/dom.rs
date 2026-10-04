@@ -31,10 +31,13 @@ pub enum Event {
     Blur,
     Focusin,
     Focusout,
+    /// Session history events, fired at the window only.
+    Popstate,
+    Hashchange,
 }
 
 impl Event {
-    pub const ALL: [Event; 22] = [
+    pub const ALL: [Event; 24] = [
         Event::Click,
         Event::Input,
         Event::Change,
@@ -57,6 +60,8 @@ impl Event {
         Event::Blur,
         Event::Focusin,
         Event::Focusout,
+        Event::Popstate,
+        Event::Hashchange,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -89,6 +94,8 @@ impl Event {
             Event::Blur => "blur",
             Event::Focusin => "focusin",
             Event::Focusout => "focusout",
+            Event::Popstate => "popstate",
+            Event::Hashchange => "hashchange",
         }
     }
 
@@ -101,6 +108,8 @@ impl Event {
                 | Event::Mouseleave
                 | Event::Focus
                 | Event::Blur
+                | Event::Popstate
+                | Event::Hashchange
         )
     }
 
@@ -117,6 +126,8 @@ impl Event {
                 | Event::Blur
                 | Event::Focusin
                 | Event::Focusout
+                | Event::Popstate
+                | Event::Hashchange
         )
     }
 
@@ -141,6 +152,7 @@ impl Event {
             Event::Keydown | Event::Keyup => "keydown",
             Event::Wheel => "wheel",
             Event::Focus | Event::Blur | Event::Focusin | Event::Focusout => "focus",
+            Event::Popstate | Event::Hashchange => "back",
         }
     }
 }

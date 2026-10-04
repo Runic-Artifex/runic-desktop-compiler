@@ -59,7 +59,9 @@ export type EventKind =
   | 'focus'
   | 'blur'
   | 'focusin'
-  | 'focusout';
+  | 'focusout'
+  | 'popstate'
+  | 'hashchange';
 
 export const EVENT_KINDS: readonly EventKind[] = [
   'click',
@@ -85,6 +87,9 @@ export const EVENT_KINDS: readonly EventKind[] = [
   'focusin',
   'focusout',
 ];
+
+/** Session history events: fired at the window only (window listeners). */
+export const WINDOW_EVENT_KINDS: readonly EventKind[] = ['popstate', 'hashchange'];
 
 export type Read = 'current' | 'snapshot';
 

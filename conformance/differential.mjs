@@ -13,7 +13,7 @@ import { lower } from '../compiler/frontend.mjs';
 import { interpret, migrate } from '../compiler/codegen.mjs';
 import { buildApp } from '../compiler/cli.mjs';
 import { runProbe } from './harness/native.mjs';
-import { canonical } from './harness/compare.mjs';
+import { canonical, canonicalHost } from './harness/compare.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { values, positionals } = parseArgs({
@@ -115,6 +115,8 @@ for (const fixture of fixtures) {
   const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
   const { ir } = await lower(await collect(dir));
   const kinds = eventKinds(migrate(ir));
+  // Programs using the session history also get the user's back and forward.
+  if (/"name":"(history|location)\./.test(JSON.stringify(ir))) kinds.add('back').add('forward');
   const out = path.join(repo, '.cache/conformance/diff-bin', path.basename(fixture) + (values['no-opt'] ? '-no-opt' : ''));
   await buildApp(dir, { out, probe: true, noOpt: values['no-opt'] });
   const binary = path.join(out, 'runic-app');
@@ -129,6 +131,8 @@ for (const fixture of fixtures) {
     ['hover', 0.2],
     ['wheel', 0.1],
     ['choose', 0.2],
+    ['back', 0.1],
+    ['forward', 0.1],
   ].filter(([k]) => kinds.has(k));
   const total = weights.reduce((a, [, w]) => a + w, 0);
   let fixtureFailures = 0;
@@ -144,7 +148,7 @@ for (const fixture of fixtures) {
       else if (kind === 'choose') {
         const values = [...optionValues];
         actions.push({ kind, nth, value: values[Math.floor(random() * values.length)] });
-      }
+      } else if (kind === 'back' || kind === 'forward') actions.push({ kind });
       else actions.push({ kind, nth });
     }
     const expected = interpret(ir, actions);
@@ -156,12 +160,14 @@ for (const fixture of fixtures) {
         cells: expected[i].state.cells,
         instances: expected[i].state.instances ?? [],
         document: expected[i].state.document ?? {},
+        host: canonicalHost(expected[i].state.host),
       };
       const got = {
         dom: (canonical(actual[i].dom).children ?? []).map(semantic),
         cells: actual[i].cells,
         instances: actual[i].instances ?? [],
         document: actual[i].document ?? {},
+        host: canonicalHost(actual[i].host),
       };
       if (JSON.stringify(want) !== JSON.stringify(got)) {
         fixtureFailures++;

@@ -65,8 +65,10 @@ try {
         const shots = path.join(out, 'shots', c.name, fixture, `${viewport.width}x${viewport.height}`);
         const run = { case: c.name, fixture, viewport, irHash: ir.irHash };
         try {
-          const b = await browser.run(dir, { viewport, actions, storage: c.storage, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
-          const n = runProbe(binary, { viewport, actions, storage: c.storage, out: values.pixels ? path.join(shots, 'native') : undefined });
+          // The case's environment: localStorage, start URL, clipboard text, random seed.
+          const env = { storage: c.storage, url: c.url, clipboard: c.clipboard, seed: c.seed };
+          const b = await browser.run(dir, { viewport, actions, ...env, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
+          const n = runProbe(binary, { viewport, actions, ...env, out: values.pixels ? path.join(shots, 'native') : undefined });
           run.browser = { framework: b.framework, browserVersion: browser.browserVersion, errors: b.errors };
           run.mountUs = n.mountUs;
           const cmp = compareTraces(b.steps, n.steps, { pixels: values.pixels });

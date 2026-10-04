@@ -112,10 +112,16 @@ export function migrate(ir) {
   return withIR(ir, file => JSON.parse(run(['migrate', file])));
 }
 
-/** Run `actions` through the reference interpreter. */
-export function interpret(ir, actions, { storage } = {}) {
+/**
+ * Run `actions` through the reference interpreter in a case's environment
+ * (localStorage items, start URL, clipboard text, random seed).
+ */
+export function interpret(ir, actions, { storage, url, clipboard, seed } = {}) {
   return withIR(ir, file => {
     const extra = storage ? ['--storage', JSON.stringify(storage)] : [];
+    if (url !== undefined) extra.push('--url', url);
+    if (clipboard !== undefined) extra.push('--clipboard', clipboard);
+    if (seed !== undefined) extra.push('--seed', String(seed));
     const r = spawnSync(codegenBinary(), ['interp', file, ...extra], {
       input: JSON.stringify(actions),
       encoding: 'utf8',

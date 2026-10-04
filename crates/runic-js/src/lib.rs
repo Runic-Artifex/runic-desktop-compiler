@@ -16,7 +16,9 @@ mod string;
 mod value;
 
 pub mod array_ops;
+pub mod history;
 pub mod json;
+pub mod random;
 pub mod regexp;
 pub mod string_ops;
 

@@ -1516,6 +1516,52 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
 
 /// Whether only reads through proxies make heap dependencies (programs with
 /// proxied state; otherwise every heap read counts).
+/// Host services of every generated app (docs/design/M5-PLATFORM.md): the
+/// host's work queued between tasks and the operations that queue it. The
+/// reference interpreter implements the same model (`runic_ir::interp`).
+const HOST_SERVICES: &str = r#"/// Work the host does after the running task, in order: clipboard replies, history traversals, `hashchange`.
+pub enum HostTask { ClipboardWrite(JsString, js::JsPromise<(), Lst>), ClipboardRead(js::JsPromise<JsString, Lst>), Traverse(i64), HashChange }
+impl Cx {
+    /// Chromium settles overlapping clipboard operations in an order that depends on their kinds, which the model does not cover.
+    fn clipboard_pending(&self) -> JsResult<()> {
+        if self.host_tasks.iter().any(|t| matches!(t, HostTask::ClipboardWrite(..) | HostTask::ClipboardRead(_))) {
+            return Err(js::Throw::new("RunicHostError", "a clipboard operation while another is pending"));
+        }
+        Ok(())
+    }
+    fn clipboard_write(&mut self, text: JsString) -> JsResult<js::JsPromise<(), Lst>> {
+        self.clipboard_pending()?;
+        let p = js::JsPromise::pending();
+        self.host_tasks.push_back(HostTask::ClipboardWrite(text, p.clone()));
+        Ok(p)
+    }
+    fn clipboard_read(&mut self) -> JsResult<js::JsPromise<JsString, Lst>> {
+        self.clipboard_pending()?;
+        let p = js::JsPromise::pending();
+        self.host_tasks.push_back(HostTask::ClipboardRead(p.clone()));
+        Ok(p)
+    }
+    /// Traversals queued while one is pending interact in Chromium (a second may be dropped), which the model does not cover.
+    fn traverse(&mut self, delta: i64) -> JsResult<()> {
+        if self.host_tasks.iter().any(|t| matches!(t, HostTask::Traverse(_))) {
+            return Err(js::Throw::new("RunicHistoryError", "a history traversal while another is pending"));
+        }
+        self.host_tasks.push_back(HostTask::Traverse(delta));
+        Ok(())
+    }
+    /// `location.hash = value`: `popstate` at once (nested in the setter), `hashchange` as a task.
+    fn set_hash(&mut self, value: &JsString) -> JsResult<()> {
+        if runic_runtime::history::set_hash(value)? {
+            let ev = js::Event::new(js::EventData { kind: JsString::from("popstate"), target: js::Element::WINDOW, ..Default::default() });
+            let deliveries: Vec<runic_runtime::Delivery> = self.host.iter().filter(|h| h.0 && h.1 == Event::Popstate).map(|h| runic_runtime::Delivery { listener: h.3, event: ev.clone(), current: js::Element::WINDOW.0 }).collect();
+            run_nested(self, vec![(ev, Event::Popstate, deliveries)]);
+            self.host_tasks.push_back(HostTask::HashChange);
+        }
+        Ok(())
+    }
+}
+"#;
+
 fn owned_only(p: &Program) -> bool {
     p.components.iter().any(|c| {
         c.cells
@@ -1895,13 +1941,14 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, {live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), {live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
+    out.push_str(HOST_SERVICES);
     // Functions.
     let mut errors = vec![];
     for f in 0..p.functions.len() {
@@ -2110,6 +2157,20 @@ pub fn generate(
          }}\n\
          if self.cx.timers.now < to {{ self.cx.timers.now = to; }}\n\
          }}\n\
+         fn host_task(&mut self, dom: &mut Dom) -> Option<Option<Event>> {{\n\
+         let task = self.cx.host_tasks.pop_front()?;\n\
+         Some(match task {{\n\
+         HostTask::ClipboardWrite(text, p) => {{ let r = self.task(dom, false, |cx| {{ let outcome = runic_runtime::clipboard::write(&text).map_err(|m| js::Throw::new(\"NotAllowedError\", m)); runic_runtime::promises::settle(cx, &p, outcome); Ok(()) }}); if let Err(e) = r {{ eprintln!(\"runic: uncaught exception: {{e}}\"); }} None }}\n\
+         HostTask::ClipboardRead(p) => {{ let r = self.task(dom, false, |cx| {{ let outcome = runic_runtime::clipboard::read().map_err(|m| js::Throw::new(\"NotAllowedError\", m)); runic_runtime::promises::settle(cx, &p, outcome); Ok(()) }}); if let Err(e) = r {{ eprintln!(\"runic: uncaught exception: {{e}}\"); }} None }}\n\
+         HostTask::Traverse(delta) => match runic_runtime::history::traverse(delta) {{\n\
+         Ok(Some(t)) => {{ if t.hashchange {{ self.cx.host_tasks.push_front(HostTask::HashChange); }} Some(Event::Popstate) }}\n\
+         Ok(None) => None,\n\
+         Err(e) => {{ runic_runtime::unsupported(&e.message.to_rust()); None }}\n\
+         }},\n\
+         HostTask::HashChange => Some(Event::Hashchange),\n\
+         }})\n\
+         }}\n\
+         fn traverse(&mut self, delta: i64) {{ self.cx.host_tasks.push_back(HostTask::Traverse(delta)); }}\n\
          fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
          fn now(&self) -> f64 {{ self.cx.timers.now }}\n\
          fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\

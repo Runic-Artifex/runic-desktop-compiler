@@ -655,6 +655,11 @@ pub enum EventKind {
     /// Focus moved into / out of the element or a descendant (bubbling).
     Focusin,
     Focusout,
+    /// Session history: a traversal or fragment navigation changed the
+    /// current entry; fired at the window only.
+    Popstate,
+    /// The fragment changed (a task after `popstate`); window only.
+    Hashchange,
 }
 
 impl EventKind {
@@ -677,6 +682,8 @@ impl EventKind {
                 | EventKind::Mouseleave
                 | EventKind::Focus
                 | EventKind::Blur
+                | EventKind::Popstate
+                | EventKind::Hashchange
         )
     }
 
@@ -694,7 +701,14 @@ impl EventKind {
                 | EventKind::Blur
                 | EventKind::Focusin
                 | EventKind::Focusout
+                | EventKind::Popstate
+                | EventKind::Hashchange
         )
+    }
+
+    /// Fired at the window only (no element or document listeners).
+    pub fn window_only(self) -> bool {
+        matches!(self, EventKind::Popstate | EventKind::Hashchange)
     }
 
     /// The harness action that delivers the event (click, dblclick,
@@ -721,10 +735,11 @@ impl EventKind {
             EventKind::Focus | EventKind::Blur | EventKind::Focusin | EventKind::Focusout => {
                 "focus"
             }
+            EventKind::Popstate | EventKind::Hashchange => "back",
         }
     }
 
-    pub const ALL: [EventKind; 22] = [
+    pub const ALL: [EventKind; 24] = [
         EventKind::Click,
         EventKind::Input,
         EventKind::Change,
@@ -747,6 +762,8 @@ impl EventKind {
         EventKind::Blur,
         EventKind::Focusin,
         EventKind::Focusout,
+        EventKind::Popstate,
+        EventKind::Hashchange,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -779,6 +796,8 @@ impl EventKind {
             EventKind::Blur => "blur",
             EventKind::Focusin => "focusin",
             EventKind::Focusout => "focusout",
+            EventKind::Popstate => "popstate",
+            EventKind::Hashchange => "hashchange",
         }
     }
 }
