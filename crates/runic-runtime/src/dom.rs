@@ -340,6 +340,102 @@ impl Host {
         })
     }
 
+    /// `element.querySelectorAll(selector)`: the matching descendants of
+    /// `node`, in tree order (a selector outside runic_js's subset is
+    /// reported unsupported, and matches nothing).
+    pub fn query_selector_all(&self, node: u64, selector: &str) -> Vec<u64> {
+        let selector = match runic_js::parse_selector(selector) {
+            Ok(s) => s,
+            Err(e) => {
+                crate::unsupported(&format!("querySelector: {e}"));
+                return vec![];
+            }
+        };
+        let Some(dom) = self.dom() else {
+            return vec![];
+        };
+        struct View<'a>(&'a blitz_dom::Node);
+        impl runic_js::SelElement for View<'_> {
+            fn tag(&self) -> &str {
+                self.0.element_data().map_or("", |e| &e.name.local)
+            }
+            fn attr(&self, name: &str) -> Option<&str> {
+                self.0.attr(name.into())
+            }
+        }
+        let doc = &*dom.doc;
+        let Some(scope) = doc.get_node(NodeId::from_u64(node)) else {
+            return vec![];
+        };
+        // The scope's element ancestors, from the root.
+        let mut path: Vec<View> = vec![];
+        let mut at = Some(scope);
+        while let Some(n) = at {
+            if n.element_data().is_some() {
+                path.push(View(n));
+            }
+            at = n.parent.and_then(|p| doc.get_node(p));
+        }
+        path.reverse();
+        fn walk<'a>(
+            doc: &'a blitz_dom::BaseDocument,
+            n: &'a blitz_dom::Node,
+            path: &mut Vec<View<'a>>,
+            selector: &runic_js::Selector,
+            out: &mut Vec<u64>,
+        ) {
+            for &c in &n.children {
+                let Some(child) = doc.get_node(c) else {
+                    continue;
+                };
+                if child.element_data().is_none() {
+                    continue;
+                }
+                path.push(View(child));
+                if selector.matches(path) {
+                    out.push(NodeId::from(child.id).as_u64());
+                }
+                walk(doc, child, path, selector, out);
+                path.pop();
+            }
+        }
+        let mut out = vec![];
+        walk(doc, scope, &mut path, &selector, &mut out);
+        out
+    }
+
+    /// `getComputedStyle(element).getPropertyValue(name)`: the computed
+    /// value as Stylo serialises it (the frontend admits properties whose
+    /// resolved value is the computed one); empty for an unknown name.
+    pub fn computed_style(&self, node: u64, name: &str) -> String {
+        use style::properties::{PropertyDeclarationId, PropertyId};
+        let Some(dom) = self.dom() else {
+            return String::new();
+        };
+        crate::layout::resolve(dom.doc);
+        let Ok(id) = PropertyId::parse_enabled_for_all_content(name) else {
+            return String::new();
+        };
+        let Some(longhand) = id.longhand_id() else {
+            return String::new();
+        };
+        dom.doc
+            .get_node(NodeId::from_u64(node))
+            .and_then(|n| n.primary_styles())
+            .map(|s| s.computed_value_to_string(PropertyDeclarationId::Longhand(longhand)))
+            .unwrap_or_default()
+    }
+
+    /// `element.getAttribute(name)` (None when absent).
+    pub fn get_attribute(&self, node: u64, name: &str) -> Option<String> {
+        let name = name.to_ascii_lowercase();
+        let dom = self.dom()?;
+        dom.doc
+            .get_node(NodeId::from_u64(node))
+            .and_then(|n| n.attr(name.as_str().into()))
+            .map(str::to_owned)
+    }
+
     /// `element instanceof HTMLElement`: an element outside the SVG namespace.
     pub fn is_html(&self, node: u64) -> bool {
         self.dom().is_none_or(|dom| {
@@ -879,6 +975,9 @@ impl Dom<'_> {
                 }
                 _ => {}
             }
+            // HTML lowercases attribute names (a camelCase prop spread onto
+            // an element).
+            let name = name.to_ascii_lowercase();
             match value {
                 AttrValue::Text(t) => self.set_attr(node, &name, &t.to_rust()),
                 AttrValue::Flag(b)

@@ -13,6 +13,7 @@ mod keys;
 mod media;
 mod number;
 mod promise;
+mod selector;
 mod string;
 mod value;
 
@@ -45,5 +46,6 @@ pub use media::MediaQueryList;
 pub use number::*;
 pub use promise::{JsPromise, Reaction};
 pub use regexp::RegExp;
+pub use selector::{SelElement, Selector, parse_selector};
 pub use string::JsString;
 pub use value::*;

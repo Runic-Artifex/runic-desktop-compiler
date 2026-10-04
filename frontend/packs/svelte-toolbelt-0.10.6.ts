@@ -12,6 +12,8 @@
 //   assigning it calls the setter (a readable box has none: TypeError, as
 //   assigning a getter-only property throws in strict code). The types
 //   `ReadableBox<T>` and `WritableBox<T>` both map to the box record of T.
+// - `box(initial)` (dist/box/box.svelte.js): a writable box over a `$state`
+//   of its own (a class record with one reactive field).
 // - `mergeProps(...bags)` (dist/utils/merge-props.js): the IR built-in
 //   `attrs.merge-props`, which implements the package's rules
 //   (crates/runic-js/src/attrs.rs): event listeners compose (each runs
@@ -223,6 +225,79 @@ function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   return { op: 'record', record: (box as { record: number }).record, fields: [get, set] };
 }
 
+/** State records (one reactive `$state` field) by value type, per program. */
+const states = new WeakMap<Lowerer, Map<string, number>>();
+
+/** The record holding a `$state` value of type `t`. */
+function stateRecord(lower: Lowerer, t: Type): number {
+  let known = states.get(lower);
+  if (!known) states.set(lower, (known = new Map()));
+  const key = JSON.stringify(t);
+  const found = known.get(key);
+  if (found !== undefined) return found;
+  const record = lower.types.records.length;
+  known.set(key, record);
+  lower.types.records.push({
+    name: 'BoxState',
+    class: true,
+    fields: [{ name: 'value', type: t, reactive: 'state' }],
+  });
+  return record;
+}
+
+/**
+ * `box(initial)` (dist/box/box.svelte.js): a writable box over its own
+ * `$state`: the getter reads it, the setter writes it (the box of the
+ * declared or contextual type: `box(null)` for a `WritableBox<string | null>`).
+ */
+function box(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [initial] = node.arguments;
+  if (node.arguments.length > 1 || (initial && ts.isSpreadElement(initial)))
+    return lower.fail(node, 'E_PACK', `${LABEL}: box takes an initial value`);
+  const context = lower.checker.getContextualType(node);
+  const wanted = context && lower.types.tryMap(context, node);
+  const box = wanted && boxValue(lower, wanted) !== undefined ? wanted : lower.types.of(node);
+  const t = boxValue(lower, box);
+  if (t === undefined) return lower.fail(node, 'E_PACK', `${LABEL}: box's type is not a box`);
+  const state = stateRecord(lower, t);
+  const stateType: Type = { record: state };
+  const value: Expr = initial
+    ? initial.kind === ts.SyntaxKind.NullKeyword && maybeInner(t)
+      ? { op: 'null', type: t }
+      : lower.coerce(initial, b, t)
+    : { op: 'undefined', type: t };
+  const getter = define(lower, {
+    name: 'box$get',
+    captures: [{ name: 'state', type: stateType }],
+    params: [],
+    result: t,
+    body: [{ op: 'return', value: { op: 'get', object: local(0), field: 0 } }],
+  });
+  const setter = define(lower, {
+    name: 'box$set',
+    captures: [{ name: 'state', type: stateType }],
+    params: [{ name: 'v', type: t }],
+    result: 'void',
+    body: [
+      { op: 'assign', target: { place: 'field', object: local(0), field: 0 }, value: local(1) },
+    ],
+  });
+  const tmp = b.local('$box', stateType);
+  return {
+    op: 'with',
+    local: tmp,
+    value: { op: 'record', record: state, fields: [value] },
+    body: {
+      op: 'record',
+      record: (box as { record: number }).record,
+      fields: [
+        { op: 'closure', function: getter, captures: [tmp] },
+        { op: 'some', value: { op: 'closure', function: setter, captures: [tmp] } },
+      ],
+    },
+  };
+}
+
 /** `mergeProps(...bags)`. */
 function mergeProps(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const args = node.arguments.map(a => {
@@ -396,6 +471,8 @@ export const svelteToolbeltPack: Pack = {
     switch (imported) {
       case 'boxWith':
         return { kind: 'function', call: boxWith };
+      case 'box':
+        return { kind: 'function', call: box };
       case 'mergeProps':
         return {
           kind: 'function',
@@ -411,7 +488,7 @@ export const svelteToolbeltPack: Pack = {
       case 'srOnlyStyles':
         return { kind: 'constant', value: SR_ONLY_STYLES };
     }
-    return `${LABEL} covers boxWith, mergeProps, attachRef, afterTick, onDestroyEffect and srOnlyStyles, not ${imported}`;
+    return `${LABEL} covers box, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect and srOnlyStyles, not ${imported}`;
   },
   type(t, at, lower) {
     // ReadableBox<T> and WritableBox<T> (dist/box/box-extras.svelte.d.ts):

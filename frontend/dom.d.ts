@@ -35,6 +35,12 @@ interface HTMLElement {
   // form's submission (no form element can be rendered: reported
   // unsupported if it ever ran).
   closest(tagName: string): HTMLElement | null;
+  // M6 (bits-ui's roving focus): the id attribute; descendants matching a
+  // selector (a subset: tags, #id, .class, [attr], [attr=value], :not(),
+  // descendant and child combinators), a static list.
+  readonly id: string;
+  querySelectorAll(selectors: string): HTMLElement[];
+  querySelector(selectors: string): HTMLElement | null;
   requestSubmit(): void;
 }
 /** M6 (bits-ui's isHTMLElement): `x instanceof HTMLElement` of element values. */
@@ -193,8 +199,14 @@ interface WindowEventTarget {
     listener: (event: WindowEventMap[K]) => void,
   ): void;
 }
+/** `getComputedStyle(element)` (M6, bits-ui's direction): property reads only. */
+interface ComputedStyle {
+  readonly __runicComputedStyle: true;
+  getPropertyValue(property: string): string;
+}
 interface HostWindow extends WindowEventTarget {
   matchMedia(query: string): MediaQueryList;
+  getComputedStyle(element: HTMLElement): ComputedStyle;
   setTimeout: typeof setTimeout;
   setInterval: typeof setInterval;
   clearTimeout: typeof clearTimeout;

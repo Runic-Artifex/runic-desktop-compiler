@@ -771,8 +771,11 @@ impl<'a> Scope<'a> {
                                 // A callback for a component that declares it (M6):
                                 // a function under a name that is no event attribute.
                                 None if matches!(t, Type::Fn(_)) => callback_name_ok(name),
+                                // camelCase names are props for components (an
+                                // element's spread sets them lowercased, as
+                                // setAttribute does).
                                 None => {
-                                    attr_name_ok(name)
+                                    (attr_name_ok(name) || callback_name_ok(name))
                                         && (matches!(t, Type::String | Type::Boolean)
                                             || t == Type::maybe(Type::String)
                                             || t == Type::maybe(Type::Boolean))

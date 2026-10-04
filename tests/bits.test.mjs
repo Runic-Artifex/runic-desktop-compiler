@@ -283,3 +283,48 @@ test('mergeProps shapes outside the pack fail at run time', async () => {
       assert.throws(() => interpret(ir, []), pattern);
     });
 });
+
+test('SvelteMap reads outside derived values are rejected; dictionary objects guard prototype names', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { SvelteMap } from 'svelte/reactivity';
+  const m = new SvelteMap<string, number>();
+  let seen = $state(0);
+  $effect(() => {
+    seen = m.get('a') ?? 0;
+  });
+</script>
+<button id="b" onclick={() => m.set('a', 1)}>{seen}</button>
+`,
+    },
+    async root =>
+      assert.rejects(lowered(root), failWith('E_REACTIVITY', 'App.svelte', /SvelteMap/)),
+  );
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let key = $state('Home');
+  let out = $state('');
+  function pick(k: string) {
+    const table = { Home: 0, [k + '!']: 1 };
+    out = String(table[key] ?? -1);
+  }
+</script>
+<button id="home" onclick={() => pick('x')}>{out}</button>
+<button id="proto" onclick={() => (key = 'toString')}>proto</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'home' }]);
+      assert.equal(text(byId(steps[1], 'home')), '0');
+      // A prototype member's name is not read as an entry.
+      const rejected = interpret(ir, [
+        { kind: 'click', id: 'proto' },
+        { kind: 'click', id: 'home' },
+      ])[2].outcome.rejected;
+      assert.match(rejected.message, /RunicUnsupportedError.*Object\.prototype member/);
+    },
+  );
+});

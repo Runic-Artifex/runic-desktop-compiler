@@ -1,6 +1,7 @@
 // TypeScript checker types → IR types (docs/design/M2-VALUES.md, D16).
 import ts from 'typescript';
 import type { RecordType, Type } from './ir.ts';
+import { maybeInner } from './irtype.ts';
 
 export type Fail = (node: ts.Node, code: string, message: string) => never;
 
@@ -163,6 +164,8 @@ export class TypeMapper {
     else if (rest.length === 1) base = this.map(rest[0], at);
     else if (this.classUnion && rest.every(p => this.sourceClass(p)))
       base = this.classUnion(rest, at);
+    else if (rest.every(p => this.plainObject(p)) && this.mergeable(rest, at))
+      base = { record: this.unionRecord(rest, at) };
     else {
       const mapped = rest.map(p => this.map(p, at));
       const first = JSON.stringify(mapped[0]);
@@ -191,6 +194,8 @@ export class TypeMapper {
     // Event objects (frontend/dom.d.ts) are opaque values read through built-ins.
     if (t.getProperty('__runicEvent')) return 'event';
     if (t.getProperty('__runicMediaQuery')) return 'media-query';
+    // A computed style declaration stands for its element (frontend/dom.d.ts).
+    if (t.getProperty('__runicComputedStyle')) return 'element';
     // Attribute bags (docs/IR.md `attrs`): the marker frontend/dom.d.ts
     // declares for bag-building object literals, and objects of untyped
     // entries only: `Record<string, unknown>` (the props bits-ui passes to
@@ -220,6 +225,31 @@ export class TypeMapper {
         )
       )
         return 'attrs';
+    }
+    // An object used as a dictionary of one value type (bits-ui's
+    // `keyToIndex = { [nextKey]: …, [kbd.HOME]: 0 }`): a string index
+    // signature, and properties (constant keys) of its value type. A map
+    // from string keys, only reached by element access (language.ts guards
+    // the names of Object.prototype's members).
+    if (!t.getCallSignatures().length) {
+      const infos = this.checker.getIndexInfosOfType(t);
+      const strings = infos.find(i => i.keyType.flags & ts.TypeFlags.String);
+      if (
+        infos.length === 1 &&
+        strings &&
+        !(strings.type.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any))
+      ) {
+        const value = this.map(strings.type, at);
+        const props = this.checker.getPropertiesOfType(t);
+        if (
+          props.every(
+            p =>
+              JSON.stringify(this.tryMap(this.checker.getTypeOfSymbolAtLocation(p, at), at)) ===
+              JSON.stringify(value),
+          )
+        )
+          return { map: ['string', value] };
+      }
     }
     const name = t.symbol?.name ?? t.aliasSymbol?.name;
     const args = (t as ts.TypeReference).target
@@ -387,6 +417,94 @@ export class TypeMapper {
       return same;
     }
     this.byShape.set(shape, index);
+    return index;
+  }
+
+  /** Whether `t` is a plain object type (a record), not a DOM handle, bag, class or pack type. */
+  private plainObject(t: ts.Type): boolean {
+    if (!(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection))) return false;
+    if (t.getCallSignatures().length || t.getConstructSignatures().length) return false;
+    if (this.sourceClass(t)) return false;
+    if (t.isIntersection() && !t.types.every(m => m.flags & ts.TypeFlags.Object)) return false;
+    const markers = ['__runicElement', '__runicEvent', '__runicMediaQuery', '__runicAttrs'];
+    if (markers.some(m => t.getProperty(m))) return false;
+    if (this.checker.isArrayType(t) || this.checker.isTupleType(t)) return false;
+    const s = t.symbol?.name;
+    return !(s && ['Map', 'Set', 'Promise', 'Date', 'RegExp', 'Array'].includes(s));
+  }
+
+  /** The member types of property `name` of each union member (undefined where absent or optional). */
+  private memberTypes(parts: ts.Type[], name: string, at: ts.Node): (ts.Type | undefined)[] {
+    return parts.flatMap(m => {
+      const p = this.checker.getPropertyOfType(m, name);
+      if (!p) return [undefined];
+      const t = this.checker.getTypeOfSymbolAtLocation(p, p.valueDeclaration ?? at);
+      return p.flags & ts.SymbolFlags.Optional ? [t, undefined] : [t];
+    });
+  }
+
+  /** The property names of union members, in member order. */
+  private unionNames(parts: ts.Type[]): string[] {
+    const names: string[] = [];
+    for (const m of parts)
+      for (const p of this.checker.getPropertiesOfType(m))
+        if (!names.includes(p.name)) names.push(p.name);
+    return names;
+  }
+
+  /**
+   * Whether a union of plain object types can be one record: each property
+   * has one IR type in every member that has it (nullable where a member
+   * lacks it or makes it optional).
+   */
+  private mergeable(parts: ts.Type[], at: ts.Node): boolean {
+    return this.unionNames(parts).every(name => {
+      const types = this.memberTypes(parts, name, at).filter(t => t !== undefined);
+      const mapped = types.map(t => {
+        const F = ts.TypeFlags;
+        if (t.flags & (F.Undefined | F.Void | F.Null)) return 'nullish';
+        const m = this.tryMap(t, at);
+        return m === undefined ? undefined : JSON.stringify(maybeInner(m) ?? m);
+      });
+      if (mapped.includes(undefined)) return false;
+      const bases = new Set(mapped.filter(m => m !== 'nullish'));
+      return bases.size === 1;
+    });
+  }
+
+  /**
+   * A union of plain object types (svelte-toolbelt's and bits-ui's options,
+   * `{ candidateAttr: string } | { candidateSelector: string }` and the
+   * like) as one record: each property with its one type, nullable where a
+   * member lacks it or makes it optional. Which member a value belongs to is
+   * not kept: its key set is not tracked, so key-observing built-ins reject
+   * the record (`packageRecords`).
+   */
+  private unionRecord(parts: ts.Type[], at: ts.Node): number {
+    const fields: { name: string; type: Type }[] = [];
+    for (const name of this.unionNames(parts)) {
+      const types = this.memberTypes(parts, name, at);
+      const nullable = types.some(
+        t =>
+          t === undefined ||
+          t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void | ts.TypeFlags.Null),
+      );
+      const present = types.find(
+        t =>
+          t !== undefined &&
+          !(t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void | ts.TypeFlags.Null)),
+      )!;
+      const m = this.map(present, at);
+      const inner = maybeInner(m) ?? m;
+      fields.push({ name, type: nullable || maybeInner(m) ? { maybe: inner } : inner });
+    }
+    const shape = JSON.stringify(fields);
+    const same = this.byShape.get(shape);
+    if (same !== undefined && this.packageRecords.has(same)) return same;
+    const index = this.records.length;
+    this.records.push({ name: 'Object', fields });
+    this.byShape.set(shape, index);
+    this.packageRecords.add(index);
     return index;
   }
 

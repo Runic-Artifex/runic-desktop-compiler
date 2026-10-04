@@ -13,7 +13,9 @@ import type { Shape } from './bags.ts';
 import type { Binding, FnBuilder, Lowerer } from './language.ts';
 import { valueChoice, withRest, wrapperValues, type Choice } from './packs/choice.ts';
 import { sourceVersions } from './sources.ts';
+import { svelteReactivityImport } from './svelte-reactivity.ts';
 import { cnPack } from './packs/cn-0.3.0.ts';
+import { esmEnvPack } from './packs/esm-env-1.2.2.ts';
 import { clsxPack } from './packs/clsx-2.1.1.ts';
 import { lucideSveltePack } from './packs/lucide-svelte-1.52.0.ts';
 import { tailwindMergePack } from './packs/tailwind-merge-3.7.0.ts';
@@ -145,6 +147,7 @@ export function packType(t: ts.Type, at: ts.Node, lower: Lowerer): Type | undefi
 const PACKS: Pack[] = [
   clsxPack,
   cnPack,
+  esmEnvPack,
   lucideSveltePack,
   runedPack,
   svelteToolbeltPack,
@@ -234,6 +237,12 @@ export function bindPackImport(
   const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
   if (isLocal(spec, edge)) return false;
   const pkg = edge?.package;
+  // svelte/reactivity's SvelteMap: a type the language layer lowers
+  // (frontend/svelte-reactivity.ts), in Svelte modules.
+  if (pkg?.name === 'svelte' && spec === 'svelte/reactivity') {
+    svelteReactivityImport(stmt, (n, code, message) => lower.fail(n, code, message));
+    return true;
+  }
   const fail = (n: ts.Node, e: unknown): never => {
     if (e instanceof PackError) return lower.fail(n, e.code, e.message);
     throw e;

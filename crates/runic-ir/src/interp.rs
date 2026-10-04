@@ -2576,6 +2576,39 @@ impl<'p> Machine<'p> {
                 };
                 Val::Bool(chain_nodes(&self.last_tree, e.0).is_some())
             }
+            ("element", m @ ("querySelectorAll" | "querySelector")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let selector = js::parse_selector(&a[1].string().to_rust()).map_err(|m| {
+                    Throw::new("RunicUnsupportedError", format!("querySelector: {m}"))
+                })?;
+                let found = query_selector_all(&self.last_tree, e.0, &selector);
+                if m == "querySelector" {
+                    found
+                        .first()
+                        .map_or(Val::Null, |&n| Val::Element(js::Element(n)))
+                } else {
+                    Val::Array(js::array(
+                        found
+                            .into_iter()
+                            .map(|n| Val::Element(js::Element(n)))
+                            .collect(),
+                    ))
+                }
+            }
+            ("element", "getAttribute") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let name = a[1].string().to_rust().to_ascii_lowercase();
+                chain_nodes(&self.last_tree, e.0)
+                    .and_then(|n| match n.last() {
+                        Some(VNode::Element { attrs, .. }) => attrs.get(&name).cloned(),
+                        _ => None,
+                    })
+                    .map_or(Val::Undefined, |v| Val::Str(JsString::from(v.as_str())))
+            }
             ("element", "isHTML") => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
@@ -3625,7 +3658,7 @@ impl<'p> Machine<'p> {
                             (n, Val::Bool(b))
                                 if *spread_boolean_text && !BOOLEAN_PROPERTIES.contains(&n) =>
                             {
-                                map.insert(n.to_owned(), b.to_string());
+                                map.insert(n.to_ascii_lowercase(), b.to_string());
                                 continue;
                             }
                             _ => {}
@@ -3640,15 +3673,16 @@ impl<'p> Machine<'p> {
                                     closure: Some(v.clone()),
                                 });
                             }
+                            // HTML lowercases attribute names.
                             None => match v {
                                 Val::Str(s) => {
-                                    map.insert(name.to_owned(), s.to_rust());
+                                    map.insert(name.to_ascii_lowercase(), s.to_rust());
                                 }
                                 Val::Bool(true) => {
-                                    map.insert(name.to_owned(), String::new());
+                                    map.insert(name.to_ascii_lowercase(), String::new());
                                 }
                                 _ => {
-                                    map.remove(name);
+                                    map.remove(&name.to_ascii_lowercase());
                                 }
                             },
                         }
@@ -6312,6 +6346,63 @@ fn element_id(n: &VNode) -> Option<u64> {
 }
 
 /// The nodes from the root to the element with id `id`.
+/// The elements matching `selector` among the descendants of element `id`,
+/// in tree order. Paths start at `<html>`, `<body>` and the root container
+/// (as in the document the runtime builds).
+fn query_selector_all(tree: &[VNode], id: u64, selector: &js::Selector) -> Vec<u64> {
+    enum View<'a> {
+        Outer(&'static str, Option<(&'static str, &'static str)>),
+        Node(&'a VNode),
+    }
+    impl js::SelElement for View<'_> {
+        fn tag(&self) -> &str {
+            match self {
+                View::Outer(t, _) => t,
+                View::Node(VNode::Element { tag, .. }) => tag,
+                View::Node(_) => "",
+            }
+        }
+        fn attr(&self, name: &str) -> Option<&str> {
+            match self {
+                View::Outer(_, a) => a.filter(|(n, _)| *n == name).map(|(_, v)| v),
+                View::Node(VNode::Element { attrs, .. }) => attrs.get(name).map(String::as_str),
+                View::Node(_) => None,
+            }
+        }
+    }
+    fn walk<'a>(
+        nodes: &'a [VNode],
+        path: &mut Vec<View<'a>>,
+        selector: &js::Selector,
+        out: &mut Vec<u64>,
+    ) {
+        for n in nodes {
+            if let VNode::Element { id, children, .. } = n {
+                path.push(View::Node(n));
+                if selector.matches(path) {
+                    out.push(*id);
+                }
+                walk(children, path, selector, out);
+                path.pop();
+            }
+        }
+    }
+    let Some(chain) = chain_nodes(tree, id) else {
+        return vec![];
+    };
+    let mut path = vec![
+        View::Outer("html", None),
+        View::Outer("body", None),
+        View::Outer("div", Some(("id", "root"))),
+    ];
+    path.extend(chain.iter().map(|n| View::Node(n)));
+    let mut out = vec![];
+    if let Some(VNode::Element { children, .. }) = chain.last() {
+        walk(children, &mut path, selector, &mut out);
+    }
+    out
+}
+
 fn chain_nodes(tree: &[VNode], id: u64) -> Option<Vec<&VNode>> {
     fn walk<'t>(nodes: &'t [VNode], id: u64, out: &mut Vec<&'t VNode>) -> bool {
         for n in nodes {

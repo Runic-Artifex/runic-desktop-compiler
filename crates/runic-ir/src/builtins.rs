@@ -68,6 +68,7 @@ pub fn needs_layout(name: &str) -> bool {
                         | "style-get"
                         | "style-set"
                         | "getAnimations"
+                        | "computed-style"
                 )
         }
         // MutationObservers are reported unsupported when they observe.
@@ -601,6 +602,31 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("element", "isConnected") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| b)
+        }
+        // `querySelectorAll` / `querySelector` of the descendants (a subset
+        // of selectors, runic_js::parse_selector).
+        ("element", "querySelectorAll") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "selector").map(|_| Type::array(Element))
+        }
+        ("element", "querySelector") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "selector").map(|_| Maybe(Box::new(Element)))
+        }
+        // An attribute's value (`id`), undefined when absent.
+        ("element", "getAttribute") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "name").map(|_| Maybe(Box::new(s.clone())))
+        }
+        // `getComputedStyle(e).getPropertyValue(name)` of a property whose
+        // resolved value is its computed value (the frontend checks).
+        ("element", "computed-style") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "property").map(|_| s)
         }
         // `instanceof HTMLElement`: not in the SVG namespace.
         ("element", "isHTML") => {

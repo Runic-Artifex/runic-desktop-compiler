@@ -1413,6 +1413,15 @@ export class Classes {
           op: literal.kind === ts.SyntaxKind.NullKeyword ? 'null' : 'undefined',
           type: f.type,
         };
+      // `$state([])`: the empty array takes the field's element type.
+      if (
+        literal &&
+        ts.isArrayLiteralExpression(literal) &&
+        !literal.elements.length &&
+        typeof f.type === 'object' &&
+        'array' in f.type
+      )
+        return { op: 'array', type: f.type, items: [] };
       return arg ? this.early(arg, b, info, temps, where) : { op: 'undefined', type: f.type };
     };
     /** The statements of `x`'s constructor after its `super(…)` call. */
@@ -1491,7 +1500,40 @@ export class Classes {
             y.own[0].node,
             `${y.name} declares fields, but the constructor of its base class ${broke.cls.name} uses this before they exist (JavaScript initialises them after super(…) returns); move that code out of the constructor, or the fields into ${broke.cls.name}`,
           );
-    const rest = [...(broke?.rest ?? []), ...later.flatMap(y => [...after(y)])];
+    let rest = [...(broke?.rest ?? []), ...later.flatMap(y => [...after(y)])];
+    // Methods bound into their fields later in the constructor
+    // (`this.onfocus = this.onfocus.bind(this)` after `watch(…)`, bits-ui's
+    // TabsTriggerState): bound when the record is built, if nothing before
+    // the binding reads the method other than by calling it (a call through
+    // the prototype's method or the bound one is the same call).
+    const hoisted = new Set<ts.Statement>();
+    rest.forEach((s, j) => {
+      const target = thisAssignment(s);
+      const field = target && this.fieldNamed(info, target.name);
+      if (!target || !field || temps.has(field)) return;
+      const rhs = ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right;
+      if (!this.methodToBind(skipParens(rhs), info, temps)) return;
+      const name = target.name.text;
+      const readBefore = rest.slice(0, j).some(earlier => {
+        let found = false;
+        const visit = (n: ts.Node) => {
+          if (
+            ts.isPropertyAccessExpression(n) &&
+            n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+            n.name.text === name &&
+            !(ts.isCallExpression(n.parent) && n.parent.expression === n)
+          )
+            found = true;
+          ts.forEachChild(n, visit);
+        };
+        visit(earlier);
+        return found;
+      });
+      if (readBefore) return;
+      assign(field, this.early(rhs, b, info, temps, 'constructor'), s);
+      hoisted.add(s);
+    });
+    rest = rest.filter(s => !hoisted.has(s));
     for (const s of rest)
       if (runeStatement(s))
         this.fail(

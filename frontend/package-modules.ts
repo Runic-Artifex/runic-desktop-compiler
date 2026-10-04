@@ -328,6 +328,43 @@ export function inferFields(
           );
         let open = false;
         const init = member.initializer;
+        // svelte-toolbelt's `box(initial)` (a writable box of any value):
+        // the box of its initial value and of the values the class writes
+        // to its `current` (RovingFocusGroup's `#currentTabStopId = box(null)`).
+        const boxCall =
+          init &&
+          ts.isCallExpression(init) &&
+          ts.isIdentifier(init.expression) &&
+          init.expression.text === 'box' &&
+          /[\\/]svelte-toolbelt[\\/]/.test(declaredIn(checker, init.expression));
+        if (boxCall) {
+          const values: string[] = [];
+          let unknown = false;
+          const add = (e: ts.Expression) => {
+            const p = valueType(checker.getTypeAtLocation(e), e);
+            if (p === undefined) unknown = true;
+            else if (!values.includes(p)) values.push(p);
+          };
+          if (init.arguments[0]) add(init.arguments[0]);
+          const visitBox = (n: ts.Node) => {
+            if (
+              ts.isBinaryExpression(n) &&
+              n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+              ts.isPropertyAccessExpression(n.left) &&
+              n.left.name.text === 'current' &&
+              ts.isPropertyAccessExpression(n.left.expression) &&
+              n.left.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
+              n.left.expression.name.getText() === fieldName
+            )
+              add(n.right);
+            ts.forEachChild(n, visitBox);
+          };
+          stmt.members.forEach(visitBox);
+          if (unknown || !values.length) continue;
+          const text = `import("svelte-toolbelt").WritableBox<${values.join(' | ')}>`;
+          if (next.get(key) !== text) next.set(key, text);
+          continue;
+        }
         if (init) {
           let value: ts.Expression | undefined = init;
           if (ts.isCallExpression(init)) {
@@ -406,6 +443,13 @@ export function inferFields(
     }
   }
   return changed;
+}
+
+/** The files declaring what identifier `id` names, through import aliases. */
+function declaredIn(checker: ts.TypeChecker, id: ts.Identifier): string {
+  let sym = checker.getSymbolAtLocation(id);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  return sym?.declarations?.map(d => d.getSourceFile().fileName).join() ?? '';
 }
 
 /**

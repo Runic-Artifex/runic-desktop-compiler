@@ -43,6 +43,7 @@ import {
   type PackageModule,
 } from '../package-modules.ts';
 import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domains.ts';
+import { checkMapReads, svelteReactivityImport } from '../svelte-reactivity.ts';
 import { valueSet } from '../packs/choice.ts';
 import { BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
 import { packageBindings } from '../package-bindings.ts';
@@ -1282,6 +1283,32 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   }
   // mount(App, { target }) passes no props.
   sites.push({ component: units.get(rootFile!)!.index, values: new Map() });
+  /**
+   * Whether the bag `spread` holds `key` with a value that is not nullish at
+   * every instance: it is a component's rest props and each of that
+   * component's sites passes `key` (an attribute of a non-nullable type, or
+   * its own rest props that surely hold it).
+   */
+  const spreadHolds = (spread: ts.Expression, key: string, seen: Set<number>): boolean => {
+    const own = ts.isIdentifier(spread) ? checker.getSymbolAtLocation(spread) : undefined;
+    const component = own && restComponent.get(own);
+    if (component === undefined || seen.has(component)) return false;
+    seen.add(component);
+    const list = sites.filter(x => x.component === component);
+    return (
+      list.length > 0 &&
+      list.every(x => {
+        const passed = x.values.get(key);
+        if (!passed) return false;
+        if ('value' in passed) return passed.value !== undefined && passed.value !== null;
+        if ('expr' in passed) {
+          const t = checker.getTypeAtLocation(passed.expr);
+          return checker.getNonNullableType(t) === t && !(t.flags & ts.TypeFlags.Any);
+        }
+        return !!passed.spread && spreadHolds(passed.spread, key, seen);
+      })
+    );
+  };
   /** The `$site` prop cell of each component that has one. */
   const siteCells = new Map<number, number>();
   let lowering: number | undefined;
@@ -1643,6 +1670,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               tsFail(el, 'E_CAPABILITY', `svelte/events supports on`);
           if (stmt.importClause?.name || !named || !ts.isNamedImports(named))
             tsFail(stmt, 'E_CAPABILITY', 'Import on from svelte/events by name');
+          continue;
+        }
+        // svelte/reactivity's SvelteMap (frontend/svelte-reactivity.ts).
+        if (spec === 'svelte/reactivity') {
+          svelteReactivityImport(stmt, tsFail);
           continue;
         }
         if (spec.startsWith('svelte/'))
@@ -2346,7 +2378,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         const cell = target.cells.find(c => c.prop === key)!;
         const inner =
           typeof cell.type === 'object' && 'maybe' in cell.type ? cell.type.maybe : cell.type;
-        if (!(typeof cell.type === 'object' && 'maybe' in cell.type) && !cell.undefinedDefault)
+        // A required prop that every spread writing it surely holds (the
+        // rest props of a wrapper whose sites all pass it: shadcn's
+        // Tabs.Trigger passes `value` on to bits-ui's).
+        const required =
+          !(typeof cell.type === 'object' && 'maybe' in cell.type) && !cell.undefinedDefault;
+        const sure =
+          required &&
+          ws.every(w => 'explicit' in w || spreadHolds(spreads[w.spread].expr, key, new Set()));
+        if (required && !sure)
           fail(
             'E_PROPS',
             `${n.name}'s prop ${key} has no default, but a spread may leave it unset`,
@@ -2373,7 +2413,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             else: acc,
           };
         }
-        passed.push({ name: key, value: acc });
+        passed.push({ name: key, value: sure ? { op: 'unwrap', value: acc } : acc });
       }
       if (bag.length) passed.push({ name: '...', value: { op: 'attrs', items: bag } });
       // The index of this instantiation site (frontend/domains.ts).
@@ -2904,6 +2944,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // read state as it was before the batch that destroys or re-runs them.
     schedule: { cleanupReadsPrevious: true },
   };
+  // SvelteMap reads only in derived values (frontend/svelte-reactivity.ts).
+  const mapRead = checkMapReads(lower);
+  if (mapRead) {
+    const message = `A SvelteMap is read outside a derived value (in ${mapRead.caller}): its reads depend on the whole map, where Svelte's depend on one key, so an effect reading it would run where Svelte's does not; read it in a $derived value`;
+    if (mapRead.at) tsFail(mapRead.at, 'E_REACTIVITY', message);
+    fail('E_REACTIVITY', message, mapRead.source);
+  }
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
 }

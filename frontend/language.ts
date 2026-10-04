@@ -32,6 +32,7 @@ import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from '
 import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
 import { Classes, type ClassInfo } from './classes.ts';
 import { bindPackConstant, packType } from './packs.ts';
+import { newSvelteMap, svelteMapType } from './svelte-reactivity.ts';
 import type { Choice } from './packs/choice.ts';
 import type { DomainHook } from './domains.ts';
 import type { Shape } from './bags.ts';
@@ -43,6 +44,8 @@ import type { Shape } from './bags.ts';
 export interface RecordMembers {
   read(name: string, object: Expr, at: ts.Node, b: FnBuilder): Expr;
   write(name: string, object: Expr, value: Expr, at: ts.Node, b: FnBuilder): Stmt[];
+  /** A method call (svelte/reactivity's SvelteMap). */
+  call?(name: string, object: Expr, node: ts.CallExpression, b: FnBuilder): Expr;
 }
 
 export type Binding =
@@ -274,7 +277,7 @@ export class Lowerer {
     this.classes = new Classes(this);
     types.classType = (cls, t, at) => this.classes.typeOf(cls, t, at);
     types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
-    types.packType = (t, at) => packType(t, at, this);
+    types.packType = (t, at) => packType(t, at, this) ?? svelteMapType(t, at, this);
   }
 
   /** Classes (frontend/classes.ts). */
@@ -548,7 +551,7 @@ export class Lowerer {
             {
               op: 'assign',
               target: { place: 'local', local: index },
-              value: this.expr(p.initializer, b),
+              value: this.fitValue(this.expr(p.initializer, b), p.type, b),
             },
           ],
         });
@@ -776,13 +779,194 @@ export class Lowerer {
     return undefined;
   }
 
+  /** `v` as a `want` value (a nullable target takes a plain value). */
+  private fitValue(v: Expr, want: Type, b: FnBuilder): Expr {
+    const have = this.irType(v, b);
+    return maybeInner(want) && !maybeInner(have) && have !== 'void' ? { op: 'some', value: v } : v;
+  }
+
+  /** Object.prototype's member names: a dictionary object would read them. */
+  private static readonly PROTOTYPE_NAMES = [
+    '__proto__',
+    '__defineGetter__',
+    '__defineSetter__',
+    '__lookupGetter__',
+    '__lookupSetter__',
+    'constructor',
+    'hasOwnProperty',
+    'isPrototypeOf',
+    'propertyIsEnumerable',
+    'toLocaleString',
+    'toString',
+    'valueOf',
+  ];
+  private readonly guards = new Map<string, number>();
+
+  /**
+   * A function of a key: for the name of an Object.prototype member (which
+   * a plain object would find on its prototype, or, written, `__proto__`
+   * would replace the prototype) it throws RunicUnsupportedError; otherwise
+   * it gives undefined of type `result` (or nothing).
+   */
+  private prototypeGuard(result: Type, write = false): number {
+    const key = JSON.stringify([result, write]);
+    const known = this.guards.get(key);
+    if (known !== undefined) return known;
+    const index = this.reserve();
+    this.guards.set(key, index);
+    const names = write ? ['__proto__'] : Lowerer.PROTOTYPE_NAMES;
+    const test = names
+      .map((n): Expr => ({
+        op: 'eq',
+        left: { op: 'local', local: 0 },
+        right: { op: 'lit', value: n },
+      }))
+      .reduce((a, c) => ({ op: 'or', left: a, right: c }));
+    const error: Expr = {
+      op: 'record',
+      record: this.errorRecord(),
+      fields: [
+        { op: 'lit', value: 'RunicUnsupportedError' },
+        {
+          op: 'lit',
+          value: write
+            ? 'an object used as a dictionary is given the key __proto__ (JavaScript sets its prototype)'
+            : 'an object used as a dictionary is read with the name of an Object.prototype member',
+        },
+      ],
+    };
+    const body: Stmt[] = [{ op: 'if', test, then: [{ op: 'throw', value: error }] }];
+    if (result !== 'void') body.push({ op: 'return', value: { op: 'undefined', type: result } });
+    this.functions[index] = {
+      name: write ? 'dictionary$writeGuard' : 'dictionary$readGuard',
+      params: [{ name: 'key', type: STRING }],
+      locals: [],
+      result,
+      body,
+    };
+    return index;
+  }
+
+  /**
+   * An object literal used as a dictionary (TypeScript gives it a string
+   * index signature only): a map, its entries set in order, keys evaluated
+   * before values as JavaScript defines properties.
+   */
+  private dictionaryLiteral(
+    e: ts.ObjectLiteralExpression,
+    t: { map: [Type, Type] },
+    b: FnBuilder,
+  ): Expr {
+    let out: Expr = { op: 'builtin', name: 'Map.new', args: [], type: t };
+    for (const p of e.properties) {
+      if (!ts.isPropertyAssignment(p))
+        return this.fail(p, 'E_OBJECT', 'Dictionary objects take key: value entries');
+      let key: Expr;
+      // A computed key defines an own property (`__proto__` and the other
+      // prototype names included).
+      if (ts.isComputedPropertyName(p.name)) key = this.coerce(p.name.expression, b, STRING);
+      else if (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) {
+        if (p.name.text === '__proto__')
+          return this.fail(p, 'E_OBJECT', '__proto__: sets the prototype of an object literal');
+        key = { op: 'lit', value: p.name.text };
+      } else return this.fail(p, 'E_OBJECT', 'Dictionary keys are names, strings or computed');
+      const k = b.local('$key', STRING);
+      out = {
+        op: 'with',
+        local: k,
+        value: key,
+        body: {
+          op: 'builtin',
+          name: 'map.set',
+          args: [
+            out,
+            { op: 'local', local: k },
+            this.fitValue(this.coerce(p.initializer, b, t.map[1]), t.map[1], b),
+          ],
+          type: t,
+        },
+      };
+    }
+    return out;
+  }
+
+  /**
+   * A record read with a key computed at run time (`{ horizontal: …,
+   * vertical: … }[orientation]`): its fields, of one type, chosen by
+   * comparing the key with their names. A key TypeScript types as a union of
+   * the field names selects among them (a value outside it, through an
+   * unsound cast, throws a TypeError); another key may name none (then
+   * undefined) or a member of Object.prototype (RunicUnsupportedError).
+   */
+  private dynamicField(e: ts.ElementAccessExpression, object: Expr, t: Type, b: FnBuilder): Expr {
+    const r = this.types.records[(t as { record: number }).record];
+    const types = new Set(r.fields.map(f => JSON.stringify(f.type)));
+    if (types.size !== 1)
+      return this.fail(e, 'E_MEMBER', 'A record read with a computed key needs fields of one type');
+    const field = r.fields[0].type;
+    const keyType = this.checker.getTypeAtLocation(e.argumentExpression);
+    const literals = (keyType.isUnion() ? keyType.types : [keyType]).map(m =>
+      m.isStringLiteral() ? m.value : undefined,
+    );
+    const names = r.fields.map(f => f.name);
+    const exhaustive = literals.every(l => l !== undefined && names.includes(l));
+    const result: Type = exhaustive || maybeInner(field) ? field : { maybe: field };
+    const rec = b.local('$record', t);
+    const k = b.local('$key', STRING);
+    const fieldExpr = (i: number): Expr => {
+      const v: Expr = { op: 'get', object: { op: 'local', local: rec }, field: i };
+      return exhaustive || maybeInner(field) ? v : { op: 'some', value: v };
+    };
+    const candidates = exhaustive ? (literals as string[]) : names;
+    let chain: Expr = exhaustive
+      ? { op: 'unwrap', value: { op: 'undefined', type: { maybe: field } } }
+      : {
+          op: 'call',
+          function: this.prototypeGuard(result),
+          args: [{ op: 'local', local: k }],
+        };
+    for (const name of [...candidates].reverse())
+      chain = {
+        op: 'cond',
+        test: {
+          op: 'eq',
+          left: { op: 'local', local: k },
+          right: { op: 'lit', value: name },
+        },
+        then: fieldExpr(names.indexOf(name)),
+        else: chain,
+      };
+    return {
+      op: 'with',
+      local: rec,
+      value: object,
+      body: {
+        op: 'with',
+        local: k,
+        value: this.coerce(e.argumentExpression, b, STRING),
+        body: chain,
+      },
+    };
+  }
+
   /**
    * `Object.is(a, b)` (SameValue): `===` except that NaN is NaN and 0 is not
    * -0, for numbers; `===` for other values of one type.
    */
   private objectIs(e: ts.CallExpression, b: FnBuilder): Expr {
-    const [x, y] = e.arguments.map(a => this.expr(a, b));
-    const t = this.irType(x, b);
+    let [x, y] = e.arguments.map(a => this.expr(a, b));
+    let t = this.irType(x, b);
+    const u = this.irType(y, b);
+    // A nullable value and a value of its type (`Object.is(box.current, id)`).
+    const tx = maybeInner(t);
+    const uy = maybeInner(u);
+    if (!sameType(t, u) && tx !== NUMBER && uy !== NUMBER) {
+      if (tx !== undefined && sameType(tx, u)) y = { op: 'some', value: y };
+      else if (uy !== undefined && sameType(uy, t)) {
+        x = { op: 'some', value: x };
+        t = u;
+      }
+    }
     if (!sameType(t, this.irType(y, b)))
       return this.fail(e, 'E_BUILTIN', 'Object.is compares values of one type');
     if (t !== NUMBER) return { op: 'eq', left: x, right: y };
@@ -1251,15 +1435,21 @@ export class Lowerer {
         this.bindings.set(sym, { kind: 'local', owner: b, local });
         return [{ op: 'let', local, value, ...this.src(d) }];
       }
-      const type = declared;
+      let type = declared;
+      const fn =
+        d.initializer &&
+        (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer));
+      // An unannotated variable whose initialiser may be undefined where
+      // TypeScript does not say so (a dictionary object's entry,
+      // `keyToIndex[e.key]`): the nullable type.
+      const early = !fn && d.initializer && !d.type ? this.expr(d.initializer, b) : undefined;
+      const earlyType = early && this.irType(early, b);
+      if (earlyType && !maybeInner(type) && sameType(maybeInner(earlyType) ?? 'void', type))
+        type = earlyType;
       const local = b.local(d.name.text, type, b.boxed.has(sym));
       this.bindings.set(sym, { kind: 'local', owner: b, local });
-      if (
-        d.initializer &&
-        (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
-      )
-        return [{ op: 'let', local, value: this.closure(d.initializer, b, d.name.text) }];
-      const init = d.initializer && this.expr(d.initializer, b);
+      if (fn) return [{ op: 'let', local, value: this.closure(d.initializer!, b, d.name.text) }];
+      const init = early ?? (d.initializer && this.expr(d.initializer, b));
       return [
         {
           op: 'let',
@@ -1585,6 +1775,30 @@ export class Lowerer {
     if (ts.isPropertyAccessExpression(target)) {
       const member = this.classes.write(target, value, b);
       if (member) return member;
+    }
+    // A dictionary object's entry (`keyToIndex[k] = v`).
+    if (ts.isElementAccessExpression(target)) {
+      const t = this.typeAt(target.expression);
+      if (typeof t === 'object' && 'map' in t && t.map[0] === STRING) {
+        const k = b.local('$key', STRING);
+        const key: Expr = { op: 'local', local: k };
+        return [
+          { op: 'let', local: k, value: this.coerce(target.argumentExpression, b, STRING) },
+          {
+            op: 'expr',
+            value: { op: 'call', function: this.prototypeGuard('void', true), args: [key] },
+          },
+          {
+            op: 'expr',
+            value: {
+              op: 'builtin',
+              name: 'map.set',
+              args: [this.expr(target.expression, b), key, this.fitValue(value, t.map[1], b)],
+              type: t,
+            },
+          },
+        ];
+      }
     }
     // T is widened into a nullable target (Maybe<T>), a class instance into a class reference.
     const want = this.targetType(target, b);
@@ -1956,6 +2170,16 @@ export class Lowerer {
   coerce(e: ts.Expression, b: FnBuilder, target: Type): Expr {
     const v = this.expr(e, b);
     const t = this.irType(v, b);
+    // A nullable value TypeScript narrowed to its value (`if (o.x) f(o.x)`).
+    const inner = maybeInner(t);
+    if (inner !== undefined && sameType(inner, target)) {
+      const ts0 = this.checker.getTypeAtLocation(e);
+      if (
+        !(ts0.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) &&
+        this.checker.getNonNullableType(ts0) === ts0
+      )
+        return { op: 'unwrap', value: v };
+    }
     // A function where a function of another (compatible) type is expected.
     if (!sameType(t, target)) {
       const adapted = this.adaptFunction(v, t, maybeInner(target) ?? target);
@@ -2863,6 +3087,18 @@ export class Lowerer {
         );
       return { op: 'builtin', name: 'media-query.matches', args: [object], type: 'boolean' };
     }
+    // `element.id`: the id attribute, or empty.
+    if (kind === 'element' && name === 'id')
+      return {
+        op: 'nullish',
+        left: {
+          op: 'builtin',
+          name: 'element.getAttribute',
+          args: [object, { op: 'lit', value: 'id' }],
+          type: { maybe: STRING },
+        },
+        right: { op: 'lit', value: '' },
+      };
     if (kind === 'element' && name === 'isConnected')
       return { op: 'builtin', name: 'element.isConnected', args: [object], type: 'boolean' };
     if (kind === 'element') {
@@ -3132,6 +3368,31 @@ export class Lowerer {
           e,
         ),
       };
+    if (kind === 'record' && !this.classes.isClass(t)) return this.dynamicField(e, object, t, b);
+    if (kind === 'map' && (t as { map: [Type, Type] }).map[0] === STRING) {
+      // A dictionary object (`keyToIndex[e.key]`): undefined for keys it lacks.
+      const value = (t as { map: [Type, Type] }).map[1];
+      const m = b.local('$dictionary', t);
+      const k = b.local('$key', STRING);
+      const key: Expr = { op: 'local', local: k };
+      const dict: Expr = { op: 'local', local: m };
+      return {
+        op: 'with',
+        local: m,
+        value: object,
+        body: {
+          op: 'with',
+          local: k,
+          value: this.coerce(e.argumentExpression, b, STRING),
+          body: {
+            op: 'cond',
+            test: { op: 'builtin', name: 'map.has', args: [dict, key], type: BOOLEAN },
+            then: { op: 'builtin', name: 'map.get', args: [dict, key], type: { maybe: value } },
+            else: { op: 'call', function: this.prototypeGuard({ maybe: value }), args: [key] },
+          },
+        },
+      };
+    }
     return this.fail(e, 'E_MEMBER', 'Unsupported element access');
   }
 
@@ -3322,6 +3583,13 @@ export class Lowerer {
         const hosted = this.hostCall(method, e, b);
         if (hosted) return hosted;
       }
+      // getComputedStyle(element): the element, whose properties are read
+      // through getPropertyValue (elementMethod).
+      if (host === 'window' && method === 'getComputedStyle') {
+        if (e.arguments.length !== 1)
+          return this.fail(e, 'E_CALL', 'getComputedStyle takes an element (no pseudo-element)');
+        return this.coerce(e.arguments[0], b, 'element');
+      }
       if (host === 'window' && method === 'matchMedia')
         return {
           op: 'builtin',
@@ -3495,6 +3763,10 @@ export class Lowerer {
           type: 'void',
         };
       }
+      const recordType = this.irType(receiver, b);
+      const members =
+        kind === 'record' && this.recordMembers.get((recordType as { record: number }).record);
+      if (members && members.call) return members.call(method, receiver, e, b);
       if (kind === 'record')
         return { op: 'call-value', callee: this.expr(callee, b), args: this.callArgs(e, b) };
       if (kind === 'element') return this.elementMethod(method, receiver, e, b);
@@ -3629,6 +3901,30 @@ export class Lowerer {
       case 'hasAttribute':
         if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'hasAttribute takes a name');
         return call(method, [this.coerce(e.arguments[0], b, STRING)], BOOLEAN);
+      case 'getPropertyValue': {
+        // Computed values that are also the resolved values getComputedStyle
+        // gives (no layout-dependent properties).
+        const [p] = e.arguments;
+        if (
+          e.arguments.length !== 1 ||
+          !ts.isStringLiteralLike(p) ||
+          !COMPUTED_PROPERTIES.has(p.text)
+        )
+          return this.fail(
+            e,
+            'E_CALL',
+            `getComputedStyle(…).getPropertyValue reads ${[...COMPUTED_PROPERTIES].join(', ')}`,
+          );
+        return call('computed-style', [lit(p.text)], STRING);
+      }
+      case 'querySelectorAll':
+      case 'querySelector':
+        if (e.arguments.length !== 1) this.fail(e, 'E_CALL', `${method} takes a selector`);
+        return call(
+          method,
+          [this.coerce(e.arguments[0], b, STRING)],
+          method === 'querySelector' ? { maybe: 'element' } : { array: 'element' },
+        );
       case 'closest': {
         // A tag name selector (bits-ui: `closest("form")`).
         const [sel] = e.arguments;
@@ -3824,6 +4120,8 @@ export class Lowerer {
   }
 
   private newExpression(e: ts.NewExpression, b: FnBuilder): Expr {
+    const svelteMap = newSvelteMap(e, this);
+    if (svelteMap) return svelteMap;
     const global = this.globalName(e.expression);
     if (ts.isIdentifier(e.expression)) {
       const cls = this.binding(e.expression);
@@ -3905,10 +4203,17 @@ export class Lowerer {
     const t = this.checker.getContextualType(e) ?? this.checker.getTypeAtLocation(e);
     // Attribute bags: literals with computed keys or spreads of bags, or
     // typed as one (frontend/package-modules.ts types bits-ui's `props`).
-    if (this.isBagLiteral(e) || this.types.tryMap(t, e) === 'attrs' || this.returnsBag(e, b))
+    // A dictionary (a string index signature of one value type), also with
+    // computed keys.
+    const mapped = this.types.tryMap(t, e);
+    if (typeof mapped === 'object' && 'map' in mapped && mapped.map[0] === STRING)
+      return this.dictionaryLiteral(e, mapped, b);
+    if (this.isBagLiteral(e) || mapped === 'attrs' || this.returnsBag(e, b))
       return this.bagLiteral(e, b);
     const type = this.types.map(t, e);
     const recordType = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
+    if (typeof recordType === 'object' && 'map' in recordType)
+      return this.dictionaryLiteral(e, recordType, b);
     if (!(typeof recordType === 'object' && 'record' in recordType))
       return this.fail(e, 'E_OBJECT', 'Object literal without a record type');
     if (this.types.records[recordType.record].class)
@@ -5239,6 +5544,9 @@ const GLOBAL_FUNCTIONS = new Set([
   'encodeURIComponent',
   'decodeURIComponent',
 ]);
+/** Properties getComputedStyle reads (their resolved value is the computed value). */
+const COMPUTED_PROPERTIES = new Set(['direction']);
+
 /** Array methods whose callbacks take (element, index, array), or two elements (sort). */
 const ARRAY_CALLBACKS = new Set([
   'every',

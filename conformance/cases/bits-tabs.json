@@ -1,0 +1,168 @@
+{
+  "description": "bits-ui's Tabs compiled from its published source through shadcn-svelte's unmodified tabs and card wrappers and the tabs demos (tabs-demo with cards in the panels, tabs-line, tabs-vertical, tabs-disabled), and tabs bound to the app with manual activation. Activated by clicks, by focus (automatic activation: arrow keys move focus through bits-ui's roving focus group, which finds the triggers with querySelectorAll, reads the direction with getComputedStyle and loops at the ends), by Enter and Space (manual activation), from outside through the bound value; Home and End, ArrowDown/ArrowUp in the vertical list, the disabled trigger skipped. aria-selected, aria-controls/aria-labelledby (SvelteMaps from values to ids), tabindex (roving), data-state, hidden panels, and the active trigger's styles (pixel regions)",
+  "fixtures": [
+    "bits-tabs-svelte"
+  ],
+  "viewports": [
+    [
+      800,
+      1000
+    ],
+    [
+      420,
+      1000
+    ]
+  ],
+  "pixelRegions": [
+    "demo",
+    "line",
+    "vertical",
+    "bound"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "bits-c4"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "press",
+      "key": "Home"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowLeft"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "press",
+      "key": "End"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowDown"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowDown"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowDown"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowUp"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "press",
+      "key": "ArrowLeft"
+    },
+    {
+      "kind": "press",
+      "key": "Space"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "click",
+      "id": "two"
+    },
+    {
+      "kind": "click",
+      "id": "switch"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    },
+    {
+      "kind": "hover",
+      "id": "one"
+    },
+    {
+      "kind": "wait",
+      "ms": 200
+    }
+  ]
+}
