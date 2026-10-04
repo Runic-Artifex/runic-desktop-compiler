@@ -3544,7 +3544,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         );
       if (p.type === DIRECTIVE && p.name === 'on') {
         const event = name.slice(2);
-        if (!EVENT_KINDS.includes(event as HandlerEvent) || event === 'scroll')
+        if (!EVENT_KINDS.includes(event as HandlerEvent))
           fail('E_EVENT', `@${p.arg.content} listeners are planned for a later milestone`, loc(p));
         const v = value(exprNode(p.exp));
         const t = typeOf(v);
@@ -4309,8 +4309,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             );
           // compiler-dom listens to contextmenu for @click.right and mouseup for @click.middle.
           const event = listenedEvent(written!, modifiers) as HandlerEvent;
-          // scroll: verified for Svelte only so far.
-          if (!EVENT_KINDS.includes(event) || event === 'scroll')
+          // scroll: a native listener on the element, like Svelte's (Vue 3.5.43 in Chromium 153).
+          if (!EVENT_KINDS.includes(event))
             fail('E_EVENT', `@${event} listeners are planned for a later milestone`, loc(p));
           if (event === 'change' && !checkbox && !select)
             fail(

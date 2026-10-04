@@ -30,6 +30,7 @@ export function runProbe(
     url,
     clipboard,
     seed,
+    visibleTargets,
   } = {},
 ) {
   const args = ['--probe', '--width', String(viewport.width), '--height', String(viewport.height)];
@@ -41,6 +42,9 @@ export function runProbe(
   if (url !== undefined) args.push('--url', url);
   if (clipboard !== undefined) args.push('--clipboard', clipboard);
   if (seed !== undefined) args.push('--seed', String(seed));
+  // Browser comparisons: pointer targets must be fully visible (Playwright
+  // would scroll them into view first, which the probe does not model).
+  if (visibleTargets) args.push('--visible-targets');
   const r = spawnSync(binary, args, {
     input: JSON.stringify(actions),
     encoding: 'utf8',

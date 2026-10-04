@@ -344,8 +344,28 @@ fn perform<A: App>(native: &mut Native<A>, action: &Value) {
     perform_on(native, action, target);
 }
 
-/// The centre of a rendered element.
-fn centre<A: App>(native: &Native<A>, id: NodeId) -> (f32, f32) {
+thread_local! {
+    /// Whether pointer targets must be fully visible (browser comparisons).
+    static STRICT_TARGETS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The centre of a rendered element, the target of a pointer action.
+/// Playwright first scrolls the target into view where it is not fully
+/// visible, which the probe does not model: cases target visible elements.
+fn centre<A: App>(native: &mut Native<A>, id: NodeId) -> (f32, f32) {
+    // Checked against the browser only (`--visible-targets`): differential
+    // traces compare with the interpreter, which has no layout.
+    if STRICT_TARGETS.with(|s| s.get()) && !crate::layout::fully_visible(&mut native.doc, id) {
+        let name = native
+            .doc
+            .get_node(id)
+            .and_then(|n| n.attr("id".into()))
+            .unwrap_or("?");
+        panic!(
+            "pointer target #{name} is not fully visible in its scroll containers and the viewport: \
+             Playwright scrolls it into view first (DOM.scrollIntoViewIfNeeded), which the probe does not model"
+        );
+    }
     let r = crate::layout::client_rect(&native.doc, id).expect("rendered pointer target");
     ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32)
 }
@@ -570,6 +590,7 @@ pub(crate) fn run<A: App>() {
             .map(|s| s.parse().expect("--seed takes an integer"))
             .unwrap_or(1),
     );
+    STRICT_TARGETS.with(|s| s.set(std::env::args().any(|a| a == "--visible-targets")));
     let actions: Value = serde_json::from_reader(std::io::stdin()).expect("action list on stdin");
     let mut native = shell::document::<A>(width, height);
     let mount_us = start.elapsed().as_secs_f64() * 1e6;
@@ -611,10 +632,11 @@ pub(crate) fn run<A: App>() {
         }
         native.doc.resolve(0.0);
         native.listeners.settle(&mut native.doc);
-        // The rendering step after the action: pending scroll events.
-        native.rendering_step(false);
-        native.doc.resolve(0.0);
-        native.listeners.settle(&mut native.doc);
+        // Two frames after the action, as the browser harness waits for two
+        // animation frames: pending scroll events in the first rendering
+        // step; those of scroll positions its layout clamped in the second.
+        native.frame();
+        native.frame();
         let us = t.elapsed().as_secs_f64() * 1e6;
         observe(&mut native, action, i + 1, us);
     }

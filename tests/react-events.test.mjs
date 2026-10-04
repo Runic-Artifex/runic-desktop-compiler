@@ -276,3 +276,81 @@ test('React rejects event semantics it cannot model, with locations', async () =
       assert.rejects(lowered(root), e => failWith('E_EVENT')(e) && reason.test(e.message), source),
     );
 });
+
+const flatNodes = nodes =>
+  nodes.flatMap(n => [
+    n,
+    ...flatNodes([...(n.children ?? []), ...(n.then ?? []), ...(n.else ?? []), ...(n.body ?? [])]),
+  ]);
+
+test('React onScroll: a target-only continuous event; state it updates is rendered as text only', async () => {
+  // Accepted: a scroll log rendered as text (conformance case scroll-events).
+  await app(
+    `export function App() {
+  const [log, setLog] = useState<number[]>([]);
+  const list = useRef<HTMLDivElement | null>(null);
+  return <main><div id="list" ref={list} onScroll={() => { const top = list.current !== null ? list.current.scrollTop : -1; setLog(l => [...l, top]); }}>a</div><p>{log.join(' ')}</p></main>;
+}`,
+    async root => {
+      const ir = await lowered(root);
+      const events = flatNodes(ir.components[0].template).flatMap(n =>
+        (n.listeners ?? []).map(l => l.event),
+      );
+      assert.deepEqual(events, ['scroll']);
+    },
+  );
+  const cases = [
+    // React reports a prevented synthetic event, though scroll events cannot be cancelled.
+    [
+      'export function App() { const [p, setP] = useState(false); return <div onScroll={e => { e.preventDefault(); setP(e.defaultPrevented); }}>{String(p)}</div>; }',
+      /cannot be cancelled/,
+    ],
+    // Window scroll and resize listeners: continuous priority (render in a later task).
+    [
+      'export function App() { useEffect(() => { const f = () => {}; window.addEventListener("scroll", f); return () => window.removeEventListener("scroll", f); }, []); return <p>a</p>; }',
+      /listeners for scroll/,
+    ],
+    [
+      'export function App() { useEffect(() => { const f = () => {}; window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []); return <p>a</p>; }',
+      /listeners for resize/,
+    ],
+    // The virtualized list (the M5 example, as examples/virtual-list-svelte
+    // and -vue): the scroll position decides which rows are rendered, while
+    // React renders updates from scroll events after the frame is painted
+    // (Chromium 153: an animation frame callback of the scroll's rendering
+    // step sees the old rows), and the IR before it.
+    [
+      `const ROW = 24;
+interface Row { id: number; label: string }
+function generate(count: number): Row[] {
+  const rows: Row[] = [];
+  for (let i = 1; i <= count; i++) rows.push({ id: i, label: \`Row \${i}\` });
+  return rows;
+}
+const ALL = generate(10000);
+export function App() {
+  const [scrollTop, setScrollTop] = useState(0);
+  const [selected, setSelected] = useState(0);
+  const list = useRef<HTMLDivElement | null>(null);
+  const start = Math.max(0, Math.floor(scrollTop / ROW) - 3);
+  const visible = ALL.slice(start, start + 18);
+  return (
+    <main>
+      <div id="list" ref={list} onScroll={() => { if (list.current !== null) setScrollTop(list.current.scrollTop); }}>
+        <div style={{ height: ALL.length * ROW, paddingTop: start * ROW }}>
+          {visible.map(row => (
+            <button key={row.id} id={\`row-\${row.id}\`} className={row.id === selected ? 'row selected' : 'row'} onClick={() => setSelected(row.id)}>{row.label}</button>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
+}`,
+      /scrollTop is updated by onScroll, a continuous event .* such state may only be rendered as text/,
+    ],
+  ];
+  for (const [source, reason] of cases)
+    await app(source, root =>
+      assert.rejects(lowered(root), e => failWith('E_EVENT')(e) && reason.test(e.message), source),
+    );
+});

@@ -58,6 +58,8 @@ fn element(doc: &mut BaseDocument, tag: &str, attrs: &[(&str, &str)]) -> NodeId 
 /// Build `<html><head><style/></head><body><div id="root">app</div></body></html>`
 /// without parsing HTML, mount the application and settle fonts and layout.
 pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
+    // Scrollers a previous document's layout clamped (a probe's reload).
+    crate::layout::take_clamped();
     let mut doc = BaseDocument::new(DocumentConfig {
         net_provider: Some(DataUriNetProvider::shared(None)),
         viewport: Some(Viewport::new(width, height, 1.0, ColorScheme::Light)),

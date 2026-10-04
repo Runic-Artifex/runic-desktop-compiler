@@ -83,7 +83,7 @@ try {
             seed: c.seed,
           };
           const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
-          const n = runProbe(binary, { viewport, actions, ...env, out: values.pixels ? path.join(shots, 'native') : undefined });
+          const n = runProbe(binary, { viewport, actions, ...env, visibleTargets: true, out: values.pixels ? path.join(shots, 'native') : undefined });
           run.browser = { framework: b.framework, browserVersion: browser.browserVersion, errors: b.errors };
           run.mountUs = n.mountUs;
           const cmp = compareTraces(b.steps, n.steps, { pixels: values.pixels });

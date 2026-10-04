@@ -127,12 +127,19 @@ const EVENT_PROPS: Record<string, HandlerEvent> = {
   // React DOM listens for focusin and focusout: onFocus and onBlur bubble.
   onFocus: 'focusin',
   onBlur: 'focusout',
+  // A listener on the element itself; the event goes to the target only
+  // (React 17 stopped bubbling it).
+  onScroll: 'scroll',
 };
 /**
  * Continuous events: React gives their updates a lower priority and renders
  * them in a scheduler task after the input (with a later discrete update).
+ * Scroll events come in the rendering step: their updates render after
+ * that frame is painted (checked in Chromium 153 with an animation frame
+ * callback of the same rendering step, which sees the old DOM).
  */
 const CONTINUOUS = new Set<HandlerEvent>([
+  'scroll',
   'mousemove',
   'mouseenter',
   'mouseleave',
@@ -3225,6 +3232,14 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
               h.source,
               `${prop} uses e.${member === 'value' || member === 'checked' ? 'target' : member}: React dispatches one synthetic ${h.event} event to all entered (or left) elements, whose target is the innermost one and whose propagation and cancellation span them, unlike the browser's events per element`,
             );
+          if (
+            h.event === 'scroll' &&
+            (member === 'preventDefault' || member === 'defaultPrevented')
+          )
+            rejectEvent(
+              h.source,
+              `onScroll uses e.${member}: React's synthetic event reports itself prevented after preventDefault() although scroll events cannot be cancelled, which is unsupported`,
+            );
           if (h.event === 'input' && (member === 'type' || member === 'preventDefault'))
             rejectEvent(
               h.source,
@@ -3323,7 +3338,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         if (o.op === 'cell' && o.cell === cell && o.read === 'snapshot' && component === k)
           throw new Diagnostic(
             'E_EVENT',
-            `${name} is updated by ${propOf(handler.event)}, a continuous event whose updates React renders after the input (or with the next click), while the IR renders after each event; such state may only be rendered as text (it is read elsewhere here)`,
+            `${name} is updated by ${propOf(handler.event)}, a continuous event whose updates React renders in a later scheduler task (after the input, or for scroll events after the frame is painted) or with the next click, while the IR renders after each event; such state may only be rendered as text (it is read elsewhere here)`,
             c.cells[cell].source,
           );
       });
@@ -3368,13 +3383,13 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         if (
           o.op === 'builtin' &&
           /^(window|document)\.listen$/.test(o.name as string) &&
-          ['mousemove', 'pointermove', 'wheel'].includes(
+          ['mousemove', 'pointermove', 'wheel', 'scroll', 'resize'].includes(
             ((o.args as Obj[])[0].value as string) ?? '',
           )
         )
           rejectEvent(
             statement,
-            `${(o.name as string).split('.')[0]} listeners for ${(o.args as Obj[])[0].value} are unsupported in React apps (React renders updates from continuous events after the input; wheel listeners on the window and document are passive)`,
+            `${(o.name as string).split('.')[0]} listeners for ${(o.args as Obj[])[0].value} are unsupported in React apps (React renders updates from continuous events, scroll and resize among them, after the input or the rendering step; wheel listeners on the window and document are passive)`,
           );
         for (const v of Object.values(o)) visit(v);
       };

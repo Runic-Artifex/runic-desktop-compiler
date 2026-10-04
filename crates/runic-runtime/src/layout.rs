@@ -6,6 +6,74 @@
 use blitz_dom::{BaseDocument, ScrollBehavior};
 use blitz_traits::node_id::NodeId;
 
+thread_local! {
+    /// Scrollers whose offset a layout clamped, not yet seen by a frame.
+    static CLAMPED: std::cell::RefCell<Vec<NodeId>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Resolve layout, then clamp the scroll offsets a layout change left past
+/// the end of their scroll range (content shrank). Chromium clamps them in
+/// layout, forced or not, so script reads the clamped offset at once; its
+/// `scroll` event follows in the rendering step after the next frame's
+/// (`take_clamped`). Blitz keeps the old offset until the next scroll.
+pub(crate) fn resolve(doc: &mut BaseDocument) {
+    doc.resolve(0.0);
+    let root = doc.try_root_element().map(|r| r.id);
+    let mut scrolled: Vec<NodeId> = doc
+        .tree()
+        .iter()
+        .filter(|(id, n)| {
+            Some(*id) != root
+                && n.element_data().is_some()
+                && *n.scroll_offset() != blitz_dom::Point::ZERO
+        })
+        .map(|(id, _)| id)
+        .collect();
+    if doc.viewport_scroll() != blitz_dom::Point::ZERO {
+        scrolled.extend(root);
+    }
+    if scrolled.is_empty() {
+        return;
+    }
+    // In tree order, among the elements in the document.
+    let order = crate::events::tree_order(doc);
+    scrolled.retain(|n| order.contains(n));
+    scrolled.sort_by_key(|n| order.iter().position(|x| x == n));
+    for node in scrolled {
+        let before = scroll_offset(doc, node);
+        // A programmatic scroll to the same offset clamps it to the range.
+        doc.scroll_to(node, before.0, before.1, ScrollBehavior::Instant);
+        if scroll_offset(doc, node) != before {
+            CLAMPED.with(|c| {
+                let mut c = c.borrow_mut();
+                if !c.contains(&node) {
+                    c.push(node);
+                }
+            });
+        }
+    }
+}
+
+/// The scrollers clamped since the last call: a frame's lifecycle queues
+/// their `scroll` events (Chromium: clamped in a task or a frame's layout,
+/// the event is dispatched in the rendering step of the frame after).
+pub(crate) fn take_clamped() -> Vec<NodeId> {
+    CLAMPED.with(|c| std::mem::take(&mut *c.borrow_mut()))
+}
+
+/// Whether a layout clamped a scroller that no frame has seen yet.
+pub(crate) fn any_clamped() -> bool {
+    CLAMPED.with(|c| !c.borrow().is_empty())
+}
+
+/// Whether any scroller is scrolled (only then can a layout clamp).
+pub(crate) fn any_scrolled(doc: &BaseDocument) -> bool {
+    doc.viewport_scroll() != blitz_dom::Point::ZERO
+        || doc.tree().iter().any(|(_, n)| {
+            n.element_data().is_some() && *n.scroll_offset() != blitz_dom::Point::ZERO
+        })
+}
+
 /// A length in layout units (1/64 px, Blink's `LayoutUnit`).
 fn lu(v: f64) -> i64 {
     (v * 64.0).round() as i64
@@ -105,7 +173,7 @@ pub(crate) fn client_rect(doc: &BaseDocument, node: NodeId) -> Option<blitz_dom:
 /// `getBoundingClientRect()`: x, y, width, height, top, right, bottom, left
 /// (layout units, relative to the viewport).
 pub(crate) fn rect(doc: &mut BaseDocument, node: NodeId) -> [f64; 8] {
-    doc.resolve(0.0);
+    resolve(doc);
     let r = client_rect(doc, node).filter(|_| element(doc, node).is_some_and(|n| n.has_boxes()));
     let (x, y, w, h) = r.map_or((0.0, 0.0, 0.0, 0.0), |r| (r.x, r.y, r.width, r.height));
     [x, y, w, h, y, x + w, y + h, x]
@@ -135,7 +203,7 @@ fn viewport(doc: &BaseDocument) -> (f64, f64) {
 
 /// An element metric (`offsetWidth`, `clientHeight`, `scrollTop`, …).
 pub(crate) fn metric(doc: &mut BaseDocument, node: NodeId, name: &str) -> f64 {
-    doc.resolve(0.0);
+    resolve(doc);
     let Some(n) = element(doc, node).filter(|n| n.has_boxes()) else {
         return 0.0;
     };
@@ -186,7 +254,7 @@ pub(crate) fn metric(doc: &mut BaseDocument, node: NodeId, name: &str) -> f64 {
 
 /// A window metric (`innerWidth`, `innerHeight`, `scrollX`, `scrollY`).
 pub(crate) fn window_metric(doc: &mut BaseDocument, name: &str) -> f64 {
-    doc.resolve(0.0);
+    resolve(doc);
     let (vw, vh) = viewport(doc);
     let s = doc.viewport_scroll();
     match name {
@@ -207,7 +275,7 @@ pub(crate) fn scroll(
     left: Option<f64>,
     top: Option<f64>,
 ) -> Option<NodeId> {
-    doc.resolve(0.0);
+    resolve(doc);
     let target = match node {
         Some(n) => n,
         None => doc.try_root_element()?.id,
@@ -273,20 +341,9 @@ fn aligned(current: f64, port: f64, start: f64, size: f64, how: &str) -> f64 {
     }
 }
 
-/// `scrollIntoView({block, inline})`: every scroll container from the
-/// element outwards, then the viewport, aligns the element's border box.
-/// Returns the scrollers whose offset changed, innermost first.
-pub(crate) fn scroll_into_view(
-    doc: &mut BaseDocument,
-    node: NodeId,
-    block: &str,
-    inline: &str,
-) -> Vec<NodeId> {
-    doc.resolve(0.0);
-    let mut changed = vec![];
-    if element(doc, node).is_none_or(|n| !n.has_boxes()) {
-        return changed;
-    }
+/// The scroll containers around `node`, innermost first (the root
+/// element's scrolling is the viewport's).
+fn scrollers(doc: &BaseDocument, node: NodeId) -> Vec<NodeId> {
     let mut scrollers = vec![];
     let mut parent = doc.get_node(node).and_then(|n| n.parent);
     while let Some(p) = parent {
@@ -298,31 +355,52 @@ pub(crate) fn scroll_into_view(
         }
         parent = doc.get_node(p).and_then(|n| n.parent);
     }
+    scrollers
+}
+
+/// The scrollport (padding box less scrollbars) of `scroller`, or the
+/// viewport, in viewport coordinates: x, y, width, height.
+fn scrollport(doc: &mut BaseDocument, scroller: Option<NodeId>) -> (f64, f64, f64, f64) {
+    match scroller {
+        Some(s) => {
+            let sr = rect(doc, s);
+            let l = *doc.get_node(s).unwrap().unrounded_layout();
+            (
+                sr[0] + l.border.left as f64,
+                sr[1] + l.border.top as f64,
+                (l.size.width - l.border.left - l.border.right - l.scrollbar_size.width) as f64,
+                (l.size.height - l.border.top - l.border.bottom - l.scrollbar_size.height) as f64,
+            )
+        }
+        None => {
+            let (vw, vh) = viewport(doc);
+            (0.0, 0.0, vw, vh)
+        }
+    }
+}
+
+/// `scrollIntoView({block, inline})`: every scroll container from the
+/// element outwards, then the viewport, aligns the element's border box.
+/// Returns the scrollers whose offset changed, innermost first.
+pub(crate) fn scroll_into_view(
+    doc: &mut BaseDocument,
+    node: NodeId,
+    block: &str,
+    inline: &str,
+) -> Vec<NodeId> {
+    resolve(doc);
+    let mut changed = vec![];
+    if element(doc, node).is_none_or(|n| !n.has_boxes()) {
+        return changed;
+    }
     let root = doc.try_root_element().map(|r| r.id);
-    for scroller in scrollers.into_iter().map(Some).chain([None]) {
+    for scroller in scrollers(doc, node).into_iter().map(Some).chain([None]) {
         let Some(target) = scroller.or(root) else {
             continue;
         };
         let r = rect(doc, node);
         let (cx, cy) = scroll_offset(doc, target);
-        // The scrollport (padding box) in viewport coordinates.
-        let (px, py, pw, ph) = match scroller {
-            Some(s) => {
-                let sr = rect(doc, s);
-                let l = *doc.get_node(s).unwrap().unrounded_layout();
-                (
-                    sr[0] + l.border.left as f64,
-                    sr[1] + l.border.top as f64,
-                    (l.size.width - l.border.left - l.border.right - l.scrollbar_size.width) as f64,
-                    (l.size.height - l.border.top - l.border.bottom - l.scrollbar_size.height)
-                        as f64,
-                )
-            }
-            None => {
-                let (vw, vh) = viewport(doc);
-                (0.0, 0.0, vw, vh)
-            }
-        };
+        let (px, py, pw, ph) = scrollport(doc, scroller);
         // The element's position in the scroller's content coordinates.
         let (sx, sy) = (r[0] - px + cx, r[1] - py + cy);
         let x = aligned(cx, pw, sx, r[2], inline);
@@ -332,4 +410,25 @@ pub(crate) fn scroll_into_view(
         }
     }
     changed
+}
+
+/// Whether `node`'s border box, expanded to whole pixels, lies inside the
+/// scrollport of every scroll container around it and inside the viewport.
+/// Playwright scrolls a pointer action's target into view first
+/// (`DOM.scrollIntoViewIfNeeded`, which scrolls only what is not fully
+/// visible); for such a target that moves nothing.
+#[cfg(feature = "probe")]
+pub(crate) fn fully_visible(doc: &mut BaseDocument, node: NodeId) -> bool {
+    resolve(doc);
+    let r = rect(doc, node);
+    let (left, top) = (r[0].floor(), r[1].floor());
+    let (right, bottom) = ((r[0] + r[2]).ceil(), (r[1] + r[3]).ceil());
+    scrollers(doc, node)
+        .into_iter()
+        .map(Some)
+        .chain([None])
+        .all(|scroller| {
+            let (px, py, pw, ph) = scrollport(doc, scroller);
+            left >= px && top >= py && right <= px + pw && bottom <= py + ph
+        })
 }

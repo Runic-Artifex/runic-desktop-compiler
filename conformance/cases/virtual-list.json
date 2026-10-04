@@ -1,0 +1,28 @@
+{
+  "description": "A virtualized 10,000-row list (M5 example): only the rows in view plus three above and below are rendered, positioned by the spacer's padding and updated from scrollTop and clientHeight in the list's scroll events (rendering step after each action); clicking a row selects it; Jump to 5,000 sets scrollTop; typing in the filter shrinks the list, which clamps the scroll position (one scroll event, a rendering step later); wheel scrolling to the end. Clicks target rows fully visible in the list, so Playwright's click does not scroll first",
+  "fixtures": [
+    "examples/virtual-list-svelte",
+    "examples/virtual-list-vue"
+  ],
+  "actions": [
+    { "kind": "click", "id": "row-3" },
+    { "kind": "wheel", "id": "list", "deltaY": 600 },
+    { "kind": "click", "id": "row-30" },
+    { "kind": "wheel", "id": "list", "deltaY": 100 },
+    { "kind": "click", "id": "row-36" },
+    { "kind": "click", "id": "jump" },
+    { "kind": "click", "id": "row-5004" },
+    { "kind": "type", "id": "filter", "text": "99" },
+    { "kind": "wheel", "id": "list", "deltaY": -250 },
+    { "kind": "click", "id": "row-9980" },
+    { "kind": "click", "id": "jump" },
+    { "kind": "focus", "id": "filter" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "click", "id": "jump" },
+    { "kind": "wheel", "id": "list", "deltaY": 1000000 },
+    { "kind": "click", "id": "row-9995" },
+    { "kind": "type", "id": "filter", "text": "gamma" },
+    { "kind": "wheel", "id": "list", "deltaY": -480 }
+  ]
+}
