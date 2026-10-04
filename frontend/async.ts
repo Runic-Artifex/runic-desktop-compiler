@@ -219,16 +219,17 @@ export function asyncBody(
   };
 
   /** A variable of a split statement list: a local of `b`, live across states. */
-  const hoist = (d: ts.VariableDeclaration): number => {
-    if (!ts.isIdentifier(d.name))
+  const hoist = (d: ts.Node, name?: ts.Identifier): number => {
+    const id = name ?? (d as ts.VariableDeclaration).name;
+    if (!ts.isIdentifier(id))
       return fail(d, 'Destructuring declarations next to await are planned for later');
-    const sym = lower.checker.getSymbolAtLocation(d.name)!;
+    const sym = lower.checker.getSymbolAtLocation(id)!;
     if (loopDepth && captured.has(sym))
       fail(d, 'A closure capturing a loop variable across await is planned for later');
     const type =
-      lower.types.typeOrUndefined(d.name) ??
-      fail(d, `${d.name.text} needs a type annotation next to await`);
-    const local = b.local(d.name.text, type, true);
+      lower.types.typeOrUndefined(id) ??
+      fail(d, `${id.text} needs a type annotation next to await`);
+    const local = b.local(id.text, type, true);
     outer.push({ local });
     lower.bindings.set(sym, { kind: 'local', owner: b, local });
     return local;
@@ -281,6 +282,35 @@ export function asyncBody(
         if (d.initializer && !init && containsAwait(d.initializer))
           fail(d.initializer, 'await is supported as the whole initialiser');
         const v = init ? awaitValue((skip(init) as ts.AwaitExpression).expression) : undefined;
+        if (ts.isObjectBindingPattern(d.name)) {
+          // `const { a, b: c } = await e`: the value in a hoisted temporary,
+          // then each name from its field (or a class instance's member).
+          if (!d.initializer) fail(d, 'Destructuring requires an initializer');
+          const value = v ?? lower.expr(d.initializer!, s);
+          const type = lower.irType(value, s);
+          const tmp = b.local('$destructure', type, true);
+          outer.push({ local: tmp });
+          emit(set(tmp, value));
+          for (const el of d.name.elements) {
+            const key = (el.propertyName ?? el.name) as ts.Identifier;
+            if (el.dotDotDotToken || !ts.isIdentifier(key) || !ts.isIdentifier(el.name))
+              fail(el, 'Destructuring next to await takes plain names');
+            const record = typeof type === 'object' && 'record' in type ? type.record : undefined;
+            if (record === undefined) fail(d, 'Object destructuring requires a record value');
+            let read: Expr = lower.types.records[record!].class
+              ? lower.classes.readMember(type, at(tmp), key, el, el.name, s)
+              : {
+                  op: 'get',
+                  object: at(tmp),
+                  field: lower.types.fieldIndex(record!, key.text, el),
+                };
+            if (el.initializer)
+              read = { op: 'nullish', left: read, right: lower.expr(el.initializer, s) };
+            const local = hoist(el, el.name as ts.Identifier);
+            emit(set(local, read));
+          }
+          continue;
+        }
         const local = hoist(d);
         if (v) emit(set(local, v));
         else if (d.initializer) {

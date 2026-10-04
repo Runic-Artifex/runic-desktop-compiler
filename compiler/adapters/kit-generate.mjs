@@ -26,7 +26,10 @@ export function generate(m) {
   const dataType = t => `Data_t${t}`;
   const parentData = t => (trie[t].parent < 0 ? 'Empty' : dataType(trie[t].parent));
   const own = n => `Own_${n}`;
-  const branchType = n => (nodes[n].load ? `Branch_${n}` : 'NoLoad');
+  // A level's record: its data and what its load read (Branch_n), what a
+  // load without data read (LoadOnly), or nothing (NoLoad).
+  const hasData = n => nodes[n].load && nodes[n].data;
+  const branchType = n => (hasData(n) ? `Branch_${n}` : nodes[n].load ? 'LoadOnly' : 'NoLoad');
   // The trie node of each layout and page (their chains are fixed).
   const nodeTrie = new Map();
   for (const t of trie) if (!nodeTrie.has(t.node)) nodeTrie.set(t.node, t.id);
@@ -85,11 +88,11 @@ ${paramNames
 
   let decls = '';
   for (const node of nodes)
-    if (node.load)
+    if (hasData(node.index))
       decls += `export type ${own(node.index)} = Awaited<ReturnType<typeof load_${node.index}>>;\n`;
   for (const t of trie) {
     const node = nodes[t.node];
-    const withData = node.load && !t.error;
+    const withData = hasData(node.index);
     decls += withData
       ? `export function merge_t${t.id}(parent: ${parentData(t.id)}, own: ${own(t.node)}) {\n  return { ...parent, ...own };\n}\n`
       : `export function merge_t${t.id}(parent: ${parentData(t.id)}) {\n  return { ...parent };\n}\n`;
@@ -117,7 +120,9 @@ export class LoadEvent_${node.index} {
   }
 }
 
-/** A level of ${node.universal}: its data and what its load read. */
+${
+  hasData(node.index)
+    ? `/** A level of ${node.universal}: its data and what its load read. */
 export class Branch_${node.index} {
   data: ${own(node.index)};
   uses: Uses;
@@ -135,7 +140,18 @@ async function load_node_${node.index}(intent: Intent, parent: () => Promise<${p
   const data = await load_${node.index}(event);
   return new Branch_${node.index}(data, uses);
 }
-`;
+`
+    : `
+/** A level of ${node.universal}, whose load gives no data (Kit: data null). */
+async function load_node_${node.index}(intent: Intent, parent: () => Promise<${parentData(t)}>): Promise<LoadOnly> {
+  const uses = new Uses();
+  await node_loader();
+  const event = new LoadEvent_${node.index}(intent, uses, parent);
+  await load_${node.index}(event);
+  return new LoadOnly(uses);
+}
+`
+}`;
   }
   // Nodes without a load (layouts, pages; error pages never run as levels).
   for (const node of nodes)
@@ -246,7 +262,7 @@ ${depths.join('\n')}
       index: i,
       node: n,
       local: `b${i}`,
-      kind: nodes[n].load ? 'data' : 'null',
+      kind: hasData(n) ? 'data' : 'null',
     });
     const entries = loaders
       .map((n, i) => (n === undefined ? undefined : entry(n, i)))
@@ -283,7 +299,7 @@ ${depths.join('\n')}
         const spread = [];
         for (let j = 0; j < i; j++) {
           fn += `      const p${j} = await bp${j};\n`;
-          if (loaders[j] !== undefined && nodes[loaders[j]].load) spread.push(`...p${j}.data`);
+          if (loaders[j] !== undefined && hasData(loaders[j])) spread.push(`...p${j}.data`);
           else fn += `      void p${j};\n`;
         }
         fn += `      return { ${spread.join(', ')} };\n    }`;
@@ -332,10 +348,11 @@ ${body}}
   }
   // load_root_error_page: the root layout's load again (no params), then the root error page.
   const rootLoad = nodes[0].load;
+  const rootData = hasData(0);
   results += resultFunction(
     'result_root_error',
     [
-      { index: 0, node: 0, local: 'b0', kind: rootLoad ? 'data' : 'null' },
+      { index: 0, node: 0, local: 'b0', kind: rootData ? 'data' : 'null' },
       { index: 1, node: 1, kind: 'empty' },
     ],
     rootError.trie,
@@ -448,6 +465,15 @@ async function nearest_error(): Promise<void> {
 /** A level without a load (its data is null). */
 class NoLoad {
   readonly __noLoad = true;
+}
+
+/** A level whose load gives no data: what it read. */
+class LoadOnly {
+  uses: Uses;
+
+  constructor(uses: Uses) {
+    this.uses = uses;
+  }
 }
 
 function decode(value: string | undefined): string | undefined {

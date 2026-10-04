@@ -116,7 +116,9 @@ export async function kitApp(root, config, compiler) {
       componentImport: importFrom(generated, component),
       universal,
       universalImport: universal && importFrom(generated, path.join(root, universal)),
-      load: universal ? routeModule(root, universal).load : false,
+      ...(universal
+        ? (({ load, data }) => ({ load, data }))(routeModule(root, universal))
+        : { load: false, data: false }),
       props,
     };
   });

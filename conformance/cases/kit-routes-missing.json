@@ -1,0 +1,11 @@
+{
+  "description": "A SvelteKit app (path router) started at an unknown path: the root error page with status 404 and the message of hooks.client's handleError, the root layout and its load, then a link to a route of the app",
+  "fixtures": ["kit-routes-svelte"],
+  "clock": true,
+  "url": "/missing/page?x=1",
+  "actions": [
+    { "kind": "click", "id": "nav-items" },
+    { "kind": "wait", "ms": 20 },
+    { "kind": "back" }
+  ]
+}

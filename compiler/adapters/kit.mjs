@@ -425,6 +425,37 @@ export function routeModule(root, rel) {
     return at(rel, p.line, p.column);
   };
   let load = false;
+  // Whether the load returns data: a `return` with a value (or an
+  // expression body other than a call of error() or redirect()); loads
+  // that only throw or return nothing give no data (Kit: data null).
+  let data = false;
+  const returnsData = fn => {
+    if (!fn) return false;
+    while (
+      ts.isParenthesizedExpression(fn) ||
+      ts.isSatisfiesExpression(fn) ||
+      ts.isAsExpression(fn)
+    )
+      fn = fn.expression;
+    if (!(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn) || ts.isFunctionDeclaration(fn)))
+      return true;
+    if (fn.body && !ts.isBlock(fn.body)) {
+      const e = fn.body;
+      return !(
+        ts.isCallExpression(e) &&
+        ts.isIdentifier(e.expression) &&
+        ['error', 'redirect'].includes(e.expression.text)
+      );
+    }
+    let found = false;
+    const visit = n => {
+      if (found || (n !== fn && ts.isFunctionLike(n))) return;
+      if (ts.isReturnStatement(n) && n.expression) found = true;
+      ts.forEachChild(n, visit);
+    };
+    visit(fn);
+    return found;
+  };
   for (const stmt of sf.statements) {
     const exported = stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
     if (ts.isFunctionDeclaration(stmt) && exported) {
@@ -435,6 +466,7 @@ export function routeModule(root, rel) {
           where(stmt),
         );
       load = true;
+      data = returnsData(stmt);
     } else if (ts.isVariableStatement(stmt) && exported) {
       for (const d of stmt.declarationList.declarations) {
         const name = ts.isIdentifier(d.name) ? d.name.text : '';
@@ -446,6 +478,7 @@ export function routeModule(root, rel) {
               where(d.type),
             );
           load = true;
+          data = returnsData(d.initializer);
         } else if (
           name === 'ssr' &&
           d.initializer &&
@@ -468,7 +501,7 @@ export function routeModule(root, rel) {
         where(stmt),
       );
   }
-  return { load, text };
+  return { load, data, text };
 }
 
 /** Whether a component declares props by name, and which. */

@@ -379,8 +379,20 @@ export class TypeMapper {
     const shape = JSON.stringify(placeholder.fields);
     const same = this.byShape.get(shape);
     const last = index === this.records.length - 1;
-    if (same !== undefined && same !== index && last && !this.referencesSelf(placeholder, index)) {
-      this.records.pop();
+    const referenced = () =>
+      this.records.some(
+        r => r !== placeholder && JSON.stringify(r.fields).includes(`{"record":${index}}`),
+      );
+    if (
+      same !== undefined &&
+      same !== index &&
+      !this.referencesSelf(placeholder, index) &&
+      (last || !referenced())
+    ) {
+      // The last record is dropped; one registered before records its
+      // fields registered (an equal record among them: a spread's source)
+      // stays unused.
+      if (last) this.records.pop();
       this.byType.set(t, same);
       return same;
     }

@@ -1100,13 +1100,13 @@ function start_router() {
 // --- $app/navigation ---
 
 /** `goto(url, opts)`. */
-export async function goto(url: string, opts: GotoOptions = {}): Promise<void> {
+export async function goto(url: string, opts?: GotoOptions): Promise<void> {
   const resolved = resolve(url, location_href());
   if (!resolved) throw new Error('goto: invalid URL');
   const o = new NavigateOptions('goto', resolved);
-  o.keepfocus = opts.keepFocus ?? false;
-  o.noscroll = opts.noScroll ?? false;
-  o.replace_state = opts.replaceState ?? false;
+  o.keepfocus = opts?.keepFocus ?? false;
+  o.noscroll = opts?.noScroll ?? false;
+  o.replace_state = opts?.replaceState ?? false;
   await navigate(o);
 }
 

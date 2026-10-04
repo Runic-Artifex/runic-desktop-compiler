@@ -465,7 +465,7 @@ export class Lowerer {
     const tsResult = sig!.getReturnType();
     let result: Type =
       options?.result ??
-      (tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+      (tsResult.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)
         ? 'void'
         : this.types.map(tsResult, decl));
     // A function expression where a void-returning function is expected
@@ -3562,7 +3562,8 @@ export class Lowerer {
         ...(component !== undefined ? { component } : {}),
         params: [],
         locals: [],
-        result: this.types.map(ret, decl),
+        // A function that never returns normally (it throws): no value.
+        result: ret.flags & ts.TypeFlags.Never ? 'void' : this.types.map(ret, decl),
         body: [],
       };
     return () => this.function(decl, name, undefined, component, index);
@@ -3669,7 +3670,14 @@ export class Lowerer {
   }
 
   private object(e: ts.ObjectLiteralExpression, b: FnBuilder): Expr {
-    const t = this.checker.getContextualType(e) ?? this.checker.getTypeAtLocation(e);
+    // The contextual type, unless it says nothing about the value (unknown: a
+    // `satisfies` of a function returning unknown; `T | PromiseLike<T>`: an
+    // async function's return); then the literal's own type.
+    const contextual = this.checker.getContextualType(e);
+    const usable = (c: ts.Type) =>
+      !(c.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) &&
+      !(c.isUnion() && c.types.some(p => !!p.getProperty('then')));
+    const t = contextual && usable(contextual) ? contextual : this.checker.getTypeAtLocation(e);
     // Attribute bags: literals with computed keys or spreads of bags, or
     // typed as one (frontend/package-modules.ts types bits-ui's `props`).
     if (this.isBagLiteral(e) || this.types.tryMap(t, e) === 'attrs' || this.returnsBag(e, b))
