@@ -213,7 +213,11 @@ test('modules reject mutable state, effects and unsupported import/export forms'
     ['export const starting=0;', 'export let starting=0;', 'E_MODULE'],
     ['export const starting=0;', 'console.log(1);export const starting=0;', 'E_MODULE'],
     ['export const starting=0;', 'export default 0;', 'E_IMPORT'],
-    ['export const starting=0;', 'class A {}\nexport const starting=0;', 'E_TYPE_UNSUPPORTED'],
+    [
+      'export const starting=0;',
+      'class A {}\nclass B extends A {}\nexport const starting=0;',
+      'E_CLASS',
+    ],
     ["export {advance} from './advance.js';", "export * from './advance.js';", 'E_IMPORT'],
     ['import {LIMIT as maximum}', 'import * as maximum', 'E_IMPORT'],
     ['export const starting=0;', 'export const starting=new Uint8Array(1).length;', 'E_NEW'],

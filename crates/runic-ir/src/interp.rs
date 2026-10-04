@@ -21,6 +21,8 @@ use std::rc::Rc;
 pub struct RecordData {
     pub record: usize,
     pub fields: Vec<Val>,
+    /// A class instance (never proxied by deep state).
+    pub class: bool,
 }
 
 #[derive(Debug)]
@@ -287,6 +289,9 @@ impl js::Own for Val {
 
 impl js::OwnFields for RecordData {
     const PROXIED: bool = true;
+    fn proxied(&self) -> bool {
+        !self.class
+    }
     fn own_fields(&mut self) {
         use js::Own;
         for f in self.fields.iter_mut() {
@@ -1178,6 +1183,7 @@ impl<'p> Machine<'p> {
                 Val::Record(JsRef::new(RecordData {
                     record: *record,
                     fields: values,
+                    class: self.program.records[*record].class,
                 }))
             }
             Array { items, .. } => {
@@ -1646,6 +1652,7 @@ impl<'p> Machine<'p> {
                                     Val::Record(JsRef::new(RecordData {
                                         record,
                                         fields: vec![Val::Str(t.name), Val::Str(t.message)],
+                                        class: false,
                                     })),
                                 );
                             }
@@ -2537,7 +2544,11 @@ impl<'p> Machine<'p> {
                         None => return bad(&format!("field {}", f.name)),
                     }
                 }
-                Val::Record(JsRef::new(RecordData { record: *r, fields }))
+                Val::Record(JsRef::new(RecordData {
+                    record: *r,
+                    fields,
+                    class: self.program.records[*r].class,
+                }))
             }
             (t, _) => return bad(&t.name()),
         })
@@ -2553,6 +2564,7 @@ impl<'p> Machine<'p> {
                 Val::Record(JsRef::new(RecordData {
                     record: r.record,
                     fields: r.fields.iter().map(|x| self.clone_deep(x)).collect(),
+                    class: r.class,
                 }))
             }
             Val::Map(m) => {
@@ -3434,6 +3446,7 @@ impl<'p> Machine<'p> {
         Val::Record(JsRef::new(RecordData {
             record: self.error_record(),
             fields: vec![Val::Str(t.name), Val::Str(t.message)],
+            class: false,
         }))
     }
 

@@ -138,8 +138,10 @@ export function lowerModules(
         }
         continue;
       }
-      if (ts.isClassDeclaration(stmt))
-        fail(stmt, 'E_TYPE_UNSUPPORTED', 'Classes are planned for a later milestone');
+      if (ts.isClassDeclaration(stmt)) {
+        pending.push(...lower.classes.declare(stmt, undefined));
+        continue;
+      }
       fail(stmt, 'E_MODULE', 'Top-level effects in modules are planned for M4');
     }
   }

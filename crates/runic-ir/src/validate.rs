@@ -502,6 +502,22 @@ impl<'a> Scope<'a> {
                         src,
                     );
                 }
+                let inner = match &t {
+                    Type::Maybe(i) => i,
+                    other => other,
+                };
+                if let Type::Record(r) = inner {
+                    if self.program.records.get(*r).is_some_and(|rec| rec.class) {
+                        return err(
+                            "E_CLASS",
+                            format!(
+                                "A {} instance is converted to a string; its toString method is not dispatched (call a method that returns the text)",
+                                self.program.records[*r].name
+                            ),
+                            src,
+                        );
+                    }
+                }
                 Type::String
             }
             ToNumber { arg } => {
@@ -2445,6 +2461,28 @@ impl Origins<'_> {
     }
 }
 
+/// The class records a value of type `t` can hold (itself included).
+fn class_records(p: &Program, t: &Type, seen: &mut HashSet<usize>, out: &mut Vec<usize>) {
+    match t {
+        Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
+            class_records(p, t, seen, out)
+        }
+        Type::Map(k, v) => {
+            class_records(p, k, seen, out);
+            class_records(p, v, seen, out);
+        }
+        Type::Record(r) if seen.insert(*r) => {
+            if p.records[*r].class {
+                out.push(*r);
+            }
+            for f in &p.records[*r].fields {
+                class_records(p, &f.ty, seen, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Whether a value of type `outer` can hold a value of type `inner`.
 fn holds(p: &Program, outer: &Type, inner: &Type, seen: &mut HashSet<usize>) -> bool {
     if outer == inner {
@@ -2599,11 +2637,28 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                     "{name} is mutated in place, which does not update the view (Svelte: use $state, not $state.raw; React: set a new value instead of mutating state)"
                 ),
             }),
-            Tracking::Proxied => (m.collections.contains(&root) || mutated_type(true)).then(|| {
-                format!(
-                    "{name} holds a Map or Set that is mutated; Svelte state does not track Map and Set mutations (SvelteMap and SvelteSet are planned for M6; or assign a new Map/Set)"
-                )
-            }),
+            Tracking::Proxied => {
+                // Svelte proxies plain objects and arrays only: a class
+                // instance in state, and everything it holds, stays raw.
+                let mut classes = vec![];
+                class_records(p, ty, &mut HashSet::new(), &mut classes);
+                let class_mutated = (!classes.is_empty() && m.roots.contains(&root))
+                    || classes.iter().any(|&r| {
+                        m.types.iter().any(|t| {
+                            t.is_reference() && holds(p, &Type::Record(r), t, &mut HashSet::new())
+                        })
+                    });
+                if class_mutated {
+                    return Some(format!(
+                        "{name} holds a class instance that is mutated in place; Svelte's $state proxies only plain objects and arrays, so the change does not update the view (reactive class fields are M6 stage B; or assign a new instance)"
+                    ));
+                }
+                (m.collections.contains(&root) || mutated_type(true)).then(|| {
+                    format!(
+                        "{name} holds a Map or Set that is mutated; Svelte state does not track Map and Set mutations (SvelteMap and SvelteSet are planned for M6; or assign a new Map/Set)"
+                    )
+                })
+            }
             Tracking::Deep => None,
         }
     };

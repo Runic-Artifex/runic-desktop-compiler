@@ -156,9 +156,11 @@ pub fn json_compatible(t: &Type, records: &[RecordType], depth: usize) -> bool {
         Type::Number | Type::String | Type::Boolean => true,
         Type::Maybe(inner) | Type::Array(inner) => json_compatible(inner, records, depth + 1),
         Type::Record(r) => records.get(*r).is_some_and(|rec| {
-            rec.fields
-                .iter()
-                .all(|f| json_compatible(&f.ty, records, depth + 1))
+            !rec.class
+                && rec
+                    .fields
+                    .iter()
+                    .all(|f| json_compatible(&f.ty, records, depth + 1))
         }),
         _ => false,
     }
@@ -790,6 +792,9 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             } else {
                 Err("JSON.parse needs a declared JSON-compatible type".into())
             }
+        }
+        ("Object", "keys" | "values") if matches!(args, [Record(r)] if records.get(*r).is_some_and(|rec| rec.class)) => {
+            Err("class instances are not plain data (their private fields and accessors are not keys)".into())
         }
         ("Object", "keys") => match args {
             [Record(_)] => Ok(Type::array(s)),

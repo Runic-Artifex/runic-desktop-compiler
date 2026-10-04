@@ -1484,6 +1484,17 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     },
   };
   const lower = new Lowerer(program, checker, types, hooks, tsFail, sourceOf);
+  // Vue's reactive proxy is the `this` of methods called through it, but not
+  // of closures made while constructing: their writes would not re-render.
+  const rawThisCheck = (type: Type, at: ts.Node) => {
+    const cls = lower.classes.rawThis(type);
+    if (cls)
+      tsFail(
+        at,
+        'E_CLASS',
+        `${cls} keeps its raw instance in closures made by its constructor (arrow function fields, bound methods); Vue's reactive proxy would not see their writes, so it is unsupported in a ref (reactive classes are M6 stage B)`,
+      );
+  };
   // The script runs once per instance: its functions keep their identity.
   lower.stableFunctions = true;
 
@@ -2739,6 +2750,10 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         );
         continue;
       }
+      if (ts.isClassDeclaration(stmt)) {
+        pending.push(...lower.classes.declare(stmt, COMPONENT));
+        continue;
+      }
       if (ts.isTypeAliasDeclaration(stmt) || ts.isInterfaceDeclaration(stmt)) continue;
       if (ts.isFunctionDeclaration(stmt) && stmt.name) {
         const sym = checker.getSymbolAtLocation(stmt.name)!;
@@ -2823,6 +2838,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             const [inner] = checker.getTypeArguments(refType);
             if (!inner) tsFail(d, 'E_REF', 'Unexpected ref type');
             const type = types.map(inner, d);
+            if (kind === 'ref') rawThisCheck(type, d);
             const cell = cells.length;
             cells.push({
               name,

@@ -218,6 +218,8 @@ export interface Fn {
 export interface RecordType {
   name: string;
   fields: { name: string; type: Type }[];
+  /** A class instance record (nominal: never shared by shape; not proxied, not plain data). */
+  class?: true;
 }
 
 export interface Cell {

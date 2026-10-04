@@ -1242,12 +1242,14 @@ fn records(p: &Program) -> String {
         let marks: String = (0..rec.fields.len())
             .map(|i| format!("js::Own::mark(&self.f{i}); "))
             .collect();
+        // Class instances are never proxied (Svelte proxies plain objects only).
+        let proxied = !rec.class;
         let _ = writeln!(
             out,
             "/// {}\n#[derive(Clone)]\npub struct R{r} {{ {fields}}}\n\
              impl Default for R{r} {{ fn default() -> Self {{ R{r} {{ {defaults}}} }} }}\n\
              impl js::HeapToString for R{r} {{ fn heap_to_string(&self) -> JsString {{ JsString::from(\"[object Object]\") }} }}\n\
-             impl js::OwnFields for R{r} {{ const PROXIED: bool = true; fn own_fields(&mut self) {{ {owns}}} fn mark_fields(&self) {{ {marks}}} }}\n\
+             impl js::OwnFields for R{r} {{ const PROXIED: bool = {proxied}; fn own_fields(&mut self) {{ {owns}}} fn mark_fields(&self) {{ {marks}}} }}\n\
              impl std::fmt::Debug for R{r} {{ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{ f.write_str({}) }} }}",
             rec.name.replace('\n', " "),
             rust_str(&rec.name)
