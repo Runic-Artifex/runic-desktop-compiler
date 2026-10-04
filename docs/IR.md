@@ -83,7 +83,7 @@ Local = { "name": "sum", "type": "number", "boxed": false }
 
 The local index space of a function is `captures`, then `params`, then `locals`. `boxed` marks a local that a closure captures and mutates, so it is shared by reference; unboxed captures are copied when the closure is created. Module-level functions have no `component`.
 
-A `derived` function (Svelte `$derived`, Vue `computed`; no parameters) is cached per instance: it is recomputed when what it read changed, and a recomputation with the same (SameValue) result keeps its value, so dependents re-run only when its value changed.
+A `derived` function (Svelte `$derived`, Vue `computed`; no parameters) is cached per instance: it is recomputed when what it read changed, and a recomputation with the same result keeps its value, so dependents re-run only when its value changed. "Same" is SameValue (Vue `computed`), or `===` with `"derivedStrict": true` (Svelte `$derived`: `NaN` replaces `NaN`, `-0` keeps `0`).
 
 ## Components and instances
 
