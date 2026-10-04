@@ -1,0 +1,114 @@
+# M6: libraries, CSS pipeline, SvelteKit
+
+**Exit** (roadmap): the Translations Editor's non-bridge screens render from source, the corpus coverage report is committed, and island counts are recorded as the baseline to reduce from.
+
+Research behind this plan:
+- [M6-LIBRARIES](../research/M6-LIBRARIES.md): what the editor reaches in bits-ui, lucide, svelte-toolbelt, runed, floating-ui and the class utilities, and which features those sources use;
+- [M6-CSS](../research/M6-CSS.md): the editor's Tailwind 4 output on Stylo and Blitz;
+- [BLITZ-GAPS](../BLITZ-GAPS.md): the fork.
+
+## Decisions
+
+- **Animations and transitions move from M10 into M6**, as far as the editor needs them: transitions, the tw-animate-css `enter`/`exit` keyframes, `animate-spin` and `animate-pulse`.
+  - Blitz already runs Stylo's animations from a clock. The runtime drives that clock from its event loop: real time natively, virtual time in probes.
+  - Conformance compares settled states as now, and intermediate frames at chosen fake-clock times.
+  - `element.getAnimations()`, which bits-ui awaits before it unmounts a closed overlay, reads Stylo's running animations.
+  - Stripping time-based CSS would be an approximation, so it is not an option.
+- **No islands for the editor.** bits-ui, svelte-toolbelt and runed touch the DOM and compile natively. The editor's island baseline is zero. QuickJS islands (D7) are built for the corpus, opt-in.
+- **Mapping packs** for the class utilities (`clsx`, `tailwind-merge`, `tailwind-variants`) and for `@lucide/svelte` icons:
+  - The utilities' sources use typed arrays, `arguments`, `for-in` and mixed-type tables, which the IR does not model. Their call shapes in the editor are narrow.
+  - Each pack is pinned to a package version and validated against the real package on generated vectors, as `RegExp` and `Intl` were.
+  - `tailwind-variants` bundles its own merge. Whether it agrees with `tailwind-merge` is measured before one merge implementation serves both.
+  - Lucide icons expand to the existing inline-SVG lowering. `role` joins the SVG attribute allow-list (ARIA, no rendering effect).
+- **The Blitz fork carries the CSS fixes the editor needs.** Patches needing Stylo changes (`field-sizing`, `line-clamp`, `text-wrap: balance`, container queries) are rejected with diagnostics in M6 rather than forking Stylo.
+
+## Work order
+
+Steps 0 to 2 can run in parallel. Steps 3 to 6 share the language layer and IR, and go in order.
+
+0. **Blitz fork** (in progress).
+   - **Done on `runic`:**
+     - hit testing of scrolled containers;
+     - 1/64 px shrink-to-fit rounding;
+     - Chromium's line breaks;
+     - placeholders.
+   - **Next** ([M6-CSS](../research/M6-CSS.md#fork-patches-by-value-for-the-editor)):
+     - `:has()` with invalidation;
+     - `text-overflow: ellipsis`;
+     - `:focus-visible` (keyboard and programmatic focus only);
+     - `woff2-variations` and `data:` font sniffing;
+     - the CPU renderer's `filters` feature.
+   - **Lower value for the editor:** text input line height, inline control baselines and the focus ring. Tailwind's preflight sets explicit line heights and draws its own rings, so these come later.
+1. **CSS pipeline.**
+   - The collector runs the app's CSS plugins (`@tailwindcss/vite`).
+   - It accepts `@layer`, `@property` and `@supports`, and SvelteKit's per-route stylesheets in order.
+   - It rewrites `woff2-variations` hints after checking the bytes.
+   - Stylo becomes the build-time oracle: every rule or declaration it drops is a located diagnostic, except an allow-list of drops verified equivalent in Chromium. A hand-kept list names the properties Blitz computes but ignores, and shrinks as fork patches land.
+   - Rules are first reported, then pruned by reachability once class strings are analysable (step 2).
+2. **Packs:** `clsx`, `tailwind-merge`, `tailwind-variants` and `@lucide/svelte`, with vector validation against the pinned packages. This gives an intermediate milestone: app screens without bits-ui.
+3. **Library modules:**
+   - package `exports` resolution;
+   - `.svelte.js`/`.svelte.ts` rune modules;
+   - untyped `dist` JavaScript, typed by inference, because the shipped `.d.ts` files omit computed keys and attachments;
+   - re-export barrels;
+   - `<script module>`;
+   - `<A.B>` component tags.
+4. **Classes and object semantics:**
+   - classes with fields, `$state`/`$derived` fields, `#private` names, getters and setters, and statics;
+   - `Symbol` keys, computed keys and `in`.
+5. **Svelte library features:**
+   - context (`setContext`/`getContext` with Symbol keys);
+   - `$props.id()`, `$effect.root`, `untrack` and `svelte/events`;
+   - `SvelteMap` and `MediaQuery`;
+   - function bindings and `<svelte:element>`.
+6. **Attribute bags.** The central IR design item:
+   - records of mixed value types with listeners and symbol-keyed attachments;
+   - `mergeProps`;
+   - spreads onto elements;
+   - bags passed to `child` snippets.
+   
+   Designed standalone before any adapter work.
+7. **Overlay host layer:**
+   - portals into `body`;
+   - floating-ui's host APIs: `ResizeObserver`, `IntersectionObserver`, `getComputedStyle`, `visualViewport`;
+   - focus scopes: `MutationObserver`, `createTreeWalker` and tabbable's queries;
+   - dismissal through document listeners;
+   - scroll lock;
+   - presence with `getAnimations`.
+   
+   `ResizeObserver` comes from M5.
+8. **SvelteKit SPA subset:**
+   - `adapter-static` routes and layouts;
+   - the `$app`/`$lib` modules the editor uses;
+   - `import.meta.env.MODE`;
+   - the translations virtual module;
+   - `<svelte:head>`.
+9. **Carried from M5:**
+   - `Intl.PluralRules`/`DisplayNames`;
+   - React's continuous lane (the React virtualized list);
+   - console reports of unhandled rejections.
+10. **Corpus and islands:**
+    - `runic scan` over 20–50 open-source Svelte, React and Vue apps;
+    - QuickJS islands with island and coverage reports;
+    - model-assisted discovery generalised to library packs, as an explicit separate operation.
+
+## Verification
+
+- Every step adds conformance cases in Chromium. Library steps use small fixtures that import the real packages: one bits-ui primitive per fixture, then the editor's wrappers.
+- Packs pass their vector suites against the pinned packages.
+- The editor's screens are compared with Chromium against its mock bridge (`import.meta.env.MODE`), screen by screen. The bridge itself is M7.
+- Each Blitz patch has the case that shows its gap (`blitz-*` cases). A paint-only difference the whole-viewport pixel gate cannot see is checked by screenshot inspection and stated in the case.
+
+## Work mode
+
+- **Standalone:**
+  - the design of steps 3 to 6, which change the IR and language layer every adapter shares;
+  - SvelteKit;
+  - the QuickJS bridge.
+- **Subagents** (worktrees, one at a time per shared build):
+  - each pack;
+  - the Blitz CSS patches;
+  - the Stylo oracle;
+  - the carried M5 items;
+  - the overlay host APIs once step 6 fixes the shapes.
+- **Corpus scan:** one agent per app plus an aggregator. As a workflow only with the user's opt-in; otherwise sequential subagents.

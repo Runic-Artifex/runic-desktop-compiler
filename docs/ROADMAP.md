@@ -193,6 +193,8 @@ Replace the parts that cannot scale before adding any capability.
 
 **Exit:** the editor's non-bridge screens render from source, the corpus coverage report is committed, and island counts are recorded as the baseline to reduce from.
 
+**Design:** [M6-LIBRARIES](design/M6-LIBRARIES.md) (decisions, work order, verification), from the research in [M6-LIBRARIES](research/M6-LIBRARIES.md) and [M6-CSS](research/M6-CSS.md). CSS transitions and animations move here from M10 as far as the editor needs them.
+
 **Work mode: workflows** for corpus scanning (one agent per app plus an aggregator) and pack authoring (independent validator agents); standalone for SvelteKit and the QuickJS bridge.
 
 ## M7: Runic application bridge
@@ -257,3 +259,5 @@ Solid and further frontends; porting the language layer or adapters to Rust (oxc
 - 2026-10-03 (M4): effects come before promises in M4's work order; the Timer and persistence examples need them, while promises matter first for the application bridge (M7).
 - 2026-10-03 (M4): conformance compiles the Svelte reference for production; generated apps implement production semantics, and Svelte's development build changes `await` timing.
 - 2026-10-03 (M4): instead of reproducing each framework's re-render granularity, templates may not read values that change without notifying the framework (`E_REACTIVITY`); granularity is observable only through such reads.
+- 2026-10-04 (M6): the Blitz fork is `Runic-Artifex/blitz`, based on upstream main (user decision); its patches are listed in [BLITZ-GAPS](BLITZ-GAPS.md).
+- 2026-10-04 (M6): CSS transitions and animations move from M10 into M6 as far as the editor needs them, driven by the runtime's clock and compared with Chromium's fake clock; the editor's components animate their open and closed states and bits-ui awaits `getAnimations()`, and stripping them would be an approximation ([M6 design](design/M6-LIBRARIES.md)).
