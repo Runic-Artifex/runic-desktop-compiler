@@ -910,6 +910,14 @@ function checkRules(css, file) {
           column: decl.source.start.column,
         },
       );
+    // Blitz lays sticky boxes out as relative ones and never moves them while
+    // their scroll container scrolls (docs/BLITZ-GAPS.md).
+    if (decl.prop === 'position' && possibleKeywords(decl.value, values).has('sticky'))
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        'Unsupported CSS declaration position: sticky: Blitz lays sticky boxes out as relative ones and does not keep them in view while scrolling',
+        { file, line: decl.source.start.line, column: decl.source.start.column },
+      );
     // Blitz transforms text to upper and lower case only (docs/BLITZ-GAPS.md).
     if (decl.prop === 'text-transform' && /capitalize|full-width|full-size-kana/.test(decl.value))
       throw new Diagnostic(

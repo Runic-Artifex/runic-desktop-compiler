@@ -1,0 +1,59 @@
+{
+  "description": "WIP",
+  "fixtures": [
+    "kit-docs-svelte"
+  ],
+  "url": "/docs/components/toggle",
+  "actions": [
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "click",
+      "id": "bits-c1"
+    },
+    {
+      "kind": "click",
+      "id": "toc-installation"
+    },
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "click",
+      "id": "bits-c5"
+    },
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "click",
+      "id": "toc-outline"
+    },
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "click",
+      "id": "bits-c9"
+    },
+    {
+      "kind": "click",
+      "id": "nav-tabs"
+    },
+    {
+      "kind": "wait",
+      "ms": 100
+    }
+  ],
+  "viewports": [
+    [
+      800,
+      600
+    ]
+  ]
+}
