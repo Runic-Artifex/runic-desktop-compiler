@@ -1,0 +1,24 @@
+{
+  "description": "bits-ui's Popover compiled from its published source through shadcn-svelte's unmodified popover wrappers and popover-demo (M6 overlays, docs/design/M6-OVERLAYS.md): the trigger opened by Enter and Space, the content portalled to the body and positioned by floating-ui (offset, flip, shift, size, the arrow and hide middleware, autoUpdate), its focus scope moving focus into the content and trapping Tab, typing into the demo's inputs, Escape closing it (the escape layer) with focus returned to the trigger, and a press outside the content dismissing it (the dismissible layer's debounced pointerdown, the text selection layer)",
+  "fixtures": ["bits-popover-svelte"],
+  "actions": [
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "x" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "demo", "position": { "x": 4, "y": 4 } },
+    { "kind": "wait", "ms": 100 }
+  ]
+}

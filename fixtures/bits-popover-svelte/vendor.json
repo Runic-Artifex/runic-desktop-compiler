@@ -1,0 +1,79 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/popover-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/popover-demo.svelte",
+      "sha256": "1a624987670c2d4b412cc8daf665b3160661d3f6ae7bb277076913b120007966"
+    },
+    "src/lib/registry/ui/button/button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/button/button.svelte",
+      "sha256": "836d6b14108ce6f20ed88c6500d981c412e1d9cc8bbde02c2f64552b1c0b195c"
+    },
+    "src/lib/registry/ui/button/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/button/index.ts",
+      "sha256": "0f6b6f040d92b4153821d3f9b4d6b9cbc567247e4fda913e64c1d0fcc4a2f386"
+    },
+    "src/lib/registry/ui/input/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/input/index.ts",
+      "sha256": "4e0ad69d49a27194c7f3dfd0cdd5933ee13fc40cc13a77138b547d300701d390"
+    },
+    "src/lib/registry/ui/input/input.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input/input.svelte",
+      "sha256": "831f7af76b1ce768e0fe495ca47c4dc461f98d2ded3825f28fcb521f9fb22009"
+    },
+    "src/lib/registry/ui/label/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/label/index.ts",
+      "sha256": "ea17621b03066fc6c0ab811ec97aac0cb2de4b504c0a1fc3f480c8fc4bef12f1"
+    },
+    "src/lib/registry/ui/label/label.svelte": {
+      "upstream": "docs/src/lib/registry/ui/label/label.svelte",
+      "sha256": "9ffcff650f61f1c19aae78b92c6af88d3b97eaf007a18b9020fc02c069605d05"
+    },
+    "src/lib/registry/ui/popover/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/popover/index.ts",
+      "sha256": "6d1d43ce7deeebfa752727224c91962335fbc9fedd1ff007cffcdc4efc4e264f"
+    },
+    "src/lib/registry/ui/popover/popover-close.svelte": {
+      "upstream": "docs/src/lib/registry/ui/popover/popover-close.svelte",
+      "sha256": "bec13457158cb16ba4a0d45789ef2a6b6f3b2c84e14c819ebfa8eca76baced77"
+    },
+    "src/lib/registry/ui/popover/popover-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/popover/popover-content.svelte",
+      "sha256": "148ee673f92baa4d5832009a0bf358fde6bc6df384631b277349bcd8dc9e786b"
+    },
+    "src/lib/registry/ui/popover/popover-description.svelte": {
+      "upstream": "docs/src/lib/registry/ui/popover/popover-description.svelte",
+      "sha256": "db1f0507b7ec871dd478de37c2018d4f110947d02deb5933f8bbd436e60d22ff"
+    },
+    "src/lib/registry/ui/popover/popover-header.svelte": {
+      "upstream": "docs/src/lib/registry/ui/popover/popover-header.svelte",
+      "sha256": "b0a5d9c6cfe0a86ad6fbf50126c4d00daeb1de551bc323e0fb9aa2499abe88cc"
+    },
+    "src/lib/registry/ui/popover/popover-portal.svelte": {
+      "upstream": "docs/src/lib/registry/ui/popover/popover-portal.svelte",
+      "sha256": "4db64c036aace1359a29d703a842998a6c74b17e84900eb6289cedc5f37ff43a"
+    },
+    "src/lib/registry/ui/popover/popover-title.svelte": {
+      "upstream": "docs/src/lib/registry/ui/popover/popover-title.svelte",
+      "sha256": "b00c143783a0c8f183bd384c61069d5e4081a67aba6f640885e0467171d03610"
+    },
+    "src/lib/registry/ui/popover/popover-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/popover/popover-trigger.svelte",
+      "sha256": "4ac9eba1497f42eab6934aaf7b58ce0485e9eb05aa3fea5733d7251d2705f5ca"
+    },
+    "src/lib/registry/ui/popover/popover.svelte": {
+      "upstream": "docs/src/lib/registry/ui/popover/popover.svelte",
+      "sha256": "9697cf96a4ab4970b93e0aafd3962aaa21a97d88d2976886f2a7dd22db87b1ca"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}
