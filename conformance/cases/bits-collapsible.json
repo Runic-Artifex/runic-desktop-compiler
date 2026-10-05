@@ -24,6 +24,20 @@
     { "kind": "press", "key": "Tab" },
     { "kind": "press", "key": "Enter" },
     { "kind": "wait", "ms": 100 },
-    { "kind": "hover", "id": "faq-trigger" }
-  ]
+    { "kind": "hover", "id": "faq-trigger" },
+    { "kind": "click", "id": "anim-trigger" },
+    { "kind": "wait", "ms": 48 },
+    { "kind": "wait", "ms": 96 },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "anim-trigger" },
+    { "kind": "wait", "ms": 48 },
+    { "kind": "wait", "ms": 96 },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "anim-trigger" },
+    { "kind": "wait", "ms": 64 },
+    { "kind": "click", "id": "anim-trigger" },
+    { "kind": "wait", "ms": 64 },
+    { "kind": "wait", "ms": 200 }
+  ],
+  "pixelRegions": ["anim"]
 }

@@ -1,5 +1,5 @@
 {
-  "description": "bits-ui's Accordion of type multiple compiled from its published source through shadcn-svelte's unmodified accordion wrappers and the accordion-multiple demo, and an accordion bound to the app's string array with a disabled item. Opened and closed independently by clicks and by Enter and Space on the focused trigger; arrow keys move focus through bits-ui's roving focus group (looping, skipping the disabled item), Home and End; set from outside through the bound value (also opening the disabled item); onValueChange counts the accordion's own changes. aria-expanded, data-state, hidden content, the measured size and focus rings (pixel regions). The accordions mount when the app's Show button is pressed: bits-ui measures open content while it mounts, and Chromium lays text out with a fallback font until the app's font has loaded, after the app mounted (docs/BLITZ-GAPS.md, web fonts while the app mounts). The content's open and close keyframes (tw-animate-css's accordion-down/up) are left out of the stylesheet: bits-ui awaits getAnimations() before it hides closed content, which is rejected while animations are declared",
+  "description": "bits-ui's Accordion of type multiple compiled from its published source through shadcn-svelte's unmodified accordion wrappers and the accordion-multiple demo, and an accordion bound to the app's string array with a disabled item. Opened and closed independently by clicks and by Enter and Space on the focused trigger; arrow keys move focus through bits-ui's roving focus group (looping, skipping the disabled item), Home and End; set from outside through the bound value (also opening the disabled item); onValueChange counts the accordion's own changes. aria-expanded, data-state, hidden content, the measured size and focus rings (pixel regions). The accordions mount when the app's Show button is pressed: bits-ui measures open content while it mounts, and Chromium lays text out with a fallback font until the app's font has loaded, after the app mounted (docs/BLITZ-GAPS.md, web fonts while the app mounts). The content opens and closes with the site's animations (tw-animate-css's animate-accordion-down/up over shadcn-svelte's accordion keyframes and the measured --bits-accordion-content-height): bits-ui awaits the content's getAnimations() (running CSS animations as Animation objects, their finished promises settling at the frame the animation ends) before it hides closed content; frames are sampled mid-animation (the first 100 ms waits) and after it",
   "fixtures": [
     "bits-accordion-multiple-svelte"
   ],
@@ -7,6 +7,9 @@
     [800, 1000],
     [420, 1200]
   ],
+  "knownGaps": {
+    "pixels": "Mid-animation frames: Stylo solves the content's ease-out timing function with an epsilon of 1/(200 x duration in seconds), 0.025 for these 200 ms animations, where Chromium's is 1e-7, so heights differ by up to about 2% of the content's height while it animates; settled frames match (docs/BLITZ-GAPS.md, eased animations; with the epsilon at 1e-7 every gate passes)"
+  },
   "pixelRegions": [
     "multiple",
     "bound"
