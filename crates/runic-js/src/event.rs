@@ -42,6 +42,26 @@ pub struct EventData {
     pub matches: bool,
 }
 
+impl EventData {
+    /// `pointerType` (M6, bits-ui's `isTouch`): pointer events, and the
+    /// `click`, `auxclick` and `contextmenu` events Chromium dispatches as
+    /// pointer events, come from the mouse (the only pointer device the
+    /// runtime has), except a `click` with no click count (the activation
+    /// of a focused control by a key, or a simulated click), whose pointer
+    /// type is empty. Other events have none (`undefined` in JavaScript).
+    pub fn pointer_type(&self) -> Option<&'static str> {
+        let kind = self.kind.to_rust();
+        match kind.as_str() {
+            "pointerdown" | "pointerup" | "pointermove" | "pointerover" | "pointerout"
+            | "pointerenter" | "pointerleave" | "pointercancel" | "contextmenu" | "auxclick" => {
+                Some("mouse")
+            }
+            "click" => Some(if self.detail > 0.0 { "mouse" } else { "" }),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Inner {
     data: EventData,

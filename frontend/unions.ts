@@ -292,8 +292,14 @@ export class Unions {
       if (e.arguments.length > 1) return undefined;
       if (!e.arguments.length) return strict ? undefined : [];
       const arg = skipAll(e.arguments[0]);
-      if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg))
+      if (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)) {
+        // (Strict: a getter that only returns, so reading it does nothing else.)
+        const only =
+          !ts.isBlock(arg.body) ||
+          (arg.body.statements.length === 1 && ts.isReturnStatement(arg.body.statements[0]));
+        if (strict && !only) return undefined;
         return all(returned(arg).map(r => this.trace(r, rest, depth + 1, strict)));
+      }
       return strict ? undefined : this.trace(arg, rest, depth + 1);
     }
     if (ts.isIdentifier(e)) {

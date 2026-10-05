@@ -759,6 +759,9 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "deltaX" => format!("{e}.data().delta_x"),
                 "deltaY" => format!("{e}.data().delta_y"),
                 "detail" => format!("{e}.data().detail"),
+                "pointerType" => format!(
+                    "JsString::from({e}.data().pointer_type().unwrap_or_else(|| {{ runic_runtime::unsupported(\"pointerType of an event that is not a pointer event\"); \"\" }}))"
+                ),
                 "target" => format!("{e}.data().target"),
                 "relatedTarget" => format!("{e}.data().related.map_or(Maybe::Null, Maybe::Some)"),
                 "currentTarget" => {

@@ -922,7 +922,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   };
   let program = buildProgram();
   // Class fields of package modules typed from what the classes assign.
-  if (inferFields(packageModules, program).length) program = buildProgram();
+  // (Again while types change: a field typed by a pass types the values
+  // assigned to others, bits-ui's `#closeTimeout = this.#domContext.setTimeout(…)`.)
+  for (let pass = 0; pass < 4 && inferFields(packageModules, program).length; pass++)
+    program = buildProgram();
   const unitOf = new Map<ts.SourceFile, Unit>();
   for (const u of units.values()) unitOf.set(program.getSourceFile(u.virtual)!, u);
   const packageOf = new Map<ts.SourceFile, PackageModule>();
@@ -1605,6 +1608,37 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     }
     return openShape();
   };
+  // Before prop domains exist (bag shapes come first): a prop without a
+  // default that no site passes, by an attribute, a binding or a spread
+  // (which may hold any name), holds only undefined.
+  {
+    const unpassed = new Map<ts.Symbol, boolean>();
+    for (const u of order)
+      for (const stmt of instanceStatements(u)) {
+        if (!ts.isVariableStatement(stmt)) continue;
+        for (const d of stmt.declarationList.declarations) {
+          if (runeName(d.initializer) !== '$props' || !ts.isObjectBindingPattern(d.name)) continue;
+          for (const el of d.name.elements) {
+            if (el.dotDotDotToken || el.initializer || !ts.isIdentifier(el.name)) continue;
+            const symbol = checker.getSymbolAtLocation(el.name);
+            const key = ((el.propertyName ?? el.name) as ts.Identifier).text;
+            let passed = false;
+            for (const p of order)
+              walkTemplate(p.ast.fragment, n => {
+                if (n.type !== 'Component' || p.children.get(n.name) !== u.file) return;
+                for (const a of n.attributes)
+                  if (
+                    a.type === 'SpreadAttribute' ||
+                    ((a.type === 'Attribute' || a.type === 'BindDirective') && a.name === key)
+                  )
+                    passed = true;
+              });
+            if (symbol) unpassed.set(symbol, !passed);
+          }
+        }
+      }
+    lower.unpassedProp = sym => unpassed.get(sym) === true;
+  }
   const shapes: BagShapes = new BagShapes(lower, {
     binding(sym) {
       const rest = restOf.get(sym);

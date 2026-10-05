@@ -1002,6 +1002,10 @@ export class Classes {
         f.node,
         `Field ${info.name}.${f.name} needs a type (a TypeScript annotation, or a JSDoc @type in JavaScript)`,
       );
+    // A field only ever null (untyped JavaScript that never sets it, bits-ui's
+    // PopoverTriggerState.#closeTimeout): a nullable number, as an untyped
+    // `null` is; code reading it as a value is unreachable.
+    if (t.flags & ts.TypeFlags.Null) return { maybe: 'number' };
     return this.lower.types.map(t, f.node);
   }
 

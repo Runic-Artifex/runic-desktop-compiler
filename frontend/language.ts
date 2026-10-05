@@ -295,7 +295,12 @@ export class Lowerer {
       checker,
       () => program.getSourceFiles().filter(sf => !sf.isDeclarationFile),
       sourceOf,
-      sym => this.domains?.values(sym),
+      sym =>
+        this.domains
+          ? this.domains.values(sym)
+          : this.unpassedProp?.(sym)
+            ? [undefined]
+            : undefined,
     );
     types.narrow = (parts, at, fail) => this.unions.member(parts, at, fail);
     // Object types implemented with getters (frontend/types.ts `accessorTypes`).
@@ -321,6 +326,11 @@ export class Lowerer {
   readonly recordMembers = new Map<number, RecordMembers>();
   /** The values props receive from their instantiation sites (frontend/domains.ts), if analysed. */
   domains?: DomainHook;
+  /**
+   * Before `domains` exist: whether a prop is never passed (no site sets
+   * it, no site spreads a bag into its component) and has no default.
+   */
+  unpassedProp?: (sym: ts.Symbol) => boolean;
   /**
    * Where `this` lives for the code of a class member (method, accessor,
    * constructor, field initialiser): a local of `owner`, a `maybe` one while
@@ -894,12 +904,49 @@ export class Lowerer {
       const op = e.operatorToken.kind;
       if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
         const left = this.staticTruth(e.left, b, effects);
-        if (left === undefined) return undefined;
+        if (left === undefined) {
+          // `a && false` is falsy and `a || true` truthy whatever `a` is
+          // (it is still evaluated).
+          const and = op === K.AmpersandAmpersandToken;
+          const rightEffects: ts.Expression[] = [];
+          const right = this.staticTruth(e.right, b, rightEffects);
+          if (right !== and && right !== undefined) {
+            effects.push(e.left, ...rightEffects);
+            return right;
+          }
+          return undefined;
+        }
         if (op === K.AmpersandAmpersandToken ? !left : left) return left;
         return this.staticTruth(e.right, b, effects);
       }
       const eq = [K.EqualsEqualsEqualsToken, K.EqualsEqualsToken].includes(op);
       const ne = [K.ExclamationEqualsEqualsToken, K.ExclamationEqualsToken].includes(op);
+      // A value TypeScript types as only null (or only undefined) compared
+      // with null or undefined (a field untyped code never sets).
+      if (eq || ne) {
+        const nothing = (x: ts.Expression) =>
+          x.kind === K.NullKeyword
+            ? 'null'
+            : (ts.isIdentifier(x) && x.text === 'undefined' && !this.binding(x)) ||
+                ts.isVoidExpression(x)
+              ? 'undefined'
+              : undefined;
+        const [l, r] = [skipParens(e.left), skipParens(e.right)];
+        const other = nothing(r) ? l : nothing(l) ? r : undefined;
+        const lit = nothing(r) ?? nothing(l);
+        const t = other && this.checker.getTypeAtLocation(other);
+        const only =
+          t && t.flags & ts.TypeFlags.Null
+            ? 'null'
+            : t && t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)
+              ? 'undefined'
+              : undefined;
+        if (other && lit && only) {
+          const loose = op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken;
+          if (!ts.isIdentifier(other)) effects.push(other);
+          return (loose || only === lit) === eq;
+        }
+      }
       // A prop that takes one value at every site (a discriminant, bits-ui's
       // `type`) compared with a string.
       if ((eq || ne) && ts.isStringLiteralLike(e.right)) {
@@ -940,11 +987,10 @@ export class Lowerer {
       return undefined;
     }
     // A value that only holds null or undefined (a prop no site passes,
-    // a box of one: frontend/unions.ts) is falsy.
-    if ((ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) && this.unions.nothing(e)) {
-      if (!ts.isIdentifier(e)) effects.push(e);
+    // a getter box of one: frontend/unions.ts) is falsy. Reading it has no
+    // effect (the getters only return such values), so it is not read.
+    if ((ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) && this.unions.nothing(e))
       return false;
-    }
     if (
       ts.isCallExpression(e) &&
       e.arguments.length === 1 &&
@@ -2510,11 +2556,27 @@ export class Lowerer {
             ),
             b,
           );
+        // Untyped JavaScript (`unknown` from an untyped context key): the
+        // branches' one IR type.
+        const own = this.types.typeOrUndefined(e);
+        if (own === undefined) {
+          const test = this.condition(c.condition, b);
+          const then = this.expr(c.whenTrue, b);
+          const other = this.expr(c.whenFalse, b);
+          const tt = this.irType(then, b);
+          if (!sameType(tt, this.irType(other, b)))
+            return this.fail(
+              e,
+              'E_TYPE_UNSUPPORTED',
+              'The branches of this untyped conditional have different types',
+            );
+          return { op: 'cond', test, then, else: other };
+        }
         return {
           op: 'cond',
           test: this.condition(c.condition, b),
-          then: this.coerce(c.whenTrue, b, this.types.of(e)),
-          else: this.coerce(c.whenFalse, b, this.types.of(e)),
+          then: this.coerce(c.whenTrue, b, own),
+          else: this.coerce(c.whenFalse, b, own),
         };
       }
       case K.TypeOfExpression: {
@@ -3110,7 +3172,7 @@ export class Lowerer {
           b,
           this.types.typeOrUndefined(e) ?? this.irType(this.expr(e.right, b), b),
         );
-        return ts.isIdentifier(skipParens(e.left)) ? right : this.after([e.left], right, b);
+        return right;
       }
       const left = this.expr(e.left, b);
       const lt = this.irType(left, b);
@@ -3933,7 +3995,7 @@ export class Lowerer {
         return this.fail(
           e,
           'E_EVENT',
-          'Event objects support type, key, code, ctrlKey/shiftKey/altKey/metaKey, repeat, clientX/clientY, button/buttons, deltaX/deltaY, target, currentTarget, defaultPrevented, target.value/checked, preventDefault(), stopPropagation() and stopImmediatePropagation()',
+          'Event objects support type, key, code, ctrlKey/shiftKey/altKey/metaKey, repeat, clientX/clientY, button/buttons, deltaX/deltaY, detail, pointerType, target, currentTarget, defaultPrevented, target.value/checked, preventDefault(), stopPropagation() and stopImmediatePropagation()',
         );
       return { op: 'builtin', name: `event.${name}`, args: [object], type };
     }

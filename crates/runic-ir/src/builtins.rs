@@ -636,7 +636,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Event, "event")?;
             match m {
-                "type" | "key" | "code" | "value" => Ok(s),
+                "type" | "key" | "code" | "value" | "pointerType" => Ok(s),
                 "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "checked"
                 | "defaultPrevented" | "matches" => Ok(b),
                 "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" | "detail" => Ok(n),

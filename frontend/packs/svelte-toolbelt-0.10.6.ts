@@ -321,6 +321,21 @@ function box(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   };
 }
 
+/**
+ * `boxFrom(value)` (dist/box/box-extras.svelte.js): a box as it is, a
+ * function as `boxWith(value)`, anything else as `simpleBox(value)`,
+ * decided by the value's type.
+ */
+function boxFrom(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [value] = node.arguments;
+  if (!value || node.arguments.length !== 1 || ts.isSpreadElement(value))
+    return lower.fail(node, 'E_PACK', `${LABEL}: boxFrom takes a value`);
+  const t = lower.types.typeOrUndefined(value);
+  if (t !== undefined && boxValue(lower, t) !== undefined) return lower.expr(value, b);
+  if (typeof t === 'object' && 'fn' in t) return boxWith(node, b, lower);
+  return box(node, b, lower);
+}
+
 /** DOMContext records, per program. */
 const domContexts = new WeakMap<Lowerer, number>();
 
@@ -549,7 +564,12 @@ export const svelteToolbeltPack: Pack = {
       case 'boxWith':
         return { kind: 'function', call: boxWith };
       case 'box':
+      // simpleBox(initial) (dist/box/box-extras.svelte.js): a `$state` behind
+      // a getter and a setter, as box(initial).
+      case 'simpleBox':
         return { kind: 'function', call: box };
+      case 'boxFrom':
+        return { kind: 'function', call: boxFrom };
       case 'mergeProps':
         return {
           kind: 'function',
@@ -572,7 +592,7 @@ export const svelteToolbeltPack: Pack = {
           construct: newDomContext,
         };
     }
-    return `${LABEL} covers box, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect, srOnlyStyles and DOMContext, not ${imported}`;
+    return `${LABEL} covers box, simpleBox, boxFrom, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect, srOnlyStyles and DOMContext, not ${imported}`;
   },
   type(t, at, lower) {
     // DOMContext (dist/utils/dom-context.svelte.d.ts).

@@ -227,6 +227,7 @@ export const EVENT_MEMBERS: Record<string, Type> = {
   deltaX: N,
   deltaY: N,
   detail: N,
+  pointerType: S,
   defaultPrevented: B,
   target: 'element',
   relatedTarget: { maybe: 'element' },

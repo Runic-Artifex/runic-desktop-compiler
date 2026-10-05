@@ -3034,6 +3034,15 @@ impl<'p> Machine<'p> {
                     "button" => Val::Num(d.button),
                     "buttons" => Val::Num(d.buttons),
                     "detail" => Val::Num(d.detail),
+                    "pointerType" => match d.pointer_type() {
+                        Some(t) => Val::Str(JsString::from(t)),
+                        None => {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "pointerType of an event that is not a pointer event",
+                            ));
+                        }
+                    },
                     "deltaX" => Val::Num(d.delta_x),
                     "deltaY" => Val::Num(d.delta_y),
                     "target" => Val::Element(d.target),

@@ -82,7 +82,8 @@ export class TypeMapper {
     const o = this.overridden(node);
     if (o) return o;
     const t = this.checker.getTypeAtLocation(node);
-    if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+    // (A value TypeScript types as only null says nothing about its IR type.)
+    if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Null)) return undefined;
     const mapped = this.tryMap(t, node);
     if (mapped !== undefined) return mapped;
     if (containsAny(t, this.checker)) return undefined;
@@ -144,7 +145,21 @@ export class TypeMapper {
     if (t.flags & (F.Boolean | F.BooleanLiteral)) return 'boolean';
     if (t.flags & (F.Void | F.Undefined)) return 'void';
     if (t.flags & F.EnumLiteral && t.isUnion()) return this.map(t.types[0], at);
-    if (t.isUnion()) return this.union(t.types, at);
+    if (t.isUnion()) {
+      // A union containing itself (`ClassValue = … | ClassValue[]`) is outside the value model.
+      if (this.unions.has(t))
+        return this.fail(
+          at,
+          'E_TYPE_UNION',
+          `Recursive union ${this.checker.typeToString(t)} is outside the value model`,
+        );
+      this.unions.add(t);
+      try {
+        return this.union(t.types, at);
+      } finally {
+        this.unions.delete(t);
+      }
+    }
     if (t.flags & (F.Any | F.Unknown))
       this.fail(
         at,
@@ -171,6 +186,13 @@ export class TypeMapper {
       if (packed) return packed;
     }
     if (t.flags & F.Object) return this.object(t as ts.ObjectType, at);
+    // A style object typed by csstype (bits-ui's and svelte-toolbelt's
+    // `StyleProperties = CSS.Properties & { [str: \`--${string}\`]: any }`): a
+    // dictionary of property names (camelCase or custom) and values, in
+    // insertion order, a value of another type converted to a string where
+    // it is given (style objects only ever print their values).
+    if (t.flags & F.Intersection && (t as ts.IntersectionType).types.some(cssType))
+      return { map: ['string', { maybe: 'string' }] };
     // An intersection of object types (`Props & { props: … }`) is the record of their properties.
     if (t.flags & F.Intersection) {
       // A DOM handle refined by an intersection (bits-ui's `MouseEvent & { currentTarget: … }`).
@@ -181,6 +203,9 @@ export class TypeMapper {
     }
     return this.fail(at, 'E_TYPE_UNSUPPORTED', `Unsupported type ${this.checker.typeToString(t)}`);
   }
+
+  /** Unions being mapped (recursion guard). */
+  private readonly unions = new Set<ts.Type>();
 
   private union(parts: ts.Type[], at: ts.Node): Type {
     const F = ts.TypeFlags;
@@ -199,9 +224,12 @@ export class TypeMapper {
     else if (rest.every(p => this.plainObject(p)) && this.mergeable(rest, at))
       base = { record: this.unionRecord(rest, at) };
     else {
-      const mapped = rest.map(p => this.map(p, at));
+      // (A member outside the value model does not decide yet: the union
+      // may be narrowed to another one.)
+      const mapped = rest.map(p => (this.narrow ? this.tryMap(p, at) : this.map(p, at)));
       const first = JSON.stringify(mapped[0]);
-      if (mapped.every(m => JSON.stringify(m) === first)) base = mapped[0];
+      if (mapped[0] !== undefined && mapped.every(m => JSON.stringify(m) === first))
+        base = mapped[0]!;
       // Narrowed by the values that reach it (frontend/unions.ts).
       else if (this.narrow) base = this.map(this.narrow(rest, at, this.fail), at);
       else
@@ -733,6 +761,12 @@ export class TypeMapper {
     return i;
   }
 }
+
+/** Whether `t` is declared by the csstype package (CSS property types). */
+const cssType = (t: ts.Type): boolean =>
+  /[\\/]node_modules[\\/]csstype[\\/]/.test(
+    (t.aliasSymbol ?? t.symbol)?.declarations?.[0]?.getSourceFile().fileName ?? '',
+  );
 
 export const sameType = (a: Type, b: Type) => JSON.stringify(a) === JSON.stringify(b);
 

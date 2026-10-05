@@ -378,3 +378,46 @@ test('values a union takes are traced: a prop no site passes gives none', async 
     },
   );
 });
+
+test('untyped class fields only ever null, untyped conditionals, pointerType', async () => {
+  await withApp(
+    {
+      'timer.svelte.js': `export class Timer {
+  #pending = null;
+  label = $state('idle');
+  pick(flag) {
+    return flag ? this.word('yes') : this.word('no');
+  }
+  word(w) {
+    return w;
+  }
+  stop() {
+    if (this.#pending !== null) {
+      clearTimeout(this.#pending);
+      this.label = 'cleared';
+      return;
+    }
+    this.label = 'nothing';
+  }
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { Timer } from './timer.svelte.js';
+  const timer = new Timer();
+  let kinds = $state('');
+</script>
+
+<button id="b" onclick={(e) => { timer.stop(); kinds += e.pointerType + ';' + timer.pick(kinds.length > 0) + ';'; }}>{timer.label} {kinds}</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'b' },
+        { kind: 'keydown', id: 'b', key: 'Enter' },
+      ]);
+      assert.equal(text(steps[1].state.dom[0]), 'nothing mouse;no;');
+      assert.equal(text(steps[2].state.dom[0]), 'nothing mouse;no;;yes;');
+    },
+  );
+});
