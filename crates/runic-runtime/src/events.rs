@@ -85,11 +85,6 @@ impl<A: App> Document for Native<A> {
         // animations settle before the frame is rendered, as in Chromium.
         if crate::animations::active() {
             self.animation_step();
-        } else if crate::animations::any_animated() || self.doc.is_animating() {
-            // A style resolution of the runtime's first restyles elements
-            // whose animation the DOM changes cancelled (Stylo leaves them
-            // animated: crate::animations::restyle_cancelled).
-            crate::timeline::resolve(&mut self.doc);
         }
         // The shell resizes the viewport or changes its color scheme and
         // then redraws: the next poll runs the rendering step for it.

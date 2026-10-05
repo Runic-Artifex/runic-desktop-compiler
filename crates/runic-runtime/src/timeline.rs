@@ -50,17 +50,5 @@ pub(crate) fn now() -> f64 {
 pub(crate) fn resolve(doc: &mut BaseDocument) {
     let now = now();
     doc.resolve(now);
-    let stale = crate::animations::restyle_cancelled(doc);
-    if !stale.is_empty() {
-        for id in stale {
-            if let Some(n) = doc.get_node_mut(id) {
-                n.set_restyle_hint(
-                    style::invalidation::element::restyle_hints::RestyleHint::RESTYLE_SELF,
-                );
-            }
-        }
-        doc.resolve(now);
-        crate::animations::restyle_cancelled(doc);
-    }
     crate::animations::observe(doc, now);
 }
