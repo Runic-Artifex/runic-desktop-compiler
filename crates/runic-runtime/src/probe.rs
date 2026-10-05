@@ -121,6 +121,14 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
         .into_iter()
         // The runtime's own select popup is not page content.
         .filter(|&n| native.pointer.popup_list() != Some(n))
+        // Like the browser harness, which cannot tell the page's own
+        // whitespace from a portal's: whitespace-only text directly in
+        // the body is left out.
+        .filter(|&n| {
+            doc.get_node(n)
+                .and_then(|n| n.text_data())
+                .is_none_or(|t| !t.content.trim().is_empty())
+        })
         .collect();
     let mut geometry = Map::new();
     let mut stack: Vec<NodeId> = portals.iter().rev().copied().collect();
