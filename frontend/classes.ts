@@ -526,6 +526,11 @@ export class Classes {
           if (f?.decl) declared.push(this.declaredType(f.decl));
           for (const r of x.redeclared ?? [])
             if (memberName(r.name) === name) declared.push(this.declaredType(r));
+          // A constructor parameter passed on to the base constructor that
+          // sets the field (bits-ui's AccordionMultiState keeps `opts` as
+          // its base sets it): its type shares the record too.
+          const forwarded = this.forwardedTo(x, name);
+          if (forwarded) declared.push(this.lower.checker.getTypeAtLocation(forwarded));
         }
         if (!this.lower.types.mergeRecords(declared, decl))
           this.fail(
@@ -802,7 +807,7 @@ export class Classes {
           const ok =
             !!other &&
             other !== f &&
-            !isDerived(other) &&
+            (!isDerived(other) || !this.derivedReaches(info, other, f, new Set())) &&
             !fnType(other.type) &&
             !fnType(maybeInner(other.type)) &&
             !member((p as ts.PropertyAccessExpression).name);
@@ -815,6 +820,37 @@ export class Classes {
       f.late = true;
       f.type = { maybe: f.type };
     }
+  }
+
+  /**
+   * Whether the derived field `d` may read the field `f` through `this`: its
+   * initialiser names `this.f`, calls a method or accessor of `this`, or
+   * reads another derived field that may (bits-ui's AccordionItemState reads
+   * `this.isActive`, which reads `this.root` and `this.opts`, while
+   * constructing the `contentPresence` it sets).
+   */
+  private derivedReaches(info: ClassInfo, d: Field, f: Field, seen: Set<Field>): boolean {
+    if (seen.has(d)) return false;
+    seen.add(d);
+    const init = d.decl?.initializer;
+    if (!init) return true;
+    let reaches = false;
+    const visit = (n: ts.Node) => {
+      if (reaches) return;
+      if (n.kind === ts.SyntaxKind.ThisKeyword) {
+        const p = n.parent;
+        if (!ts.isPropertyAccessExpression(p) || p.expression !== n) reaches = true;
+        else {
+          const other = this.fieldNamed(info, p.name);
+          if (!other) reaches = true;
+          else if (other === f) reaches = true;
+          else if (isDerived(other) && this.derivedReaches(info, other, f, seen)) reaches = true;
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(init);
+    return reaches;
   }
 
   /** Structural checks: what the class lowering supports. */
@@ -872,6 +908,47 @@ export class Classes {
     }
   }
 
+  /**
+   * The parameter of `info`'s constructor that its top-level `super(…)`
+   * passes on to a base constructor setting `this.name` to it (directly or
+   * passing it on again), if any.
+   */
+  private forwardedTo(info: ClassInfo, name: string): ts.ParameterDeclaration | undefined {
+    const sets = (x: ClassInfo | undefined, index: number): boolean => {
+      const ctor = x?.ctor;
+      const p = ctor?.parameters[index];
+      if (!x || !ctor || !p || !ts.isIdentifier(p.name)) return false;
+      const own = (p.name as ts.Identifier).text;
+      for (const s of ctor.body?.statements ?? []) {
+        const target = thisAssignment(s);
+        if (target?.name.text === name) {
+          const value = skipParens(
+            ((s as ts.ExpressionStatement).expression as ts.BinaryExpression).right,
+          );
+          if (ts.isIdentifier(value) && value.text === own) return true;
+        }
+        const i = superArgIndex(s, own);
+        if (i !== undefined && sets(x.base && this.explicitOwner(x.base), i)) return true;
+      }
+      return false;
+    };
+    const ctor = info.ctor;
+    if (!ctor || !info.base) return undefined;
+    for (const s of ctor.body?.statements ?? [])
+      for (const p of ctor.parameters) {
+        if (!ts.isIdentifier(p.name)) continue;
+        const i = superArgIndex(s, p.name.text);
+        if (i !== undefined && sets(this.explicitOwner(info.base), i)) return p;
+      }
+    return undefined;
+  }
+
+  /** The nearest of `info` and its base classes with a declared constructor. */
+  private explicitOwner(info: ClassInfo | undefined): ClassInfo | undefined {
+    for (let x = info; x; x = x.base) if (x.ctor) return x;
+    return undefined;
+  }
+
   /** The TypeScript type a field declaration gives. */
   private declaredType(decl: ts.PropertyDeclaration): ts.Type {
     const checker = this.lower.checker;
@@ -879,8 +956,35 @@ export class Classes {
     return sym ? checker.getTypeOfSymbolAtLocation(sym, decl) : checker.getTypeAtLocation(decl);
   }
 
+  /**
+   * An arrow function whose one parameter is an array pattern of a tuple
+   * (bits-ui's `#updateDimensions = ([_, node]) => …`, an effect of runed's
+   * `watch` over several sources): a function of the tuple's elements, one
+   * parameter each (runed's pack calls it so).
+   */
+  private tupleArrow(e: ts.Expression | undefined): ts.ArrowFunction | undefined {
+    const inner = e && skipParens(e);
+    if (!inner || !ts.isArrowFunction(inner) || inner.parameters.length !== 1) return undefined;
+    const p = inner.parameters[0];
+    if (!ts.isArrayBindingPattern(p.name)) return undefined;
+    return this.lower.checker.isTupleType(this.lower.checker.getTypeAtLocation(p))
+      ? inner
+      : undefined;
+  }
+
   private fieldType(f: Field, info: ClassInfo): Type {
     const checker = this.lower.checker;
+    const arrow = this.tupleArrow(f.decl?.initializer);
+    if (arrow) {
+      const tuple = checker.getTypeAtLocation(arrow.parameters[0]) as ts.TypeReference;
+      const sig = checker.getSignatureFromDeclaration(arrow)!;
+      return {
+        fn: {
+          params: checker.getTypeArguments(tuple).map(t => this.lower.types.map(t, arrow)),
+          result: this.lower.types.map(sig.getReturnType(), arrow),
+        },
+      };
+    }
     let t: ts.Type;
     if (f.param) t = checker.getTypeAtLocation(f.param.name);
     else if (f.decl) {
@@ -1754,6 +1858,22 @@ export class Classes {
         inner,
         'A rune here is unsupported: reactive fields are declared by a rune that is the whole field initialiser or constructor assignment',
       );
+    if (this.tupleArrow(inner)) {
+      const { index, builder } = lower.function(
+        inner as ts.ArrowFunction,
+        `${b.name}.closure`,
+        b,
+        b.component,
+        undefined,
+        undefined,
+        { tupleParams: true },
+      );
+      return {
+        op: 'closure',
+        function: index,
+        captures: builder.captureSources.map(c => c.local),
+      };
+    }
     if (ts.isArrowFunction(inner)) return lower.expr(e, b);
     if (ts.isCallExpression(inner) && this.methodToBind(inner, info, temps))
       return this.bind(inner, b, temps)!;
@@ -2827,6 +2947,16 @@ function thisAssignment(s: ts.Statement): ts.PropertyAccessExpression | undefine
   return ts.isPropertyAccessExpression(t) && t.expression.kind === ts.SyntaxKind.ThisKeyword
     ? t
     : undefined;
+}
+
+/** The argument index at which a `super(…)` statement `s` passes the identifier `name`. */
+function superArgIndex(s: ts.Statement, name: string): number | undefined {
+  if (!superCallStatement(s)) return undefined;
+  const args = ((s as ts.ExpressionStatement).expression as ts.CallExpression).arguments;
+  const i = args.findIndex(
+    a => ts.isIdentifier(skipParens(a)) && (skipParens(a) as ts.Identifier).text === name,
+  );
+  return i < 0 ? undefined : i;
 }
 
 /** Whether `s` is a `super(…)` call statement. */

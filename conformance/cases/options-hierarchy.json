@@ -1,5 +1,5 @@
 {
-  "description": "The shared-layer parts bits-ui's ToggleGroup and shadcn-svelte's toggle-group wrappers use, in app code without layout reads (also checked by conformance/differential.mjs): a class hierarchy whose subclasses declare their options field again with narrower types (one record for the options types, boxes of different value types behind one field), constructed from the rest of an options object after its discriminant; a component with discriminated union props (every site passes type multiple); svelte's setContext/getContext with an object of getters read through Required<…>; an optional prop bound to a variable of the present type; ||  with a nullable right operand; an array element past the end compared with ===. Pressed by clicks, set from outside, a single group of the same hierarchy made directly",
+  "description": "The shared-layer parts bits-ui's ToggleGroup, Accordion and shadcn-svelte's wrappers use, in app code without layout reads (also checked by conformance/differential.mjs): a class hierarchy whose subclasses declare their options field again with narrower types or keep the options their base sets (one record for the options types, boxes of different value types behind one field), constructed from the rest of an options object after its discriminant; a field set from a constructor that reads a derived field while it runs; runed's watch with a field holding an arrow function over the sources' tuple; a component with discriminated union props (every site passes type multiple); svelte's setContext/getContext with an object of getters read through Required<…>; an optional prop bound to a variable of the present type; || with a nullable right operand; an array element past the end compared with ===. Pressed by clicks, set from outside, a single group and a list group of the same hierarchy made directly",
   "fixtures": ["options-hierarchy-svelte"],
   "actions": [
     { "kind": "click", "id": "italic" },
@@ -14,6 +14,10 @@
     { "kind": "click", "id": "size-s" },
     { "kind": "click", "id": "two" },
     { "kind": "click", "id": "one" },
-    { "kind": "click", "id": "two" }
+    { "kind": "click", "id": "two" },
+    { "kind": "click", "id": "pick-x" },
+    { "kind": "click", "id": "pick-y" },
+    { "kind": "click", "id": "pick-x" },
+    { "kind": "click", "id": "pick-y" }
   ]
 }

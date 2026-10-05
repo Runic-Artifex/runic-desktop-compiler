@@ -1,0 +1,44 @@
+{
+  "description": "bits-ui's Accordion of type multiple compiled from its published source through shadcn-svelte's unmodified accordion wrappers and the accordion-multiple demo, and an accordion bound to the app's string array with a disabled item. Opened and closed independently by clicks and by Enter and Space on the focused trigger; arrow keys move focus through bits-ui's roving focus group (looping, skipping the disabled item), Home and End; set from outside through the bound value (also opening the disabled item); onValueChange counts the accordion's own changes. aria-expanded, data-state, hidden content, the measured size and focus rings (pixel regions). The accordions mount when the app's Show button is pressed: bits-ui measures open content while it mounts, and Chromium lays text out with a fallback font until the app's font has loaded, after the app mounted (docs/BLITZ-GAPS.md, web fonts while the app mounts). The content's open and close keyframes (tw-animate-css's accordion-down/up) are left out of the stylesheet: bits-ui awaits getAnimations() before it hides closed content, which is rejected while animations are declared",
+  "fixtures": [
+    "bits-accordion-multiple-svelte"
+  ],
+  "viewports": [
+    [800, 1000],
+    [420, 1200]
+  ],
+  "pixelRegions": [
+    "multiple",
+    "bound"
+  ],
+  "actions": [
+    { "kind": "click", "id": "show" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Home" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "press", "key": "End" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowUp" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "a" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "click", "id": "b" },
+    { "kind": "click", "id": "c" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "press", "key": "ArrowUp" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "click", "id": "reset" },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "click", "id": "c" },
+    { "kind": "wait", "ms": 300 }
+  ]
+}

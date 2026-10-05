@@ -244,28 +244,57 @@ function watch(phase: 'pre' | 'post') {
     // The effect: called with the values (element by element for an array
     // of sources) and, for one source, the previous value.
     const e = skipParens(effect);
-    if (!(ts.isArrowFunction(e) || ts.isFunctionExpression(e)))
-      return lower.fail(effect, 'E_PACK', `${LABEL}: ${name} takes an inline effect function`);
-    if (tuple && e.parameters.length > 1)
-      lower.fail(
-        e.parameters[1],
-        'E_PACK',
-        `${LABEL}: previous values of several sources are not covered`,
-      );
     const single = values[0]?.type;
-    const { index, builder } = lower.function(
-      e,
-      `${b.name}.${name}`,
-      b,
-      b.component,
-      undefined,
-      tuple
-        ? undefined
-        : [single, { maybe: maybeInner(single) ?? single }].slice(0, e.parameters.length),
-      { tupleParams: tuple },
-    );
-    const cb = lower.functions[index];
-    const result = cb.result;
+    let effectValue: Expr;
+    let cbParams: Type[];
+    let result: Type;
+    if (ts.isArrowFunction(e) || ts.isFunctionExpression(e)) {
+      if (tuple && e.parameters.length > 1)
+        lower.fail(
+          e.parameters[1],
+          'E_PACK',
+          `${LABEL}: previous values of several sources are not covered`,
+        );
+      const { index, builder } = lower.function(
+        e,
+        `${b.name}.${name}`,
+        b,
+        b.component,
+        undefined,
+        tuple
+          ? undefined
+          : [single, { maybe: maybeInner(single) ?? single }].slice(0, e.parameters.length),
+        { tupleParams: tuple },
+      );
+      const cb = lower.functions[index];
+      effectValue = {
+        op: 'closure',
+        function: index,
+        captures: builder.captureSources.map(c => c.local),
+      };
+      cbParams = cb.params.map(p => p.type);
+      result = cb.result;
+    } else {
+      // A function value of the sources' values (a class field holding an
+      // arrow function, bits-ui's `this.#updateDimensions`; an array
+      // pattern parameter takes the values one by one, frontend/classes.ts).
+      effectValue = lower.expr(effect, b);
+      const t = lower.irType(effectValue, b);
+      const want = tuple ? values.map(v => v.type) : [single];
+      if (
+        typeof t !== 'object' ||
+        !('fn' in t) ||
+        t.fn.params.length !== want.length ||
+        t.fn.params.some((p, i) => JSON.stringify(p) !== JSON.stringify(want[i]))
+      )
+        return lower.fail(
+          effect,
+          'E_PACK',
+          `${LABEL}: ${name} takes an inline effect function or a function of the sources' values`,
+        );
+      cbParams = t.fn.params;
+      result = t.fn.result;
+    }
     const cleanup = (t: Type) =>
       t === 'void' ||
       (typeof t === 'object' && 'fn' in t && !t.fn.params.length && t.fn.result === 'void') ||
@@ -276,7 +305,7 @@ function watch(phase: 'pre' | 'post') {
         !t.maybe.fn.params.length);
     if (!cleanup(result))
       lower.fail(e, 'E_PACK', `${LABEL}: ${name} effects return nothing or a cleanup function`);
-    const cbType: Type = { fn: { params: cb.params.map(p => p.type), result } };
+    const cbType: Type = { fn: { params: cbParams, result } };
     const runResult: Type =
       result === 'void' ? 'void' : maybeInner(result) ? result : { maybe: result };
     // The run function's captures: getters, the effect, `active`, the previous values.
@@ -335,7 +364,7 @@ function watch(phase: 'pre' | 'post') {
     ];
     const args: Expr[] = tuple
       ? values.map((_, i) => local(valueLocal(i)))
-      : [local(valueLocal(0)), local(previous)].slice(0, cb.params.length);
+      : [local(valueLocal(0)), local(previous)].slice(0, cbParams.length);
     const call: Expr = {
       op: 'builtin',
       name: 'reactive.untrack-call',
@@ -372,14 +401,7 @@ function watch(phase: 'pre' | 'post') {
     // Bind the getters, the effect and the state, then create the effect.
     const temps = [
       ...values.map((v, i) => ({ local: b.local(`$source${i}`, captures[i].type), value: v.fn })),
-      {
-        local: b.local('$effect', cbType),
-        value: {
-          op: 'closure',
-          function: index,
-          captures: builder.captureSources.map(c => c.local),
-        } as Expr,
-      },
+      { local: b.local('$effect', cbType), value: effectValue },
       { local: b.local('$active', 'boolean', true), value: { op: 'lit', value: !lazy } as Expr },
       ...(tuple
         ? []

@@ -1676,9 +1676,10 @@ export class Lowerer {
   /**
    * A field of a merged record (frontend/types.ts `mergeRecords`, bits-ui's
    * options of a class hierarchy) as TypeScript types it where it is read: a
-   * field some of the merged types lack is present where it is used as a
-   * receiver (JavaScript throws a TypeError there too), and a class union
-   * narrows to the class TypeScript names (TypeError when it is another).
+   * field some of the merged types lack is read through a type that has it
+   * (only those types name it), so it is present (unwrapped; a TypeError if
+   * the program broke its types), and a class union narrows to the class
+   * TypeScript names (TypeError when it is another).
    */
   private mergedRead(
     read: Expr,
@@ -1692,12 +1693,6 @@ export class Lowerer {
     let value = read;
     let type = have;
     if (maybeInner(have) && !maybeInner(here)) {
-      if (!this.isReceiver(e))
-        return this.fail(
-          e,
-          'E_MEMBER',
-          `${e.getText()} is absent from some of the options types sharing its record; read it as a receiver (x.${e.name.getText()}.member) or as optional`,
-        );
       value = { op: 'unwrap', value };
       type = maybeInner(have)!;
     }

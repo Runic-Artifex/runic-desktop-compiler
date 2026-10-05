@@ -504,3 +504,35 @@ test('svelte contexts with string keys, getter objects, bound optional props, ca
       }),
   );
 });
+
+test('Accordion: single and multiple compile; watch effects are functions of the values', async () => {
+  // The fixtures read layout (the content's size), so the conformance cases
+  // bits-accordion and bits-accordion-multiple run them.
+  for (const fixture of [
+    'fixtures/bits-accordion-svelte',
+    'fixtures/bits-accordion-multiple-svelte',
+  ]) {
+    const { ir } = await lowered(fixture);
+    assert.ok(
+      ir.components.some(c => c.name === 'accordion-content'),
+      fixture,
+    );
+  }
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { watch } from 'runed';
+  let a = $state(1);
+  const f = (s: string) => console.log(s);
+  watch(() => a, f as never);
+</script>
+<p>{a}</p>
+`,
+    },
+    async root =>
+      assert.rejects(
+        lowered(root),
+        failWith('E_PACK', 'App.svelte', /function of the sources' values/),
+      ),
+  );
+});

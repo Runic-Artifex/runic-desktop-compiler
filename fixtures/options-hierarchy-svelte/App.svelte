@@ -6,7 +6,7 @@
   import { boxWith, type WritableBox } from 'svelte-toolbelt';
   import Group from './Group.svelte';
   import Item from './Item.svelte';
-  import { createGroup } from './group.svelte.ts';
+  import { createGroup, createList } from './group.svelte.ts';
 
   let marks = $state<string[]>(['bold']);
   let changes = $state(0);
@@ -21,6 +21,17 @@
     ) as WritableBox<string> | WritableBox<string[]>,
     name: boxWith(() => 'size'),
     loop: boxWith(() => false),
+  });
+
+  // A group of the subclass that keeps the options its base sets.
+  let picks = $state<string[]>([]);
+  const list = createList({
+    value: boxWith(
+      () => picks,
+      (v: string[]) => (picks = v),
+    ),
+    name: boxWith(() => 'list'),
+    loop: boxWith(() => true),
   });
 </script>
 
@@ -41,9 +52,16 @@
         {s}
       </button>
     {/each}
+    {#each ['x', 'y'] as p (p)}
+      <button id="pick-{p}" class={list.includes(p) ? 'current' : ''} onclick={() => list.toggle(p)}>
+        {p}
+      </button>
+    {/each}
     <button id="reset" onclick={() => (marks = ['italic'])}>Italic only</button>
     <button id="clear" onclick={() => (marks = [])}>Clear</button>
   </div>
   <p id="state">{marks.join(',')} {changes} {size} {sizes.label} {sizes.anyPressed}</p>
+  <p id="list">{picks.join(',')} {list.label} {list.anyPressed} {list.summary.first} / {list.summary.now}</p>
+  <p id="history">{list.history.join(' ')}</p>
   <p id="first">{marks[0] === 'bold' ? 'bold first' : 'other first'}</p>
 </main>

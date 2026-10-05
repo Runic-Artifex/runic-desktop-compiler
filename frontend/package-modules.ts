@@ -359,6 +359,56 @@ export function inferFields(
           );
         let open = false;
         const init = member.initializer;
+        // An arrow function with untyped parameters that the class passes as
+        // runed's `watch(sources, effect)` effect (bits-ui's
+        // `watch([() => this.open, () => this.opts.ref.current],
+        // this.#updateDimensions)`): the function of the sources' values, as
+        // if written there (TypeScript infers the sources' types from the
+        // untyped effect too, so they are read from the getters).
+        if (init && ts.isArrowFunction(init) && init.parameters.some(p => !p.type)) {
+          const expected: string[] = [];
+          const visitArg = (n: ts.Node) => {
+            if (
+              ts.isPropertyAccessExpression(n) &&
+              n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+              n.name.getText() === fieldName &&
+              ts.isCallExpression(n.parent) &&
+              n.parent.arguments[1] === n
+            ) {
+              const call = n.parent;
+              const callee = ts.isPropertyAccessExpression(call.expression)
+                ? call.expression.expression
+                : call.expression;
+              const sources = call.arguments[0];
+              const watch =
+                ts.isIdentifier(callee) &&
+                callee.text === 'watch' &&
+                /[\\/]runed[\\/]/.test(declaredIn(checker, callee));
+              const getters =
+                watch && ts.isArrayLiteralExpression(sources)
+                  ? sources.elements.map(g =>
+                      ts.isArrowFunction(g)
+                        ? checker.getSignaturesOfType(
+                            checker.getTypeAtLocation(g),
+                            ts.SignatureKind.Call,
+                          )[0]
+                        : undefined,
+                    )
+                  : undefined;
+              const values = getters?.map(s => (s ? print(s.getReturnType(), n) : undefined));
+              if (values && values.every(v => v !== undefined)) {
+                const tuple = `[${values.join(', ')}]`;
+                const text = `((values: ${tuple}) => void)`;
+                if (!expected.includes(text)) expected.push(text);
+              } else expected.push('');
+            }
+            ts.forEachChild(n, visitArg);
+          };
+          stmt.members.forEach(visitArg);
+          if (expected.length === 1 && expected[0] && next.get(key) !== expected[0])
+            next.set(key, expected[0]);
+          if (expected.length) continue;
+        }
         // svelte-toolbelt's `box(initial)` (a writable box of any value):
         // the box of its initial value and of the values the class writes
         // to its `current` (RovingFocusGroup's `#currentTabStopId = box(null)`).
@@ -408,13 +458,18 @@ export function inferFields(
           if (p === undefined) open = true;
           else addType(p);
         }
-        // Assignments `this.f = value` in the class.
+        // Assignments `this.f = value` in the class (also `??=` and `||=`,
+        // which keep the field's value or assign `value`).
         let assigned = 0;
         let topLevel = false;
         const visit = (n: ts.Node) => {
           if (
             ts.isBinaryExpression(n) &&
-            n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+            [
+              ts.SyntaxKind.EqualsToken,
+              ts.SyntaxKind.QuestionQuestionEqualsToken,
+              ts.SyntaxKind.BarBarEqualsToken,
+            ].includes(n.operatorToken.kind) &&
             ts.isPropertyAccessExpression(n.left) &&
             n.left.expression.kind === ts.SyntaxKind.ThisKeyword &&
             n.left.name.getText() === fieldName
