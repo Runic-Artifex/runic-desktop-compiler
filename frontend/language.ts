@@ -1654,6 +1654,28 @@ export class Lowerer {
 
   /** A boolean test with JS truthiness. */
   condition(e: ts.Expression, b: FnBuilder): Expr {
+    // In a test only truthiness matters: `a && b` and `a || b` combine the
+    // operands' truthiness (short-circuiting as JavaScript does), whatever
+    // their types; `!a` negates it.
+    const inner = skipParens(e);
+    const known = this.staticValue(inner);
+    if (known) return { op: 'lit', value: !!known.value };
+    if (ts.isBinaryExpression(inner)) {
+      const op = inner.operatorToken.kind;
+      if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken) {
+        const and = op === ts.SyntaxKind.AmpersandAmpersandToken;
+        const left = this.staticValue(inner.left);
+        if (left)
+          return !!left.value === and ? this.condition(inner.right, b) : { op: 'lit', value: !and };
+        return {
+          op: and ? 'and' : 'or',
+          left: this.condition(inner.left, b),
+          right: this.condition(inner.right, b),
+        };
+      }
+    }
+    if (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken)
+      return { op: 'not', arg: this.condition(inner.operand, b) };
     const v = this.expr(e, b);
     return this.truthy(v, this.irType(v, b));
   }
