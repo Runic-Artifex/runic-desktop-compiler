@@ -535,4 +535,29 @@ test('Accordion: single and multiple compile; watch effects are functions of the
         failWith('E_PACK', 'App.svelte', /function of the sources' values/),
       ),
   );
+  // An effect that takes fewer values than there are sources (bits-ui's
+  // RadioGroupItemState watches two values with `() => …`).
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { watch } from 'runed';
+  let a = $state(1);
+  let b = $state(1);
+  let runs = $state(0);
+  watch([() => a, () => b], () => {
+    runs++;
+  });
+</script>
+<button id="a" onclick={() => a++}>{runs}</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'a' }]);
+      assert.deepEqual(
+        steps.map(s => text(byId(s, 'a'))),
+        ['1', '2'],
+      );
+    },
+  );
 });

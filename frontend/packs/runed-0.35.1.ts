@@ -363,7 +363,7 @@ function watch(phase: 'pre' | 'post') {
       },
     ];
     const args: Expr[] = tuple
-      ? values.map((_, i) => local(valueLocal(i)))
+      ? values.map((_, i) => local(valueLocal(i))).slice(0, cbParams.length)
       : [local(valueLocal(0)), local(previous)].slice(0, cbParams.length);
     const call: Expr = {
       op: 'builtin',
