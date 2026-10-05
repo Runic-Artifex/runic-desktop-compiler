@@ -254,6 +254,8 @@ Verified through shadcn-svelte's unmodified wrappers and demos, each with a case
 
 **One discriminant per program.** bits-ui's ToggleGroup and Accordion (and Slider) take `type: "single" | "multiple"` with `value: string | string[]` (`number | number[]`). Where every site of the component passes one literal for the discriminant (also through wrappers' rest props), the props take that member's types and the options class hierarchy's `opts` fields share one record (frontend/types.ts `mergeRecords`). A program using both types would need a value of either type, a union the value model does not have: it is rejected with `E_TYPE_UNION` naming the discriminant's values. Lifting this needs either an IR union of string and array (a shared-interface change to design standalone) or a component compiled once per discriminant value.
 
+Decided 2026-10-05 ([M6-OVERLAYS](M6-OVERLAYS.md#decisions-after-step-1-2026-10-05)): programs mixing discriminants are compiled by specialising the component per member that reaches it; until that lands, mixing stays `E_TYPE_UNION`.
+
 What each remaining part gives today (a minimal use of the part, 2026-10-05), in the order the north star needs them:
 
 - **Overlays** (Tooltip, Popover, DropdownMenu, Select, Dialog: step 7): imperative mounts, `ResizeObserver`, top-level calls and the `esm-env` pack are done; bits-ui's `Portal` is blocked by `PortalTarget = Element | string`, then floating-ui, focus scopes, `MutationObserver`, dismissal and scroll lock ([status](M6-OVERLAYS.md#status-2026-10-05-branch-m6-overlays)).

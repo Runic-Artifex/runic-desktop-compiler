@@ -30,6 +30,14 @@ What bits-ui's overlays need (Dialog, AlertDialog, Popover, Tooltip, DropdownMen
 
 Each component gets a case against Chromium from its shadcn-svelte demo, with keyboard interaction.
 
+## Decisions after step 1 (2026-10-05)
+
+- **Unions outside the value model** (bits-ui's `PortalTarget = Element | string`, Slider's `number | number[]`, ToggleGroup's and Accordion's `string | string[]`) are resolved without a general sum type in the IR, in two layers:
+  - **Narrowing.** A union-typed value takes the member type of the values that reach it: a prop from its sites and its default, a box from its getter, a local from its initialiser and assignments, as discriminated props already do. Tests on the member (`typeof to === "string"`, `Array.isArray(v)`) then fold at build time. This covers Portal (no site passes `to`, so the default `"body"` decides).
+  - **Specialisation.** Where different sites pass different members (a program with both a `single` and a `multiple` ToggleGroup, which every shadcn-svelte page family with both demos is), the component is compiled once per member combination that reaches it, with the classes it instantiates and the contexts it sets. Specialised components are ordinary IR components, so the backend does not change. A value whose member is only known while the program runs is still rejected (`E_TYPE_UNION`).
+- **`@floating-ui/core` is a pack**, not compiled from source (its declarations and code are far outside the language subset, listed under step 2). The positioning math (`computePosition` and the middleware bits-ui uses: `offset`, `flip`, `shift` with `limitShift`, `size`, `arrow`, `hide`) is native in `runic-js`. It is validated by vectors computed with the real package in Node, with fixed rectangles. The `@floating-ui/dom` platform and `autoUpdate` stay packs over native layout reads as decided; `IntersectionObserver` joins `ResizeObserver`'s frame model for `autoUpdate`'s `layoutShift`. The packs pin the north star's versions (core 1.7.3, dom 1.7.4, utils 0.2.10).
+- **CSS on SVG content** (the Tooltip arrow's `fill-foreground`, toggle-demo's icon fill) is a Blitz fork patch: serialise each SVG element's computed SVG properties for usvg ([gaps](../BLITZ-GAPS.md)). Until it lands, `fill` and the other SVG properties stay rejected.
+
 ## Status (2026-10-05, branch `m6-overlays`)
 
 **Step 1: imperative mounts. Done** (case `portal`, differential `portal-svelte`; [IR](../IR.md#components-and-instances)).
