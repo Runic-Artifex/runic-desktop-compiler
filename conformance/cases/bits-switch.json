@@ -7,10 +7,6 @@
     "demo",
     "row"
   ],
-  "knownGaps": {
-    "geometry": "Blitz centres the content of buttons with an author display: flex (its UA sheet gives buttons justify-content: center); Chromium starts it, so the thumb (no justify-content in the switch track) sits 5-7px further right natively (docs/BLITZ-GAPS.md, buttons with an author display; a fork patch)",
-    "pixels": "The same thumb offset (docs/BLITZ-GAPS.md, buttons with an author display)"
-  },
   "actions": [
     {
       "kind": "click",
