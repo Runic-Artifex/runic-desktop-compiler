@@ -1,8 +1,10 @@
 <script lang="ts">
-  // Imperative mounts (M6 overlays): content portalled to the body by a
-  // copy of bits-ui's Portal (./Portal.svelte), with the app's contexts and
-  // state, in mount order, unmounted with its portal or when disabled.
-  import Portal from './Portal.svelte';
+  // Imperative mounts (M6 overlays): content portalled to the body by
+  // bits-ui's Portal (compiled from its published source; its target, a
+  // union of an element and a selector, is the selector "body" by default),
+  // with the app's contexts and state, in mount order, unmounted with its
+  // portal or when disabled.
+  import { Portal } from 'bits-ui';
   import Badge from './Badge.svelte';
   import { ThemeContext } from './theme.ts';
 

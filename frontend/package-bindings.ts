@@ -104,7 +104,12 @@ export function packageBindings(
       lower.declare(symbol, init, name, undefined)?.();
       return lower.bindings.get(symbol);
     }
-    const type = lower.exprType(init);
+    // A constant the declaration file types (annotated in the typed module):
+    // that type, which untyped JavaScript in the initialiser takes as
+    // expected (bits-ui's `resolvePortalToProp = createPropResolver(…)`).
+    const declared = decl.type ? lower.types.of(decl.name) : undefined;
+    const type = declared ?? lower.exprType(init);
+    if (declared) lower.expected.set(init, declared);
     // The initialiser first: the globals it reaches are created before this one.
     const value = lower.value(init, undefined, `${name}$module`);
     if (type === 'number' || type === 'string' || type === 'boolean') {

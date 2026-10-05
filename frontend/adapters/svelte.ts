@@ -2063,6 +2063,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           inMember ??
           types.tryMap(checker.getTypeAtLocation(el.name), el.name);
         if (member && type && !types.overridden(el.name)) types.override(sym, type);
+        const fromSites = !type;
         if (!type) {
           // A prop typed wider than the value model (svelte/elements'
           // `class?: ClassValue`) takes the type of the values its sites pass.
@@ -2113,6 +2114,20 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             }
             const v = lower.value(f, COMPONENT, `${name}$default`);
             const t = lower.valueType(v);
+            // A prop typed by its sites whose default is of another type (a
+            // union of an element and a string: `to = 'body'` and `to={el}`).
+            const inner = (x: Type) => maybeInner(x) ?? x;
+            if (
+              fromSites &&
+              v.op !== 'null' &&
+              v.op !== 'undefined' &&
+              JSON.stringify(inner(t)) !== JSON.stringify(inner(type))
+            )
+              tsFail(
+                f,
+                'E_TYPE_UNION',
+                `The type of ${name} (${checker.typeToString(checker.getTypeAtLocation(el.name))}) is outside the value model, so it takes the values its sites pass (${JSON.stringify(inner(type))}), but its default is of another type (${JSON.stringify(inner(t))})`,
+              );
             // A function taking fewer parameters (`onOpenChange = noop`).
             cells[cell].init =
               lower.adaptFunction(v, t, type) ?? coerceInit(v, t, type, lower.types.records);

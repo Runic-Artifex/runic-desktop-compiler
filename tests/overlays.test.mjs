@@ -59,10 +59,11 @@ const failWith = (code, file, pattern) => e =>
 
 test('svelte mount lowers to a mount site of the mounting component', async () => {
   const { ir } = await lowered(FIXTURE);
-  const portal = ir.components.find(c => c.name === 'Portal');
+  // bits-ui's own Portal (utilities/portal/portal.svelte), compiled from source.
+  const portal = ir.components.find(c => c.name === 'portal');
   assert.equal(portal.mounts.length, 1);
   const consumer = ir.components[portal.mounts[0].component];
-  assert.equal(consumer.name, 'PortalConsumer');
+  assert.equal(consumer.name, 'portal-consumer');
   // The children snippet is forwarded: rendered in the Portal, which owns it.
   assert.deepEqual(portal.mounts[0].slots, [
     {
@@ -242,6 +243,138 @@ test('a closure created in its variable’s initialiser sees the variable', asyn
       const { ir } = await lowered(root);
       const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
       assert.equal(text(steps[1].state.dom[0]), '3 2');
+    },
+  );
+});
+
+test('bits-ui’s Portal narrows its target union to the selector and queries the document', async () => {
+  const { ir } = await lowered(FIXTURE);
+  const json = JSON.stringify(ir);
+  // `typeof to.current === "string"` is decided: the element branch is not lowered.
+  assert.match(json, /"name":"document\.querySelector"/);
+  assert.doesNotMatch(json, /"op":"typeof"/);
+});
+
+test('a union outside the value model takes the member of the values that reach it', async () => {
+  await withApp(
+    {
+      'Target.svelte': `<script lang="ts">
+  type Target = HTMLElement | string;
+  let { to = 'body' }: { to?: Target } = $props();
+  const label = $derived(typeof to === 'string' ? to : 'element');
+</script>
+
+<p id="t">{label}</p>
+`,
+      'App.svelte': `<script lang="ts">
+  import Target from './Target.svelte';
+</script>
+
+<Target />
+<Target to="#x" />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, []);
+      const shown = steps[0].state.dom.filter(n => typeof n !== 'string').map(text);
+      assert.deepEqual(shown, ['body', '#x']);
+    },
+  );
+});
+
+test('a union reached by values of two members is rejected, naming a site of each', async () => {
+  await withApp(
+    {
+      'Target.svelte': `<script lang="ts">
+  type Target = HTMLElement | string;
+  let { to = 'body' }: { to?: Target } = $props();
+  const label = $derived(typeof to === 'string' ? to : 'element');
+</script>
+
+<p>{label}</p>
+`,
+      'App.svelte': `<script lang="ts">
+  import Target from './Target.svelte';
+  let el = $state<HTMLElement | null>(null);
+</script>
+
+<div bind:this={el}></div>
+{#if el}<Target to={el} />{/if}
+`,
+    },
+    root =>
+      assert.rejects(
+        lowered(root),
+        failWith('E_TYPE_UNION', 'Target.svelte', /outside the value model/),
+      ),
+  );
+});
+
+test('untyped helpers: function literals typed by their use, curried helpers, presence tests', async () => {
+  await withApp(
+    {
+      'helpers.js': `export function makeResolver(fallback) {
+  return getProp => {
+    const value = getProp();
+    if (value !== undefined) return value;
+    return fallback;
+  };
+}
+export function apply(f, a, b) {
+  return [f(a), f(b)];
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { makeResolver, apply } from './helpers.js';
+  let out = $state('');
+  function run(given: string | undefined) {
+    const resolve = makeResolver('fallback');
+    const both = apply(o => o.n, { n: 1 }, { n: 2, m: 3 });
+    out = \`\${resolve(() => given)} \${both.join(',')}\`;
+  }
+</script>
+
+<button id="a" onclick={() => run(undefined)}>{out}</button>
+<button id="b" onclick={() => run('given')}>b</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'a' },
+        { kind: 'click', id: 'b' },
+      ]);
+      assert.equal(text(steps[1].state.dom[0]), 'fallback 1,2');
+      assert.equal(text(steps[2].state.dom[0]), 'given 1,2');
+    },
+  );
+});
+
+test('values a union takes are traced: a prop no site passes gives none', async () => {
+  await withApp(
+    {
+      'Target.svelte': `<script lang="ts">
+  type Target = HTMLElement | string;
+  let { anchor, to = 'body' }: { anchor?: HTMLElement; to?: string } = $props();
+  const chosen: Target = anchor ?? to;
+  const label = $derived(typeof chosen === 'string' ? chosen : 'element');
+</script>
+
+<p>{label}</p>
+`,
+      'App.svelte': `<script lang="ts">
+  import Target from './Target.svelte';
+</script>
+
+<Target to="#x" />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, []);
+      const shown = steps[0].state.dom.filter(n => typeof n !== 'string').map(text);
+      assert.deepEqual(shown, ['#x']);
     },
   );
 });

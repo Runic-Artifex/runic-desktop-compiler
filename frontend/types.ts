@@ -23,6 +23,11 @@ export class TypeMapper {
   packType?: (t: ts.Type, at: ts.Node) => Type | undefined;
   /** The record of Error values (`{ name, message }`), from the language layer. */
   errorType?: () => number;
+  /**
+   * The member a union outside the value model is narrowed to by the values
+   * that reach it (frontend/unions.ts), or a failure through `fail`.
+   */
+  narrow?: (parts: ts.Type[], at: ts.Node, fail: Fail) => ts.Type;
   /** The record of MutationObservers, once a program uses one. */
   mutationObserver?: number;
   /** The record of ResizeObservers (M6), once a program uses one. */
@@ -69,12 +74,18 @@ export class TypeMapper {
     return this.map(this.checker.getTypeAtLocation(node), node);
   }
 
-  /** Like `of`, but undefined instead of failing on any/unknown. */
+  /**
+   * Like `of`, but undefined instead of failing on any/unknown, also where
+   * they are part of the type (`ReadableBox<any>` in untyped JavaScript).
+   */
   typeOrUndefined(node: ts.Node): Type | undefined {
     const o = this.overridden(node);
     if (o) return o;
     const t = this.checker.getTypeAtLocation(node);
     if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+    const mapped = this.tryMap(t, node);
+    if (mapped !== undefined) return mapped;
+    if (containsAny(t, this.checker)) return undefined;
     return this.map(t, node);
   }
 
@@ -191,6 +202,8 @@ export class TypeMapper {
       const mapped = rest.map(p => this.map(p, at));
       const first = JSON.stringify(mapped[0]);
       if (mapped.every(m => JSON.stringify(m) === first)) base = mapped[0];
+      // Narrowed by the values that reach it (frontend/unions.ts).
+      else if (this.narrow) base = this.map(this.narrow(rest, at, this.fail), at);
       else
         return this.fail(
           at,
@@ -722,3 +735,36 @@ export class TypeMapper {
 }
 
 export const sameType = (a: Type, b: Type) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Whether TypeScript's type `t` has `any` (or `unknown`) in it: itself, a
+ * union member, a property, a type argument, a parameter or a result.
+ */
+export function containsAny(t: ts.Type, checker: ts.TypeChecker, depth = 0): boolean {
+  if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return true;
+  if (depth > 3) return false;
+  if (t.isUnion() || t.isIntersection())
+    return t.types.some(m => containsAny(m, checker, depth + 1));
+  if (!(t.flags & ts.TypeFlags.Object)) return false;
+  if (t.getProperty('__runicElement') || t.getProperty('__runicEvent')) return false;
+  // Types of TypeScript's library (Set<T>, Promise<T>): their type arguments.
+  const file = t.symbol?.declarations?.[0]?.getSourceFile().fileName ?? '';
+  if (/[\\/]lib\.[\w.]*\.d\.ts$/.test(file))
+    return (
+      !!(t as ts.TypeReference).target &&
+      checker.getTypeArguments(t as ts.TypeReference).some(a => containsAny(a, checker, depth + 1))
+    );
+  const props = checker.getPropertiesOfType(t);
+  if (
+    props.length <= 40 &&
+    props.some(p => containsAny(checker.getTypeOfSymbol(p), checker, depth + 1))
+  )
+    return true;
+  return t
+    .getCallSignatures()
+    .some(
+      sig =>
+        containsAny(sig.getReturnType(), checker, depth + 1) ||
+        sig.parameters.some(p => containsAny(checker.getTypeOfSymbol(p), checker, depth + 1)),
+    );
+}

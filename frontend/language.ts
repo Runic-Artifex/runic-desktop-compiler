@@ -17,7 +17,7 @@ import {
   type Stmt,
   type Type,
 } from './ir.ts';
-import { sameType, TypeMapper, type Fail } from './types.ts';
+import { containsAny, sameType, TypeMapper, type Fail } from './types.ts';
 import {
   arrayElement,
   builtinType,
@@ -32,6 +32,7 @@ import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
 import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
 import { Classes, type ClassInfo } from './classes.ts';
+import { Unions } from './unions.ts';
 import { bindPackConstant, packType } from './packs.ts';
 import { newSvelteMap, svelteMapType } from './svelte-reactivity.ts';
 import type { Choice } from './packs/choice.ts';
@@ -63,6 +64,12 @@ export type Binding =
       name: string;
       component: number | undefined;
       specs: Map<string, number>;
+      /**
+       * The function literal a curried untyped function returned
+       * (`Lowerer.curried`): the outer function's parameters, bound to the
+       * values in `locals` of `owner`.
+       */
+      outer?: { params: readonly ts.ParameterDeclaration[]; owner: FnBuilder; locals: number[] };
     }
   | { kind: 'derived'; fn: number }
   | { kind: 'value'; expr: Expr }
@@ -283,6 +290,14 @@ export class Lowerer {
     types.packType = (t, at) => packType(t, at, this) ?? svelteMapType(t, at, this);
     // Error objects are the Error records thrown values are (catch bindings, rejections).
     types.errorType = () => this.errorRecord();
+    // Unions outside the value model, narrowed by the values reaching them.
+    this.unions = new Unions(
+      checker,
+      () => program.getSourceFiles().filter(sf => !sf.isDeclarationFile),
+      sourceOf,
+      sym => this.domains?.values(sym),
+    );
+    types.narrow = (parts, at, fail) => this.unions.member(parts, at, fail);
     // Object types implemented with getters (frontend/types.ts `accessorTypes`).
     for (const sf of program.getSourceFiles()) {
       if (sf.isDeclarationFile) continue;
@@ -300,6 +315,8 @@ export class Lowerer {
 
   /** Classes (frontend/classes.ts). */
   readonly classes: Classes;
+  /** Unions narrowed by the values that reach them (frontend/unions.ts). */
+  readonly unions: Unions;
   /** Records whose members a pack lowers (by record index). */
   readonly recordMembers = new Map<number, RecordMembers>();
   /** The values props receive from their instantiation sites (frontend/domains.ts), if analysed. */
@@ -429,6 +446,13 @@ export class Lowerer {
        * constructor returns its exact class; attribute bags).
        */
       result?: Type;
+      /** Parameters of an outer function that come first (a curried function's literal). */
+      outer?: readonly ts.ParameterDeclaration[];
+      /**
+       * Parameters (by index, outer ones first) that stand for closed
+       * function literals applied at each call: no IR parameter.
+       */
+      inline?: Map<number, Binding>;
     },
   ): { index: number; builder: FnBuilder } {
     const boxed = this.analyseCaptures(decl);
@@ -446,7 +470,7 @@ export class Lowerer {
     // in a separate list, so indices are fixed up by `finish`.
     const sig = this.checker.getSignatureFromDeclaration(decl);
     if (!sig) this.fail(decl, 'E_FUNCTION', 'Cannot resolve the function signature');
-    const paramDecls = decl.parameters;
+    const paramDecls = [...(options?.outer ?? []), ...decl.parameters];
     const pending: {
       symbol?: ts.Symbol;
       type: Type;
@@ -454,7 +478,13 @@ export class Lowerer {
       initializer?: ts.Expression;
       pattern?: ts.BindingPattern;
     }[] = [];
-    for (const p of paramDecls) {
+    for (const [i, p] of paramDecls.entries()) {
+      const literal = options?.inline?.get(i);
+      if (literal) {
+        const sym = ts.isIdentifier(p.name) ? this.checker.getSymbolAtLocation(p.name) : undefined;
+        if (sym) this.bindings.set(sym, literal);
+        continue;
+      }
       if (p.dotDotDotToken) this.fail(p, 'E_FUNCTION', 'Rest parameters are planned for later');
       if (options?.tupleParams && ts.isArrayBindingPattern(p.name)) {
         const pattern = p.name;
@@ -544,7 +574,7 @@ export class Lowerer {
         return this.fail(decl, 'E_ASYNC', 'An async function needs a Promise result type');
       return asyncBody(this, decl, b, result.promise);
     });
-    if (!voidContext && inferred) result = this.returnType(lowered, b);
+    if (!voidContext && inferred) result = this.unifyReturns(lowered, b);
     lowered.unshift(...this.hoistedLets(b));
     const body = remapLocals(lowered, i => b.final(i));
     const fn: Fn = {
@@ -561,23 +591,49 @@ export class Lowerer {
     return { index, builder: b };
   }
 
-  /** The type of the values returned by a lowered body (untyped functions). */
-  private returnType(body: Stmt[], b: FnBuilder): Type {
-    let found: Type | undefined;
+  /**
+   * The result type of an untyped function from the values it returns: their
+   * one type, nullable where it also returns `undefined` or `null` (whose
+   * type is settled here) or a nullable value (the others are wrapped).
+   * Values of different types are left to the validator.
+   */
+  private unifyReturns(body: Stmt[], b: FnBuilder): Type {
+    const returns: Extract<Stmt, { op: 'return' }>[] = [];
     const visit = (stmts: Stmt[]) => {
-      for (const s of stmts) {
-        if (s.op === 'return' && s.value && !found) found = this.irType(s.value, b);
-        for (const v of Object.values(s))
+      for (const st of stmts) {
+        if (st.op === 'return' && st.value) returns.push(st);
+        for (const v of Object.values(st))
           if (Array.isArray(v) && v.length && typeof v[0] === 'object' && v[0] && 'op' in v[0])
             visit(v as Stmt[]);
-        if (s.op === 'try') {
-          if (s.catch) visit(s.catch.body);
-          if (s.finally) visit(s.finally);
+        if (st.op === 'try') {
+          if (st.catch) visit(st.catch.body);
+          if (st.finally) visit(st.finally);
         }
       }
     };
     visit(body);
-    return found ?? 'void';
+    const placeholder = (v: Expr) => (v.op === 'undefined' || v.op === 'null') && v.type === 'void';
+    const concrete = returns.filter(r => !placeholder(r.value!));
+    // Only `undefined`/`null` returned: no other type to take (as a literal
+    // `undefined` without a contextual type).
+    if (!concrete.length) {
+      if (!returns.length) return 'void';
+      const none: Type = { maybe: NUMBER };
+      for (const r of returns) (r.value as { type: Type }).type = none;
+      return none;
+    }
+    const types = concrete.map(r => this.irType(r.value!, b));
+    const inner = types.map(t => maybeInner(t) ?? t);
+    if (!inner.every(t => sameType(t, inner[0]))) return types[0];
+    const nullable = concrete.length < returns.length || types.some(t => maybeInner(t));
+    const result: Type = nullable ? { maybe: inner[0] } : inner[0];
+    if (nullable)
+      for (const r of returns) {
+        const v = r.value!;
+        if (placeholder(v)) (v as { type: Type }).type = result;
+        else if (!maybeInner(this.irType(v, b))) r.value = { op: 'some', value: v };
+      }
+    return result;
   }
 
   /** Params are registered as locals of the builder before the body is lowered. */
@@ -637,6 +693,7 @@ export class Lowerer {
     if (custom) return custom;
     if (this.isStatementLike(e))
       return [...this.statement(ts.factory.createExpressionStatement(e), b, e)];
+    if (b.result !== undefined && b.result !== 'void') this.expected.set(skipParens(e), b.result);
     const value = this.expr(e, b);
     if (b.result === 'void' && this.irType(value, b) !== 'void') return [{ op: 'expr', value }];
     return [{ op: 'return', value }];
@@ -789,9 +846,17 @@ export class Lowerer {
    * decides: `Array.isArray(x)` and `typeof x === "…"` (or `!==`) of a
    * parameter or local, a prop's one value, or a value known at build time
    * (`staticValue`), through `!`, parentheses, and `&&`/`||` whose left
-   * operand is decided. Undefined otherwise.
+   * operand is decided. Also the member tests of a union narrowed by the
+   * values that reach it (frontend/unions.ts: `typeof to.current ===
+   * "string"`, `Array.isArray(v)`), whose operands are collected in
+   * `effects` where reading them may have effects (a getter tracked as a
+   * dependency): the caller evaluates them. Undefined otherwise.
    */
-  private staticTruth(e: ts.Expression, b: FnBuilder): boolean | undefined {
+  private staticTruth(
+    e: ts.Expression,
+    b: FnBuilder,
+    effects: ts.Expression[] = [],
+  ): boolean | undefined {
     e = skipParens(e);
     // A value known at build time (literals, pack constants: esm-env's DEV).
     const value = this.staticValue(e);
@@ -804,17 +869,34 @@ export class Lowerer {
       if (binding?.kind !== 'local') return undefined;
       return this.irType(this.expr(x, b), b);
     };
+    /** The member a narrowed union stands for, where `x` has one (and no nullish part). */
+    const member = (x: ts.Expression): ts.Type | undefined => {
+      x = skipParens(x);
+      const t = this.checker.getTypeAtLocation(x);
+      if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) || !t.isUnion()) return undefined;
+      if (
+        t.types.some(
+          p => p.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void),
+        )
+      )
+        return undefined;
+      // Mapping the type narrows it (or rejects it).
+      if (this.types.tryMap(t, x) === undefined) return undefined;
+      const m = this.unions.narrowed(t);
+      if (m && !ts.isIdentifier(x)) effects.push(x);
+      return m;
+    };
     if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) {
-      const v = this.staticTruth(e.operand, b);
+      const v = this.staticTruth(e.operand, b, effects);
       return v === undefined ? undefined : !v;
     }
     if (ts.isBinaryExpression(e)) {
       const op = e.operatorToken.kind;
       if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
-        const left = this.staticTruth(e.left, b);
+        const left = this.staticTruth(e.left, b, effects);
         if (left === undefined) return undefined;
         if (op === K.AmpersandAmpersandToken ? !left : left) return left;
-        return this.staticTruth(e.right, b);
+        return this.staticTruth(e.right, b, effects);
       }
       const eq = [K.EqualsEqualsEqualsToken, K.EqualsEqualsToken].includes(op);
       const ne = [K.ExclamationEqualsEqualsToken, K.ExclamationEqualsToken].includes(op);
@@ -825,6 +907,21 @@ export class Lowerer {
         if (one !== undefined) return (one === e.right.text) === eq;
       }
       if ((eq || ne) && ts.isTypeOfExpression(e.left) && ts.isStringLiteralLike(e.right)) {
+        const m = member(e.left.expression);
+        if (m) {
+          const F = ts.TypeFlags;
+          const name =
+            m.flags & F.StringLike
+              ? 'string'
+              : m.flags & F.NumberLike
+                ? 'number'
+                : m.flags & F.BooleanLike
+                  ? 'boolean'
+                  : m.getCallSignatures().length
+                    ? 'function'
+                    : 'object';
+          return (name === e.right.text) === eq;
+        }
         const t = typeOfLocal(e.left.expression);
         const name =
           t === undefined || (typeof t === 'object' && 'maybe' in t)
@@ -842,6 +939,12 @@ export class Lowerer {
       }
       return undefined;
     }
+    // A value that only holds null or undefined (a prop no site passes,
+    // a box of one: frontend/unions.ts) is falsy.
+    if ((ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) && this.unions.nothing(e)) {
+      if (!ts.isIdentifier(e)) effects.push(e);
+      return false;
+    }
     if (
       ts.isCallExpression(e) &&
       e.arguments.length === 1 &&
@@ -849,6 +952,8 @@ export class Lowerer {
       e.expression.name.text === 'isArray' &&
       this.globalName(e.expression.expression) === 'Array'
     ) {
+      const m = member(e.arguments[0]);
+      if (m) return this.checker.isArrayType(m) || this.checker.isTupleType(m);
       const t = typeOfLocal(e.arguments[0]);
       if (t === undefined || (typeof t === 'object' && 'maybe' in t)) return undefined;
       return typeof t === 'object' && 'array' in t;
@@ -1220,7 +1325,17 @@ export class Lowerer {
   // Statements
 
   block(statements: readonly ts.Statement[], b: FnBuilder): Stmt[] {
-    return statements.flatMap(s => this.statement(s, b));
+    const out: Stmt[] = [];
+    for (const [i, s] of statements.entries()) {
+      out.push(...this.statement(s, b));
+      // `if (x === undefined) return …;`: the rest of the block knows `x`.
+      if (ts.isIfStatement(s) && !s.elseStatement && exits(s.thenStatement)) {
+        const facts = this.presentIn(s.expression, true);
+        if (facts.length)
+          return [...out, ...this.withPresent(facts, () => this.block(statements.slice(i + 1), b))];
+      }
+    }
+    return out;
   }
 
   private src(node: ts.Node) {
@@ -1242,21 +1357,34 @@ export class Lowerer {
       // A test the IR types decide (untyped JavaScript specialised per call
       // site: `Array.isArray(a)` of a string) leaves one branch, which is all
       // JavaScript would run; the other may not be typable for these types.
-      const known = this.staticTruth(s.expression, b);
-      if (known === true) return this.statement(s.thenStatement, b);
-      if (known === false) return s.elseStatement ? this.statement(s.elseStatement, b) : [];
+      const effects: ts.Expression[] = [];
+      const known = this.staticTruth(s.expression, b, effects);
+      const first = (): Stmt[] => effects.map(x => ({ op: 'expr', value: this.expr(x, b) }));
+      if (known === true) return [...first(), ...this.statement(s.thenStatement, b)];
+      if (known === false)
+        return [...first(), ...(s.elseStatement ? this.statement(s.elseStatement, b) : [])];
       return [
         {
           op: 'if',
           test: this.condition(s.expression, b),
-          then: this.statement(s.thenStatement, b),
-          ...(s.elseStatement ? { else: this.statement(s.elseStatement, b) } : {}),
+          then: this.withPresent(this.presentIn(s.expression, false), () =>
+            this.statement(s.thenStatement, b),
+          ),
+          ...(s.elseStatement
+            ? {
+                else: this.withPresent(this.presentIn(s.expression, true), () =>
+                  this.statement(s.elseStatement!, b),
+                ),
+              }
+            : {}),
           ...this.src(s),
         },
       ];
     }
     if (ts.isReturnStatement(s) && b.asyncReturn) return b.asyncReturn(s.expression, s);
     if (ts.isReturnStatement(s)) {
+      if (s.expression && b.result !== undefined)
+        this.expected.set(skipParens(s.expression), b.result);
       let value = s.expression && this.expr(s.expression, b);
       if (value && b.result === 'void' && this.irType(value, b) !== 'void')
         return [
@@ -1554,6 +1682,10 @@ export class Lowerer {
         this.bindings.set(sym, { kind: 'local', owner: b, local });
         return [{ op: 'let', local, value, ...this.src(d) }];
       }
+      const curried = this.curried(d, b);
+      if (curried) return curried;
+      // A type that only TypeScript's `any` makes unmappable (untyped
+      // JavaScript: `ReadableBox<any>`) is untyped too.
       const declared = this.types.typeOrUndefined(d.name);
       if (declared === undefined) {
         // TypeScript only knows `any`: the initialiser's IR type decides.
@@ -2230,15 +2362,21 @@ export class Lowerer {
     // operands' truthiness (short-circuiting as JavaScript does), whatever
     // their types; `!a` negates it.
     const inner = skipParens(e);
-    const known = this.staticTruth(inner, b);
-    if (known !== undefined) return { op: 'lit', value: known };
+    const effects: ts.Expression[] = [];
+    const known = this.staticTruth(inner, b, effects);
+    if (known !== undefined) return this.after(effects, { op: 'lit', value: known }, b);
     if (ts.isBinaryExpression(inner)) {
       const op = inner.operatorToken.kind;
       if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken) {
         const and = op === ts.SyntaxKind.AmpersandAmpersandToken;
-        const left = this.staticTruth(inner.left, b);
+        const leftEffects: ts.Expression[] = [];
+        const left = this.staticTruth(inner.left, b, leftEffects);
         if (left !== undefined)
-          return left === and ? this.condition(inner.right, b) : { op: 'lit', value: !and };
+          return this.after(
+            leftEffects,
+            left === and ? this.condition(inner.right, b) : { op: 'lit', value: !and },
+            b,
+          );
         return {
           op: and ? 'and' : 'or',
           left: this.condition(inner.left, b),
@@ -2250,6 +2388,17 @@ export class Lowerer {
       return { op: 'not', arg: this.condition(inner.operand, b) };
     const v = this.expr(e, b);
     return this.truthy(v, this.irType(v, b));
+  }
+
+  /** `value` after evaluating `effects` (the operands of folded tests). */
+  private after(effects: ts.Expression[], value: Expr, b: FnBuilder): Expr {
+    let out = value;
+    for (const x of [...effects].reverse()) {
+      const v = this.expr(x, b);
+      const tmp = b.local('$folded', this.irType(v, b));
+      out = { op: 'with', local: tmp, value: v, body: out };
+    }
+    return out;
   }
 
   truthy(v: Expr, t: Type): Expr {
@@ -2349,12 +2498,17 @@ export class Lowerer {
         const c = e as ts.ConditionalExpression;
         // A test the types or a prop's one value decide: its branch only (the
         // other may not be typable: bits-ui's `type === "single" ? "" : []`).
-        const known = this.staticTruth(c.condition, b);
+        const effects: ts.Expression[] = [];
+        const known = this.staticTruth(c.condition, b, effects);
         if (known !== undefined)
-          return this.coerce(
-            known ? c.whenTrue : c.whenFalse,
+          return this.after(
+            effects,
+            this.coerce(
+              known ? c.whenTrue : c.whenFalse,
+              b,
+              this.contextualOr(e, known ? c.whenTrue : c.whenFalse),
+            ),
             b,
-            this.contextualOr(e, known ? c.whenTrue : c.whenFalse),
           );
         return {
           op: 'cond',
@@ -2389,8 +2543,13 @@ export class Lowerer {
       case K.NewExpression:
         return this.newExpression(e as ts.NewExpression, b);
       case K.ArrowFunction:
-      case K.FunctionExpression:
-        return this.closure(e as ts.ArrowFunction, b);
+      case K.FunctionExpression: {
+        // An untyped function literal where a function type is expected.
+        const want = this.expectedFunction(e as ts.ArrowFunction);
+        return want
+          ? this.closure(e as ts.ArrowFunction, b, 'closure', want.params, want.result)
+          : this.closure(e as ts.ArrowFunction, b);
+      }
       case K.ObjectLiteralExpression:
         return this.object(e as ts.ObjectLiteralExpression, b);
       case K.ArrayLiteralExpression:
@@ -2614,6 +2773,16 @@ export class Lowerer {
         : undefined;
     };
     const t = this.checker.getContextualType(e);
+    // Untyped JavaScript: the type expected here, or, for a returned
+    // `undefined` or `null`, the type of the other values the function
+    // returns (`unifyReturns`; `void` until then).
+    if (t && t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+      let node: ts.Node = e;
+      while (ts.isParenthesizedExpression(node.parent)) node = node.parent;
+      const want = this.expected.get(node);
+      if (want !== undefined) return maybeInner(want) ? want : { maybe: want };
+      if (ts.isReturnStatement(node.parent)) return 'void';
+    }
     const alternative = conditional();
     if (!t && !alternative) return { maybe: NUMBER };
     const mapped =
@@ -2656,6 +2825,8 @@ export class Lowerer {
   bindingExpr(binding: Binding, id: ts.Identifier, b: FnBuilder, here?: Type): Expr {
     // TypeScript narrows `T | undefined` to `T` after checks; unwrap there.
     const narrow = (e: Expr, declared: Type): Expr => {
+      // An untyped local a test proved present (`presentIn`).
+      if (maybeInner(declared) && this.knownPresent(id)) return { op: 'unwrap', value: e };
       here ??= this.types.typeOrUndefined(id);
       if (here === undefined) return e;
       const unwrap =
@@ -2931,6 +3102,16 @@ export class Lowerer {
       };
     }
     if (op === K.QuestionQuestionToken) {
+      // A left operand that only holds null or undefined (a prop no site
+      // passes, frontend/unions.ts): the right one.
+      if (this.unions.nothing(e.left)) {
+        const right = this.coerce(
+          e.right,
+          b,
+          this.types.typeOrUndefined(e) ?? this.irType(this.expr(e.right, b), b),
+        );
+        return ts.isIdentifier(skipParens(e.left)) ? right : this.after([e.left], right, b);
+      }
       const left = this.expr(e.left, b);
       const lt = this.irType(left, b);
       // A left operand that is never nullish (a prop with a default) is the
@@ -3441,12 +3622,18 @@ export class Lowerer {
         `location.${method} navigates to another document, which is unsupported (assign location.hash or use history.pushState)`,
       );
     // M6 overlays: `querySelector` of a literal selector the model covers:
-    // `body` (where imperative mounts append) and `#id`.
+    // `body` (where imperative mounts append) and `#id`; other selectors,
+    // and selectors computed at run time (bits-ui's portal target), search
+    // the document with runic_js's selector subset.
     if (host === 'document' && method === 'querySelector') {
       const [sel] = e.arguments;
-      const text = sel && ts.isStringLiteralLike(sel) ? sel.text.trim() : undefined;
-      if (e.arguments.length !== 1 || text === undefined)
-        return this.fail(e, 'E_CALL', 'document.querySelector takes a literal selector');
+      if (e.arguments.length !== 1)
+        return this.fail(e, 'E_CALL', 'document.querySelector takes a selector');
+      const text = ts.isStringLiteralLike(sel) ? sel.text.trim() : undefined;
+      if (text === undefined)
+        return builtin('document.querySelector', [this.coerce(sel, b, STRING)], {
+          maybe: 'element',
+        });
       if (text === 'body')
         return {
           op: 'some',
@@ -3843,6 +4030,184 @@ export class Lowerer {
   // `undefined`).
 
   private readonly overrides = new Map<ts.Node, { expr: Expr; type: Type }>();
+
+  /**
+   * The IR type an expression is expected to have where TypeScript cannot
+   * type it (untyped package JavaScript): a function literal whose
+   * parameters (or result) TypeScript types `any` takes its parameter and
+   * result types from it, a call of an untyped function specialised for it
+   * returns it. Set for returned expressions of functions with a known
+   * result, initialisers of declared constants and arguments of
+   * specialised calls.
+   */
+  readonly expected = new Map<ts.Node, Type>();
+  /**
+   * Parameter types of untyped function literals passed to untyped
+   * functions, from the calls the callee makes of its parameter (the
+   * result stays the one the body returns).
+   */
+  private readonly expectedParams = new Map<ts.Node, Type[]>();
+
+  /**
+   * The function type an untyped function's parameter `param` is called
+   * with in its body: the IR types of the arguments of its calls, which must
+   * agree, as TypeScript types them there. Undefined when it is not called,
+   * or an argument has no type.
+   */
+  private calledWith(decl: ts.FunctionLikeDeclaration, param: ts.ParameterDeclaration) {
+    const sym = ts.isIdentifier(param.name)
+      ? this.checker.getSymbolAtLocation(param.name)
+      : undefined;
+    if (!sym || !decl.body) return undefined;
+    let found: Type[] | undefined;
+    let conflict = false;
+    const visit = (n: ts.Node) => {
+      if (conflict) return;
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(skipParens(n.expression)) &&
+        this.checker.getSymbolAtLocation(skipParens(n.expression)) === sym
+      ) {
+        const types = n.arguments.map(a => {
+          const t = this.checker.getTypeAtLocation(a);
+          return t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+            ? undefined
+            : this.types.tryMap(t, a);
+        });
+        if (types.some(t => t === undefined)) conflict = true;
+        else if (!found) found = types as Type[];
+        else if (JSON.stringify(found) !== JSON.stringify(types)) conflict = true;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(decl.body);
+    return conflict ? undefined : found;
+  }
+
+  /**
+   * Untyped locals (TypeScript types them `any`) known to hold a value in
+   * the code being lowered: the branch of a test that excludes `undefined`
+   * and `null` (`x != null`, `x !== undefined && x !== null`, `x`). A
+   * nullable value read there converts to its value where one is expected,
+   * as TypeScript narrows typed code.
+   */
+  private readonly present = new Set<ts.Symbol>();
+
+  /** The expected function type of an untyped function literal, if one is known. */
+  private expectedFunction(
+    decl: ts.FunctionLikeDeclaration,
+  ): { params: Type[]; result: Type | undefined } | undefined {
+    const expected = this.expected.get(decl);
+    const want =
+      expected && typeof expected === 'object' && 'fn' in expected
+        ? expected.fn
+        : this.expectedParams.has(decl)
+          ? { params: this.expectedParams.get(decl)!, result: undefined }
+          : undefined;
+    if (!want) return undefined;
+    const untyped = (t: ts.Type) => !!(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown));
+    const anyParam = decl.parameters.some(p => untyped(this.checker.getTypeAtLocation(p)));
+    const ret = this.checker.getSignatureFromDeclaration(decl)?.getReturnType();
+    const anyResult = !!ret && untyped(ret);
+    if ((!anyParam && !anyResult) || decl.parameters.length > want.params.length) return undefined;
+    return {
+      params: decl.parameters.map((p, i) =>
+        untyped(this.checker.getTypeAtLocation(p))
+          ? want.params[i]
+          : this.types.map(this.checker.getTypeAtLocation(p), p),
+      ),
+      result: anyResult ? want.result : undefined,
+    };
+  }
+
+  /**
+   * The symbols of untyped locals a test proves present when it is true
+   * (`negated`: when it is false).
+   */
+  private presentIn(test: ts.Expression, negated: boolean): ts.Symbol[] {
+    test = skipParens(test);
+    const K = ts.SyntaxKind;
+    const local = (e: ts.Expression): ts.Symbol | undefined => {
+      e = skipParens(e);
+      if (!ts.isIdentifier(e)) return undefined;
+      const sym = this.symbol(e);
+      const decl = sym?.valueDeclaration;
+      if (!sym || !decl || !(this.checker.getTypeAtLocation(e).flags & ts.TypeFlags.Any))
+        return undefined;
+      // Constants and parameters the function never assigns.
+      if (ts.isVariableDeclaration(decl))
+        return decl.parent.flags & ts.NodeFlags.Const ? sym : undefined;
+      return ts.isParameter(decl) && !this.assigned(sym, decl.parent) ? sym : undefined;
+    };
+    if (ts.isPrefixUnaryExpression(test) && test.operator === K.ExclamationToken)
+      return this.presentIn(test.operand, !negated);
+    if (ts.isBinaryExpression(test)) {
+      const op = test.operatorToken.kind;
+      if (op === K.AmpersandAmpersandToken && !negated)
+        return [...this.presentIn(test.left, false), ...this.presentIn(test.right, false)];
+      if (op === K.BarBarToken && negated)
+        return [...this.presentIn(test.left, true), ...this.presentIn(test.right, true)];
+      const nothing = (x: ts.Expression) =>
+        x.kind === K.NullKeyword ||
+        (ts.isIdentifier(x) && x.text === 'undefined') ||
+        ts.isVoidExpression(x);
+      const [l, r] = [skipParens(test.left), skipParens(test.right)];
+      const operand = nothing(r) ? l : nothing(l) ? r : undefined;
+      if (!operand) return [];
+      const sym = local(operand);
+      if (!sym) return [];
+      const excludes = op === K.ExclamationEqualsToken || op === K.ExclamationEqualsEqualsToken;
+      const includes = op === K.EqualsEqualsToken || op === K.EqualsEqualsEqualsToken;
+      if (!excludes && !includes) return [];
+      if (excludes === negated) return [];
+      // A strict test (`x !== undefined`) excludes one of null and
+      // undefined, and the IR's nullable values hold either. The value only
+      // converts where a non-nullable type is expected (declared by the
+      // package's types, as bits-ui's `ReadableBox<string | Element>`), so
+      // the other one would break those types: the conversion throws a
+      // TypeError there (`unwrap`), as other broken types do.
+      return [sym];
+    }
+    const sym = local(test);
+    return sym && !negated ? [sym] : [];
+  }
+
+  /** Whether `sym` is assigned anywhere in `scope`. */
+  private assigned(sym: ts.Symbol, scope: ts.Node): boolean {
+    let found = false;
+    const visit = (n: ts.Node) => {
+      if (found) return;
+      if (
+        ts.isBinaryExpression(n) &&
+        isAssignmentOperator(n.operatorToken.kind) &&
+        ts.isIdentifier(skipParens(n.left)) &&
+        this.symbol(skipParens(n.left)) === sym
+      )
+        found = true;
+      ts.forEachChild(n, visit);
+    };
+    visit(scope);
+    return found;
+  }
+
+  /** Lower with `symbols` known present. */
+  private withPresent<T>(symbols: ts.Symbol[], f: () => T): T {
+    const added = symbols.filter(x => !this.present.has(x));
+    for (const x of added) this.present.add(x);
+    try {
+      return f();
+    } finally {
+      for (const x of added) this.present.delete(x);
+    }
+  }
+
+  /** Whether `e` reads an untyped local known present here. */
+  private knownPresent(e: ts.Expression): boolean {
+    e = skipParens(e);
+    if (!ts.isIdentifier(e)) return false;
+    const sym = this.symbol(e);
+    return !!sym && this.present.has(sym);
+  }
 
   /** The IR type of a node, honouring chain substitutions and link types. */
   typeAt(n: ts.Expression): Type {
@@ -4732,32 +5097,195 @@ export class Lowerer {
     e: ts.CallExpression,
     b: FnBuilder,
   ): Expr {
-    const args = e.arguments.map(a => this.expr(a, b));
+    // A curried function's result: the outer function's values come first.
+    const outer = g.outer;
+    const outerArgs: Expr[] = (outer?.locals ?? []).map(l => ({
+      op: 'local',
+      local: b.resolve(outer!.owner, l),
+    }));
+    const outerTypes = outerArgs.map(a => this.irType(a, b));
+    // An untyped function literal passed for a parameter the callee calls:
+    // its parameters take the types of the callee's arguments there. Where
+    // the callee calls it with arguments of different types (bits-ui's
+    // config resolver: `getter(currentOpts)`, `getter(parent.opts)`), a
+    // closed literal it only calls is applied at each call instead, lowered
+    // for that call's arguments (it captures nothing, so where it is lowered
+    // does not matter).
+    const inline = new Map<number, ts.FunctionLikeDeclaration>();
+    const args: Expr[] = [];
+    e.arguments.forEach((a, i) => {
+      const fn = skipParens(a);
+      const param = g.decl.parameters[i];
+      if ((ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && param) {
+        const params = this.calledWith(g.decl, param);
+        if (params) this.expectedParams.set(fn, params);
+        else if (
+          fn.parameters.some(
+            q =>
+              this.checker.getTypeAtLocation(q).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown),
+          ) &&
+          this.onlyCalled(g.decl, param) &&
+          this.isClosed(fn)
+        ) {
+          inline.set(i, fn);
+          return;
+        }
+      }
+      args.push(this.expr(a, b));
+    });
     const types = args.map(a => this.irType(a, b));
-    if (types.length < g.decl.parameters.length)
+    if (e.arguments.length < g.decl.parameters.length)
       this.fail(
         e,
         'E_TYPE_UNSUPPORTED',
         `Untyped ${g.name} needs all ${g.decl.parameters.length} arguments (or type annotations)`,
       );
-    const key = JSON.stringify(types);
+    // A call whose value TypeScript cannot type, where a type is expected
+    // (a declared constant, a returned value): the specialisation returns it.
+    const tsType = this.checker.getTypeAtLocation(e);
+    const want =
+      tsType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) ||
+      this.types.tryMap(tsType, e) === undefined
+        ? this.expected.get(e)
+        : undefined;
+    const literals = [...inline].map(([i, fn]) => `${i}@${fn.getSourceFile().fileName}:${fn.pos}`);
+    const key = JSON.stringify([outerTypes, types, want ?? null, literals]);
     let index = g.specs.get(key);
     if (index === undefined) {
       index = this.reserve();
       g.specs.set(key, index);
       this.inProgress.add(index);
+      const all = [...outerTypes, ...types];
       this.function(
         g.decl,
-        `${g.name}<${types.map(t => JSON.stringify(t)).join(',')}>`,
+        `${g.name}<${all.map(t => JSON.stringify(t)).join(',')}>`,
         undefined,
         g.component,
         index,
-        types,
+        all,
+        {
+          ...(want !== undefined ? { result: want } : {}),
+          ...(outer ? { outer: outer.params } : {}),
+          ...(inline.size
+            ? {
+                inline: new Map(
+                  [...inline].map(([i, fn]) => [
+                    i + (outer?.params.length ?? 0),
+                    {
+                      kind: 'generic' as const,
+                      decl: fn,
+                      name: `${g.name}.${g.decl.parameters[i].name.getText()}`,
+                      component: g.component,
+                      specs: new Map<string, number>(),
+                    },
+                  ]),
+                ),
+              }
+            : {}),
+        },
       );
       this.inProgress.delete(index);
     } else if (this.inProgress.has(index))
       this.fail(e, 'E_TYPE_UNSUPPORTED', `Recursive untyped ${g.name}: add type annotations`);
-    return { op: 'call', function: index, args: args.slice(0, g.decl.parameters.length) };
+    return {
+      op: 'call',
+      function: index,
+      args: [...outerArgs, ...args.slice(0, g.decl.parameters.length - inline.size)],
+    };
+  }
+
+  /** Whether untyped parameter `param` is only called directly in `decl`. */
+  private onlyCalled(decl: ts.FunctionLikeDeclaration, param: ts.ParameterDeclaration): boolean {
+    const sym = ts.isIdentifier(param.name)
+      ? this.checker.getSymbolAtLocation(param.name)
+      : undefined;
+    if (!sym || !decl.body) return false;
+    let ok = true;
+    const visit = (n: ts.Node) => {
+      if (!ok) return;
+      if (ts.isIdentifier(n) && n !== param.name && this.checker.getSymbolAtLocation(n) === sym) {
+        const call = n.parent;
+        if (!(ts.isCallExpression(call) && call.expression === n)) ok = false;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(decl.body);
+    return ok;
+  }
+
+  /**
+   * Whether a function literal captures nothing: every name it uses is
+   * declared inside it or at the top level of a module.
+   */
+  private isClosed(fn: ts.FunctionLikeDeclaration): boolean {
+    let ok = true;
+    const inside = (n: ts.Node) => n.pos >= fn.pos && n.end <= fn.end;
+    const visit = (n: ts.Node) => {
+      if (!ok) return;
+      if (ts.isIdentifier(n) && !ts.isPropertyAccessExpression(n.parent)) {
+        const decl = this.checker.getSymbolAtLocation(n)?.valueDeclaration;
+        if (decl && !inside(decl)) {
+          let p: ts.Node | undefined = decl.parent;
+          while (p && !ts.isFunctionLike(p) && !ts.isSourceFile(p) && !ts.isClassLike(p))
+            p = p.parent;
+          if (!p || !ts.isSourceFile(p)) ok = false;
+        }
+      }
+      if (n.kind === ts.SyntaxKind.ThisKeyword) ok = false;
+      ts.forEachChild(n, visit);
+    };
+    if (fn.body) visit(fn.body);
+    return ok;
+  }
+
+  /**
+   * A constant initialised by calling an untyped function whose body only
+   * returns a function literal with untyped parameters (bits-ui's
+   * `const resolveConfigOption = createConfigResolver(parent, opts)`): the
+   * arguments are evaluated now, and each call of the constant calls the
+   * literal specialised with them (the outer parameters it uses are the
+   * arguments). Undefined for other declarations.
+   */
+  private curried(d: ts.VariableDeclaration, b: FnBuilder): Stmt[] | undefined {
+    if (!ts.isIdentifier(d.name) || !d.initializer || d.type) return undefined;
+    if (!(d.parent.flags & ts.NodeFlags.Const)) return undefined;
+    const call = skipParens(d.initializer);
+    if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression)) return undefined;
+    const g = this.binding(call.expression);
+    if (g?.kind !== 'generic' || g.outer || !g.decl.body) return undefined;
+    let result: ts.Expression | undefined;
+    if (ts.isBlock(g.decl.body)) {
+      const [only] = g.decl.body.statements;
+      if (g.decl.body.statements.length === 1 && ts.isReturnStatement(only))
+        result = only.expression;
+    } else result = g.decl.body;
+    const inner = result && skipParens(result);
+    if (!inner || !(ts.isArrowFunction(inner) || ts.isFunctionExpression(inner))) return undefined;
+    if (
+      !inner.parameters.some(
+        q => this.checker.getTypeAtLocation(q).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown),
+      ) ||
+      g.decl.parameters.some(q => !ts.isIdentifier(q.name) || q.initializer || q.dotDotDotToken) ||
+      call.arguments.length !== g.decl.parameters.length
+    )
+      return undefined;
+    const out: Stmt[] = [];
+    const locals = call.arguments.map((a, i) => {
+      const v = this.expr(a, b);
+      const local = b.local(`${d.name.getText()}$${i}`, this.irType(v, b));
+      out.push({ op: 'let', local, value: v, ...this.src(a) });
+      return local;
+    });
+    const sym = this.checker.getSymbolAtLocation(d.name)!;
+    this.bindings.set(sym, {
+      kind: 'generic',
+      decl: inner,
+      name: `${g.name}.result`,
+      component: g.component,
+      specs: new Map(),
+      outer: { params: g.decl.parameters, owner: b, locals },
+    });
+    return out;
   }
   private readonly inProgress = new Set<number>();
 
@@ -6329,6 +6857,20 @@ export class Lowerer {
       this.isMatchAll(skipParens(only.expression))
     )
       return this.expr(only.expression, b);
+    // Untyped JavaScript (`any[]`): the one IR type of the elements.
+    const tsType = this.checker.getTypeAtLocation(e);
+    if (
+      !this.checker.getContextualType(e) &&
+      e.elements.length &&
+      !e.elements.some(ts.isSpreadElement) &&
+      containsAny(tsType, this.checker) &&
+      this.types.tryMap(tsType, e) === undefined
+    ) {
+      const items = e.elements.map(el => this.expr(el, b));
+      const types = items.map(v => this.irType(v, b));
+      if (types.every(t => sameType(t, types[0])))
+        return { op: 'array', type: { array: types[0] }, items };
+    }
     const type = this.exprType(e);
     const t = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
     if (!(typeof t === 'object' && 'array' in t))
@@ -6478,6 +7020,17 @@ export const COMPOUND: Record<number, ts.SyntaxKind> = {
 
 export function isAssignmentOperator(k: ts.SyntaxKind) {
   return k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment;
+}
+
+/** Whether a statement always leaves its block (`return`, `throw`, `break`, `continue`). */
+function exits(s: ts.Statement): boolean {
+  if (ts.isBlock(s)) return s.statements.length > 0 && exits(s.statements[s.statements.length - 1]);
+  return (
+    ts.isReturnStatement(s) ||
+    ts.isThrowStatement(s) ||
+    ts.isBreakStatement(s) ||
+    ts.isContinueStatement(s)
+  );
 }
 
 export function skipParens(e: ts.Expression): ts.Expression {
