@@ -3202,8 +3202,8 @@ export class Lowerer {
       name: 'promise.then',
       args: [
         p,
-        fn('vue.fulfilled', [], []),
-        fn('vue.rejected', [{ name: 'err', type: { record: this.errorRecord() } }], [log]),
+        fn('listener.fulfilled', [], []),
+        fn('listener.rejected', [{ name: 'err', type: { record: this.errorRecord() } }], [log]),
       ],
       type: { promise: VOID },
     };

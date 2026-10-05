@@ -736,6 +736,8 @@ pub struct Machine<'p> {
     flush_pending: bool,
     /// While an input event is dispatched, including its microtask checkpoint.
     in_event: bool,
+    /// While a discrete input event's listeners run (not its checkpoint).
+    dispatching: bool,
     /// Heap mutation epochs at the last flush; mutations of tracked heap
     /// values queue a flush like cell writes.
     epochs: (u64, u64),
@@ -1011,6 +1013,7 @@ impl<'p> Machine<'p> {
             default_tasks: VecDeque::new(),
             flush_pending: false,
             in_event: false,
+            dispatching: false,
             epochs: (js::mutation_epoch(), js::owned_epoch()),
             tracks_deep: cells_tracked(program, Tracking::Deep),
             // Reactive class fields hold proxied deep state, read and written as proxies are.
@@ -4178,7 +4181,9 @@ impl<'p> Machine<'p> {
         let before: Vec<Vec<Val>> = self.instances.iter().map(|i| i.cells.clone()).collect();
         self.tasks_run += 1;
         self.in_event = event;
+        self.dispatching = event;
         let result = body(self);
+        self.dispatching = false;
         self.payload = None;
         if let Err(t) = &result {
             if t.name.to_rust() == "RunicDomainError" {
@@ -4237,6 +4242,19 @@ impl<'p> Machine<'p> {
             return;
         }
         if self.flush_pending {
+            // A discrete update renders in its microtask, with the updates
+            // that wait for a default-priority task (React's sync render
+            // takes the pending default and continuous lanes).
+            if self.program.schedule.flush == Flush::EventMicrotask && self.dispatching {
+                if let Some(i) = self
+                    .default_tasks
+                    .iter()
+                    .position(|j| matches!(j, Micro::Flush))
+                {
+                    self.default_tasks.remove(i);
+                    self.microtasks.push_back(Micro::Flush);
+                }
+            }
             return;
         }
         self.flush_pending = true;
@@ -6126,7 +6144,15 @@ impl<'p> Machine<'p> {
                     .filter(|_| r.closure.is_none())
                     .and_then(|h| h.source.clone())
             };
-            let result = self.task(source.as_ref(), true, |m| {
+            // Updates from continuous events (React) are not discrete.
+            let kind = listeners[0].1.data().kind.to_rust();
+            let discrete = !self
+                .program
+                .schedule
+                .continuous
+                .iter()
+                .any(|k| k.name() == kind);
+            let result = self.task(source.as_ref(), discrete, |m| {
                 let mut error = None;
                 for (r, event, current) in listeners {
                     if !event.enter(js::Element(current)) {

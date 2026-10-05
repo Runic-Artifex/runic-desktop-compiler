@@ -1,0 +1,14 @@
+{
+  "description": "React's continuous lane for scroll events (M6): the update of a scroll listener renders in a scheduler task after the frame, after the listener's microtasks and promise reactions and the frame's ResizeObserver notifications, with layout effects before and passive effects after; the size change it renders reaches the ResizeObserver in the next frame; clicks render in their microtask. Programmatic scrolling and wheel turns, compared as the console's order",
+  "fixtures": [
+    "scroll-lane-react"
+  ],
+  "actions": [
+    { "kind": "click", "id": "down" },
+    { "kind": "click", "id": "count" },
+    { "kind": "wheel", "id": "list", "deltaY": 120 },
+    { "kind": "click", "id": "down" },
+    { "kind": "click", "id": "count" },
+    { "kind": "wheel", "id": "list", "deltaY": -300 }
+  ]
+}

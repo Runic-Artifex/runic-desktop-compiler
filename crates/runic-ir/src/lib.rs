@@ -170,6 +170,12 @@ pub struct Schedule {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub commit_events_ignored: bool,
+    /// Events whose listeners' updates render as a default-priority task,
+    /// not in the event's microtask checkpoint (React's continuous priority,
+    /// M6): after the rendering step for events it dispatches (`scroll`). A
+    /// discrete update before that task renders them at once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub continuous: Vec<EventKind>,
 }
 
 /// How cleanups of re-running effects are ordered within a phase.

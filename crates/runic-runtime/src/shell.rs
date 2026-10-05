@@ -147,6 +147,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         started: Instant::now(),
         wake_at: None,
         waker: None,
+        fixup: None,
     };
     // Loaded: then the host's work queued while the app mounted.
     crate::history::loaded();
