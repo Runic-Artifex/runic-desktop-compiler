@@ -18,5 +18,7 @@
   <div class="row column"><button id="column">Stretched in a column</button></div>
   <div class="row stretch"><button id="stretched">Stretched in a row</button></div>
   <div class="row"><button id="two-lines" class="tall">Two words wrap in a tall button</button></div>
+  <div class="row list"><button id="list-row" class="list-row"><span id="list-id" class="list-id">12</span>Row 12 · beta</button></div>
+  <div class="row"><button id="mixed" class="tall"><span id="mixed-icon" class="icon"></span> Icon and text</button></div>
   <p id="state">{on} {count}</p>
 </div>
