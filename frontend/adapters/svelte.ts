@@ -311,7 +311,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (x.text === 'undefined' && !checker.getSymbolAtLocation(x)?.valueDeclaration)
         return [undefined];
       const sym = checker.getSymbolAtLocation(x);
-      return sym && lower.domains?.values(sym);
+      // (Not a snippet or function prop: sites pass snippets as content,
+      // which the prop domains do not see.)
+      const t = sym && checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(sym, x));
+      if (!sym || !t || t.getCallSignatures().length) return undefined;
+      return lower.domains?.values(sym);
     };
     const truth = (x: ts.Expression): boolean | undefined => {
       x = skipParens(x);

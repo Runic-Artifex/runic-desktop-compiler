@@ -419,3 +419,31 @@ test('capture listeners of a bag run from the root to the target, before the oth
     },
   );
 });
+
+test('a test of a snippet prop is not decided by the props sites pass', async () => {
+  await withApp(
+    {
+      'Inner.svelte': `<script lang="ts">
+  import type { Snippet } from 'svelte';
+  let { child }: { child?: Snippet } = $props();
+</script>
+
+{#if child}{@render child()}{:else}<p id="none">none</p>{/if}
+`,
+      'App.svelte': `<script lang="ts">
+  import Inner from './Inner.svelte';
+</script>
+
+<Inner>{#snippet child()}<p id="given">given</p>{/snippet}</Inner>
+<Inner />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, []);
+      const dom = JSON.stringify(steps[0].state.dom);
+      assert.match(dom, /given/);
+      assert.match(dom, /none/);
+    },
+  );
+});

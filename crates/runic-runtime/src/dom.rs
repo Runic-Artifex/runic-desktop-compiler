@@ -317,6 +317,14 @@ impl Listeners {
             .get(&node)
             .is_some_and(|l| l.iter().any(|(e, _)| e.action() == action))
     }
+
+    /// Whether `node` has a capture listener for an event `action` delivers.
+    #[cfg(feature = "probe")]
+    pub(crate) fn captures(&self, node: NodeId, action: &str) -> bool {
+        self.capture
+            .get(&node)
+            .is_some_and(|l| l.iter().any(|(e, _)| e.action() == action))
+    }
 }
 
 /// Class toggle state of an element: the class value and toggles last applied.

@@ -47,3 +47,8 @@ button {
 #log {
   padding-left: 20px;
 }
+/* The outer element's centre is its own area, not its children's (pointer
+   targets of the differential are aimed at the centre). */
+#outer {
+  padding-bottom: 40px;
+}
