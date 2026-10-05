@@ -745,6 +745,27 @@ function computePosition(node: ts.CallExpression, b: FnBuilder, lower: Lowerer):
         const m = record(r.middleware);
         lower.expected.set(skipParens(value), { array: m });
         middleware = lower.coerce(value, b, { array: m });
+        // An optional list (bits-ui's useFloating: a getter's value):
+        // undefined takes the default `[]`; null throws a TypeError
+        // (`middleware.filter`), as unwrapping does.
+        const listType = lower.irType(middleware, b);
+        const list =
+          typeof listType === 'object' && 'maybe' in listType ? listType.maybe : undefined;
+        if (list !== undefined) {
+          const held = b.local('$middleware', listType);
+          const read: Expr = { op: 'local', local: held };
+          middleware = {
+            op: 'with',
+            local: held,
+            value: middleware,
+            body: {
+              op: 'cond',
+              test: { op: 'builtin', name: 'maybe.is-undefined', args: [read], type: 'boolean' },
+              then: { op: 'array', type: list, items: [] },
+              else: { op: 'unwrap', value: read },
+            },
+          };
+        }
         // Middleware that may be absent (\`Array<Middleware | null |
         // undefined | false>\`): computePosition skips falsy entries
         // (\`middleware.filter(Boolean)\`).

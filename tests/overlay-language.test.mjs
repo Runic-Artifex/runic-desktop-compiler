@@ -300,3 +300,97 @@ test('tuples are not plain data: strings and JSON of them are rejected', async (
     );
   }
 });
+
+test('rest props pass numbers and objects to the props a child declares', async () => {
+  await withApp(
+    {
+      'Inner.svelte': `<script lang="ts">
+  let { offset, box, ...rest }: { offset: number; box: { w: number } } & Record<string, unknown> = $props();
+</script>
+
+<p id="p" {...rest}>{offset + box.w}</p>
+`,
+      'Middle.svelte': `<script lang="ts">
+  import Inner from './Inner.svelte';
+  let { ...rest }: Record<string, unknown> = $props();
+</script>
+
+<Inner {...rest} />
+`,
+      'App.svelte': `<script lang="ts">
+  import Middle from './Middle.svelte';
+  let n = $state(1);
+</script>
+
+<button id="b" onclick={() => n++}>+</button>
+<Middle offset={n} box={{ w: 10 }} tabindex={n} />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      const p = JSON.stringify(steps[0].state.dom);
+      assert.match(p, /"tabindex":"1"/);
+      assert.match(p, /11/);
+      assert.match(JSON.stringify(steps[1].state.dom), /12/);
+    },
+  );
+});
+
+test('{@const} of a bag or text, and tests the props decide', async () => {
+  await withApp(
+    {
+      'Field.svelte': `<script lang="ts">
+  let { type, value = $bindable(), files = $bindable() }: { type?: string; value?: string; files?: unknown } = $props();
+</script>
+
+{#if type === 'file'}
+  <input type="file" bind:files />
+{:else}
+  <input id="text" bind:value />
+{/if}
+`,
+      'App.svelte': `<script lang="ts">
+  import { mergeProps } from 'svelte-toolbelt';
+  import Field from './Field.svelte';
+  let label = $state('a');
+</script>
+
+{#if label}
+  {@const bag = mergeProps({ id: 'x' }, { title: label })}
+  {@const shout = label.toUpperCase()}
+  <p {...bag}>{shout}</p>
+{/if}
+<button id="b" onclick={() => (label += 'b')}>+</button>
+<Field />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.match(JSON.stringify(steps[0].state.dom), /"title":"a"/);
+      assert.match(JSON.stringify(steps[1].state.dom), /"title":"ab".*AB/);
+      // The file branch is not lowered: no site passes \`type\`.
+      assert.doesNotMatch(JSON.stringify(ir), /"type","value":\{"op":"lit","value":"file"/);
+    },
+  );
+});
+
+test('{@const} of a value with identity is rejected', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let n = $state(1);
+</script>
+
+{#if n}
+  {@const box = { n }}
+  <p>{box.n}</p>
+{/if}
+`,
+    },
+    async root => {
+      await assert.rejects(lowered(root), failWith('E_TEMPLATE', /@const/));
+    },
+  );
+});

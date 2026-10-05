@@ -612,7 +612,8 @@ export function inferFields(
     return callsOf.get(decl) ?? [];
   };
   const print = (t: ts.Type, at: ts.Node): string | undefined => {
-    if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+    // (`never`: a value narrowed away while other types are still unknown.)
+    if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) return undefined;
     const node = checker.typeToTypeNode(
       t,
       at,
@@ -1269,6 +1270,89 @@ export function inferFields(
       ts.forEachChild(n, getters);
     };
     getters(sf);
+    // A local arrow function used only as a listener of svelte/events' `on`
+    // (bits-ui's SafePolygon: `const handleTriggerLeave = (e) => …;
+    // on(triggerNode, "pointerleave", handleTriggerLeave)`): its parameter
+    // is that event.
+    const localListeners = (n: ts.Node) => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer &&
+        ts.isArrowFunction(skipParensOf(n.initializer)) &&
+        n.parent.flags & ts.NodeFlags.Const
+      ) {
+        const fn = skipParensOf(n.initializer) as ts.ArrowFunction;
+        const p = fn.parameters[0];
+        const sym = checker.getSymbolAtLocation(n.name);
+        if (fn.parameters.length === 1 && !p.type && ts.isIdentifier(p.name) && sym) {
+          let scope: ts.Node = n.parent;
+          while (scope.parent && !ts.isBlock(scope) && !ts.isSourceFile(scope))
+            scope = scope.parent;
+          const events = new Set<string>();
+          let other = false;
+          const uses = (x: ts.Node) => {
+            if (ts.isIdentifier(x) && x !== n.name && checker.getSymbolAtLocation(x) === sym) {
+              const event = listenerEvent(x);
+              if (event) events.add(event);
+              else other = true;
+            }
+            ts.forEachChild(x, uses);
+          };
+          uses(scope);
+          const end = p.name.end;
+          const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+          if (!other && events.size === 1 && seg) {
+            const key = `param:${seg.orig + (end - seg.synth)}`;
+            const text = [...events][0];
+            if (next.get(key) !== text) next.set(key, text);
+          }
+        }
+      }
+      ts.forEachChild(n, localListeners);
+    };
+    localListeners(sf);
+    // A function returning `x || null` (or `?? null`, `|| undefined`) of an
+    // `x` TypeScript types as never nullish (bits-ui's `tabbables[0] ||
+    // null` of an array that may be empty): TypeScript drops the null; the
+    // function returns `T | null`.
+    const nullishReturns = (n: ts.Node) => {
+      if ((ts.isMethodDeclaration(n) || ts.isFunctionDeclaration(n)) && n.body && !n.type) {
+        let found: 'null' | 'undefined' | undefined;
+        const visit = (x: ts.Node) => {
+          if (x !== n && ts.isFunctionLike(x)) return;
+          if (ts.isReturnStatement(x) && x.expression) {
+            const r = skipParensOf(x.expression);
+            if (
+              ts.isBinaryExpression(r) &&
+              (r.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+                r.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+            ) {
+              const right = skipParensOf(r.right);
+              const nothing =
+                right.kind === ts.SyntaxKind.NullKeyword ||
+                (ts.isIdentifier(right) && right.text === 'undefined');
+              const t = checker.getTypeAtLocation(r);
+              if (nothing && !(t.flags & ts.TypeFlags.Any) && checker.getNonNullableType(t) === t)
+                found = right.kind === ts.SyntaxKind.NullKeyword ? 'null' : 'undefined';
+            }
+          }
+          ts.forEachChild(x, visit);
+        };
+        visit(n.body);
+        const sig = found ? checker.getSignatureFromDeclaration(n) : undefined;
+        const ret = sig && print(sig.getReturnType(), n);
+        const close = sf.text.indexOf(')', n.parameters.end) + 1;
+        const seg = m.segments.find(g => close >= g.synth && close <= g.synth + g.length);
+        if (ret !== undefined && close > 0 && seg) {
+          const key = `ret:${seg.orig + (close - seg.synth)}`;
+          const text = `${ret} | ${found}`;
+          if (!next.has(key)) next.set(key, text);
+        }
+      }
+      ts.forEachChild(n, nullishReturns);
+    };
+    nullishReturns(sf);
     // Untyped parameters of class constructors and methods (FocusScope's
     // `constructor(opts)` and `static use(opts)`): the one type the
     // program's calls pass, where they agree.

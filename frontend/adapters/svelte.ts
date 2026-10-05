@@ -290,6 +290,66 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const presentWrites: { component: number; cell: number; name: string; at: Source }[] = [];
   /** `bind:` setters (function index) by the child component and prop cell they follow. */
   const bindSetters = new Map<number, { component: number; cell: number }>();
+  /**
+   * The truth of an `{#if}` test that the values of props decide at every
+   * site (shadcn-svelte's Input: `{#if type === "file"}` where no site
+   * passes `type`): a prop, its negation, comparisons of it with literals,
+   * and `&&`/`||` of such tests; undefined otherwise. Reading a prop has no
+   * effect, so a decided test leaves the other branch unrendered.
+   */
+  const decidedTest = (u: Unit, test: SNode): boolean | undefined => {
+    const e = nodeIn(u, test) as ts.Expression;
+    const K = ts.SyntaxKind;
+    const values = (x: ts.Expression): unknown[] | undefined => {
+      x = skipParens(x);
+      if (ts.isStringLiteralLike(x)) return [x.text];
+      if (ts.isNumericLiteral(x)) return [Number(x.text)];
+      if (x.kind === K.TrueKeyword) return [true];
+      if (x.kind === K.FalseKeyword) return [false];
+      if (x.kind === K.NullKeyword) return [null];
+      if (!ts.isIdentifier(x)) return undefined;
+      if (x.text === 'undefined' && !checker.getSymbolAtLocation(x)?.valueDeclaration)
+        return [undefined];
+      const sym = checker.getSymbolAtLocation(x);
+      return sym && lower.domains?.values(sym);
+    };
+    const truth = (x: ts.Expression): boolean | undefined => {
+      x = skipParens(x);
+      if (ts.isPrefixUnaryExpression(x) && x.operator === K.ExclamationToken) {
+        const v = truth(x.operand);
+        return v === undefined ? undefined : !v;
+      }
+      if (ts.isBinaryExpression(x)) {
+        const op = x.operatorToken.kind;
+        if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
+          const l = truth(x.left);
+          const r = truth(x.right);
+          if (op === K.AmpersandAmpersandToken)
+            return l === false || r === false ? false : l && r ? true : undefined;
+          return l === true || r === true ? true : l === false && r === false ? false : undefined;
+        }
+        const strict = op === K.EqualsEqualsEqualsToken || op === K.ExclamationEqualsEqualsToken;
+        const loose = op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken;
+        if (!strict && !loose) return undefined;
+        const a = values(x.left);
+        const b = values(x.right);
+        if (!a || !b) return undefined;
+        const same = (p: unknown, q: unknown) =>
+          strict ? p === q : p === q || (p == null && q == null);
+        const results = a.flatMap(p => b.map(q => same(p, q)));
+        const negate = op === K.ExclamationEqualsEqualsToken || op === K.ExclamationEqualsToken;
+        if (results.every(r => r)) return !negate;
+        if (results.every(r => !r)) return negate;
+        return undefined;
+      }
+      const v = values(x);
+      if (!v || !v.length) return undefined;
+      if (v.every(Boolean)) return true;
+      if (v.every(y => !y)) return false;
+      return undefined;
+    };
+    return truth(e);
+  };
   const walkTemplate = (node: unknown, f: (n: SNode) => void, seen = new Set<unknown>()) => {
     if (!node || typeof node !== 'object' || seen.has(node)) return;
     seen.add(node);
@@ -744,6 +804,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             if (v.type === 'ExpressionTag') expr(v.expression);
     };
     const fragment = (f: SNode) => {
+      // `{@const}` declarations hold for their whole block (Svelte hoists them).
+      for (const n of f?.nodes ?? [])
+        if (n.type === 'ConstTag') {
+          u.starts.set(n.declaration, s.length);
+          copy(n.declaration.start, n.declaration.end);
+          s += ';\n';
+        }
       for (const n of f?.nodes ?? []) {
         if (n.type === 'ExpressionTag') expr(n.expression);
         else if (n.type === 'IfBlock') {
@@ -1114,6 +1181,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         let t: Type;
         if (declared !== undefined) {
           t = declared;
+          // (An object literal takes the declared record: `$state({})` of
+          // floating-ui's middleware data, all of whose fields are optional.)
+          if (arg && !lower.expected.has(skipParens(arg))) lower.expected.set(skipParens(arg), t);
           value = arg ? lower.coerce(arg, b, t) : { op: 'undefined', type: t };
         } else {
           if (!arg) return tsFail(d, 'E_RUNE', `${name} needs a type or an initial value`);
@@ -1959,11 +2029,32 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const restComponent = new Map<ts.Symbol, number>();
   for (const u of order) {
     const sf = program.getSourceFile(u.virtual)!;
-    const bound = new Set<string>();
-    walkTemplate(u.ast.fragment, n => {
-      if (n.type === 'BindDirective' && n.expression?.type === 'Identifier')
-        bound.add(n.expression.name);
-    });
+    /** The names bound in branches that can render (`decidedTest`). */
+    let boundLive: Set<string> | undefined;
+    const bound = {
+      has(name: string): boolean {
+        if (!boundLive) {
+          boundLive = new Set();
+          const visit = (node: unknown) => {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) return node.forEach(visit);
+            const n = node as SNode;
+            if (n.type === 'BindDirective' && n.expression?.type === 'Identifier')
+              boundLive!.add(n.expression.name);
+            if (n.type === 'IfBlock') {
+              const known = decidedTest(u, n.test);
+              visit(n.test);
+              if (known !== false) visit(n.consequent);
+              if (known !== true) visit(n.alternate);
+              return;
+            }
+            for (const [k, v] of Object.entries(n)) if (k !== 'parent') visit(v);
+          };
+          visit(u.ast.fragment);
+        }
+        return boundLive.has(name);
+      },
+    };
     for (const stmt of instanceStatements(u)) {
       if (!ts.isVariableStatement(stmt)) continue;
       for (const d of stmt.declarationList.declarations) {
@@ -1979,12 +2070,22 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           let fallback = el.initializer;
           if (fallback && runeName(fallback) === '$bindable')
             fallback = (fallback as ts.CallExpression).arguments[0];
+          // (Written: decided when first asked, as binds in branches that
+          // cannot render do not count, which the other props' values decide.)
+          const name = el.name.text;
+          let written: boolean | undefined;
           propDecls.push({
             component: u.index,
-            key: el.propertyName ? (el.propertyName as ts.Identifier).text : el.name.text,
+            key: el.propertyName ? (el.propertyName as ts.Identifier).text : name,
             symbol,
             fallback,
-            written: bound.has(el.name.text) || assigned(checker, sf, symbol),
+            get written() {
+              if (written === undefined) {
+                written = true;
+                written = bound.has(name) || assigned(checker, sf, symbol);
+              }
+              return written;
+            },
           });
         }
       }
@@ -2826,13 +2927,61 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       }
     };
     const childNodes = (fragment: SNode, parent?: string): Node[] => {
+      const cleaned = clean(fragment, parent);
+      // `{@const name = value}` (bits-ui's `{@const finalProps =
+      // mergeProps(…)}`): Svelte hoists it to its block as a derived value,
+      // computed when first read. A value without identity whose evaluation
+      // has no effect (Lowerer.effectFree) is evaluated as the block
+      // renders, as the item of a one-item list around the block's content;
+      // others are rejected.
+      const consts = cleaned.filter(n => n.type === 'ConstTag');
+      if (consts.length) {
+        const bound = consts.map(c => {
+          const list = nodeAt(c.declaration);
+          const decl =
+            ts.isVariableDeclarationList(list) && list.declarations.length === 1
+              ? list.declarations[0]
+              : undefined;
+          if (!decl || !ts.isIdentifier(decl.name) || !decl.initializer)
+            return fail('E_TEMPLATE', '{@const} declares one name with a value', loc(c));
+          const v = value(decl.initializer);
+          const t = lower.irType(v, tb);
+          const plain = (x: Type): boolean =>
+            ['string', 'number', 'boolean', 'attrs'].includes(x as string) ||
+            (typeof x === 'object' && 'maybe' in x && plain(x.maybe));
+          if (!plain(t) || !lower.effectFree(v))
+            fail(
+              'E_TEMPLATE',
+              '{@const} is supported for text, numbers, booleans and attribute bags computed without effects',
+              loc(c),
+            );
+          const local = tb.local(decl.name.text, t);
+          lower.bindings.set(checker.getSymbolAtLocation(decl.name)!, {
+            kind: 'local',
+            owner: tb,
+            local,
+          });
+          return { local, v, t };
+        });
+        let body = childNodes({ ...fragment, nodes: cleaned.filter(n => n.type !== 'ConstTag') });
+        for (const { local, v, t } of bound.reverse())
+          body = [
+            {
+              kind: 'each',
+              items: { op: 'array', type: { array: t }, items: [v] },
+              item: local,
+              body,
+            },
+          ];
+        return body;
+      }
       const out: Node[] = [];
       let parts: Expr[] = [];
       const flush = () => {
         if (parts.length) out.push({ kind: 'text', parts });
         parts = [];
       };
-      for (const n of clean(fragment, parent)) {
+      for (const n of cleaned) {
         if (n.type === 'Text') {
           if (n.data) parts.push({ op: 'lit', value: n.data });
         } else if (n.type === 'ExpressionTag') parts.push(display(exprNode(n.expression)));
@@ -2842,6 +2991,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'SvelteElement') {
           flush();
           out.push(...dynamicElement(n));
+        } else if (n.type === 'IfBlock' && decidedTest(u, n.test) !== undefined) {
+          // A test the props' values decide: the branch that renders.
+          flush();
+          const branch = decidedTest(u, n.test) ? n.consequent : n.alternate;
+          if (branch) out.push(...children(branch));
         } else if (n.type === 'IfBlock') {
           flush();
           const testNode = exprNode(n.test);
@@ -3099,6 +3253,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       // become what Svelte's set_attributes writes (`spreadBooleanText`).
       if (t === 'string' || t === 'boolean') return { name, value: v };
       if (typeof t === 'object' && 'maybe' in t && t.maybe === 'boolean') return { name, value: v };
+      // Values of other types (a number, an array, an object: M6 overlays,
+      // bits-ui forwards `sideOffset` and `collisionBoundary`) reach the
+      // receiving component as they are; an element the bag is spread onto
+      // sets a number's text (docs/IR.md, attrs).
+      const inner = typeof t === 'object' && 'maybe' in t ? t.maybe : t;
+      if (bagValueType(inner)) return { name, value: v };
       if (typeof t === 'object' && 'maybe' in t) return { name, value: maybeAttribute(v, t, a) };
       return { name, value: { op: 'to-string', arg: v } };
     };
@@ -3281,6 +3441,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           bag.push(restEntry(a));
           continue;
         }
+        // A prop the child neither declares nor collects (bits-ui passes
+        // FocusScope `forceMount`): Svelte passes it as a getter nothing
+        // calls, so its expression is never evaluated.
+        if (a.type === 'Attribute' && restCell < 0 && !declared(a.name)) continue;
         if (a.type === 'BindDirective' && writers.has(a.name))
           fail('E_TEMPLATE', `bind:${a.name} after a spread that may hold ${a.name}`, loc(a));
         if (a.type === 'Attribute') {
@@ -4055,6 +4219,16 @@ function mergeHandlers(
  * A URL fragment percent-decoded as UTF-8. A malformed run of escapes is
  * kept as written (the runtime checks the targets of followed links again).
  */
+/**
+ * A type of the values a bag passes to declared props besides text,
+ * booleans, functions and style objects (runic_ir::builtins::bag_value_type).
+ */
+function bagValueType(t: Type): boolean {
+  if (typeof t === 'string')
+    return !['void', 'event', 'attrs', 'string', 'boolean', 'contexts', 'mounted'].includes(t);
+  return !('fn' in t) && !('maybe' in t);
+}
+
 function decodeFragment(s: string): string {
   return s.replace(/(?:%[0-9a-fA-F]{2})+/g, run => {
     try {
