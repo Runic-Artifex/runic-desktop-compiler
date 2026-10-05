@@ -106,6 +106,12 @@ export class LoadRoute {
   }
 }
 
+/** A parameter every route reaching a load has (its value is always a string). */
+export function present(value: string | undefined): string {
+  if (value === undefined) throw new Error('A route parameter is missing');
+  return value;
+}
+
 /** A parameter of a route id (`import('types').RouteParam`). */
 export type ParamDef = {
   name: string;

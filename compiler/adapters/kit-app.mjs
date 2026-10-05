@@ -3,7 +3,7 @@
 // Vite plugin that provides them and Kit's aliases, the app.html
 // attributes, and what the Svelte adapter checks in the app's code.
 import path from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Diagnostic } from '../collect.mjs';
 import {
@@ -15,7 +15,9 @@ import {
   readAppHtml,
   readSvelteConfig,
   routeModule,
+  serverModule,
 } from './kit.mjs';
+import { checkGeneration, OUTPUT_DIR, preprocessed } from '../generate.mjs';
 import { generate } from './kit-generate.mjs';
 
 const RUNTIME_DIR = fileURLToPath(new URL('../../frontend/adapters/kit/', import.meta.url));
@@ -54,7 +56,7 @@ export async function kitApp(root, config, compiler) {
     );
   if (config.framework !== 'svelte')
     kitFail('E_CONFIG', 'A SvelteKit app needs "framework": "svelte"', at('runic.json'));
-  const options = readSvelteConfig(root);
+  const options = readSvelteConfig(root, config);
   const html = readAppHtml(root);
   const { manifest, dir: kitDir } = await manifestOf(root, options);
   const relOf = f => path.relative(root, path.resolve(root, f)).split(path.sep).join('/');
@@ -71,20 +73,38 @@ export async function kitApp(root, config, compiler) {
   for (const ext of ['.js', '.ts'])
     if (existsSync(path.join(root, 'src', 'service-worker' + ext)))
       kitFail('E_KIT_HOOKS', 'Service workers are unsupported', at('src/service-worker' + ext));
-  for (const route of manifest.routes)
-    if (route.endpoint)
+  // Server code and generated inputs (compiler/generate.mjs): server loads
+  // and prerendered endpoints were evaluated by `runic generate` into data
+  // tables; builds check the record and read them, and never run them.
+  const endpoints = manifest.routes.filter(r => r.endpoint);
+  const serverNodes = manifest.nodes.filter(n => n.server);
+  let server = { nodes: {}, fetch: {}, routes: [] };
+  if (config.generate?.length || endpoints.length || serverNodes.length) {
+    checkGeneration(root, config, true);
+    server = JSON.parse(readFileSync(path.join(root, OUTPUT_DIR, 'server.json'), 'utf8'));
+  }
+  for (const route of endpoints) {
+    const fetched = Object.keys(server.fetch).some(url => route.pattern.test(url.split('?')[0]));
+    if (!fetched)
       kitFail(
         'E_KIT_SERVER',
-        `Endpoints (+server) are unsupported in this step (${route.id})`,
+        `The endpoint ${route.id} is not prerendered data of any load (generation fetched none of its URLs): the native app has no server`,
         at(relOf(route.endpoint.file)),
       );
-  for (const node of manifest.nodes)
-    if (node.server)
+  }
+  const serverLoads = new Map();
+  for (const node of serverNodes) {
+    const rel = relOf(node.server);
+    if (!serverModule(root, rel).load) continue;
+    const table = server.nodes[rel];
+    if (!table)
       kitFail(
         'E_KIT_SERVER',
-        'Server load functions (+page.server, +layout.server) are unsupported in this step (build-time server data is a later step)',
-        at(relOf(node.server)),
+        'This server load was not evaluated at generation (its routes are not prerendered): the native app has no server',
+        at(rel),
       );
+    serverLoads.set(node, { rel, ...table });
+  }
 
   // Nodes: components (Kit's default layout and error page as generated
   // copies), universal loads, declared props.
@@ -120,6 +140,17 @@ export async function kitApp(root, config, compiler) {
         ? (({ load, data }) => ({ load, data }))(routeModule(root, universal))
         : { load: false, data: false }),
       props,
+      // A server load: its data table (generation) and what its load read.
+      ...(serverLoads.has(node)
+        ? {
+            server: {
+              rel: serverLoads.get(node).rel,
+              import: importFrom(generated, path.join(root, serverLoads.get(node).rel)),
+              uses: serverLoads.get(node).uses,
+              table: serverLoads.get(node).table,
+            },
+          }
+        : {}),
     };
   });
 
@@ -230,6 +261,7 @@ export async function kitApp(root, config, compiler) {
     rootError,
     maxDepth,
     typeDirs,
+    fetchTable: server.fetch,
   });
   for (const [name, text] of files) virtual.set(path.join(generated, name), text);
   for (const name of RUNTIME_FILES)
@@ -262,6 +294,17 @@ export async function kitApp(root, config, compiler) {
     return undefined;
   };
 
+  /** Extensions the preprocess generation steps compile (`.md`). */
+  const preprocessExtensions = options.extensions.filter(e => e !== '.svelte');
+  const preprocessedId = id => {
+    const file = id?.split('?')[0];
+    return file &&
+      file.startsWith(root + path.sep) &&
+      preprocessExtensions.some(e => file.endsWith(e)) &&
+      existsSync(file)
+      ? file + '.svelte'
+      : undefined;
+  };
   const failure = { diagnostic: undefined };
   const plugin = {
     name: 'runic-sveltekit',
@@ -294,13 +337,31 @@ export async function kitApp(root, config, compiler) {
           const replaced =
             path.join(root, target.replace(/\/\*$/, '')) + specifier.slice(base.length);
           const r = await this.resolve(replaced, importer, { skipSelf: true });
-          return r ?? replaced;
+          return preprocessedId(r?.id) ?? r ?? replaced;
         }
+      }
+      // A preprocessed file (`.md`): its recorded Svelte source, as a
+      // component module beside it (relative imports keep their meaning).
+      if (preprocessExtensions.length && !specifier.startsWith('\0')) {
+        const r = await this.resolve(specifier, importer, { skipSelf: true });
+        return preprocessedId(r?.id);
       }
       return undefined;
     },
     load(id) {
-      return virtual.get(id.split('?')[0]);
+      const file = id.split('?')[0];
+      if (preprocessExtensions.some(e => file.endsWith(e + '.svelte'))) {
+        const source = file.slice(0, -'.svelte'.length);
+        const generated = preprocessed(root, config, relOf(source));
+        if (!generated)
+          kitFail(
+            'E_GENERATED',
+            `${relOf(source)} has no preprocessed output (runic.json generate)`,
+            at(relOf(source)),
+          );
+        return readFileSync(generated.path, 'utf8');
+      }
+      return virtual.get(file);
     },
   };
 
@@ -325,6 +386,23 @@ export async function kitApp(root, config, compiler) {
       if (from.startsWith(typesDir + path.sep) && specifier.startsWith('.')) {
         const target = path.resolve(path.dirname(from), specifier);
         if (virtual.has(target)) return target;
+      }
+      // Kit's aliases in modules imported for types only (server modules,
+      // whose data types the generated app module reads): the file the alias
+      // names, a script module with a declaration file beside it by the
+      // declarations (as TypeScript resolves it).
+      for (const [find, target] of Object.entries(aliases)) {
+        const base = find.replace(/\/\*$/, '');
+        if (specifier !== base && !specifier.startsWith(base + '/')) continue;
+        const p = path.join(root, target.replace(/\/\*$/, '')) + specifier.slice(base.length);
+        for (const c of [
+          p.replace(/\.m?js$/, '.d.ts'),
+          p.replace(/\.js$/, '.ts'),
+          p,
+          p + '.ts',
+          path.join(p, 'index.ts'),
+        ])
+          if (existsSync(c) && !statSync(c).isDirectory()) return c;
       }
       return undefined;
     },
