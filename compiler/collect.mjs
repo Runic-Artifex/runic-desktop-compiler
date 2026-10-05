@@ -70,6 +70,15 @@ const FILTER_FUNCTIONS = new Set([
   'drop-shadow',
 ]);
 
+// The SVG painting properties Stylo computes (servo mode) and the Blitz fork
+// draws inline SVG with: each SVG element is serialised for usvg with its
+// computed values (docs/BLITZ-GAPS.md, fixed in the fork). Paint servers
+// (`url()`) stay unsupported: the gradient and pattern elements they would
+// reference are rejected (E_SVG).
+const SVG_PAINT_CSS =
+  /^(fill|fill-opacity|fill-rule|stroke|stroke-width|stroke-opacity|stroke-linecap|stroke-linejoin|stroke-miterlimit|stroke-dasharray|stroke-dashoffset)$/;
+// The other SVG-only properties: markers, geometry and those Stylo's servo
+// mode does not compute.
 const SVG_CSS =
   /^(fill|stroke|marker)(-|$)|^(clip-rule|paint-order|vector-effect|shape-rendering|stop-color|stop-opacity|flood-color|flood-opacity|lighting-color|color-interpolation|color-interpolation-filters|color-rendering|text-anchor|dominant-baseline|alignment-baseline|baseline-shift|mask-type|d|cx|cy|r|rx|ry|x|y)$/;
 
@@ -592,6 +601,21 @@ function possibleKeywords(value, values, seen = new Set()) {
   return words;
 }
 
+/** Whether a declaration value can hold a `url()`, also through each `var()` (as possibleKeywords). */
+function mayHoldUrl(value, values, seen = new Set()) {
+  const walk = nodes =>
+    nodes.some(n => {
+      if (n.type !== 'function') return false;
+      const name = n.value.toLowerCase();
+      if (name === 'url') return true;
+      if (name !== 'var') return walk(n.nodes);
+      const { name: property, alternatives } = varAlternatives(n, values, seen);
+      seen.add(property);
+      return alternatives.some(v => mayHoldUrl(v, values, seen));
+    });
+  return /\burl\(/i.test(value) || walk(valueParser(value).nodes);
+}
+
 /**
  * The values a `var()` node can stand for: its fallback and every value the
  * stylesheet gives the custom property (a superset, as for possibleKeywords).
@@ -748,12 +772,19 @@ function checkRules(css, file) {
         `Unsupported CSS declaration text-transform: ${decl.value}: Blitz lays text out in upper or lower case only (uppercase, lowercase and none are supported)`,
         { file, line: decl.source.start.line, column: decl.source.start.column },
       );
-    // Blitz renders an inline <svg> from its subtree's attributes (usvg), so
-    // these SVG-only properties would be ignored natively (docs/BLITZ-GAPS.md).
-    if (SVG_CSS.test(decl.prop))
+    if (SVG_PAINT_CSS.test(decl.prop) && mayHoldUrl(decl.value, values))
       throw new Diagnostic(
         'E_CSS_PROPERTY',
-        `Unsupported CSS declaration ${decl.prop}: Blitz renders inline SVG from its attributes, so CSS for SVG paint and geometry is ignored; use presentation attributes`,
+        `Unsupported CSS declaration ${decl.prop}: paint servers (url()) are not supported in inline SVG`,
+        { file, line: decl.source.start.line, column: decl.source.start.column },
+      );
+    // Blitz draws an inline <svg> from its subtree's computed SVG painting
+    // properties (usvg); the other SVG-only properties would be ignored
+    // natively (docs/BLITZ-GAPS.md).
+    if (!SVG_PAINT_CSS.test(decl.prop) && SVG_CSS.test(decl.prop))
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration ${decl.prop}: Blitz draws inline SVG with the painting properties fill, stroke and their fill-*/stroke-* longhands only, so CSS for markers, geometry and other SVG properties is ignored; use presentation attributes`,
         {
           file: file,
           line: decl.source.start.line,
