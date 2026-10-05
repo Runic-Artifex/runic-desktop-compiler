@@ -5,6 +5,7 @@
 //! controlled text inputs) and, behind the `probe` feature, scripted input and
 //! DOM snapshots for conformance runs.
 
+mod animations;
 pub mod clipboard;
 pub mod console;
 mod controls;
@@ -203,6 +204,14 @@ pub trait App: 'static {
     fn resize_step(&mut self, dom: &mut Dom) -> bool {
         let _ = dom;
         false
+    }
+    /// The program reads CSS animations and transitions as objects
+    /// (`element.getAnimations()`, M6): the runtime tracks them.
+    const TRACKS_ANIMATIONS: bool = false;
+    /// A frame's animation step (M6): the ends of animations the app holds
+    /// (`Host::animation_ends`) settle their `finished` promises, as a task.
+    fn animation_step(&mut self, dom: &mut Dom) {
+        let _ = dom;
     }
 }
 

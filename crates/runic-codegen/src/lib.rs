@@ -1769,6 +1769,9 @@ fn probe_json(t: &Type, v: &str) -> String {
         Type::Contexts => {
             format!("{{ let _ = &{v}; runic_runtime::Json::String(\"contexts\".into()) }}")
         }
+        Type::Animation => {
+            format!("{{ let _ = &{v}; runic_runtime::Json::String(\"animation\".into()) }}")
+        }
         // A Date as its ISO string (or "Invalid Date").
         Type::Date => format!(
             "runic_runtime::Json::String(js::date::to_json({v}.time()).map_or(\"Invalid Date\".into(), |s| s.to_rust()))"
@@ -2477,6 +2480,9 @@ pub fn generate(
 ) -> Result<String> {
     let reads = function_reads(p);
     let dynamic_fx = uses_builtin(p, &["effect.pre", "effect.post"]);
+    // Animation objects (M6): the runtime tracks the document's animations.
+    let tracks_animations = uses_builtin(p, &["element.getAnimations"]);
+    crate::builtins::TRACKS_ANIMATIONS.set(tracks_animations);
     let g = Gen {
         p,
         optimize: options.optimize,
@@ -2686,6 +2692,47 @@ pub fn generate(
     } else {
         ""
     };
+    // Animation objects (M6, `element.getAnimations()`): those the app
+    // holds while the runtime tracks their animations, settled at their end.
+    let (anim_fields, anim_init, anim_step) = if tracks_animations {
+        (
+            "pub anims: Vec<js::Handle>, ",
+            "anims: Vec::new(), ",
+            "const TRACKS_ANIMATIONS: bool = true;\n\
+             fn animation_step(&mut self, dom: &mut Dom) {\n\
+             if let Err(e) = self.task(dom, false, |cx| { anim_settle(cx, true); Ok(()) }) { eprintln!(\"runic: uncaught exception: {e}\"); }\n}\n",
+        )
+    } else {
+        ("", "", "")
+    };
+    if tracks_animations {
+        out.push_str(
+            "/// An animation object (M6, `element.getAnimations()`): the runtime's id\n\
+             /// of its CSS animation or transition, its `finished` promise, and its\n\
+             /// play state once its end settled.\n\
+             pub struct Anim { pub id: u64, pub finished: RefCell<js::JsPromise<js::Handle, Lst>>, pub ended: std::cell::Cell<&'static str> }\n\
+             fn anim_of(h: &js::Handle) -> &Anim { h.downcast::<Anim>().expect(\"an animation object\") }\n\
+             /// The object of animation `id`: the same one while the app holds it.\n\
+             fn anim_object(cx: &mut Cx, id: u64) -> js::Handle {\n\
+             if let Some(h) = cx.anims.iter().find(|h| anim_of(h).id == id) { return h.clone(); }\n\
+             let h = js::Handle::new(Anim { id, finished: RefCell::new(js::JsPromise::pending()), ended: std::cell::Cell::new(\"running\") });\n\
+             cx.anims.push(h.clone());\n\
+             h\n}\n\
+             /// Settle the `finished` promises of the objects whose animations ended:\n\
+             /// cancelled ones reject with an AbortError at once, finished ones fulfil\n\
+             /// with the animation at a frame's animation step (`frame`).\n\
+             fn anim_settle(cx: &mut Cx, frame: bool) {\n\
+             for (id, finished) in cx.dom.animation_ends(frame) {\n\
+             let Some(i) = cx.anims.iter().position(|h| anim_of(h).id == id) else { continue };\n\
+             let h = cx.anims.remove(i);\n\
+             let a = anim_of(&h);\n\
+             a.ended.set(if finished { \"finished\" } else { \"idle\" });\n\
+             let p = a.finished.borrow().clone();\n\
+             let outcome = if finished { Ok(h.clone()) } else { Err(js::Throw::new(\"AbortError\", \"The user aborted a request.\")) };\n\
+             runic_runtime::promises::settle(cx, &p, outcome);\n\
+             }\n}\n",
+        );
+    }
     let resize_step = match resize {
         Some((ro, runic_ir::builtins::ResizeShape { entry, rect, size })) => format!(
             "fn resize_step(&mut self, dom: &mut Dom) -> bool {{\n\
@@ -2751,10 +2798,10 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{anim_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{anim_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -3017,7 +3064,7 @@ pub fn generate(
          }})\n\
          }}\n\
          fn traverse(&mut self, delta: i64) {{ self.cx.host_tasks.push_back(HostTask::Traverse(delta)); }}\n\
-         {resize_step}\
+         {resize_step}{anim_step}\
          fn hashchange(&mut self) {{ self.cx.host_tasks.push_back(HostTask::HashChange); }}\n\
          fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
          fn now(&self) -> f64 {{ self.cx.timers.now }}\n\

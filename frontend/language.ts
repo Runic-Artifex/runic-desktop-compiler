@@ -22,6 +22,7 @@ import {
   arrayElement,
   builtinType,
   ELEMENT_METRICS,
+  ANIMATION_MEMBERS,
   EVENT_MEMBERS,
   irType,
   maybeInner,
@@ -3112,6 +3113,7 @@ export class Lowerer {
     if (t === 'regexp') return 'regexp';
     if (t === 'media-query') return 'media-query';
     if (t === 'date') return 'date';
+    if (t === 'animation') return 'animation';
     if (typeof t === 'object') {
       if ('array' in t) return 'array';
       if ('map' in t) return 'map';
@@ -3714,6 +3716,17 @@ export class Lowerer {
           `MediaQueryList ${name} is unsupported (matches is supported)`,
         );
       return { op: 'builtin', name: 'media-query.matches', args: [object], type: 'boolean' };
+    }
+    // Animation objects (M6, `element.getAnimations()`).
+    if (kind === 'animation') {
+      const type = ANIMATION_MEMBERS[name];
+      if (type === undefined)
+        return this.fail(
+          e,
+          'E_MEMBER',
+          `Animation ${name} is unsupported (finished, playState and pending are supported)`,
+        );
+      return { op: 'builtin', name: `animation.${name}`, args: [object], type };
     }
     if (kind === 'element' && name === 'localName')
       return { op: 'builtin', name: 'element.localName', args: [object], type: STRING };
