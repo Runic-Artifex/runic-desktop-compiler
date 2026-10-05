@@ -284,9 +284,8 @@ test('a union outside the value model takes the member of the values that reach 
 });
 
 test('a union reached by values of two members is rejected, naming a site of each', async () => {
-  await withApp(
-    {
-      'Target.svelte': `<script lang="ts">
+  const files = sites => ({
+    'Target.svelte': `<script lang="ts">
   type Target = HTMLElement | string;
   let { to = 'body' }: { to?: Target } = $props();
   const label = $derived(typeof to === 'string' ? to : 'element');
@@ -294,20 +293,27 @@ test('a union reached by values of two members is rejected, naming a site of eac
 
 <p>{label}</p>
 `,
-      'App.svelte': `<script lang="ts">
+    'App.svelte': `<script lang="ts">
   import Target from './Target.svelte';
   let el = $state<HTMLElement | null>(null);
 </script>
 
 <div bind:this={el}></div>
-{#if el}<Target to={el} />{/if}
+${sites}
 `,
-    },
-    root =>
-      assert.rejects(
-        lowered(root),
-        failWith('E_TYPE_UNION', 'Target.svelte', /outside the value model/),
-      ),
+  });
+  // The default (a site without \`to\`) and an element.
+  await withApp(files('<Target />\n{#if el}<Target to={el} />{/if}'), root =>
+    assert.rejects(
+      lowered(root),
+      failWith('E_TYPE_UNION', 'Target.svelte', /outside the value model/),
+    ),
+  );
+  // Only elements: the default never applies, so the prop holds an element,
+  // which the nullable \`el\` (narrowed by the block, which the lowering does
+  // not see) is not.
+  await withApp(files('{#if el}<Target to={el} />{/if}'), root =>
+    assert.rejects(lowered(root), failWith('E_PROPS', 'App.svelte', /may be null or undefined/)),
   );
 });
 
@@ -375,6 +381,95 @@ test('values a union takes are traced: a prop no site passes gives none', async 
       const steps = interpret(ir, []);
       const shown = steps[0].state.dom.filter(n => typeof n !== 'string').map(text);
       assert.deepEqual(shown, ['#x']);
+    },
+  );
+});
+
+test('values reach a union through bags; a default reaches it only where a site can omit the prop', async () => {
+  const files = sites => ({
+    'Inner.svelte': `<script lang="ts">
+  type Style = string | Record<string, string>;
+  let { style = {}, ...rest }: { style?: Style; id?: string } = $props();
+  const css = $derived(typeof style === 'string' ? style : 'object');
+</script>
+
+<p {...rest}>{css}</p>
+`,
+    'Outer.svelte': `<script lang="ts">
+  import Inner from './Inner.svelte';
+  let { ...rest }: { style?: string | Record<string, string>; id?: string } = $props();
+</script>
+
+<Inner {...rest} />
+`,
+    'App.svelte': `<script lang="ts">
+  import { mergeProps } from 'svelte-toolbelt';
+  import Outer from './Outer.svelte';
+  let color = $state('red');
+  const props = $derived(mergeProps({ id: 'p', style: { margin: '0' } }, { style: \`color: \${color}\` }));
+</script>
+
+${sites}
+<button id="b" onclick={() => (color = 'blue')}>c</button>
+`,
+  });
+  // mergeProps prints the merged style: only strings reach \`style\`, and
+  // every site passes it, so the default \`{}\` does not.
+  await withApp(files('<Outer {...props} />'), async root => {
+    const { ir } = await lowered(root);
+    const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+    const p = s => steps[s].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'p');
+    assert.equal(text(p(0)), 'margin: 0; color: red;');
+    assert.equal(text(p(1)), 'margin: 0; color: blue;');
+  });
+  // A site without it gives the default: both members reach the union.
+  await withApp(files('<Outer {...props} />\n<Outer id="q" />'), root =>
+    assert.rejects(
+      lowered(root),
+      failWith('E_TYPE_UNION', 'Inner.svelte', /outside the value model/),
+    ),
+  );
+});
+
+test('a field only null where it is declared, set elsewhere, is not decided null', async () => {
+  await withApp(
+    {
+      'timer.svelte.js': `export class Timer {
+  #pending = null;
+  label = $state('idle');
+  start() {
+    this.#pending = setTimeout(() => {}, 1000);
+  }
+  stop() {
+    if (this.#pending !== null) {
+      clearTimeout(this.#pending);
+      this.#pending = null;
+      this.label = 'cleared';
+      return;
+    }
+    this.label = 'nothing';
+  }
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { Timer } from './timer.svelte.js';
+  const timer = new Timer();
+</script>
+
+<button id="stop" onclick={() => timer.stop()}>{timer.label}</button>
+<button id="start" onclick={() => timer.start()}>start</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'stop' },
+        { kind: 'click', id: 'start' },
+        { kind: 'click', id: 'stop' },
+        { kind: 'click', id: 'stop' },
+      ]);
+      const label = s => text(steps[s].state.dom.find(n => typeof n !== 'string'));
+      assert.deepEqual([1, 3, 4].map(label), ['nothing', 'cleared', 'nothing']);
     },
   );
 });

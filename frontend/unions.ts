@@ -33,6 +33,14 @@
 // any member types it; it takes its first, and values typed by it reach no
 // other union.
 //
+// Values pass through attribute bags too (2026-10-05): a spread of
+// svelte-toolbelt's `mergeProps(…)` gives `style` a string where a later
+// bag holds a style (mergeProps prints merged styles), and a component
+// prop's default reaches the prop only where some site can omit it or pass
+// undefined: a site passing the prop with a value that is never undefined,
+// also through a bag known to hold it (rest props passed on, a mergeProps
+// result), does not contribute the default (`mayBeAbsent`).
+//
 // Values TypeScript types `any` (untyped package JavaScript) that flow into
 // such a slot are classified by what they are built from: the members of
 // the literal arguments of the call producing them (bits-ui's
@@ -230,6 +238,12 @@ export class Unions {
     };
     for (const sf of this.files()) {
       const visit = (n: ts.Node) => {
+        // A prop's default, where no site can leave the prop undefined:
+        // it never takes effect.
+        if (ts.isBindingElement(n) && n.initializer && this.unusedDefault(n)) {
+          ts.forEachChild(n.initializer, visit);
+          return;
+        }
         if (ts.isExpression(n) && !ts.isPartOfTypeNode(n)) {
           const ctx = this.checker.getContextualType(n);
           if (ctx && this.contains(ctx, key, 0)) {
@@ -307,7 +321,7 @@ export class Unions {
       if (!strict && this.empty(this.declaredType(e))) return [];
       return undefined;
     }
-    if (path[0] !== 'current') return undefined;
+    if (path[0] !== 'current') return this.traceEntry(e, path, depth, strict);
     const rest = path.slice(1);
     if (ts.isCallExpression(e) && this.isBox(this.checker.getTypeAtLocation(e))) {
       // A box made from a getter (one argument: no setter) or an initial
@@ -345,6 +359,280 @@ export class Unions {
       return all([...given.map(g => this.trace(g, path, depth + 1, strict)), ...writes]);
     }
     return undefined;
+  }
+
+  /**
+   * The values at `path` (an entry, then what is inside it) of the bag or
+   * object `e`: constants and `$derived(…)` followed, svelte-toolbelt's
+   * `mergeProps(…)` (`style` is a string where a bag after the first holds
+   * a style; other entries are the last bag's that holds them).
+   */
+  private traceEntry(
+    e: ts.Expression,
+    path: string[],
+    depth: number,
+    strict: boolean,
+  ): ts.Type[] | undefined {
+    e = skipAll(e);
+    if (ts.isIdentifier(e)) {
+      const sym = this.symbol(e);
+      const init = sym && this.constant(sym);
+      return init ? this.trace(init, path, depth + 1, strict) : undefined;
+    }
+    if (!ts.isCallExpression(e) || !ts.isIdentifier(e.expression)) return undefined;
+    if (e.expression.text === '$derived' && e.arguments.length === 1)
+      return this.trace(e.arguments[0], path, depth + 1, strict);
+    if (!this.isMergeProps(e)) return undefined;
+    const [key, ...inner] = path;
+    if (key === 'style' && !inner.length) {
+      const later = e.arguments.slice(1).map(a => this.bagHas(a, 'style', depth + 1));
+      if (later.some(h => h === 'present')) return [this.checker.getStringType()];
+      if (later.some(h => h === 'maybe')) return undefined;
+    }
+    // The last bag holding the entry (an earlier one where it may be undefined).
+    const found: ts.Type[] = [];
+    for (const a of [...e.arguments].reverse()) {
+      const h = this.bagHas(a, key, depth + 1);
+      if (h === 'absent') continue;
+      const t =
+        this.trace(a, path, depth + 1, strict) ??
+        (() => {
+          const prop = this.checker.getPropertyOfType(this.checker.getTypeAtLocation(a), key);
+          return prop ? [this.checker.getTypeOfSymbol(prop)] : undefined;
+        })();
+      if (!t) return undefined;
+      found.push(...t);
+      if (h === 'present') return found;
+    }
+    return found;
+  }
+
+  /** Whether `e` calls svelte-toolbelt's `mergeProps`. */
+  private isMergeProps(e: ts.CallExpression): boolean {
+    if (!ts.isIdentifier(e.expression) || e.expression.text !== 'mergeProps') return false;
+    const decl = this.symbol(e.expression)?.declarations?.[0];
+    return !!decl && /[\\/]svelte-toolbelt[\\/]/.test(decl.getSourceFile().fileName);
+  }
+
+  /**
+   * Whether bag (or object) `e` holds entry `key`: with a value that is
+   * never undefined (`present`), possibly (`maybe`), or not at all.
+   */
+  private bagHas(e: ts.Expression, key: string, depth: number): 'present' | 'maybe' | 'absent' {
+    if (depth > 60) return 'maybe';
+    e = skipAll(e);
+    if (ts.isIdentifier(e)) {
+      const sym = this.symbol(e);
+      const decl = sym?.valueDeclaration;
+      // Rest props: what the component's sites pass under names it does
+      // not declare.
+      if (decl && ts.isBindingElement(decl) && decl.dotDotDotToken) {
+        const pattern = this.propsPattern(decl.getSourceFile());
+        if (pattern && pattern.rest === sym) {
+          if (pattern.byKey.has(key)) return 'absent';
+          return this.mayBeAbsent(decl.getSourceFile(), key, depth + 1) ? 'maybe' : 'present';
+        }
+      }
+      const init = sym && this.constant(sym);
+      if (init) return this.bagHas(init, key, depth + 1);
+    }
+    if (ts.isCallExpression(e) && ts.isIdentifier(e.expression)) {
+      if (e.expression.text === '$derived' && e.arguments.length === 1)
+        return this.bagHas(e.arguments[0], key, depth + 1);
+      if (this.isMergeProps(e)) {
+        const all = e.arguments.map(a => this.bagHas(a, key, depth + 1));
+        return all.includes('present') ? 'present' : all.includes('maybe') ? 'maybe' : 'absent';
+      }
+    }
+    // A field holding a derived bag (bits-ui's `props = $derived.by(() =>
+    // ({ … }))`): what its function returns.
+    if (ts.isPropertyAccessExpression(e)) {
+      const decl = this.symbol(e.name)?.valueDeclaration;
+      const init = decl && ts.isPropertyDeclaration(decl) ? decl.initializer : undefined;
+      const call = init && skipAll(init);
+      if (call && ts.isCallExpression(call) && call.arguments.length === 1) {
+        const rune = call.expression.getText();
+        if (rune === '$derived') return this.bagHas(call.arguments[0], key, depth + 1);
+        const fn = skipAll(call.arguments[0]);
+        if (rune === '$derived.by' && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) {
+          const all = returned(fn).map(r => this.bagHas(r, key, depth + 1));
+          if (all.length && all.every(h => h === 'present')) return 'present';
+          if (all.length && all.every(h => h === 'absent')) return 'absent';
+          return 'maybe';
+        }
+      }
+    }
+    if (ts.isObjectLiteralExpression(e)) {
+      let state = 'absent' as 'present' | 'maybe' | 'absent';
+      for (const p of e.properties) {
+        if (ts.isSpreadAssignment(p)) {
+          const h = this.bagHas(p.expression, key, depth + 1);
+          if (h !== 'absent') state = h === 'present' || state === 'present' ? 'present' : 'maybe';
+        } else if (
+          p.name &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
+          p.name.text === key
+        ) {
+          const v = ts.isPropertyAssignment(p)
+            ? p.initializer
+            : ts.isShorthandPropertyAssignment(p)
+              ? p.name
+              : undefined;
+          state = v && this.presentValue(v, depth + 1) ? 'present' : 'maybe';
+        }
+      }
+      return state;
+    }
+    // Otherwise TypeScript's type of it.
+    const t = this.checker.getTypeAtLocation(e);
+    if (t.flags & (F.Any | F.Unknown)) return 'maybe';
+    const prop = this.checker.getPropertyOfType(t, key);
+    if (!prop) return this.checker.getIndexInfosOfType(t).length ? 'maybe' : 'absent';
+    if (prop.flags & ts.SymbolFlags.Optional) return 'maybe';
+    const pt = this.checker.getTypeOfSymbol(prop);
+    return (pt.isUnion() ? pt.types : [pt]).some(
+      p => p.flags & (F.Undefined | F.Void | F.Any | F.Unknown),
+    )
+      ? 'maybe'
+      : 'present';
+  }
+
+  /** Whether value `e` (passed for a prop) is never undefined. */
+  private presentValue(e: ts.Expression, depth: number): boolean {
+    e = skipAll(e);
+    if (ts.isIdentifier(e)) {
+      const sym = this.symbol(e);
+      const decl = sym?.valueDeclaration;
+      // A prop of the passing component: never undefined where it has a
+      // default other than undefined, or where its own sites never leave
+      // it undefined.
+      if (decl && ts.isBindingElement(decl) && !decl.dotDotDotToken) {
+        const pattern = this.propsPattern(decl.getSourceFile());
+        const key =
+          decl.propertyName && ts.isIdentifier(decl.propertyName)
+            ? decl.propertyName.text
+            : sym!.name;
+        if (pattern && pattern.byKey.get(key) === decl) {
+          if (decl.initializer && this.presentValue(defaultOf(decl.initializer), depth + 1))
+            return true;
+          return !this.mayBeAbsent(decl.getSourceFile(), key, depth + 1);
+        }
+      }
+    }
+    const t = this.checker.getTypeAtLocation(e);
+    if (t.flags & (F.Any | F.Unknown)) return false;
+    return !(t.isUnion() ? t.types : [t]).some(p => p.flags & (F.Undefined | F.Void));
+  }
+
+  /** The `$props()` destructuring of a component's virtual module, by key, and its rest binding. */
+  private propsPattern(
+    sf: ts.SourceFile,
+  ): { byKey: Map<string, ts.BindingElement>; rest?: ts.Symbol } | undefined {
+    if (this.patterns.has(sf)) return this.patterns.get(sf);
+    let found: { byKey: Map<string, ts.BindingElement>; rest?: ts.Symbol } | undefined;
+    const visit = (n: ts.Node) => {
+      if (found) return;
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isObjectBindingPattern(n.name) &&
+        n.initializer &&
+        ts.isCallExpression(skipAll(n.initializer)) &&
+        (skipAll(n.initializer) as ts.CallExpression).expression.getText() === '$props'
+      ) {
+        const byKey = new Map<string, ts.BindingElement>();
+        let rest: ts.Symbol | undefined;
+        for (const el of n.name.elements) {
+          if (el.dotDotDotToken) rest = this.symbol(el.name);
+          else {
+            const key = el.propertyName
+              ? (el.propertyName as ts.Identifier).text
+              : (el.name as ts.Identifier).text;
+            byKey.set(key, el);
+          }
+        }
+        found = { byKey, rest };
+        return;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    this.patterns.set(sf, found);
+    return found;
+  }
+  private readonly patterns = new Map<ts.SourceFile, ReturnType<Unions['propsPattern']>>();
+
+  /** The object literals passing the props of the component of virtual module `file`, by file. */
+  private sites(): Map<string, ts.ObjectLiteralExpression[]> {
+    if (this.siteIndex) return this.siteIndex;
+    const index = new Map<string, ts.ObjectLiteralExpression[]>();
+    for (const sf of this.files()) {
+      const visit = (n: ts.Node) => {
+        // `((__p: __RunicProps_X) => 0)({ … })` (frontend/adapters/svelte.ts).
+        if (
+          ts.isCallExpression(n) &&
+          n.arguments.length === 1 &&
+          ts.isObjectLiteralExpression(n.arguments[0])
+        ) {
+          const fn = skipAll(n.expression);
+          const param =
+            ts.isArrowFunction(fn) && fn.parameters.length === 1 ? fn.parameters[0] : undefined;
+          const typeRef =
+            param?.type && ts.isTypeReferenceNode(param.type) ? param.type : undefined;
+          if (param && ts.isIdentifier(param.name) && param.name.text === '__p' && typeRef) {
+            const target = this.symbol(typeRef.typeName);
+            const decl = target?.declarations?.[0];
+            if (decl) {
+              const file = decl.getSourceFile().fileName;
+              const list = index.get(file) ?? [];
+              list.push(n.arguments[0]);
+              index.set(file, list);
+            }
+          }
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+    this.siteIndex = index;
+    return index;
+  }
+  private siteIndex?: Map<string, ts.ObjectLiteralExpression[]>;
+
+  /**
+   * Whether some site of the component of virtual module `sf` can leave
+   * prop `key` undefined: it passes nothing for it, or a value that may be
+   * undefined (a component no site renders: the root).
+   */
+  private mayBeAbsent(sf: ts.SourceFile, key: string, depth: number): boolean {
+    if (depth > 60) return true;
+    const memo = `${sf.fileName}#${key}`;
+    const known = this.absent.get(memo);
+    if (known !== undefined) return known;
+    this.absent.set(memo, true);
+    const sites = this.sites().get(sf.fileName) ?? [];
+    const result = !sites.length || sites.some(s => this.bagHas(s, key, depth + 1) !== 'present');
+    this.absent.set(memo, result);
+    return result;
+  }
+  private readonly absent = new Map<string, boolean>();
+
+  /** Whether bag `e` (a spread at a component site) surely holds `key`, never undefined. */
+  bagHolds(e: ts.Expression, key: string): boolean {
+    return this.bagHas(e, key, 0) === 'present';
+  }
+
+  /** Whether `el` (a `$props()` binding with a default) is a prop whose default never takes effect. */
+  unusedDefault(el: ts.BindingElement): boolean {
+    if (el.dotDotDotToken) return false;
+    const pattern = this.propsPattern(el.getSourceFile());
+    const key =
+      el.propertyName && ts.isIdentifier(el.propertyName)
+        ? el.propertyName.text
+        : ts.isIdentifier(el.name)
+          ? el.name.text
+          : undefined;
+    if (!pattern || !key || pattern.byKey.get(key) !== el) return false;
+    return !this.mayBeAbsent(el.getSourceFile(), key, 0);
   }
 
   /** Whether `t` is a svelte-toolbelt box (the `BoxSymbol` brand). */
@@ -496,6 +784,16 @@ const skipAll = (e: ts.Expression): ts.Expression =>
 /** The declaration standing for a (possibly instantiated) property symbol. */
 function declarationOf(sym: ts.Symbol): ts.Declaration | undefined {
   return sym.valueDeclaration ?? sym.declarations?.[0];
+}
+
+/** The default value of a `$bindable(v)` default (`v`), or the default itself. */
+function defaultOf(e: ts.Expression): ts.Expression {
+  const x = skipAll(e);
+  return ts.isCallExpression(x) &&
+    x.expression.getText() === '$bindable' &&
+    x.arguments.length === 1
+    ? x.arguments[0]
+    : e;
 }
 
 /** The expressions a function literal returns. */

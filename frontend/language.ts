@@ -1024,6 +1024,64 @@ export class Lowerer {
     return { op: 'call', function: index, args: [] };
   }
 
+  /** Variables and fields assigned other than null or undefined (`onlyNothing`). */
+  private setToSomething?: Set<ts.Symbol>;
+
+  /**
+   * Whether `x` names a variable or field that only ever holds null or
+   * undefined: declared as one, and every assignment anywhere in the
+   * program stores a value TypeScript types as null or undefined.
+   */
+  private onlyNothing(x: ts.Expression): boolean {
+    const name = ts.isIdentifier(x) ? x : ts.isPropertyAccessExpression(x) ? x.name : undefined;
+    const sym = name && this.checker.getSymbolAtLocation(name);
+    const d = sym?.valueDeclaration;
+    if (!sym || !d || !(ts.isPropertyDeclaration(d) || ts.isVariableDeclaration(d))) return false;
+    if (!this.setToSomething) {
+      const nothing = ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void;
+      const set = (this.setToSomething = new Set());
+      const K = ts.SyntaxKind;
+      const targetOf = (l: ts.Expression) => {
+        l = skipParens(l);
+        return ts.isPropertyAccessExpression(l) ? l.name : l;
+      };
+      for (const sf of this.program.getSourceFiles()) {
+        if (sf.isDeclarationFile) continue;
+        const visit = (n: ts.Node) => {
+          if (
+            ts.isBinaryExpression(n) &&
+            n.operatorToken.kind >= K.FirstAssignment &&
+            n.operatorToken.kind <= K.LastAssignment
+          ) {
+            const l = skipParens(n.left);
+            if (ts.isObjectLiteralExpression(l) || ts.isArrayLiteralExpression(l)) {
+              // (A destructuring assignment: whatever it names.)
+              const names = (m: ts.Node) => {
+                const s = ts.isIdentifier(m) ? this.checker.getSymbolAtLocation(m) : undefined;
+                if (s) set.add(s);
+                ts.forEachChild(m, names);
+              };
+              names(l);
+            }
+            const s = this.checker.getSymbolAtLocation(targetOf(l));
+            const plain = n.operatorToken.kind === K.EqualsToken;
+            if (s && !(plain && this.checker.getTypeAtLocation(n.right).flags & nothing))
+              set.add(s);
+          } else if (
+            (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+            (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)
+          ) {
+            const s = this.checker.getSymbolAtLocation(targetOf(n.operand));
+            if (s) set.add(s);
+          }
+          ts.forEachChild(n, visit);
+        };
+        visit(sf);
+      }
+    }
+    return !this.setToSomething.has(sym);
+  }
+
   /**
    * The value of a side-effect-free test that the IR type of a local
    * decides: `Array.isArray(x)` and `typeof x === "…"` (or `!==`) of a
@@ -1104,7 +1162,14 @@ export class Lowerer {
     }
     // A member that holds an object (bits-ui's `!this.opts.style` of a box)
     // is truthy; it is still read.
-    if (ts.isPropertyAccessExpression(e)) {
+    // (Not a field declared without an initialiser, which holds undefined
+    // until assigned whatever its declared type: bits-ui's
+    // `static instance` of FocusScopeManager.)
+    const uninitialised = (x: ts.PropertyAccessExpression) => {
+      const d = this.checker.getSymbolAtLocation(x.name)?.valueDeclaration;
+      return !!d && ts.isPropertyDeclaration(d) && !d.initializer;
+    };
+    if (ts.isPropertyAccessExpression(e) && !uninitialised(e)) {
       readEffect = undefined;
       const t = typeOfLocal(e);
       const object =
@@ -1157,7 +1222,11 @@ export class Lowerer {
             : t && t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Void)
               ? 'undefined'
               : undefined;
-        if (other && lit && only) {
+        // Only a variable or field the program never sets to anything
+        // else: not an accessor such as a box's `current`, which code may
+        // fill while its type stays null (bits-ui's `floating.current` of
+        // `simpleBox(null)`).
+        if (other && lit && only && this.onlyNothing(other)) {
           const loose = op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken;
           if (!ts.isIdentifier(other)) effects.push(other);
           return (loose || only === lit) === eq;
@@ -2549,6 +2618,145 @@ export class Lowerer {
     return ok;
   }
 
+  /** Record field reads that are undefined only where the object lacks the key (`byName`). */
+  private readonly absentWhenUndefined = {
+    add: (e: Expr) => void EXPR_TAGS.set(e, { ...EXPR_TAGS.get(e), absent: true }),
+    has: (e: Expr) => !!EXPR_TAGS.get(e)?.absent,
+  };
+  /** Style records spread into style objects, with the function to write (`styleObject`). */
+  private readonly styleSpreadChecks: { record: number; fn: number; at: ts.Node }[] = [];
+  /** The key order of the object literal a record expression builds (`byName`). */
+  private readonly literalOrder = {
+    set: (e: Expr, order: string[]) => void EXPR_TAGS.set(e, { ...EXPR_TAGS.get(e), order }),
+    get: (e: Expr) => EXPR_TAGS.get(e)?.order,
+  };
+
+  /**
+   * Checks the assumption of style spreads (`styleObject`): every
+   * construction of a spread style record gives each field that may be
+   * undefined a value, or leaves it undefined only where the object it
+   * stands for lacks the key. Call with the finished program.
+   */
+  checkStyleSpreads(program: unknown): void {
+    if (!this.styleSpreadChecks.length) return;
+    const records = new Set(this.styleSpreadChecks.map(c => c.record));
+    const built = new Map<number, Expr[]>();
+    const visit = (x: unknown) => {
+      if (Array.isArray(x)) return x.forEach(visit);
+      if (!x || typeof x !== 'object') return;
+      const o = x as Expr;
+      if (o.op === 'record' && records.has(o.record)) {
+        const list = built.get(o.record) ?? [];
+        list.push(o);
+        built.set(o.record, list);
+      }
+      for (const v of Object.values(o)) visit(v);
+    };
+    visit(program);
+    for (const c of this.styleSpreadChecks) {
+      const r = this.types.records[c.record];
+      const fail = (why: string) =>
+        this.fail(c.at, 'E_ATTRS', `A style object spreads a ${r.name} object: ${why}`);
+      // Each construction: its keys in order (a field that may be undefined
+      // is a key only where its value is not; it must be undefined only
+      // where the object lacks the key).
+      const orders: string[][] = [];
+      for (const e of built.get(c.record) ?? []) {
+        if (e.op !== 'record') continue;
+        r.fields.forEach((f, i) => {
+          const v = e.fields[i];
+          if (maybeInner(f.type) && !(v.op === 'some' || this.absentWhenUndefined.has(v)))
+            fail(
+              `its ${f.name} may be undefined where the object has the key (it would print "undefined"); whether a key exists is tracked for keys an object literal leaves out or adds by a conditional spread`,
+            );
+        });
+        const order = this.literalOrder.get(e);
+        if (!order && this.types.packageRecords.has(c.record))
+          fail('its key order is not known (an object a package builds)');
+        orders.push(order ?? r.fields.map(f => f.name));
+      }
+      // One order of all keys that each construction's order follows.
+      const keys: string[] = [];
+      const before = new Map<string, Set<string>>();
+      for (const o of orders)
+        o.forEach((k, i) => {
+          if (!keys.includes(k)) keys.push(k);
+          const set = before.get(k) ?? new Set<string>();
+          o.slice(0, i).forEach(x => set.add(x));
+          before.set(k, set);
+        });
+      for (const f of r.fields) if (!keys.includes(f.name)) keys.push(f.name);
+      const order: string[] = [];
+      while (order.length < keys.length) {
+        const next = keys.find(
+          k => !order.includes(k) && [...(before.get(k) ?? [])].every(x => order.includes(x)),
+        );
+        if (next === undefined) fail('its objects have their keys in different orders');
+        order.push(next!);
+      }
+      const M: Type = { map: [STRING, { maybe: STRING }] };
+      // Each call site (`styleObject`: the map so far in a local, the
+      // object): the keys set in order, rebinding that local.
+      const sites: Expr[] = [];
+      const find = (x: unknown) => {
+        if (Array.isArray(x)) return x.forEach(find);
+        if (!x || typeof x !== 'object') return;
+        const o = x as Expr;
+        if (o.op === 'call' && o.function === c.fn) sites.push(o);
+        for (const v of Object.values(o)) find(v);
+      };
+      find(program);
+      for (const site of sites) {
+        if (site.op !== 'call') continue;
+        const [prevRead, object] = site.args;
+        if (prevRead.op !== 'local') continue;
+        const prev = prevRead.local;
+        const read: Expr = { op: 'local', local: prev };
+        const steps: Expr[] = order.map(name => {
+          const i = r.fields.findIndex(f => f.name === name);
+          const f = r.fields[i];
+          const fv: Expr = {
+            op: 'get',
+            object: JSON.parse(JSON.stringify(object)) as Expr,
+            field: i,
+          };
+          const set = (value: Expr): Expr => ({
+            op: 'builtin',
+            name: 'map.set',
+            args: [read, { op: 'lit', value: name }, value],
+            type: M,
+          });
+          return f.type === STRING
+            ? set({ op: 'some', value: fv })
+            : {
+                op: 'cond',
+                test: {
+                  op: 'builtin',
+                  name: 'maybe.is-undefined',
+                  args: [JSON.parse(JSON.stringify(fv)) as Expr],
+                  type: BOOLEAN,
+                },
+                then: read,
+                else: set(fv),
+              };
+        });
+        let out: Expr = read;
+        for (const step of steps.reverse())
+          out = { op: 'with', local: prev, value: step, body: out };
+        for (const k of Object.keys(site)) delete (site as Record<string, unknown>)[k];
+        Object.assign(site, out);
+      }
+      // (The marker function is not called any more.)
+      this.functions[c.fn] = {
+        name: `${r.name}$styleSpread`,
+        params: [],
+        locals: [],
+        result: 'void',
+        body: [],
+      };
+    }
+  }
+
   /** A function with properties (a callable record) as the function it is; other values as they are. */
   /**
    * The function a call of value `v` calls: a function with properties'
@@ -3695,6 +3903,11 @@ export class Lowerer {
   }
 
   truthy(v: Expr, t: Type): Expr {
+    // (A value read as present where TypeScript says so: its truthiness is
+    // tested, which a nullish value has too; JavaScript reads it without
+    // throwing: bits-ui's `if (!this.instance)` of a static field declared
+    // without an initialiser.)
+    if (v.op === 'unwrap') return { op: 'to-boolean', arg: v.value };
     return t === 'boolean' ? v : { op: 'to-boolean', arg: v };
   }
 
@@ -4191,12 +4404,15 @@ export class Lowerer {
     // Untyped JavaScript: the type expected here, or, for a returned
     // `undefined` or `null`, the type of the other values the function
     // returns (`unifyReturns`; `void` until then).
-    if (t && t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
+    // (Also a type of only null or undefined: an untyped field declared
+    // null that code sets elsewhere, which an assignment of null expects.)
+    const F = ts.TypeFlags;
+    if (t && t.flags & (F.Any | F.Unknown | F.Null | F.Undefined | F.Void)) {
       let node: ts.Node = e;
       while (ts.isParenthesizedExpression(node.parent)) node = node.parent;
       const want = this.expected.get(node);
       if (want !== undefined) return maybeInner(want) ? want : { maybe: want };
-      if (ts.isReturnStatement(node.parent)) return 'void';
+      if (ts.isReturnStatement(node.parent) && t.flags & (F.Any | F.Unknown)) return 'void';
     }
     const alternative = conditional();
     if (!t && !alternative) return { maybe: NUMBER };
@@ -6154,12 +6370,26 @@ export class Lowerer {
       // undefined past the end, as JavaScript reads it (`array.get`).
       let user: ts.Node = e;
       while (ts.isParenthesizedExpression(user.parent)) user = user.parent;
+      // (Also where a nullable value is expected: returned by a function
+      // declared to return `T | undefined`, bits-ui's FocusScopeManager
+      // `getActive() { return this.#scopeStack.current[0]; }`.)
+      const nullableResult =
+        ts.isReturnStatement(user.parent) &&
+        b.result !== undefined &&
+        maybeInner(b.result) !== undefined &&
+        sameType(maybeInner(b.result)!, el);
+      const nullableExpected = (() => {
+        const w = this.expected.get(e);
+        return w !== undefined && maybeInner(w) !== undefined && sameType(maybeInner(w)!, el);
+      })();
       if (
-        ts.isBinaryExpression(user.parent) &&
-        user.parent.left === user &&
-        [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(
-          user.parent.operatorToken.kind,
-        ) &&
+        ((ts.isBinaryExpression(user.parent) &&
+          user.parent.left === user &&
+          [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(
+            user.parent.operatorToken.kind,
+          )) ||
+          nullableResult ||
+          nullableExpected) &&
         !maybeInner(el)
       )
         return {
@@ -8375,7 +8605,9 @@ export class Lowerer {
     type Step =
       | { set: string; value: Expr }
       | { test: Expr; steps: Step[] }
-      | { bind: number; value: Expr; steps: Step[] };
+      | { bind: number; value: Expr; steps: Step[] }
+      /** A record spread: `m = f(m, object)` (`checkStyleSpreads` writes `f`). */
+      | { call: number; arg: Expr };
     const steps: Step[] = [];
     const styleValue = (x: ts.Expression, at: ts.Node): Expr => {
       const v = this.expr(x, b);
@@ -8425,10 +8657,15 @@ export class Lowerer {
             const tmp = b.local('$style', t);
             const src: Expr = { op: 'local', local: tmp };
             const object: Expr = maybeInner(t) ? { op: 'unwrap', value: src } : src;
-            const sets: Step[] = this.types.records[inner.record].fields.map((f, i) => {
-              const fv: Expr = { op: 'get', object, field: i };
-              return { set: f.name, value: f.type === 'string' ? { op: 'some', value: fv } : fv };
-            });
+            // The record's keys in the order its objects have them, a key
+            // that may be undefined set only where it is not (the object
+            // lacks it: `...(c && { willChange })` in bits-ui's
+            // floatingStyles): a function written once the program is
+            // lowered (`checkStyleSpreads`), from the record's
+            // constructions.
+            const fill = this.reserve();
+            this.styleSpreadChecks.push({ record: inner.record, fn: fill, at: p });
+            const call: Step = { call: fill, arg: object };
             steps.push({
               bind: tmp,
               value: v,
@@ -8444,10 +8681,10 @@ export class Lowerer {
                           type: BOOLEAN,
                         },
                       },
-                      steps: sets,
+                      steps: [call],
                     },
                   ]
-                : sets,
+                : [call],
             });
             continue;
           }
@@ -8487,10 +8724,12 @@ export class Lowerer {
     // value; a spread value is read where it stands.
     // (A key set twice would be evaluated out of order in a record.)
     const conditional = (list: Step[]): boolean =>
-      list.some(s => 'test' in s || ('bind' in s && conditional(s.steps)));
+      list.some(s => 'test' in s || 'call' in s || ('bind' in s && conditional(s.steps)));
     const names: string[] = [];
     const collect = (list: Step[]) =>
-      list.forEach(s => ('set' in s ? names.push(s.set) : collect(s.steps)));
+      list.forEach(s =>
+        'set' in s ? names.push(s.set) : 'steps' in s ? collect(s.steps) : undefined,
+      );
     collect(steps);
     if (!conditional(steps) && new Set(names).size === names.length) {
       const fields: { name: string; type: Type }[] = [];
@@ -8537,7 +8776,16 @@ export class Lowerer {
             args: [m, { op: 'lit', value: s.set }, s.value],
             type: M,
           };
-        else {
+        else if ('call' in s) {
+          // (Written in place once the program is lowered: `checkStyleSpreads`.)
+          const prev = b.local('$styleSpread', M);
+          m = {
+            op: 'with',
+            local: prev,
+            value: m,
+            body: { op: 'call', function: s.call, args: [{ op: 'local', local: prev }, s.arg] },
+          };
+        } else {
           const prev = b.local('$styleMap', M);
           const read: Expr = { op: 'local', local: prev };
           const body: Expr =
@@ -8630,6 +8878,8 @@ export class Lowerer {
    */
   private byName(e: ts.ObjectLiteralExpression, record: number, b: FnBuilder): Expr {
     const r = this.types.records[record];
+    /** Temporaries undefined only where the object lacks the key (`absentWhenUndefined`). */
+    const absentLocals = new Set<number>();
     const temps = new Map<string, number>();
     const values: { local: number; value: Expr }[] = [];
     for (const p of e.properties) {
@@ -8666,16 +8916,25 @@ export class Lowerer {
                     );
             this.expected.set(skipParens(q.initializer), maybeInner(t) ?? t);
             const local = b.local(key, t);
+            const then = this.coerce(q.initializer, b, t);
             values.push({
               local,
               value: {
                 op: 'cond',
                 test: { op: 'local', local: test },
-                then: this.coerce(q.initializer, b, t),
+                then,
                 else: otherwise,
               },
             });
             temps.set(key, local);
+            // (Undefined exactly where the key is absent: the spread adds it
+            // with a value that is never undefined.)
+            if (
+              earlier === undefined &&
+              (then.op === 'some' || maybeInner(this.irType(then, b)) === undefined)
+            )
+              absentLocals.add(local);
+            else absentLocals.delete(local);
           }
           continue;
         }
@@ -8720,6 +8979,7 @@ export class Lowerer {
           }
           const local = b.local(`${f.name}`, t);
           temps.set(f.name, local);
+          absentLocals.delete(local);
           values.push({ local, value: v });
         });
         continue;
@@ -8776,14 +9036,27 @@ export class Lowerer {
       const local = b.local(`${name}`, t);
       temps.set(name, local);
       values.push({ local, value });
+      // (A value that is never undefined.)
+      if (value.op === 'some' || maybeInner(this.irType(value, b)) === undefined)
+        absentLocals.add(local);
     }
     const fields = r.fields.map((f): Expr => {
       const t = temps.get(f.name);
-      if (t !== undefined) return { op: 'local', local: t };
-      if (maybeInner(f.type)) return { op: 'undefined', type: f.type };
+      if (t !== undefined) {
+        const read: Expr = { op: 'local', local: t };
+        if (absentLocals.has(t)) this.absentWhenUndefined.add(read);
+        return read;
+      }
+      // (A key the literal does not have.)
+      if (maybeInner(f.type)) {
+        const absent: Expr = { op: 'undefined', type: f.type };
+        this.absentWhenUndefined.add(absent);
+        return absent;
+      }
       return this.fail(e, 'E_OBJECT', `Missing field ${f.name}`);
     });
     let out: Expr = { op: 'record', record, fields };
+    this.literalOrder.set(out, [...temps.keys()]);
     for (const v of values.reverse())
       out = { op: 'with', local: v.local, value: v.value, body: out };
     return out;
@@ -9964,6 +10237,13 @@ export function skipParens(e: ts.Expression): ts.Expression {
 
 /** Rewrite provisional local indices in a function body (not nested functions). */
 /** Renumber the local indices in an IR fragment. */
+/**
+ * Facts about IR expressions the frontend checks once the program is
+ * lowered (`Lowerer.checkStyleSpreads`), carried over to the copies
+ * `remapLocals` makes.
+ */
+const EXPR_TAGS = new WeakMap<object, { absent?: boolean; order?: string[] }>();
+
 export function remapLocals<T>(node: T, map: (i: number) => number): T {
   const visit = (n: unknown): unknown => {
     if (Array.isArray(n)) return n.map(visit);
@@ -9976,6 +10256,8 @@ export function remapLocals<T>(node: T, map: (i: number) => number): T {
         out[k] = (v as number[]).map(map);
       else out[k] = visit(v);
     }
+    const tag = EXPR_TAGS.get(o);
+    if (tag) EXPR_TAGS.set(out, tag);
     return out;
   };
   return visit(node) as T;

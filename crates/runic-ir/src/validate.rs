@@ -2969,6 +2969,17 @@ impl Origins<'_> {
                 inner.push((*local, o));
                 self.origin_in(body, &inner)
             }
+            // (A conditional of two values of one origin.)
+            Expr::Cond {
+                then, otherwise, ..
+            } => {
+                let a = self.origin_in(then, bound);
+                if a == self.origin_in(otherwise, bound) {
+                    a
+                } else {
+                    Origin::Unknown
+                }
+            }
             // (Filling a map or set returns it.)
             Expr::Builtin { name, args, .. } if name == "map.set" || name == "set.add" => args
                 .first()

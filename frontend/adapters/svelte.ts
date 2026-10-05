@@ -2167,6 +2167,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   };
   /** The `$site` prop cell of each component that has one. */
   const siteCells = new Map<number, number>();
+  /** Prop cells (`component:cell`) whose default no site lets take effect, so not lowered. */
+  const unusedDefaults = new Set<string>();
   let lowering: number | undefined;
   const domains = new PropDomains(lower, propDecls, sites, (component, _b) => {
     if (component !== lowering) fail('E_INTERNAL', 'A site index was read outside its component');
@@ -2491,6 +2493,20 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         let fallback = el.initializer;
         if (fallback && runeName(fallback) === '$bindable')
           fallback = (fallback as ts.CallExpression).arguments[0];
+        // A default no site lets take effect (every site passes the prop
+        // with a value that is never undefined, frontend/unions.ts) is not
+        // lowered: it never runs, and it may be of a member of the prop's
+        // union that no value of the program reaches (bits-ui's
+        // FloatingLayerContent `style = {}` under a Popover, which always
+        // passes a style string).
+        if (
+          fallback &&
+          lower.unions.narrowed(checker.getNonNullableType(checker.getTypeAtLocation(el.name))) &&
+          lower.unions.unusedDefault(el)
+        ) {
+          fallback = undefined;
+          unusedDefaults.add(`${u.index}:${cell}`);
+        }
         if (fallback) {
           const f = fallback;
           // A parent passing undefined gets the default too, as with $props().
@@ -2967,7 +2983,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           });
           return { local, v, t };
         });
-        let body = childNodes({ ...fragment, nodes: cleaned.filter(n => n.type !== 'ConstTag') });
+        // (Whitespace around the declarations is trimmed as at the block's edges.)
+        let body = childNodes(
+          { ...fragment, nodes: fragment.nodes.filter((n: SNode) => n.type !== 'ConstTag') },
+          parent,
+        );
         for (const { local, v, t } of bound.reverse())
           body = [
             {
@@ -3476,7 +3496,22 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             v = value(e);
             // A function of a compatible type (fewer parameters, a result
             // where none is expected) is adapted to the prop's.
-            const from = typeOf(e, v);
+            let from = typeOf(e, v);
+            // A prop whose default is not lowered (no site leaves it
+            // undefined) takes a nullable value only where TypeScript has
+            // narrowed it to present (`{#if el}<Target to={el} />`).
+            const inner = maybeInner(from);
+            if (inner && !maybeInner(want) && unusedDefaults.has(`${child.index}:${propCell(a)}`)) {
+              const t = checker.getTypeAtLocation(e);
+              if (checker.getNonNullableType(t) !== t)
+                fail(
+                  'E_PROPS',
+                  `${n.name}'s prop ${a.name} is passed a value that may be null or undefined here, which its type does not hold`,
+                  loc(a),
+                );
+              v = { op: 'unwrap', value: v };
+              from = inner;
+            }
             const fn = maybeInner(want) ?? want;
             const adapted = lower.adaptFunction(v, from, fn);
             v = adapted
@@ -3546,7 +3581,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           !(typeof cell.type === 'object' && 'maybe' in cell.type) && !cell.undefinedDefault;
         const sure =
           required &&
-          ws.every(w => 'explicit' in w || spreadHolds(spreads[w.spread].expr, key, new Set()));
+          ws.every(
+            w =>
+              'explicit' in w ||
+              spreadHolds(spreads[w.spread].expr, key, new Set()) ||
+              // (Also a bag the census knows holds it: a mergeProps
+              // result, frontend/unions.ts `bagHas`.)
+              lower.unions.bagHolds(spreads[w.spread].expr, key),
+          );
         if (required && !sure)
           fail(
             'E_PROPS',
@@ -4152,6 +4194,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // read state as it was before the batch that destroys or re-runs them.
     schedule: { cleanupReadsPrevious: true },
   };
+  lower.checkStyleSpreads(ir);
   // A bound optional prop the child writes: only present values (`some`),
   // which the parent's variable of the present type can hold.
   // A `bind:` setter passes on what its own child writes.

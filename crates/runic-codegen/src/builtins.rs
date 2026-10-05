@@ -223,11 +223,17 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 _ => items,
             }
         }
-        ("Array", "isArray") => format!(
-            "{{ let _ = &{}; {} }}",
-            t[0],
-            matches!(types[0], Type::Array(_))
-        ),
+        // (A nullable array: whether it is present.)
+        ("Array", "isArray") => match &types[0] {
+            Type::Maybe(i) if matches!(**i, Type::Array(_)) => {
+                format!("matches!({}, Maybe::Some(_))", t[0])
+            }
+            other => format!(
+                "{{ let _ = &{}; {} }}",
+                t[0],
+                matches!(other, Type::Array(_))
+            ),
+        },
         ("Array", "of") => format!("js::array(vec![{}])", t.join(", ")),
         ("Map", "new") => "js::array_ops::map_new(Vec::new())".into(),
         ("Set", "new") => match t.first() {
