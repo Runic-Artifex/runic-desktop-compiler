@@ -322,8 +322,8 @@ const flatNodes = nodes =>
     ...flatNodes([...(n.children ?? []), ...(n.then ?? []), ...(n.else ?? []), ...(n.body ?? [])]),
   ]);
 
-test('React onScroll: a target-only continuous event; state it updates is rendered as text only', async () => {
-  // Accepted: a scroll log rendered as text (conformance case scroll-events).
+test('React onScroll: a target-only event on the continuous lane (rendered after the frame)', async () => {
+  // A scroll log rendered as text (conformance case scroll-events).
   await app(
     `export function App() {
   const [log, setLog] = useState<number[]>([]);
@@ -336,30 +336,17 @@ test('React onScroll: a target-only continuous event; state it updates is render
         (n.listeners ?? []).map(l => l.event),
       );
       assert.deepEqual(events, ['scroll']);
+      // Updates from scroll events render as a default task after the frame (M6).
+      assert.deepEqual(ir.schedule.continuous, ['scroll']);
     },
   );
-  const cases = [
-    // React reports a prevented synthetic event, though scroll events cannot be cancelled.
-    [
-      'export function App() { const [p, setP] = useState(false); return <div onScroll={e => { e.preventDefault(); setP(e.defaultPrevented); }}>{String(p)}</div>; }',
-      /cannot be cancelled/,
-    ],
-    // Window scroll and resize listeners: continuous priority (render in a later task).
-    [
-      'export function App() { useEffect(() => { const f = () => {}; window.addEventListener("scroll", f); return () => window.removeEventListener("scroll", f); }, []); return <p>a</p>; }',
-      /listeners for scroll/,
-    ],
-    [
-      'export function App() { useEffect(() => { const f = () => {}; window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []); return <p>a</p>; }',
-      /listeners for resize/,
-    ],
-    // The virtualized list (the M5 example, as examples/virtual-list-svelte
-    // and -vue): the scroll position decides which rows are rendered, while
-    // React renders updates from scroll events after the frame is painted
-    // (Chromium 153: an animation frame callback of the scroll's rendering
-    // step sees the old rows), and the IR before it.
-    [
-      `const ROW = 24;
+  // The virtualized list (examples/virtual-list-react, case virtual-list):
+  // the scroll position decides which rows are rendered, and React renders
+  // updates from scroll events after the frame (Chromium 153: an animation
+  // frame callback of the scroll's rendering step sees the old rows), as the
+  // IR's continuous lane does (M6; rejected in M5).
+  await app(
+    `const ROW = 24;
 interface Row { id: number; label: string }
 function generate(count: number): Row[] {
   const rows: Row[] = [];
@@ -373,6 +360,7 @@ export function App() {
   const list = useRef<HTMLDivElement | null>(null);
   const start = Math.max(0, Math.floor(scrollTop / ROW) - 3);
   const visible = ALL.slice(start, start + 18);
+  useEffect(() => { document.title = String(start); }, [start]);
   return (
     <main>
       <div id="list" ref={list} onScroll={() => { if (list.current !== null) setScrollTop(list.current.scrollTop); }}>
@@ -385,7 +373,31 @@ export function App() {
     </main>
   );
 }`,
-      /scrollTop is updated by onScroll, a continuous event .* such state may only be rendered as text/,
+    async root => {
+      const ir = await lowered(root);
+      assert.deepEqual(ir.schedule.continuous, ['scroll']);
+    },
+  );
+  const cases = [
+    // React reports a prevented synthetic event, though scroll events cannot be cancelled.
+    [
+      'export function App() { const [p, setP] = useState(false); return <div onScroll={e => { e.preventDefault(); setP(e.defaultPrevented); }}>{String(p)}</div>; }',
+      /cannot be cancelled/,
+    ],
+    // A timer posted by a scroll listener runs before React renders its
+    // update in Chromium (a 0 ms timer, posted first), after it natively.
+    [
+      'export function App() { const [n, setN] = useState(0); return <div onScroll={() => { setN(n + 1); setTimeout(() => {}, 0); }}>{n}</div>; }',
+      /schedules a timer/,
+    ],
+    // Window scroll and resize listeners: continuous priority (render in a later task).
+    [
+      'export function App() { useEffect(() => { const f = () => {}; window.addEventListener("scroll", f); return () => window.removeEventListener("scroll", f); }, []); return <p>a</p>; }',
+      /listeners for scroll/,
+    ],
+    [
+      'export function App() { useEffect(() => { const f = () => {}; window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []); return <p>a</p>; }',
+      /listeners for resize/,
     ],
   ];
   for (const [source, reason] of cases)

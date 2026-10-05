@@ -1,6 +1,7 @@
 //! `Intl` subsets and locale-sensitive methods (docs/IR.md, `intl.*`
 //! built-ins; M5): date and time formatting, number formatting and
-//! collation for the verified locales.
+//! collation for the verified locales; M6: plural rules for every locale
+//! Chromium has them for and display names in the verified locales.
 //!
 //! Formatting reproduces Chromium exactly from locale data generated from
 //! Chromium itself (`data.rs`, tests/vectors/intl.mjs): ECMA-402's
@@ -16,11 +17,19 @@ mod collate;
 #[rustfmt::skip]
 mod data;
 mod datetime;
+// Generated (tests/vectors/intl-locales.mjs); kept as written.
+#[rustfmt::skip]
+mod locale_data;
+mod names;
 mod number;
+pub mod plural;
+pub mod tag;
 
 pub use collate::{CollatorSpec, compare, compare_default};
 pub use datetime::{DateSpec, format_date};
+pub use names::{NamesSpec, check_display_locale, display_name};
 pub use number::{NumberSpec, format_number};
+pub use plural::{PluralSpec, check_plural_locale, plural_categories, plural_select};
 
 use crate::{JsResult, JsString, Throw};
 
@@ -85,6 +94,12 @@ pub const LOCALES: &[&str] = &["en-US", "en-GB", "de-DE", "fr-FR", "ja-JP"];
 /// The version of Chromium the locale data was read from.
 pub fn data_source() -> &'static str {
     data::BROWSER
+}
+
+/// The version of Chromium the plural rules and display names were read
+/// from.
+pub fn locale_data_source() -> &'static str {
+    locale_data::BROWSER
 }
 
 /// The index of a verified locale or alias (ASCII case-insensitive, `_`

@@ -2514,6 +2514,16 @@ pub fn generate(
     // Scheduling policies (docs/design/M4-EFFECTS.md).
     let event_microtask = p.schedule.flush == Flush::EventMicrotask;
     let per_listener = p.schedule.checkpoint == Checkpoint::Listener;
+    // Events whose updates render as a default task (React's continuous priority).
+    let continuous = format!(
+        "[{}]",
+        p.schedule
+            .continuous
+            .iter()
+            .map(|k| format!("{:?}", k.name()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     // The document element starts with index.html's <html> attributes.
     let document_attrs: String = p
         .document
@@ -2715,7 +2725,9 @@ pub fn generate(
              /// The object of animation `id`: the same one while the app holds it.\n\
              fn anim_object(cx: &mut Cx, id: u64) -> js::Handle {\n\
              if let Some(h) = cx.anims.iter().find(|h| anim_of(h).id == id) { return h.clone(); }\n\
-             let h = js::Handle::new(Anim { id, finished: RefCell::new(js::JsPromise::pending()), ended: std::cell::Cell::new(\"running\") });\n\
+             // Web Animations marks the finished promise handled: a cancellation is never reported.\n\
+             let finished = js::JsPromise::pending(); finished.mark_handled();\n\
+             let h = js::Handle::new(Anim { id, finished: RefCell::new(finished), ended: std::cell::Cell::new(\"running\") });\n\
              cx.anims.push(h.clone());\n\
              h\n}\n\
              /// Settle the `finished` promises of the objects whose animations ended:\n\
@@ -2798,10 +2810,10 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{anim_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{anim_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{anim_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{anim_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -2936,23 +2948,28 @@ pub fn generate(
          fn task(&mut self, dom: &mut Dom, event: bool, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          self.cx.jobs.in_event = event;\n\
+         self.cx.jobs.dispatching = event;\n\
          let result = f(&mut self.cx);\n\
+         self.cx.jobs.dispatching = false;\n\
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.cx.payload = None;\n\
          if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{\n{rollback}self.cx.jobs.clear();\nself.cx.jobs.in_event = false;\n// Re-synchronise controlled inputs.\nself.cx.force_sync = true;\nself.flush(dom);\nself.cx.force_sync = false;\nreturn result;\n}} }}\n\
          self.checkpoint(dom);\n\
          self.cx.jobs.in_event = false;\n\
-         while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
+         // Inside a frame (rendering step, layout) default tasks wait for its end.\n\
+         if !self.cx.defer {{ while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }} }}\n\
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.cx.dom = Default::default();\n\
+         runic_runtime::late_rejection_handlers();\n\
          result\n}}\n\
-         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} dom.settle_selects(); }}\n\
+         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} dom.settle_selects(); self.cx.jobs.queue_rejections(); }}\n\
          fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          match job {{\n\
          runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} }}\n\
          runic_runtime::Job::Flush => self.flush(dom),\n\
-         runic_runtime::Job::FlushThen(f) => {{ if self.cx.jobs.take_flush() {{ self.flush(dom); }} if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n}}\n}}\n\
+         runic_runtime::Job::FlushThen(f) => {{ if self.cx.jobs.take_flush() {{ self.flush(dom); }} if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n\
+         runic_runtime::Job::Report(r) => {{ for t in r.report() {{ runic_runtime::console::write(\"error\", &[js::rejection_line(&t)]); }} }}\n}}\n}}\n\
          /// The flush job: compute dirty cells since the last flush, commit render snapshots and update the DOM.\n\
          /// Live instances in tree order with their parents' keys (the root's is 0).\n\
          fn walk(&self) -> Vec<(Rc<dyn Inst>, usize)> {{ let mut out: Vec<(Rc<dyn Inst>, usize)> = vec![(Rc::new(H{ri}(Rc::clone(&self.inst))), 0)]; if let Some((_, s)) = &self.root {{ walk_s{root}(s, Rc::as_ptr(&self.inst) as *const u8 as usize, &mut out); }} for m in &self.cx.mounted {{ if let MountState::Live(p) = &*m.borrow() {{ p.walk(&mut out); }} }} out }}\n\
@@ -3027,14 +3044,17 @@ pub fn generate(
          self.cx.jobs.flush_ended();\n\
          {mount_timing}\n\
          self.checkpoint(dom);\n\
-         while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n}}\n\
+         while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
+         runic_runtime::late_rejection_handlers();\n}}\n\
          fn dispatch(&mut self, dom: &mut Dom, deliveries: &[runic_runtime::Delivery]) -> Result<(), String> {{\n\
          // Listeners are resolved before any runs (a flush may free and reuse their slots).\n\
          let resolved: Vec<(Lst, js::Event, u64)> = deliveries.iter().filter_map(|d| self.cx.listeners.get(d.listener as usize).cloned().flatten().map(|f| (f, d.event.clone(), d.current))).collect();\n\
          let groups: Vec<Vec<(Lst, js::Event, u64)>> = if {per_listener} {{ resolved.into_iter().map(|l| vec![l]).collect() }} else {{ vec![resolved] }};\n\
          let mut first: Option<String> = None;\n\
          for group in groups {{\n\
-         let r = self.task(dom, true, |cx| {{ let mut err = None; for (f, ev, current) in group {{ if !ev.enter(js::Element(current)) {{ continue; }} cx.payload = ev.payload(); cx.event = Some(ev); let r = f(cx); cx.event = None; if let Err(e) = r {{ if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }} err.get_or_insert(e); }} }} cx.payload = None; err.map_or(Ok(()), Err) }});\n\
+         // Updates from continuous events (schedule.continuous) are not discrete.\n\
+         let discrete = !group.first().is_some_and(|(_, ev, _)| {continuous}.contains(&ev.data().kind.to_rust().as_str()));\n\
+         let r = self.task(dom, discrete, |cx| {{ let mut err = None; for (f, ev, current) in group {{ if !ev.enter(js::Element(current)) {{ continue; }} cx.payload = ev.payload(); cx.event = Some(ev); let r = f(cx); cx.event = None; if let Err(e) = r {{ if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }} err.get_or_insert(e); }} }} cx.payload = None; err.map_or(Ok(()), Err) }});\n\
          if let Err(e) = r {{ first.get_or_insert(e.to_string()); }}\n}}\n\
          {restore_controlled}\
          first.map_or(Ok(()), Err)\n}}\n\
@@ -3066,6 +3086,15 @@ pub fn generate(
          fn traverse(&mut self, delta: i64) {{ self.cx.host_tasks.push_back(HostTask::Traverse(delta)); }}\n\
          {resize_step}{anim_step}\
          fn hashchange(&mut self) {{ self.cx.host_tasks.push_back(HostTask::HashChange); }}\n\
+         fn defer_tasks(&mut self, on: bool) {{ self.cx.defer = on; }}\n\
+         fn deferred_len(&self) -> usize {{ self.cx.jobs.defaults_len() }}\n\
+         fn run_deferred(&mut self, dom: &mut Dom, limit: Option<usize>) {{\n\
+         let mut left = limit.unwrap_or(usize::MAX);\n\
+         while left > 0 {{ let Some(job) = self.cx.jobs.next_default() else {{ break }}; left -= 1; self.run_job(dom, job); self.checkpoint(dom); }}\n\
+         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
+         self.free(dom);\n\
+         self.cx.dom = Default::default();\n\
+         runic_runtime::late_rejection_handlers();\n}}\n\
          fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
          fn now(&self) -> f64 {{ self.cx.timers.now }}\n\
          fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\

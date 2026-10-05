@@ -627,6 +627,9 @@ enum Micro {
     Promise(PJob),
     /// The flush job (see [`Schedule`]).
     Flush,
+    /// Report the rejections a checkpoint left without a reaction (a
+    /// default-priority task, as Chromium posts it; docs/IR.md, promises).
+    Report(js::Rejections),
 }
 
 struct Timer {
@@ -733,6 +736,8 @@ pub struct Machine<'p> {
     flush_pending: bool,
     /// While an input event is dispatched, including its microtask checkpoint.
     in_event: bool,
+    /// While a discrete input event's listeners run (not its checkpoint).
+    dispatching: bool,
     /// Heap mutation epochs at the last flush; mutations of tracked heap
     /// values queue a flush like cell writes.
     epochs: (u64, u64),
@@ -950,6 +955,8 @@ impl<'p> Machine<'p> {
 
     /// A machine started in environment `env`.
     pub fn with_env(program: &'p Program, env: Env) -> Result<Self> {
+        // Rejections of an earlier run are not this one's.
+        js::clear_rejections();
         let Env {
             storage,
             clipboard,
@@ -1006,6 +1013,7 @@ impl<'p> Machine<'p> {
             default_tasks: VecDeque::new(),
             flush_pending: false,
             in_event: false,
+            dispatching: false,
             epochs: (js::mutation_epoch(), js::owned_epoch()),
             tracks_deep: cells_tracked(program, Tracking::Deep),
             // Reactive class fields hold proxied deep state, read and written as proxies are.
@@ -2112,6 +2120,48 @@ impl<'p> Machine<'p> {
                     "toJSON" => js::date::to_json(tv).map_or(Val::Null, Val::Str),
                     m if m.starts_with("set") => Val::Num(d.set(m, &nums(1))),
                     m => Val::Num(js::date::get(tv, m)),
+                }
+            }
+            ("intl", m @ ("locale" | "plural-select" | "plural-categories" | "display-of")) => {
+                // A locale or value outside the verified data stops the
+                // run (E_UNSUPPORTED), as the native runtime reports it.
+                let result = (|| -> js::JsResult<Val> {
+                    if m == "locale" {
+                        let check = if s(1).to_rust() == "p" {
+                            js::intl::check_plural_locale
+                        } else {
+                            js::intl::check_display_locale
+                        };
+                        check(&s(0))?;
+                        return Ok(Val::Str(s(0)));
+                    }
+                    let operands = usize::from(m != "plural-categories");
+                    let spec = s(operands).to_rust();
+                    let locale = a.get(operands + 1).map(Val::string);
+                    let locale = locale.as_ref();
+                    Ok(match m {
+                        "plural-select" => {
+                            let spec = js::intl::PluralSpec::parse(&spec).expect("validated");
+                            Val::Str(js::intl::plural_select(n(0), &spec, locale)?)
+                        }
+                        "plural-categories" => {
+                            let spec = js::intl::PluralSpec::parse(&spec).expect("validated");
+                            let list = js::intl::plural_categories(&spec, locale)?;
+                            Val::Array(js::array(list.into_iter().map(Val::Str).collect()))
+                        }
+                        _ => {
+                            let spec = js::intl::NamesSpec::parse(&spec).expect("validated");
+                            js::intl::display_name(&s(0), &spec, locale)?
+                                .map_or(Val::Undefined, Val::Str)
+                        }
+                    })
+                })();
+                match result {
+                    Err(t) if t.name.to_rust() == "RunicUnsupportedError" => {
+                        self.unsupported.get_or_insert(t.message.to_rust());
+                        return Err(t);
+                    }
+                    r => r?,
                 }
             }
             ("intl", m) => {
@@ -4131,7 +4181,9 @@ impl<'p> Machine<'p> {
         let before: Vec<Vec<Val>> = self.instances.iter().map(|i| i.cells.clone()).collect();
         self.tasks_run += 1;
         self.in_event = event;
+        self.dispatching = event;
         let result = body(self);
+        self.dispatching = false;
         self.payload = None;
         if let Err(t) = &result {
             if t.name.to_rust() == "RunicDomainError" {
@@ -4157,6 +4209,7 @@ impl<'p> Machine<'p> {
             self.restore_due = true;
             let _ = self.render();
         }
+        self.late_rejection_handlers();
         let uncaught = std::mem::take(&mut self.uncaught);
         if let Some(what) = self.unsupported.take() {
             return Err(Diagnostic::new(
@@ -4189,6 +4242,19 @@ impl<'p> Machine<'p> {
             return;
         }
         if self.flush_pending {
+            // A discrete update renders in its microtask, with the updates
+            // that wait for a default-priority task (React's sync render
+            // takes the pending default and continuous lanes).
+            if self.program.schedule.flush == Flush::EventMicrotask && self.dispatching {
+                if let Some(i) = self
+                    .default_tasks
+                    .iter()
+                    .position(|j| matches!(j, Micro::Flush))
+                {
+                    self.default_tasks.remove(i);
+                    self.microtasks.push_back(Micro::Flush);
+                }
+            }
             return;
         }
         self.flush_pending = true;
@@ -4214,12 +4280,27 @@ impl<'p> Machine<'p> {
         self.enqueue(Micro::Call(callback));
     }
 
-    /// Run microtasks until none are left.
+    /// Run microtasks until none are left; the rejections they left without
+    /// a reaction are reported by a default task.
     fn checkpoint(&mut self) {
         self.note_mutations();
         while let Some(job) = self.microtasks.pop_front() {
             self.run_micro(job);
             self.note_mutations();
+        }
+        let r = js::take_rejections();
+        if !r.is_empty() {
+            self.default_tasks.push_back(Micro::Report(r));
+        }
+    }
+
+    /// A handler added to a promise after its rejection was reported:
+    /// Chromium revokes the report, which console lines do not model.
+    fn late_rejection_handlers(&mut self) {
+        if let Some(t) = js::take_late_handled() {
+            self.unsupported.get_or_insert(format!(
+                "a handler added to a promise after its rejection ({t}) was reported as unhandled"
+            ));
         }
     }
 
@@ -4240,6 +4321,11 @@ impl<'p> Machine<'p> {
                 self.settle_promise(&p, Ok(Val::Undefined));
             }
             Micro::Promise(job) => self.promise_job(job),
+            Micro::Report(r) => {
+                for t in r.report() {
+                    self.host.console.push(("error", js::rejection_line(&t)));
+                }
+            }
         }
     }
 
@@ -5082,6 +5168,7 @@ impl<'p> Machine<'p> {
             self.run_micro(job);
             self.checkpoint();
         }
+        self.late_rejection_handlers();
         match std::mem::take(&mut self.uncaught).into_iter().next() {
             Some(t) => Err(throw_diag(t)),
             None => Ok(()),
@@ -6057,7 +6144,15 @@ impl<'p> Machine<'p> {
                     .filter(|_| r.closure.is_none())
                     .and_then(|h| h.source.clone())
             };
-            let result = self.task(source.as_ref(), true, |m| {
+            // Updates from continuous events (React) are not discrete.
+            let kind = listeners[0].1.data().kind.to_rust();
+            let discrete = !self
+                .program
+                .schedule
+                .continuous
+                .iter()
+                .any(|k| k.name() == kind);
+            let result = self.task(source.as_ref(), discrete, |m| {
                 let mut error = None;
                 for (r, event, current) in listeners {
                     if !event.enter(js::Element(current)) {

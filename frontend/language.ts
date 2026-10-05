@@ -233,6 +233,7 @@ const ownerId = (f: FnBuilder) => {
 const BOOLEAN: Type = 'boolean';
 const NUMBER: Type = 'number';
 const STRING: Type = 'string';
+const VOID: Type = 'void';
 
 export class Lowerer {
   readonly functions: Fn[] = [];
@@ -676,6 +677,11 @@ export class Lowerer {
     /** The handler's event (`true` means input, `false` click). */
     input: boolean | HandlerEvent,
     parent?: FnBuilder,
+    /**
+     * What the framework does with a promise the handler returns (Vue
+     * handles it); by default it is discarded, as Svelte and React do.
+     */
+    returned?: (promise: Expr) => Expr,
   ): { params?: Local[]; locals: Local[]; body: Stmt[]; args?: Expr[] } {
     const boxed = this.analyseCaptures(decl);
     const b = new FnBuilder('handler', parent, component, boxed, input);
@@ -703,12 +709,32 @@ export class Lowerer {
         decl,
         b,
         typeof t === 'object' && 'promise' in t ? t.promise : 'void',
-        true,
+        !returned,
       );
-    } else body = this.functionBody(decl, b);
-    // A handler's value is discarded: `() => items.push(x)` runs for its effect.
-    if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return')
-      body = body[0].value ? [{ op: 'expr', value: body[0].value }] : [];
+      // The function's promise goes to the framework.
+      if (returned) {
+        const last = body.pop();
+        if (last?.op !== 'return' || !last.value) throw new Error('async body returns its promise');
+        body.push({ op: 'expr', value: returned(last.value) });
+      }
+    } else {
+      body = this.functionBody(decl, b);
+      const ret = this.checker.getSignatureFromDeclaration(decl)?.getReturnType();
+      if (returned && decl.body && ts.isBlock(decl.body) && ret?.symbol?.name === 'Promise')
+        this.fail(
+          decl,
+          'E_EVENT',
+          'A listener returning a promise from a block body is unsupported (return it from an arrow expression or make the listener async)',
+        );
+    }
+    // A handler's value is discarded: `() => items.push(x)` runs for its effect;
+    // a promise goes to the framework.
+    if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return') {
+      const v = body[0].value;
+      const t = v && this.irType(v, b);
+      const promise = returned && typeof t === 'object' && 'promise' in t;
+      body = v ? [{ op: 'expr', value: promise ? returned(v) : v }] : [];
+    }
     body.unshift(...this.hoistedLets(b));
     if (b.eventLocal !== undefined)
       body.unshift({ op: 'let', local: b.eventLocal, value: { op: 'event' } });
@@ -3139,6 +3165,50 @@ export class Lowerer {
     return { op: 'closure', function: index, captures: builder.captureSources.map(c => c.local) };
   }
 
+  /**
+   * A promise a listener returns, as Vue's callWithAsyncErrorHandling treats
+   * it: `p.then(() => {}, err => console.error(err))` (production logError),
+   * so a rejection is logged, not reported as unhandled. Chromium shows the
+   * error with its stack (from Vue's code); the line here is `Name: message`.
+   */
+  loggedRejection(p: Expr, component: number | undefined): Expr {
+    const fn = (name: string, params: Local[], body: Stmt[]): Expr => {
+      const index = this.reserve();
+      this.functions[index] = {
+        name,
+        ...(component !== undefined ? { component } : {}),
+        params,
+        locals: [],
+        result: VOID,
+        body,
+      };
+      return { op: 'closure', function: index, captures: [] };
+    };
+    const error: Expr = { op: 'local', local: 0 };
+    const name: Expr = { op: 'get', object: error, field: 0 };
+    const message: Expr = { op: 'get', object: error, field: 1 };
+    const text: Expr = {
+      op: 'cond',
+      test: { op: 'eq', left: message, right: lit('') },
+      then: name,
+      else: { op: 'concat', left: name, right: { op: 'concat', left: lit(': '), right: message } },
+    };
+    const log: Stmt = {
+      op: 'expr',
+      value: { op: 'builtin', name: 'console.error', args: [text], type: VOID },
+    };
+    return {
+      op: 'builtin',
+      name: 'promise.then',
+      args: [
+        p,
+        fn('listener.fulfilled', [], []),
+        fn('listener.rejected', [{ name: 'err', type: { record: this.errorRecord() } }], [log]),
+      ],
+      type: { promise: VOID },
+    };
+  }
+
   /** `then`, `catch` and `finally` of a promise. */
   private promiseMethod(method: string, receiver: Expr, e: ts.CallExpression, b: FnBuilder): Expr {
     const a = e.arguments;
@@ -3572,12 +3642,20 @@ export class Lowerer {
     const intl = this.intlObject(e.expression);
     if (intl) {
       if (intl.kind === 'collator' && name === 'compare') return this.intlComparator(intl, b);
+      const calls = {
+        collator: 'compare(a, b), or compare as a comparator',
+        plural: 'select(n), and resolvedOptions().pluralCategories',
+        names: 'of(code)',
+      } as Record<string, string>;
       return this.fail(
         e,
         'E_INTL',
-        `Intl.${intl.ctor} members are supported as calls (${intl.kind === 'collator' ? 'compare(a, b), or compare as a comparator' : 'format(x)'})`,
+        `Intl.${intl.ctor} members are supported as calls (${calls[intl.kind] ?? 'format(x)'})`,
       );
     }
+    // `new Intl.PluralRules(…).resolvedOptions().pluralCategories`.
+    const resolved = this.intlResolvedOptions(e.expression);
+    if (resolved) return this.intlResolvedMember(resolved, name, e, b);
     const service = this.hostServiceRead(e);
     if (service) return service;
     // A member of a module namespace (`kbd.SPACE`): the export it names.
@@ -5702,7 +5780,14 @@ export class Lowerer {
     e: ts.Expression,
     depth = 0,
   ):
-    | { kind: IntlKind; ctor: string; args: readonly ts.Expression[]; node: ts.Expression }
+    | {
+        kind: IntlKind;
+        ctor: string;
+        args: readonly ts.Expression[];
+        node: ts.Expression;
+        /** Constructed where it is used (not through a const). */
+        inline: boolean;
+      }
     | undefined {
     e = skipParens(e);
     if (
@@ -5716,9 +5801,9 @@ export class Lowerer {
         return this.fail(
           e,
           'E_INTL',
-          `Intl.${ctor} is unsupported (Intl.DateTimeFormat, Intl.NumberFormat and Intl.Collator are)`,
+          `Intl.${ctor} is unsupported (Intl.DateTimeFormat, Intl.NumberFormat, Intl.Collator, Intl.PluralRules and Intl.DisplayNames are)`,
         );
-      return { kind, ctor, args: e.arguments ?? [], node: e };
+      return { kind, ctor, args: e.arguments ?? [], node: e, inline: depth === 0 };
     }
     const init = this.constInitializer(e, depth);
     return init ? this.intlObject(init, depth + 1) : undefined;
@@ -5779,6 +5864,7 @@ export class Lowerer {
     e: ts.CallExpression,
     b: FnBuilder,
   ): Expr {
+    if (o.kind === 'plural' || o.kind === 'names') return this.intlLocaleCall(o, method, e, b);
     const a = e.arguments;
     const lit = (spec: string): Expr => ({ op: 'lit', value: spec });
     if (o.kind === 'date' && method === 'format' && a.length <= 1) {
@@ -5808,6 +5894,175 @@ export class Lowerer {
       'E_INTL',
       `Intl.${o.ctor}.prototype.${method} is unsupported here (${o.kind === 'collator' ? 'compare(a, b)' : 'format(x)'} is supported)`,
     );
+  }
+
+  // Intl.PluralRules and Intl.DisplayNames take locales computed at run time
+  // (the editor names any project locale) and options chosen by a
+  // condition (`ordinal ? { type: 'ordinal' } : undefined`). A use evaluates
+  // as JavaScript does: the locale, the condition, the constructor's check
+  // of the locale (`intl.locale`: a RangeError for a malformed tag, an
+  // unsupported report outside the verified data), then the method's
+  // arguments and the call.
+
+  /** `rules.select(n)` and `names.of(code)`. */
+  private intlLocaleCall(
+    o: NonNullable<ReturnType<Lowerer['intlObject']>>,
+    method: string,
+    e: ts.CallExpression,
+    b: FnBuilder,
+  ): Expr {
+    const a = e.arguments;
+    if (o.kind === 'plural' && method === 'select' && a.length === 1) {
+      const x = this.expr(a[0], b);
+      if (this.irType(x, b) !== 'number') return this.fail(a[0], 'E_INTL', 'select takes a number');
+      return this.intlLocaleUse(o, 'p', [x], b, (spec, ops, loc) =>
+        this.builtin('intl.plural-select', [...ops, lit(spec), ...loc], STRING),
+      );
+    }
+    if (o.kind === 'names' && method === 'of' && a.length === 1) {
+      const code = this.expr(a[0], b);
+      if (this.irType(code, b) !== 'string')
+        return this.fail(a[0], 'E_INTL', 'of takes a code string');
+      return this.intlLocaleUse(o, 'n', [code], b, (spec, ops, loc) =>
+        this.builtin('intl.display-of', [...ops, lit(spec), ...loc], { maybe: STRING }),
+      );
+    }
+    const supported =
+      o.kind === 'plural' ? 'select(n) and resolvedOptions().pluralCategories' : 'of(code)';
+    return this.fail(
+      e,
+      'E_INTL',
+      `Intl.${o.ctor}.prototype.${method} is unsupported here (${supported} are supported)`,
+    );
+  }
+
+  /** `new Intl.PluralRules(…).resolvedOptions()` when `e` is that call. */
+  private intlResolvedOptions(e: ts.Expression) {
+    e = skipParens(e);
+    if (
+      !ts.isCallExpression(e) ||
+      e.arguments.length ||
+      !ts.isPropertyAccessExpression(e.expression) ||
+      e.expression.name.text !== 'resolvedOptions'
+    )
+      return undefined;
+    const o = this.intlObject(e.expression.expression);
+    return o && (o.kind === 'plural' || o.kind === 'names') ? o : undefined;
+  }
+
+  /** `rules.resolvedOptions().pluralCategories` and `.type`. */
+  private intlResolvedMember(
+    o: NonNullable<ReturnType<Lowerer['intlObject']>>,
+    name: string,
+    e: ts.Expression,
+    b: FnBuilder,
+  ): Expr {
+    if (o.kind === 'plural' && name === 'pluralCategories')
+      return this.intlLocaleUse(o, 'p', [], b, (spec, _, loc) =>
+        this.builtin('intl.plural-categories', [lit(spec), ...loc], { array: STRING }),
+      );
+    if (name === 'type')
+      return this.intlLocaleUse(o, o.kind === 'plural' ? 'p' : 'n', [], b, spec => {
+        const type = /(?:^|;)type=([^;]*)/.exec(spec)?.[1];
+        return lit(type ?? 'cardinal');
+      });
+    return this.fail(
+      e,
+      'E_INTL',
+      `Intl.${o.ctor} resolvedOptions().${name} is unsupported (${o.kind === 'plural' ? 'pluralCategories and type are' : 'type is'} supported)`,
+    );
+  }
+
+  /**
+   * A use of a plural rules or display names object: `make` builds the
+   * result for an option string, the operands (read from temporaries) and
+   * the runtime locale (absent: the literal or default locale).
+   */
+  private intlLocaleUse(
+    o: NonNullable<ReturnType<Lowerer['intlObject']>>,
+    method: string,
+    operands: Expr[],
+    b: FnBuilder,
+    make: (spec: string, operands: Expr[], locale: Expr[]) => Expr,
+  ): Expr {
+    const [locales, options] = o.args;
+    const temps: [number, Expr][] = [];
+    const temp = (name: string, value: Expr, type: Type): (() => Expr) => {
+      const l = b.local(name, type);
+      temps.push([l, value]);
+      return () => ({ op: 'local', local: l });
+    };
+    const { literal, runtime } = this.localeArg(locales, b);
+    // Options: a literal object (or undefined), or a condition choosing one.
+    let test: Expr | undefined;
+    let branches: (ts.Expression | undefined)[] = [options];
+    const choice = options && skipParens(options);
+    if (choice && ts.isConditionalExpression(choice)) {
+      test = this.condition(choice.condition, b);
+      branches = [choice.whenTrue, choice.whenFalse];
+    }
+    if ((runtime || test) && !o.inline)
+      return this.fail(
+        locales ?? o.node,
+        'E_INTL',
+        `An Intl.${o.ctor} with a locale computed at run time or options chosen by a condition must be constructed where it is used (new Intl.${o.ctor}(locale, options).${o.kind === 'plural' ? 'select(n)' : 'of(code)'})`,
+      );
+    const specs = branches.map(node => {
+      const opts = this.intlOptions(node);
+      const result = intlSpec(
+        o.kind,
+        method,
+        literal,
+        opts.map(([k, v]) => [k, v]),
+      );
+      if ('error' in result)
+        return this.fail(
+          opts.find(x => x[0] === result.key)?.[2] ?? node ?? locales ?? o.node,
+          'E_INTL',
+          result.error,
+        );
+      return result.spec;
+    });
+    const locale = runtime && temp('$locale', runtime, this.irType(runtime, b));
+    const nullable = runtime !== undefined && this.irType(runtime, b) !== 'string';
+    const chosen = test && temp('$options', test, BOOLEAN);
+    const present = (): Expr => (nullable ? { op: 'unwrap', value: locale!() } : locale!());
+    const isNullish = (): Expr => this.builtin('maybe.is-nullish', [locale!()], BOOLEAN);
+    if (locale) {
+      // The constructor checks the locale (an undefined one is the default).
+      const kind = lit(o.kind === 'plural' ? 'p' : 'n');
+      const check = this.builtin('intl.locale', [present(), kind], STRING);
+      temp(
+        '$checked',
+        nullable ? { op: 'cond', test: isNullish(), then: lit(''), else: check } : check,
+        STRING,
+      );
+    }
+    const ops = operands.map((x, i) => temp(`$operand${i}`, x, this.irType(x, b)));
+    const pick = (loc: () => Expr[]): Expr => {
+      const at = (spec: string) =>
+        make(
+          spec,
+          ops.map(r => r()),
+          loc(),
+        );
+      return chosen
+        ? { op: 'cond', test: chosen(), then: at(specs[0]), else: at(specs[1]) }
+        : at(specs[0]);
+    };
+    const body: Expr = !locale
+      ? pick(() => [])
+      : nullable
+        ? { op: 'cond', test: isNullish(), then: pick(() => []), else: pick(() => [present()]) }
+        : pick(() => [present()]);
+    return this.wrapTemps(body, temps);
+  }
+
+  /** `body` inside `with` bindings of `temps`, the first outermost. */
+  private wrapTemps(body: Expr, temps: [number, Expr][]): Expr {
+    for (let i = temps.length - 1; i >= 0; i--)
+      body = { op: 'with', local: temps[i][0], value: temps[i][1], body };
+    return body;
   }
 
   private readonly comparators = new Map<string, number>();
@@ -6457,6 +6712,8 @@ const INTL_KINDS: Record<string, IntlKind> = {
   DateTimeFormat: 'date',
   NumberFormat: 'number',
   Collator: 'collator',
+  PluralRules: 'plural',
+  DisplayNames: 'names',
 };
 
 const REGEXP_PROPERTIES: Record<string, Type> = {

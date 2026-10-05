@@ -1,0 +1,29 @@
+{
+  "description": "Intl.PluralRules and Intl.DisplayNames as the Translations Editor uses them (M6): the cardinal and ordinal plural categories and selections of target locales computed at run time (en, de-AT, pl, ar, pt-PT, pt-BR, fr-CA, zh-Hant-TW, cy, sr-Latn, the alias iw, tlh without plural data, which takes the default locale's rules, and the malformed en_US, whose RangeError the program catches), options chosen by a condition, language names of those tags in the UI locales en, de, fr-FR and en-GB (dialect names, compositions, codes as fallback), an ordinal suffix constant, region, script, standard language and currency names with fallbacks, and an undefined locale taking the default; in Svelte, React and Vue",
+  "fixtures": ["plural-names-svelte", "plural-names-react", "plural-names-vue"],
+  "locale": "en-US",
+  "actions": [
+    { "kind": "click", "id": "ordinal" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ui" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ordinal" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ui" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ordinal" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ui" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ordinal" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ui" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ordinal" },
+    { "kind": "click", "id": "next" }
+  ]
+}

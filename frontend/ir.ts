@@ -463,6 +463,12 @@ export interface Schedule {
   mount?: 'sync' | 'microtask' | 'task';
   /** Cleanups read state as it was before the running flush's writes. */
   cleanupReadsPrevious?: boolean;
+  /**
+   * Events whose listeners' updates render as a default-priority task (React's
+   * continuous priority): after the rendering step for events it dispatches
+   * (`scroll`); a discrete update before that renders them at once.
+   */
+  continuous?: EventKind[];
 }
 
 export interface Program {

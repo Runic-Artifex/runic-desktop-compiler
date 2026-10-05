@@ -181,8 +181,12 @@ const EVENT_PROPS: Record<string, HandlerEvent> = {
  * Continuous events: React gives their updates a lower priority and renders
  * them in a scheduler task after the input (with a later discrete update).
  * Scroll events come in the rendering step: their updates render after
- * that frame is painted (checked in Chromium 153 with an animation frame
- * callback of the same rendering step, which sees the old DOM).
+ * that frame (checked in Chromium 153: an animation frame callback of the
+ * same rendering step, a microtask and even a 0 ms timer and message posted
+ * by the listener see the old DOM; a click dispatched before the scheduler
+ * task renders the scroll update with its own). The IR models that for
+ * scroll events (`schedule.continuous`, M6); the others are accepted where
+ * the timing is unobservable.
  */
 const CONTINUOUS = new Set<HandlerEvent>([
   'scroll',
@@ -3397,10 +3401,24 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
           'e.currentTarget in a handler that awaits or queues microtasks: React sets currentTarget to null when the listener returns, before microtasks run',
         );
       if (!CONTINUOUS.has(h.event)) continue;
-      // Continuous events: React renders their updates after the input,
-      // or with the next discrete update (a click's press after its move),
-      // while the IR renders after each dispatch. Supported where the two
-      // agree: updates of state that is only rendered as text.
+      // Scroll events (M6): their updates render in a default-priority task
+      // after the frame (schedule.continuous), or with an earlier discrete
+      // update, as React's continuous lane does. A timer posted in the
+      // listener runs before that render in Chromium, after it natively.
+      if (h.event === 'scroll') {
+        runs([root], o => {
+          if (o.op === 'builtin' && /^(timer|flush)\./.test(o.name as string))
+            rejectEvent(
+              h.source,
+              `${prop} schedules a timer: Chromium runs it before React renders the scroll update (a scheduler task after the frame), which is unsupported`,
+            );
+        });
+        continue;
+      }
+      // Pointer and mouse continuous events: React renders their updates
+      // after the input, or with the next discrete update (a click's press
+      // after its move), while the IR renders after each dispatch. Supported
+      // where the two agree: updates of state that is only rendered as text.
       runs([root], (o, component, locals) => {
         if (o.op === 'builtin' && /^(timer|microtask|promise|flush)\./.test(o.name as string))
           rejectEvent(
@@ -3453,7 +3471,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
         if (o.op === 'cell' && o.cell === cell && o.read === 'snapshot' && component === k)
           throw new Diagnostic(
             'E_EVENT',
-            `${name} is updated by ${propOf(handler.event)}, a continuous event whose updates React renders in a later scheduler task (after the input, or for scroll events after the frame is painted) or with the next click, while the IR renders after each event; such state may only be rendered as text (it is read elsewhere here)`,
+            `${name} is updated by ${propOf(handler.event)}, a continuous event whose updates React renders in a later scheduler task (after the input) or with the next click, while the IR renders after each event; such state may only be rendered as text (it is read elsewhere here)`,
             c.cells[cell].source,
           );
       });
@@ -3889,6 +3907,9 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       cleanups: 'batched',
       postWritesDeferred: true,
       mount: 'task',
+      // Updates from scroll events render in a scheduler task after the
+      // frame (continuous priority), or with an earlier discrete update.
+      continuous: ['scroll'],
     },
     styles: { css: graph.css, assets: graph.assets },
     records: types.records,
