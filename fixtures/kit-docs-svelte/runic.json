@@ -1,0 +1,67 @@
+{
+  "framework": "svelte",
+  "kit": true,
+  "title": "Runic kit-docs-svelte",
+  "tailwind": true,
+  "generate": [
+    {
+      "name": "registry",
+      "command": [
+        "node",
+        "scripts/build-registry.mjs"
+      ],
+      "inputs": [
+        "scripts/build-registry.mjs",
+        "src/lib/registry/examples/**"
+      ],
+      "outputs": [
+        "src/__registry__"
+      ]
+    },
+    {
+      "name": "content",
+      "tools": [
+        "velite@0.3.1"
+      ],
+      "command": [
+        "velite",
+        "build"
+      ],
+      "inputs": [
+        "velite.config.js",
+        "content/**"
+      ],
+      "outputs": [
+        ".velite"
+      ]
+    },
+    {
+      "name": "markdown",
+      "preprocess": "content/**/*.md",
+      "tools": [
+        "mdsx@0.0.7",
+        "magic-string@0.30.21",
+        "@sveltejs/adapter-static@3.0.10",
+        "@prettier/sync@0.6.1",
+        "prettier@3.8.3",
+        "prettier-plugin-svelte@4.1.1",
+        "rehype-pretty-code@0.14.1",
+        "rehype-slug@6.0.0",
+        "remark-gfm@4.0.1",
+        "remark-code-import@1.2.0",
+        "shiki@3.20.0",
+        "@shikijs/themes@3.20.0",
+        "@shikijs/langs@3.20.0",
+        "unist-builder@4.0.0",
+        "unist-util-visit@5.0.0"
+      ],
+      "inputs": [
+        "svelte.config.js",
+        "mdsx.config.js",
+        "src/__registry__/**",
+        "src/lib/registry/examples/**",
+        "src/lib/components/mdsx/**"
+      ]
+    }
+  ]
+}
