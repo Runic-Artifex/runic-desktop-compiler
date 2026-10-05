@@ -7,9 +7,6 @@
     [800, 1000],
     [420, 1200]
   ],
-  "knownGaps": {
-    "pixels": "Mid-animation frames: Stylo solves the content's ease-out timing function with an epsilon of 1/(200 x duration in seconds), 0.025 for these 200 ms animations, where Chromium's is 1e-7, so heights differ by up to about 2% of the content's height while it animates; settled frames match (docs/BLITZ-GAPS.md, eased animations; with the epsilon at 1e-7 every gate passes)"
-  },
   "pixelRegions": [
     "multiple",
     "bound"
