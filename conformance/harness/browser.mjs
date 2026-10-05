@@ -358,6 +358,13 @@ async function clipboardState() {
 /** `Date.now()` at clock time 0 (shared with the probe and the interpreter). */
 const CLOCK_ORIGIN = 1_767_225_600_000;
 
+/** The fake clock read [Date, performance.now()] other than CLOCK_START at mount. */
+class ClockLeak extends Error {
+  constructor([date, perf]) {
+    super(`The fake clock leaked real time: Date ${date} ms, performance.now() ${perf} ms at mount`);
+  }
+}
+
 /** Clock time when the app starts (the probe's and the interpreter's `CLOCK_START`). */
 const CLOCK_START = 1000;
 
@@ -532,9 +539,19 @@ export async function createBrowserHarness() {
     close: () => instance.close(),
     /**
      * Returns { steps: [{ action, dom, focused, geometry, screenshotPath, ms }] }
-     * where step 0 is the initial state after mount.
+     * where step 0 is the initial state after mount. A capture whose fake
+     * clock leaked real time is not a valid reference: it is taken again, and
+     * after three leaks the run fails as a harness error.
      */
-    async run(
+    async run(fixture, options) {
+      for (let attempt = 1; ; attempt++)
+        try {
+          return await this.capture(fixture, options);
+        } catch (e) {
+          if (!(e instanceof ClockLeak) || attempt === 3) throw e;
+        }
+    },
+    async capture(
       fixture,
       {
         viewport = { width: 800, height: 600 },
@@ -699,6 +716,12 @@ export async function createBrowserHarness() {
         await page.waitForURL(u => u.origin === origin, { waitUntil: 'load' });
         await loaded(page);
         await time.loaded();
+        // Playwright installs its fake clock while the page loads; under load,
+        // real time can leak into performance.now() before the clock pauses.
+        if (clock) {
+          const read = await page.evaluate(o => [Date.now() - o, performance.now()], CLOCK_ORIGIN);
+          if (read.some(t => t !== CLOCK_START)) throw new ClockLeak(read);
+        }
         await settle();
         const mountMs = performance.now() - t1;
         const steps = [];
