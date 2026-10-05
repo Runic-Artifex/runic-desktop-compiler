@@ -3327,6 +3327,29 @@ impl<'p> Machine<'p> {
                     (Val::Undefined | Val::Null, _) => true,
                     (Val::Str(_), Type::String) | (Val::Bool(_), Type::Boolean) => true,
                     (Val::Closure(_) | Val::Listeners(_), Type::Fn(_)) => true,
+                    // A value of another type (M6 overlays), by its kind.
+                    (v, t) if crate::builtins::bag_value_type(t) => match (v, t) {
+                        (Val::Num(_), Type::Number)
+                        | (Val::Array(_), Type::Array(_))
+                        | (Val::Map(_), Type::Map(..))
+                        | (Val::Set(_), Type::Set(_))
+                        | (Val::Element(_), Type::Element)
+                        | (Val::Promise(_), Type::Promise(_))
+                        | (Val::RegExp(_), Type::Regexp)
+                        | (Val::MediaQuery(_), Type::MediaQuery)
+                        | (Val::Date(_), Type::Date) => true,
+                        (Val::Record(r), t) => {
+                            let record = r.borrow().record;
+                            match t {
+                                Type::Record(x) => *x == record,
+                                _ => self
+                                    .program
+                                    .class_members(t)
+                                    .is_some_and(|m| m.contains(&record)),
+                            }
+                        }
+                        _ => false,
+                    },
                     _ => false,
                 };
                 if !fits {
@@ -4096,6 +4119,24 @@ impl<'p> Machine<'p> {
                                 }
                                 Val::Bool(true) => {
                                     map.insert(name.to_ascii_lowercase(), String::new());
+                                }
+                                // A number passed through rest props: its text.
+                                Val::Num(n) => {
+                                    map.insert(name.to_ascii_lowercase(), js::number_to_string(*n));
+                                }
+                                Val::Array(_)
+                                | Val::Record(_)
+                                | Val::Map(_)
+                                | Val::Set(_)
+                                | Val::Element(_)
+                                | Val::Promise(_)
+                                | Val::RegExp(_)
+                                | Val::MediaQuery(_)
+                                | Val::Date(_) => {
+                                    return Err(Throw::new(
+                                        "RunicUnsupportedError",
+                                        "a spread entry that is neither text, a boolean, a number nor a listener, set on an element as its string",
+                                    ));
                                 }
                                 _ => {
                                     map.remove(&name.to_ascii_lowercase());
@@ -6654,7 +6695,8 @@ impl js::MergeOps<Val> for MergeVals<'_> {
                         .collect(),
                 )
             }
-            other => panic!("validated bag value, found {other:?}"),
+            // A value of another type passed through rest props (M6 overlays).
+            _ => js::MergeKind::Other,
         }
     }
     fn text(&self, s: JsString) -> Val {

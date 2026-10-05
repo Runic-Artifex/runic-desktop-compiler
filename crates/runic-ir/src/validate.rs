@@ -800,11 +800,19 @@ impl<'a> Scope<'a> {
                                 ),
                                 // A style object of keys that may be absent (M6
                                 // overlays): a map of property values in order.
-                                None if name == "style"
-                                    && t == Type::Map(
-                                        Box::new(Type::String),
-                                        Box::new(Type::maybe(Type::String)),
-                                    ) =>
+                                None if name == "style" && {
+                                    let style_map = |t: &Type| {
+                                        *t == Type::Map(
+                                            Box::new(Type::String),
+                                            Box::new(Type::maybe(Type::String)),
+                                        ) || *t
+                                            == Type::Map(
+                                                Box::new(Type::String),
+                                                Box::new(Type::String),
+                                            )
+                                    };
+                                    style_map(&t) || matches!(&t, Type::Maybe(i) if style_map(i))
+                                } =>
                                 {
                                     true
                                 }
@@ -837,7 +845,12 @@ impl<'a> Scope<'a> {
                                     (attr_name_ok(name) || callback_name_ok(name))
                                         && (matches!(t, Type::String | Type::Boolean)
                                             || t == Type::maybe(Type::String)
-                                            || t == Type::maybe(Type::Boolean))
+                                            || t == Type::maybe(Type::Boolean)
+                                            // Values of other types (M6 overlays:
+                                            // props passed through rest props).
+                                            || crate::builtins::bag_value_type(&t)
+                                            || matches!(&t, Type::Maybe(i)
+                                                if crate::builtins::bag_value_type(i)))
                                 }
                             };
                             if !ok {

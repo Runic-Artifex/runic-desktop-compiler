@@ -197,6 +197,24 @@ fn dom_rect(records: &[RecordType], r: usize) -> bool {
     })
 }
 
+/// A type of the values a bag passes to a component's declared props
+/// besides text, booleans, functions and style objects (M6 overlays: a
+/// number, an array, an object, an element), stored as typed values.
+pub fn bag_value_type(t: &Type) -> bool {
+    !matches!(
+        t,
+        Type::Void
+            | Type::Event
+            | Type::Attrs
+            | Type::Fn(_)
+            | Type::String
+            | Type::Boolean
+            | Type::Maybe(_)
+            | Type::Contexts
+            | Type::Mounted
+    )
+}
+
 /// Whether built-in `name` reads or changes the native layout (the
 /// interpreter has none: programs using them are compared against the
 /// browser only).
@@ -1121,9 +1139,11 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &Attrs, "bag")?;
             expect(&args[1], &s, "name")?;
             match declared {
-                Maybe(t) if matches!(**t, String | Boolean | Fn(_)) => Ok(declared.clone()),
+                Maybe(t) if matches!(**t, String | Boolean | Fn(_)) || bag_value_type(t) => {
+                    Ok(declared.clone())
+                }
                 other => Err(format!(
-                    "bag values are read as nullable strings, booleans or functions, found {}",
+                    "bag values are read as nullable strings, booleans, functions or other values, found {}",
                     other.name()
                 )),
             }

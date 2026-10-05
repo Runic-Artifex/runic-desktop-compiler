@@ -1165,6 +1165,11 @@ fn attrs_builtin(cx: &mut FnCtx, m: &str, t: &[String], ty: &Type) -> String {
                     };
                     format!("{callback}\n{listener}")
                 }
+                // A value of another type (M6 overlays): the same type's.
+                other if runic_ir::builtins::bag_value_type(other) => format!(
+                    "js::AttrValue::Value(v, _) if v.downcast_ref::<{0}>().is_some() => Maybe::Some(v.downcast_ref::<{0}>().unwrap().clone()),",
+                    rust_type(other)
+                ),
                 other => unreachable!("validated attrs.get type {other:?}"),
             };
             format!(

@@ -28,6 +28,43 @@ pub enum AttrValue<L> {
     /// An attachment (under an [`ATTACHMENT`] name): the function, in the
     /// generated app's representation.
     Attach(Rc<dyn Any>),
+    /// A value of another type passed through rest props to a component
+    /// that declares the prop (M6 overlays: bits-ui forwards `sideOffset`,
+    /// `collisionBoundary`…): the value in the generated app's
+    /// representation, with its operations.
+    Value(Rc<dyn Any>, ValueOps),
+}
+
+/// The operations of an [`AttrValue::Value`] (functions of its type).
+#[derive(Clone, Copy)]
+pub struct ValueOps {
+    /// Strict equality with another value (false for another type).
+    pub same: fn(&dyn Any, &dyn Any) -> bool,
+    /// The attribute text set when the bag is spread onto an element
+    /// (`String(value)`; `None` removes it); `Err` names a value whose text
+    /// is not covered.
+    pub text: fn(&dyn Any) -> Result<Option<JsString>, String>,
+}
+
+/// [`ValueOps::same`] of values of type `T`.
+pub fn value_same<T: StrictEq + 'static>(a: &dyn Any, b: &dyn Any) -> bool {
+    match (a.downcast_ref::<T>(), b.downcast_ref::<T>()) {
+        (Some(x), Some(y)) => x.strict_eq(y),
+        _ => false,
+    }
+}
+
+/// [`ValueOps::text`] of a number: `Number.prototype.toString`.
+pub fn number_attr_text(v: &dyn Any) -> Result<Option<JsString>, String> {
+    v.downcast_ref::<f64>()
+        .map(|n| Some(JsString::from(crate::number_to_string(*n).as_str())))
+        .ok_or_else(|| "a number entry of another type".to_string())
+}
+
+/// [`ValueOps::text`] of a value whose text is not covered (an array, an
+/// object, an element: Svelte sets `String(value)`).
+pub fn no_attr_text(_: &dyn Any) -> Result<Option<JsString>, String> {
+    Err("a spread entry that is neither text, a boolean, a number nor a listener, set on an element as its string".to_string())
 }
 
 impl<L> std::fmt::Debug for AttrValue<L> {
@@ -41,6 +78,7 @@ impl<L> std::fmt::Debug for AttrValue<L> {
             AttrValue::Callback(id, _) => write!(f, "Callback({id})"),
             AttrValue::Style(s) => write!(f, "Style({s:?})"),
             AttrValue::Attach(a) => write!(f, "Attach({:p})", Rc::as_ptr(a)),
+            AttrValue::Value(v, _) => write!(f, "Value({:p})", Rc::as_ptr(v)),
         }
     }
 }
@@ -197,6 +235,9 @@ pub enum MergeKind {
     Function,
     /// A style object: property names and values (`None`: undefined).
     Style(Vec<(String, Option<JsString>)>),
+    /// A value of another kind (a number, an array, an object): the later
+    /// one wins unless undefined.
+    Other,
 }
 
 /// The value operations [`merge_props`] needs from a bag representation.
@@ -406,6 +447,12 @@ pub fn merge_props<V: Clone>(
                 return Err(format!(
                     "merging two functions under {key} (svelte-toolbelt's executeCallbacks) is not covered"
                 ));
+            } else if (key == "class" || key == "style")
+                && (matches!(kind_a, Some(MergeKind::Other)) || matches!(kind_b, MergeKind::Other))
+            {
+                return Err(format!(
+                    "merging a {key} value that is neither text nor an object is not covered"
+                ));
             } else if key == "class" {
                 // clsx over strings: truthy strings joined by a space.
                 let class_value = |k: &Option<MergeKind>| {
@@ -564,6 +611,9 @@ impl<L> StrictEq for Attrs<L> {
                         (AttrValue::Attach(x), AttrValue::Attach(y)) => Rc::ptr_eq(x, y),
                         (AttrValue::Flag(x), AttrValue::Flag(y)) => x == y,
                         (AttrValue::Listener(x, _), AttrValue::Listener(y, _)) => x == y,
+                        (AttrValue::Value(x, ops), AttrValue::Value(y, _)) => {
+                            (ops.same)(&**x, &**y)
+                        }
                         _ => false,
                     }
             })

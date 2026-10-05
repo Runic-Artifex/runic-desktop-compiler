@@ -1269,6 +1269,15 @@ impl Dom<'_> {
                     self.set_attr(node, &name, if *b { "true" } else { "false" })
                 }
                 AttrValue::Flag(true) => self.set_attr(node, &name, ""),
+                // A typed value (a number): its text, as Svelte sets it.
+                AttrValue::Value(v, ops) => match (ops.text)(&**v) {
+                    Ok(Some(t)) => self.set_attr(node, &name, &t.to_rust()),
+                    Ok(None) => continue,
+                    Err(m) => {
+                        crate::unsupported(&m);
+                        continue;
+                    }
+                },
                 _ => continue,
             }
             names.push(name);
