@@ -793,7 +793,7 @@ impl<'a> Scope<'a> {
                         }
                         AttrItem::Entry { name, value } => {
                             let t = self.infer(value, d, src)?;
-                            let ok = match name.strip_prefix("on").and_then(EventKind::parse) {
+                            let ok = match EventKind::listener(name).map(|(k, _)| k) {
                                 Some(_) => matches!(
                                     &t,
                                     Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event]
@@ -2933,6 +2933,12 @@ impl Origins<'_> {
     }
 
     fn origin(&self, e: &Expr) -> Origin {
+        self.origin_in(e, &[])
+    }
+
+    /// The origin of `e` with the locals `bound` binds inside it (`with`
+    /// expressions around it).
+    fn origin_in(&self, e: &Expr, bound: &[(usize, Origin)]) -> Origin {
         let element = |o: Origin| match o {
             Origin::Root(r) => Origin::Root(r),
             Origin::Reactive => Origin::Reactive,
@@ -2949,21 +2955,39 @@ impl Origins<'_> {
                 None => Origin::Unknown,
             },
             Expr::Global { global } => Origin::Root(Root::Global(*global)),
-            Expr::Local { local } => self.locals.get(*local).copied().unwrap_or(Origin::Unknown),
-            Expr::Get { object, .. } => element(self.origin(object)),
-            Expr::Index { array, .. } => element(self.origin(array)),
+            Expr::Local { local } => bound
+                .iter()
+                .rev()
+                .find(|(l, _)| l == local)
+                .map(|(_, o)| *o)
+                .unwrap_or_else(|| self.locals.get(*local).copied().unwrap_or(Origin::Unknown)),
+            // (A value a `with` computes: its body's, with its local bound;
+            // M6 overlays: style dictionaries built in derived values.)
+            Expr::With { local, value, body } => {
+                let o = self.origin_in(value, bound);
+                let mut inner = bound.to_vec();
+                inner.push((*local, o));
+                self.origin_in(body, &inner)
+            }
+            // (Filling a map or set returns it.)
+            Expr::Builtin { name, args, .. } if name == "map.set" || name == "set.add" => args
+                .first()
+                .map_or(Origin::Unknown, |a| self.origin_in(a, bound)),
+            Expr::Get { object, .. } => element(self.origin_in(object, bound)),
+            Expr::Index { array, .. } => element(self.origin_in(array, bound)),
             Expr::Unwrap { value }
             | Expr::Some { value }
             | Expr::Upcast { value, .. }
-            | Expr::Downcast { value, .. } => self.origin(value),
+            | Expr::Downcast { value, .. } => self.origin_in(value, bound),
             Expr::Array { .. } | Expr::Record { .. } | Expr::Closure { .. } => Origin::Fresh,
             Expr::Builtin { name, args, .. } if FRESH.contains(&name.as_str()) => {
                 let _ = args;
                 Origin::Fresh
             }
-            Expr::Builtin { name, args, .. } if ELEMENT.contains(&name.as_str()) => {
-                element(args.first().map_or(Origin::Unknown, |a| self.origin(a)))
-            }
+            Expr::Builtin { name, args, .. } if ELEMENT.contains(&name.as_str()) => element(
+                args.first()
+                    .map_or(Origin::Unknown, |a| self.origin_in(a, bound)),
+            ),
             Expr::Lit { .. } | Expr::Undefined { .. } | Expr::Null { .. } => Origin::Fresh,
             _ => Origin::Unknown,
         }
@@ -3473,6 +3497,45 @@ fn exposes(
     }
 }
 
+/// `exposes`, where a class instance exposes only what the fields templates
+/// read hold (`template_field_reads`): a value in a private field no
+/// template reads changes nothing rendering shows (M6 overlays: bits-ui's
+/// DismissibleLayerState keeps its intercepted events in a map).
+fn exposes_read(
+    p: &Program,
+    outer: &Type,
+    inner: &Type,
+    read: &HashSet<(usize, usize)>,
+    seen: &mut HashSet<usize>,
+) -> bool {
+    if same_value_type(p, outer, inner) {
+        return true;
+    }
+    match outer {
+        Type::Class(_) | Type::Classes(_) => p
+            .class_members(outer)
+            .unwrap_or_default()
+            .into_iter()
+            .any(|r| exposes_read(p, &Type::Record(r), inner, read, seen)),
+        Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
+            exposes_read(p, t, inner, read, seen)
+        }
+        Type::Map(k, v) => {
+            exposes_read(p, k, inner, read, seen) || exposes_read(p, v, inner, read, seen)
+        }
+        Type::Record(r) => {
+            let rec = &p.records[*r];
+            seen.insert(*r)
+                && rec.fields.iter().enumerate().any(|(i, f)| {
+                    (!rec.class || read.contains(&(*r, i)))
+                        && f.reactive != Some(Reactive::Derived)
+                        && exposes_read(p, &f.ty, inner, read, seen)
+                })
+        }
+        _ => false,
+    }
+}
+
 /// Whether values of types `a` and `b` can be the same value: equal
 /// types, or class types with a class in common (M6 inheritance).
 fn same_value_type(p: &Program, a: &Type, b: &Type) -> bool {
@@ -3633,7 +3696,7 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                     matches!(t, Type::Map(..) | Type::Set(_))
                         && holds(p, ty, t, &mut HashSet::new())
                 } else {
-                    t.is_reference() && exposes(p, ty, t, false, &mut HashSet::new())
+                    t.is_reference() && exposes_read(p, ty, t, &read_fields, &mut HashSet::new())
                 }
             })
         };

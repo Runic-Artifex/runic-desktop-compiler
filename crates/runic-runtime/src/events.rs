@@ -958,17 +958,20 @@ impl<A: App> Handler<'_, A> {
         } else {
             &elements[..1]
         };
-        let deliveries: Vec<Delivery> = path
-            .iter()
-            .flat_map(|&n| {
-                let event = &event;
-                self.listeners.all(n, kind).map(move |listener| Delivery {
-                    listener,
-                    event: event.clone(),
-                    current: n.as_u64(),
-                })
+        // The elements' capture listeners first, from the root to the
+        // target (M6 overlays: along the target's ancestors also for events
+        // that do not bubble, such as focus), then the target's and the
+        // ancestors'.
+        let chain = element_chain(doc, elements[0]);
+        let mut deliveries: Vec<Delivery> = self.listeners.capture_deliveries(&chain, kind, &event);
+        deliveries.extend(path.iter().flat_map(|&n| {
+            let event = &event;
+            self.listeners.all(n, kind).map(move |listener| Delivery {
+                listener,
+                event: event.clone(),
+                current: n.as_u64(),
             })
-            .collect();
+        }));
         // The capture listeners of the window, then the document, first.
         self.capture(doc, kind, &event, true);
         self.dispatch(doc, &deliveries);

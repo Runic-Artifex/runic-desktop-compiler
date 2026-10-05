@@ -715,6 +715,9 @@ pub struct Machine<'p> {
     children: HashMap<InstKey, usize>,
     /// Listeners of the last render, indexed by `VNode` listener ids.
     listeners: Vec<ListenerRef>,
+    /// Capture listeners of elements by element id (attribute bag entries
+    /// `on<event>capture`, M6 overlays): indices into `listeners`.
+    capture_elements: HashMap<u64, Vec<(EventKind, usize)>>,
     /// Child instances in tree order (last render).
     order: Vec<usize>,
     /// Stable ids of rendered elements, by identity.
@@ -1012,6 +1015,7 @@ impl<'p> Machine<'p> {
             media: runic_css::MediaEnv::default(),
             children: HashMap::new(),
             listeners: vec![],
+            capture_elements: HashMap::new(),
             order: vec![],
             snap: None,
             microtasks: VecDeque::new(),
@@ -3323,6 +3327,27 @@ impl<'p> Machine<'p> {
                 let Type::Maybe(inner) = ty else {
                     panic!("validated attrs.get type")
                 };
+                // A style object entry read as a dictionary (M6 overlays:
+                // bits-ui forwards \`style\`): a new dictionary of its
+                // properties in order, as the native runtime builds one.
+                let v = match (&v, &**inner) {
+                    (Val::Record(r), Type::Map(k, _))
+                        if **k == Type::String && !r.borrow().class =>
+                    {
+                        let data = r.borrow();
+                        let rec = &self.program.records[data.record];
+                        Val::Map(js::array_ops::map_new(
+                            rec.fields
+                                .iter()
+                                .zip(&data.fields)
+                                .map(|(f, x)| {
+                                    (Val::Str(JsString::from(f.name.as_str())), x.clone())
+                                })
+                                .collect(),
+                        ))
+                    }
+                    _ => v,
+                };
                 let fits = match (&v, &**inner) {
                     (Val::Undefined | Val::Null, _) => true,
                     (Val::Str(_), Type::String) | (Val::Bool(_), Type::Boolean) => true,
@@ -3516,6 +3541,7 @@ impl<'p> Machine<'p> {
         // The listeners of the tree before this update (a focused element
         // that the update removes gets its blur events on that tree).
         let previous_listeners = std::mem::take(&mut self.listeners);
+        let previous_capture = std::mem::take(&mut self.capture_elements);
         self.moved.clear();
         self.order.clear();
         let mut visited = HashSet::new();
@@ -3605,6 +3631,7 @@ impl<'p> Machine<'p> {
         {
             self.focused = None;
             let current = std::mem::replace(&mut self.listeners, previous_listeners);
+            let current_capture = std::mem::replace(&mut self.capture_elements, previous_capture);
             let value = chain_nodes(&self.last_tree, f).and_then(|n| match n.last() {
                 Some(VNode::Element { value, .. }) => value.clone(),
                 _ => None,
@@ -3618,6 +3645,7 @@ impl<'p> Machine<'p> {
                 self.dispatch_nested(f, kind, data, elements);
             }
             self.listeners = current;
+            self.capture_elements = current_capture;
             if moved.is_some() && self.program.restore_focus {
                 self.last_tree = tree.clone();
                 let elements = !self.program.schedule.commit_events_ignored;
@@ -4102,9 +4130,18 @@ impl<'p> Machine<'p> {
                             }
                             _ => {}
                         }
-                        match name.strip_prefix("on").and_then(EventKind::parse) {
-                            Some(kind) => {
-                                refs.push((kind, self.listeners.len()));
+                        match EventKind::listener(name) {
+                            Some((kind, capture)) => {
+                                // (A capture listener: the element's capture
+                                // phase list, M6 overlays.)
+                                if capture {
+                                    self.capture_elements
+                                        .entry(id)
+                                        .or_default()
+                                        .push((kind, self.listeners.len()));
+                                } else {
+                                    refs.push((kind, self.listeners.len()));
+                                }
                                 self.listeners.push(ListenerRef {
                                     instance: self.current,
                                     handler: usize::MAX,
@@ -6186,6 +6223,18 @@ impl<'p> Machine<'p> {
         // Without element listeners where the framework ignores events
         // dispatched during its DOM update.
         let path = if elements { path } else { vec![] };
+        // The elements' capture listeners first, from the root to the target.
+        if elements {
+            for n in &nodes {
+                if let VNode::Element { id, .. } = n {
+                    for &(k, l) in self.capture_elements.get(id).into_iter().flatten() {
+                        if k == kind {
+                            calls.push((l, *id));
+                        }
+                    }
+                }
+            }
+        }
         // The capture listeners of the window, then the document, first.
         for window in [true, false] {
             let current = if window {
@@ -6308,6 +6357,17 @@ impl<'p> Machine<'p> {
             vec![target_node]
         };
         let mut entries: Vec<(usize, js::Event, u64)> = vec![];
+        // The elements' capture listeners first, from the root to the target
+        // (M6 overlays).
+        for n in &nodes {
+            if let VNode::Element { id, .. } = n {
+                for &(k, l) in self.capture_elements.get(id).into_iter().flatten() {
+                    if k == kind {
+                        entries.push((l, event.clone(), *id));
+                    }
+                }
+            }
+        }
         for n in path {
             if let VNode::Element { id, listeners, .. } = n {
                 for &(k, l) in listeners {

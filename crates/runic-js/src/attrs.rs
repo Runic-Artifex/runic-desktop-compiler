@@ -23,8 +23,10 @@ pub enum AttrValue<L> {
     /// component that declares it, M6): its identity and the function, in
     /// the generated app's type-erased calling convention.
     Callback(usize, Rc<dyn Any>),
-    /// A style object: property names and values (`None`: undefined).
-    Style(Vec<(String, Option<JsString>)>),
+    /// A style object: property names and values (`None`: undefined), and
+    /// the object itself where a bag entry holds one (M6 overlays: a
+    /// component declaring the `style` prop receives that object).
+    Style(Vec<(String, Option<JsString>)>, Option<Rc<dyn Any>>),
     /// An attachment (under an [`ATTACHMENT`] name): the function, in the
     /// generated app's representation.
     Attach(Rc<dyn Any>),
@@ -76,7 +78,7 @@ impl<L> std::fmt::Debug for AttrValue<L> {
             AttrValue::Flag(b) => write!(f, "Flag({b})"),
             AttrValue::Listener(id, _) => write!(f, "Listener({id})"),
             AttrValue::Callback(id, _) => write!(f, "Callback({id})"),
-            AttrValue::Style(s) => write!(f, "Style({s:?})"),
+            AttrValue::Style(s, _) => write!(f, "Style({s:?})"),
             AttrValue::Attach(a) => write!(f, "Attach({:p})", Rc::as_ptr(a)),
             AttrValue::Value(v, _) => write!(f, "Value({:p})", Rc::as_ptr(v)),
         }
@@ -607,7 +609,14 @@ impl<L> StrictEq for Attrs<L> {
                         (AttrValue::Absent, AttrValue::Absent)
                         | (AttrValue::Null, AttrValue::Null) => true,
                         (AttrValue::Callback(x, _), AttrValue::Callback(y, _)) => x == y,
-                        (AttrValue::Style(x), AttrValue::Style(y)) => x == y,
+                        (AttrValue::Style(x, a), AttrValue::Style(y, b)) => {
+                            x == y
+                                && match (a, b) {
+                                    (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+                                    (None, None) => true,
+                                    _ => false,
+                                }
+                        }
                         (AttrValue::Attach(x), AttrValue::Attach(y)) => Rc::ptr_eq(x, y),
                         (AttrValue::Flag(x), AttrValue::Flag(y)) => x == y,
                         (AttrValue::Listener(x, _), AttrValue::Listener(y, _)) => x == y,

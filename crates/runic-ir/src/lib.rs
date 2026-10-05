@@ -1087,6 +1087,19 @@ impl EventKind {
         EventKind::ALL.into_iter().find(|k| k.name() == name)
     }
 
+    /// The event of a listener attribute name, and whether it listens in the
+    /// capture phase (Svelte's `onfocuscapture`, M6 overlays: bits-ui's
+    /// dismissible layer): `on<event>` or `on<event>capture`.
+    pub fn listener(name: &str) -> Option<(EventKind, bool)> {
+        let rest = name.strip_prefix("on")?;
+        if let Some(k) = EventKind::parse(rest) {
+            return Some((k, false));
+        }
+        rest.strip_suffix("capture")
+            .and_then(EventKind::parse)
+            .map(|k| (k, true))
+    }
+
     /// `event.type`.
     pub fn name(self) -> &'static str {
         match self {

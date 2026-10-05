@@ -76,6 +76,19 @@ impl Event {
         Event::ALL.into_iter().find(|e| e.name() == name)
     }
 
+    /// The event of a listener attribute name and whether it listens in the
+    /// capture phase: `on<event>` or `on<event>capture` (Svelte's
+    /// `onfocuscapture`, M6 overlays).
+    pub fn listener(name: &str) -> Option<(Event, bool)> {
+        let rest = name.strip_prefix("on")?;
+        if let Some(e) = Event::parse(rest) {
+            return Some((e, false));
+        }
+        rest.strip_suffix("capture")
+            .and_then(Event::parse)
+            .map(|e| (e, true))
+    }
+
     /// `event.type`.
     pub fn name(self) -> &'static str {
         match self {
@@ -175,6 +188,9 @@ impl Event {
 #[derive(Default)]
 pub(crate) struct Listeners {
     map: HashMap<NodeId, Vec<(Event, u32)>>,
+    /// Capture listeners of elements (attribute bag entries
+    /// `on<event>capture`, M6 overlays).
+    capture: HashMap<NodeId, Vec<(Event, u32)>>,
     /// Keys of listeners whose elements were removed (the app frees them).
     freed: Vec<u32>,
     /// An element that lost focus because a list move detached it.
@@ -262,6 +278,38 @@ impl Listeners {
             .map(|(_, h)| *h)
     }
 
+    /// The capture listeners of `node` for `event`, in registration order.
+    pub(crate) fn all_capture(&self, node: NodeId, event: Event) -> impl Iterator<Item = u32> + '_ {
+        self.capture
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .filter(move |(e, _)| *e == event)
+            .map(|(_, h)| *h)
+    }
+
+    /// The capture-phase deliveries of an event along `chain` (the target
+    /// first, then its ancestors): from the root down to the target.
+    pub(crate) fn capture_deliveries(
+        &self,
+        chain: &[NodeId],
+        event: Event,
+        e: &runic_js::Event,
+    ) -> Vec<crate::Delivery> {
+        chain
+            .iter()
+            .rev()
+            .flat_map(|&n| {
+                self.all_capture(n, event)
+                    .map(move |listener| crate::Delivery {
+                        listener,
+                        event: e.clone(),
+                        current: n.as_u64(),
+                    })
+            })
+            .collect()
+    }
+
     /// Whether `node` has a listener for an event `action` delivers.
     #[cfg(feature = "probe")]
     pub(crate) fn listens(&self, node: NodeId, action: &str) -> bool {
@@ -283,7 +331,7 @@ pub struct ClassState {
 pub struct Spread<L> {
     bag: Option<runic_js::Attrs<L>>,
     names: Vec<String>,
-    listeners: Vec<(Event, u32, usize)>,
+    listeners: Vec<(Event, bool, u32, usize)>,
     /// The inline style a `style` entry manages, and whether one does.
     style: runic_css::StyleState,
     styled: bool,
@@ -862,19 +910,18 @@ fn focus_event(
         value: value.map(|v| v.as_str().into()).unwrap_or_default(),
         ..Default::default()
     });
-    let deliveries = path
-        .iter()
-        .flat_map(|&n| {
-            let event = &event;
-            dom.listeners
-                .all(n, kind)
-                .map(move |listener| crate::Delivery {
-                    listener,
-                    event: event.clone(),
-                    current: n.as_u64(),
-                })
-        })
-        .collect();
+    // The elements' capture listeners first, from the root to the target.
+    let mut deliveries = dom.listeners.capture_deliveries(&chain, kind, &event);
+    deliveries.extend(path.iter().flat_map(|&n| {
+        let event = &event;
+        dom.listeners
+            .all(n, kind)
+            .map(move |listener| crate::Delivery {
+                listener,
+                event: event.clone(),
+                current: n.as_u64(),
+            })
+    }));
     (event, kind, deliveries)
 }
 
@@ -1041,11 +1088,19 @@ impl Dom<'_> {
         if let Some(parent) = self.doc.get_node(node).and_then(|n| n.parent) {
             self.listeners.child_mutations.push(parent);
         }
-        let Listeners { map, freed, .. } = &mut *self.listeners;
+        let Listeners {
+            map,
+            capture,
+            freed,
+            ..
+        } = &mut *self.listeners;
         self.doc
             .mutate()
             .remove_and_drop_node_with(node, &mut |gone| {
-                if let Some(list) = map.remove(&gone) {
+                for list in [map.remove(&gone), capture.remove(&gone)]
+                    .into_iter()
+                    .flatten()
+                {
                     freed.extend(list.into_iter().map(|(_, key)| key));
                 }
             });
@@ -1171,7 +1226,7 @@ impl Dom<'_> {
             return None;
         }
         let mut names = vec![];
-        let mut wanted: Vec<(Event, usize, L)> = vec![];
+        let mut wanted: Vec<(Event, bool, usize, L)> = vec![];
         let mut attachments = vec![];
         let mut style = false;
         let mut checked = false;
@@ -1184,8 +1239,8 @@ impl Dom<'_> {
                 continue;
             }
             if let AttrValue::Listener(id, f) = value {
-                if let Some(event) = name.strip_prefix("on").and_then(Event::parse) {
-                    wanted.push((event, *id, f.clone()));
+                if let Some((event, capture)) = Event::listener(&name) {
+                    wanted.push((event, capture, *id, f.clone()));
                 }
                 continue;
             }
@@ -1207,7 +1262,7 @@ impl Dom<'_> {
                     style = true;
                     continue;
                 }
-                ("style", AttrValue::Style(_)) => {
+                ("style", AttrValue::Style(..)) => {
                     crate::unsupported(
                         "a style object spread onto an element (set as the string [object Object])",
                     );
@@ -1300,18 +1355,28 @@ impl Dom<'_> {
         // Listeners: keep registrations of the same function, drop the
         // others, register the new ones.
         let mut kept = vec![];
-        for (event, key, id) in std::mem::take(&mut applied.listeners) {
-            if wanted.iter().any(|(e, i, _)| *e == event && *i == id) {
-                kept.push((event, key, id));
+        for (event, capture, key, id) in std::mem::take(&mut applied.listeners) {
+            if wanted
+                .iter()
+                .any(|(e, c, i, _)| *e == event && *c == capture && *i == id)
+            {
+                kept.push((event, capture, key, id));
             } else {
                 self.unlisten(node, key);
             }
         }
-        for (event, id, f) in wanted {
-            if !kept.iter().any(|(e, _, i)| *e == event && *i == id) {
+        for (event, capture, id, f) in wanted {
+            if !kept
+                .iter()
+                .any(|(e, c, _, i)| *e == event && *c == capture && *i == id)
+            {
                 let key = listen(f);
-                self.listen(node, event, key);
-                kept.push((event, key, id));
+                if capture {
+                    self.listen_capture(node, event, key);
+                } else {
+                    self.listen(node, event, key);
+                }
+                kept.push((event, capture, key, id));
             }
         }
         applied.listeners = kept;
@@ -1446,12 +1511,24 @@ impl Dom<'_> {
         if let Some(list) = self.listeners.map.get_mut(&node) {
             list.retain(|(_, k)| *k != key);
         }
+        if let Some(list) = self.listeners.capture.get_mut(&node) {
+            list.retain(|(_, k)| *k != key);
+        }
         self.listeners.freed.push(key);
     }
 
     pub fn listen(&mut self, node: NodeId, event: Event, handler: u32) {
         self.listeners
             .map
+            .entry(node)
+            .or_default()
+            .push((event, handler));
+    }
+
+    /// Register a capture listener of an element (M6 overlays).
+    pub fn listen_capture(&mut self, node: NodeId, event: Event, handler: u32) {
+        self.listeners
+            .capture
             .entry(node)
             .or_default()
             .push((event, handler));

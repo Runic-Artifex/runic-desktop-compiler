@@ -1166,10 +1166,25 @@ fn attrs_builtin(cx: &mut FnCtx, m: &str, t: &[String], ty: &Type) -> String {
                     format!("{callback}\n{listener}")
                 }
                 // A value of another type (M6 overlays): the same type's.
-                other if runic_ir::builtins::bag_value_type(other) => format!(
-                    "js::AttrValue::Value(v, _) if v.downcast_ref::<{0}>().is_some() => Maybe::Some(v.downcast_ref::<{0}>().unwrap().clone()),",
-                    rust_type(other)
-                ),
+                other if runic_ir::builtins::bag_value_type(other) => {
+                    let rt = rust_type(other);
+                    // A style entry: the object it holds where of this type
+                    // (M6 overlays: bits-ui forwards \`style\`), else a new
+                    // dictionary of its properties in order.
+                    let rebuilt = match other {
+                        Type::Map(k, v) if **k == Type::String && **v == Type::maybe(Type::String) => {
+                            "Some(js::array_ops::map_new(entries.iter().map(|(k, v)| (JsString::from(k.as_str()), v.clone().map_or(Maybe::Undefined, Maybe::Some))).collect()))".to_string()
+                        }
+                        Type::Map(k, v) if **k == Type::String && **v == Type::String => {
+                            "if entries.iter().all(|(_, v)| v.is_some()) { Some(js::array_ops::map_new(entries.iter().map(|(k, v)| (JsString::from(k.as_str()), v.clone().unwrap())).collect())) } else { None }".to_string()
+                        }
+                        _ => "None".to_string(),
+                    };
+                    format!(
+                        "js::AttrValue::Value(v, _) if v.downcast_ref::<{rt}>().is_some() => Maybe::Some(v.downcast_ref::<{rt}>().unwrap().clone()),\n\
+                         js::AttrValue::Style(entries, orig) => {{ let held: Option<{rt}> = orig.as_ref().and_then(|o| o.downcast_ref::<{rt}>()).cloned(); match held.or_else(|| {rebuilt}) {{ Some(x) => Maybe::Some(x), None => {{ {bad}; unreachable!() }} }} }}"
+                    )
+                }
                 other => unreachable!("validated attrs.get type {other:?}"),
             };
             format!(

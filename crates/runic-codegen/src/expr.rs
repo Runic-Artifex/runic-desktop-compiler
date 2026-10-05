@@ -321,6 +321,10 @@ impl<'a> FnCtx<'a> {
                 let v = self.expr(arg);
                 match t {
                     Type::Fn(_) => format!("{{ let _ = {v}; JsString::from(\"function\") }}"),
+                    // (A nullable function: bits-ui's `typeof cleanup === "function"`.)
+                    Type::Maybe(i) if matches!(*i, Type::Fn(_)) => format!(
+                        "JsString::from(match {v} {{ Maybe::Some(_) => \"function\", Maybe::Null => \"object\", Maybe::Undefined => \"undefined\" }})"
+                    ),
                     _ => format!("JsString::from(js::TypeOf::type_of(&{v}))"),
                 }
             }
@@ -431,8 +435,7 @@ impl<'a> FnCtx<'a> {
                         AttrItem::Entry { name, value } => {
                             let t = self.ty(value);
                             let x = self.expr(value);
-                            let event =
-                                name.strip_prefix("on").and_then(EventKind::parse).is_some();
+                            let event = EventKind::listener(name).is_some();
                             // A value of another type (M6 overlays: a prop passed
                             // through rest props), typed for `attrs.get`.
                             let style_shape = name == "style"
@@ -470,7 +473,7 @@ impl<'a> FnCtx<'a> {
                                 Type::Maybe(i) if matches!(**i, Type::Record(_)) => {
                                     let Type::Record(r) = **i else { unreachable!() };
                                     format!(
-                                        "match {x} {{ Maybe::Some(r) => {{ let o = r.peek(); js::AttrValue::Style(vec![{}]) }}, Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}",
+                                        "match {x} {{ Maybe::Some(r) => {{ let o = r.peek(); js::AttrValue::Style(vec![{}], Some(Rc::new(r.clone()) as Rc<dyn std::any::Any>)) }}, Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}",
                                         self.style_props(r)
                                     )
                                 }
@@ -488,7 +491,7 @@ impl<'a> FnCtx<'a> {
                                         "match v { Maybe::Some(s) => Some(s.clone()), _ => None }"
                                     };
                                     format!(
-                                        "match {x} {{ Maybe::Some(m) => {{ let d = m.peek(); js::AttrValue::Style(d.entries.values().map(|(k, v)| (k.to_rust(), {value})).collect()) }}, Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}"
+                                        "match {x} {{ Maybe::Some(m) => {{ let d = m.peek(); js::AttrValue::Style(d.entries.values().map(|(k, v)| (k.to_rust(), {value})).collect(), Some(Rc::new(m.clone()) as Rc<dyn std::any::Any>)) }}, Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}"
                                     )
                                 }
                                 Type::Maybe(_) => format!(
@@ -532,16 +535,16 @@ impl<'a> FnCtx<'a> {
                                 // (A dictionary of present values: bits-ui's
                                 // `getFloatingContentCSSVars`.)
                                 Type::Map(_, v) if **v == Type::String => format!(
-                                    "{{ let m = {x}; let d = m.peek(); js::AttrValue::Style(d.entries.values().map(|(k, v)| (k.to_rust(), Some(v.clone()))).collect()) }}"
+                                    "{{ let m = {x}; let d = m.peek(); js::AttrValue::Style(d.entries.values().map(|(k, v)| (k.to_rust(), Some(v.clone()))).collect(), Some(Rc::new(m.clone()) as Rc<dyn std::any::Any>)) }}"
                                 ),
                                 Type::Map(..) => format!(
-                                    "{{ let m = {x}; let d = m.peek(); js::AttrValue::Style(d.entries.values().map(|(k, v)| (k.to_rust(), match v {{ Maybe::Some(s) => Some(s.clone()), _ => None }})).collect()) }}"
+                                    "{{ let m = {x}; let d = m.peek(); js::AttrValue::Style(d.entries.values().map(|(k, v)| (k.to_rust(), match v {{ Maybe::Some(s) => Some(s.clone()), _ => None }})).collect(), Some(Rc::new(m.clone()) as Rc<dyn std::any::Any>)) }}"
                                 ),
                                 // A style object: its properties (absent when nullish).
                                 Type::Record(r) => {
                                     let props = self.style_props(*r);
                                     format!(
-                                        "{{ let r = {x}; let o = r.peek(); js::AttrValue::Style(vec![{props}]) }}"
+                                        "{{ let r = {x}; let o = r.peek(); js::AttrValue::Style(vec![{props}], Some(Rc::new(r.clone()) as Rc<dyn std::any::Any>)) }}"
                                     )
                                 }
                                 other => unreachable!("validated bag entry {other:?}"),
