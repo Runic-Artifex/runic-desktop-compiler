@@ -2659,6 +2659,7 @@ fn host_service(name: &str) -> Option<&'static str> {
         "host" => Some("Host work"),
         "random" => Some("Randomness (Math.random, crypto.randomUUID)"),
         "mounted" => Some("Unmounting a component"),
+        "animation" => Some("Animation objects (playState, pending)"),
         _ => None,
     }
 }

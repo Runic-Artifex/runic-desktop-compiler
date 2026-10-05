@@ -3,9 +3,9 @@
   // shadcn-svelte's toggle wrapper and its demos (src/lib/registry:
   // unmodified upstream sources, see vendor.json), and a toggle bound to the
   // app's state (bind:pressed, onPressedChange, disabled from outside).
-  // The main demo (toggle-demo) is rejected: it fills its icon through CSS
-  // (a Tailwind fill utility on the icon), which Blitz does not apply to
-  // inline SVG (E_CSS_PROPERTY).
+  // The main demo (toggle-demo) fills its icon through CSS while pressed (a
+  // Tailwind group-aria-pressed fill utility on the icon).
+  import ToggleDemo from '$lib/registry/examples/toggle-demo.svelte';
   import ToggleSm from '$lib/registry/examples/toggle-sm.svelte';
   import ToggleLg from '$lib/registry/examples/toggle-lg.svelte';
   import ToggleOutline from '$lib/registry/examples/toggle-outline.svelte';
@@ -19,6 +19,7 @@
 </script>
 
 <div class="style-vega flex flex-col gap-6 bg-background p-4 font-sans text-foreground">
+  <div id="demo" class="flex w-fit"><ToggleDemo /></div>
   <div id="sizes" class="flex gap-2"><ToggleSm /><ToggleLg /></div>
   <div id="outline"><ToggleOutline /></div>
   <div id="text" class="flex"><ToggleWithText /></div>

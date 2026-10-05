@@ -588,7 +588,25 @@ export async function createBrowserHarness() {
         await seeder.goto(blank);
         await seeder.evaluate(text => navigator.clipboard.writeText(text), clipboard);
         await seeder.close();
+        // Cases with `wait` actions (or `clock: true`) run on Playwright's fake
+        // clock, paused at the shared origin and advanced to 1000 ms before the
+        // page loads (the native probe and the interpreter start their virtual
+        // clocks there). Time then only advances through `wait`.
+        const clock = fakeClock || actions.some(a => a.kind === 'wait');
+        if (clock) {
+          // pauseAt first: the clock starts paused at tick 0 (an install call
+          // before it would let real time leak into the ticks when Playwright
+          // replays its log in the page), then 1000 ms of virtual time.
+          await context.clock.pauseAt(CLOCK_ORIGIN);
+          await context.clock.runFor(1000);
+        }
         const page = await context.newPage();
+        // Playwright's clock starts each document in real time, advancing
+        // performance.now() (not Date) every 100 ms until the page first reads
+        // the clock and so replays the log that pauses it: on a loaded machine
+        // the app's first read came hundreds of milliseconds later. Reading it
+        // at document start, after Playwright's scripts, replays the log there.
+        if (clock) await page.addInitScript(() => void Date.now());
         await page.addInitScript(seedRandomness, [seed, appSource.toString()]);
         await page.addInitScript(trackClipboard, clipboard);
         page.__runicContainer = server.container;
@@ -618,23 +636,9 @@ export async function createBrowserHarness() {
           }, storage);
         // CSS animations on virtual time (seekAnimations): the document
         // timeline stands still, for this page's documents and reloads. The
-        // Animation domain is not enabled: it is not needed for this, and
-        // with it Playwright's clock installation below became slow enough
-        // for real time to leak into the fake performance.now() (timers case).
+        // Animation domain is not enabled: it is not needed for this.
         const cdp = await context.newCDPSession(page);
         await cdp.send('Animation.setPlaybackRate', { playbackRate: 0 });
-        // Cases with `wait` actions (or `clock: true`) run on Playwright's fake
-        // clock, paused at the shared origin and advanced to 1000 ms before the
-        // page loads (the native probe and the interpreter start their virtual
-        // clocks there). Time then only advances through `wait`.
-        const clock = fakeClock || actions.some(a => a.kind === 'wait');
-        if (clock) {
-          // pauseAt first: the clock starts paused at tick 0 (an install call
-          // before it would let real time leak into the ticks when Playwright
-          // replays its log in the page), then 1000 ms of virtual time.
-          await page.clock.pauseAt(CLOCK_ORIGIN);
-          await page.clock.runFor(1000);
-        }
         // With the fake clock, animation frames only run in virtual time, so
         // settling waits for real rendering instead.
         const settleFrames = () =>
@@ -699,6 +703,18 @@ export async function createBrowserHarness() {
         await page.waitForURL(u => u.origin === origin, { waitUntil: 'load' });
         await loaded(page);
         await time.loaded();
+        // A reference whose fake clock leaked real time is not valid (the
+        // run is incomplete).
+        if (clock) {
+          const [date, perf] = await page.evaluate(
+            o => [Date.now() - o, performance.now()],
+            CLOCK_ORIGIN,
+          );
+          if (date !== CLOCK_START || perf !== CLOCK_START)
+            throw new Error(
+              `The fake clock leaked real time: Date ${date} ms, performance.now() ${perf} ms at mount`,
+            );
+        }
         await settle();
         const mountMs = performance.now() - t1;
         const steps = [];

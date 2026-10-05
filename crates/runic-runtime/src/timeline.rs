@@ -45,7 +45,10 @@ pub(crate) fn now() -> f64 {
         .map_or(0.0, |o| o.elapsed().as_secs_f64())
 }
 
-/// Resolve styles and layout at the timeline's current time.
+/// Resolve styles and layout at the timeline's current time, then match
+/// the document's animations to the app's animation objects.
 pub(crate) fn resolve(doc: &mut BaseDocument) {
-    doc.resolve(now());
+    let now = now();
+    doc.resolve(now);
+    crate::animations::observe(doc, now);
 }

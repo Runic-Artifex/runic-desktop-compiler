@@ -288,4 +288,22 @@ test('<svelte:element> and links need finite, supported values', async () => {
     { 'App.svelte': svelte('', '<a href="#x">x</a>'), 'style.css': 'a:target { color: red; }\n' },
     root => assert.rejects(collect(root), e => e.code === 'E_CSS' && /:target/.test(e.message)),
   );
+  // SVG children never take :hover or :active in Blitz (hit testing ends at
+  // the <svg>); a class on them cannot be seen from the stylesheet.
+  for (const [css, rejected] of [
+    ['path:hover { fill: red; }', true],
+    ['svg g:active > rect { opacity: .5; }', true],
+    ['.icon :is(circle, .x):hover { stroke: red; }', true],
+    ['.icon path { &:hover { fill: red; } }', true],
+    ['svg:hover path, .line:hover, .hover\\:path:focus { fill: red; }', false],
+    ['path:focus, .group:hover path { fill: red; }', false],
+  ])
+    await withApp({ 'App.svelte': svelte('', '<p>x</p>'), 'style.css': css + '\n' }, root =>
+      rejected
+        ? assert.rejects(
+            collect(root),
+            e => e.code === 'E_CSS' && /SVG child/.test(e.message) && e.source.line === 1,
+          )
+        : collect(root),
+    );
 });

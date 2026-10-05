@@ -325,6 +325,9 @@ pub enum Type {
     /// `getAllContexts()`), compared by identity: the context parent of an
     /// instance `mount` creates.
     Contexts,
+    /// A CSS animation or transition of an element (`element.getAnimations()`,
+    /// M6), compared by identity: read through the `animation.*` built-ins.
+    Animation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -355,6 +358,7 @@ impl Type {
             Type::Date => "date".into(),
             Type::Mounted => "mounted".into(),
             Type::Contexts => "contexts".into(),
+            Type::Animation => "animation".into(),
             Type::Class(c) => format!("class#{c}"),
             Type::Classes(cs) => format!(
                 "classes#{}",

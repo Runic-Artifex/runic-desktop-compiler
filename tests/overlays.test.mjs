@@ -421,3 +421,64 @@ test('untyped class fields only ever null, untyped conditionals, pointerType', a
     },
   );
 });
+
+test('getAnimations lowers to animation objects read through built-ins', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let box = $state<HTMLElement | null>(null);
+  let log = $state('');
+  function wait() {
+    const animations = box!.getAnimations();
+    Promise.all(animations.map(a => a.finished)).then(
+      () => (log = 'done'),
+      () => (log = animations.some(a => a.pending || a.playState !== 'finished') ? 'again' : 'idle'),
+    );
+  }
+</script>
+
+<button id="b" onclick={wait}>wait</button>
+<div bind:this={box}>{log}</div>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const json = JSON.stringify(ir);
+      assert.match(
+        json,
+        /"name":"element\.getAnimations","args":\[[^\]]*\],"type":\{"array":"animation"\}/,
+      );
+      assert.match(
+        json,
+        /"name":"animation\.finished","args":\[[^\]]*\],"type":\{"promise":"animation"\}/,
+      );
+      assert.match(json, /"name":"animation\.pending"/);
+      assert.match(json, /"name":"animation\.playState"/);
+      // The interpreter has no style engine: the call is reported there.
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.match(JSON.stringify(steps[1]), /RunicLayoutError: element\.getAnimations/);
+      // Native apps track the document's animations only when the program reads them.
+      assert.match(generate(ir), /const TRACKS_ANIMATIONS: bool = true;/);
+    },
+  );
+});
+
+test('animation members outside the model are rejected', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let box = $state<HTMLElement | null>(null);
+  let log = $state('');
+  function read() {
+    for (const a of box!.getAnimations()) log = String(a.currentTime);
+  }
+</script>
+
+<button onclick={read}>read</button>
+<div bind:this={box}>{log}</div>
+`,
+    },
+    root =>
+      assert.rejects(lowered(root), failWith('E_MEMBER', 'App.svelte', /Animation currentTime/)),
+  );
+});

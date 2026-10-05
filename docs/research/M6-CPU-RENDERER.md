@@ -75,6 +75,8 @@ Still to write: painting the outline and outer shadows inside the filter layer w
 
 Until then the compiler rejects `drop-shadow()` that may resolve to `currentColor` (no colour, or `currentColor` reachable through `var()`), and the runtime checks above stay.
 
+**Update (2026-10-05).** Written and applied as fork commit `9f0b3b9` (*Paint filter and opacity layers over the element's whole rendering*, case `blitz-filter-layers`): the outline and outer box shadows are drawn inside the effect layer whenever there is opacity or a filter, the layer clip covers them and the scrollable overflow, a backdrop without `filter` gets a layer of its own clipped to the rounded border box, and `drop-shadow()` resolves `currentColor`. The compiler accepts drop shadows in `currentColor`; `E_FILTER` keeps the Backdrop Root case and elements with both `filter` and `backdrop-filter`.
+
 ### The forks
 
 Local clones, branch `runic`, signed commits (re-signed after the CPU work; the hashes below are the pinned ones), not pushed. The compiler workspace pins them with `[patch.crates-io]` git entries (`file://` URLs and revisions, like the Blitz fork). Every crate of each repository that is in the graph is patched (`vello_cpu`, `vello_common`, `glifo`, and since the GPU work `vello`, `vello_encoding`, `vello_shaders`; `anyrender`, `anyrender_vello_cpu`, `anyrender_vello`, `anyrender_svg`, `softbuffer_window_renderer`, `wgpu_context`), so crates.io and git copies never mix. Generated apps are workspaces of their own: codegen copies the section into their manifests.

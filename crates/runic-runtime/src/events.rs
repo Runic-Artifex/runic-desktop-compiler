@@ -80,6 +80,12 @@ impl<A: App> Document for Native<A> {
         // The shell's first access precedes its animation clock's start:
         // the runtime's timeline starts with it.
         crate::timeline::start();
+        // The shell resolves styles and paints after this access (a
+        // redraw): the frame's animation step comes first, so the ends of
+        // animations settle before the frame is rendered, as in Chromium.
+        if crate::animations::active() {
+            self.animation_step();
+        }
         // The shell resizes the viewport or changes its color scheme and
         // then redraws: the next poll runs the rendering step for it.
         if self.environ_changed().is_some() {
@@ -209,8 +215,33 @@ impl<A: App> Native<A> {
             }
             self.run_timers(frame);
             crate::timeline::resolve(&mut self.doc);
+            // The frame's animation step after the seek, as the browser
+            // harness's `finished` promises settle after its seek.
+            self.animation_step();
         }
         self.advance(to);
+    }
+
+    /// A frame's animation step (M6, Chromium's "update animations"): the
+    /// animations the app holds that ended settle their `finished`
+    /// promises (a task with its microtask checkpoint), and every running
+    /// animation stops being `pending`.
+    pub(crate) fn animation_step(&mut self) {
+        if !crate::animations::active() {
+            return;
+        }
+        crate::timeline::resolve(&mut self.doc);
+        crate::animations::commit();
+        if crate::animations::has_ended(true) {
+            self.listeners.settle(&mut self.doc);
+            let mut dom = Dom {
+                doc: &mut self.doc,
+                listeners: &mut self.listeners,
+            };
+            self.app.animation_step(&mut dom);
+            self.fix_focus_after_update();
+            self.host_tasks();
+        }
     }
 
     /// Focus fixups that follow any update outside an event dispatch.
@@ -390,6 +421,9 @@ impl<A: App> Native<A> {
             }
             event.finish();
         }
+        // Update animations (after media queries in Chromium's rendering
+        // steps): the ends of animations the app holds settle (M6).
+        self.animation_step();
         // Focus fixup (after animation frames in Chromium): a focused element
         // that became disabled or lost its box is blurred, with `blur` and
         // `focusout` as events of their own.

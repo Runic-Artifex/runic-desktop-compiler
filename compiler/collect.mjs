@@ -70,6 +70,15 @@ const FILTER_FUNCTIONS = new Set([
   'drop-shadow',
 ]);
 
+// The SVG painting properties Stylo computes (servo mode) and the Blitz fork
+// draws inline SVG with: each SVG element is serialised for usvg with its
+// computed values (docs/BLITZ-GAPS.md, fixed in the fork). Paint servers
+// (`url()`) stay unsupported: the gradient and pattern elements they would
+// reference are rejected (E_SVG).
+const SVG_PAINT_CSS =
+  /^(fill|fill-opacity|fill-rule|stroke|stroke-width|stroke-opacity|stroke-linecap|stroke-linejoin|stroke-miterlimit|stroke-dasharray|stroke-dashoffset)$/;
+// The other SVG-only properties: markers, geometry and those Stylo's servo
+// mode does not compute.
 const SVG_CSS =
   /^(fill|stroke|marker)(-|$)|^(clip-rule|paint-order|vector-effect|shape-rendering|stop-color|stop-opacity|flood-color|flood-opacity|lighting-color|color-interpolation|color-interpolation-filters|color-rendering|text-anchor|dominant-baseline|alignment-baseline|baseline-shift|mask-type|d|cx|cy|r|rx|ry|x|y)$/;
 
@@ -592,6 +601,21 @@ function possibleKeywords(value, values, seen = new Set()) {
   return words;
 }
 
+/** Whether a declaration value can hold a `url()`, also through each `var()` (as possibleKeywords). */
+function mayHoldUrl(value, values, seen = new Set()) {
+  const walk = nodes =>
+    nodes.some(n => {
+      if (n.type !== 'function') return false;
+      const name = n.value.toLowerCase();
+      if (name === 'url') return true;
+      if (name !== 'var') return walk(n.nodes);
+      const { name: property, alternatives } = varAlternatives(n, values, seen);
+      seen.add(property);
+      return alternatives.some(v => mayHoldUrl(v, values, seen));
+    });
+  return /\burl\(/i.test(value) || walk(valueParser(value).nodes);
+}
+
 /**
  * The values a `var()` node can stand for: its fallback and every value the
  * stylesheet gives the custom property (a superset, as for possibleKeywords).
@@ -605,36 +629,11 @@ function varAlternatives(node, values, seen) {
   return { name, alternatives };
 }
 
-const COLOR_FUNCTIONS =
-  /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark|contrast-color)$/i;
-
-/**
- * Whether the argument nodes of a shadow name a colour: a colour function, a
- * hex colour or colour keyword, or a var() whose every possible value does.
- * Stylo has validated the declarations without var(), so a word that is not
- * a number or length is a colour keyword there.
- */
-function namesColor(nodes, values, seen = new Set()) {
-  return nodes.some(n => {
-    if (n.type === 'word')
-      return !valueParser.unit(n.value) && n.value.toLowerCase() !== 'currentcolor';
-    if (n.type !== 'function') return false;
-    if (n.value.toLowerCase() !== 'var') return COLOR_FUNCTIONS.test(n.value);
-    const { name, alternatives } = varAlternatives(n, values, seen);
-    const inner = new Set([...seen, name]);
-    return (
-      alternatives.length > 0 &&
-      alternatives.every(v => namesColor(valueParser(v).nodes, values, inner))
-    );
-  });
-}
-
 /**
  * Why a `filter` or `backdrop-filter` value is outside what the renderers
  * draws, or undefined: functions other than the CSS filter functions (SVG
- * filter references with url()), and drop-shadow() without its own colour,
- * which Blitz draws black instead of in currentColor. Through each var()
- * every value the stylesheet gives the custom property is checked.
+ * filter references with url()). Through each var() every value the
+ * stylesheet gives the custom property is checked.
  */
 function unsupportedFilter(value, values) {
   const visit = (nodes, seen) => {
@@ -652,12 +651,6 @@ function unsupportedFilter(value, values) {
       }
       if (!FILTER_FUNCTIONS.has(name))
         return `${name}() is not a CSS filter function the renderers draw (SVG filter references are not supported)`;
-      if (
-        name === 'drop-shadow' &&
-        (!namesColor(n.nodes, values) ||
-          possibleKeywords(valueParser.stringify(n.nodes), values).has('currentcolor'))
-      )
-        return 'drop-shadow() needs its own colour: Blitz draws a shadow without one (currentColor) in black';
     }
     return undefined;
   };
@@ -689,6 +682,69 @@ function unsupportedTimeBased(decl, values) {
   return undefined;
 }
 
+/** Split `text` at `separator` characters outside parentheses, brackets and escapes. */
+function splitTopLevel(text, separator) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '\\') i++;
+    else if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    else if (depth === 0 && separator.test(c)) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map(p => p.trim()).filter(Boolean);
+}
+
+/** A rule's selectors with the selectors of the rules it is nested in substituted for `&`. */
+function fullSelectors(rule) {
+  let parent = rule.parent;
+  while (parent && parent.type === 'atrule') parent = parent.parent;
+  const own = splitTopLevel(rule.selector, /,/);
+  if (!parent || parent.type !== 'rule') return own;
+  return fullSelectors(parent).flatMap(outer =>
+    own.map(s => (s.includes('&') ? s.replaceAll('&', `:is(${outer})`) : `${outer} ${s}`)),
+  );
+}
+
+// The SVG children the frontends accept (docs/CONTRACT.md, inline SVG).
+const SVG_CHILDREN = new Set([
+  'g',
+  'path',
+  'circle',
+  'ellipse',
+  'line',
+  'polyline',
+  'polygon',
+  'rect',
+]);
+
+/**
+ * The compound of a complex selector that names an SVG child element type
+ * (also inside `:is()`/`:where()`) and a `:hover` or `:active` state, or undefined.
+ */
+function svgChildState(selector) {
+  const plain = selector.replace(/\\./g, '_');
+  for (const compound of splitTopLevel(plain, /[\s>+~]/)) {
+    if (!/:(hover|active)\b(?!-)/i.test(compound)) continue;
+    const types = [compound.match(/^(?:[\w-]*\|)?([a-z][\w-]*)/i)?.[1]];
+    for (const m of compound.matchAll(/:(?:is|where)\(([^()]*)\)/gi))
+      for (const s of splitTopLevel(m[1], /,/))
+        types.push(
+          splitTopLevel(s, /[\s>+~]/)
+            .at(-1)
+            ?.match(/^(?:[\w-]*\|)?([a-z][\w-]*)/i)?.[1],
+        );
+    if (types.some(t => t && SVG_CHILDREN.has(t.toLowerCase()))) return compound;
+  }
+  return undefined;
+}
+
 /**
  * The CSS contract (docs/CONTRACT.md) for one stylesheet: supported at-rules,
  * the time-based properties the runtime reproduces, no SVG-only properties,
@@ -710,6 +766,20 @@ function checkRules(css, file) {
       throw new Diagnostic(
         'E_CSS',
         `Unsupported selector ${rule.selector}: Blitz never matches :target`,
+        { file, line: rule.source.start.line, column: rule.source.start.column },
+      );
+  });
+  // SVG children have no boxes in Blitz, so pointer hits land on their
+  // <svg> and :hover/:active never match them; Chromium hit-tests the shapes
+  // (docs/BLITZ-GAPS.md, hit testing inside SVG). Selectors naming an SVG
+  // child element with these states are rejected; a class selector that
+  // lands on one cannot be found from the stylesheet.
+  css.walkRules(rule => {
+    const offending = fullSelectors(rule).find(svgChildState);
+    if (offending)
+      throw new Diagnostic(
+        'E_CSS',
+        `Unsupported selector ${rule.selector}: ${offending} gives an SVG child element a pointer state, which Blitz never matches (hit testing ends at the <svg>)`,
         { file, line: rule.source.start.line, column: rule.source.start.column },
       );
   });
@@ -748,12 +818,19 @@ function checkRules(css, file) {
         `Unsupported CSS declaration text-transform: ${decl.value}: Blitz lays text out in upper or lower case only (uppercase, lowercase and none are supported)`,
         { file, line: decl.source.start.line, column: decl.source.start.column },
       );
-    // Blitz renders an inline <svg> from its subtree's attributes (usvg), so
-    // these SVG-only properties would be ignored natively (docs/BLITZ-GAPS.md).
-    if (SVG_CSS.test(decl.prop))
+    if (SVG_PAINT_CSS.test(decl.prop) && mayHoldUrl(decl.value, values))
       throw new Diagnostic(
         'E_CSS_PROPERTY',
-        `Unsupported CSS declaration ${decl.prop}: Blitz renders inline SVG from its attributes, so CSS for SVG paint and geometry is ignored; use presentation attributes`,
+        `Unsupported CSS declaration ${decl.prop}: paint servers (url()) are not supported in inline SVG`,
+        { file, line: decl.source.start.line, column: decl.source.start.column },
+      );
+    // Blitz draws an inline <svg> from its subtree's computed SVG painting
+    // properties (usvg); the other SVG-only properties would be ignored
+    // natively (docs/BLITZ-GAPS.md).
+    if (!SVG_PAINT_CSS.test(decl.prop) && SVG_CSS.test(decl.prop))
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration ${decl.prop}: Blitz draws inline SVG with the painting properties fill, stroke and their fill-*/stroke-* longhands only, so CSS for markers, geometry and other SVG properties is ignored; use presentation attributes`,
         {
           file: file,
           line: decl.source.start.line,

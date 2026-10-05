@@ -1,0 +1,13 @@
+{
+  "description": "CSS on inline SVG content (BLITZ-GAPS, fixed in the fork: CSS on SVG content, inherited currentColor in SVG): Tailwind fill and stroke utilities on lucide icons; a group-aria-pressed fill on an icon in a pressed button (shadcn-svelte's toggle-demo pattern) and a group-hover fill and stroke; stylesheet stroke-dasharray, stroke-linecap, stroke-width, stroke-opacity, fill-opacity, fill-rule, stroke-linejoin and stroke-miterlimit on children; display: none toggled by a class, opacity, visibility (a visible child of an invisible group), the rotate and transform-origin properties and a CSS transform overriding a transform attribute on children; presentation attributes against inherited CSS fill and stroke (tooltip arrow patterns: CSS fill inherited by a polygon, a fill attribute on the polygon winning over it, fill on a div); currentColor inherited by a child whose own CSS color differs. Every row is a pixel region",
+  "fixtures": ["blitz-svg-css-svelte"],
+  "pixelRegions": ["utilities", "buttons", "children", "attributes"],
+  "actions": [
+    { "kind": "click", "id": "press" },
+    { "kind": "click", "id": "fill" },
+    { "kind": "click", "id": "show" },
+    { "kind": "hover", "id": "hover" },
+    { "kind": "click", "id": "press" },
+    { "kind": "click", "id": "show" }
+  ]
+}

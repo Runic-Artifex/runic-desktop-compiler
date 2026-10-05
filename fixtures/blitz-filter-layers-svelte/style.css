@@ -1,0 +1,24 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; }
+body { padding: 16px; }
+.grid { display: grid; grid-template-columns: repeat(3, 180px); gap: 16px; }
+.cell { position: relative; height: 150px; background: #f6f3ec; }
+.box { position: absolute; left: 40px; top: 35px; width: 100px; height: 80px; background: #c2d6c8; }
+
+/* drop-shadow() without a colour takes currentColor, the element's color. */
+.shadow-current { color: #a0452a; filter: drop-shadow(6px 8px 0); }
+.shadow-keyword { color: #345cc4; filter: drop-shadow(-6px 6px 2px currentColor); }
+/* A filter applies to the outline and outer box shadows too. */
+.decorated { outline: 4px solid #345cc4; box-shadow: 10px 10px 0 #d64034; filter: hue-rotate(180deg); }
+/* ... and to content overflowing the border box. */
+.overflowing { filter: invert(1); }
+.overflowing .child { position: absolute; left: 70px; top: 50px; width: 70px; height: 50px; background: #d64034; }
+/* Opacity applies to the outer box shadow and overflowing content. */
+.faded { opacity: 0.5; box-shadow: 8px 8px 0 #252c28; }
+.faded .child { position: absolute; left: 80px; top: -20px; width: 40px; height: 40px; background: #345cc4; }
+
+/* A backdrop filter is clipped to the rounded border box. */
+.stripes { background: repeating-linear-gradient(90deg, #d64034 0 12px, #fde68a 12px 24px, #345cc4 24px 36px); }
+.glass { border-radius: 32px; background: rgb(255 255 255 / 0.2); backdrop-filter: grayscale(1) brightness(1.4); }
+button { font-family: RunicFixture; font-size: 14px; margin-top: 16px; }

@@ -40,6 +40,8 @@ export type Type =
   | 'mounted'
   /** The contexts an instance sees (`context.all`, Svelte's getAllContexts; identity, M6). */
   | 'contexts'
+  /** A CSS animation or transition of an element (`element.getAnimations()`; identity, M6). */
+  | 'animation'
   | 'void';
 
 export type Literal = boolean | number | string;

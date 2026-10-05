@@ -1,0 +1,9 @@
+{
+  "description": "Form controls under an inherited line-height: 32px (BLITZ-GAPS, fixed in the fork: form-control line height): buttons at two font sizes, a select, a text input and a text area take line-height: normal from the UA sheet, as Chromium's controls do through their UA font, so their boxes are as tall as Chromium's. Rows have a fixed height: text inputs and text areas keep the separate, smaller text input line height difference (about 1px per line, within the geometry tolerance), which would otherwise add up down the page",
+  "fixtures": ["blitz-control-line-height-svelte"],
+  "viewports": [[800, 600]],
+  "actions": [
+    { "kind": "click", "id": "button" },
+    { "kind": "click", "id": "big" }
+  ]
+}

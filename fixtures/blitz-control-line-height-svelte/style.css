@@ -1,0 +1,16 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+/* Form controls do not inherit this line height in Chromium: its UA font
+   (`font: -webkit-small-control`) gives them `line-height: normal`. */
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; line-height: 32px; }
+body { padding: 16px; }
+/* Fixed row heights: text inputs and text areas keep a separate line box
+   difference under line-height: normal (BLITZ-GAPS, text input line height;
+   about 1px per line, within the geometry tolerance) that would otherwise add
+   up down the page. */
+.row { display: flex; gap: 8px; align-items: flex-start; height: 64px; }
+button, input, select, textarea { font-family: RunicFixture; }
+button { padding: 4px 10px; border: 1px solid #52665b; border-radius: 4px; background: #e2e8df; color: #252c28; }
+.big { font-size: 18px; }
+input, textarea { width: 200px; }
+textarea { resize: none; }

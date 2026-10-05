@@ -6,14 +6,15 @@
  * pinned commit (conformance/corpus/north-star.json). MIT licence:
  * lib/LICENSE.md.
  *
- * The content's open and close animations (`data-open:animate-accordion-down
- * data-closed:animate-accordion-up`, tw-animate-css's keyframes on the site)
- * are left out: bits-ui awaits the content's `getAnimations()` before it
- * hides closed content, which is rejected while animations are declared
- * (docs/design/M6-LIBRARIES.md, a later step). Without them the content
- * opens and closes at once in both renderings.
+ * The content's open and close animations are the site's: tw-animate-css
+ * (its utilities, the version the site pins), the accordion keyframes of
+ * shadcn-svelte's tailwind.css, which the site imports after it and which
+ * therefore win, and the style's data-open:animate-accordion-down
+ * data-closed:animate-accordion-up. bits-ui awaits the content's
+ * getAnimations() before it hides closed content.
  */
 @import "tailwindcss";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -71,6 +72,30 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+}
+
+/*
+ * The accordion keyframes of shadcn-svelte's tailwind.css (packages/cli/src/
+ * tailwind.css, shadcn-svelte 1.7.0).
+ */
+@theme inline {
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--bits-accordion-content-height, var(--accordion-panel-height, auto));
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--bits-accordion-content-height, var(--accordion-panel-height, auto));
+    }
+    to {
+      height: 0;
+    }
+  }
 }
 
 /*
@@ -148,7 +173,7 @@
     }
 
     .cn-accordion-content {
-      @apply text-sm;
+      @apply data-open:animate-accordion-down data-closed:animate-accordion-up text-sm;
     }
 
     .cn-accordion-content-inner {

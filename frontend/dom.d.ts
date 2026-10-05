@@ -61,8 +61,9 @@ declare var HTMLElement: { prototype: HTMLElement };
 interface ElementInlineStyle {
   [property: string]: string;
 }
-/** A running CSS animation or transition (`element.getAnimations()`). */
+/** A running CSS animation or transition (`element.getAnimations()`, M6). */
 interface Animation {
+  readonly __runicAnimation: true;
   readonly pending: boolean;
   readonly playState: 'idle' | 'running' | 'paused' | 'finished';
   readonly finished: Promise<Animation>;

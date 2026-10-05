@@ -330,6 +330,8 @@ export class TypeMapper {
     // Event objects (frontend/dom.d.ts) are opaque values read through built-ins.
     if (t.getProperty('__runicEvent')) return 'event';
     if (t.getProperty('__runicMediaQuery')) return 'media-query';
+    // A CSS animation or transition (frontend/dom.d.ts), read through built-ins.
+    if (t.getProperty('__runicAnimation')) return 'animation';
     // An image object (frontend/dom.d.ts): a record of its properties.
     if (t.getProperty('__runicImage')) {
       if (this.image === undefined) {

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { spawnSync } from 'node:child_process';
-import { writeFile, mkdir, copyFile, readFile, rename, mkdtemp, rm, open } from 'node:fs/promises';
+import { writeFile, mkdir, copyFile, readFile, rename, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { collect, Diagnostic } from './collect.mjs';
 import { lower } from './frontend.mjs';
 import { emit, targetDir, repository } from './codegen.mjs';
+import { withSharedTarget } from './target.mjs';
 
 const cliEntry = process.argv[1] === new URL(import.meta.url).pathname;
 
@@ -57,10 +58,10 @@ export async function buildApp(app, options = {}) {
     throw new Diagnostic('E_OUTPUT', 'Build outputs must be under artifacts/ or .cache/');
   await mkdir(path.dirname(out), { recursive: true });
   await mkdir(targetDir, { recursive: true });
-  // One build at a time per cargo target directory (shared across worktrees):
-  // later builds queue; a lock left by a dead process is reclaimed.
-  const lockPath = path.join(targetDir, '.runic-build.lock');
-  const lock = await acquire(lockPath, Number(process.env.RUNIC_BUILD_WAIT_MS ?? 30 * 60_000));
+  return withSharedTarget(() => buildInto(ir, graph, out, options));
+}
+
+async function buildInto(ir, graph, out, options) {
   const stage = await mkdtemp(
     path.join(path.dirname(out), '.' + path.basename(out) + '-building-'),
   );
@@ -142,45 +143,8 @@ export async function buildApp(app, options = {}) {
     return { out, ir };
   } finally {
     await rm(stage, { recursive: true, force: true });
-    await lock.close();
-    await rm(lockPath, { force: true });
   }
 }
-async function acquire(lockPath, waitMs) {
-  const deadline = Date.now() + waitMs;
-  for (;;) {
-    try {
-      const handle = await open(lockPath, 'wx');
-      await handle.writeFile(JSON.stringify({ pid: process.pid }));
-      return handle;
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
-    }
-    let owner;
-    try {
-      owner = JSON.parse(await readFile(lockPath, 'utf8')).pid;
-    } catch {
-      owner = undefined; // being written; retry
-    }
-    if (owner !== undefined && !alive(owner)) {
-      await rm(lockPath, { force: true });
-      continue;
-    }
-    if (Date.now() > deadline)
-      throw new Diagnostic('E_BUILD_BUSY', 'Another build owns the shared Cargo output');
-    await new Promise(r => setTimeout(r, 500));
-  }
-}
-
-function alive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === 'EPERM';
-  }
-}
-
 async function main() {
   if (!command || !app) {
     console.log(

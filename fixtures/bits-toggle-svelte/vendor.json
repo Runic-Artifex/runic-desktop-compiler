@@ -7,6 +7,10 @@
       "upstream": "LICENSE.md",
       "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
     },
+    "src/lib/registry/examples/toggle-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-demo.svelte",
+      "sha256": "bf667ca181daf7f759b434967b5aeafb2a69429660e85dbe0c49e68b67de0b51"
+    },
     "src/lib/registry/examples/toggle-disabled.svelte": {
       "upstream": "docs/src/lib/registry/examples/toggle-disabled.svelte",
       "sha256": "c1f9e39a5c8b1919e49c6887e1bcffa53061b8d91b77b8cff68b50f355208140"

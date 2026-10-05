@@ -240,12 +240,31 @@ test('SVG outside the verified surface is rejected with a location in every fram
       `<script setup lang="ts">\nconst unused = 1;\n</script>\n<template>\n  ${markup}\n</template>\n`,
       async (root, file) => assert.rejects(lowered(root), failWith(code, file)),
     );
-  // CSS for SVG paint and geometry would be ignored natively.
-  for (const decl of ['fill: red', 'stroke-width: 2px', 'r: 4px'])
+  // The Blitz fork draws SVG content with its computed painting properties;
+  // geometry, markers and paint servers would be ignored natively.
+  for (const decl of [
+    'r: 4px',
+    'marker-start: none',
+    'fill: url(#g)',
+    '--paint: url(#g); stroke: var(--paint, red)',
+  ])
     await withApp(
       'svelte',
       '<p>x</p>\n',
-      async root => assert.rejects(lowered(root), failWith('E_CSS_PROPERTY', 'style.css')),
+      async root =>
+        assert.rejects(lowered(root), e => {
+          assert.equal(e.code, 'E_CSS_PROPERTY');
+          assert.match(e.message, decl.includes('url') ? /url\(\)/ : /markers, geometry/);
+          return true;
+        }),
       `svg { ${decl}; }\n`,
     );
+  await withApp(
+    'svelte',
+    '<p>x</p>\n',
+    async root => assert.ok((await lowered(root)).ir),
+    'svg { fill: red; fill-opacity: .5; fill-rule: evenodd; stroke: currentColor; stroke-width: 2px; ' +
+      'stroke-opacity: 1; stroke-linecap: round; stroke-linejoin: miter; stroke-miterlimit: 2; ' +
+      'stroke-dasharray: 2 1; stroke-dashoffset: 1; }\n',
+  );
 });
