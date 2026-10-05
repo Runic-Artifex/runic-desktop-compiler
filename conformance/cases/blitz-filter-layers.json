@@ -1,0 +1,7 @@
+{
+  "description": "Filter and opacity layers drawn as Chromium draws them (BLITZ-GAPS, fixed in the fork: filtered elements, drop-shadow() in currentColor, backdrop filters): drop-shadow() without a colour and with currentColor in the element's color; a filter applied to the element's outline and outer box shadow, and to content overflowing its border box; opacity applied to the outer box shadow and to overflowing content (toggled); a backdrop filter clipped to rounded corners over stripes. Every cell is a pixel region",
+  "fixtures": ["blitz-filter-layers-svelte"],
+  "viewports": [[800, 600]],
+  "pixelRegions": ["shadow-current", "shadow-keyword", "decorated", "overflowing", "faded", "glass", "glass-box"],
+  "actions": [{ "kind": "click", "id": "toggle" }]
+}

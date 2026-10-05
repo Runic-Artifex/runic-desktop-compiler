@@ -1,0 +1,24 @@
+@import "tailwindcss";
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+@theme { --font-sans: RunicFixture; }
+
+/* Stylesheet rules on SVG children, beside Tailwind's utilities. */
+.dashed {
+  stroke-dasharray: 3 2;
+  stroke-linecap: butt;
+}
+.thin {
+  stroke-width: 1px;
+  stroke-opacity: 0.5;
+}
+.ghost {
+  fill-opacity: 0.4;
+  fill-rule: evenodd;
+}
+.shifted {
+  transform: translate(3px, 3px) scale(0.75);
+}
+.mitre {
+  stroke-linejoin: miter;
+  stroke-miterlimit: 2;
+}

@@ -36,7 +36,7 @@ Each component gets a case against Chromium from its shadcn-svelte demo, with ke
   - **Narrowing.** A union-typed value takes the member type of the values that reach it: a prop from its sites and its default, a box from its getter, a local from its initialiser and assignments, as discriminated props already do. Tests on the member (`typeof to === "string"`, `Array.isArray(v)`) then fold at build time. This covers Portal (no site passes `to`, so the default `"body"` decides).
   - **Specialisation.** Where different sites pass different members (a program with both a `single` and a `multiple` ToggleGroup, which every shadcn-svelte page family with both demos is), the component is compiled once per member combination that reaches it, with the classes it instantiates and the contexts it sets. Specialised components are ordinary IR components, so the backend does not change. A value whose member is only known while the program runs is still rejected (`E_TYPE_UNION`).
 - **`@floating-ui/core` is a pack**, not compiled from source (its declarations and code are far outside the language subset, listed under step 2). The positioning math (`computePosition` and the middleware bits-ui uses: `offset`, `flip`, `shift` with `limitShift`, `size`, `arrow`, `hide`) is native in `runic-js`. It is validated by vectors computed with the real package in Node, with fixed rectangles. The `@floating-ui/dom` platform and `autoUpdate` stay packs over native layout reads as decided; `IntersectionObserver` joins `ResizeObserver`'s frame model for `autoUpdate`'s `layoutShift`. The packs pin the north star's versions (core 1.7.3, dom 1.7.4, utils 0.2.10).
-- **CSS on SVG content** (the Tooltip arrow's `fill-foreground`, toggle-demo's icon fill) is a Blitz fork patch: serialise each SVG element's computed SVG properties for usvg ([gaps](../BLITZ-GAPS.md)). Until it lands, `fill` and the other SVG properties stay rejected.
+- **CSS on SVG content** (the Tooltip arrow's `fill-foreground`, toggle-demo's icon fill) is a Blitz fork patch: serialise each SVG element's computed SVG properties for usvg ([gaps](../BLITZ-GAPS.md)). Landed (2026-10-05, fork `a7b87f6`, case `blitz-svg-css`): `fill`, `stroke` and their longhands are accepted; markers, geometry properties and paint servers stay rejected.
 
 ## Status (2026-10-05, branch `m6-overlays`)
 
@@ -73,7 +73,7 @@ Each component gets a case against Chromium from its shadcn-svelte demo, with ke
 - **Versions.** The north star pins core 1.7.3, dom 1.7.4 and utils 0.2.10. This repository's lockfile resolves 1.8.0, 1.8.0 and 0.2.12 through bits-ui's `^1.7.1`. Pin the north star's versions as devDependencies with the packs.
 
 **Cases Tooltip and Popover: not reached.**
-- The shadcn-svelte Tooltip's arrow has the class `fill-foreground`. Its CSS `fill` is rejected (`E_CSS_PROPERTY`: Blitz draws inline SVG from attributes).
+- The shadcn-svelte Tooltip's arrow has the class `fill-foreground`. Its CSS `fill` is accepted since the fork draws CSS on SVG content (2026-10-05).
 - Behind that comes the Portal union above, then the floating layer (`@floating-ui/dom` has no pack).
 - Both contents also render `PopperLayerInner`, which always instantiates step 3's layers (`ScrollLock`, `FocusScope`, `EscapeLayer`, `DismissibleLayer`, `TextSelectionLayer`). Their sources use, among others:
   - module statements (`globalThis.bitsEscapeLayers ??= new Map()`);

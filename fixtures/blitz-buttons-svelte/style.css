@@ -1,0 +1,28 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 14px; line-height: 20px; }
+body { padding: 16px; }
+.area { width: 400px; }
+.row { margin-bottom: 8px; }
+button { font-family: RunicFixture; font-size: 14px; border: 1px solid #52665b; border-radius: 4px; background: #e2e8df; color: #252c28; padding: 2px 8px; }
+.tall { height: 40px; }
+/* An author display: flex without alignment: Chromium starts the content and stretches it. */
+.flex { display: flex; width: 160px; }
+/* A switch track (shadcn-svelte's Switch: inline-flex items-center, no justify-content). */
+.track { display: inline-flex; align-items: center; width: 44px; height: 24px; padding: 2px; border-radius: 12px; background: #335; }
+.thumb { display: block; width: 20px; height: 20px; border-radius: 10px; background: #fff; }
+.on .thumb { transform: translateX(20px); }
+.block { display: block; }
+.inline-block { display: inline-block; }
+.wide { width: 220px; }
+.box { width: 60px; height: 10px; background: #a0452a; }
+.grid { display: grid; width: 160px; }
+.column { display: flex; flex-direction: column; width: 300px; }
+.stretch { display: flex; height: 56px; }
+.overflow { display: block; height: 24px; }
+/* A virtual list row: an inline-block and text in one line, left-aligned. */
+.list { width: 300px; }
+.list-row { display: block; width: 100%; height: 24px; padding: 3px 8px; border: 0; line-height: 18px; text-align: left; }
+.list-id { display: inline-block; width: 56px; color: #6b776f; }
+/* An inline-block icon and text share a line, on the baseline. */
+.icon { display: inline-block; width: 12px; height: 12px; background: #a0452a; }

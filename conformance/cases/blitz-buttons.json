@@ -1,0 +1,10 @@
+{
+  "description": "Button layout as Chromium's (BLITZ-GAPS, fixed in the fork: buttons with an author display, flex buttons without justify-content): a default button; an author display: flex button without alignment (content at the start, stretched); a switch-like inline-flex track with align-items: center only, its thumb toggled by a click; display: block and inline-block buttons with a height (shrink-to-fit, content centred vertically); a block child in a wide block button (at the start, centred vertically); a grid button; buttons stretched by a flex column and a flex row; a tall button with a long label; a list row (an inline-block and text on one left-aligned line, as virtual-list's rows) and an inline-block icon with text in a tall button (one line box, as in the anonymous button content box). Geometry of every button and its content; the buttons are a pixel region",
+  "fixtures": ["blitz-buttons-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "pixelRegions": ["area"],
+  "actions": [
+    { "kind": "click", "id": "track" },
+    { "kind": "click", "id": "default" }
+  ]
+}
