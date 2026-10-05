@@ -278,7 +278,8 @@ function box(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   if (node.arguments.length > 1 || (initial && ts.isSpreadElement(initial)))
     return lower.fail(node, 'E_PACK', `${LABEL}: box takes an initial value`);
   const context = lower.checker.getContextualType(node);
-  const wanted = context && lower.types.tryMap(context, node);
+  // (Or the type expected where TypeScript cannot say: `const floating = simpleBox(null)`.)
+  const wanted = (context && lower.types.tryMap(context, node)) ?? lower.expected.get(node);
   const box = wanted && boxValue(lower, wanted) !== undefined ? wanted : lower.types.of(node);
   const t = boxValue(lower, box);
   if (t === undefined) return lower.fail(node, 'E_PACK', `${LABEL}: box's type is not a box`);
@@ -584,6 +585,38 @@ export const svelteToolbeltPack: Pack = {
         return { kind: 'function', call: onDestroyEffect };
       case 'srOnlyStyles':
         return { kind: 'constant', value: SR_ONLY_STYLES };
+      // styleToString(style) (dist/utils/style.js): the style object's
+      // `name: value;` text (`attrs.style-text`).
+      case 'styleToString':
+        return {
+          kind: 'function',
+          call: (n, b, l) => {
+            const [arg] = n.arguments;
+            if (!arg || n.arguments.length !== 1 || !ts.isObjectLiteralExpression(skipParens(arg)))
+              return l.fail(n, 'E_PACK', `${LABEL}: styleToString takes a style object literal`);
+            return {
+              op: 'builtin',
+              name: 'attrs.style-text',
+              args: [l.styleValue(skipParens(arg) as ts.ObjectLiteralExpression, b)],
+              type: 'string',
+            };
+          },
+        };
+      // getWindow(node) and getDocument(node) (dist/utils/dom.js): the
+      // window and the document (an element's owner document is the
+      // document, its default view the window). Their uses are the host's
+      // (Lowerer.hostName); they are not values.
+      case 'getWindow':
+      case 'getDocument':
+        return {
+          kind: 'function',
+          call: (n, _b, l) =>
+            l.fail(
+              n,
+              'E_PACK',
+              `${LABEL}: ${imported}(node) is the ${imported === 'getWindow' ? 'window' : 'document'}: use its members (${imported}(node).addEventListener(…)) or a const naming it`,
+            ),
+        };
       case 'DOMContext':
         return {
           kind: 'function',
@@ -592,7 +625,7 @@ export const svelteToolbeltPack: Pack = {
           construct: newDomContext,
         };
     }
-    return `${LABEL} covers box, simpleBox, boxFrom, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect, srOnlyStyles and DOMContext, not ${imported}`;
+    return `${LABEL} covers box, simpleBox, boxFrom, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect, srOnlyStyles, styleToString, getWindow, getDocument and DOMContext, not ${imported}`;
   },
   type(t, at, lower) {
     // DOMContext (dist/utils/dom-context.svelte.d.ts).

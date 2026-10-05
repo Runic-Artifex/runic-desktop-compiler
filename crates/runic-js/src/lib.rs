@@ -22,6 +22,7 @@ pub mod date;
 pub mod env;
 pub mod floating;
 pub mod history;
+pub mod intersection;
 pub mod intl;
 pub mod json;
 pub mod random;
@@ -35,6 +36,7 @@ pub use array_ops::join_elements;
 pub use attrs::{
     ATTACHMENT, AttrValue, Attrs, BOOLEAN_PROPERTIES, MergeKind, MergeOps, SpreadValue,
     attachment_key, attrs_merge, class_merge, merge_props, resolve_entries, spread_value,
+    style_to_string,
 };
 pub use classes::{class_compose, class_toggle};
 pub use collections::*;

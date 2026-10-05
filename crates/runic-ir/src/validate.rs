@@ -331,13 +331,15 @@ fn check_library_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Re
         "context.set" | "context.get" => need(0, "context key"),
         "uid.next" => need(0, "id prefix"),
         "element.style-get" | "element.style-set" => need(1, "property name"),
-        // Element listeners added by script: `beforematch` only, which the
-        // runtime never fires (it has no find-in-page).
+        // Element listeners added by script: `beforematch`, which the
+        // runtime never fires (it has no find-in-page), and `scroll`.
         "element.listen" | "element.unlisten" => match literal(1) {
-            Some("beforematch") => Ok(()),
+            Some("beforematch" | "scroll") => Ok(()),
             _ => err(
                 "E_BUILTIN",
-                format!("{name}: element listeners added by script are supported for beforematch"),
+                format!(
+                    "{name}: element listeners added by script are supported for beforematch and scroll"
+                ),
                 src,
             ),
         },
@@ -777,6 +779,16 @@ impl<'a> Scope<'a> {
                                     &t,
                                     Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event]
                                 ),
+                                // A style object of keys that may be absent (M6
+                                // overlays): a map of property values in order.
+                                None if name == "style"
+                                    && t == Type::Map(
+                                        Box::new(Type::String),
+                                        Box::new(Type::maybe(Type::String)),
+                                    ) =>
+                                {
+                                    true
+                                }
                                 // A style object (M6): property values, absent when nullish.
                                 None if name == "style"
                                     && (matches!(t, Type::Record(_))
@@ -1047,6 +1059,21 @@ impl<'a> Scope<'a> {
                             src,
                         );
                     }
+                }
+                // The visual viewport (M6 overlays) resizes with the window;
+                // it scrolls only when pinch-zoomed, which the runtime is not.
+                if matches!(
+                    name.as_str(),
+                    "visual-viewport.listen" | "visual-viewport.unlisten"
+                ) && !matches!(
+                    args.first(),
+                    Some(Lit { value: Value::String(k) }) if k == "resize" || k == "scroll"
+                ) {
+                    return err(
+                        "E_BUILTIN",
+                        format!("{name}: the visual viewport has resize and scroll listeners"),
+                        src,
+                    );
                 }
                 check_host_literals(name, args, src)?;
                 check_library_literals(name, args, src)?;

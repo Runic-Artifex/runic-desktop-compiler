@@ -46,7 +46,13 @@ pub const ELEMENT_METRICS: &[&str] = &[
     "scrollLeft",
 ];
 /// Window metrics: the viewport size and its scroll position.
-pub const WINDOW_METRICS: &[&str] = &["innerWidth", "innerHeight", "scrollX", "scrollY"];
+pub const WINDOW_METRICS: &[&str] = &[
+    "innerWidth",
+    "innerHeight",
+    "scrollX",
+    "scrollY",
+    "devicePixelRatio",
+];
 
 /// The records of a ResizeObserver program (M6): the observer record `r`
 /// holds one field, its callback, taking an array of entries and the
@@ -115,6 +121,71 @@ pub fn resize_observer_shape(records: &[RecordType], r: usize) -> Option<ResizeS
     ok.then_some(ResizeShape { entry, rect, size })
 }
 
+/// The records of an IntersectionObserver program (M6 overlays): the
+/// observer is a record of one field `callback` of type
+/// `fn([array<Entry>, record], void)` (the record itself second); an
+/// `Entry` is `boundingClientRect` and `intersectionRect` (`DOMRect`
+/// records), `intersectionRatio`, `isIntersecting`, `rootBounds` (a maybe
+/// `DOMRect` record), `target` (element) and `time`, in this order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IntersectionShape {
+    pub entry: usize,
+    pub rect: usize,
+}
+
+/// The IntersectionObserver shape of record `r`, if it is one.
+pub fn intersection_observer_shape(records: &[RecordType], r: usize) -> Option<IntersectionShape> {
+    let rec = records.get(r)?;
+    let [cb] = rec.fields.as_slice() else {
+        return None;
+    };
+    let Type::Fn(f) = &cb.ty else { return None };
+    let (Type::Array(entries), Type::Record(me)) = (f.params.first()?, f.params.get(1)?) else {
+        return None;
+    };
+    if cb.name != "callback" || *me != r || f.params.len() != 2 || *f.result != Type::Void {
+        return None;
+    }
+    let Type::Record(entry) = **entries else {
+        return None;
+    };
+    let e = &records.get(entry)?.fields;
+    let names = [
+        "boundingClientRect",
+        "intersectionRatio",
+        "intersectionRect",
+        "isIntersecting",
+        "rootBounds",
+        "target",
+        "time",
+    ];
+    if e.len() != names.len() || e.iter().zip(names).any(|(f, n)| f.name != n) {
+        return None;
+    }
+    let Type::Record(rect) = e[0].ty else {
+        return None;
+    };
+    let ok = dom_rect(records, rect)
+        && e[1].ty == Type::Number
+        && e[2].ty == e[0].ty
+        && e[3].ty == Type::Boolean
+        && e[4].ty == Type::maybe(e[0].ty.clone())
+        && e[5].ty == Type::Element
+        && e[6].ty == Type::Number;
+    ok.then_some(IntersectionShape { entry, rect })
+}
+
+/// Whether record `r` is `DOMRect`'s (the fields of [`DOM_RECT`], numbers).
+fn dom_rect(records: &[RecordType], r: usize) -> bool {
+    records.get(r).is_some_and(|r| {
+        r.fields.len() == DOM_RECT.len()
+            && r.fields
+                .iter()
+                .zip(DOM_RECT)
+                .all(|(f, name)| f.name == name && f.ty == Type::Number)
+    })
+}
+
 /// Whether built-in `name` reads or changes the native layout (the
 /// interpreter has none: programs using them are compared against the
 /// browser only).
@@ -122,6 +193,7 @@ pub fn needs_layout(name: &str) -> bool {
     match name.split_once('.') {
         Some(("element", m)) => {
             m == "getBoundingClientRect"
+                || m == "getClientRects"
                 || ELEMENT_METRICS.contains(&m)
                 || matches!(
                     m,
@@ -140,9 +212,14 @@ pub fn needs_layout(name: &str) -> bool {
         }
         // MutationObservers are reported unsupported when they observe.
         Some(("mutation", "observe")) => true,
-        // ResizeObservers report sizes from layout (M6).
+        // ResizeObservers report sizes from layout (M6), IntersectionObservers
+        // geometry (M6 overlays).
         Some(("resize", "observe")) => true,
+        Some(("intersection", "observe")) => true,
+        // floating-ui positions from layout (M6 overlays).
+        Some(("floating", _)) => true,
         Some(("window", m)) => WINDOW_METRICS.contains(&m) || matches!(m, "scrollTo" | "scrollBy"),
+        Some(("document", "clientWidth" | "clientHeight")) => true,
         _ => false,
     }
 }
@@ -522,6 +599,8 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // The document (M6): its title, elements by id, the focused element
         // (none for the body) and the router's focus reset.
         ("document", "title") => arity(args, 0, 0).map(|_| s.clone()),
+        // The document element's clientWidth / clientHeight (M6 overlays).
+        ("document", "clientWidth" | "clientHeight") => arity(args, 0, 0).map(|_| n.clone()),
         ("document", "set-title") => {
             arity(args, 1, 1)?;
             expect(&args[0], &s, "title").map(|_| Void)
@@ -618,9 +697,10 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 )),
             }
         }
-        // Window and document listeners: the event kind (a literal, checked by
-        // the validator) and a listener taking the event or nothing.
-        ("window" | "document", "listen" | "unlisten") => {
+        // Window, document and visual viewport listeners: the event kind (a
+        // literal, checked by the validator) and a listener taking the event
+        // or nothing.
+        ("window" | "document" | "visual-viewport", "listen" | "unlisten") => {
             arity(args, 2, 2)?;
             expect(&args[0], &s, "event kind")?;
             match &args[1] {
@@ -668,19 +748,24 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver")?;
             match declared {
-                Record(r)
-                    if records.get(*r).is_some_and(|r| {
-                        r.fields.len() == DOM_RECT.len()
-                            && r.fields
-                                .iter()
-                                .zip(DOM_RECT)
-                                .all(|(f, name)| f.name == name && f.ty == Number)
-                    }) =>
-                {
+                Record(r) if dom_rect(records, *r) => Ok(declared.clone()),
+                other => Err(format!(
+                    "getBoundingClientRect returns a record of {}, found {}",
+                    DOM_RECT.join(", "),
+                    other.name()
+                )),
+            }
+        }
+        // `getClientRects()`: the border boxes (none without a box).
+        ("element", "getClientRects") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver")?;
+            match declared {
+                Array(inner) if matches!(&**inner, Record(r) if dom_rect(records, *r)) => {
                     Ok(declared.clone())
                 }
                 other => Err(format!(
-                    "getBoundingClientRect returns a record of {}, found {}",
+                    "getClientRects returns an array of records of {}, found {}",
                     DOM_RECT.join(", "),
                     other.name()
                 )),
@@ -818,6 +903,28 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[1], &Element, "target")?;
             expect(&args[2], &Type::array(s), "attribute filter").map(|_| Void)
         }
+        // @floating-ui/dom's computePosition (M6 overlays): the reference
+        // and floating elements, the middleware (records of
+        // crate::floating's shapes), the placement and the strategy (checked
+        // by the validator); a promise of the position record.
+        ("floating", "compute") => {
+            arity(args, 5, 5)?;
+            expect(&args[0], &Element, "reference")?;
+            expect(&args[1], &Element, "floating")?;
+            expect(&args[3], &s, "placement")?;
+            expect(&args[4], &s, "strategy")?;
+            if crate::floating::program_shape(records, &args[2], declared).is_none() {
+                return Err("floating.compute takes middleware records and returns a position record of the floating-ui pack's shapes".into());
+            }
+            Ok(declared.clone())
+        }
+        // getOverflowAncestors(element) (M6 overlays): its scrolling ancestor
+        // elements, nearest first (the window, last in floating-ui's list, is
+        // not an element).
+        ("floating", "overflow-ancestors") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "element").map(|_| Type::array(Element))
+        }
         // ResizeObserver (M6): created with its callback (in creation order),
         // observing elements with a box (a literal: content-box, border-box
         // or device-pixel-content-box, checked by the validator).
@@ -832,6 +939,39 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                     other.name()
                 )),
             }
+        }
+        // IntersectionObserver (M6 overlays): created with its callback, a
+        // rootMargin (checked when it runs: a SyntaxError) and thresholds (a
+        // RangeError outside 0..=1), the document's viewport its root.
+        ("intersection", "new") => {
+            arity(args, 3, 3)?;
+            match declared {
+                Record(r) if intersection_observer_shape(records, *r).is_some() => {
+                    expect(&args[0], &records[*r].fields[0].ty, "callback")?;
+                    expect(&args[1], &s, "rootMargin")?;
+                    expect(&args[2], &Type::array(n.clone()), "thresholds").map(|_| declared.clone())
+                }
+                other => Err(format!(
+                    "intersection.new returns an IntersectionObserver record, found {}",
+                    other.name()
+                )),
+            }
+        }
+        ("intersection", m @ ("observe" | "unobserve" | "disconnect")) => {
+            arity(args, if m == "disconnect" { 1 } else { 2 }, if m == "disconnect" { 1 } else { 2 })?;
+            match &args[0] {
+                Record(r) if intersection_observer_shape(records, *r).is_some() => {}
+                other => {
+                    return Err(format!(
+                        "the receiver must be an IntersectionObserver record, found {}",
+                        other.name()
+                    ));
+                }
+            }
+            if m != "disconnect" {
+                expect(&args[1], &Element, "target")?;
+            }
+            Ok(Void)
         }
         ("resize", m @ ("observe" | "unobserve" | "disconnect")) => {
             let n = match m {
@@ -867,6 +1007,25 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // Attribute bags: svelte-toolbelt's mergeProps rules, reading a
         // declared prop a spread may hold, and the rest of a bag.
         ("attrs", "merge-props") => all(args, &Attrs).map(|_| Attrs),
+        // svelte-toolbelt's `styleToString(style)` (M6 overlays): a style
+        // record (string or maybe<string> fields) or a style map.
+        ("attrs", "style-text") => {
+            arity(args, 1, 1)?;
+            let ok = match &args[0] {
+                Record(r) => records.get(*r).is_some_and(|r| {
+                    r.fields
+                        .iter()
+                        .all(|f| f.ty == s || f.ty == Type::maybe(s.clone()))
+                }),
+                Map(k, v) => **k == s && **v == Type::maybe(s.clone()),
+                _ => false,
+            };
+            if ok {
+                Ok(s.clone())
+            } else {
+                Err("styleToString takes a style object".into())
+            }
+        }
         ("attrs", "has") => {
             arity(args, 2, 2)?;
             expect(&args[0], &Attrs, "bag")?;

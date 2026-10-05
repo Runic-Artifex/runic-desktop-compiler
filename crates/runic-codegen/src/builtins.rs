@@ -314,7 +314,17 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("history", "state") => "(match runic_runtime::history::state() { Some(s) => Maybe::Some(s), None => Maybe::Null })".into(),
         // The document (M6).
         ("document", "title") => "runic_runtime::history::title()".into(),
+        ("document", m @ ("clientWidth" | "clientHeight")) => format!("cx.dom.root_metric({m:?})"),
         ("document", "set-title") => format!("{{ runic_runtime::history::set_title(&{}); }}", t[0]),
+        // @floating-ui/dom (M6 overlays).
+        ("floating", "compute") => format!(
+            "floating_glue::compute(cx, {}, {}, {}, {}, {})",
+            t[0], t[1], t[2], t[3], t[4]
+        ),
+        ("floating", "overflow-ancestors") => format!(
+            "js::array(cx.dom.floating_overflow_ancestors({}.0).into_iter().filter_map(|t| match t {{ runic_runtime::floating::OverflowAncestor::Element(e) => Some(js::Element(e)), _ => None }}).collect())",
+            t[0]
+        ),
         ("document", "querySelector") => format!(
             "(match cx.dom.query_selector_document(&{}.to_rust()) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
             t[0]
@@ -466,6 +476,19 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 t[0]
             )
         }
+        ("element", "getClientRects") => {
+            let Type::Array(inner) = ty else {
+                panic!("validated DOMRect records")
+            };
+            let Type::Record(r) = &**inner else {
+                panic!("validated DOMRect records")
+            };
+            let fields: String = (0..8).map(|i| format!("f{i}: v[{i}], ")).collect();
+            format!(
+                "js::array(cx.dom.client_rects({}.0).into_iter().map(|v| JsRef::new(R{r} {{ {fields}}})).collect())",
+                t[0]
+            )
+        }
         ("element", m) if runic_ir::builtins::ELEMENT_METRICS.contains(&m) => {
             format!("cx.dom.metric({}.0, {m:?})", t[0])
         }
@@ -530,7 +553,40 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             t[0]
         ),
         // `beforematch` listeners: the runtime never fires the event.
-        ("element", "listen" | "unlisten") => format!("{{ let _ = (&{}, &{}); }}", t[0], t[2]),
+        ("element", "listen" | "unlisten")
+            if matches!(args.get(1), Some(Expr::Lit { value: runic_ir::Value::String(k) }) if k == "beforematch") =>
+        {
+            format!("{{ let _ = (&{}, &{}); }}", t[0], t[2])
+        }
+        // Other element listeners added by script, identified by their
+        // function value (one registration per element, kind and function).
+        ("element", m @ ("listen" | "unlisten")) => {
+            let Some(Expr::Lit {
+                value: runic_ir::Value::String(name),
+            }) = args.get(1)
+            else {
+                unreachable!("validated event kind")
+            };
+            let kind = format!("Event::{:?}", runic_ir::EventKind::parse(name).expect("validated kind"));
+            let find = format!(
+                "cx.element_host.iter().position(|h| h.0 == node && h.1 == {kind} && h.2 == id)"
+            );
+            if m == "unlisten" {
+                format!(
+                    "{{ let node = {}.0; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.element_host.remove(i).3; cx.dom.unlisten_element(node, key); }} }}",
+                    t[0], t[2]
+                )
+            } else {
+                let call = match &types[2] {
+                    Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                    _ => "f(cx, cx.event.clone().expect(\"event context\"))",
+                };
+                format!(
+                    "{{ let node = {}.0; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if {find}.is_none() {{ let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); let key = cx.listen(g); cx.dom.listen_element(node, {kind}, key); cx.element_host.push((node, {kind}, id, key)); }} }}",
+                    t[0], t[2]
+                )
+            }
+        }
         ("mutation", "observe") => format!(
             "{{ let _ = (&{}, &{}, &{}); runic_runtime::unsupported(\"MutationObserver.observe\"); }}",
             t[0], t[1], t[2]
@@ -565,6 +621,38 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 t[0], t[1]
             )
         }
+        // IntersectionObservers (M6 overlays): registered in creation order
+        // with their root margins, thresholds and queued entries;
+        // observations are (observer, target, previous threshold index,
+        // previously intersecting), updated by the app's `intersection_step`
+        // after each layout.
+        ("intersection", "new") => {
+            let Type::Record(r) = ty else {
+                panic!("validated IntersectionObserver record")
+            };
+            let syntax = cx.q("Err::<(), _>(js::Throw::new(\"SyntaxError\", m))");
+            let range = cx.q("Err::<(), _>(js::Throw::new(\"RangeError\", m))");
+            format!(
+                "{{ let cb = {}; let margins = match js::intersection::parse_root_margin(&{}.to_rust()) {{ Ok(v) => v, Err(m) => {{ {syntax}; unreachable!() }} }}; let values: Vec<f64> = {}.borrow().clone(); let thresholds = match js::intersection::thresholds(&values) {{ Ok(v) => v, Err(m) => {{ {range}; unreachable!() }} }}; let o = JsRef::new(R{r} {{ f0: cb }}); cx.io_observers.push((o.clone(), margins, thresholds, Vec::new())); o }}",
+                t[0], t[1], t[2]
+            )
+        }
+        // Observing a target again does nothing; a new observation is
+        // reported at the next update.
+        ("intersection", "observe") => format!(
+            "{{ let o = {}; let target: js::Element = {}; if !cx.io_obs.iter().any(|x| JsRef::ptr_eq(&x.0, &o) && x.1 == target) {{ cx.io_obs.push((o, target, -1, false)); }} }}",
+            t[0], t[1]
+        ),
+        ("intersection", "unobserve") => format!(
+            "{{ let o = {}; let target: js::Element = {}; cx.io_obs.retain(|x| !(JsRef::ptr_eq(&x.0, &o) && x.1 == target)); }}",
+            t[0], t[1]
+        ),
+        // Disconnecting also drops the entries queued for the observer
+        // (as Chromium does).
+        ("intersection", "disconnect") => format!(
+            "{{ let o = {}; cx.io_obs.retain(|x| !JsRef::ptr_eq(&x.0, &o)); for x in cx.io_observers.iter_mut() {{ if JsRef::ptr_eq(&x.0, &o) {{ x.3.clear(); }} }} }}",
+            t[0]
+        ),
         ("resize", "unobserve") => format!(
             "{{ let o = {}; let target: js::Element = {}; cx.resize_obs.retain(|x| !(JsRef::ptr_eq(&x.0, &o) && x.1 == target)); }}",
             t[0], t[1]
@@ -637,6 +725,18 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "{{ cx.uids += 1; JsString::from(format!(\"{{}}{{}}\", {}.to_rust(), cx.uids)) }}",
             t[0]
         ),
+        // svelte-toolbelt's styleToString of a style record or map.
+        ("attrs", "style-text") => match &types[0] {
+            Type::Record(r) => format!(
+                "{{ let o = {}.peek(); js::style_to_string(&[{}]) }}",
+                t[0],
+                cx.style_props(*r)
+            ),
+            _ => format!(
+                "{{ let d = {}.peek(); js::style_to_string(&d.entries.values().map(|(k, v)| (k.to_rust(), match v {{ Maybe::Some(s) => Some(s.clone()), _ => None }})).collect::<Vec<_>>()) }}",
+                t[0]
+            ),
+        },
         ("attrs", m) => attrs_builtin(cx, m, &t, ty),
         ("element", "scrollIntoView") => format!(
             "cx.dom.scroll_into_view({}.0, &{}.to_rust(), &{}.to_rust())",
@@ -706,6 +806,32 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 format!(
                     "{{ let list = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if {find}.is_none() {{ let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); let key = cx.listen(g); cx.media_host.push((list, id, key)); }} }}",
                     t[0], t[1]
+                )
+            }
+        }
+        // The visual viewport's listeners (M6 overlays), likewise.
+        ("visual-viewport", m @ ("listen" | "unlisten")) => {
+            let Some(Expr::Lit {
+                value: runic_ir::Value::String(name),
+            }) = args.first()
+            else {
+                unreachable!("validated event kind")
+            };
+            let kind = format!("Event::{:?}", runic_ir::EventKind::parse(name).expect("validated kind"));
+            let find = format!("cx.viewport_host.iter().position(|h| h.0 == {kind} && h.1 == id)");
+            if m == "unlisten" {
+                format!(
+                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.viewport_host.remove(i).2; cx.listeners[key as usize] = None; cx.free.push(key); }} }}",
+                    t[1]
+                )
+            } else {
+                let call = match &types[1] {
+                    Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                    _ => "f(cx, cx.event.clone().expect(\"event context\"))",
+                };
+                format!(
+                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if {find}.is_none() {{ let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); let key = cx.listen(g); cx.viewport_host.push(({kind}, id, key)); }} }}",
+                    t[1]
                 )
             }
         }

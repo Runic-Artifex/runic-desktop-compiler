@@ -246,7 +246,7 @@ impl<'a> FnCtx<'a> {
 
     /// The properties of a style object record `r` (in `o`), for
     /// `js::AttrValue::Style`: absent when nullish.
-    fn style_props(&self, r: usize) -> String {
+    pub(crate) fn style_props(&self, r: usize) -> String {
         self.p.records[r]
             .fields
             .iter()
@@ -483,6 +483,11 @@ impl<'a> FnCtx<'a> {
                                         "{{ let f = {x}; let id = Rc::as_ptr(&f) as *const () as usize; let g: Erased = Rc::new(move |cx: &mut Cx, args: Vec<Rc<dyn std::any::Any>>| -> JsResult<Rc<dyn std::any::Any>> {{ {params}let r = f(cx{names})?; Ok(Rc::new(r) as Rc<dyn std::any::Any>) }}); js::AttrValue::Callback(id, Rc::new(g)) }}"
                                     )
                                 }
+                                // A style object of keys that may be absent: its
+                                // entries in order.
+                                Type::Map(..) => format!(
+                                    "{{ let m = {x}; let d = m.peek(); js::AttrValue::Style(d.entries.values().map(|(k, v)| (k.to_rust(), match v {{ Maybe::Some(s) => Some(s.clone()), _ => None }})).collect()) }}"
+                                ),
                                 // A style object: its properties (absent when nullish).
                                 Type::Record(r) => {
                                     let props = self.style_props(*r);

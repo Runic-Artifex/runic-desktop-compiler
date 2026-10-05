@@ -1,0 +1,103 @@
+@font-face {
+  font-family: RunicFixture;
+  src: url("../assets/DejaVuSans.woff2") format("woff2");
+  font-weight: 100 900;
+}
+* {
+  box-sizing: content-box;
+}
+html,
+body {
+  margin: 0;
+  background: #f4f2ec;
+  color: #252c28;
+  font-family: RunicFixture;
+  font-size: 12px;
+  line-height: 16px;
+}
+#app {
+  padding: 8px;
+}
+.controls {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+button {
+  font-family: RunicFixture;
+  font-size: 12px;
+  line-height: 16px;
+  padding: 2px 8px;
+  border: 1px solid #556b5d;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #252c28;
+}
+.box {
+  position: relative;
+  border: 3px solid #8a9a8e;
+  padding: 10px;
+  margin-bottom: 12px;
+  height: 60px;
+}
+.ref {
+  box-sizing: border-box;
+  width: 100px;
+  height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ref.wide {
+  width: 200px;
+}
+#refB {
+  width: 30px;
+}
+#refD {
+  width: 140px;
+}
+.edge {
+  position: absolute;
+  right: 4px;
+  top: 40px;
+}
+.float {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 110px;
+  padding: 4px;
+  background: #2f4a3a;
+  color: #f4f2ec;
+}
+.float.fixed {
+  position: fixed;
+}
+.scroller {
+  overflow: auto;
+  height: 80px;
+  width: 220px;
+  border: 1px solid #556b5d;
+  margin-bottom: 12px;
+}
+.spacer {
+  height: 70px;
+}
+.arrow {
+  position: absolute;
+  bottom: -4px;
+  width: 8px;
+  height: 8px;
+  background: #2f4a3a;
+  transform: rotate(45deg);
+}
+.tall {
+  overflow: hidden;
+}
+.tall .content {
+  height: 900px;
+}
+#log {
+  margin-top: 400px;
+  padding-left: 20px;
+}

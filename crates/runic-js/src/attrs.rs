@@ -507,6 +507,23 @@ pub fn merge_props<V: Clone>(
     Ok(out)
 }
 
+/// svelte-toolbelt 0.10.6's `styleToString(style)` called directly:
+/// `name: value;` per property (camelCase names in kebab case, undefined
+/// values printed as such), joined by newlines, of which only the first
+/// becomes a space (`.replace("\n", " ")`).
+pub fn style_to_string(entries: &[(String, Option<JsString>)]) -> JsString {
+    let mut out = String::new();
+    for (i, e) in entries.iter().enumerate() {
+        match i {
+            0 => {}
+            1 => out.push(' '),
+            _ => out.push('\n'),
+        }
+        out.push_str(&style_text(std::slice::from_ref(e)).to_rust());
+    }
+    JsString::from(out)
+}
+
 /// svelte-toolbelt's `styleToString`: `name: value;` per property (camelCase
 /// names in kebab case), joined by spaces; undefined values print as such.
 fn style_text(entries: &[(String, Option<JsString>)]) -> JsString {

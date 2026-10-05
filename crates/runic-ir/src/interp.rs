@@ -700,6 +700,8 @@ pub struct Machine<'p> {
     media: runic_css::MediaEnv,
     /// Document and window listeners in registration order: (window, kind, listener).
     host_listeners: Vec<(bool, EventKind, Val)>,
+    /// The visual viewport's listeners (M6 overlays).
+    viewport_listeners: Vec<(EventKind, Val)>,
     /// MediaQueryList change listeners: each list (in creation order) with
     /// its listeners in registration order.
     media_lists: Vec<(js::MediaQueryList, Vec<Val>)>,
@@ -990,6 +992,7 @@ impl<'p> Machine<'p> {
             style_states: HashMap::new(),
             replace_states: HashMap::new(),
             host_listeners: vec![],
+            viewport_listeners: vec![],
             media_lists: vec![],
             root: runic_css::Root::with_attrs(
                 program
@@ -2822,7 +2825,8 @@ impl<'p> Machine<'p> {
                     None => Val::Null,
                 }
             }
-            // `beforematch` listeners: the runtime never fires the event.
+            // `beforematch` listeners: the runtime never fires the event;
+            // `scroll` ones: the interpreter scrolls no element.
             ("element", "listen" | "unlisten") => Val::Undefined,
             // An observer that never observed has nothing to disconnect.
             ("mutation", "disconnect") => Val::Undefined,
@@ -2836,6 +2840,19 @@ impl<'p> Machine<'p> {
                 Val::Record(JsRef::new(RecordData::new(*r, vec![a[0].clone()], true)))
             }
             ("resize", "unobserve" | "disconnect") => Val::Undefined,
+            // IntersectionObservers (M6 overlays): the options are checked as
+            // the constructor checks them; observing needs layout (above).
+            ("intersection", "new") => {
+                let Type::Record(r) = ty else {
+                    panic!("validated IntersectionObserver record")
+                };
+                js::intersection::parse_root_margin(&a[1].string().to_rust())
+                    .map_err(|m| Throw::new("SyntaxError", m))?;
+                let values: Vec<f64> = a[2].array().borrow().iter().map(|v| v.num()).collect();
+                js::intersection::thresholds(&values).map_err(|m| Throw::new("RangeError", m))?;
+                Val::Record(JsRef::new(RecordData::new(*r, vec![a[0].clone()], true)))
+            }
+            ("intersection", "unobserve" | "disconnect") => Val::Undefined,
             ("effect", phase @ ("pre" | "post")) => {
                 let phase = if phase == "pre" {
                     EffectPhase::Pre
@@ -2993,6 +3010,22 @@ impl<'p> Machine<'p> {
                     other => panic!("validated media query list member {other}"),
                 }
             }
+            ("visual-viewport", m @ ("listen" | "unlisten")) => {
+                let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
+                let f = a[1].clone();
+                let at = self
+                    .viewport_listeners
+                    .iter()
+                    .position(|g| g.0 == kind && g.1.same(&f));
+                match (m, at) {
+                    ("listen", None) => self.viewport_listeners.push((kind, f)),
+                    ("unlisten", Some(i)) => {
+                        self.viewport_listeners.remove(i);
+                    }
+                    _ => {}
+                }
+                Val::Undefined
+            }
             (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
                 let window = target == "window";
                 let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
@@ -3112,6 +3145,15 @@ impl<'p> Machine<'p> {
                 other => panic!("validated bag, found {other:?}"),
             }
         };
+        if m == "style-text" {
+            let ops = MergeVals {
+                program: self.program,
+            };
+            let js::MergeKind::Style(entries) = js::MergeOps::kind(&ops, &a[0]) else {
+                panic!("validated style object")
+            };
+            return Ok(Val::Str(js::style_to_string(&entries)));
+        }
         Ok(match m {
             "has" => {
                 let name = a[1].string().to_rust();
@@ -3837,7 +3879,7 @@ impl<'p> Machine<'p> {
                                 self.style_states.insert(id, (state, current));
                                 continue;
                             }
-                            ("style", Val::Record(_)) => {
+                            ("style", Val::Record(_) | Val::Map(_)) => {
                                 return Err(Throw::new(
                                     "RunicUnsupportedError",
                                     "a style object spread onto an element (set as the string [object Object])",
@@ -5372,6 +5414,34 @@ impl<'p> Machine<'p> {
             });
             self.dispatch_globals(EventKind::Resize, &event, s);
             event.finish();
+            // Then the visual viewport's (it resizes with the window).
+            let event = js::Event::new(js::EventData {
+                kind: "resize".into(),
+                target: js::Element::VISUAL_VIEWPORT,
+                ..Default::default()
+            });
+            let listeners: Vec<Val> = self
+                .viewport_listeners
+                .iter()
+                .filter(|g| g.0 == EventKind::Resize)
+                .map(|g| g.1.clone())
+                .collect();
+            for f in listeners {
+                let live = self
+                    .viewport_listeners
+                    .iter()
+                    .any(|g| g.0 == EventKind::Resize && g.1.same(&f));
+                if !live || !event.enter(js::Element::VISUAL_VIEWPORT) {
+                    continue;
+                }
+                s.ran = true;
+                let arg = Val::Event(event.clone());
+                let result = self.task(None, true, |m| m.call_value(&f, vec![arg]).map(|_| ()));
+                if let Err(d) = result {
+                    s.error.get_or_insert(d);
+                }
+            }
+            event.finish();
         }
         let lists: Vec<js::MediaQueryList> =
             self.media_lists.iter().map(|(l, _)| l.clone()).collect();
@@ -6297,6 +6367,22 @@ impl js::MergeOps<Val> for MergeVals<'_> {
             Val::Str(s) => js::MergeKind::Text(s.clone()),
             Val::Bool(b) => js::MergeKind::Flag(*b),
             Val::Closure(_) | Val::Listeners(_) => js::MergeKind::Function,
+            // A style object of keys that may be absent: a map.
+            Val::Map(m) => js::MergeKind::Style(
+                m.peek()
+                    .entries
+                    .values()
+                    .map(|(k, v)| {
+                        (
+                            k.string().to_rust(),
+                            match v {
+                                Val::Str(s) => Some(s.clone()),
+                                _ => None,
+                            },
+                        )
+                    })
+                    .collect(),
+            ),
             // A style object: a record of nullable property values.
             Val::Record(r) => {
                 let data = r.peek();

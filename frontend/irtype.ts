@@ -209,7 +209,13 @@ export const ELEMENT_METRICS = [
   'scrollLeft',
 ];
 /** Window metrics (runic_ir::builtins::WINDOW_METRICS). */
-export const WINDOW_METRICS = ['innerWidth', 'innerHeight', 'scrollX', 'scrollY'];
+export const WINDOW_METRICS = [
+  'innerWidth',
+  'innerHeight',
+  'scrollX',
+  'scrollY',
+  'devicePixelRatio',
+];
 
 export const EVENT_MEMBERS: Record<string, Type> = {
   type: S,

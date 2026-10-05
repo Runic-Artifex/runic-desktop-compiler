@@ -11,6 +11,7 @@ mod controls;
 mod dom;
 mod effects;
 mod events;
+pub mod floating;
 pub mod history;
 mod jobs;
 mod layout;
@@ -156,6 +157,12 @@ pub trait App: 'static {
         let _ = (window, event);
         Vec::new()
     }
+    /// Listener keys of the visual viewport for `event` (M6 overlays), in
+    /// registration order.
+    fn viewport_listeners(&self, event: Event) -> Vec<u32> {
+        let _ = event;
+        Vec::new()
+    }
     fn cells_json(&self) -> Json;
     /// Cells of every other live component instance in tree order, as
     /// `{ "component": name, "cells": [...] }`.
@@ -201,6 +208,14 @@ pub trait App: 'static {
     /// across rounds, each observer's callback a task, with a layout after
     /// each round. Returns whether any callback ran.
     fn resize_step(&mut self, dom: &mut Dom) -> bool {
+        let _ = dom;
+        false
+    }
+    /// Update the IntersectionObserver observations after a frame's layout
+    /// (M6 overlays): each observer's entries whose threshold index or
+    /// intersection changed are queued, with one host task to deliver them.
+    /// Returns whether any were queued.
+    fn intersection_step(&mut self, dom: &mut Dom) -> bool {
         let _ = dom;
         false
     }

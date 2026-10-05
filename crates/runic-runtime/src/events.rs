@@ -101,6 +101,8 @@ impl<A: App> Document for Native<A> {
             self.advance(now);
             self.wake_at = None;
         }
+        // The tasks the last frame queued (IntersectionObserver notifications).
+        self.host_tasks();
         // The rendering step: resize, scroll and media query events due.
         let environ = self.environ_changed();
         if environ.is_some() || !self.listeners.pending_scroll.is_empty() || self.focus_fixup_due()
@@ -350,6 +352,21 @@ impl<A: App> Native<A> {
             };
             handler.host(&mut self.doc, Event::Resize, &event);
             event.finish();
+            // Then the visual viewport's (it resizes with the window).
+            let event = runic_js::Event::new(EventData {
+                kind: Event::Resize.name().into(),
+                target: Element::VISUAL_VIEWPORT,
+                ..Default::default()
+            });
+            for listener in handler.app.viewport_listeners(Event::Resize) {
+                let delivery = Delivery {
+                    listener,
+                    event: event.clone(),
+                    current: Element::VISUAL_VIEWPORT.0,
+                };
+                handler.dispatch(&mut self.doc, &[delivery]);
+            }
+            event.finish();
         }
         self.run_scroll_steps();
         let changes = self.app.media_changed();
@@ -412,6 +429,16 @@ impl<A: App> Native<A> {
             self.fix_focus_after_update();
             self.host_tasks();
         }
+        // IntersectionObserver updates (M6 overlays), after ResizeObserver's:
+        // their notifications are a task after the frame.
+        let mut dom = Dom {
+            doc: &mut self.doc,
+            listeners: &mut self.listeners,
+        };
+        let intersections = self.app.intersection_step(&mut dom);
+        if intersections && let Some(w) = &self.waker {
+            w.wake_by_ref();
+        }
         // Text that no loaded font draws would silently be missing (Chromium
         // falls back to a system font): a probe fails, an app reports it once.
         for text in crate::layout::unfonted_text(&self.doc) {
@@ -436,6 +463,8 @@ impl<A: App> Native<A> {
     /// One frame (probes): the rendering step, then layout.
     #[cfg(feature = "probe")]
     pub(crate) fn frame(&mut self) {
+        // The tasks the last frame queued (IntersectionObserver notifications).
+        self.host_tasks();
         self.rendering_step(false);
         self.layout_frame();
     }

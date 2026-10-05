@@ -38,6 +38,30 @@ export interface PackageModule {
   segments: { synth: number; orig: number; length: number }[];
   /** Field annotations inferred by the second pass, by `Class.field`. */
   inferred: Map<string, string>;
+  /** A pack's typed port of the module (frontend/packs.ts `PackPort`): its text as written. */
+  port?: true;
+  /** The packed package a port belongs to (its imports of the package go to the pack). */
+  portOf?: { name: string; version: string; dir: string };
+}
+
+/** The typed module of a pack's port `file` standing for package module `js`. */
+export function portModule(
+  js: string,
+  file: string,
+  portOf: { name: string; version: string; dir: string },
+): PackageModule {
+  const text = readFileSync(file, 'utf8');
+  const dts = declarationFile(js);
+  return {
+    file: js,
+    virtual: file,
+    ...(dts ? { dts } : {}),
+    text,
+    segments: [{ synth: 0, orig: 0, length: text.length }],
+    inferred: new Map(),
+    port: true,
+    portOf,
+  };
 }
 
 /** What a declaration file declares, by name. */
@@ -156,15 +180,50 @@ export function declarationFile(file: string): string | undefined {
   return dts !== file && existsSync(dts) ? dts : undefined;
 }
 
-/** Whether `init` builds an attribute bag: an object literal with a computed key, directly or as a derived value. */
-function bagInitializer(init: ts.Expression | undefined): boolean {
+/**
+ * The names of the class fields of a module that hold an attachment
+ * (initialised by svelte-toolbelt's `attachRef(…)`): an object literal
+ * spreading one (`...this.wrapperAttachment`) builds an attribute bag.
+ */
+function attachmentFields(sf: ts.SourceFile): Set<string> {
+  const out = new Set<string>();
+  const visit = (n: ts.Node) => {
+    if (
+      ts.isPropertyDeclaration(n) &&
+      n.initializer &&
+      ts.isCallExpression(n.initializer) &&
+      ts.isIdentifier(n.initializer.expression) &&
+      n.initializer.expression.text === 'attachRef'
+    )
+      out.add(n.name.getText(sf));
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/**
+ * Whether `init` builds an attribute bag: an object literal with a
+ * computed key or a spread of an attachment field (`attachments`),
+ * directly or as a derived value.
+ */
+function bagInitializer(
+  init: ts.Expression | undefined,
+  attachments: Set<string> = new Set(),
+): boolean {
   if (!init) return false;
   const object = (e: ts.Node | undefined): boolean => {
     while (e && ts.isParenthesizedExpression(e)) e = e.expression;
     return (
       !!e &&
       ts.isObjectLiteralExpression(e) &&
-      e.properties.some(p => p.name && ts.isComputedPropertyName(p.name))
+      e.properties.some(
+        p =>
+          (p.name && ts.isComputedPropertyName(p.name)) ||
+          (ts.isSpreadAssignment(p) &&
+            ts.isPropertyAccessExpression(p.expression) &&
+            attachments.has(p.expression.name.text)),
+      )
     );
   };
   let e: ts.Expression = init;
@@ -196,6 +255,7 @@ export function annotate(
     ? declarations(dts)
     : { functions: new Map(), classes: new Map(), variables: new Set() };
   const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const attachments = attachmentFields(sf);
   const inserts: { at: number; text: string }[] = [];
   const add = (at: number, text: string) => inserts.push({ at, text });
   /** The position after the closing parenthesis of a parameter list. */
@@ -260,7 +320,7 @@ export function annotate(
         !!ts.getModifiers(m)?.some(x => x.kind === ts.SyntaxKind.StaticKeyword);
       if (ts.isPropertyDeclaration(m) && !isStatic && !m.type) {
         const key = `${cls}.${m.name.getText()}`;
-        if (bagInitializer(m.initializer)) add(m.name.end, ': RunicAttrs');
+        if (bagInitializer(m.initializer, attachments)) add(m.name.end, ': RunicAttrs');
         else if (inferred.has(key)) add(m.name.end, `: ${inferred.get(key)}`);
         else if (name && d && !d.generic && d.properties.has(name))
           add(m.name.end, `: ${C}["${name}"]`);
@@ -314,7 +374,9 @@ export function inferFields(
     const node = checker.typeToTypeNode(
       t,
       at,
-      ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.UseFullyQualifiedType,
+      ts.NodeBuilderFlags.NoTruncation |
+        ts.NodeBuilderFlags.UseFullyQualifiedType |
+        ts.NodeBuilderFlags.AllowNodeModulesRelativePaths,
     );
     if (!node) return undefined;
     const printed = ts
@@ -326,8 +388,11 @@ export function inferFields(
     return /\bany\b/.test(text) ? undefined : text;
   };
   for (const m of modules.values()) {
+    // A pack's port is typed as written.
+    if (m.port) continue;
     const sf = program.getSourceFile(m.virtual);
     if (!sf) continue;
+    const attachments = attachmentFields(sf);
     const next = new Map(m.inferred);
     for (const stmt of sf.statements) {
       if (!ts.isClassDeclaration(stmt) || !stmt.name) continue;
@@ -342,7 +407,7 @@ export function inferFields(
           continue;
         const fieldName = member.name.getText();
         const key = `${cls}.${fieldName}`;
-        if (bagInitializer(member.initializer)) continue;
+        if (bagInitializer(member.initializer, attachments)) continue;
         const sym = checker.getSymbolAtLocation(member.name);
         const own = sym && checker.getTypeOfSymbolAtLocation(sym, member);
         const parts: string[] = [];

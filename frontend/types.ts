@@ -32,6 +32,8 @@ export class TypeMapper {
   mutationObserver?: number;
   /** The record of ResizeObservers (M6), once a program uses one. */
   resizeObserver?: number;
+  /** The IntersectionObserver record (frontend/dom.d.ts), once mapped. */
+  intersectionObserver?: number;
   /**
    * Records of types a package's declaration files declare (interfaces of
    * options objects): literals may list their properties in any order, so
@@ -83,10 +85,15 @@ export class TypeMapper {
     if (o) return o;
     const t = this.checker.getTypeAtLocation(node);
     // (A value TypeScript types as only null says nothing about its IR type.)
-    if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Null)) return undefined;
+    // (Nor does `never`: a narrowing of such a value, `simpleBox(null).current`.)
+    if (
+      t.flags &
+      (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Null | ts.TypeFlags.Never)
+    )
+      return undefined;
     const mapped = this.tryMap(t, node);
     if (mapped !== undefined) return mapped;
-    if (containsAny(t, this.checker)) return undefined;
+    if (containsAny(t, this.checker, 0, true)) return undefined;
     return this.map(t, node);
   }
 
@@ -228,8 +235,18 @@ export class TypeMapper {
       // may be narrowed to another one.)
       const mapped = rest.map(p => (this.narrow ? this.tryMap(p, at) : this.map(p, at)));
       const first = JSON.stringify(mapped[0]);
+      // Functions where one member's type takes every other's values
+      // (bits-ui's `(() => null) | Getter<number | null>`): that type.
+      const widest = rest.every(p => p.getCallSignatures().length)
+        ? rest.findIndex(
+            (w, i) =>
+              mapped[i] !== undefined &&
+              rest.every(p => p === w || this.checker.isTypeAssignableTo(p, w)),
+          )
+        : -1;
       if (mapped[0] !== undefined && mapped.every(m => JSON.stringify(m) === first))
         base = mapped[0]!;
+      else if (widest >= 0) base = mapped[widest]!;
       // Narrowed by the values that reach it (frontend/unions.ts).
       else if (this.narrow) base = this.map(this.narrow(rest, at, this.fail), at);
       else
@@ -306,6 +323,17 @@ export class TypeMapper {
         this.records[this.resizeObserver].fields = [{ name: 'callback', type }];
       }
       return { record: this.resizeObserver };
+    }
+    // An IntersectionObserver (frontend/dom.d.ts): likewise.
+    const ioCallback = t.getProperty('__runicIntersectionObserver');
+    if (ioCallback) {
+      if (this.intersectionObserver === undefined) {
+        this.intersectionObserver = this.records.length;
+        this.records.push({ name: 'IntersectionObserver', class: true, fields: [] });
+        const type = this.map(this.checker.getTypeOfSymbolAtLocation(ioCallback, at), at);
+        this.records[this.intersectionObserver].fields = [{ name: 'callback', type }];
+      }
+      return { record: this.intersectionObserver };
     }
     if (!this.checker.getPropertiesOfType(t).length && !t.getCallSignatures().length) {
       const infos = this.checker.getIndexInfosOfType(t);
@@ -774,11 +802,18 @@ export const sameType = (a: Type, b: Type) => JSON.stringify(a) === JSON.stringi
  * Whether TypeScript's type `t` has `any` (or `unknown`) in it: itself, a
  * union member, a property, a type argument, a parameter or a result.
  */
-export function containsAny(t: ts.Type, checker: ts.TypeChecker, depth = 0): boolean {
+export function containsAny(
+  t: ts.Type,
+  checker: ts.TypeChecker,
+  depth = 0,
+  /** Also a value that is only ever null (`simpleBox(null)`). */
+  nulls = false,
+): boolean {
   if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return true;
+  if (nulls && t.flags & ts.TypeFlags.Null) return true;
   if (depth > 3) return false;
   if (t.isUnion() || t.isIntersection())
-    return t.types.some(m => containsAny(m, checker, depth + 1));
+    return t.types.some(m => containsAny(m, checker, depth + 1, nulls));
   if (!(t.flags & ts.TypeFlags.Object)) return false;
   if (t.getProperty('__runicElement') || t.getProperty('__runicEvent')) return false;
   // Types of TypeScript's library (Set<T>, Promise<T>): their type arguments.
@@ -786,19 +821,23 @@ export function containsAny(t: ts.Type, checker: ts.TypeChecker, depth = 0): boo
   if (/[\\/]lib\.[\w.]*\.d\.ts$/.test(file))
     return (
       !!(t as ts.TypeReference).target &&
-      checker.getTypeArguments(t as ts.TypeReference).some(a => containsAny(a, checker, depth + 1))
+      checker
+        .getTypeArguments(t as ts.TypeReference)
+        .some(a => containsAny(a, checker, depth + 1, nulls))
     );
   const props = checker.getPropertiesOfType(t);
   if (
     props.length <= 40 &&
-    props.some(p => containsAny(checker.getTypeOfSymbol(p), checker, depth + 1))
+    props.some(p => containsAny(checker.getTypeOfSymbol(p), checker, depth + 1, nulls))
   )
     return true;
   return t
     .getCallSignatures()
     .some(
       sig =>
-        containsAny(sig.getReturnType(), checker, depth + 1) ||
-        sig.parameters.some(p => containsAny(checker.getTypeOfSymbol(p), checker, depth + 1)),
+        containsAny(sig.getReturnType(), checker, depth + 1, nulls) ||
+        sig.parameters.some(p =>
+          containsAny(checker.getTypeOfSymbol(p), checker, depth + 1, nulls),
+        ),
     );
 }

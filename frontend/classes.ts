@@ -1116,7 +1116,7 @@ export class Classes {
         [{ name: 'this', type: self }],
         f.type,
       );
-      pending.push(() => this.lowerDerived(info, f, fn));
+      pending.push(() => this.lowerDeferrable(info, f, fn));
     }
     // Methods and accessors.
     for (const [, member] of info.members)
@@ -1353,6 +1353,74 @@ export class Classes {
   }
 
   /**
+   * Derived fields whose function could not be lowered, with the
+   * diagnostic: Svelte computes a derived value only when it is read, so a
+   * field the program never reads never runs (bits-ui's `arrowStyle` where
+   * no arrow is rendered). Its function throws RunicUnsupportedError; a read
+   * of it reports the diagnostic.
+   */
+  private readonly deferred = new Map<Field, Error>();
+  /** Derived fields the program reads. */
+  private readonly readDerived = new Set<Field>();
+
+  /** `lowerDerived`, deferring the field's diagnostic while it is unread. */
+  private lowerDeferrable(info: ClassInfo, f: Field, index: number) {
+    const lower = this.lower;
+    const count = lower.functions.length;
+    try {
+      this.lowerDerived(info, f, index);
+    } catch (err) {
+      // (Package classes only: a program's own fields are checked as written.)
+      const code = (err as { code?: string }).code;
+      const pkg = /\.js\.__runic\.ts$/.test(info.decl.getSourceFile().fileName);
+      if (!pkg || !code?.startsWith('E_') || this.readDerived.has(f)) throw err;
+      // (Functions reserved by the failed lowering stay as throwing stubs.)
+      for (let i = count; i < lower.functions.length; i++)
+        if (!lower.functions[i])
+          lower.functions[i] = this.unreachable(
+            `${info.name}.${f.name}$part`,
+            info,
+            [],
+            'void',
+            err as Error,
+          );
+      this.deferred.set(f, err as Error);
+      lower.functions[index] = this.unreachable(
+        `${info.name}.${f.name}$derived`,
+        info,
+        [{ name: 'this', type: this.selfType(info) }],
+        f.type,
+        err as Error,
+      );
+    }
+  }
+
+  /** A function that throws RunicUnsupportedError with diagnostic `err`. */
+  private unreachable(name: string, info: ClassInfo, params: Local[], result: Type, err: Error) {
+    const lower = this.lower;
+    return {
+      name,
+      ...(info.component !== undefined ? { component: info.component } : {}),
+      params,
+      locals: [],
+      result,
+      body: [
+        {
+          op: 'throw' as const,
+          value: {
+            op: 'record' as const,
+            record: lower.errorRecord(),
+            fields: [
+              { op: 'lit' as const, value: 'RunicUnsupportedError' },
+              { op: 'lit' as const, value: err.message },
+            ],
+          },
+        },
+      ],
+    };
+  }
+
+  /**
    * The function computing derived field `f` from the instance (its only
    * parameter): `$derived(expr)` returns `expr`, `$derived.by(fn)` is `fn`'s
    * body. Svelte creates the derived signal with a closure over `this` and
@@ -1378,9 +1446,11 @@ export class Classes {
         )
           this.fail(call, '$derived.by with an async function is unsupported');
         const fn = arg as ts.ArrowFunction;
+        // (The field's type, which its returned values take: in untyped
+        // JavaScript the declaration file's.)
         lower.function(fn, name, undefined, info.component, index, undefined, {
           self,
-          ...(f.type === 'attrs' ? { result: 'attrs' as Type } : {}),
+          result: f.type,
           body: b => {
             lower.thisBindings.set(container, { owner: b, local: 0 });
             return lower.functionBody(fn, b);
@@ -1801,6 +1871,33 @@ export class Classes {
     visit(s);
   }
 
+  /**
+   * Whether the outermost arrow function around `n` (inside `root`) is an
+   * argument of `new C(…)` of a class a pack ports (frontend/packs/*:
+   * reviewed code that calls it only after the constructor).
+   */
+  private toPortConstructor(n: ts.Node, root: ts.Node): boolean {
+    let arrow: ts.Node | undefined;
+    for (let p: ts.Node | undefined = n.parent; p && p !== root.parent; p = p.parent)
+      if (ts.isArrowFunction(p)) arrow = p;
+    if (!arrow) return false;
+    let at: ts.Node = arrow;
+    while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+    const call = at.parent;
+    if (!ts.isNewExpression(call) || !call.arguments?.includes(at as ts.Expression)) return false;
+    let sym = this.lower.checker.getSymbolAtLocation(call.expression);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = this.lower.checker.getAliasedSymbol(sym);
+    const file = sym?.valueDeclaration?.getSourceFile().fileName ?? '';
+    return /[\\/]frontend[\\/]packs[\\/]/.test(file);
+  }
+
+  /** Whether every function between `n` and `root` is an arrow function (it sees the class's `this`). */
+  private arrowsUpTo(n: ts.Node, root: ts.Node): boolean {
+    for (let p = n.parent; p && p !== root.parent; p = p.parent)
+      if (ts.isFunctionLike(p) && !ts.isArrowFunction(p)) return false;
+    return true;
+  }
+
   /** Whether `e` can be evaluated before the record exists (see `early`). */
   private earlyForm(e: ts.Expression, info: ClassInfo, temps: Map<Field, number>): boolean {
     const inner = skipParens(e);
@@ -1886,6 +1983,11 @@ export class Classes {
       if (n.kind === ts.SyntaxKind.SuperKeyword)
         this.fail(n, 'super is used before the instance is complete');
       if (n.kind === ts.SyntaxKind.ThisKeyword) {
+        // In an arrow function given to the constructor of a pack's port
+        // (runed's ElementSize getter), which stores it and calls it once
+        // the instance exists: read when it runs, from the instance (as an
+        // arrow function stored whole in a field).
+        if (nested && this.arrowsUpTo(n, inner) && this.toPortConstructor(n, inner)) return;
         const field = this.earlyRead(n, nested, info, temps);
         if (!field)
           this.fail(
@@ -2178,6 +2280,11 @@ export class Classes {
               e,
               `${f.owner.name}.${name} is a derived field of a class declared in a component script; read it in that component (or declare the class in a .svelte.ts module)`,
             );
+          if (isDerived(f)) {
+            const deferred = this.deferred.get(f);
+            if (deferred) throw deferred;
+            this.readDerived.add(f);
+          }
           const get: Expr = { op: 'get', object: recv, field: c.fields.indexOf(f) };
           if (f.late) return lateRead(f, get);
           // A nullable field TypeScript narrowed to its value here (as for variables).

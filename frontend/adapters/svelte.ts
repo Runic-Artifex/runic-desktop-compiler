@@ -42,6 +42,7 @@ import {
   exportAllDeclarations,
   implementationOf,
   inferFields,
+  portModule,
   reachedPackageModules,
   type PackageModule,
 } from '../package-modules.ts';
@@ -57,6 +58,7 @@ import {
   packExport,
   packFor,
   packMappings,
+  packPorts,
   PackError,
   usePack,
   type Edge,
@@ -874,6 +876,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         roots.push(id);
     for (const f of reachedPackageModules(resolver, roots, isPackageModule))
       packageModules.set(f, annotate(f, graph.modules.get(f)!.code));
+    // Modules of packed packages that their packs port (frontend/packs.ts
+    // `PackPort`): the port stands for the package's module.
+    const refs = [...graph.modules.values()].flatMap(m =>
+      m.imports.flatMap(i => (i.package && !i.package.source ? [i.package] : [])),
+    );
+    for (const [js, { file, ref }] of packPorts(refs))
+      packageModules.set(js, portModule(js, file, ref));
   }
   const buildProgram = () => {
     const files = new Map<string, string>();
@@ -944,10 +953,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (m) {
         const pos = n.getStart(f);
         const seg = m.segments.find(s => pos >= s.synth && pos <= s.synth + s.length);
-        const code = graph.modules.get(m.file)!.code;
+        // (A pack's port is its own text.)
+        const code = graph.modules.get(m.file)?.code ?? (m.port ? m.text : '');
+        const where = rel(m.port ? m.virtual : m.file);
         return seg
-          ? locate(code, seg.orig + (pos - seg.synth), rel(m.file))
-          : { file: rel(m.file), line: 1, column: 1 };
+          ? locate(code, seg.orig + (pos - seg.synth), where)
+          : { file: where, line: 1, column: 1 };
       }
       const p = f.getLineAndCharacterOfPosition(n.getStart(f));
       return { file: rel(f.fileName), line: p.line + 1, column: p.character + 1 };
@@ -1059,7 +1070,129 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     | undefined;
   const runeFile = (n: ts.Node) =>
     /\.svelte(\.__runic\.ts|\.ts|\.js|\.js\.__runic\.ts)$/.test(n.getSourceFile().fileName);
+  /** Records of a function's `$state` and `$derived` locals, by kind and value type. */
+  const localRuneRecords = new Map<string, number>();
   const hooks: Hooks = {
+    // `let x = $state(v)`, `$state.raw(v)`, `$derived(e)` and `$derived.by(f)`
+    // in a function of a rune module (bits-ui's useFloating): a signal of
+    // the function's invocation, a record with one reactive field the
+    // local's reads and writes go to (a derived one with the getter its
+    // value is computed by), captured by reference as closures capture it.
+    localRune(d, b, lower) {
+      const rune = runeName(d.initializer);
+      if (!rune || !['$state', '$state.raw', '$derived', '$derived.by'].includes(rune))
+        return undefined;
+      if (!ts.isIdentifier(d.name)) return tsFail(d, 'E_RUNE', `${rune} locals are plain names`);
+      if (!runeFile(d)) return undefined;
+      const call = d.initializer as ts.CallExpression;
+      const [arg] = call.arguments;
+      const name = d.name.text;
+      const sym = checker.getSymbolAtLocation(d.name)!;
+      // TypeScript's type where it has one; in untyped JavaScript the type
+      // of the initial value, or where that is a literal saying little (`{}`,
+      // `null`) the type its uses expect (the getter of a returned object
+      // of a declared type reading it).
+      let init: ts.Expression | undefined = arg && skipParens(arg);
+      if (
+        rune === '$derived.by' &&
+        init &&
+        (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+      )
+        init = ts.isBlock(init.body) ? undefined : skipParens(init.body);
+      const literal =
+        !init ||
+        ts.isObjectLiteralExpression(init) ||
+        ts.isArrayLiteralExpression(init) ||
+        init.kind === ts.SyntaxKind.NullKeyword ||
+        (ts.isIdentifier(init) && init.text === 'undefined');
+      const declared = literal
+        ? (lower.flowType(d, sym) ?? lower.types.typeOrUndefined(d.name))
+        : (lower.types.typeOrUndefined(d.name) ??
+          (rune === '$derived.by' ? lower.flowType(d, sym) : undefined));
+      if (rune.startsWith('$state')) {
+        let value: Expr;
+        let t: Type;
+        if (declared !== undefined) {
+          t = declared;
+          value = arg ? lower.coerce(arg, b, t) : { op: 'undefined', type: t };
+        } else {
+          if (!arg) return tsFail(d, 'E_RUNE', `${name} needs a type or an initial value`);
+          value = lower.expr(arg, b);
+          t = lower.irType(value, b);
+        }
+        const reactive = rune === '$state' ? 'state' : 'raw';
+        const key = JSON.stringify([reactive, t]);
+        let r = localRuneRecords.get(key);
+        if (r === undefined) {
+          r = lower.types.records.length;
+          lower.types.records.push({
+            name: 'State',
+            class: true,
+            fields: [{ name: 'value', type: t, reactive }],
+          });
+          localRuneRecords.set(key, r);
+        }
+        const local = b.local(name, { record: r }, b.boxed.has(sym));
+        lower.bindings.set(sym, { kind: 'member', owner: b, local, path: [0] });
+        return [{ op: 'let', local, value: { op: 'record', record: r, fields: [value] } }];
+      }
+      // `$derived(e)` / `$derived.by(f)`: the getter, and the derived field reading it.
+      if (!arg)
+        return tsFail(
+          d,
+          'E_RUNE',
+          `${rune} takes ${rune === '$derived' ? 'an expression' : 'a function'}`,
+        );
+      let getter: Expr;
+      let t: Type;
+      if (rune === '$derived') {
+        getter = lower.expressionClosure(arg, b, `${name}$derived`, declared);
+        const gt = lower.irType(getter, b);
+        t = (gt as { fn: { result: Type } }).fn.result;
+      } else {
+        if (declared !== undefined)
+          lower.expected.set(skipParens(arg), { fn: { params: [], result: declared } });
+        getter = lower.expr(arg, b);
+        const gt = lower.irType(getter, b);
+        if (typeof gt !== 'object' || !('fn' in gt) || gt.fn.params.length)
+          return tsFail(arg, 'E_RUNE', '$derived.by takes a function without parameters');
+        t = gt.fn.result;
+      }
+      const key = JSON.stringify(['derived', t]);
+      let r = localRuneRecords.get(key);
+      if (r === undefined) {
+        r = lower.types.records.length;
+        const derived = lower.reserve();
+        lower.types.records.push({
+          name: 'Derived',
+          class: true,
+          fields: [
+            { name: 'get', type: { fn: { params: [], result: t } } },
+            { name: 'value', type: t, reactive: 'derived', derived },
+          ],
+        });
+        lower.functions[derived] = {
+          name: 'Derived.value$derived',
+          params: [{ name: 'this', type: { record: r } }],
+          locals: [],
+          result: t,
+          body: [
+            {
+              op: 'return',
+              value: {
+                op: 'call-value',
+                callee: { op: 'get', object: { op: 'local', local: 0 }, field: 0 },
+                args: [],
+              },
+            },
+          ],
+        };
+        localRuneRecords.set(key, r);
+      }
+      const local = b.local(name, { record: r }, b.boxed.has(sym));
+      lower.bindings.set(sym, { kind: 'member', owner: b, local, path: [1] });
+      return [{ op: 'let', local, value: { op: 'record', record: r, fields: [getter] } }];
+    },
     readCell: cell => ({ op: 'cell', cell, read: 'current' }),
     cellType: cell => cells[cell].type,
     writeCell: (cell, value) => [{ op: 'set', cell, value }],
@@ -1167,19 +1300,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const rune = runeName(node);
       if ((rune === '$effect' || rune === '$effect.pre') && runeFile(node)) {
         const [fn] = node.arguments;
+        // (An inline function, or a function value: `$effect(attach)`.)
+        const inline = fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn));
+        const bad = () =>
+          tsFail(node, 'E_EFFECT', `${rune} takes one synchronous function without parameters`);
         if (
           !fn ||
           node.arguments.length !== 1 ||
-          !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ||
-          fn.parameters.length
+          (inline &&
+            (fn.parameters.length ||
+              fn.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)))
         )
-          return tsFail(
-            node,
-            'E_EFFECT',
-            `${rune} takes one synchronous function without parameters`,
-          );
+          return bad();
         const f = lower.expr(fn, ctx);
         const t = lower.irType(f, ctx) as { fn: { params: Type[]; result: Type } };
+        if (typeof t !== 'object' || !('fn' in t) || t.fn.params.length) return bad();
         const r = t.fn.result;
         const cleanup = (x: Type) =>
           typeof x === 'object' && 'fn' in x && !x.fn.params.length && x.fn.result === 'void';
@@ -2926,7 +3061,53 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const spreads: { expr: ts.Expression; shape: Shape; rest: boolean; at: SNode }[] = [];
       /** The writers of declared props a spread may hold, in source order. */
       const writers = new Map<string, ({ explicit: Expr } | { spread: number })[]>();
+      /** Snippet props of this component passed on as the child's (`{content}`). */
+      const forwarded: { name: string; params?: number[]; body: Node[]; when?: Expr }[] = [];
       for (const a of n.attributes) {
+        // A snippet prop of this component passed on as one of the child's
+        // (bits-ui's `<FloatingLayerContent {content} />`): provided to the
+        // child when it was to this component.
+        const slotDecl =
+          a.type === 'Attribute' && !declared(a.name)
+            ? target.slots?.find(d => d.name === a.name)
+            : undefined;
+        if (slotDecl) {
+          const e =
+            a.value !== true && !Array.isArray(a.value)
+              ? skipParens(exprNode(a.value.expression))
+              : undefined;
+          const own =
+            e && ts.isIdentifier(e) ? snippetOf.get(checker.getSymbolAtLocation(e)!) : undefined;
+          if (!own)
+            fail(
+              'E_TEMPLATE',
+              `${a.name} is a snippet prop of ${n.name}: pass a {#snippet} block or a snippet prop of this component`,
+              loc(a),
+            );
+          const mine = slots.find(d => d.name === own)!;
+          if (JSON.stringify(mine.params ?? []) !== JSON.stringify(slotDecl.params ?? []))
+            fail(
+              'E_TEMPLATE',
+              `${own} and ${n.name}'s ${a.name} take different parameters`,
+              loc(a),
+            );
+          const params = (slotDecl.params ?? []).map((t, i) => tb.local(`$${a.name}${i}`, t));
+          forwarded.push({
+            name: a.name,
+            ...(params.length ? { params } : {}),
+            body: [
+              {
+                kind: 'slot',
+                name: own!,
+                ...(params.length
+                  ? { args: params.map(p => ({ op: 'local', local: p }) as Expr) }
+                  : {}),
+              },
+            ],
+            when: { op: 'slot-provided', name: own! },
+          });
+          continue;
+        }
         if (a.type === 'SpreadAttribute') {
           const e = exprNode(a.expression);
           // A bag, or a plain record spread as its fields (bits-ui's
@@ -3114,6 +3295,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           fail('E_PROPS', `${n.name} requires the prop ${c.prop}`, loc(n));
       // Snippets and children: parent-owned content for the child's slots.
       const defs: { name: string; params?: number[]; body: Node[]; when?: Expr }[] = [];
+      defs.push(...forwarded);
       const declOf = (name: string, at: SNode) =>
         target.slots?.find(d => d.name === name) ??
         fail('E_PROPS', `${n.name} has no snippet prop ${name}`, loc(at));

@@ -61,6 +61,17 @@ export function packageBindings(
       while (!ts.isImportDeclaration(stmt)) stmt = stmt.parent;
       const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
       if (spec === 'svelte' || spec.startsWith('svelte/')) return undefined;
+      // A pack's port importing its own package: the pack's exports.
+      if (m.portOf && spec === m.portOf.name) {
+        const name = ts.isImportSpecifier(decl) || ts.isImportClause(decl) ? decl.name : undefined;
+        bindPackImport(
+          stmt,
+          { specifier: spec, resolved: '', package: { ...m.portOf, subpath: '.' } },
+          lower,
+          name,
+        );
+        return lower.bindings.get(symbol);
+      }
       const edge = modules.get(m.file)?.imports.find(i => i.specifier === spec);
       if (!edge?.package || modules.get(edge.resolved)?.package) return undefined;
       const name = ts.isImportSpecifier(decl) || ts.isImportClause(decl) ? decl.name : undefined;

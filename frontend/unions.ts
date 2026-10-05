@@ -136,8 +136,28 @@ export class Unions {
       if (!census.members.has(m)) census.members.set(m, n);
     };
     /** The member `t` (one non-nullish type) belongs to. */
-    const memberOf = (t: ts.Type) =>
-      members.find(m => m === t || this.checker.isTypeAssignableTo(t, m));
+    // (TypeScript may type a value wider than the member it is, `() => string`
+    // for `() => Placement`: then the one member of its kind.)
+    const kind = (t: ts.Type): string =>
+      t.getCallSignatures().length
+        ? 'function'
+        : t.flags & F.StringLike
+          ? 'string'
+          : t.flags & F.NumberLike
+            ? 'number'
+            : t.flags & F.BooleanLike
+              ? 'boolean'
+              : this.checker.isArrayType(t) || this.checker.isTupleType(t)
+                ? 'array'
+                : 'object';
+    const memberOf = (t: ts.Type) => {
+      const exact = members.find(m => m === t || this.checker.isTypeAssignableTo(t, m));
+      if (exact) return exact;
+      // (Objects and arrays are told apart by their shapes only.)
+      if (kind(t) === 'object' || kind(t) === 'array') return undefined;
+      const same = members.filter(m => kind(m) === kind(t));
+      return same.length === 1 ? same[0] : undefined;
+    };
     const classify = (actual: ts.Type, n: ts.Node, e: ts.Expression, path: string[]) => {
       // What the value is built from.
       const traced = this.trace(e, path, 0);
@@ -162,8 +182,11 @@ export class Unions {
           }
         return;
       }
-      const parts = (actual.isUnion() ? actual.types : [actual]).filter(p => !nullish(p));
+      let parts = (actual.isUnion() ? actual.types : [actual]).filter(p => !nullish(p));
       if (unionKey(parts) === key) return;
+      // A union already narrowed stands for its member.
+      const narrowed = this.resolved.get(unionKey(parts));
+      if (narrowed) parts = [narrowed];
       for (const p of parts) {
         const m = memberOf(p);
         if (m) record(m, n);

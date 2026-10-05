@@ -8,6 +8,10 @@ interface HTMLElement {
   blur(): void;
   // Layout reads and scrolling (CSSOM View), from the native layout.
   getBoundingClientRect(): DOMRect;
+  /** M6 (bits-ui's floating layer): the element's border boxes (none without a box). */
+  getClientRects(): DOMRect[];
+  /** M6: the `hidden` attribute's presence (`until-found` is reported unsupported). */
+  readonly hidden: boolean;
   readonly offsetWidth: number;
   readonly offsetHeight: number;
   readonly offsetLeft: number;
@@ -45,6 +49,9 @@ interface HTMLElement {
   querySelectorAll(selectors: string): HTMLElement[];
   querySelector(selectors: string): HTMLElement | null;
   requestSubmit(): void;
+  // M6 overlays (floating-ui's autoUpdate): listeners added by script.
+  addEventListener(type: 'scroll', listener: (event: Event) => void): void;
+  removeEventListener(type: 'scroll', listener: (event: Event) => void): void;
 }
 /** M6 (bits-ui's isHTMLElement): `x instanceof HTMLElement` of element values. */
 declare var HTMLElement: { prototype: HTMLElement };
@@ -84,6 +91,41 @@ declare var ResizeObserver: {
     callback: (entries: ResizeObserverEntry[], observer: ResizeObserver) => void,
   ): ResizeObserver;
 };
+/**
+ * An IntersectionObserver (M6 overlays): the document's viewport is its root
+ * (`root` is the document or absent); its callback receives the entries in
+ * a task after a frame's layout.
+ */
+interface IntersectionObserver {
+  /** The callback type (a record of the IR holds the callback). */
+  readonly __runicIntersectionObserver: (
+    entries: IntersectionObserverEntry[],
+    observer: IntersectionObserver,
+  ) => void;
+  observe(target: HTMLElement): void;
+  unobserve(target: HTMLElement): void;
+  disconnect(): void;
+}
+interface IntersectionObserverInit {
+  root?: HostDocument | null;
+  rootMargin?: string;
+  threshold?: number | number[];
+}
+declare var IntersectionObserver: {
+  new (
+    callback: (entries: IntersectionObserverEntry[], observer: IntersectionObserver) => void,
+    options?: IntersectionObserverInit,
+  ): IntersectionObserver;
+};
+interface IntersectionObserverEntry {
+  readonly boundingClientRect: DOMRect;
+  readonly intersectionRatio: number;
+  readonly intersectionRect: DOMRect;
+  readonly isIntersecting: boolean;
+  readonly rootBounds: DOMRect | null;
+  readonly target: HTMLElement;
+  readonly time: number;
+}
 interface ResizeObserverSize {
   readonly inlineSize: number;
   readonly blockSize: number;
@@ -126,6 +168,8 @@ interface HTMLLIElement extends HTMLElement {}
 interface HTMLUListElement extends HTMLElement {}
 interface HTMLHeadingElement extends HTMLElement {}
 interface Element extends HTMLElement {}
+/** M6 (bits-ui's floating layer): `x instanceof Element` of element values. */
+declare var Element: { prototype: Element };
 interface EventTarget {}
 /**
  * An attribute bag (docs/IR.md `attrs`): attribute values, listeners and
@@ -236,6 +280,8 @@ interface WindowEventTarget {
 interface ComputedStyle {
   readonly __runicComputedStyle: true;
   getPropertyValue(property: string): string;
+  /** M6 overlays (bits-ui's floating layer). */
+  readonly zIndex: string;
 }
 interface HostWindow extends WindowEventTarget {
   matchMedia(query: string): MediaQueryList;
@@ -257,6 +303,15 @@ interface HostWindow extends WindowEventTarget {
   scrollBy(x: number, y: number): void;
 }
 declare const window: HostWindow;
+/**
+ * M6 overlays (floating-ui's autoUpdate): the visual viewport. Without
+ * pinch zoom it resizes with the window, after it, and never scrolls.
+ */
+interface HostVisualViewport {
+  addEventListener(type: 'resize' | 'scroll', listener: (event: Event) => void): void;
+  removeEventListener(type: 'resize' | 'scroll', listener: (event: Event) => void): void;
+}
+declare const visualViewport: HostVisualViewport;
 declare const document: HostDocument;
 
 // Host services (docs/design/M5-PLATFORM.md); members lower to `console.*`,
@@ -343,6 +398,9 @@ interface HostRootElement {
   };
   lang: string;
   dir: string;
+  /** M6 overlays: the viewport's size without scrollbars. */
+  readonly clientWidth: number;
+  readonly clientHeight: number;
   setAttribute(name: string, value: string): void;
   removeAttribute(name: string): void;
 }

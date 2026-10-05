@@ -21,6 +21,7 @@ use std::fmt::Write as _;
 pub mod builtins;
 pub mod emit;
 pub mod expr;
+pub mod floating;
 pub mod types;
 
 use expr::{FnCtx, js_str, rust_str};
@@ -1971,7 +1972,7 @@ fn component_state(p: &Program, k: usize, out: &mut String) {
 /// host's work queued between tasks and the operations that queue it. The
 /// reference interpreter implements the same model (`runic_ir::interp`).
 const HOST_SERVICES: &str = r#"/// Work the host does after the running task, in order: clipboard replies, history traversals, `hashchange`.
-pub enum HostTask { ClipboardWrite(JsString, js::JsPromise<(), Lst>), ClipboardRead(js::JsPromise<JsString, Lst>), Traverse(i64), HashChange, Reply(js::JsPromise<(), Lst>) }
+pub enum HostTask { ClipboardWrite(JsString, js::JsPromise<(), Lst>), ClipboardRead(js::JsPromise<JsString, Lst>), Traverse(i64), HashChange, Reply(js::JsPromise<(), Lst>), Intersection }
 impl Cx {
     /// `host.reply`: a promise fulfilled in a host task after the running one.
     fn host_reply(&mut self) -> js::JsPromise<(), Lst> {
@@ -2686,6 +2687,40 @@ pub fn generate(
     } else {
         ""
     };
+    // IntersectionObservers (M6 overlays): the program's observer record.
+    let io = (0..p.records.len()).find_map(|r| {
+        runic_ir::builtins::intersection_observer_shape(&p.records, r).map(|s| (r, s))
+    });
+    let (io_fields, io_init, io_step, io_notify) = match io {
+        Some((o, runic_ir::builtins::IntersectionShape { entry, rect })) => (
+            format!(
+                "pub io_observers: Vec<(JsRef<R{o}>, [js::intersection::Margin; 4], Vec<f64>, Vec<JsRef<R{entry}>>)>, pub io_obs: Vec<(JsRef<R{o}>, js::Element, i64, bool)>, pub io_task: bool, "
+            ),
+            "io_observers: Vec::new(), io_obs: Vec::new(), io_task: false, ".to_string(),
+            format!(
+                "fn intersection_step(&mut self, dom: &mut Dom) -> bool {{\n\
+                 if self.cx.io_obs.is_empty() {{ return false; }}\n\
+                 let time = self.cx.timers.now; let mut queued = false;\n\
+                 let rect = |r: [f64; 4]| JsRef::new(R{rect} {{ f0: r[0], f1: r[1], f2: r[2], f3: r[3], f4: r[1], f5: r[0] + r[2], f6: r[1] + r[3], f7: r[0] }});\n\
+                 // Each observer in creation order, its targets in the order observed.\n\
+                 for k in 0..self.cx.io_observers.len() {{\n\
+                 let (ob, margins, thresholds) = {{ let x = &self.cx.io_observers[k]; (x.0.clone(), x.1, x.2.clone()) }};\n\
+                 let mut entries = Vec::new();\n\
+                 for o in self.cx.io_obs.iter_mut().filter(|o| JsRef::ptr_eq(&o.0, &ob)) {{\n\
+                 let g = dom.intersection(o.1.0, &margins);\n\
+                 let index = js::intersection::threshold_index(&thresholds, g.ratio);\n\
+                 if index != o.2 || g.intersecting != o.3 {{ entries.push(JsRef::new(R{entry} {{ f0: rect(g.target), f1: g.ratio, f2: rect(g.intersection), f3: g.intersecting, f4: Maybe::Some(rect(g.root)), f5: o.1, f6: time }})); }}\n\
+                 o.2 = index; o.3 = g.intersecting;\n\
+                 }}\n\
+                 if !entries.is_empty() {{ queued = true; self.cx.io_observers[k].3.extend(entries); }}\n\
+                 }}\n\
+                 if queued && !self.cx.io_task {{ self.cx.io_task = true; self.cx.host_tasks.push_back(HostTask::Intersection); }}\n\
+                 queued\n}}\n"
+            ),
+            "{ self.cx.io_task = false; let mut k = 0; while k < self.cx.io_observers.len() { let list = std::mem::take(&mut self.cx.io_observers[k].3); let ob = self.cx.io_observers[k].0.clone(); k += 1; if list.is_empty() { continue; } let cb = ob.borrow().f0.clone(); let list = js::array(list); if let Err(e) = self.task(dom, false, |cx| cb(cx, list, ob)) { eprintln!(\"runic: uncaught exception in an IntersectionObserver callback: {e}\"); } } None }".to_string(),
+        ),
+        None => (String::new(), String::new(), String::new(), "None".to_string()),
+    };
     let resize_step = match resize {
         Some((ro, runic_ir::builtins::ResizeShape { entry, rect, size })) => format!(
             "fn resize_step(&mut self, dom: &mut Dom) -> bool {{\n\
@@ -2751,14 +2786,18 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{io_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{io_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
     out.push_str(HOST_SERVICES);
+    // @floating-ui/dom's computePosition (M6 overlays).
+    if let Some(shape) = floating::shape(p) {
+        out.push_str(&floating::glue(p, &shape));
+    }
     out.push_str(INSTANCE_SERVICES);
     derived_fields(p, &mut out);
     // Functions.
@@ -2884,7 +2923,7 @@ pub fn generate(
         out,
         "pub struct App {{ cx: Cx, inst: I{ri}, t: Rc<RefCell<T{ri}>>, root: Option<(NodeId, Box<S{root}>)> }}\n\
          impl App {{\n\
-         fn free(&mut self, dom: &mut Dom) {{ for k in dom.take_freed() {{ self.cx.listeners[k as usize] = None; self.cx.free.push(k); }} }}\n\
+         fn free(&mut self, dom: &mut Dom) {{ for k in dom.take_freed() {{ self.cx.listeners[k as usize] = None; self.cx.free.push(k); self.cx.element_host.retain(|h| h.3 != k); }} }}\n\
          /// Run a task (event listeners or a timer callback), its microtask checkpoint and the default tasks it queued.\n\
          fn task(&mut self, dom: &mut Dom, event: bool, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
@@ -2992,6 +3031,7 @@ pub fn generate(
          {restore_controlled}\
          first.map_or(Ok(()), Err)\n}}\n\
          fn host_listeners(&self, window: bool, event: Event) -> Vec<u32> {{ self.cx.host.iter().filter(|h| h.0 == window && h.1 == event).map(|h| h.3).collect() }}\n\
+         fn viewport_listeners(&self, event: Event) -> Vec<u32> {{ self.cx.viewport_host.iter().filter(|h| h.0 == event).map(|h| h.2).collect() }}\n\
          fn media_changed(&mut self) -> Vec<(js::Event, Vec<u32>)> {{ self.cx.media = runic_runtime::media_env(); let mut lists: Vec<js::MediaQueryList> = Vec::new(); for h in &self.cx.media_host {{ if !lists.contains(&h.0) {{ lists.push(h.0.clone()); }} }} lists.sort_by_key(|l| l.order()); let mut out = Vec::new(); for list in lists {{ let m = runic_runtime::css::media_matches(list.query(), &self.cx.media).unwrap_or(false); if list.update(m) {{ let keys = self.cx.media_host.iter().filter(|h| h.0 == list).map(|h| h.2).collect(); out.push((js::Event::new(js::EventData {{ kind: JsString::from(\"change\"), matches: m, ..Default::default() }}), keys)); }} }} out }}\n\
          fn advance(&mut self, dom: &mut Dom, to: f64) {{\n\
          while let Some((_, cb)) = self.cx.timers.take_due(to) {{\n\
@@ -3014,10 +3054,12 @@ pub fn generate(
          }},\n\
          HostTask::HashChange => Some(Event::Hashchange),\n\
          HostTask::Reply(p) => {{ let r = self.task(dom, false, |cx| {{ runic_runtime::promises::settle(cx, &p, Ok(())); Ok(()) }}); if let Err(e) = r {{ eprintln!(\"runic: uncaught exception: {{e}}\"); }} None }}\n\
+         HostTask::Intersection => {io_notify}\n\
          }})\n\
          }}\n\
          fn traverse(&mut self, delta: i64) {{ self.cx.host_tasks.push_back(HostTask::Traverse(delta)); }}\n\
          {resize_step}\
+         {io_step}\
          fn hashchange(&mut self) {{ self.cx.host_tasks.push_back(HostTask::HashChange); }}\n\
          fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
          fn now(&self) -> f64 {{ self.cx.timers.now }}\n\

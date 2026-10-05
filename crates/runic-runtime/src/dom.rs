@@ -319,7 +319,7 @@ impl Host {
         }
     }
 
-    fn dom(&self) -> Option<Dom<'_>> {
+    pub(crate) fn dom(&self) -> Option<Dom<'_>> {
         // SAFETY: attached only while the generated app runs app code inside
         // a runtime call that holds the document; that call does not use the
         // document while app code runs.
@@ -336,6 +336,49 @@ impl Host {
     pub fn rect(&self, node: u64) -> [f64; 8] {
         self.dom().map_or([0.0; 8], |dom| {
             crate::layout::rect(dom.doc, NodeId::from_u64(node))
+        })
+    }
+
+    /// `getClientRects()` of `node`: its border box (as `rect`), or none
+    /// where it has no box. The line boxes of an inline element are not
+    /// covered (reported unsupported; its bounding box stands for them).
+    pub fn client_rects(&self, node: u64) -> Vec<[f64; 8]> {
+        self.dom().map_or(vec![], |dom| {
+            crate::layout::client_rects(dom.doc, NodeId::from_u64(node))
+        })
+    }
+
+    /// A listener added by script (`addEventListener`): `key` receives
+    /// `event` at `node`, as a template listener does.
+    pub fn listen_element(&self, node: u64, event: Event, key: u32) {
+        if let Some(mut dom) = self.dom() {
+            dom.listen(NodeId::from_u64(node), event, key);
+        }
+    }
+
+    /// Remove a listener added by script (`removeEventListener`); its key is
+    /// released. A listener of a removed element was released with it.
+    pub fn unlisten_element(&self, node: u64, key: u32) {
+        if let Some(mut dom) = self.dom() {
+            let node = NodeId::from_u64(node);
+            if dom
+                .listeners
+                .map
+                .get(&node)
+                .is_some_and(|l| l.iter().any(|(_, k)| *k == key))
+            {
+                dom.unlisten(node, key);
+            }
+        }
+    }
+
+    /// A metric of the document element (`document.documentElement.clientWidth`).
+    pub fn root_metric(&self, name: &str) -> f64 {
+        self.dom().map_or(0.0, |dom| {
+            let Some(root) = dom.doc.try_root_element().map(|r| r.id) else {
+                return 0.0;
+            };
+            crate::layout::metric(dom.doc, root, name)
         })
     }
 
@@ -784,6 +827,16 @@ impl Dom<'_> {
     /// width, height; device-pixel content box width, height.
     pub fn observed_sizes(&self, node: u64) -> [f64; 8] {
         crate::layout::observed_sizes(self.doc, NodeId::from_u64(node))
+    }
+
+    /// IntersectionObserver geometry of element `node` (M6 overlays,
+    /// `layout::intersection`) against the viewport grown by `margins`.
+    pub fn intersection(
+        &mut self,
+        node: u64,
+        margins: &[runic_js::intersection::Margin; 4],
+    ) -> crate::layout::Intersection {
+        crate::layout::intersection(self.doc, NodeId::from_u64(node), margins)
     }
 
     /// The depth of element `node` in the document.
