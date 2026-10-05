@@ -1364,7 +1364,7 @@ pub fn from_json(t: &Type, j: &str, p: &Program) -> String {
             from_json(i, "x", p),
             bad("array")
         ),
-        Type::Record(r) => format!("json_from_r{r}({j})"),
+        Type::Record(r) => format!("json_from_r{r}(&{j})"),
         _ => bad("value"),
     }
 }

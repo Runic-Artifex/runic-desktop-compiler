@@ -3,9 +3,15 @@
 // highlight-code.ts. Evaluated at generation natively (a table of responses
 // by URL); prerendered by Kit for the browser reference.
 import { json } from '@sveltejs/kit';
+import { components } from '$content/index.js';
 import { highlightCode } from '$lib/highlight-code.js';
 
 export const prerender = true;
+
+// The blocks to prerender: Kit's crawl finds no fetches without server rendering.
+export function entries() {
+  return components.map(doc => ({ block: doc.slug }));
+}
 
 export interface HighlightedFile {
   target: string;
