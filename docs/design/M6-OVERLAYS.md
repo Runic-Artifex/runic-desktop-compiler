@@ -18,7 +18,7 @@ What bits-ui's overlays need (Dialog, AlertDialog, Popover, Tooltip, DropdownMen
 - **`MutationObserver`** covers the child-list and attribute observations the focus scope makes, delivered as microtasks after the DOM change, as in Chromium. Other options are rejected.
 - **Focus scopes and dismissal** compile from bits-ui's source over these: document `focusin`/`pointerdown` listeners, the `Escape` layer stack, and `document.activeElement`.
 - **Scroll lock** sets `overflow: hidden` on the body and compensates the scrollbar width. Chromium's scrollbar width in the conformance browser must be measured; Blitz's overlay scrollbars take no width. A difference is a recorded gap, not a silent offset.
-- **Presence** needs `element.getAnimations()` for real: the running CSS animations and transitions of an element, with `finished` settling at their end on the runtime's timeline. This needs a fork accessor for Blitz's animation set. Until then, the current empty-only implementation stays, and running animations are reported unsupported.
+- **Presence** needs `element.getAnimations()` for real: the running CSS animations and transitions of an element, with `finished` settling at their end on the runtime's timeline, through the fork's accessor for Blitz's animation set. Done in step 4 (below).
 - **`esm-env`** is a pack: `BROWSER` true, `DEV` false.
 
 ## Order
@@ -85,3 +85,9 @@ Each component gets a case against Chromium from its shadcn-svelte demo, with ke
   - tabbable;
   - MutationObserver's `childList`.
 - tw-animate-css's presence animations were therefore not reached.
+
+**Step 4: `getAnimations` for presence. Done for the content animations** (branch `m6-presence`; [design](M6-LIBRARIES.md#animations), [contract](../CONTRACT.md)).
+- Animation objects are an IR type with `finished`, `playState` and `pending`; the runtime matches Stylo's animations to them after every style resolution and settles `finished` with Chromium's timing (cancellations at the cancelling style resolution, finishes at the frame's animation step, before it renders).
+- bits-ui's `PresenceManager` and `AnimationsComplete` run unchanged: cases `bits-accordion` and `bits-accordion-multiple` with the site's tw-animate-css content animations (their ease-out frames are a known gap: Stylo's easing epsilon), and `bits-collapsible` with an animated collapsible (linear), opened, closed and reversed while running.
+- Found on the way: Stylo cancels an animation without recascading its element, so bits-ui's measurement (`animation-name: none`, then `getBoundingClientRect`) read the animated height; the runtime restyles such elements again ([gaps](../BLITZ-GAPS.md)).
+- The overlays' enter and exit (tw-animate-css `animate-in`/`animate-out`) wait for the overlays themselves (steps 2 and 3).
