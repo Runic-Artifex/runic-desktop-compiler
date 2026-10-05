@@ -72,10 +72,61 @@ struct Registry {
 
 thread_local! {
     static REGISTRY: RefCell<Registry> = RefCell::new(Registry::default());
+    /// The CSS animations (element, name) of the document after the last
+    /// resolution, while it has any (`restyle_cancelled`).
+    static ANIMATED: RefCell<Vec<(u64, String)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The CSS animations of the document's elements: (element, name).
+fn css_animations(doc: &BaseDocument) -> Vec<(u64, String)> {
+    let mut out = Vec::new();
+    for (id, n) in doc.tree().iter() {
+        if n.element_data().is_none() {
+            continue;
+        }
+        for s in doc.animations_of(id) {
+            if let Some(name) = s.animation_name {
+                out.push((id.as_u64(), name));
+            }
+        }
+    }
+    out
+}
+
+/// The elements whose CSS animation the last resolution cancelled while
+/// they stay rendered (their style no longer names it). Stylo cancels it
+/// without recascading the element (`update_animations_for_new_style`
+/// does not mark the animation set dirty), so the element keeps the
+/// animation's last values until it is next restyled, where Chromium
+/// shows the unanimated style at once: such elements are restyled again
+/// (docs/BLITZ-GAPS.md).
+pub(crate) fn restyle_cancelled(doc: &BaseDocument) -> Vec<NodeId> {
+    let tracking = REGISTRY.with(|r| r.borrow().enabled);
+    ANIMATED.with(|a| {
+        let mut a = a.borrow_mut();
+        if !(tracking || doc.is_animating() || !a.is_empty()) {
+            return Vec::new();
+        }
+        let now = css_animations(doc);
+        let mut out: Vec<NodeId> = Vec::new();
+        for (node, name) in a.iter() {
+            let id = NodeId::from_u64(*node);
+            if !now.iter().any(|(n, m)| n == node && m == name)
+                && rendered(doc, id)
+                && !names(doc, id, name)
+                && !out.contains(&id)
+            {
+                out.push(id);
+            }
+        }
+        *a = now;
+        out
+    })
 }
 
 /// A new document: track its animations if the program reads them.
 pub(crate) fn reset(enabled: bool) {
+    ANIMATED.with(|a| a.borrow_mut().clear());
     REGISTRY.with(|r| {
         *r.borrow_mut() = Registry {
             enabled,
@@ -83,6 +134,11 @@ pub(crate) fn reset(enabled: bool) {
             ..Registry::default()
         }
     });
+}
+
+/// Whether the document had CSS animations at the last resolution.
+pub(crate) fn any_animated() -> bool {
+    ANIMATED.with(|a| !a.borrow().is_empty())
 }
 
 /// Whether the document has animations to track at frames.
