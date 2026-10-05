@@ -184,7 +184,7 @@ impl NumberSpec {
 /// Rounds the decimal `digits` × 10^(`exp` + 1 − len) (first digit at
 /// 10^exp) to keep `keep` digits from the first, half away from zero.
 /// Returns the digits without trailing zeros and the new exponent.
-fn round(mut digits: Vec<u8>, mut exp: i32, keep: i32) -> (Vec<u8>, i32) {
+pub(super) fn round(mut digits: Vec<u8>, mut exp: i32, keep: i32) -> (Vec<u8>, i32) {
     if keep < 0 {
         return (vec![], exp);
     }
