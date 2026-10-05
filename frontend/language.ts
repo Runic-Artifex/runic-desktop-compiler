@@ -8333,8 +8333,13 @@ export class Lowerer {
     )
       return v;
     if (typeof t === 'object' && 'fn' in t) {
-      // Listeners under `on<event>`; other functions are callbacks (never attributes).
-      const kind = /^on([a-z]+)$/.exec(name)?.[1];
+      // Listeners under `on<event>` (or `on<event>capture`: the capture
+      // phase); other functions are callbacks (never attributes).
+      const named = /^on([a-z]+)$/.exec(name)?.[1];
+      const kind =
+        named && !EVENT_KINDS.includes(named as EventKind) && named.endsWith('capture')
+          ? named.slice(0, -'capture'.length)
+          : named;
       const listener =
         !kind ||
         (EVENT_KINDS.includes(kind as EventKind) &&

@@ -394,3 +394,28 @@ test('{@const} of a value with identity is rejected', async () => {
     },
   );
 });
+
+test('capture listeners of a bag run from the root to the target, before the others', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let log = $state('');
+  const outer = {
+    onclickcapture: () => { log += 'C'; },
+    onclick: () => { log += 'b'; },
+  };
+  const inner = {
+    onclickcapture: () => { log += 'c'; },
+  };
+</script>
+
+<div {...outer}><p {...inner}><button id="b" onclick={() => (log += 't')}>{log}</button></p></div>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.equal(text(steps[1].state.dom[0]), 'Cctb');
+    },
+  );
+});

@@ -22,8 +22,8 @@
 type Size = { width: number; height: number };
 
 export class ElementSize {
-  #size: Size = { width: 0, height: 0 };
-  #observed = false;
+  #size: Size = $state({ width: 0, height: 0 });
+  #observed = $state(false);
   #node: () => HTMLElement | null | undefined;
   #version = $state(0);
   #width = $derived.by(() => {

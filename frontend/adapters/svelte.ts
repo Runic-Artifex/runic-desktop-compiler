@@ -3231,7 +3231,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const e = exprNode(a.value.expression);
       const v = value(e);
       const t = typeOf(e, v);
-      const kind = /^on([a-z]+)$/.exec(name)?.[1];
+      const named = /^on([a-z]+)$/.exec(name)?.[1];
+      // (`on<event>capture`: a listener of the capture phase.)
+      const kind =
+        named && !EVENT_KINDS.includes(named as HandlerEvent) && named.endsWith('capture')
+          ? named.slice(0, -'capture'.length)
+          : named;
       // A callback the receiving component (or one it forwards to) declares
       // (`onOpenChange`): a function entry, never an attribute.
       if (!kind && typeof t === 'object' && 'fn' in t) return { name, value: v };
