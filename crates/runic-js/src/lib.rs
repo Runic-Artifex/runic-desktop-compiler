@@ -20,6 +20,7 @@ mod value;
 pub mod array_ops;
 pub mod date;
 pub mod env;
+pub mod floating;
 pub mod history;
 pub mod intl;
 pub mod json;
