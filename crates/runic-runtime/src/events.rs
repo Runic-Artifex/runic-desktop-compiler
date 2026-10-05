@@ -350,6 +350,7 @@ impl<A: App> Native<A> {
                 log: &mut self.log,
                 pointer: &mut self.pointer,
             };
+            handler.capture(&mut self.doc, Event::Resize, &event, false);
             handler.host(&mut self.doc, Event::Resize, &event);
             event.finish();
             // Then the visual viewport's (it resizes with the window).
@@ -934,6 +935,8 @@ impl<A: App> Handler<'_, A> {
                 })
             })
             .collect();
+        // The capture listeners of the window, then the document, first.
+        self.capture(doc, kind, &event, true);
         self.dispatch(doc, &deliveries);
         if kind.bubbles() {
             self.host(doc, kind, &event);
@@ -950,6 +953,7 @@ impl<A: App> Handler<'_, A> {
                 target: Element::DOCUMENT,
                 ..Default::default()
             });
+            self.capture(doc, Event::Scroll, &event, true);
             self.host(doc, Event::Scroll, &event);
             event.finish();
         } else if doc
@@ -964,6 +968,35 @@ impl<A: App> Handler<'_, A> {
     /// each a callback of its own (a microtask checkpoint follows it). A
     /// target's listeners are those registered when the event reaches it;
     /// one removed meanwhile is not called.
+    /// The capture listeners of the window, then (`document`) the
+    /// document's, each a callback of its own (M6 overlays).
+    fn capture(
+        &mut self,
+        doc: &mut BaseDocument,
+        kind: Event,
+        event: &runic_js::Event,
+        document: bool,
+    ) {
+        for window in [true, false] {
+            if !window && !document {
+                continue;
+            }
+            let current = if window {
+                Element::WINDOW
+            } else {
+                Element::DOCUMENT
+            };
+            for listener in self.app.capture_listeners(window, kind) {
+                let delivery = Delivery {
+                    listener,
+                    event: event.clone(),
+                    current: current.0,
+                };
+                self.dispatch(doc, &[delivery]);
+            }
+        }
+    }
+
     fn host(&mut self, doc: &mut BaseDocument, kind: Event, event: &runic_js::Event) {
         for window in [false, true] {
             let current = if window {
@@ -1028,6 +1061,7 @@ impl<A: App> Handler<'_, A> {
             target: Element::WINDOW,
             ..Default::default()
         });
+        self.capture(doc, kind, &event, false);
         self.host(doc, kind, &event);
         event.finish();
     }

@@ -176,6 +176,8 @@ export interface Hooks {
    * `$derived` in functions of rune modules), or undefined.
    */
   localRune?(d: ts.VariableDeclaration, ctx: FnBuilder, lower: Lowerer): Stmt[] | undefined;
+  /** The type a framework call (svelte/events' `on`) takes for argument `index`, if it says. */
+  argumentType?(call: ts.CallExpression, index: number, lower: Lowerer): Type | undefined;
 }
 
 /** Builds one IR function (or handler body) and its local index space. */
@@ -684,7 +686,7 @@ export class Lowerer {
         return this.fail(decl, 'E_ASYNC', 'An async function needs a Promise result type');
       return asyncBody(this, decl, b, result.promise);
     });
-    if (!voidContext && inferred) result = this.unifyReturns(lowered, b);
+    if (!voidContext && inferred) result = this.unifyReturns(lowered, b, decl);
     lowered.unshift(...this.hoistedLets(b));
     const body = remapLocals(lowered, i => b.final(i));
     const fn: Fn = {
@@ -707,7 +709,7 @@ export class Lowerer {
    * type is settled here) or a nullable value (the others are wrapped).
    * Values of different types are left to the validator.
    */
-  private unifyReturns(body: Stmt[], b: FnBuilder): Type {
+  private unifyReturns(body: Stmt[], b: FnBuilder, at: ts.Node): Type {
     const returns: Extract<Stmt, { op: 'return' }>[] = [];
     const visit = (stmts: Stmt[]) => {
       for (const st of stmts) {
@@ -723,6 +725,26 @@ export class Lowerer {
     };
     visit(body);
     const placeholder = (v: Expr) => (v.op === 'undefined' || v.op === 'null') && v.type === 'void';
+    // `return []` (above): the array type of the other returns.
+    const emptyArray = (v: Expr) =>
+      v.op === 'array' &&
+      !v.items.length &&
+      typeof v.type === 'object' &&
+      'array' in v.type &&
+      v.type.array === 'void';
+    const arrays = returns.filter(r => emptyArray(r.value!));
+    if (arrays.length) {
+      const others = returns.filter(r => !emptyArray(r.value!) && !placeholder(r.value!));
+      const t = others.length ? this.irType(others[0].value!, b) : undefined;
+      const inner = t && (maybeInner(t) ?? t);
+      if (!(typeof inner === 'object' && 'array' in inner))
+        return this.fail(
+          at,
+          'E_TYPE_UNSUPPORTED',
+          'A function returning [] needs another return of an array type (or a result type)',
+        );
+      for (const r of arrays) (r.value as { type: Type }).type = inner;
+    }
     const concrete = returns.filter(r => !placeholder(r.value!));
     // Only `undefined`/`null` returned: no other type to take (as a literal
     // `undefined` without a contextual type).
@@ -977,6 +999,14 @@ export class Lowerer {
     // A value known at build time (literals, pack constants: esm-env's DEV).
     const value = this.staticValue(e);
     if (value) return !!value.value;
+    // A prop that takes one value at every site (bits-ui's ScrollLock's
+    // `preventScroll`, false under a Popover): its truth.
+    if (ts.isIdentifier(e) && this.domains) {
+      const sym = this.symbol(e);
+      const values =
+        sym && this.bindingOf(sym)?.kind === 'cell' ? this.domains.values(sym) : undefined;
+      if (values?.length === 1) return !!values[0];
+    }
     const K = ts.SyntaxKind;
     // (Also a member of a name or of `this`, which a decided test still
     // reads: `typeof this.opts.style` of a box, bits-ui's floating layer.)
@@ -1614,6 +1644,15 @@ export class Lowerer {
         if (facts.length)
           return [...out, ...this.withPresent(facts, () => this.block(statements.slice(i + 1), b))];
       }
+      // `if (!x) x = new C(…);` of an untyped variable the rest of the block
+      // does not assign (bits-ui's `if (!scope) scope = new FocusScope(opts)`):
+      // the rest knows `x`.
+      const created = ts.isIfStatement(s) && !s.elseStatement ? this.createdIn(s) : undefined;
+      if (created && !statements.slice(i + 1).some(r => this.assigned(created, r)))
+        return [
+          ...out,
+          ...this.withPresent([created], () => this.block(statements.slice(i + 1), b)),
+        ];
     }
     return out;
   }
@@ -1680,12 +1719,12 @@ export class Lowerer {
         {
           op: 'if',
           test: this.condition(s.expression, b),
-          then: this.withPresent(this.presentIn(s.expression, false), () =>
+          then: this.withPresent(this.presentIn(s.expression, false, s.thenStatement), () =>
             this.statement(s.thenStatement, b),
           ),
           ...(s.elseStatement
             ? {
-                else: this.withPresent(this.presentIn(s.expression, true), () =>
+                else: this.withPresent(this.presentIn(s.expression, true, s.elseStatement), () =>
                   this.statement(s.elseStatement!, b),
                 ),
               }
@@ -1708,6 +1747,22 @@ export class Lowerer {
         ];
       if (s.expression && b.result !== undefined && b.result !== 'void')
         this.expected.set(skipParens(s.expression), b.result);
+      // `return []` of a function whose result is inferred (untyped
+      // JavaScript): an empty array of the type the other returns give
+      // (`unifyReturns`).
+      if (
+        b.result === undefined &&
+        returned &&
+        ts.isArrayLiteralExpression(returned) &&
+        !returned.elements.length
+      )
+        return [
+          {
+            op: 'return',
+            value: { op: 'array', type: { array: 'void' }, items: [] },
+            ...this.src(s),
+          },
+        ];
       let value = s.expression && this.expr(s.expression, b);
       if (value && b.result === 'void' && this.irType(value, b) !== 'void')
         return [
@@ -2191,10 +2246,17 @@ export class Lowerer {
           : this.checker.getContextualType(n);
         const prop = owner && ctx && key ? this.checker.getPropertyOfType(ctx, key) : undefined;
         const t = prop ? this.checker.getTypeOfSymbol(prop) : owner ? undefined : ctx;
-        const mapped =
-          t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
-            ? this.types.tryMap(t, n)
+        // (An argument of a call the framework lowers: svelte/events' `on`.)
+        const call = n.parent;
+        const framework =
+          ts.isCallExpression(call) && call.arguments.includes(n)
+            ? this.hooks.argumentType?.(call, call.arguments.indexOf(n), this)
             : undefined;
+        const mapped =
+          framework ??
+          (t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+            ? this.types.tryMap(t, n)
+            : undefined);
         if (mapped !== undefined) {
           if (found !== undefined && !sameType(found, mapped)) conflict = true;
           found = mapped;
@@ -2645,6 +2707,16 @@ export class Lowerer {
       const host = this.hostName(skipParens(target.expression));
       if (host === 'history' || host === 'navigator' || host === 'console' || host === 'crypto')
         return this.fail(target, 'E_HOST', `${host}.${target.name.text} cannot be assigned`);
+      // A static field the class assigns (`C.name = v`, `this.name = v` in
+      // a static member).
+      const owner = skipParens(target.expression);
+      const cls =
+        owner.kind === ts.SyntaxKind.ThisKeyword
+          ? this.classes.staticThis(owner)
+          : ts.isIdentifier(owner) && this.binding(owner)?.kind === 'class'
+            ? (this.binding(owner) as { cls: ClassInfo }).cls
+            : undefined;
+      if (cls) return this.classes.staticWrite(cls, target, value, b);
     }
     const root = this.rootMember(target);
     if (root) {
@@ -3861,6 +3933,21 @@ export class Lowerer {
       }
       const left = this.expr(e.left, b);
       const lt = this.irType(left, b);
+      // `x || null` in untyped JavaScript: null of the left operand's
+      // nullable type.
+      const r0 = skipParens(e.right);
+      const nothing =
+        r0.kind === ts.SyntaxKind.NullKeyword ||
+        (ts.isIdentifier(r0) && r0.text === 'undefined' && !this.binding(r0));
+      if (
+        nothing &&
+        lt !== 'void' &&
+        this.checker.getContextualType(r0)?.flags !== undefined &&
+        this.checker.getContextualType(r0)!.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+      ) {
+        const m: Type = maybeInner(lt) ? lt : { maybe: lt };
+        this.expected.set(r0, m);
+      }
       let right = this.expr(e.right, b);
       const rt = this.irType(right, b);
       // The result type: TypeScript's (narrowed) type, or the operands' common type.
@@ -4172,6 +4259,11 @@ export class Lowerer {
   }
 
   /** The name of a host global declared in frontend/dom.d.ts (timers, clocks). */
+  /** The host global (`document`, `window`, …) an expression names, if any (`hostName`). */
+  hostOf(e: ts.Expression): string | undefined {
+    return this.hostName(skipParens(e));
+  }
+
   private hostName(e: ts.Expression, depth = 0): string | undefined {
     e = skipParens(e);
     if (depth > 8) return undefined;
@@ -4220,6 +4312,17 @@ export class Lowerer {
       if (binding?.kind === 'pack' && binding.label.startsWith('getDocument of')) return 'document';
       return undefined;
     }
+    // svelte-toolbelt's `domContext.getDocument()` and `getWindow()`, of a
+    // DOMContext whose node is the program's (the receiver has no effect).
+    if (
+      ts.isCallExpression(e) &&
+      !e.arguments.length &&
+      ts.isPropertyAccessExpression(e.expression) &&
+      ['getDocument', 'getWindow'].includes(e.expression.name.text) &&
+      plain(e.expression.expression) &&
+      this.checker.getTypeAtLocation(e.expression.expression).getSymbol()?.name === 'DOMContext'
+    )
+      return e.expression.name.text === 'getDocument' ? 'document' : 'window';
     if (!ts.isIdentifier(e)) return undefined;
     const s = this.symbol(e);
     const decl = s?.valueDeclaration ?? s?.declarations?.[0];
@@ -4487,6 +4590,18 @@ export class Lowerer {
         'E_HOST',
         `location.${method} navigates to another document, which is unsupported (assign location.hash or use history.pushState)`,
       );
+    // M6 overlays: `document.contains(node)`: whether it is in the document.
+    if (host === 'document' && method === 'contains') {
+      const [other] = e.arguments;
+      if (!other || e.arguments.length !== 1)
+        return this.fail(e, 'E_CALL', 'contains takes a node');
+      return this.maybeElementTest(this.expr(other, b), b, e, x => ({
+        op: 'builtin',
+        name: 'element.isConnected',
+        args: [x],
+        type: BOOLEAN,
+      }));
+    }
     // M6 overlays: `querySelector` of a literal selector the model covers:
     // `body` (where imperative mounts append) and `#id`; other selectors,
     // and selectors computed at run time (bits-ui's portal target), search
@@ -4613,12 +4728,24 @@ export class Lowerer {
       return { op: 'builtin', name: 'document.title', args: [], type: STRING };
     if (host === 'document' && name === 'body')
       return { op: 'builtin', name: 'document.body', args: [], type: 'element' };
+    // The focused element, the body when none is.
+    if (host === 'document' && name === 'activeElement')
+      return {
+        op: 'nullish',
+        left: { op: 'builtin', name: 'focus.current', args: [], type: { maybe: 'element' } },
+        right: { op: 'builtin', name: 'document.body', args: [], type: 'element' },
+      };
     return undefined;
   }
 
   private property(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
     const name = e.name.text;
     if (e.expression.kind === ts.SyntaxKind.SuperKeyword) return this.classes.superRead(e, b);
+    // `this.name` in a static member: the class's static member.
+    if (e.expression.kind === ts.SyntaxKind.ThisKeyword) {
+      const cls = this.classes.staticThis(e.expression);
+      if (cls) return this.classes.staticRead(cls, e, b);
+    }
     // The document element's client size (M6 overlays: floating-ui's
     // observeMove): the viewport's, without scrollbars.
     if ((name === 'clientWidth' || name === 'clientHeight') && this.isRoot(e.expression))
@@ -5076,7 +5203,7 @@ export class Lowerer {
    * The symbols of untyped locals a test proves present when it is true
    * (`negated`: when it is false).
    */
-  private presentIn(test: ts.Expression, negated: boolean): ts.Symbol[] {
+  private presentIn(test: ts.Expression, negated: boolean, branch?: ts.Statement): ts.Symbol[] {
     test = skipParens(test);
     const K = ts.SyntaxKind;
     const local = (e: ts.Expression): ts.Symbol | undefined => {
@@ -5086,19 +5213,30 @@ export class Lowerer {
       const decl = sym?.valueDeclaration;
       if (!sym || !decl || !(this.checker.getTypeAtLocation(e).flags & ts.TypeFlags.Any))
         return undefined;
-      // Constants and parameters the function never assigns.
+      // Constants and parameters the function never assigns; a variable in
+      // the branch the test leads to, up to its first assignment there
+      // (bits-ui's `else if (scope) { scope.unmount(); scope = null; }`).
       if (ts.isVariableDeclaration(decl))
-        return decl.parent.flags & ts.NodeFlags.Const ? sym : undefined;
+        return decl.parent.flags & ts.NodeFlags.Const ||
+          (branch && this.readBeforeAssigned(sym, branch))
+          ? sym
+          : undefined;
       return ts.isParameter(decl) && !this.assigned(sym, decl.parent) ? sym : undefined;
     };
     if (ts.isPrefixUnaryExpression(test) && test.operator === K.ExclamationToken)
-      return this.presentIn(test.operand, !negated);
+      return this.presentIn(test.operand, !negated, branch);
     if (ts.isBinaryExpression(test)) {
       const op = test.operatorToken.kind;
       if (op === K.AmpersandAmpersandToken && !negated)
-        return [...this.presentIn(test.left, false), ...this.presentIn(test.right, false)];
+        return [
+          ...this.presentIn(test.left, false, branch),
+          ...this.presentIn(test.right, false, branch),
+        ];
       if (op === K.BarBarToken && negated)
-        return [...this.presentIn(test.left, true), ...this.presentIn(test.right, true)];
+        return [
+          ...this.presentIn(test.left, true, branch),
+          ...this.presentIn(test.right, true, branch),
+        ];
       const nothing = (x: ts.Expression) =>
         x.kind === K.NullKeyword ||
         (ts.isIdentifier(x) && x.text === 'undefined') ||
@@ -5122,6 +5260,59 @@ export class Lowerer {
     }
     const sym = local(test);
     return sym && !negated ? [sym] : [];
+  }
+
+  /**
+   * The untyped variable `if (!x) x = new C(…)` (or `{ x = new C(…); }`)
+   * creates where it is absent, if `s` is such a statement.
+   */
+  private createdIn(s: ts.IfStatement): ts.Symbol | undefined {
+    const test = skipParens(s.expression);
+    if (!ts.isPrefixUnaryExpression(test) || test.operator !== ts.SyntaxKind.ExclamationToken)
+      return undefined;
+    const x = skipParens(test.operand);
+    if (!ts.isIdentifier(x) || !(this.checker.getTypeAtLocation(x).flags & ts.TypeFlags.Any))
+      return undefined;
+    let body: ts.Statement = s.thenStatement;
+    if (ts.isBlock(body)) {
+      if (body.statements.length !== 1) return undefined;
+      body = body.statements[0];
+    }
+    if (!ts.isExpressionStatement(body)) return undefined;
+    const e = skipParens(body.expression);
+    if (
+      !ts.isBinaryExpression(e) ||
+      e.operatorToken.kind !== ts.SyntaxKind.EqualsToken ||
+      !ts.isIdentifier(skipParens(e.left)) ||
+      !ts.isNewExpression(skipParens(e.right))
+    )
+      return undefined;
+    const sym = this.symbol(x);
+    return sym && this.symbol(skipParens(e.left)) === sym ? sym : undefined;
+  }
+
+  /**
+   * Whether `branch` reads variable `sym` only before it assigns it: no
+   * closure there refers to it, and the statements from the first one that
+   * assigns it read it no more.
+   */
+  private readBeforeAssigned(sym: ts.Symbol, branch: ts.Statement): boolean {
+    const statements = ts.isBlock(branch) ? [...branch.statements] : [branch];
+    let ok = true;
+    const refs = (n: ts.Node, inClosure: boolean, reads: boolean) => {
+      if (!ok) return;
+      if (ts.isIdentifier(n) && this.symbol(n) === sym) {
+        const target =
+          ts.isBinaryExpression(n.parent) &&
+          n.parent.left === n &&
+          n.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken;
+        if (inClosure || (!target && !reads)) ok = false;
+      }
+      ts.forEachChild(n, c => refs(c, inClosure || ts.isFunctionLike(c), reads));
+    };
+    const first = statements.findIndex(st => this.assigned(sym, st));
+    statements.forEach((st, i) => refs(st, false, first < 0 || i < first));
+    return ok;
   }
 
   /** Whether `sym` is assigned anywhere in `scope`. */
@@ -5787,6 +5978,32 @@ export class Lowerer {
           return this.fail(e, 'E_CALL', `MutationObserver ${method}() is unsupported`);
         const [target, options] = e.arguments;
         const o = options && skipParens(options);
+        // { childList: true, subtree } (M6 overlays: bits-ui's focus scope).
+        const flags = new Map<string, boolean>();
+        if (o && ts.isObjectLiteralExpression(o))
+          for (const p of o.properties) {
+            const v = ts.isPropertyAssignment(p) ? skipParens(p.initializer).kind : undefined;
+            if (p.name && (v === ts.SyntaxKind.TrueKeyword || v === ts.SyntaxKind.FalseKeyword))
+              flags.set(p.name.getText(), v === ts.SyntaxKind.TrueKeyword);
+          }
+        if (
+          target &&
+          o &&
+          ts.isObjectLiteralExpression(o) &&
+          flags.get('childList') === true &&
+          flags.size === o.properties.length &&
+          [...flags.keys()].every(k => k === 'childList' || k === 'subtree')
+        )
+          return {
+            op: 'builtin',
+            name: 'mutation.observe-children',
+            args: [
+              receiver,
+              this.coerce(target, b, 'element'),
+              { op: 'lit', value: flags.get('subtree') === true },
+            ],
+            type: 'void',
+          };
         const filter =
           o && ts.isObjectLiteralExpression(o)
             ? o.properties.find(p => p.name?.getText() === 'attributeFilter')
@@ -6013,6 +6230,15 @@ export class Lowerer {
       case 'scrollTo':
       case 'scrollBy':
         return call(method, this.scrollCoordinates(e, b), 'void');
+      // `a.contains(b)`: b is a or a descendant (false for null).
+      case 'contains': {
+        const [other] = e.arguments;
+        if (!other || e.arguments.length !== 1)
+          return this.fail(e, 'E_CALL', 'contains takes a node');
+        return this.maybeElementTest(this.expr(other, b), b, e, x =>
+          call('contains', [x], BOOLEAN),
+        );
+      }
       case 'hasAttribute':
         if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'hasAttribute takes a name');
         return call(method, [this.coerce(e.arguments[0], b, STRING)], BOOLEAN);
@@ -6491,6 +6717,27 @@ export class Lowerer {
     });
   }
 
+  /** `test(x)` of an element value, false where a nullable one is null or undefined. */
+  maybeElementTest(v: Expr, b: FnBuilder, at: ts.Node, test: (x: Expr) => Expr): Expr {
+    const t = this.irType(v, b);
+    if (t === 'element') return test(v);
+    if (JSON.stringify(t) !== JSON.stringify({ maybe: 'element' }))
+      return this.fail(at, 'E_CALL', 'contains takes an element');
+    const local = b.local('$node', t);
+    const read: Expr = { op: 'local', local };
+    return {
+      op: 'with',
+      local,
+      value: v,
+      body: {
+        op: 'cond',
+        test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: BOOLEAN },
+        then: { op: 'lit', value: false },
+        else: test({ op: 'unwrap', value: read }),
+      },
+    };
+  }
+
   /** The IR type of the result of element method `name` as frontend/dom.d.ts declares it. */
   private domMethodResult(name: string, at: ts.Node): Type {
     const dom = this.program.getSourceFiles().find(f => path.resolve(f.fileName) === DOM);
@@ -6680,16 +6927,53 @@ export class Lowerer {
         type,
       };
     }
-    // new MutationObserver(callback): a record holding the callback.
+    // new CustomEvent(type, { bubbles, cancelable }) (M6 overlays): an event
+    // created by script that is never dispatched (passed to a callback,
+    // which may cancel it).
+    if (this.hostName(e.expression) === 'CustomEvent') {
+      const [type, init, ...rest] = e.arguments ?? [];
+      if (!type || rest.length)
+        return this.fail(e, 'E_NEW', 'new CustomEvent takes a type and options');
+      let cancelable: Expr = { op: 'lit', value: false };
+      if (init) {
+        const o = skipParens(init);
+        if (!ts.isObjectLiteralExpression(o))
+          return this.fail(init, 'E_NEW', 'CustomEvent options are an object literal');
+        for (const p of o.properties) {
+          const key = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
+          if (!key || !ts.isPropertyAssignment(p))
+            return this.fail(p, 'E_NEW', 'CustomEvent options have static keys');
+          if (key === 'cancelable') cancelable = this.coerce(p.initializer, b, BOOLEAN);
+          // (It is never dispatched: bubbling changes nothing.)
+          else if (
+            key === 'bubbles' &&
+            [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(
+              skipParens(p.initializer).kind,
+            )
+          ) {
+            // nothing
+          } else return this.fail(p, 'E_NEW', `CustomEvent option ${key} is not covered`);
+        }
+      }
+      return {
+        op: 'builtin',
+        name: 'event.new',
+        args: [this.coerce(type, b, STRING), cancelable],
+        type: 'event',
+      };
+    }
+    // new MutationObserver(callback): a record holding the callback,
+    // registered in creation order (notifications follow it).
     if (this.hostName(e.expression) === 'MutationObserver') {
       const [cb] = e.arguments ?? [];
       const type = this.types.of(e);
       if (!cb || e.arguments!.length !== 1 || typeof type !== 'object' || !('record' in type))
         return this.fail(e, 'E_NEW', 'new MutationObserver takes a callback');
       return {
-        op: 'record',
-        record: type.record,
-        fields: [this.coerce(cb, b, { fn: { params: [], result: 'void' } })],
+        op: 'builtin',
+        name: 'mutation.new',
+        args: [this.coerce(cb, b, { fn: { params: [], result: 'void' } })],
+        type,
       };
     }
     if (
@@ -6706,6 +6990,9 @@ export class Lowerer {
     const args = (e.arguments ?? []).map(a => this.expr(a, b));
     if (global === 'Map' || global === 'Set')
       return { op: 'builtin', name: `${global}.new`, args, type: this.exprType(e) };
+    // A WeakMap or WeakSet is a Map or Set (frontend/types.ts).
+    if ((global === 'WeakMap' || global === 'WeakSet') && !args.length)
+      return { op: 'builtin', name: `${global.slice(4)}.new`, args, type: this.exprType(e) };
     if (global && ['Error', 'TypeError', 'RangeError', 'SyntaxError'].includes(global))
       return {
         op: 'record',
@@ -6822,7 +7109,13 @@ export class Lowerer {
     const usable = (c: ts.Type) =>
       !(c.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) &&
       !(c.isUnion() && c.types.some(p => !!p.getProperty('then')));
-    const t = contextual && usable(contextual) ? contextual : this.checker.getTypeAtLocation(e);
+    // (A literal with getters whose contextual type is not implemented with
+    // getters elsewhere: its own type, which is.)
+    const getters =
+      e.properties.some(ts.isGetAccessorDeclaration) &&
+      !(contextual && this.types.accessorTypes.has(contextual));
+    const t =
+      contextual && usable(contextual) && !getters ? contextual : this.checker.getTypeAtLocation(e);
     // Attribute bags: literals with computed keys or spreads of bags, or
     // typed as one (frontend/package-modules.ts types bits-ui's `props`).
     // A dictionary (a string index signature of one value type), also with
@@ -8416,6 +8709,11 @@ export class Lowerer {
       this.isMatchAll(skipParens(only.expression))
     )
       return this.expr(only.expression, b);
+    // An empty literal where an array type is expected (`simpleBox([])` of a
+    // box of an array): that type (TypeScript's may be `never[]`).
+    const want = this.expected.get(e);
+    if (!e.elements.length && typeof want === 'object' && 'array' in want)
+      return { op: 'array', type: want, items: [] };
     // Untyped JavaScript (`any[]`): the one IR type of the elements.
     const tsType = this.checker.getTypeAtLocation(e);
     if (

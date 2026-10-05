@@ -25,6 +25,7 @@ import { tailwindVariantsPack } from './packs/tailwind-variants-3.3.1.ts';
 import { runedPack } from './packs/runed-0.35.1.ts';
 import { svelteToolbeltPack } from './packs/svelte-toolbelt-0.10.6.ts';
 import { floatingUiDomPack } from './packs/floating-ui-dom-1.7.4.ts';
+import { tabbablePack } from './packs/tabbable-6.5.0.ts';
 
 type Source = { file: string; line: number; column: number };
 
@@ -176,6 +177,7 @@ const PACKS: Pack[] = [
   cnPack,
   esmEnvPack,
   floatingUiDomPack,
+  tabbablePack,
   lucideSveltePack,
   runedPack,
   svelteToolbeltPack,

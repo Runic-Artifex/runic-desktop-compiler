@@ -175,6 +175,17 @@ pub fn intersection_observer_shape(records: &[RecordType], r: usize) -> Option<I
     ok.then_some(IntersectionShape { entry, rect })
 }
 
+/// Whether record `r` is a MutationObserver's: `MutationObserver`, one
+/// field `callback` of type `fn() -> void` (its records are not passed).
+pub fn mutation_observer_record(records: &[RecordType], r: usize) -> bool {
+    records.get(r).is_some_and(|rec| {
+        rec.name == "MutationObserver"
+            && rec.fields.len() == 1
+            && rec.fields[0].name == "callback"
+            && matches!(&rec.fields[0].ty, Type::Fn(f) if f.params.is_empty() && *f.result == Type::Void)
+    })
+}
+
 /// Whether record `r` is `DOMRect`'s (the fields of [`DOM_RECT`], numbers).
 fn dom_rect(records: &[RecordType], r: usize) -> bool {
     records.get(r).is_some_and(|r| {
@@ -210,14 +221,17 @@ pub fn needs_layout(name: &str) -> bool {
                         | "computed-style"
                 )
         }
-        // MutationObservers are reported unsupported when they observe.
-        Some(("mutation", "observe")) => true,
+        // MutationObservers are reported unsupported when they observe
+        // attributes; child lists change in the native DOM (M6 overlays).
+        Some(("mutation", "observe" | "observe-children")) => true,
         // ResizeObservers report sizes from layout (M6), IntersectionObservers
         // geometry (M6 overlays).
         Some(("resize", "observe")) => true,
         Some(("intersection", "observe")) => true,
-        // floating-ui positions from layout (M6 overlays).
+        // floating-ui positions from layout (M6 overlays), tabbable filters
+        // by it.
         Some(("floating", _)) => true,
+        Some(("focus", "tabbables" | "focusables" | "is-tabbable" | "is-focusable")) => true,
         Some(("window", m)) => WINDOW_METRICS.contains(&m) || matches!(m, "scrollTo" | "scrollBy"),
         Some(("document", "clientWidth" | "clientHeight")) => true,
         _ => false,
@@ -618,6 +632,17 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // M6 overlays: the body element (where portals mount).
         ("document", "body") => arity(args, 0, 0).map(|_| Element),
         ("focus", "current") => arity(args, 0, 0).map(|_| Maybe(Box::new(Element))),
+        // tabbable 6.5.0 (M6 overlays): the tabbable and focusable elements
+        // of a container (with it, where the flag says so), and the tests.
+        ("focus", "tabbables" | "focusables") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "container")?;
+            expect(&args[1], &b, "includeContainer").map(|_| Type::array(Element))
+        }
+        ("focus", "is-tabbable" | "is-focusable") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "element").map(|_| b.clone())
+        }
         ("focus", "reset") => arity(args, 0, 0).map(|_| Void),
         ("focus", "start") => {
             arity(args, 1, 1)?;
@@ -700,7 +725,8 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // Window, document and visual viewport listeners: the event kind (a
         // literal, checked by the validator) and a listener taking the event
         // or nothing.
-        ("window" | "document" | "visual-viewport", "listen" | "unlisten") => {
+        ("window" | "document" | "visual-viewport", "listen" | "unlisten")
+        | ("window" | "document", "listen-capture" | "unlisten-capture") => {
             arity(args, 2, 2)?;
             expect(&args[0], &s, "event kind")?;
             match &args[1] {
@@ -710,6 +736,13 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                     other.name()
                 )),
             }
+        }
+        // An event created by script (M6 overlays: `new CustomEvent(type,
+        // { cancelable })`), never dispatched.
+        ("event", "new") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &s, "type")?;
+            expect(&args[1], &b, "cancelable").map(|_| Event)
         }
         // Event objects (docs/design/M5-PLATFORM.md).
         ("event", m) => {
@@ -832,6 +865,12 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| s.clone())
         }
+        // `a.contains(b)` (M6 overlays): b is a or one of its descendants.
+        ("element", "contains") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Element, "other").map(|_| b.clone())
+        }
         ("element", "parent") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(Element)))
@@ -894,7 +933,28 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 )),
             }
         }
-        // MutationObserver records hold their callback.
+        // MutationObserver records hold their callback (M6 overlays: created
+        // in order by `mutation.new`, observing child lists).
+        ("mutation", "new") => {
+            arity(args, 1, 1)?;
+            match declared {
+                Record(r) if mutation_observer_record(records, *r) => {
+                    expect(&args[0], &records[*r].fields[0].ty, "callback").map(|_| declared.clone())
+                }
+                other => Err(format!(
+                    "mutation.new returns a MutationObserver record, found {}",
+                    other.name()
+                )),
+            }
+        }
+        ("mutation", "observe-children") => {
+            arity(args, 3, 3)?;
+            if !matches!(args[0], Record(_)) {
+                return Err("the receiver must be an observer record".into());
+            }
+            expect(&args[1], &Element, "target")?;
+            expect(&args[2], &b, "subtree").map(|_| Void)
+        }
         ("mutation", "observe") => {
             arity(args, 3, 3)?;
             if !matches!(args[0], Record(_)) {

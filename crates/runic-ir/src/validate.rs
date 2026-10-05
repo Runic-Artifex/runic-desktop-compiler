@@ -333,12 +333,14 @@ fn check_library_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Re
         "element.style-get" | "element.style-set" => need(1, "property name"),
         // Element listeners added by script: `beforematch`, which the
         // runtime never fires (it has no find-in-page), and `scroll`.
+        // M6 overlays: and the element events (bits-ui's `on(node, "keydown", f)`).
         "element.listen" | "element.unlisten" => match literal(1) {
-            Some("beforematch" | "scroll") => Ok(()),
+            Some("beforematch") => Ok(()),
+            Some(k) if crate::EventKind::parse(k).is_some_and(|k| !k.window_only()) => Ok(()),
             _ => err(
                 "E_BUILTIN",
                 format!(
-                    "{name}: element listeners added by script are supported for beforematch and scroll"
+                    "{name}: element listeners added by script are supported for beforematch and the element events"
                 ),
                 src,
             ),
@@ -1037,7 +1039,14 @@ impl<'a> Scope<'a> {
                 }
                 if matches!(
                     name.as_str(),
-                    "window.listen" | "window.unlisten" | "document.listen" | "document.unlisten"
+                    "window.listen"
+                        | "window.unlisten"
+                        | "document.listen"
+                        | "document.unlisten"
+                        | "window.listen-capture"
+                        | "window.unlisten-capture"
+                        | "document.listen-capture"
+                        | "document.unlisten-capture"
                 ) {
                     let kind = match args.first() {
                         Some(Lit {

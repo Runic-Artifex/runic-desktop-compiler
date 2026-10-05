@@ -48,6 +48,8 @@ interface HTMLElement {
   readonly id: string;
   querySelectorAll(selectors: string): HTMLElement[];
   querySelector(selectors: string): HTMLElement | null;
+  /** M6 overlays: whether the node is this element or one of its descendants. */
+  contains(other: HTMLElement | null): boolean;
   requestSubmit(): void;
   // M6 overlays (floating-ui's autoUpdate): listeners added by script.
   addEventListener(type: 'scroll', listener: (event: Event) => void): void;
@@ -193,6 +195,10 @@ interface Event {
   stopImmediatePropagation(): void;
 }
 interface UIEvent extends Event {}
+/** M6 overlays (bits-ui's focus scope): an event created by script, never dispatched. */
+declare var CustomEvent: {
+  new (type: string, init?: { bubbles?: boolean; cancelable?: boolean }): Event;
+};
 interface InputEvent extends UIEvent {}
 interface KeyboardEvent extends UIEvent {
   readonly key: string;
@@ -356,6 +362,10 @@ interface HostDocument extends HostEventTarget {
   readonly body: HTMLElement;
   /** M6 overlays: a literal selector, `body` or `#id`. */
   querySelector(selectors: string): HTMLElement | null;
+  /** M6 overlays: the focused element (the body when none is). */
+  readonly activeElement: HTMLElement | null;
+  /** M6 overlays: whether the element is in the document. */
+  contains(other: HTMLElement | null): boolean;
 }
 
 /**

@@ -386,9 +386,11 @@ export class TypeMapper {
       }
       return { array: this.map(args[0], at) };
     }
-    if ((name === 'Map' || name === 'ReadonlyMap') && args.length === 2)
+    // (A WeakMap or WeakSet is a Map or Set: neither is iterable, and what
+    // they keep alive is not observable.)
+    if ((name === 'Map' || name === 'ReadonlyMap' || name === 'WeakMap') && args.length === 2)
       return { map: [this.map(args[0], at), this.map(args[1], at)] };
-    if ((name === 'Set' || name === 'ReadonlySet') && args.length === 1)
+    if ((name === 'Set' || name === 'ReadonlySet' || name === 'WeakSet') && args.length === 1)
       return { set: this.map(args[0], at) };
     const calls = t.getCallSignatures();
     if (calls.length) {
@@ -505,7 +507,14 @@ export class TypeMapper {
       fields: [],
     };
     this.records.push(placeholder);
-    const accessors = this.accessorTypes.has(t);
+    // (Also the widened type of such a literal: a function's inferred
+    // result, declared by the literal with getters.)
+    const literalDecl = t.symbol?.declarations?.[0];
+    const accessors =
+      this.accessorTypes.has(t) ||
+      (!!literalDecl &&
+        ts.isObjectLiteralExpression(literalDecl) &&
+        literalDecl.properties.some(ts.isGetAccessorDeclaration));
     for (const p of this.checker.getPropertiesOfType(t)) {
       const decl = p.valueDeclaration ?? p.declarations?.[0];
       let pt = this.checker.getTypeOfSymbolAtLocation(p, decl ?? at);
@@ -608,7 +617,9 @@ export class TypeMapper {
     if (markers.some(m => t.getProperty(m))) return false;
     if (this.checker.isArrayType(t) || this.checker.isTupleType(t)) return false;
     const s = t.symbol?.name;
-    return !(s && ['Map', 'Set', 'Promise', 'Date', 'RegExp', 'Array'].includes(s));
+    return !(
+      s && ['Map', 'Set', 'WeakMap', 'WeakSet', 'Promise', 'Date', 'RegExp', 'Array'].includes(s)
+    );
   }
 
   /** The member types of property `name` of each union member (undefined where absent or optional). */

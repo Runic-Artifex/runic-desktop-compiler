@@ -93,7 +93,12 @@ interface Member {
 
 type Static =
   | { kind: 'method'; method: Callable }
-  | { kind: 'field'; global: number; decl: ts.PropertyDeclaration };
+  | { kind: 'field'; global: number; decl: ts.PropertyDeclaration }
+  /**
+   * A static field the class assigns (FocusScopeManager's lazily created
+   * `static instance`): a global record of one field holding its value.
+   */
+  | { kind: 'cell'; global: number; type: Type; decl: ts.PropertyDeclaration };
 
 /** What a member name means on an instance of one class. */
 type Target =
@@ -1149,9 +1154,44 @@ export class Classes {
             m,
             'Static fields of a class declared in a component script would belong to each instance; declare the class in a module',
           );
-        if (!m.initializer) this.fail(m, 'Static fields need an initialiser');
-        if (!modifier(m, ts.SyntaxKind.ReadonlyKeyword) && this.assignedStatic(info, name))
-          this.fail(m, 'Static fields are module constants; assigning them is unsupported');
+        const assigned =
+          !modifier(m, ts.SyntaxKind.ReadonlyKeyword) && this.assignedStatic(info, name);
+        if (!m.initializer || assigned) {
+          // A static field the class assigns: a global record of its value
+          // (undefined until assigned, without an initialiser).
+          const declared = lower.types.typeOrUndefined(m.name);
+          if (declared === undefined)
+            this.fail(m, 'Static fields need an initialiser or a declared type');
+          const type: Type =
+            m.initializer || maybeInner(declared!) ? declared! : { maybe: declared! };
+          const record = lower.types.records.length;
+          lower.types.records.push({
+            name: `${info.name}.${name}`,
+            class: true,
+            fields: [{ name: 'value', type }],
+          });
+          const global = lower.globals.length;
+          lower.globals.push({
+            name: `${info.name}.${name}`,
+            type: { record },
+            init: {
+              op: 'record',
+              record,
+              fields: [{ op: 'undefined', type: maybeInner(type) ? type : { maybe: type } }],
+            },
+          });
+          info.statics.set(name, { kind: 'cell', global, type, decl: m });
+          if (m.initializer)
+            pending.push(() => {
+              lower.globals[global].init = {
+                op: 'record',
+                record,
+                fields: [lower.value(m.initializer!, undefined, `${info.name}.${name}`)],
+              };
+            });
+          else if (!maybeInner(type)) this.fail(m, 'Static fields need an initialiser');
+          continue;
+        }
         const type = lower.exprType(m.initializer!);
         const global = lower.globals.length;
         lower.globals.push({
@@ -1190,8 +1230,11 @@ export class Classes {
         if (
           ts.isPropertyAccessExpression(t) &&
           t.name.text === name &&
-          ts.isIdentifier(t.expression) &&
-          this.subtree(info).some(c => this.lower.symbol(t.expression) === c.symbol)
+          ((ts.isIdentifier(t.expression) &&
+            this.subtree(info).some(c => this.lower.symbol(t.expression) === c.symbol)) ||
+            // `this.name = …` in a static member of the class.
+            (t.expression.kind === ts.SyntaxKind.ThisKeyword &&
+              this.staticContainer(t.expression) === info.decl))
         )
           found = true;
       }
@@ -1213,9 +1256,21 @@ export class Classes {
       p => !p.type && lower.types.typeOrUndefined(p) === undefined,
     );
     if (untyped) return { decl, name, specs: new Map() };
-    const fn = lower.reserve();
     const sig = lower.checker.getSignatureFromDeclaration(decl);
     const ret = sig?.getReturnType();
+    // A result type outside the value model or unknown in untyped package
+    // JavaScript (tabbable's `FocusableElement[]`): the type of the values it returns,
+    // as for untyped parameters.
+    if (
+      !ts.isConstructorDeclaration(decl) &&
+      !ts.isSetAccessor(decl) &&
+      ret &&
+      /\.js\.__runic\.ts$/.test(decl.getSourceFile().fileName) &&
+      (ret.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) ||
+        lower.types.tryMap(ret, decl) === undefined)
+    )
+      return { decl, name, specs: new Map() };
+    const fn = lower.reserve();
     const result: Type = ts.isConstructorDeclaration(decl)
       ? { record: info.record }
       : ts.isSetAccessor(decl)
@@ -2591,12 +2646,77 @@ export class Classes {
     return undefined;
   }
 
+  /** The class declaration whose static member `this` (node) is in, if it is. */
+  private staticContainer(node: ts.Node): ts.ClassDeclaration | undefined {
+    const { container } = this.thisContainer(node);
+    return container &&
+      ts.isClassElement(container) &&
+      isStatic(container) &&
+      ts.isClassDeclaration(container.parent)
+      ? container.parent
+      : undefined;
+  }
+
+  /**
+   * The class `this` (node) is in a static member of, where it names that
+   * class: one without subclasses (on which a static member could be
+   * called with another `this`).
+   */
+  staticThis(node: ts.Node): ClassInfo | undefined {
+    const decl = this.staticContainer(node);
+    if (!decl?.name) return undefined;
+    const sym = this.lower.checker.getSymbolAtLocation(decl.name);
+    const info = sym && this.bySymbol.get(sym);
+    if (!info) return undefined;
+    if (info.subclasses.length)
+      return this.fail(
+        node,
+        `this in a static member of ${info.name}, which has subclasses, is the class it is called on; use the class name`,
+      );
+    return info;
+  }
+
+  /** `C.name = value` (or `this.name` in a static member) of an assigned static field. */
+  staticWrite(info: ClassInfo, e: ts.PropertyAccessExpression, value: Expr, b: FnBuilder): Stmt[] {
+    this.ensureDeclared(info, e);
+    const found = this.findStatic(info, e.name.text);
+    const s = found?.s;
+    if (s?.kind !== 'cell') return this.fail(e, `${info.name}.${e.name.text} cannot be assigned`);
+    // (Assigned through a subclass, JavaScript gives the subclass a field of
+    // its own.)
+    if (found!.owner !== info)
+      return this.fail(
+        e,
+        `${info.name}.${e.name.text} is declared by ${found!.owner.name}: assigning it through ${info.name} would give ${info.name} a static field of its own; assign ${found!.owner.name}.${e.name.text}`,
+      );
+    const have = this.lower.irType(value, b);
+    const fitted: Expr =
+      maybeInner(s.type) && JSON.stringify(have) === JSON.stringify(maybeInner(s.type))
+        ? { op: 'some', value }
+        : value;
+    return [
+      {
+        op: 'assign',
+        target: { place: 'field', object: { op: 'global', global: s.global }, field: 0 },
+        value: fitted,
+      },
+    ];
+  }
+
   /** `C.name` */
   staticRead(info: ClassInfo, e: ts.PropertyAccessExpression, _b: FnBuilder): Expr {
     this.ensureDeclared(info, e);
     const found = this.findStatic(info, e.name.text);
     const s = found?.s;
     if (s?.kind === 'field') return { op: 'global', global: s.global };
+    if (s?.kind === 'cell') {
+      const read: Expr = { op: 'get', object: { op: 'global', global: s.global }, field: 0 };
+      // Narrowed by TypeScript where it is read (after it was assigned).
+      const here = this.lower.types.typeOrUndefined(e);
+      return maybeInner(s.type) && here !== undefined && here !== 'void' && !maybeInner(here)
+        ? { op: 'unwrap', value: read }
+        : read;
+    }
     if (s?.kind === 'method') {
       if (s.method.fn === undefined)
         return this.fail(

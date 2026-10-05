@@ -179,6 +179,8 @@ pub(crate) struct Listeners {
     freed: Vec<u32>,
     /// An element that lost focus because a list move detached it.
     pub(crate) blurred: Option<NodeId>,
+    /// Parents whose child lists changed (MutationObserver, M6 overlays).
+    pub(crate) child_mutations: Vec<NodeId>,
     /// Inputs whose value was set by script before their editor existed: the
     /// caret moves to the end once the editor is created (as `input.value = v`).
     pending_caret: Vec<NodeId>,
@@ -541,6 +543,22 @@ impl Host {
 
     /// The parent element inside the app's DOM: none for the app's
     /// top-level elements (whose parent is the mount container).
+    /// `a.contains(b)`: `b` is `a` or one of its descendants.
+    pub fn contains(&self, a: u64, b: u64) -> bool {
+        let Some(dom) = self.dom() else {
+            return a == b;
+        };
+        let a = NodeId::from_u64(a);
+        let mut at = Some(NodeId::from_u64(b));
+        while let Some(n) = at {
+            if n == a {
+                return true;
+            }
+            at = dom.doc.get_node(n).and_then(|x| x.parent);
+        }
+        false
+    }
+
     pub fn parent_element(&self, node: u64) -> Option<u64> {
         let dom = self.dom()?;
         let parent = dom.doc.get_node(NodeId::from_u64(node))?.parent?;
@@ -957,12 +975,14 @@ impl Dom<'_> {
     }
 
     pub fn append(&mut self, parent: NodeId, child: NodeId) {
+        self.listeners.child_mutations.push(parent);
         self.doc.mutate().append_children(parent, &[child]);
         self.radios_connected(&[child]);
     }
 
     /// Insert `child` into `parent` before `before`, or append.
     pub fn insert(&mut self, parent: NodeId, child: NodeId, before: Option<NodeId>) {
+        self.listeners.child_mutations.push(parent);
         let mut m = self.doc.mutate();
         match before {
             Some(anchor) => m.insert_nodes_before(anchor, &[child]),
@@ -974,6 +994,9 @@ impl Dom<'_> {
 
     /// Detach and free a subtree, dropping its listener registrations.
     pub fn remove(&mut self, node: NodeId) {
+        if let Some(parent) = self.doc.get_node(node).and_then(|n| n.parent) {
+            self.listeners.child_mutations.push(parent);
+        }
         let Listeners { map, freed, .. } = &mut *self.listeners;
         self.doc
             .mutate()
@@ -1012,6 +1035,30 @@ impl Dom<'_> {
         vec![]
     }
 
+    /// Parents whose child lists changed since the last call (node ids).
+    pub fn take_child_mutations(&mut self) -> Vec<u64> {
+        let mut out: Vec<u64> = Vec::new();
+        for n in std::mem::take(&mut self.listeners.child_mutations) {
+            if !out.contains(&n.as_u64()) {
+                out.push(n.as_u64());
+            }
+        }
+        out
+    }
+
+    /// Whether node `b` is `a` or one of its descendants.
+    pub fn contains(&self, a: u64, b: u64) -> bool {
+        let a = NodeId::from_u64(a);
+        let mut at = Some(NodeId::from_u64(b));
+        while let Some(n) = at {
+            if n == a {
+                return true;
+            }
+            at = self.doc.get_node(n).and_then(|x| x.parent);
+        }
+        false
+    }
+
     /// Listener keys released by removed elements since the last call.
     pub fn take_freed(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.listeners.freed)
@@ -1024,6 +1071,13 @@ impl Dom<'_> {
         if nodes.is_empty() {
             return;
         }
+        // (Moved nodes leave their old parents' child lists too.)
+        for &n in nodes {
+            if let Some(old) = self.doc.get_node(n).and_then(|x| x.parent) {
+                self.listeners.child_mutations.push(old);
+            }
+        }
+        self.listeners.child_mutations.push(parent);
         if let Some(focused) = self.doc.get_focussed_node_id() {
             let mut cur = Some(focused);
             while let Some(c) = cur {

@@ -9,6 +9,11 @@ use runic_ir::{Expr, Program, Type, Value};
 /// An IR function `f` of type `fty` as a promise handler: it receives the
 /// value (or, for rejections, the Error record of the exception) and its
 /// result settles the derived promise (a returned promise is adopted).
+/// Whether the program has a MutationObserver record (its app tracks child lists).
+fn p_has_mutation(cx: &FnCtx) -> bool {
+    (0..cx.p.records.len()).any(|r| runic_ir::builtins::mutation_observer_record(&cx.p.records, r))
+}
+
 fn promise_handler(fty: &Type, f: &str, error: Option<usize>, settles: Option<&Type>) -> String {
     let Type::Fn(sig) = fty else {
         unreachable!("validated handler")
@@ -334,6 +339,12 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             t[0]
         ),
         ("focus", "current") => "(match cx.dom.focused() { Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null })".into(),
+        ("focus", m @ ("tabbables" | "focusables")) => format!(
+            "js::array(cx.dom.{m}({}.0, {}).into_iter().map(js::Element).collect())",
+            t[0], t[1]
+        ),
+        ("focus", "is-tabbable") => format!("cx.dom.is_tabbable({}.0)", t[0]),
+        ("focus", "is-focusable") => format!("cx.dom.is_focusable({}.0)", t[0]),
         ("focus", "start") => format!("{{ cx.dom.focus_start({}.0); }}", t[0]),
         ("focus", "reset") => "{ let events = cx.dom.reset_focus(); run_nested(cx, events); }".into(),
         ("url", "resolve") => format!(
@@ -535,6 +546,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             t[0], t[1]
         ),
         ("element", "localName") => format!("JsString::from(cx.dom.local_name({}.0))", t[0]),
+        ("element", "contains") => format!("cx.dom.contains({}.0, {}.0)", t[0], t[1]),
         ("element", "parent") => format!(
             "(match cx.dom.parent_element({}.0) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
             t[0]
@@ -590,6 +602,27 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("mutation", "observe") => format!(
             "{{ let _ = (&{}, &{}, &{}); runic_runtime::unsupported(\"MutationObserver.observe\"); }}",
             t[0], t[1], t[2]
+        ),
+        // MutationObservers of child lists (M6 overlays): registered in
+        // creation order; observations are (observer, target, subtree),
+        // notified by the app's `mutation_step`.
+        ("mutation", "new") => {
+            let Type::Record(r) = ty else {
+                panic!("validated MutationObserver record")
+            };
+            format!(
+                "{{ let o = JsRef::new(R{r} {{ f0: {} }}); cx.mutation_observers.push(o.clone()); o }}",
+                t[0]
+            )
+        }
+        ("mutation", "observe-children") => format!(
+            "{{ let o = {}; let target: js::Element = {}; cx.mutation_obs.retain(|x| !(JsRef::ptr_eq(&x.0, &o) && x.1 == target.0)); cx.mutation_obs.push((o, target.0, {})); }}",
+            t[0], t[1], t[2]
+        ),
+        // Disconnecting drops its observations and pending notification.
+        ("mutation", "disconnect") if p_has_mutation(cx) => format!(
+            "{{ let o = {}; cx.mutation_obs.retain(|x| !JsRef::ptr_eq(&x.0, &o)); cx.mutation_pending.retain(|x| !JsRef::ptr_eq(x, &o)); }}",
+            t[0]
         ),
         // An observer that never observed has nothing to disconnect.
         ("mutation", "disconnect") => format!("{{ let _ = &{}; }}", t[0]),
@@ -835,6 +868,35 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 )
             }
         }
+        // Capture listeners of the window and the document (M6 overlays).
+        (target @ ("window" | "document"), m @ ("listen-capture" | "unlisten-capture")) => {
+            let Some(Expr::Lit {
+                value: runic_ir::Value::String(name),
+            }) = args.first()
+            else {
+                unreachable!("validated event kind")
+            };
+            let kind = format!("Event::{:?}", runic_ir::EventKind::parse(name).expect("validated kind"));
+            let window = target == "window";
+            let find = format!(
+                "cx.capture_host.iter().position(|h| h.0 == {window} && h.1 == {kind} && h.2 == id)"
+            );
+            if m == "unlisten-capture" {
+                format!(
+                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.capture_host.remove(i).3; cx.listeners[key as usize] = None; cx.free.push(key); }} }}",
+                    t[1]
+                )
+            } else {
+                let call = match &types[1] {
+                    Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                    _ => "f(cx, cx.event.clone().expect(\"event context\"))",
+                };
+                format!(
+                    "{{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if {find}.is_none() {{ let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); let key = cx.listen(g); cx.capture_host.push(({window}, {kind}, id, key)); }} }}",
+                    t[1]
+                )
+            }
+        }
         // Window and document listeners, identified by their function value.
         (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
             let Some(Expr::Lit {
@@ -864,9 +926,22 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 )
             }
         }
+        ("event", "new") => format!(
+            "js::Event::new(js::EventData {{ kind: {}, cancelable: {}, synthetic: true, ..Default::default() }})",
+            t[0], t[1]
+        ),
+        // (An event created by script covers only its type and cancellation.)
         ("event", m) => {
             let e = &t[0];
-            match m {
+            let guard = if matches!(
+                m,
+                "type" | "defaultPrevented" | "preventDefault" | "stopPropagation" | "stopImmediatePropagation"
+            ) {
+                String::new()
+            } else {
+                format!("if {e}.data().synthetic {{ runic_runtime::unsupported(\"{m} of an event created by script\"); }} ")
+            };
+            let body = match m {
                 "type" => format!("{e}.data().kind.clone()"),
                 "key" => format!("{e}.data().key.clone()"),
                 "code" => format!("{e}.data().code.clone()"),
@@ -898,7 +973,8 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "stopPropagation" => format!("{{ {e}.stop_propagation(); }}"),
                 "stopImmediatePropagation" => format!("{{ {e}.stop_immediate_propagation(); }}"),
                 other => unreachable!("validated event member {other}"),
-            }
+            };
+            if guard.is_empty() { body } else { format!("{{ {guard}{body} }}") }
         }
         ("maybe", m) => {
             let is_maybe = matches!(types[0], Type::Maybe(_));

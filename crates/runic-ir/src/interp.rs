@@ -700,6 +700,13 @@ pub struct Machine<'p> {
     media: runic_css::MediaEnv,
     /// Document and window listeners in registration order: (window, kind, listener).
     host_listeners: Vec<(bool, EventKind, Val)>,
+    /// Capture listeners of the document and the window (M6 overlays:
+    /// `on(document, "focusin", f, { capture: true })`), called before the
+    /// event's path.
+    capture_listeners: Vec<(bool, EventKind, Val)>,
+    /// Element listeners added by script (M6 overlays), after the
+    /// template's listeners of their element.
+    element_listeners: Vec<(u64, EventKind, Val)>,
     /// The visual viewport's listeners (M6 overlays).
     viewport_listeners: Vec<(EventKind, Val)>,
     /// MediaQueryList change listeners: each list (in creation order) with
@@ -992,6 +999,8 @@ impl<'p> Machine<'p> {
             style_states: HashMap::new(),
             replace_states: HashMap::new(),
             host_listeners: vec![],
+            capture_listeners: vec![],
+            element_listeners: vec![],
             viewport_listeners: vec![],
             media_lists: vec![],
             root: runic_css::Root::with_attrs(
@@ -2803,6 +2812,17 @@ impl<'p> Machine<'p> {
                 }
             }
             // The parent inside the program's DOM: none at its top level.
+            ("element", "contains") => {
+                let (Val::Element(a0), Val::Element(b0)) = (&a[0], &a[1]) else {
+                    panic!("validated elements")
+                };
+                let chain = chain_nodes(&self.last_tree, b0.0);
+                Val::Bool(
+                    a0 == b0
+                        || (*a0 == js::Element::BODY && chain.is_some())
+                        || chain.is_some_and(|c| c.iter().any(|n| element_id(n) == Some(a0.0))),
+                )
+            }
             ("element", "parent") => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
@@ -2825,11 +2845,39 @@ impl<'p> Machine<'p> {
                     None => Val::Null,
                 }
             }
-            // `beforematch` listeners: the runtime never fires the event;
-            // `scroll` ones: the interpreter scrolls no element.
-            ("element", "listen" | "unlisten") => Val::Undefined,
+            // `beforematch` listeners: the runtime never fires the event.
+            ("element", "listen" | "unlisten") if a[1].string().to_rust() == "beforematch" => {
+                Val::Undefined
+            }
+            // Other element listeners added by script (the interpreter
+            // scrolls no element: its `scroll` listeners are never called).
+            ("element", m @ ("listen" | "unlisten")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let kind = EventKind::parse(&a[1].string().to_rust()).expect("validated kind");
+                let f = a[2].clone();
+                let at = self
+                    .element_listeners
+                    .iter()
+                    .position(|g| g.0 == e.0 && g.1 == kind && g.2.same(&f));
+                match (m, at) {
+                    ("listen", None) => self.element_listeners.push((e.0, kind, f)),
+                    ("unlisten", Some(i)) => {
+                        self.element_listeners.remove(i);
+                    }
+                    _ => {}
+                }
+                Val::Undefined
+            }
             // An observer that never observed has nothing to disconnect.
             ("mutation", "disconnect") => Val::Undefined,
+            ("mutation", "new") => {
+                let Type::Record(r) = ty else {
+                    panic!("validated MutationObserver record")
+                };
+                Val::Record(JsRef::new(RecordData::new(*r, vec![a[0].clone()], true)))
+            }
             // ResizeObservers (M6): created as records holding their
             // callback; observing needs layout (above), so an observer that
             // never observed has nothing to stop.
@@ -3026,6 +3074,23 @@ impl<'p> Machine<'p> {
                 }
                 Val::Undefined
             }
+            (target @ ("window" | "document"), m @ ("listen-capture" | "unlisten-capture")) => {
+                let window = target == "window";
+                let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
+                let f = a[1].clone();
+                let at = self
+                    .capture_listeners
+                    .iter()
+                    .position(|g| g.0 == window && g.1 == kind && g.2.same(&f));
+                match (m, at) {
+                    ("listen-capture", None) => self.capture_listeners.push((window, kind, f)),
+                    ("unlisten-capture", Some(i)) => {
+                        self.capture_listeners.remove(i);
+                    }
+                    _ => {}
+                }
+                Val::Undefined
+            }
             (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
                 let window = target == "window";
                 let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
@@ -3044,11 +3109,32 @@ impl<'p> Machine<'p> {
                 }
                 Val::Undefined
             }
+            ("event", "new") => Val::Event(js::Event::new(js::EventData {
+                kind: a[0].string(),
+                cancelable: matches!(a[1], Val::Bool(true)),
+                synthetic: true,
+                ..Default::default()
+            })),
             ("event", m) => {
                 let Val::Event(e) = &a[0] else {
                     panic!("validated event")
                 };
                 let d = e.data();
+                if d.synthetic
+                    && !matches!(
+                        m,
+                        "type"
+                            | "defaultPrevented"
+                            | "preventDefault"
+                            | "stopPropagation"
+                            | "stopImmediatePropagation"
+                    )
+                {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        format!("{m} of an event created by script"),
+                    ));
+                }
                 match m {
                     "type" => Val::Str(d.kind.clone()),
                     "key" => Val::Str(d.key.clone()),
@@ -5412,6 +5498,7 @@ impl<'p> Machine<'p> {
                 target: js::Element::WINDOW,
                 ..Default::default()
             });
+            self.dispatch_capture(EventKind::Resize, &event, false, s);
             self.dispatch_globals(EventKind::Resize, &event, s);
             event.finish();
             // Then the visual viewport's (it resizes with the window).
@@ -5990,12 +6077,37 @@ impl<'p> Machine<'p> {
         // Without element listeners where the framework ignores events
         // dispatched during its DOM update.
         let path = if elements { path } else { vec![] };
+        // The capture listeners of the window, then the document, first.
+        for window in [true, false] {
+            let current = if window {
+                js::Element::WINDOW
+            } else {
+                js::Element::DOCUMENT
+            };
+            let listeners: Vec<Val> = self
+                .capture_listeners
+                .iter()
+                .filter(|g| g.0 == window && g.1 == kind)
+                .map(|g| g.2.clone())
+                .collect();
+            for f in listeners {
+                if !event.enter(current) {
+                    continue;
+                }
+                if let Err(t) = self.call_value(&f, vec![Val::Event(event.clone())]) {
+                    self.uncaught.push(t);
+                }
+            }
+        }
         for n in path {
             if let VNode::Element { id, listeners, .. } = n {
                 for &(k, l) in listeners {
                     if k == kind {
                         calls.push((l, *id));
                     }
+                }
+                for f in self.script_listeners(*id, kind) {
+                    calls.push((f, *id));
                 }
             }
         }
@@ -6094,6 +6206,9 @@ impl<'p> Machine<'p> {
                         entries.push((l, event.clone(), *id));
                     }
                 }
+                for f in self.script_listeners(*id, kind) {
+                    entries.push((f, event.clone(), *id));
+                }
             }
         }
         let mut second = None;
@@ -6125,6 +6240,9 @@ impl<'p> Machine<'p> {
             })
             .collect();
         s.ran |= !refs.is_empty();
+        // The capture listeners of the window, then the document, first,
+        // each a callback of its own.
+        self.dispatch_capture(kind, &event, true, s);
         // One task per event, or per listener where each listener ends with a
         // microtask checkpoint; an exception does not stop later listeners.
         let tasks: Vec<Vec<(ListenerRef, js::Event, u64)>> =
@@ -6263,6 +6381,7 @@ impl<'p> Machine<'p> {
             target: js::Element::WINDOW,
             ..Default::default()
         });
+        self.dispatch_capture(kind, &event, false, s);
         self.dispatch_globals(kind, &event, s);
         event.finish();
     }
@@ -6301,6 +6420,70 @@ impl<'p> Machine<'p> {
     /// each a callback of its own (a microtask checkpoint follows it). A
     /// target's listeners are those registered when the event reaches it;
     /// one removed meanwhile is not called.
+    /// Listener table entries (until the next render) for the listeners
+    /// script added to element `id` for `kind`, in registration order.
+    fn script_listeners(&mut self, id: u64, kind: EventKind) -> Vec<usize> {
+        let fs: Vec<Val> = self
+            .element_listeners
+            .iter()
+            .filter(|g| g.0 == id && g.1 == kind)
+            .map(|g| g.2.clone())
+            .collect();
+        fs.into_iter()
+            .map(|f| {
+                self.listeners.push(ListenerRef {
+                    instance: 0,
+                    handler: 0,
+                    args: vec![],
+                    closure: Some(f),
+                });
+                self.listeners.len() - 1
+            })
+            .collect()
+    }
+
+    /// The capture listeners of the window, then (`document`) the
+    /// document's, each a callback of its own.
+    fn dispatch_capture(
+        &mut self,
+        kind: EventKind,
+        event: &js::Event,
+        document: bool,
+        s: &mut Run,
+    ) {
+        for window in [true, false] {
+            if !window && !document {
+                continue;
+            }
+            let current = if window {
+                js::Element::WINDOW
+            } else {
+                js::Element::DOCUMENT
+            };
+            let listeners: Vec<Val> = self
+                .capture_listeners
+                .iter()
+                .filter(|g| g.0 == window && g.1 == kind)
+                .map(|g| g.2.clone())
+                .collect();
+            for f in listeners {
+                let live = self
+                    .capture_listeners
+                    .iter()
+                    .any(|g| g.0 == window && g.1 == kind && g.2.same(&f));
+                if !live || !event.enter(current) {
+                    continue;
+                }
+                s.ran = true;
+                let arg = Val::Event(event.clone());
+                let result = self.task(None, true, |m| m.call_value(&f, vec![arg]).map(|_| ()));
+                if let Err(d) = result {
+                    s.error.get_or_insert(d);
+                }
+            }
+        }
+    }
+
     fn dispatch_globals(&mut self, kind: EventKind, event: &js::Event, s: &mut Run) {
         for window in [false, true] {
             let current = if window {

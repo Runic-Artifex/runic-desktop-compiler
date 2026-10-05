@@ -285,6 +285,9 @@ function box(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   if (t === undefined) return lower.fail(node, 'E_PACK', `${LABEL}: box's type is not a box`);
   const state = stateRecord(lower, t);
   const stateType: Type = { record: state };
+  // (The box's type is what an initial value TypeScript types too narrowly
+  // takes: `simpleBox([])` of a box of an array.)
+  if (initial) lower.expected.set(skipParens(initial), t);
   const value: Expr = initial
     ? initial.kind === ts.SyntaxKind.NullKeyword && maybeInner(t)
       ? { op: 'null', type: t }

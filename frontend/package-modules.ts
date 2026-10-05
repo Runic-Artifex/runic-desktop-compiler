@@ -78,6 +78,8 @@ interface Declared {
   classes: Map<
     string,
     {
+      /** The declaration (generic classes are annotated from its text). */
+      decl: ts.ClassDeclaration;
       generic: boolean;
       properties: Set<string>;
       methods: Map<string, { signatures: number; generic: boolean }>;
@@ -87,11 +89,73 @@ interface Declared {
   >;
   /** Constants (`export declare const X: T`). */
   variables: Set<string>;
+  /** The declaration file, and the names it declares or imports at its top level. */
+  sf?: ts.SourceFile;
+  top: Set<string>;
+}
+
+/**
+ * The text of type node `n` of declaration file `sf` as the virtual
+ * module writes it: names the file declares or imports at its top level
+ * (`top`, all exported by `exportAllDeclarations`) qualified by
+ * `__dts.`, except the type parameters in scope (`local`) and those
+ * declared inside `n`.
+ */
+function qualified(n: ts.Node, sf: ts.SourceFile, top: Set<string>, local: Set<string>): string {
+  const inner = new Set(local);
+  const collect = (x: ts.Node) => {
+    if (ts.isTypeParameterDeclaration(x)) inner.add(x.name.text);
+    ts.forEachChild(x, collect);
+  };
+  collect(n);
+  const at: number[] = [];
+  const leftmost = (e: ts.EntityName | ts.Expression): ts.Identifier | undefined =>
+    ts.isIdentifier(e)
+      ? e
+      : ts.isQualifiedName(e)
+        ? leftmost(e.left)
+        : ts.isPropertyAccessExpression(e)
+          ? leftmost(e.expression)
+          : undefined;
+  const visit = (x: ts.Node) => {
+    const id = ts.isTypeReferenceNode(x)
+      ? leftmost(x.typeName)
+      : ts.isTypeQueryNode(x)
+        ? leftmost(x.exprName)
+        : undefined;
+    if (id && top.has(id.text) && !inner.has(id.text)) at.push(id.getStart(sf));
+    ts.forEachChild(x, visit);
+  };
+  visit(n);
+  const start = n.getStart(sf);
+  let text = n.getText(sf);
+  for (const pos of at.sort((a, b) => b - a))
+    text = text.slice(0, pos - start) + '__dts.' + text.slice(pos - start);
+  return text;
 }
 
 function declarations(dts: string): Declared {
   const sf = ts.createSourceFile(dts, readFileSync(dts, 'utf8'), ts.ScriptTarget.Latest, true);
-  const out: Declared = { functions: new Map(), classes: new Map(), variables: new Set() };
+  const out: Declared = {
+    functions: new Map(),
+    classes: new Map(),
+    variables: new Set(),
+    sf,
+    top: new Set(),
+  };
+  for (const stmt of sf.statements) {
+    const named = (stmt as { name?: ts.Node }).name;
+    if (named && ts.isIdentifier(named)) out.top.add(named.text);
+    if (ts.isVariableStatement(stmt))
+      for (const d of stmt.declarationList.declarations)
+        if (ts.isIdentifier(d.name)) out.top.add(d.name.text);
+    const clause = ts.isImportDeclaration(stmt) ? stmt.importClause : undefined;
+    if (clause?.name) out.top.add(clause.name.text);
+    const bindings = clause?.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) out.top.add(bindings.name.text);
+    if (bindings && ts.isNamedImports(bindings))
+      for (const el of bindings.elements) out.top.add(el.name.text);
+  }
   const isStatic = (m: ts.Node) =>
     ts.canHaveModifiers(m) &&
     !!ts.getModifiers(m)?.some(x => x.kind === ts.SyntaxKind.StaticKeyword);
@@ -117,6 +181,7 @@ function declarations(dts: string): Declared {
         if (ts.isIdentifier(d.name) && d.type) out.variables.add(d.name.text);
     } else if (ts.isClassDeclaration(stmt) && stmt.name) {
       const c = {
+        decl: stmt,
         generic: !!stmt.typeParameters?.length,
         properties: new Set<string>(),
         methods: new Map<string, { signatures: number; generic: boolean }>(),
@@ -171,6 +236,17 @@ export function exportAllDeclarations(dts: string): string {
   }
   let out = text;
   for (const pos of at.reverse()) out = out.slice(0, pos) + 'export ' + out.slice(pos);
+  // Its imports too (generic classes' annotations name them: `__dts.AnyFn`).
+  const imported: string[] = [];
+  for (const stmt of sf.statements) {
+    const clause = ts.isImportDeclaration(stmt) ? stmt.importClause : undefined;
+    if (clause?.name) imported.push(clause.name.text);
+    const bindings = clause?.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) imported.push(bindings.name.text);
+    if (bindings && ts.isNamedImports(bindings))
+      for (const el of bindings.elements) imported.push(el.name.text);
+  }
+  if (imported.length) out += `\nexport { ${imported.join(', ')} };\n`;
   return out;
 }
 
@@ -253,7 +329,7 @@ export function annotate(
   const dts = declarationFile(file);
   const declared: Declared = dts
     ? declarations(dts)
-    : { functions: new Map(), classes: new Map(), variables: new Set() };
+    : { functions: new Map(), classes: new Map(), variables: new Set(), top: new Set<string>() };
   const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const attachments = attachmentFields(sf);
   const inserts: { at: number; text: string }[] = [];
@@ -313,6 +389,70 @@ export function annotate(
     const cls = stmt.name.text;
     const d = declared.classes.get(cls);
     const C = `__dts.${cls}`;
+    // A generic class (bits-ui's `SharedState<T extends AnyFn>`): its type
+    // parameters and member types written out from the declaration file.
+    if (d?.generic && declared.sf) {
+      const sf = declared.sf;
+      const dc = d.decl;
+      const local = new Set(dc.typeParameters!.map(t => t.name.text));
+      const q = (n: ts.Node) => qualified(n, sf, declared.top, local);
+      if (!stmt.typeParameters) add(stmt.name.end, `<${dc.typeParameters!.map(q).join(', ')}>`);
+      const typedParams = (js: ts.SignatureDeclaration, dts: ts.SignatureDeclaration | undefined) =>
+        dts &&
+        js.parameters.forEach((p, i) => {
+          const dp = dts.parameters[i];
+          if (!dp?.type || p.type || !ts.isIdentifier(p.name)) return;
+          const optional = !!dp.questionToken && !p.initializer && !p.dotDotDotToken;
+          add(p.name.end, `${optional ? '?' : ''}: ${q(dp.type)}`);
+        });
+      const member = (name: string, isStatic: boolean, kind: ts.SyntaxKind) =>
+        dc.members.find(
+          x =>
+            x.kind === kind &&
+            x.name !== undefined &&
+            ts.isIdentifier(x.name) &&
+            x.name.text === name &&
+            (ts.canHaveModifiers(x) &&
+              !!ts.getModifiers(x)?.some(y => y.kind === ts.SyntaxKind.StaticKeyword)) === isStatic,
+        );
+      for (const m of stmt.members) {
+        const name = m.name && ts.isIdentifier(m.name) ? m.name.text : undefined;
+        const isStatic =
+          ts.canHaveModifiers(m) &&
+          !!ts.getModifiers(m)?.some(x => x.kind === ts.SyntaxKind.StaticKeyword);
+        if (ts.isPropertyDeclaration(m) && !isStatic && !m.type) {
+          const key = `${cls}.${m.name.getText()}`;
+          const dp = name ? member(name, false, ts.SyntaxKind.PropertyDeclaration) : undefined;
+          if (bagInitializer(m.initializer, attachments)) add(m.name.end, ': RunicAttrs');
+          else if (inferred.has(key)) add(m.name.end, `: ${inferred.get(key)}`);
+          else if (dp && (dp as ts.PropertyDeclaration).type)
+            add(m.name.end, `: ${q((dp as ts.PropertyDeclaration).type!)}`);
+          continue;
+        }
+        if (ts.isConstructorDeclaration(m) && m.body)
+          typedParams(m, dc.members.find(ts.isConstructorDeclaration));
+        else if (ts.isMethodDeclaration(m) && name && m.body) {
+          const all = dc.members.filter(
+            x => ts.isMethodDeclaration(x) && ts.isIdentifier(x.name) && x.name.text === name,
+          ) as ts.MethodDeclaration[];
+          const dm = all.length === 1 ? all[0] : undefined;
+          if (!dm || dm.typeParameters?.length) continue;
+          typedParams(m, dm);
+          const at = afterParams(m);
+          if (dm.type && at !== undefined && !m.type) add(at, `: ${q(dm.type)}`);
+        } else if (ts.isGetAccessor(m) && name) {
+          const g = member(name, isStatic, ts.SyntaxKind.GetAccessor) as
+            ts.GetAccessorDeclaration | undefined;
+          const at = afterParams(m);
+          if (g?.type && at !== undefined && !m.type) add(at, `: ${q(g.type)}`);
+        } else if (ts.isSetAccessor(m) && name) {
+          const s = member(name, isStatic, ts.SyntaxKind.SetAccessor) as
+            ts.SetAccessorDeclaration | undefined;
+          typedParams(m, s);
+        }
+      }
+      continue;
+    }
     for (const m of stmt.members) {
       const name = m.name && ts.isIdentifier(m.name) ? m.name.text : undefined;
       const isStatic =
@@ -324,6 +464,26 @@ export function annotate(
         else if (inferred.has(key)) add(m.name.end, `: ${inferred.get(key)}`);
         else if (name && d && !d.generic && d.properties.has(name))
           add(m.name.end, `: ${C}["${name}"]`);
+        continue;
+      }
+      // A static field the declaration file declares (FocusScopeManager's
+      // `static instance`).
+      if (
+        ts.isPropertyDeclaration(m) &&
+        isStatic &&
+        !m.type &&
+        name &&
+        d &&
+        !d.generic &&
+        d.decl.members.some(
+          x =>
+            ts.isPropertyDeclaration(x) &&
+            ts.isIdentifier(x.name) &&
+            x.name.text === name &&
+            !!ts.getModifiers(x)?.some(y => y.kind === ts.SyntaxKind.StaticKeyword),
+        )
+      ) {
+        add(m.name.end, `: (typeof ${C})["${name}"]`);
         continue;
       }
       if (!d || d.generic) continue;
@@ -341,6 +501,12 @@ export function annotate(
       else if (ts.isSetAccessor(m) && name && !isStatic && d.accessors.has(name))
         params(m, () => `${C}["${name}"]`);
     }
+  }
+  // Type arguments of collections inferred by the second pass (`new:<end>`),
+  // and types of untyped parameters from their calls (`param:<end>`).
+  for (const [key, text] of inferred) {
+    if (key.startsWith('new:')) add(Number(key.slice(4)), `<${text}>`);
+    if (key.startsWith('param:')) add(Number(key.slice(6)), `: ${text}`);
   }
   inserts.sort((a, b) => a.at - b.at);
   let text = dts ? `import type * as __dts from ${JSON.stringify(DTS_PREFIX + dts)};\n` : '';
@@ -369,6 +535,81 @@ export function inferFields(
 ): PackageModule[] {
   const checker = program.getTypeChecker();
   const changed: PackageModule[] = [];
+  /**
+   * The method `x.m(…)` calls where untyped JavaScript's `x` is a variable
+   * assigned instances of one class (`let scope = null; … scope = new
+   * FocusScope(opts); scope.mount(ref)`).
+   */
+  const untypedReceiverMethod = (n: ts.CallExpression): ts.Node | undefined => {
+    const callee = n.expression;
+    if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.expression)) return;
+    if (!(checker.getTypeAtLocation(callee.expression).flags & ts.TypeFlags.Any)) return;
+    const sym = checker.getSymbolAtLocation(callee.expression);
+    const decl = sym?.valueDeclaration;
+    if (!decl || !ts.isVariableDeclaration(decl)) return;
+    let scope: ts.Node = decl.parent;
+    while (scope.parent && !ts.isBlock(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+    const classes = new Set<ts.ClassDeclaration>();
+    let other = false;
+    const visit = (x: ts.Node) => {
+      const assigned =
+        ts.isBinaryExpression(x) &&
+        x.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(x.left) &&
+        checker.getSymbolAtLocation(x.left) === sym
+          ? x.right
+          : x === decl
+            ? decl.initializer
+            : undefined;
+      if (assigned) {
+        let v = assigned;
+        while (ts.isParenthesizedExpression(v)) v = v.expression;
+        if (ts.isNewExpression(v)) {
+          let c = checker.getSymbolAtLocation(v.expression);
+          if (c && c.flags & ts.SymbolFlags.Alias) c = checker.getAliasedSymbol(c);
+          const cd = c?.valueDeclaration;
+          if (cd && ts.isClassDeclaration(cd)) classes.add(cd);
+          else other = true;
+        } else if (
+          v.kind !== ts.SyntaxKind.NullKeyword &&
+          !(ts.isIdentifier(v) && v.text === 'undefined')
+        )
+          other = true;
+      }
+      ts.forEachChild(x, visit);
+    };
+    visit(scope);
+    if (other || classes.size !== 1) return;
+    const [cls] = classes;
+    return cls.members.find(
+      m => ts.isMethodDeclaration(m) && m.name.getText() === callee.name.text,
+    );
+  };
+  /** The calls (and `new`s) of each function-like declaration, program-wide. */
+  let callsOf: Map<ts.Node, (ts.CallExpression | ts.NewExpression)[]> | undefined;
+  const calls = (decl: ts.Node): (ts.CallExpression | ts.NewExpression)[] => {
+    if (!callsOf) {
+      callsOf = new Map();
+      for (const f of program.getSourceFiles()) {
+        if (f.isDeclarationFile) continue;
+        const visit = (n: ts.Node) => {
+          if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
+            const d =
+              checker.getResolvedSignature(n)?.declaration ??
+              (ts.isCallExpression(n) ? untypedReceiverMethod(n) : undefined);
+            if (d) {
+              const list = callsOf!.get(d) ?? [];
+              list.push(n);
+              callsOf!.set(d, list);
+            }
+          }
+          ts.forEachChild(n, visit);
+        };
+        visit(f);
+      }
+    }
+    return callsOf.get(decl) ?? [];
+  };
   const print = (t: ts.Type, at: ts.Node): string | undefined => {
     if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
     const node = checker.typeToTypeNode(
@@ -467,6 +708,33 @@ export function inferFields(
                 if (!expected.includes(text)) expected.push(text);
               } else expected.push('');
             }
+            // svelte/events' `on(target, "keydown", this.#onkeydown)`
+            // (bits-ui's escape layer): a listener of that event.
+            if (
+              ts.isPropertyAccessExpression(n) &&
+              n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+              n.name.getText() === fieldName &&
+              ts.isCallExpression(n.parent) &&
+              n.parent.arguments[2] === n &&
+              ts.isIdentifier(n.parent.expression) &&
+              n.parent.expression.text === 'on' &&
+              /[\\/]svelte[\\/]/.test(declaredIn(checker, n.parent.expression)) &&
+              n.parent.arguments[1] &&
+              ts.isStringLiteralLike(n.parent.arguments[1])
+            ) {
+              const kind = n.parent.arguments[1].text;
+              const event = /^key/.test(kind)
+                ? 'KeyboardEvent'
+                : /^pointer/.test(kind)
+                  ? 'PointerEvent'
+                  : /^focus|^blur/.test(kind)
+                    ? 'FocusEvent'
+                    : /^(click|dblclick|contextmenu|mouse)/.test(kind)
+                      ? 'MouseEvent'
+                      : 'Event';
+              const text = `((event: ${event}) => void)`;
+              if (!expected.includes(text)) expected.push(text);
+            }
             ts.forEachChild(n, visitArg);
           };
           stmt.members.forEach(visitArg);
@@ -481,31 +749,59 @@ export function inferFields(
           init &&
           ts.isCallExpression(init) &&
           ts.isIdentifier(init.expression) &&
-          init.expression.text === 'box' &&
+          (init.expression.text === 'box' || init.expression.text === 'simpleBox') &&
           /[\\/]svelte-toolbelt[\\/]/.test(declaredIn(checker, init.expression));
         if (boxCall) {
           const values: string[] = [];
           let unknown = false;
+          // An array that starts empty (FocusScopeManager's
+          // `#scopeStack = simpleBox([])`): the types of the items the class
+          // adds (`this.#f.current.push(x)`, `unshift(x)`).
+          const first = init.arguments[0] && skipParensOf(init.arguments[0]);
+          const emptyArray =
+            !!first && ts.isArrayLiteralExpression(first) && !first.elements.length;
+          const items: string[] = [];
           const add = (e: ts.Expression) => {
             const p = valueType(checker.getTypeAtLocation(e), e);
+            // (An array of nothing yet, written back: `current.filter(…)`.)
+            if (emptyArray && p === 'never[]') return;
             if (p === undefined) unknown = true;
             else if (!values.includes(p)) values.push(p);
           };
-          if (init.arguments[0]) add(init.arguments[0]);
+          if (init.arguments[0] && !emptyArray) add(init.arguments[0]);
+          const current = (e: ts.Expression) =>
+            ts.isPropertyAccessExpression(e) &&
+            e.name.text === 'current' &&
+            ts.isPropertyAccessExpression(e.expression) &&
+            e.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
+            e.expression.name.getText() === fieldName;
           const visitBox = (n: ts.Node) => {
             if (
               ts.isBinaryExpression(n) &&
               n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-              ts.isPropertyAccessExpression(n.left) &&
-              n.left.name.text === 'current' &&
-              ts.isPropertyAccessExpression(n.left.expression) &&
-              n.left.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
-              n.left.expression.name.getText() === fieldName
+              current(n.left)
             )
               add(n.right);
+            if (
+              emptyArray &&
+              ts.isCallExpression(n) &&
+              ts.isPropertyAccessExpression(n.expression) &&
+              ['push', 'unshift'].includes(n.expression.name.text) &&
+              current(n.expression.expression)
+            )
+              for (const a of n.arguments) {
+                const p = valueType(checker.getTypeAtLocation(a), a);
+                if (p === undefined || p === '{}') unknown = true;
+                else if (!items.includes(p)) items.push(p);
+              }
             ts.forEachChild(n, visitBox);
           };
           stmt.members.forEach(visitBox);
+          if (emptyArray) {
+            if (!items.length) unknown = true;
+            const array = items.length === 1 ? `${items[0]}[]` : `(${items.join(' | ')})[]`;
+            if (!values.includes(array)) values.push(array);
+          }
           if (unknown || !values.length) continue;
           const text = `import("svelte-toolbelt").WritableBox<${values.join(' | ')}>`;
           if (next.get(key) !== text) next.set(key, text);
@@ -576,6 +872,41 @@ export function inferFields(
           ts.forEachChild(n, visit);
         };
         stmt.members.forEach(visit);
+        // An array that starts empty (FocusScope's `#cleanupFns = []`): the
+        // types of the items the class adds (`this.#f.push(x)`, `unshift`).
+        const emptyInit = init && skipParensOf(init);
+        const empty =
+          !!emptyInit && ts.isArrayLiteralExpression(emptyInit) && !emptyInit.elements.length;
+        if (empty) {
+          const items: string[] = [];
+          let unknownItem = false;
+          const visitItems = (n: ts.Node) => {
+            if (
+              ts.isCallExpression(n) &&
+              ts.isPropertyAccessExpression(n.expression) &&
+              ['push', 'unshift'].includes(n.expression.name.text) &&
+              ts.isPropertyAccessExpression(n.expression.expression) &&
+              n.expression.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
+              n.expression.expression.name.getText() === fieldName
+            )
+              for (const a of n.arguments) {
+                const p = valueType(checker.getTypeAtLocation(a), a);
+                if (p === undefined || p === '{}') unknownItem = true;
+                else if (!items.includes(p)) items.push(p);
+              }
+            ts.forEachChild(n, visitItems);
+          };
+          stmt.members.forEach(visitItems);
+          if (items.length && !unknownItem) {
+            const array = items.length === 1 ? `${items[0]}[]` : `(${items.join(' | ')})[]`;
+            const kept = parts.filter(p => p !== 'never[]');
+            parts.length = 0;
+            parts.push(...kept);
+            if (!parts.includes(array)) parts.push(array);
+            assigned ||= 1;
+            topLevel = true;
+          }
+        }
         if (!assigned || open) continue;
         // A field without an initialiser is undefined until a statement of
         // the constructor's top level (or a later method) assigns it.
@@ -586,6 +917,163 @@ export function inferFields(
         if (next.get(key) !== text) next.set(key, text);
       }
     }
+    // `const m = new SvelteMap()` (or Map, SvelteSet, Set) without type
+    // arguments (bits-ui's scroll lock): the types of the keys and values
+    // its `set` (`add`) calls give, where they agree.
+    const kinds = ['SvelteMap', 'Map', 'WeakMap', 'SvelteSet', 'Set', 'WeakSet'];
+    const untypedNew = (e: ts.Expression | undefined): ts.NewExpression | undefined => {
+      while (e && ts.isParenthesizedExpression(e)) e = e.expression;
+      return e &&
+        ts.isNewExpression(e) &&
+        !e.typeArguments &&
+        !e.arguments?.length &&
+        ts.isIdentifier(e.expression) &&
+        kinds.includes(e.expression.text)
+        ? e
+        : undefined;
+    };
+    /** `globalThis.NAME` (bits-ui's `globalThis.bitsEscapeLayers ??= new Map()`). */
+    const globalName = (e: ts.Expression): string | undefined =>
+      ts.isPropertyAccessExpression(e) &&
+      ts.isIdentifier(e.expression) &&
+      e.expression.text === 'globalThis'
+        ? e.name.text
+        : undefined;
+    const collections = (n: ts.Node) => {
+      const declared =
+        (ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n)) &&
+        (ts.isIdentifier(n.name) || ts.isPrivateIdentifier(n.name))
+          ? untypedNew(n.initializer)
+          : undefined;
+      const global =
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken &&
+        globalName(n.left) !== undefined
+          ? untypedNew(n.right)
+          : undefined;
+      const created = declared ?? global;
+      if (created) {
+        const name = global ? globalName((n as ts.BinaryExpression).left) : undefined;
+        const nameNode = global
+          ? undefined
+          : (n as ts.VariableDeclaration | ts.PropertyDeclaration).name;
+        const sym = nameNode && checker.getSymbolAtLocation(nameNode);
+        const set = (created.expression as ts.Identifier).text.endsWith('Set');
+        const own = checker.getTypeAtLocation(nameNode ?? created);
+        let count = 0;
+        const same = (x: ts.Node) => {
+          if (ts.isNewExpression(x) && !x.typeArguments && checker.getTypeAtLocation(x) === own)
+            count++;
+          ts.forEachChild(x, same);
+        };
+        same(sf);
+        const alone = count === 1;
+        const found: string[][] = [];
+        let open = false;
+        const visit = (x: ts.Node) => {
+          if (
+            ts.isCallExpression(x) &&
+            ts.isPropertyAccessExpression(x.expression) &&
+            x.expression.name.text === (set ? 'add' : 'set') &&
+            ((ts.isIdentifier(x.expression.expression) &&
+              sym !== undefined &&
+              checker.getSymbolAtLocation(x.expression.expression) === sym) ||
+              // (A global: `globalThis.NAME.set(…)`.)
+              (name !== undefined && globalName(x.expression.expression) === name) ||
+              // (A class field: `this.#f.set(…)` in its class.)
+              (ts.isPropertyDeclaration(n) &&
+                ts.isPropertyAccessExpression(x.expression.expression) &&
+                x.expression.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
+                x.expression.expression.name.getText() === n.name.getText()) ||
+              // (Through a getter returning it: the one untyped collection
+              // of its type in the module.)
+              (alone && checker.getTypeAtLocation(x.expression.expression) === own))
+          ) {
+            const args = x.arguments.slice(0, set ? 1 : 2);
+            const printed = args.map(a => {
+              const t = checker.getTypeAtLocation(a);
+              return print(
+                t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
+                  ? t
+                  : checker.getBaseTypeOfLiteralType(t),
+                a,
+              );
+            });
+            // (Untyped arguments say nothing; the lowered program checks them.)
+            const untyped = args.some(
+              a => checker.getTypeAtLocation(a).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown),
+            );
+            if (args.length !== (set ? 1 : 2)) open = true;
+            else if (untyped) {
+              // nothing
+            } else if (printed.includes('{}')) {
+              // (Nor does `{}`, the type of a value not typed yet.)
+            } else if (printed.some(p => p === undefined)) open = true;
+            else found.push(printed as string[]);
+          }
+          ts.forEachChild(x, visit);
+        };
+        visit(sf);
+        // (At the position in the module's own text.)
+        const end = created.expression.end;
+        const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+        if (!seg) return;
+        const key = `new:${seg.orig + (end - seg.synth)}`;
+        if (!open && found.length && found.every(f => f.join() === found[0].join())) {
+          const text = found[0].join(', ');
+          if (next.get(key) !== text) next.set(key, text);
+        }
+      }
+      ts.forEachChild(n, collections);
+    };
+    collections(sf);
+    // Untyped parameters of class constructors and methods (FocusScope's
+    // `constructor(opts)` and `static use(opts)`): the one type the
+    // program's calls pass, where they agree.
+    for (const stmt of sf.statements) {
+      if (!ts.isClassDeclaration(stmt)) continue;
+      for (const member of stmt.members) {
+        if (
+          !(ts.isConstructorDeclaration(member) || ts.isMethodDeclaration(member)) ||
+          !member.body
+        )
+          continue;
+        member.parameters.forEach((p, i) => {
+          if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
+          if (!(checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+            return;
+          const texts = new Set<string>();
+          let open = false;
+          const sites = calls(member);
+          for (const c of sites) {
+            const a = c.arguments?.[i];
+            if (!a || ts.isSpreadElement(a)) {
+              open = true;
+              continue;
+            }
+            const t = checker.getTypeAtLocation(a);
+            const text =
+              t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+                ? undefined
+                : print(
+                    t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
+                      ? t
+                      : checker.getBaseTypeOfLiteralType(t),
+                    a,
+                  );
+            if (text === undefined) open = true;
+            else texts.add(text);
+          }
+          if (open || texts.size !== 1) return;
+          const end = p.name.end;
+          const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+          if (!seg) return;
+          const key = `param:${seg.orig + (end - seg.synth)}`;
+          const text = [...texts][0];
+          if (next.get(key) !== text) next.set(key, text);
+        });
+      }
+    }
     if (JSON.stringify([...next]) !== JSON.stringify([...m.inferred])) {
       const code = readFileSync(m.file, 'utf8');
       const again = annotate(m.file, code, next);
@@ -594,6 +1082,11 @@ export function inferFields(
     }
   }
   return changed;
+}
+
+function skipParensOf(e: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return e;
 }
 
 /** The files declaring what identifier `id` names, through import aliases. */

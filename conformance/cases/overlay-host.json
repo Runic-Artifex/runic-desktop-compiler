@@ -1,0 +1,24 @@
+{
+  "description": "The host APIs of bits-ui's overlay layers (M6 overlays, docs/design/M6-OVERLAYS.md), compared with Chromium: svelte/events' on() for the document's focusin in the capture and the bubble phase and an element's keydown (with preventDefault), removed through the functions on() returns; tabbable 6.5.0's tabbable, focusable (with the container), isTabbable and isFocusable over hidden, disabled and positive-tabindex elements; a MutationObserver of a container's child list (subtree), notified once per microtask after keyed list updates; document.activeElement, contains, a CustomEvent a function cancels, and a lazily created static singleton holding a WeakMap",
+  "fixtures": ["overlay-host-svelte"],
+  "actions": [
+    { "kind": "click", "id": "report" },
+    { "kind": "click", "id": "listen" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "item1" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "x" },
+    { "kind": "press", "key": "y" },
+    { "kind": "click", "id": "report" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "remove" },
+    { "kind": "click", "id": "remove" },
+    { "kind": "click", "id": "report" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "unlisten" },
+    { "kind": "click", "id": "item4" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "click", "id": "report" }
+  ]
+}

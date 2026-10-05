@@ -355,15 +355,19 @@ test('classes: unsupported forms are rejected where they are written', async () 
     {},
     '<button id="go" onclick={go}>go</button><p id="out">{a.n}</p>',
   );
-  // Modules: generic classes and static field writes.
+  // Modules: generic classes and static field writes through a subclass
+  // (which would give it a field of its own).
   await rejects(`import { Box } from './box';\n${go}`, 'E_CLASS', 'box.ts:1:18', {
     'box.ts': 'export class Box<T> { v: T; constructor(v: T) { this.v = v; } }\n',
   });
   await rejects(
     `import { touch } from './box';\nlet out = $state('');\nfunction go() { touch(); }`,
     'E_CLASS',
-    'box.ts:1:20',
-    { 'box.ts': 'export class Box { static n = 1; }\nexport function touch() { Box.n = 2; }\n' },
+    'box.ts:3:27',
+    {
+      'box.ts':
+        'export class Box { static n = 1; }\nexport class Sub extends Box {}\nexport function touch() { Sub.n = 2; }\n',
+    },
   );
 });
 

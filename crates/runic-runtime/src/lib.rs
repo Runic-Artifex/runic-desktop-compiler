@@ -23,6 +23,7 @@ pub use runic_js::reorder;
 mod select;
 mod shell;
 mod storage;
+mod tabbable;
 mod timeline;
 mod timers;
 
@@ -154,6 +155,12 @@ pub trait App: 'static {
     /// Listener keys of the document (`window: false`) or the window for
     /// `event`, in registration order.
     fn host_listeners(&self, window: bool, event: Event) -> Vec<u32> {
+        let _ = (window, event);
+        Vec::new()
+    }
+    /// Capture listener keys of the document (`window: false`) or the
+    /// window for `event` (M6 overlays), in registration order.
+    fn capture_listeners(&self, window: bool, event: Event) -> Vec<u32> {
         let _ = (window, event);
         Vec::new()
     }

@@ -933,7 +933,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // Class fields of package modules typed from what the classes assign.
   // (Again while types change: a field typed by a pass types the values
   // assigned to others, bits-ui's `#closeTimeout = this.#domContext.setTimeout(…)`.)
-  for (let pass = 0; pass < 4 && inferFields(packageModules, program).length; pass++)
+  for (let pass = 0; pass < 8 && inferFields(packageModules, program).length; pass++)
     program = buildProgram();
   const unitOf = new Map<ts.SourceFile, Unit>();
   for (const u of units.values()) unitOf.set(program.getSourceFile(u.virtual)!, u);
@@ -1193,6 +1193,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       lower.bindings.set(sym, { kind: 'member', owner: b, local, path: [1] });
       return [{ op: 'let', local, value: { op: 'record', record: r, fields: [getter] } }];
     },
+    // svelte/events' `on(target, type, handler)`: the handler takes the event.
+    argumentType(call, index) {
+      return index === 2 &&
+        ts.isIdentifier(call.expression) &&
+        svelteImport(call.expression, 'svelte/events') === 'on'
+        ? { fn: { params: ['event'], result: 'void' } }
+        : undefined;
+    },
     readCell: cell => ({ op: 'cell', cell, read: 'current' }),
     cellType: cell => cells[cell].type,
     writeCell: (cell, value) => [{ op: 'set', cell, value }],
@@ -1363,17 +1371,76 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
    * reported when a spread sets it).
    */
   const svelteOn = (node: ts.CallExpression, b: FnBuilder, l: Lowerer): Expr => {
-    const [el, type, handler, options] = node.arguments;
-    if (!el || !type || !handler || options || !ts.isStringLiteralLike(type))
-      return tsFail(node, 'E_EVENT', 'on(element, "event", handler) takes a literal event name');
-    if (type.text !== 'beforematch')
+    const [el, type, handler, options, ...more] = node.arguments;
+    if (!el || !type || !handler || more.length || !ts.isStringLiteralLike(type))
+      return tsFail(
+        node,
+        'E_EVENT',
+        'on(target, "event", handler, options?) takes a literal event name',
+      );
+    const kind = type.text;
+    // Options: `capture` (the document's and the window's), `passive: false`
+    // (the default of every event the runtime fires), `once` (reported
+    // unsupported where the listener would be added: bits-ui adds one only
+    // for touch input, which the runtime has not).
+    let capture = false;
+    let once = false;
+    if (options) {
+      const o = skipParens(options);
+      if (!ts.isObjectLiteralExpression(o))
+        return tsFail(options, 'E_EVENT', 'on() options are an object literal');
+      for (const p of o.properties) {
+        const key = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
+        const v = ts.isPropertyAssignment(p) ? skipParens(p.initializer) : undefined;
+        const flag =
+          v?.kind === ts.SyntaxKind.TrueKeyword
+            ? true
+            : v?.kind === ts.SyntaxKind.FalseKeyword
+              ? false
+              : undefined;
+        if (!key || flag === undefined)
+          return tsFail(p, 'E_EVENT', 'on() options are boolean literals');
+        if (key === 'capture') capture = flag;
+        else if (key === 'once') once = flag;
+        else if (key === 'passive' && !flag) {
+          // the default
+        } else
+          return tsFail(
+            p,
+            'E_EVENT',
+            `on() option ${key}${key === 'passive' ? ': true' : ''} is not covered`,
+          );
+      }
+    }
+    const host = l.hostOf(el);
+    const target: 'document' | 'window' | 'element' =
+      host === 'document' || host === 'window' ? host : 'element';
+    const supported =
+      target === 'element'
+        ? kind === 'beforematch' ||
+          (EVENT_KINDS.includes(kind as HandlerEvent) && kind !== 'resize')
+        : EVENT_KINDS.includes(kind as HandlerEvent) ||
+          (target === 'window' && ['popstate', 'hashchange'].includes(kind));
+    if (!supported)
       return tsFail(
         type,
         'E_EVENT',
-        `Element listeners added with on() are supported for beforematch (never fired natively: there is no find-in-page), not ${type.text}`,
+        `on() of ${target === 'element' ? 'an element' : `the ${target}`} for ${kind} is not covered`,
       );
-    const e = l.expr(el, b);
-    if (l.irType(e, b) !== 'element') return tsFail(el, 'E_EVENT', 'on() takes an element');
+    if (capture && target === 'element')
+      return tsFail(
+        options!,
+        'E_EVENT',
+        'Capture listeners are supported on the document and the window',
+      );
+    // The handler takes the event (an untyped function its declaration
+    // types from here: `flowType`).
+    const want: Type = { fn: { params: ['event'], result: 'void' } };
+    // (The element is evaluated before the handler, as the arguments are.)
+    const e = target === 'element' ? l.expr(el, b) : undefined;
+    if (e && l.irType(e, b) !== 'element')
+      return tsFail(el, 'E_EVENT', 'on() takes an element, the document or the window');
+    l.expected.set(skipParens(handler), want);
     const f = l.expr(handler, b);
     const ft = l.irType(f, b);
     if (
@@ -1382,46 +1449,67 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       !(ft.fn.params.length === 0 || (ft.fn.params.length === 1 && ft.fn.params[0] === 'event'))
     )
       return tsFail(handler, 'E_EVENT', 'on() takes a listener taking the event or nothing');
-    const args = (): Expr[] => [
-      { op: 'local', local: 0 },
-      { op: 'lit', value: type.text },
-      { op: 'local', local: 1 },
-    ];
+    const remover: Type = { fn: { params: [], result: 'void' } };
+    if (once)
+      return {
+        op: 'with',
+        local: b.local('$listener', ft),
+        value: f,
+        body: l.unsupportedValue('on$once', remover, `on() with { once: true } (${kind})`),
+      };
+    const element = target === 'element';
+    const name = target;
+    const listen = element ? 'listen' : capture ? 'listen-capture' : 'listen';
+    const unlisten = element ? 'unlisten' : capture ? 'unlisten-capture' : 'unlisten';
+    const argsOf = (): Expr[] =>
+      element
+        ? [
+            { op: 'local', local: 0 },
+            { op: 'lit', value: kind },
+            { op: 'local', local: 1 },
+          ]
+        : [
+            { op: 'lit', value: kind },
+            { op: 'local', local: 0 },
+          ];
+    const captured = element
+      ? [
+          { name: 'element', type: 'element' as Type },
+          { name: 'handler', type: ft },
+        ]
+      : [{ name: 'handler', type: ft }];
     const remove = l.reserve();
     l.functions[remove] = {
       name: 'on$remove',
-      captures: [
-        { name: 'element', type: 'element' },
-        { name: 'handler', type: ft },
-      ],
+      captures: captured,
       params: [],
       locals: [],
       result: 'void',
       body: [
         {
           op: 'expr',
-          value: { op: 'builtin', name: 'element.unlisten', args: args(), type: 'void' },
+          value: { op: 'builtin', name: `${name}.${unlisten}`, args: argsOf(), type: 'void' },
         },
       ],
     };
     const add = l.reserve();
     l.functions[add] = {
       name: 'on',
-      params: [
-        { name: 'element', type: 'element' },
-        { name: 'handler', type: ft },
-      ],
+      params: captured,
       locals: [],
-      result: { fn: { params: [], result: 'void' } },
+      result: remover,
       body: [
         {
           op: 'expr',
-          value: { op: 'builtin', name: 'element.listen', args: args(), type: 'void' },
+          value: { op: 'builtin', name: `${name}.${listen}`, args: argsOf(), type: 'void' },
         },
-        { op: 'return', value: { op: 'closure', function: remove, captures: [0, 1] } },
+        {
+          op: 'return',
+          value: { op: 'closure', function: remove, captures: element ? [0, 1] : [0] },
+        },
       ],
     };
-    return { op: 'call', function: add, args: [e, f] };
+    return { op: 'call', function: add, args: element ? [e!, f] : [f] };
   };
   /**
    * `mount(Component, { target, props, context })` (svelte, M6 overlays): an

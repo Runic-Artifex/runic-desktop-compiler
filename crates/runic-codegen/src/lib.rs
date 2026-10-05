@@ -2687,6 +2687,36 @@ pub fn generate(
     } else {
         ""
     };
+    // MutationObservers of child lists (M6 overlays): the program's record.
+    let mo =
+        (0..p.records.len()).find(|&r| runic_ir::builtins::mutation_observer_record(&p.records, r));
+    let (mo_fields, mo_init, mo_step) = match mo {
+        Some(r) => (
+            format!(
+                "pub mutation_observers: Vec<JsRef<R{r}>>, pub mutation_obs: Vec<(JsRef<R{r}>, u64, bool)>, pub mutation_pending: Vec<JsRef<R{r}>>, pub mutation_queued: bool, "
+            ),
+            "mutation_observers: Vec::new(), mutation_obs: Vec::new(), mutation_pending: Vec::new(), mutation_queued: false, ".to_string(),
+            format!(
+                "/// Child lists that changed since the last call: the observers watching them are notified in one microtask (queued now if none is), in creation order.\n\
+                 fn mutation_step(&mut self, dom: &mut Dom) {{\n\
+                 let changed = dom.take_child_mutations();\n\
+                 if changed.is_empty() || self.cx.mutation_obs.is_empty() {{ return; }}\n\
+                 for (o, target, subtree) in self.cx.mutation_obs.clone() {{\n\
+                 if changed.iter().any(|&p| p == target || (subtree && dom.contains(target, p))) && !self.cx.mutation_pending.iter().any(|x| JsRef::ptr_eq(x, &o)) {{ self.cx.mutation_pending.push(o); }}\n\
+                 }}\n\
+                 if !self.cx.mutation_pending.is_empty() && !self.cx.mutation_queued {{\n\
+                 self.cx.mutation_queued = true;\n\
+                 let job: Lst = Rc::new(|cx: &mut Cx| {{ cx.mutation_queued = false; let pending = std::mem::take(&mut cx.mutation_pending); for o in cx.mutation_observers.clone() {{ if pending.iter().any(|x| JsRef::ptr_eq(x, &o)) {{ let cb = o.borrow().f0.clone(); if let Err(e) = cb(cx) {{ eprintln!(\"runic: uncaught exception in a MutationObserver callback: {{e}}\"); }} }} }} Ok(()) }});\n\
+                 runic_runtime::Microtasks::queue_microtask(&mut self.cx, job);\n\
+                 }}\n}}\n"
+            ),
+        ),
+        None => (
+            String::new(),
+            String::new(),
+            "fn mutation_step(&mut self, dom: &mut Dom) { let _ = dom.take_child_mutations(); }\n".to_string(),
+        ),
+    };
     // IntersectionObservers (M6 overlays): the program's observer record.
     let io = (0..p.records.len()).find_map(|r| {
         runic_ir::builtins::intersection_observer_shape(&p.records, r).map(|s| (r, s))
@@ -2770,7 +2800,9 @@ pub fn generate(
          fn commit_events(mut events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) -> Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)> {{ if {commit_ignored} {{ for e in events.iter_mut() {{ e.2.clear(); }} }} events }}\n\
          fn run_nested(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) {{\n\
          for (ev, kind, deliveries) in events {{\n\
-         let mut calls: Vec<(u32, u64)> = deliveries.iter().map(|d| (d.listener, d.current)).collect();\n\
+         let mut calls: Vec<(u32, u64)> = Vec::new();\n\
+         for (window, current) in [(true, js::Element::WINDOW), (false, js::Element::DOCUMENT)] {{ for h in cx.capture_host.iter().filter(|h| h.0 == window && h.1 == kind) {{ calls.push((h.3, current.0)); }} }}\n\
+         calls.extend(deliveries.iter().map(|d| (d.listener, d.current)));\n\
          if kind.bubbles() {{ for (window, current) in [(false, js::Element::DOCUMENT), (true, js::Element::WINDOW)] {{ for h in cx.host.iter().filter(|h| h.0 == window && h.1 == kind) {{ calls.push((h.3, current.0)); }} }} }}\n\
          for (key, current) in calls {{\n\
          let Some(f) = cx.listeners.get(key as usize).cloned().flatten() else {{ continue }};\n\
@@ -2786,10 +2818,10 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{io_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{io_fields}{mo_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{io_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{io_init}{mo_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -2924,11 +2956,13 @@ pub fn generate(
         "pub struct App {{ cx: Cx, inst: I{ri}, t: Rc<RefCell<T{ri}>>, root: Option<(NodeId, Box<S{root}>)> }}\n\
          impl App {{\n\
          fn free(&mut self, dom: &mut Dom) {{ for k in dom.take_freed() {{ self.cx.listeners[k as usize] = None; self.cx.free.push(k); self.cx.element_host.retain(|h| h.3 != k); }} }}\n\
+         {mo_step}\
          /// Run a task (event listeners or a timer callback), its microtask checkpoint and the default tasks it queued.\n\
          fn task(&mut self, dom: &mut Dom, event: bool, f: impl FnOnce(&mut Cx) -> JsResult<()>) -> JsResult<()> {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          self.cx.jobs.in_event = event;\n\
          let result = f(&mut self.cx);\n\
+         self.mutation_step(dom);\n\
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.cx.payload = None;\n\
          if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{\n{rollback}self.cx.jobs.clear();\nself.cx.jobs.in_event = false;\n// Re-synchronise controlled inputs.\nself.cx.force_sync = true;\nself.flush(dom);\nself.cx.force_sync = false;\nreturn result;\n}} }}\n\
@@ -2983,6 +3017,7 @@ pub fn generate(
          self.cx.jobs.take_mutated();\n\
          {restore}\
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
+         self.mutation_step(dom);\n\
          self.free(dom);\n\
          let destroyed: std::collections::HashSet<usize> = self.cx.destroyed.drain(..).map(|i| i.key()).collect();\n\
          // Attachments the render removed are cleaned up as their elements go.\n\
@@ -3032,6 +3067,7 @@ pub fn generate(
          first.map_or(Ok(()), Err)\n}}\n\
          fn host_listeners(&self, window: bool, event: Event) -> Vec<u32> {{ self.cx.host.iter().filter(|h| h.0 == window && h.1 == event).map(|h| h.3).collect() }}\n\
          fn viewport_listeners(&self, event: Event) -> Vec<u32> {{ self.cx.viewport_host.iter().filter(|h| h.0 == event).map(|h| h.2).collect() }}\n\
+         fn capture_listeners(&self, window: bool, event: Event) -> Vec<u32> {{ self.cx.capture_host.iter().filter(|h| h.0 == window && h.1 == event).map(|h| h.3).collect() }}\n\
          fn media_changed(&mut self) -> Vec<(js::Event, Vec<u32>)> {{ self.cx.media = runic_runtime::media_env(); let mut lists: Vec<js::MediaQueryList> = Vec::new(); for h in &self.cx.media_host {{ if !lists.contains(&h.0) {{ lists.push(h.0.clone()); }} }} lists.sort_by_key(|l| l.order()); let mut out = Vec::new(); for list in lists {{ let m = runic_runtime::css::media_matches(list.query(), &self.cx.media).unwrap_or(false); if list.update(m) {{ let keys = self.cx.media_host.iter().filter(|h| h.0 == list).map(|h| h.2).collect(); out.push((js::Event::new(js::EventData {{ kind: JsString::from(\"change\"), matches: m, ..Default::default() }}), keys)); }} }} out }}\n\
          fn advance(&mut self, dom: &mut Dom, to: f64) {{\n\
          while let Some((_, cb)) = self.cx.timers.take_due(to) {{\n\

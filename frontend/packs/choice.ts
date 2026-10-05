@@ -777,6 +777,9 @@ export function valueSet(ctx: SetCtx, e: ts.Expression): unknown[] | undefined {
   return typedSet(lower.checker.getTypeAtLocation(node));
 }
 
+/** Constants whose values are being computed (recursion guard). */
+const derivedSeen = new Set<ts.Node>();
+
 function identifierSet(
   ctx: SetCtx,
   node: ts.Identifier,
@@ -789,6 +792,39 @@ function identifierSet(
   if (members) return members;
   const constant = staticValue(lower, node);
   if (constant) return [constant.value];
+  // A constant (also a derived value: bits-ui's `resolvedPreventScroll =
+  // $derived(preventScroll ?? true)`): the values of its expression.
+  const decl = sym?.valueDeclaration;
+  if (
+    decl &&
+    ts.isVariableDeclaration(decl) &&
+    ts.isVariableDeclarationList(decl.parent) &&
+    decl.parent.flags & ts.NodeFlags.Const &&
+    decl.initializer &&
+    !derivedSeen.has(decl)
+  ) {
+    let init: ts.Expression = skip(decl.initializer);
+    if (
+      ts.isCallExpression(init) &&
+      ts.isIdentifier(init.expression) &&
+      init.expression.text === '$derived' &&
+      init.arguments.length === 1
+    )
+      init = init.arguments[0];
+    if (
+      !ts.isCallExpression(init) ||
+      !ts.isIdentifier(init.expression) ||
+      !init.expression.text.startsWith('$')
+    ) {
+      derivedSeen.add(decl);
+      try {
+        const values = valueSet(ctx, init);
+        if (values) return values;
+      } finally {
+        derivedSeen.delete(decl);
+      }
+    }
+  }
   return typedSet(
     sym
       ? lower.checker.getTypeOfSymbolAtLocation(sym, node)

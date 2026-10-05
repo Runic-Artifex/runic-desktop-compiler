@@ -40,6 +40,10 @@ pub struct EventData {
     pub cancelable: bool,
     /// A `MediaQueryList` change event: whether the query matches now.
     pub matches: bool,
+    /// Created by script (`new CustomEvent(type, { cancelable })`, M6
+    /// overlays) and never dispatched: only its type and cancellation are
+    /// covered.
+    pub synthetic: bool,
 }
 
 impl EventData {
