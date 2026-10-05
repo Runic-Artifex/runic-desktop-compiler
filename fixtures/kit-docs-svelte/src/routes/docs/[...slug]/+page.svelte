@@ -18,6 +18,8 @@
 </svelte:head>
 
 <div class="flex min-h-0 flex-1">
+  <!-- A new pane per page: it starts at the top (Kit scrolls the window, not the pane). -->
+  {#key page.url.pathname}
   <div id="content" class="min-w-0 flex-1 overflow-y-auto">
     <article class="mx-auto flex w-full max-w-[40rem] min-w-0 flex-col gap-6 px-6 py-8">
       <div class="flex flex-col gap-2">
@@ -39,6 +41,7 @@
       </div>
     </article>
   </div>
+  {/key}
   {#if doc.toc.length}
     <nav
       id="toc"
