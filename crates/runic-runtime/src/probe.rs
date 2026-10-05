@@ -104,8 +104,27 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
     let doc = &native.doc;
     let focused = doc.get_focussed_node_id();
     let root = native.listeners.container.expect("the mount container");
+    // Content mounted in the body after the container (M6 portals).
+    let portals: Vec<NodeId> = native
+        .listeners
+        .body
+        .and_then(|b| doc.get_node(b))
+        .map(|b| {
+            let at = b
+                .children
+                .iter()
+                .position(|&c| c == root)
+                .map_or(0, |i| i + 1);
+            b.children[at..].to_vec()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        // The runtime's own select popup is not page content.
+        .filter(|&n| native.pointer.popup_list() != Some(n))
+        .collect();
     let mut geometry = Map::new();
-    let mut stack = vec![root];
+    let mut stack: Vec<NodeId> = portals.iter().rev().copied().collect();
+    stack.push(root);
     while let Some(id) = stack.pop() {
         let Some(node) = doc.get_node(id) else {
             continue;
@@ -160,6 +179,13 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
             state["document"] =
                 Value::Object(attrs.into_iter().map(|(k, v)| (k, json!(v))).collect());
         }
+    }
+    let portals: Vec<Value> = portals
+        .iter()
+        .filter_map(|&n| snapshot_node(doc, n, focused))
+        .collect();
+    if !portals.is_empty() {
+        state["portals"] = Value::Array(portals);
     }
     let instances = native.app.instances_json();
     if !instances.is_empty() {
@@ -750,6 +776,11 @@ pub(crate) fn run<A: App>() {
         }
         steps.push(step);
     };
+    // Two frames after the mount, as the browser harness waits for two
+    // animation frames before its first snapshot (ResizeObserver
+    // notifications of the mount arrive in them, M6).
+    native.frame();
+    native.frame();
     observe(&mut native, Value::Null, 0, 0.0);
     for (i, action) in actions
         .as_array()

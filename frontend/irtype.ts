@@ -183,6 +183,8 @@ export function irType(e: Expr, env: TypeEnv): Type {
       return e.type;
     case 'with':
       return irType(e.body, env);
+    case 'mount':
+      return 'mounted';
   }
 }
 

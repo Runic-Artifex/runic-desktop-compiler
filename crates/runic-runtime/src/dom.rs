@@ -201,6 +201,8 @@ pub(crate) struct Listeners {
     /// The element the app is mounted in (`div#root`, or the container of
     /// the app's HTML template).
     pub(crate) container: Option<NodeId>,
+    /// The body element (where imperative mounts append, M6).
+    pub(crate) body: Option<NodeId>,
     /// The sequential focus navigation starting point a focus reset
     /// (`focus.reset`: the start of the document) or `focus.start` set.
     pub(crate) set_navigation: Option<Option<NodeId>>,
@@ -508,6 +510,27 @@ impl Host {
             .map(|_| parent.as_u64())
     }
 
+    /// `document.body` (M6 overlays).
+    pub fn body(&self) -> Option<u64> {
+        let dom = self.dom()?;
+        dom.listeners.body.map(NodeId::as_u64)
+    }
+
+    /// The attached document for code that mounts and removes subtrees from
+    /// app code (imperative mounts, M6). Valid only while attached, as the
+    /// other script operations' access is.
+    pub fn dom_mut(&self) -> Option<Dom<'static>> {
+        // SAFETY: as for `dom`: attached only while the generated app runs
+        // app code inside a runtime call that holds the document and does
+        // not use it while app code runs.
+        unsafe {
+            Some(Dom {
+                doc: &mut *self.doc?,
+                listeners: &mut *self.listeners?,
+            })
+        }
+    }
+
     /// `document.getElementById(id)`: the first element in tree order.
     pub fn element_by_id(&self, id: &str) -> Option<u64> {
         let dom = self.dom()?;
@@ -743,6 +766,26 @@ fn focus_event(
 pub struct Dom<'a> {
     pub(crate) doc: &'a mut BaseDocument,
     pub(crate) listeners: &'a mut Listeners,
+}
+
+impl Dom<'_> {
+    /// What a ResizeObserver reports for element `node` (M6,
+    /// `layout::observed_sizes`): content x, y, width, height; border box
+    /// width, height; device-pixel content box width, height.
+    pub fn observed_sizes(&self, node: u64) -> [f64; 8] {
+        crate::layout::observed_sizes(self.doc, NodeId::from_u64(node))
+    }
+
+    /// The depth of element `node` in the document.
+    pub fn depth(&self, node: u64) -> usize {
+        crate::layout::depth(self.doc, NodeId::from_u64(node))
+    }
+
+    /// Resolve styles and layout (between ResizeObserver deliveries).
+    pub fn resolve_layout(&mut self) {
+        crate::layout::resolve(self.doc);
+        self.listeners.settle(self.doc);
+    }
 }
 
 /// `node.textContent = text`: the children are replaced by one text node,

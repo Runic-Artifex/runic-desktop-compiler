@@ -11,6 +11,8 @@ import type {
   AttrItem,
   Cell,
   Component,
+  MountSite,
+  SlotDef,
   Expr,
   Handler,
   Listener,
@@ -113,7 +115,7 @@ const TAGS = new Set([
 ]);
 /** The exports of Svelte's modules that component scripts may import. */
 const SVELTE_EXPORTS = {
-  svelte: ['onMount', 'onDestroy', 'tick', 'untrack'],
+  svelte: ['onMount', 'onDestroy', 'tick', 'untrack', 'mount', 'unmount', 'getAllContexts'],
   'svelte/events': ['on'],
 };
 
@@ -202,6 +204,8 @@ interface Unit {
   children: Map<string, string>;
   /** Components supplied by mapping packs (expanded in place), by tag name. */
   packs: Map<string, { pack: Pack; component: PackComponent }>;
+  /** Components the instance script mounts imperatively (`mount(Name, …)`, M6), by name. */
+  mounted: Map<string, string>;
   /** Instantiated from the root component (lowered); other components only provide modules. */
   reached: boolean;
 }
@@ -331,6 +335,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       starts: new Map(),
       children: new Map(),
       packs: new Map(),
+      mounted: new Map(),
       reached: false,
     };
     units.set(file, u);
@@ -428,6 +433,45 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         fail('E_TEMPLATE', `${n.name} is not an imported component`, loc(n));
       }
     });
+    // Components the instance script mounts imperatively (svelte's
+    // `mount(Name, …)`, M6 overlays): lowered before this one.
+    const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
+    if (/\bmount\b/.test(script)) {
+      const sf = ts.createSourceFile(u.file + '.ts', script, ts.ScriptTarget.Latest, true);
+      const names = new Set<string>();
+      for (const stmt of sf.statements) {
+        const named = ts.isImportDeclaration(stmt) ? stmt.importClause?.namedBindings : undefined;
+        if (
+          named &&
+          ts.isNamedImports(named) &&
+          ((stmt as ts.ImportDeclaration).moduleSpecifier as ts.StringLiteral).text === 'svelte'
+        )
+          for (const el of named.elements)
+            if ((el.propertyName ?? el.name).text === 'mount') names.add(el.name.text);
+      }
+      const visitScript = (n: ts.Node) => {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          names.has(n.expression.text)
+        ) {
+          const [component] = n.arguments;
+          const at = locate(u.original, u.scriptStart + n.getStart(sf), u.rel);
+          if (!component || !ts.isIdentifier(component))
+            fail('E_MOUNT', 'mount takes an imported component (mount(Name, { target, … }))', at);
+          const ref = resolver.dotted(u.file, (component as ts.Identifier).text);
+          if (ref?.kind !== 'component')
+            fail(
+              'E_MOUNT',
+              `${(component as ts.Identifier).text} is not an imported component`,
+              at,
+            );
+          u.mounted.set((component as ts.Identifier).text, (ref as { file: string }).file);
+        }
+        ts.forEachChild(n, visitScript);
+      };
+      visitScript(sf);
+    }
   };
   const visit = (file: string, stack: string[], from?: Source) => {
     if (stack.includes(file))
@@ -440,6 +484,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const n = u.ast.fragment && findComponent(u.ast.fragment, tag);
       visit(child, [...stack, file], n ? locate(u.original, n.start, u.rel) : undefined);
     }
+    for (const child of u.mounted.values()) visit(child, [...stack, file]);
     u.index = order.length;
     order.push(u);
   };
@@ -996,6 +1041,19 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       : undefined;
   };
   /** Whether runes are compiled in the file of `n` (components and `.svelte.js` modules). */
+  /**
+   * The component being lowered (M6 overlays): its mount sites, and its
+   * snippet props, which `mount(…, { props: { children } })` forwards.
+   */
+  let mounting:
+    | {
+        u: Unit;
+        index: number;
+        sites: MountSite[];
+        snippetOf: Map<ts.Symbol, string>;
+        slots: { name: string; params?: Type[] }[];
+      }
+    | undefined;
   const runeFile = (n: ts.Node) =>
     /\.svelte(\.__runic\.ts|\.ts|\.js|\.js\.__runic\.ts)$/.test(n.getSourceFile().fileName);
   const hooks: Hooks = {
@@ -1082,6 +1140,17 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         )
           return tsFail(node, 'E_CALL', 'untrack takes a function without parameters');
         return { op: 'builtin', name: 'reactive.untrack-call', args: [f], type: t.fn.result };
+      }
+      // Imperative mounts (M6 overlays): mount, unmount and getAllContexts.
+      if (ts.isIdentifier(node.expression)) {
+        const imported = svelteImport(node.expression);
+        if (imported === 'mount') return mountCall(node, ctx, lower);
+        if (imported === 'unmount') return unmountCall(node, ctx, lower);
+        if (imported === 'getAllContexts') {
+          if (node.arguments.length)
+            return tsFail(node, 'E_CALL', 'getAllContexts takes no arguments');
+          return { op: 'builtin', name: 'context.all', args: [], type: 'contexts' };
+        }
       }
       // on(element, type, handler) from svelte/events: an element listener and its remover.
       if (
@@ -1215,6 +1284,175 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       ],
     };
     return { op: 'call', function: add, args: [e, f] };
+  };
+  /**
+   * `mount(Component, { target, props, context })` (svelte, M6 overlays): an
+   * imperative instance of an imported component, mounted as the last child
+   * of `target` from a function of the component being lowered. Props are
+   * values for the component's props, or snippet props of this component
+   * forwarded to its snippets (they keep this component's scope); `context`
+   * is a context map (`getAllContexts()`).
+   */
+  const mountCall = (node: ts.CallExpression, b: FnBuilder, l: Lowerer): Expr => {
+    const m = mounting;
+    if (!m || b.component !== m.index)
+      return tsFail(node, 'E_MOUNT', 'mount is supported in the functions of a component script');
+    const [componentArg, options, ...rest] = node.arguments;
+    if (!componentArg || !ts.isIdentifier(componentArg) || !options || rest.length)
+      return tsFail(node, 'E_MOUNT', 'mount takes an imported component and an options object');
+    const file = m.u.mounted.get(componentArg.text);
+    if (!file)
+      return tsFail(componentArg, 'E_MOUNT', `${componentArg.text} is not an imported component`);
+    const childIndex = units.get(file)!.index;
+    const child = components[childIndex];
+    const o = skipParens(options);
+    if (!ts.isObjectLiteralExpression(o))
+      return tsFail(options, 'E_MOUNT', 'mount options are an object literal');
+    let target: Expr | undefined;
+    let context: Expr | undefined;
+    const props: { name: string; value: Expr }[] = [];
+    const slots: SlotDef[] = [];
+    /** The value of an option or prop (a shorthand reads the variable it names). */
+    const valueOf = (p: { value: ts.Expression; at: ts.Node }): Expr => {
+      if (!ts.isShorthandPropertyAssignment(p.at)) return l.expr(p.value, b);
+      const sym = checker.getShorthandAssignmentValueSymbol(p.at);
+      const binding = sym && l.bindingOf(sym);
+      if (!binding)
+        return tsFail(p.at, 'E_UNRESOLVED', `${p.at.name.text} is not a supported binding`);
+      return l.bindingExpr(
+        binding,
+        p.at.name,
+        b,
+        binding.kind === 'cell' ? l.hooks.cellType(binding.cell) : undefined,
+      );
+    };
+    const entries = (obj: ts.ObjectLiteralExpression) =>
+      obj.properties.map(p => {
+        if (
+          !(ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) ||
+          !(ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))
+        )
+          return tsFail(p, 'E_MOUNT', 'mount options and props are named properties');
+        return {
+          name: p.name.text,
+          value: ts.isPropertyAssignment(p) ? p.initializer : (p.name as ts.Expression),
+          at: p,
+        };
+      });
+    for (const { name, value, at } of entries(o)) {
+      if (name === 'target') {
+        target = valueOf({ value, at });
+        const t = l.irType(target, b);
+        if (JSON.stringify(t) === JSON.stringify({ maybe: 'element' }))
+          target = { op: 'unwrap', value: target };
+        else if (t !== 'element')
+          tsFail(value, 'E_MOUNT', 'The target of mount must be an element');
+      } else if (name === 'context') {
+        context = valueOf({ value, at });
+        if (l.irType(context, b) !== 'contexts')
+          tsFail(value, 'E_MOUNT', 'The context of mount must be a context map (getAllContexts())');
+      } else if (name === 'props') {
+        const po = skipParens(value);
+        if (!ts.isObjectLiteralExpression(po))
+          return tsFail(value, 'E_MOUNT', 'mount props are an object literal');
+        for (const p of entries(po)) {
+          const decl = child.slots?.find(d => d.name === p.name);
+          if (decl) {
+            // A snippet: one of this component's snippet props, forwarded.
+            const sym = ts.isShorthandPropertyAssignment(p.at)
+              ? checker.getShorthandAssignmentValueSymbol(p.at)
+              : ts.isIdentifier(p.value)
+                ? checker.getSymbolAtLocation(p.value)
+                : undefined;
+            const own = sym && m.snippetOf.get(sym);
+            if (!own)
+              tsFail(
+                p.value,
+                'E_MOUNT',
+                `${p.name} is a snippet: pass a snippet prop of this component`,
+              );
+            if (decl.params?.length || m.slots.find(x => x.name === own)?.params?.length)
+              tsFail(p.at, 'E_MOUNT', 'Snippets with parameters are not supported in mount props');
+            slots.push({
+              name: p.name,
+              body: [{ kind: 'slot', name: own as string }],
+              when: { op: 'slot-provided', name: own as string },
+            });
+            continue;
+          }
+          const cell = child.cells.find(c => c.prop === p.name);
+          if (!cell) return tsFail(p.at, 'E_MOUNT', `${child.name} has no prop ${p.name}`);
+          const v = valueOf(p);
+          const vt = l.irType(v, b);
+          const want: Type =
+            cell.undefinedDefault && !maybeInner(cell.type) && maybeInner(vt)
+              ? { maybe: cell.type }
+              : cell.type;
+          props.push({
+            name: p.name,
+            value: l.adaptFunction(v, vt, want) ?? coerceInit(v, vt, want, l.types.records),
+          });
+        }
+      } else
+        tsFail(
+          at,
+          'E_MOUNT',
+          `The mount option ${name} is unsupported (target, props and context are)`,
+        );
+    }
+    if (!target) return tsFail(options, 'E_MOUNT', 'mount needs a target');
+    const site = m.sites.length;
+    m.sites.push({
+      component: childIndex,
+      ...(slots.length ? { slots } : {}),
+      source: sourceOf(node),
+    });
+    return {
+      op: 'mount',
+      site,
+      target,
+      ...(props.length ? { props } : {}),
+      ...(context ? { context } : {}),
+    };
+  };
+  /** `unmount(instance)` (svelte): a fulfilled promise; nothing for a nullish one. */
+  const unmountCall = (node: ts.CallExpression, b: FnBuilder, l: Lowerer): Expr => {
+    const [instance, ...rest] = node.arguments;
+    if (!instance || rest.length)
+      return tsFail(
+        node,
+        'E_MOUNT',
+        'unmount takes the mounted instance (outro options are unsupported)',
+      );
+    const v = l.expr(instance, b);
+    const t = l.irType(v, b);
+    const call = (x: Expr): Expr => ({
+      op: 'builtin',
+      name: 'mounted.unmount',
+      args: [x],
+      type: { promise: 'void' },
+    });
+    if (t === 'mounted') return call(v);
+    if (JSON.stringify(t) !== JSON.stringify({ maybe: 'mounted' }))
+      return tsFail(instance, 'E_MOUNT', 'unmount takes an instance mount returned');
+    const tmp = b.local('$mounted', t);
+    const read: Expr = { op: 'local', local: tmp };
+    return {
+      op: 'with',
+      local: tmp,
+      value: v,
+      body: {
+        op: 'cond',
+        test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: 'boolean' },
+        then: {
+          op: 'builtin',
+          name: 'promise.resolve',
+          args: [{ op: 'undefined', type: 'void' }],
+          type: { promise: 'void' },
+        },
+        else: call({ op: 'unwrap', value: read }),
+      },
+    };
   };
   const lower = new Lowerer(program, checker, types, hooks, tsFail, sourceOf);
   // The script runs once per instance: its functions keep their identity.
@@ -1616,6 +1854,44 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const snippetOf = new Map<ts.Symbol, string>();
     /** Slots received through the rest props (forwarded where they are spread). */
     const forwardedSlots = new Set<string>();
+    const mountSites: MountSite[] = [];
+    mounting = { u, index: COMPONENT, sites: mountSites, snippetOf, slots };
+    // Variables holding what mount and getAllContexts return (M6): their
+    // TypeScript types (an exports record, a Map of anything) are opaque
+    // handles of the IR.
+    for (const stmt of statements) {
+      const visit = (n: ts.Node) => {
+        const handle = (e: ts.Expression | undefined): Type | undefined => {
+          const c = e && skipParens(e);
+          if (!c || !ts.isCallExpression(c) || !ts.isIdentifier(c.expression)) return undefined;
+          const name = svelteImport(c.expression);
+          return name === 'mount' ? 'mounted' : name === 'getAllContexts' ? 'contexts' : undefined;
+        };
+        let id: ts.Identifier | undefined;
+        let t: Type | undefined;
+        if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+          id = n.name;
+          t = handle(n.initializer);
+        } else if (
+          ts.isBinaryExpression(n) &&
+          n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          ts.isIdentifier(n.left)
+        ) {
+          id = n.left;
+          t = handle(n.right);
+        }
+        if (id && t) {
+          const sym = checker.getSymbolAtLocation(id);
+          const declared = checker.getTypeAtLocation(id);
+          const nullable =
+            declared.isUnion() &&
+            declared.types.some(p => p.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined));
+          if (sym) types.override(sym, nullable ? { maybe: t } : t);
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(stmt);
+    }
     /** Parameter types of a `Snippet<[A, B]>` prop, or undefined for other props. */
     const snippetParams = (node: ts.Node, type?: ts.Type): Type[] | undefined => {
       const t = checker.getNonNullableType(type ?? checker.getTypeAtLocation(node));
@@ -1887,14 +2163,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const topLevel = (stmt: ts.Statement) => {
       const cell = cells.length;
       cells.push({
-        name: '$statement',
+        name: '$toplevel',
         type: 'boolean',
         init: { op: 'lit', value: true },
         tracking: 'none',
         source: sourceOf(stmt),
       });
       pending.push(() => {
-        cells[cell].init = lower.statementValue(stmt, COMPONENT, '$statement');
+        cells[cell].init = lower.statementValue(stmt, COMPONENT, '$toplevel');
       });
     };
     const effect = (stmt: ts.ExpressionStatement) => {
@@ -1981,6 +2257,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           if (stmt.importClause?.name || !named || !ts.isNamedImports(named))
             tsFail(stmt, 'E_CAPABILITY', 'Import onMount and onDestroy from svelte by name');
           for (const el of (named as ts.NamedImports).elements) {
+            if (el.isTypeOnly) continue;
             const imported = (el.propertyName ?? el.name).text;
             if (!SVELTE_EXPORTS.svelte.includes(imported))
               tsFail(
@@ -2285,6 +2562,17 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'RenderTag') {
           flush();
           out.push(render(n));
+        } else if (
+          n.type === 'KeyBlock' &&
+          n.expression.type === 'Identifier' &&
+          ts.isIdentifier(exprNode(n.expression)) &&
+          snippetOf.has(checker.getSymbolAtLocation(exprNode(n.expression))!)
+        ) {
+          // {#key snippet}: an instance's snippet props are fixed when it is
+          // created (slot content), so the content never remounts (bits-ui's
+          // PortalConsumer).
+          flush();
+          out.push(...children(n.fragment));
         } else if (n.type === 'KeyBlock') {
           // {#key v}…{/key} remounts its content when v changes: a keyed list of [v].
           flush();
@@ -3307,6 +3595,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       ...(tb.locals.length ? { templateLocals: tb.locals } : {}),
       ...(slots.length ? { slots } : {}),
       ...(effects.length ? { effects } : {}),
+      ...(mountSites.length ? { mounts: mountSites } : {}),
     };
   }
 

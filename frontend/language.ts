@@ -335,6 +335,13 @@ export class Lowerer {
     return s && s.flags & ts.SymbolFlags.Alias ? this.checker.getAliasedSymbol(s) : s;
   }
 
+  /**
+   * Variables captured by a closure created in their own initialiser
+   * (`analyseCaptures`): declared by a binding, then assigned, so that the
+   * closure shares the binding the value is stored in.
+   */
+  readonly selfCaptured = new Set<ts.Symbol>();
+
   /** Symbols in `body` that are captured by nested functions and assigned anywhere. */
   analyseCaptures(body: ts.Node): Set<ts.Symbol> {
     const declaredIn = new Map<ts.Symbol, ts.Node>();
@@ -345,10 +352,30 @@ export class Lowerer {
         if (ts.isFunctionLike(p)) return p;
       return undefined;
     };
+    /**
+     * Variables a closure in their own initialiser captures (`const o = new
+     * ResizeObserver(() => … o …)`): the closure must see the value assigned
+     * after it was created, so they are shared by reference (boxed).
+     */
+    const early = new Set<ts.Symbol>();
     const visit = (n: ts.Node) => {
       if (ts.isVariableDeclaration(n) || ts.isParameter(n)) {
         const s = ts.isIdentifier(n.name) ? this.checker.getSymbolAtLocation(n.name) : undefined;
         if (s) declaredIn.set(s, fnOf(n) ?? body);
+      }
+      if (ts.isIdentifier(n) && !ts.isVariableDeclaration(n.parent)) {
+        const s = this.checker.getSymbolAtLocation(n);
+        const decl = s?.valueDeclaration;
+        if (
+          s &&
+          decl &&
+          ts.isVariableDeclaration(decl) &&
+          decl.initializer &&
+          n.pos >= decl.initializer.pos &&
+          n.end <= decl.initializer.end &&
+          fnOf(n) !== fnOf(decl)
+        )
+          early.add(s);
       }
       if (ts.isIdentifier(n)) {
         const s = this.checker.getSymbolAtLocation(n);
@@ -369,7 +396,8 @@ export class Lowerer {
       ts.forEachChild(n, visit);
     };
     visit(body);
-    return new Set([...captured].filter(s => mutated.has(s)));
+    for (const s of early) this.selfCaptured.add(s);
+    return new Set([...[...captured].filter(s => mutated.has(s)), ...early]);
   }
 
   // -------------------------------------------------------------------------
@@ -759,11 +787,15 @@ export class Lowerer {
   /**
    * The value of a side-effect-free test that the IR type of a local
    * decides: `Array.isArray(x)` and `typeof x === "…"` (or `!==`) of a
-   * parameter or local, through `!`, parentheses, and `&&`/`||` whose left
+   * parameter or local, a prop's one value, or a value known at build time
+   * (`staticValue`), through `!`, parentheses, and `&&`/`||` whose left
    * operand is decided. Undefined otherwise.
    */
   private staticTruth(e: ts.Expression, b: FnBuilder): boolean | undefined {
     e = skipParens(e);
+    // A value known at build time (literals, pack constants: esm-env's DEV).
+    const value = this.staticValue(e);
+    if (value) return !!value.value;
     const K = ts.SyntaxKind;
     const typeOfLocal = (x: ts.Expression): Type | undefined => {
       x = skipParens(x);
@@ -1231,9 +1263,13 @@ export class Lowerer {
           { op: 'expr', value },
           { op: 'return', ...this.src(s) },
         ];
-      // `T | undefined` results: a returned T is wrapped.
+      // `T | undefined` results: a returned T is wrapped, a literal `null`
+      // or `undefined` takes the result type.
       const inner = b.result && maybeInner(b.result);
-      if (value && inner && sameType(this.irType(value, b), inner)) value = { op: 'some', value };
+      if (value && inner && (value.op === 'null' || value.op === 'undefined'))
+        value = { op: value.op, type: b.result! };
+      else if (value && inner && sameType(this.irType(value, b), inner))
+        value = { op: 'some', value };
       // A class instance returned as a class reference.
       else if (value && b.result)
         value = this.classes.fitAt(value, this.irType(value, b), b.result, s);
@@ -1549,14 +1585,37 @@ export class Lowerer {
       // An unannotated variable whose initialiser may be undefined where
       // TypeScript does not say so (a dictionary object's entry,
       // `keyToIndex[e.key]`): the nullable type.
-      const early = !fn && d.initializer && !d.type ? this.expr(d.initializer, b) : undefined;
+      // (Not for a variable its initialiser refers to: that needs the binding.)
+      const early =
+        !fn && d.initializer && !d.type && !this.selfCaptured.has(sym)
+          ? this.expr(d.initializer, b)
+          : undefined;
       const earlyType = early && this.irType(early, b);
       if (earlyType && !maybeInner(type) && sameType(maybeInner(earlyType) ?? 'void', type))
         type = earlyType;
       const local = b.local(d.name.text, type, b.boxed.has(sym));
       this.bindings.set(sym, { kind: 'local', owner: b, local });
-      if (fn) return [{ op: 'let', local, value: this.closure(d.initializer!, b, d.name.text) }];
+      if (fn) {
+        const value = this.closure(d.initializer!, b, d.name.text);
+        // A function calling itself through the variable shares its binding.
+        if (this.selfCaptured.has(sym))
+          return [
+            { op: 'let', local },
+            { op: 'assign', target: { place: 'local', local }, value },
+          ];
+        return [{ op: 'let', local, value }];
+      }
       const init = early ?? (d.initializer && this.expr(d.initializer, b));
+      if (init && this.selfCaptured.has(sym))
+        return [
+          { op: 'let', local, ...this.src(d) },
+          {
+            op: 'assign',
+            target: { place: 'local', local },
+            value: this.classes.fitAt(init, this.irType(init, b), type, d),
+            ...this.src(d),
+          },
+        ];
       return [
         {
           op: 'let',
@@ -1835,8 +1894,15 @@ export class Lowerer {
         ? valueNode.type
         : (this.types.typeOrUndefined(valueNode) ?? this.irType(lowered, b));
     let value: Expr;
-    if (operator === ts.SyntaxKind.EqualsToken) value = rhs();
-    else if (operator === ts.SyntaxKind.QuestionQuestionEqualsToken)
+    if (operator === ts.SyntaxKind.EqualsToken) {
+      value = rhs();
+      // A literal `null` or `undefined` takes the target's nullable type
+      // (its contextual type may be one the value model maps differently).
+      if (value.op === 'null' || value.op === 'undefined') {
+        const t = this.targetType(target, b);
+        if (maybeInner(t)) value = { op: value.op, type: t };
+      }
+    } else if (operator === ts.SyntaxKind.QuestionQuestionEqualsToken)
       value = { op: 'nullish', left: current(), right: rhs() };
     else if (
       operator === ts.SyntaxKind.BarBarEqualsToken ||
@@ -2160,19 +2226,28 @@ export class Lowerer {
 
   /** A boolean test with JS truthiness. */
   condition(e: ts.Expression, b: FnBuilder): Expr {
-    // Only the truthiness of `a && b` and `a || b` is used: the operands'
-    // types need not agree (bits-ui's `this.group && this.group.opts.name.current`).
-    const x = skipParens(e);
-    if (
-      ts.isBinaryExpression(x) &&
-      (x.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-        x.operatorToken.kind === ts.SyntaxKind.BarBarToken)
-    )
-      return {
-        op: x.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ? 'and' : 'or',
-        left: this.condition(x.left, b),
-        right: this.condition(x.right, b),
-      };
+    // In a test only truthiness matters: `a && b` and `a || b` combine the
+    // operands' truthiness (short-circuiting as JavaScript does), whatever
+    // their types; `!a` negates it.
+    const inner = skipParens(e);
+    const known = this.staticTruth(inner, b);
+    if (known !== undefined) return { op: 'lit', value: known };
+    if (ts.isBinaryExpression(inner)) {
+      const op = inner.operatorToken.kind;
+      if (op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken) {
+        const and = op === ts.SyntaxKind.AmpersandAmpersandToken;
+        const left = this.staticTruth(inner.left, b);
+        if (left !== undefined)
+          return left === and ? this.condition(inner.right, b) : { op: 'lit', value: !and };
+        return {
+          op: and ? 'and' : 'or',
+          left: this.condition(inner.left, b),
+          right: this.condition(inner.right, b),
+        };
+      }
+    }
+    if (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken)
+      return { op: 'not', arg: this.condition(inner.operand, b) };
     const v = this.expr(e, b);
     return this.truthy(v, this.irType(v, b));
   }
@@ -2300,6 +2375,9 @@ export class Lowerer {
           path.resolve(member.getSourceFile().fileName) === DOM
         )
           return { op: 'lit', value: 'function' };
+        // The host's globals (`typeof document`): native apps have them.
+        if (ts.isIdentifier(operand) && this.hostGlobal(operand))
+          return { op: 'lit', value: 'object' };
         return { op: 'typeof', arg: this.expr((e as ts.TypeOfExpression).expression, b) };
       }
       case K.PropertyAccessExpression:
@@ -2678,6 +2756,74 @@ export class Lowerer {
     return { element: this.expr(inner.expression, b), property };
   }
 
+  /** Whether `id` names an object global of the host (frontend/dom.d.ts: `document`, `window`, …). */
+  hostGlobal(id: ts.Identifier): boolean {
+    const decls = this.checker.getSymbolAtLocation(id)?.declarations ?? [];
+    return (
+      decls.length > 0 &&
+      decls.every(
+        d => ts.isVariableDeclaration(d) && path.resolve(d.getSourceFile().fileName) === DOM,
+      )
+    );
+  }
+
+  /**
+   * The value of an expression known at build time, or undefined: literals,
+   * constants of packs (esm-env's `BROWSER`) and of package modules
+   * evaluated at build time, `typeof` of the host's globals (objects in a
+   * native app), and `!`, `===`, `!==`, `==`, `!=`, `&&`, `||`, `??` over
+   * them. A condition with such a value is folded: the branch it never takes
+   * is not lowered (it never runs).
+   */
+  staticValue(e: ts.Expression): { value: unknown } | undefined {
+    e = skipParens(e);
+    const K = ts.SyntaxKind;
+    if (e.kind === K.TrueKeyword) return { value: true };
+    if (e.kind === K.FalseKeyword) return { value: false };
+    if (e.kind === K.NullKeyword) return { value: null };
+    if (ts.isStringLiteralLike(e)) return { value: e.text };
+    if (ts.isNumericLiteral(e)) return { value: Number(e.text) };
+    if (ts.isIdentifier(e)) {
+      const bound = this.binding(e);
+      if (e.text === 'undefined' && !bound) return { value: undefined };
+      if (bound?.kind !== 'constant') return undefined;
+      const v = bound.value;
+      return v === null || ['boolean', 'number', 'string', 'undefined'].includes(typeof v)
+        ? { value: v }
+        : undefined;
+    }
+    if (ts.isTypeOfExpression(e)) {
+      const operand = skipParens(e.expression);
+      return ts.isIdentifier(operand) && this.hostGlobal(operand) ? { value: 'object' } : undefined;
+    }
+    if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) {
+      const v = this.staticValue(e.operand);
+      return v && { value: !v.value };
+    }
+    if (ts.isBinaryExpression(e)) {
+      const op = e.operatorToken.kind;
+      const l = this.staticValue(e.left);
+      if (!l) return undefined;
+      if (op === K.AmpersandAmpersandToken) return l.value ? this.staticValue(e.right) : l;
+      if (op === K.BarBarToken) return l.value ? l : this.staticValue(e.right);
+      if (op === K.QuestionQuestionToken)
+        return l.value === null || l.value === undefined ? this.staticValue(e.right) : l;
+      const r = this.staticValue(e.right);
+      if (!r) return undefined;
+      switch (op) {
+        case K.EqualsEqualsEqualsToken:
+          return { value: l.value === r.value };
+        case K.ExclamationEqualsEqualsToken:
+          return { value: l.value !== r.value };
+        case K.EqualsEqualsToken:
+          return { value: l.value == r.value };
+        case K.ExclamationEqualsToken:
+          return { value: l.value != r.value };
+      }
+    }
+    return undefined;
+  }
+
   /** A value computed at build time as an IR literal (strings, numbers, booleans, undefined). */
   constantExpr(value: unknown, label: string, at: ts.Node): Expr {
     if (typeof value === 'string' || typeof value === 'boolean') return { op: 'lit', value };
@@ -2735,6 +2881,20 @@ export class Lowerer {
     if (op === K.CommaToken)
       return this.fail(e, 'E_EXPRESSION', 'Comma expressions are supported as statements');
     if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
+      // A left operand known at build time decides which operand is the
+      // value; the other is never evaluated, so it is not lowered.
+      const known = this.staticValue(e.left);
+      if (known) {
+        const and = op === K.AmpersandAmpersandToken;
+        if (and ? !known.value : !!known.value)
+          return this.constantExpr(known.value, e.left.getText(), e.left);
+        const right = this.expr(e.right, b);
+        const rt = this.irType(right, b);
+        const result = this.types.typeOrUndefined(e) ?? rt;
+        return maybeInner(result) && !maybeInner(rt) && rt !== 'void'
+          ? { op: 'some', value: right }
+          : right;
+      }
       const left = this.expr(e.left, b);
       const lt = this.irType(left, b);
       let right = this.expr(e.right, b);
@@ -3280,6 +3440,28 @@ export class Lowerer {
         'E_HOST',
         `location.${method} navigates to another document, which is unsupported (assign location.hash or use history.pushState)`,
       );
+    // M6 overlays: `querySelector` of a literal selector the model covers:
+    // `body` (where imperative mounts append) and `#id`.
+    if (host === 'document' && method === 'querySelector') {
+      const [sel] = e.arguments;
+      const text = sel && ts.isStringLiteralLike(sel) ? sel.text.trim() : undefined;
+      if (e.arguments.length !== 1 || text === undefined)
+        return this.fail(e, 'E_CALL', 'document.querySelector takes a literal selector');
+      if (text === 'body')
+        return {
+          op: 'some',
+          value: builtin('document.body', [], 'element'),
+        };
+      if (/^#[A-Za-z_][\w-]*$/.test(text))
+        return builtin('document.getElementById', [{ op: 'lit', value: text.slice(1) }], {
+          maybe: 'element',
+        });
+      return this.fail(
+        sel,
+        'E_CALL',
+        `document.querySelector supports the selectors body and #id, not ${JSON.stringify(text)}`,
+      );
+    }
     if (host === 'document' && method === 'getElementById') {
       if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'getElementById takes an id');
       return builtin('document.getElementById', [this.coerce(e.arguments[0], b, STRING)], {
@@ -3376,6 +3558,8 @@ export class Lowerer {
       return this.fail(e, 'E_MEMBER', `${host}.${name} is unsupported here; call its methods`);
     if (host === 'document' && name === 'title')
       return { op: 'builtin', name: 'document.title', args: [], type: STRING };
+    if (host === 'document' && name === 'body')
+      return { op: 'builtin', name: 'document.body', args: [], type: 'element' };
     return undefined;
   }
 
@@ -4184,6 +4368,53 @@ export class Lowerer {
         return this.stringRegexp(method, receiver, e, b);
       if (this.classes.isClass(this.irType(receiver, b)))
         return this.classes.callMethod(this.irType(receiver, b), receiver, callee, e, b);
+      // ResizeObserver methods (M6): observe with a literal box option.
+      if (
+        kind === 'record' &&
+        (this.irType(receiver, b) as { record: number }).record === this.types.resizeObserver
+      ) {
+        const [target, options, ...rest] = e.arguments;
+        if (method === 'disconnect' && !e.arguments.length)
+          return { op: 'builtin', name: 'resize.disconnect', args: [receiver], type: 'void' };
+        if (method === 'unobserve' && target && !options)
+          return {
+            op: 'builtin',
+            name: 'resize.unobserve',
+            args: [receiver, this.coerce(target, b, 'element')],
+            type: 'void',
+          };
+        if (method !== 'observe' || !target || rest.length)
+          return this.fail(e, 'E_CALL', `ResizeObserver ${method}() is unsupported`);
+        let box = 'content-box';
+        if (options) {
+          const o = skipParens(options);
+          const p = ts.isObjectLiteralExpression(o) ? o.properties : undefined;
+          const boxProp = p?.[0];
+          if (
+            !p ||
+            p.length > 1 ||
+            (boxProp &&
+              !(
+                ts.isPropertyAssignment(boxProp) &&
+                boxProp.name.getText() === 'box' &&
+                ts.isStringLiteralLike(boxProp.initializer)
+              ))
+          )
+            return this.fail(
+              options,
+              'E_CALL',
+              'ResizeObserver observe takes { box: "content-box" | "border-box" | "device-pixel-content-box" }',
+            );
+          if (boxProp)
+            box = ((boxProp as ts.PropertyAssignment).initializer as ts.StringLiteral).text;
+        }
+        return {
+          op: 'builtin',
+          name: 'resize.observe',
+          args: [receiver, this.coerce(target, b, 'element'), { op: 'lit', value: box }],
+          type: 'void',
+        };
+      }
       // MutationObserver methods.
       if (
         kind === 'record' &&
@@ -4666,6 +4897,20 @@ export class Lowerer {
     }
     if (global === 'RegExp') return this.regexpNew(e, e.arguments ?? [], b);
     if (global === 'Date') return this.dateNew(e, b);
+    // new ResizeObserver(callback) (M6): an observer record holding the
+    // callback, registered in creation order (deliveries follow it).
+    if (this.hostName(e.expression) === 'ResizeObserver') {
+      const [cb] = e.arguments ?? [];
+      const type = this.types.of(e);
+      if (!cb || e.arguments!.length !== 1 || typeof type !== 'object' || !('record' in type))
+        return this.fail(e, 'E_NEW', 'new ResizeObserver takes a callback');
+      return {
+        op: 'builtin',
+        name: 'resize.new',
+        args: [this.coerce(cb, b, this.types.records[type.record].fields[0].type)],
+        type,
+      };
+    }
     // new MutationObserver(callback): a record holding the callback.
     if (this.hostName(e.expression) === 'MutationObserver') {
       const [cb] = e.arguments ?? [];

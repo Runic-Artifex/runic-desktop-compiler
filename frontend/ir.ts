@@ -36,6 +36,10 @@ export type Type =
   | 'media-query'
   /** A Date object (identity; mutable time value). */
   | 'date'
+  /** A component instance mounted imperatively (`mount`; identity, M6). */
+  | 'mounted'
+  /** The contexts an instance sees (`context.all`, Svelte's getAllContexts; identity, M6). */
+  | 'contexts'
   | 'void';
 
 export type Literal = boolean | number | string;
@@ -193,6 +197,18 @@ export type Expr =
       value: Expr;
       cases: { record: number; local: number; body: Expr }[];
       else?: Expr;
+    }
+  /**
+   * Mount an instance of the component of mount site `site` of the running
+   * function's component as the last child of `target` (Svelte's `mount`, M6):
+   * props evaluated once, contexts found through `context`.
+   */
+  | {
+      op: 'mount';
+      site: number;
+      target: Expr;
+      props?: { name: string; value: Expr }[];
+      context?: Expr;
     };
 
 export type Place =
@@ -353,7 +369,7 @@ export type Node =
        * holds (evaluated in the parent: content forwarded from the parent's
        * own slot, M6).
        */
-      slots?: { name: string; params?: number[]; body: Node[]; when?: Expr }[];
+      slots?: SlotDef[];
       source?: Source;
     }
   | { kind: 'slot'; name: string; args?: Expr[]; fallback?: Node[]; source?: Source }
@@ -386,6 +402,23 @@ export interface Component {
   slots?: { name: string; params?: Type[] }[];
   /** Effects of each instance, in declaration order. */
   effects?: Effect[];
+  /** Components its functions mount imperatively (`mount` names a site by index; M6). */
+  mounts?: MountSite[];
+}
+
+/** Parent-owned content for a child's slot (params are template locals of the parent). */
+export interface SlotDef {
+  name: string;
+  params?: number[];
+  body: Node[];
+  when?: Expr;
+}
+
+/** A component a component mounts imperatively, with the content it provides for its slots. */
+export interface MountSite {
+  component: number;
+  slots?: SlotDef[];
+  source?: Source;
 }
 
 /**

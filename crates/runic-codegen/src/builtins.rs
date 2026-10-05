@@ -4,7 +4,7 @@
 
 use crate::expr::{FnCtx, js_str};
 use crate::types::rust_type;
-use runic_ir::{Expr, Program, Type};
+use runic_ir::{Expr, Program, Type, Value};
 
 /// An IR function `f` of type `fty` as a promise handler: it receives the
 /// value (or, for rejections, the Error record of the exception) and its
@@ -533,6 +533,42 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ),
         // An observer that never observed has nothing to disconnect.
         ("mutation", "disconnect") => format!("{{ let _ = &{}; }}", t[0]),
+        // ResizeObservers (M6): registered in creation order; observations
+        // are (observer, target, box, last reported size), delivered by the
+        // app's `resize_step` after each layout.
+        ("resize", "new") => {
+            let Type::Record(r) = ty else {
+                panic!("validated ResizeObserver record")
+            };
+            format!(
+                "{{ let o = JsRef::new(R{r} {{ f0: {} }}); cx.resize_observers.push(o.clone()); o }}",
+                t[0]
+            )
+        }
+        ("resize", "observe") => {
+            let b = match &args[2] {
+                Expr::Lit {
+                    value: Value::String(s),
+                } if s == "border-box" => 1,
+                Expr::Lit {
+                    value: Value::String(s),
+                } if s == "device-pixel-content-box" => 2,
+                _ => 0,
+            };
+            // Observing a target again (any box) replaces its observation.
+            format!(
+                "{{ let o = {}; let target: js::Element = {}; cx.resize_obs.retain(|x| !(JsRef::ptr_eq(&x.0, &o) && x.1 == target)); cx.resize_obs.push((o, target, {b}u8, None)); }}",
+                t[0], t[1]
+            )
+        }
+        ("resize", "unobserve") => format!(
+            "{{ let o = {}; let target: js::Element = {}; cx.resize_obs.retain(|x| !(JsRef::ptr_eq(&x.0, &o) && x.1 == target)); }}",
+            t[0], t[1]
+        ),
+        ("resize", "disconnect") => format!(
+            "{{ let o = {}; cx.resize_obs.retain(|x| !JsRef::ptr_eq(&x.0, &o)); }}",
+            t[0]
+        ),
         ("effect", phase @ ("pre" | "post")) => {
             let Type::Fn(f) = &types[0] else {
                 unreachable!("validated effect function")
@@ -582,6 +618,16 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "match {found} {{ Some(v) => match v.downcast_ref::<{}>() {{ Some(x) => Maybe::Some(x.clone()), None => {{ {mismatch}; unreachable!() }} }}, None => Maybe::Undefined }}",
                 rust_type(inner)
             )
+        }
+        // M6 overlays: the contexts of the instance being created, an
+        // imperatively mounted instance's destruction, and the body.
+        ("context", "all") => q(cx, "cx.context_all()".into()),
+        ("mounted", "unmount") => format!(
+            "{{ let h: js::Handle = {}; unmount_handle(cx, &h); js::JsPromise::<(), Lst>::fulfilled(()) }}",
+            t[0]
+        ),
+        ("document", "body") => {
+            "js::Element(cx.dom.body().expect(\"an attached document\"))".into()
         }
         ("uid", "next") => format!(
             "{{ cx.uids += 1; JsString::from(format!(\"{{}}{{}}\", {}.to_rust(), cx.uids)) }}",

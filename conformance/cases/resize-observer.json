@@ -1,0 +1,17 @@
+{
+  "description": "ResizeObserver (M6, docs/design/M6-OVERLAYS.md) in Svelte, React and Vue: notifications after layout and before paint, as Chromium delivers them. A content-box observer of an outer box (fractional width), a deeper element and an element that starts with display: none (reported at 0×0 first, then at its size when shown), and a border-box observer of the outer box: entries with contentRect, borderBoxSize, contentBoxSize and devicePixelContentBoxSize, callbacks per observer in creation order with the observer as their second argument. The first callback sets the deeper element's width from the outer box, which is reported in a later round of the same frame (React renders that update in a later task, so in a later frame; the log after the two frames each step waits for is the same). Unobserve (no further reports), observe again (reported at once) and disconnect",
+  "fixtures": ["resize-svelte", "resize-react", "resize-vue"],
+  "actions": [
+    { "kind": "click", "id": "wider" },
+    { "kind": "click", "id": "show" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "unobserve" },
+    { "kind": "click", "id": "wider" },
+    { "kind": "click", "id": "observe" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "resize", "width": 420, "height": 600 },
+    { "kind": "click", "id": "disconnect" },
+    { "kind": "click", "id": "wider" },
+    { "kind": "click", "id": "show" }
+  ]
+}

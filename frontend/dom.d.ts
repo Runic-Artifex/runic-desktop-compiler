@@ -65,6 +65,36 @@ interface MutationObserver {
   disconnect(): void;
 }
 declare var MutationObserver: { new (callback: () => void): MutationObserver };
+/** A ResizeObserver (M6): its callback receives entries after layout, before paint. */
+interface ResizeObserver {
+  /** The callback type (a record of the IR holds the callback). */
+  readonly __runicResizeObserver: (
+    entries: ResizeObserverEntry[],
+    observer: ResizeObserver,
+  ) => void;
+  observe(
+    target: HTMLElement,
+    options?: { box?: 'content-box' | 'border-box' | 'device-pixel-content-box' },
+  ): void;
+  unobserve(target: HTMLElement): void;
+  disconnect(): void;
+}
+declare var ResizeObserver: {
+  new (
+    callback: (entries: ResizeObserverEntry[], observer: ResizeObserver) => void,
+  ): ResizeObserver;
+};
+interface ResizeObserverSize {
+  readonly inlineSize: number;
+  readonly blockSize: number;
+}
+interface ResizeObserverEntry {
+  readonly target: HTMLElement;
+  readonly contentRect: DOMRect;
+  readonly borderBoxSize: ReadonlyArray<ResizeObserverSize>;
+  readonly contentBoxSize: ReadonlyArray<ResizeObserverSize>;
+  readonly devicePixelContentBoxSize: ReadonlyArray<ResizeObserverSize>;
+}
 interface DOMRect {
   readonly x: number;
   readonly y: number;
@@ -267,6 +297,10 @@ interface HostDocument extends HostEventTarget {
   /** The document title (M6). */
   title: string;
   getElementById(id: string): HTMLElement | null;
+  /** M6 overlays: the body (where imperative mounts append). */
+  readonly body: HTMLElement;
+  /** M6 overlays: a literal selector, `body` or `#id`. */
+  querySelector(selectors: string): HTMLElement | null;
 }
 
 /**

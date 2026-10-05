@@ -57,6 +57,8 @@ function layoutBuiltin(v) {
     if ((ns === 'element' && LAYOUT_ELEMENT.has(m)) || (ns === 'window' && LAYOUT_WINDOW.has(m))) return v.name;
     // MutationObservers are reported unsupported when they observe.
     if (v.name === 'mutation.observe') return v.name;
+    // ResizeObservers report sizes from layout (M6).
+    if (v.name === 'resize.observe') return v.name;
     // Scroll events come from layout (scrolling) too.
     if (m === 'listen' && v.args[0]?.value === 'scroll') return `${v.name} scroll`;
   }
@@ -220,6 +222,7 @@ for (const fixture of fixtures) {
       steps++;
       const want = {
         dom: expected[i].state.dom.map(n => semantic(canonical(fromInterp(n)))),
+        portals: (canonical({ tag: "body", children: (expected[i].state.portals ?? []).map(fromInterp) }).children ?? []).map(semantic),
         cells: expected[i].state.cells,
         instances: expected[i].state.instances ?? [],
         document: expected[i].state.document ?? {},
@@ -227,6 +230,7 @@ for (const fixture of fixtures) {
       };
       const got = {
         dom: (canonical(actual[i].dom).children ?? []).map(semantic),
+        portals: (canonical({ tag: "body", children: actual[i].portals ?? [] }).children ?? []).map(semantic),
         cells: actual[i].cells,
         instances: actual[i].instances ?? [],
         document: actual[i].document ?? {},

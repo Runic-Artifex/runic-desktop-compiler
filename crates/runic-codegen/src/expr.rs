@@ -713,6 +713,70 @@ impl<'a> FnCtx<'a> {
                 let decl = self.p.components[k].slot(name).expect("validated slot");
                 format!("inst.borrow().s{decl}.is_some()")
             }
+            // An imperative mount (M6): the target, the contexts and the
+            // props in order, then the instance's creation and mount in
+            // `mount_{k}_{site}` (crate::Gen::mount_site).
+            Mount {
+                site,
+                target,
+                props,
+                context,
+            } => {
+                let k = self.component.expect("validated component context");
+                let c = self.p.components[k].mounts[*site].component;
+                let child = &self.p.components[c];
+                let mut code = String::new();
+                let t = self.expr(target);
+                let _ = write!(code, "let mt: js::Element = {t}; ");
+                let ctx = match context {
+                    Option::Some(e) => {
+                        let v = self.expr(e);
+                        format!("{v}.0.clone().downcast::<Contexts>().ok()")
+                    }
+                    Option::None => "None".into(),
+                };
+                let _ = write!(code, "let mctx: Option<Rc<Contexts>> = {ctx}; ");
+                let mut pass = String::new();
+                for (j, a) in props.iter().enumerate() {
+                    let cell = child.prop(&a.name).expect("validated prop");
+                    let decl = &child.cells[cell];
+                    let v = self.expr(&a.value);
+                    let vt = self.ty(&a.value);
+                    let _ = write!(code, "let mv{j} = {v}; ");
+                    if decl.undefined_default {
+                        // Passed undefined, the prop takes its default.
+                        let pt = crate::passed_type(decl);
+                        let v = if vt == pt {
+                            format!("mv{j}")
+                        } else {
+                            format!("Maybe::Some(mv{j})")
+                        };
+                        let set = if matches!(decl.ty, Type::Maybe(_)) {
+                            format!("if !v.is_undefined() {{ st.c.c{cell} = v; }}")
+                        } else {
+                            format!(
+                                "match v {{ Maybe::Some(x) => st.c.c{cell} = x, Maybe::Null => return Err(js::Throw::type_error({})), Maybe::Undefined => {{}} }}",
+                                rust_str(&format!(
+                                    "RunicPropsError: null passed to prop {}, which is not nullable",
+                                    decl.name
+                                ))
+                            )
+                        };
+                        let _ = write!(
+                            pass,
+                            "{{ let v = {v}; let mut st = ci.borrow_mut(); st.p{cell} = Some(v.clone()); {set} }} "
+                        );
+                    } else {
+                        let _ = write!(
+                            pass,
+                            "{{ let v = mv{j}; let mut st = ci.borrow_mut(); st.p{cell} = Some(v.clone()); st.c.c{cell} = v; }} "
+                        );
+                    }
+                }
+                let passed = self.q(&format!("(|| -> JsResult<()> {{ {pass}Ok(()) }})()"));
+                let mounted = self.q(&format!("mount_{k}_{site}(cx, inst, ci, mt)"));
+                format!("{{ {code}let ci = new_i{c}(cx, mctx); {passed}; {mounted} }}")
+            }
         }
     }
 

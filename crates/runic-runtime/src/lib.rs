@@ -196,6 +196,14 @@ pub trait App: 'static {
     }
     /// Queue the `hashchange` of a fragment navigation (a followed link) as a task.
     fn hashchange(&mut self) {}
+    /// Deliver the ResizeObserver notifications due after a layout (M6):
+    /// observations whose size changed since last reported, deepest first
+    /// across rounds, each observer's callback a task, with a layout after
+    /// each round. Returns whether any callback ran.
+    fn resize_step(&mut self, dom: &mut Dom) -> bool {
+        let _ = dom;
+        false
+    }
 }
 
 /// Entry point of a generated application binary.

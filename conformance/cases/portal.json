@@ -1,0 +1,24 @@
+{
+  "description": "Imperative mounts (M6 overlays, docs/design/M6-OVERLAYS.md): a copy of bits-ui 2.19.2's Portal (svelte's mount of PortalConsumer from a runed watch, with getAllContexts and the children snippet; unmount in the watch's cleanup and when disabled) with its target fixed to the body by document.querySelector('body'). Portalled content is the body's last child in mount order (the snapshot's portals), renders the app's state and reads the app's context (runed Context) in a component it creates; it is updated with the app, removed when its portal is destroyed, and rendered in place while the portal is disabled. Clicks inside portalled content, and Tab from the app into it and back through the document order",
+  "fixtures": ["portal-svelte"],
+  "actions": [
+    { "kind": "click", "id": "first" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "second" },
+    { "kind": "click", "id": "dec" },
+    { "kind": "click", "id": "dec" },
+    { "kind": "focus", "id": "inline" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "click", "id": "first" },
+    { "kind": "click", "id": "inline" },
+    { "kind": "click", "id": "first" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "inline" },
+    { "kind": "click", "id": "inc" },
+    { "kind": "click", "id": "second" }
+  ]
+}

@@ -1,0 +1,54 @@
+@font-face {
+  font-family: RunicFixture;
+  src: url("../assets/DejaVuSans.woff2") format("woff2");
+  font-weight: 100 900;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: #eae6dc;
+  color: #252c28;
+  font-family: RunicFixture;
+  font-size: 14px;
+  line-height: 20px;
+}
+#app {
+  padding: 8px 12px;
+}
+p {
+  margin: 4px 0;
+}
+.controls,
+.box {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.box {
+  margin: 8px 12px;
+  padding: 8px;
+  border: 2px solid #335;
+  border-radius: 6px;
+  background: #eef;
+}
+button {
+  font-family: RunicFixture;
+  font-size: 14px;
+  line-height: 20px;
+  padding: 6px 10px;
+  border: 1px solid #52665b;
+  border-radius: 6px;
+  background: #e2e8df;
+  color: #252c28;
+}
+.badge {
+  padding: 2px 6px;
+  border: 1px solid #333;
+}
+.badge.dark {
+  background: #222;
+  color: #fff;
+}

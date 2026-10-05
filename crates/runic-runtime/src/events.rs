@@ -42,6 +42,14 @@ pub(crate) struct Pointer {
     closed_popup: bool,
 }
 
+impl Pointer {
+    /// The drawn list of an open select popup (runtime content, not the page's).
+    #[cfg(feature = "probe")]
+    pub(crate) fn popup_list(&self) -> Option<NodeId> {
+        self.popup.as_ref().and_then(|p| p.list)
+    }
+}
+
 /// The native document: Blitz DOM plus the application and its listeners.
 pub(crate) struct Native<A: App> {
     pub doc: BaseDocument,
@@ -394,6 +402,16 @@ impl<A: App> Native<A> {
     /// any were queued.
     pub(crate) fn layout_frame(&mut self) -> bool {
         crate::layout::resolve(&mut self.doc);
+        // ResizeObserver notifications, after layout and before paint (M6).
+        self.listeners.settle(&mut self.doc);
+        let mut dom = Dom {
+            doc: &mut self.doc,
+            listeners: &mut self.listeners,
+        };
+        if self.app.resize_step(&mut dom) {
+            self.fix_focus_after_update();
+            self.host_tasks();
+        }
         // Text that no loaded font draws would silently be missing (Chromium
         // falls back to a system font): a probe fails, an app reports it once.
         for text in crate::layout::unfonted_text(&self.doc) {

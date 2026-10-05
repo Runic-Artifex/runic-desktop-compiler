@@ -25,6 +25,8 @@ export class TypeMapper {
   errorType?: () => number;
   /** The record of MutationObservers, once a program uses one. */
   mutationObserver?: number;
+  /** The record of ResizeObservers (M6), once a program uses one. */
+  resizeObserver?: number;
   /**
    * Records of types a package's declaration files declare (interfaces of
    * options objects): literals may list their properties in any order, so
@@ -251,6 +253,18 @@ export class TypeMapper {
         });
       }
       return { record: this.mutationObserver };
+    }
+    // A ResizeObserver (frontend/dom.d.ts): a record holding its callback,
+    // registered before the callback type (which names the observer).
+    const callback = t.getProperty('__runicResizeObserver');
+    if (callback) {
+      if (this.resizeObserver === undefined) {
+        this.resizeObserver = this.records.length;
+        this.records.push({ name: 'ResizeObserver', class: true, fields: [] });
+        const type = this.map(this.checker.getTypeOfSymbolAtLocation(callback, at), at);
+        this.records[this.resizeObserver].fields = [{ name: 'callback', type }];
+      }
+      return { record: this.resizeObserver };
     }
     if (!this.checker.getPropertiesOfType(t).length && !t.getCallSignatures().length) {
       const infos = this.checker.getIndexInfosOfType(t);

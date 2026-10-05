@@ -38,7 +38,7 @@ pub use attrs::{
 pub use classes::{class_compose, class_toggle};
 pub use collections::*;
 pub use date::Date;
-pub use element::Element;
+pub use element::{Element, Handle};
 pub use error::*;
 pub use event::{Event, EventData};
 pub use heap::*;

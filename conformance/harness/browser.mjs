@@ -194,8 +194,20 @@ function pageSnapshot(container) {
     if (children.length) out.children = children;
     return out;
   };
+  // Content mounted in the body after the container (portals, M6): the
+  // page's own scripts and whitespace are not app content.
+  const after = [];
+  for (let c = root.nextSibling; c; c = c.nextSibling) {
+    if (c.nodeType === Node.ELEMENT_NODE && c.localName === 'script') continue;
+    if (c.nodeType === Node.TEXT_NODE && !c.data.trim()) continue;
+    const n = node(c);
+    if (n) after.push(n);
+  }
   const geometry = {};
-  for (const e of [root, ...root.querySelectorAll('[id]')]) {
+  const portalElements = [];
+  for (let c = root.nextElementSibling; c; c = c.nextElementSibling)
+    if (c.localName !== 'script') portalElements.push(c, ...c.querySelectorAll('[id]'));
+  for (const e of [root, ...root.querySelectorAll('[id]'), ...portalElements]) {
     if (!e.id) continue;
     const r = e.getBoundingClientRect();
     geometry[e.id] = { x: r.x, y: r.y, width: r.width, height: r.height };
@@ -206,6 +218,7 @@ function pageSnapshot(container) {
   return {
     ...(Object.keys(html).length ? { document: html } : {}),
     dom: node(root),
+    ...(after.length ? { portals: after } : {}),
     focused: active === document.body || !active ? null : active.id || active.localName,
     viewport: { width: innerWidth, height: innerHeight, scrollX, scrollY },
     geometry,

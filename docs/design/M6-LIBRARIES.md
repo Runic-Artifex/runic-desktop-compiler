@@ -256,7 +256,7 @@ Verified through shadcn-svelte's unmodified wrappers and demos, each with a case
 
 What each remaining part gives today (a minimal use of the part, 2026-10-05), in the order the north star needs them:
 
-- **Overlays** (Tooltip, Popover, DropdownMenu, Select, Dialog: step 7, worked on separately): floating-ui, focus scopes, `MutationObserver`, portals, dismissal, scroll lock.
+- **Overlays** (Tooltip, Popover, DropdownMenu, Select, Dialog: step 7): imperative mounts, `ResizeObserver`, top-level calls and the `esm-env` pack are done; bits-ui's `Portal` is blocked by `PortalTarget = Element | string`, then floating-ui, focus scopes, `MutationObserver`, dismissal and scroll lock ([status](M6-OVERLAYS.md#status-2026-10-05-branch-m6-overlays)).
 - **Running animations** (Accordion's and Collapsible's content keyframes, every overlay's enter/exit): bits-ui awaits `getAnimations()`, reported unsupported while animations are declared ([Animations](#animations)); the accordion fixtures leave the keyframes out.
 - **Slider**: its `step` prop, `number | number[]`, is outside the value model (`E_TYPE_UNION`, also where no site passes it).
 - **Scoped component styles** (ScrollArea's viewport `<style>`).
