@@ -79,6 +79,39 @@ function declaredNotNull(decl: ts.FunctionLikeDeclaration): boolean {
   });
 }
 
+/** Event interfaces `instanceof` tests (runic_js::event::EVENT_INTERFACES). */
+const EVENT_INTERFACES = [
+  'Event',
+  'UIEvent',
+  'MouseEvent',
+  'PointerEvent',
+  'WheelEvent',
+  'KeyboardEvent',
+  'FocusEvent',
+  'InputEvent',
+  'CustomEvent',
+];
+/** The interface declaring an event member (`"button" in e`). */
+const EVENT_MEMBER_INTERFACES: Record<string, string> = {
+  type: 'Event',
+  target: 'Event',
+  currentTarget: 'Event',
+  defaultPrevented: 'Event',
+  preventDefault: 'Event',
+  stopPropagation: 'Event',
+  stopImmediatePropagation: 'Event',
+  clientX: 'MouseEvent',
+  clientY: 'MouseEvent',
+  button: 'MouseEvent',
+  buttons: 'MouseEvent',
+  pointerType: 'PointerEvent',
+  deltaX: 'WheelEvent',
+  deltaY: 'WheelEvent',
+  key: 'KeyboardEvent',
+  code: 'KeyboardEvent',
+  repeat: 'KeyboardEvent',
+};
+
 /** Events element listeners added by script receive (`element.listen`). */
 const ELEMENT_SCRIPT_EVENTS = ['scroll'];
 
@@ -105,6 +138,12 @@ export type Binding =
     }
   | { kind: 'derived'; fn: number }
   | { kind: 'value'; expr: Expr }
+  /**
+   * A function returning the window or the document (bits-ui's
+   * `getOwnerDocument(el)`): calls of it are that host object
+   * (`Lowerer.hostName`); it is not lowered as a function.
+   */
+  | { kind: 'host'; name: 'window' | 'document' }
   /**
    * A rest parameter of a function of known parameters (`(...args) =>`
    * where a callback of three is expected): the parameters it holds, in
@@ -1185,6 +1224,8 @@ export class Lowerer {
       if (m) return this.checker.isArrayType(m) || this.checker.isTupleType(m);
       const t = typeOfLocal(e.arguments[0]);
       if (t === undefined || (typeof t === 'object' && 'maybe' in t)) return undefined;
+      // (A tuple record is an array in JavaScript.)
+      if (typeof t === 'object' && 'record' in t && this.types.isTuple(t.record)) return true;
       return typeof t === 'object' && 'array' in t;
     }
     return undefined;
@@ -1697,6 +1738,8 @@ export class Lowerer {
 
   statement(s: ts.Statement, b: FnBuilder, origin: ts.Node = s): Stmt[] {
     const K = ts.SyntaxKind;
+    // (A property its function's declaration created: `expando`.)
+    if (this.expandoAssignments.has(s)) return [];
     if (ts.isBlock(s)) return this.block(s.statements, b);
     if (ts.isEmptyStatement(s)) return [];
     if (ts.isVariableStatement(s)) {
@@ -1874,6 +1917,67 @@ export class Lowerer {
           label,
         },
       ]);
+    }
+    // for-in over a dictionary object (bits-ui's `for (const eventType in
+    // this.#interceptedEvents)`): its keys in own-key order, each skipped
+    // if deleted before it is reached (keys added meanwhile are not visited).
+    if (ts.isForInStatement(s)) {
+      const object = this.expr(s.expression, b);
+      const t = this.irType(object, b);
+      const init = s.initializer;
+      if (!(typeof t === 'object' && 'map' in t && t.map[0] === STRING))
+        return this.fail(
+          s.expression,
+          'E_STATEMENT',
+          'for-in is supported over dictionary objects',
+        );
+      if (
+        !ts.isVariableDeclarationList(init) ||
+        init.declarations.length !== 1 ||
+        !ts.isIdentifier(init.declarations[0].name)
+      )
+        return this.fail(s, 'E_STATEMENT', 'for-in requires a single declared loop variable');
+      const name = init.declarations[0].name as ts.Identifier;
+      const sym = this.checker.getSymbolAtLocation(name)!;
+      const dict = b.local('$dictionary', t);
+      const local = b.local(name.text, STRING, b.boxed.has(sym));
+      this.bindings.set(sym, { kind: 'local', owner: b, local });
+      return [
+        { op: 'let', local: dict, value: object },
+        ...this.loop(s, b, label => [
+          {
+            op: 'for-of',
+            local,
+            iterable: {
+              op: 'builtin',
+              name: 'map.dictionary-keys',
+              args: [{ op: 'local', local: dict }],
+              type: { array: STRING },
+            },
+            body: [
+              {
+                op: 'if',
+                test: {
+                  op: 'not',
+                  arg: {
+                    op: 'builtin',
+                    name: 'map.has',
+                    args: [
+                      { op: 'local', local: dict },
+                      { op: 'local', local },
+                    ],
+                    type: BOOLEAN,
+                  },
+                },
+                then: [{ op: 'continue', label }],
+              },
+              ...this.statement(s.statement, b),
+            ],
+            label,
+            ...this.src(s),
+          },
+        ]),
+      ];
     }
     if (ts.isBreakStatement(s) || ts.isContinueStatement(s)) {
       const op = ts.isBreakStatement(s) ? 'break' : 'continue';
@@ -2089,6 +2193,8 @@ export class Lowerer {
       }
       const curried = this.curried(d, b);
       if (curried) return curried;
+      const expando = this.expando(d, sym, b);
+      if (expando) return expando;
       // A type that only TypeScript's `any` makes unmappable (untyped
       // JavaScript: `ReadableBox<any>`) is untyped too.
       const declared = this.types.typeOrUndefined(d.name);
@@ -2139,6 +2245,11 @@ export class Lowerer {
       const fn =
         d.initializer &&
         (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer));
+      // A call TypeScript cannot type (untyped JavaScript) initialising an
+      // annotated variable returns the variable's type.
+      const call = d.initializer && skipParens(d.initializer);
+      if (d.type && call && ts.isCallExpression(call) && !this.expected.has(call))
+        this.expected.set(call, type);
       // An unannotated variable whose initialiser may be undefined where
       // TypeScript does not say so (a dictionary object's entry,
       // `keyToIndex[e.key]`): the nullable type.
@@ -2191,6 +2302,156 @@ export class Lowerer {
       { op: 'let', local: tmp, value },
       ...this.destructure(d.name, { op: 'local', local: tmp }, type, b),
     ];
+  }
+
+  /** Statements assigning properties of functions, which their declarations create (`expando`). */
+  private readonly expandoAssignments = new Set<ts.Node>();
+
+  /**
+   * A constant function whose properties the statements right after its
+   * declaration assign function literals (bits-ui's debounce:
+   * `const debounced = (...args) => {…}; debounced.destroy = () => {…};
+   * return debounced;`): a record of the function and the properties
+   * (frontend/types.ts), created with them at the declaration (creating a
+   * function literal earlier is unobservable: nothing runs, and nothing is
+   * declared in between). Its type is the variable's, or, where untyped
+   * JavaScript leaves that unknown, the result of the function returning it
+   * next. Other property assignments to functions are rejected.
+   */
+  private expando(d: ts.VariableDeclaration, sym: ts.Symbol, b: FnBuilder): Stmt[] | undefined {
+    const init = d.initializer && skipParens(d.initializer);
+    if (!init || !ts.isIdentifier(d.name)) return undefined;
+    if (!(ts.isArrowFunction(init) || ts.isFunctionExpression(init))) return undefined;
+    const list = d.parent;
+    let scope: ts.Node = list;
+    while (scope.parent && !ts.isBlock(scope) && !ts.isSourceFile(scope)) scope = scope.parent;
+    const assigns: ts.BinaryExpression[] = [];
+    const visit = (n: ts.Node) => {
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        (ts.isPropertyAccessExpression(n.left) || ts.isElementAccessExpression(n.left)) &&
+        ts.isIdentifier(n.left.expression) &&
+        this.checker.getSymbolAtLocation(n.left.expression) === sym
+      )
+        assigns.push(n);
+      ts.forEachChild(n, visit);
+    };
+    visit(scope);
+    if (!assigns.length) return undefined;
+    const reject = (at: ts.Node): never =>
+      this.fail(
+        at,
+        'E_FUNCTION_PROPERTY',
+        'Properties of a function are function literals assigned in the statements right after the declaration of a const holding it',
+      );
+    const stmt = list.parent;
+    if (
+      !(list.flags & ts.NodeFlags.Const) ||
+      !ts.isVariableStatement(stmt) ||
+      (list as ts.VariableDeclarationList).declarations.length !== 1 ||
+      this.selfCaptured.has(sym)
+    )
+      return reject(d);
+    const statements = (stmt.parent as ts.Block | ts.SourceFile).statements;
+    const at = statements.indexOf(stmt);
+    const props = new Map<string, ts.FunctionLikeDeclaration>();
+    assigns.forEach((a, k) => {
+      const s = statements[at + 1 + k];
+      const value = skipParens(a.right);
+      if (
+        !s ||
+        !ts.isExpressionStatement(s) ||
+        skipParens(s.expression) !== a ||
+        !ts.isPropertyAccessExpression(a.left) ||
+        !(ts.isArrowFunction(value) || ts.isFunctionExpression(value)) ||
+        props.has(a.left.name.text)
+      )
+        return reject(a);
+      props.set(a.left.name.text, value);
+    });
+    let type = this.types.typeOrUndefined(d.name);
+    if (type === undefined) {
+      const next = statements[at + 1 + assigns.length];
+      const returned =
+        next &&
+        ts.isReturnStatement(next) &&
+        next.expression &&
+        ts.isIdentifier(skipParens(next.expression)) &&
+        this.checker.getSymbolAtLocation(skipParens(next.expression)) === sym;
+      if (returned) type = b.result;
+    }
+    if (type === undefined)
+      return this.fail(d, 'E_TYPE_UNSUPPORTED', `${d.name.text} needs a type annotation`);
+    const record = typeof type === 'object' && 'record' in type ? type.record : undefined;
+    const fields = record !== undefined ? this.types.records[record].fields : [];
+    if (
+      record === undefined ||
+      !this.types.isCallable(record) ||
+      fields.length !== props.size + 1 ||
+      !fields.slice(1).every(f => props.has(f.name))
+    )
+      return this.fail(
+        d,
+        'E_TYPE_UNSUPPORTED',
+        `${d.name.text} is used as a function with other properties than it is assigned`,
+      );
+    const values = fields.map((f, i) => {
+      const fn = i === 0 ? init : props.get(f.name)!;
+      this.expected.set(fn, f.type);
+      const want = this.expectedFunction(fn);
+      const value = this.closure(
+        fn,
+        b,
+        `${(d.name as ts.Identifier).text}${i === 0 ? '' : '.' + f.name}`,
+        want?.params,
+        want?.result,
+      );
+      return this.classes.fitAt(value, this.irType(value, b), f.type, fn);
+    });
+    for (const a of assigns) this.expandoAssignments.add(a.parent);
+    const local = b.local(d.name.text, type, b.boxed.has(sym));
+    this.bindings.set(sym, { kind: 'local', owner: b, local });
+    return [
+      {
+        op: 'let',
+        local,
+        value: { op: 'record', record: record!, fields: values },
+        ...this.src(d),
+      },
+    ];
+  }
+
+  /**
+   * `delete dict[k]` or `delete dict.k` of a dictionary object: its entry
+   * removed (true, as `delete` of an own or absent property gives).
+   */
+  private deleteEntry(e: ts.DeleteExpression, b: FnBuilder): Expr {
+    const target = skipParens(e.expression);
+    if (ts.isElementAccessExpression(target) || ts.isPropertyAccessExpression(target)) {
+      const object = this.expr(target.expression, b);
+      const t = this.irType(object, b);
+      if (typeof t === 'object' && 'map' in t && t.map[0] === STRING) {
+        const key: Expr = ts.isElementAccessExpression(target)
+          ? this.coerce(target.argumentExpression, b, STRING)
+          : { op: 'lit', value: target.name.text };
+        return {
+          op: 'with',
+          local: b.local('$deleted', BOOLEAN),
+          value: { op: 'builtin', name: 'map.delete', args: [object, key], type: BOOLEAN },
+          body: { op: 'lit', value: true },
+        };
+      }
+    }
+    return this.fail(e, 'E_EXPRESSION', 'delete is supported for entries of dictionary objects');
+  }
+
+  /** A function with properties (a callable record) as the function it is; other values as they are. */
+  functionOf(v: Expr, b: FnBuilder): Expr {
+    const t = this.irType(v, b);
+    return typeof t === 'object' && 'record' in t && this.types.isCallable(t.record)
+      ? { op: 'get', object: v, field: 0 }
+      : v;
   }
 
   /**
@@ -2384,6 +2645,29 @@ export class Lowerer {
       }
       return out;
     }
+    // An event's members (bits-ui's `const { clientX, clientY } = event`),
+    // read as `event.clientX` reads them.
+    if (ts.isObjectBindingPattern(pattern) && type === 'event') {
+      for (const el of pattern.elements) {
+        const key = (el.propertyName ?? el.name) as ts.Identifier;
+        const t = ts.isIdentifier(key) ? EVENT_MEMBERS[key.text] : undefined;
+        if (
+          el.dotDotDotToken ||
+          t === undefined ||
+          t === 'void' ||
+          key.text === 'value' ||
+          key.text === 'checked'
+        )
+          this.fail(el, 'E_DESTRUCTURE', 'Events destructure into their supported members');
+        bind(
+          el.name,
+          { op: 'builtin', name: `event.${key.text}`, args: [source], type: t! },
+          t!,
+          el.initializer,
+        );
+      }
+      return out;
+    }
     if (ts.isObjectBindingPattern(pattern)) {
       if (typeof type !== 'object' || !('record' in type))
         this.fail(pattern, 'E_DESTRUCTURE', 'Object destructuring requires a record value');
@@ -2402,6 +2686,14 @@ export class Lowerer {
         const key = (el.propertyName ?? el.name) as ts.Identifier;
         if (!ts.isIdentifier(key))
           this.fail(el, 'E_DESTRUCTURE', 'Computed destructuring keys are unsupported');
+        // A record of a pack (svelte-toolbelt's box: \`{ current }\`): read as
+        // the pack reads its members.
+        const members = this.recordMembers.get(record);
+        if (members) {
+          const read = members.read(key.text, source, el, b);
+          bind(el.name, read, this.irType(read, b), el.initializer);
+          continue;
+        }
         // A class instance: its fields and getters by name.
         if (this.types.records[record].class) {
           const read = this.classes.readMember(type, source, key, el, el.name, b);
@@ -2416,6 +2708,20 @@ export class Lowerer {
           el.initializer,
         );
       }
+    } else if (
+      ts.isArrayBindingPattern(pattern) &&
+      typeof type === 'object' &&
+      'record' in type &&
+      this.types.isTuple(type.record)
+    ) {
+      // A tuple record: its items by index.
+      const fields = this.types.records[type.record].fields;
+      pattern.elements.forEach((el, i) => {
+        if (ts.isOmittedExpression(el)) return;
+        if (el.dotDotDotToken || i >= fields.length)
+          return this.fail(el, 'E_DESTRUCTURE', 'Tuples destructure into their items');
+        bind(el.name, { op: 'get', object: source, field: i }, fields[i].type, el.initializer);
+      });
     } else if (ts.isArrayBindingPattern(pattern)) {
       if (typeof type !== 'object' || !('array' in type))
         this.fail(pattern, 'E_DESTRUCTURE', 'Array destructuring requires an array value');
@@ -2591,6 +2897,20 @@ export class Lowerer {
     b: FnBuilder,
   ): Stmt[] {
     target = skipParens(target);
+    // A host field (frontend/classes.ts `hostFieldOf`): whether it holds its object.
+    const host =
+      operator === ts.SyntaxKind.EqualsToken && !('expr' in valueNode)
+        ? this.classes.hostField(target)
+        : undefined;
+    if (host && !('expr' in valueNode)) {
+      const holds = this.hostName(valueNode) === host;
+      return this.assignment(
+        target,
+        operator,
+        { expr: { op: 'lit', value: holds }, type: BOOLEAN },
+        b,
+      );
+    }
     const compound = COMPOUND[operator];
     const current = () => this.expr(target, b);
     const rhs = () => ('expr' in valueNode ? valueNode.expr : this.expr(valueNode, b));
@@ -2806,14 +3126,20 @@ export class Lowerer {
       const member = this.classes.write(target, value, b);
       if (member) return member;
     }
-    // A dictionary object's entry (`keyToIndex[k] = v`).
-    if (ts.isElementAccessExpression(target)) {
+    // A dictionary object's entry (`keyToIndex[k] = v`, `seen.click = v`).
+    if (ts.isElementAccessExpression(target) || ts.isPropertyAccessExpression(target)) {
       const t = this.typeAt(target.expression, b);
       if (typeof t === 'object' && 'map' in t && t.map[0] === STRING) {
         const k = b.local('$key', STRING);
         const key: Expr = { op: 'local', local: k };
         return [
-          { op: 'let', local: k, value: this.coerce(target.argumentExpression, b, STRING) },
+          {
+            op: 'let',
+            local: k,
+            value: ts.isElementAccessExpression(target)
+              ? this.coerce(target.argumentExpression, b, STRING)
+              : { op: 'lit', value: target.name.text },
+          },
           {
             op: 'expr',
             value: { op: 'call', function: this.prototypeGuard('void', true), args: [key] },
@@ -3413,6 +3739,8 @@ export class Lowerer {
         return this.array(e as ts.ArrayLiteralExpression, b);
       case K.VoidExpression:
         return { op: 'undefined', type: 'void' };
+      case K.DeleteExpression:
+        return this.deleteEntry(e as ts.DeleteExpression, b);
       default:
         if (this.isStatementLike(e))
           return this.fail(
@@ -3521,6 +3849,14 @@ export class Lowerer {
         this.checker.getNonNullableType(ts0) === ts0
       )
         return { op: 'unwrap', value: v };
+    }
+    // A function with properties where a function is expected: its function.
+    const fnTarget = maybeInner(target) ?? target;
+    if (typeof fnTarget === 'object' && 'fn' in fnTarget && this.functionOf(v, b) !== v) {
+      const f = this.functionOf(v, b);
+      const ft = this.irType(f, b);
+      const adapted = sameType(ft, fnTarget) ? f : this.adaptFunction(f, ft, fnTarget);
+      if (adapted) return maybeInner(target) ? { op: 'some', value: adapted } : adapted;
     }
     // A function where a function of another (compatible) type is expected.
     if (!sameType(t, target)) {
@@ -3756,6 +4092,12 @@ export class Lowerer {
           id,
           'E_FUNCTION',
           `${id.text} is a rest parameter of a callback: spread it into a call (f(...${id.text}))`,
+        );
+      case 'host':
+        return this.fail(
+          id,
+          'E_FUNCTION',
+          `${id.text} returns the ${binding.name}: call it where the ${binding.name} is used (its members, on(…))`,
         );
       case 'class':
         return this.fail(
@@ -4019,7 +4361,25 @@ export class Lowerer {
       // is in the SVG namespace (an event target).
       // Every element value is an Element (and a Node).
       const global = this.hostName(e.right);
-      if (global === 'HTMLElement' || global === 'Element' || global === 'Node') {
+      // An event's interface, as Chromium creates it for its type (M6
+      // overlays: bits-ui's `e instanceof PointerEvent`).
+      if (global && EVENT_INTERFACES.includes(global)) {
+        const v = this.expr(e.left, b);
+        if (this.irType(v, b) !== 'event')
+          return this.fail(e, 'E_EXPRESSION', `instanceof ${global} tests event values`);
+        return {
+          op: 'builtin',
+          name: 'event.instance-of',
+          args: [v, { op: 'lit', value: global }],
+          type: BOOLEAN,
+        };
+      }
+      if (
+        global === 'HTMLElement' ||
+        global === 'Element' ||
+        global === 'Node' ||
+        global === 'SVGElement'
+      ) {
         const v = this.expr(e.left, b);
         const t = this.irType(v, b);
         const nullable = JSON.stringify(t) === JSON.stringify({ maybe: 'element' });
@@ -4028,12 +4388,17 @@ export class Lowerer {
         const test = (x: Expr): Expr =>
           global === 'HTMLElement'
             ? { op: 'builtin', name: 'element.isHTML', args: [x], type: BOOLEAN }
-            : {
-                op: 'with',
-                local: b.local('$element', 'element'),
-                value: x,
-                body: { op: 'lit', value: true },
-              };
+            : global === 'SVGElement'
+              ? {
+                  op: 'not',
+                  arg: { op: 'builtin', name: 'element.isHTML', args: [x], type: BOOLEAN },
+                }
+              : {
+                  op: 'with',
+                  local: b.local('$element', 'element'),
+                  value: x,
+                  body: { op: 'lit', value: true },
+                };
         if (!nullable) return test(v);
         const local = b.local('$element', t);
         const read: Expr = { op: 'local', local };
@@ -4047,6 +4412,22 @@ export class Lowerer {
             then: { op: 'lit', value: false },
             else: test({ op: 'unwrap', value: read }),
           },
+        };
+      }
+    }
+    // `"button" in event` (M6 overlays: bits-ui's dismissible layer): whether
+    // the event's interface has the member.
+    if (op === K.InKeyword && ts.isStringLiteralLike(e.left)) {
+      const v = this.expr(e.right, b);
+      if (this.irType(v, b) === 'event') {
+        const owner = EVENT_MEMBER_INTERFACES[e.left.text];
+        if (!owner)
+          return this.fail(e, 'E_EXPRESSION', `"${e.left.text}" in an event is unsupported`);
+        return {
+          op: 'builtin',
+          name: 'event.instance-of',
+          args: [v, { op: 'lit', value: owner }],
+          type: BOOLEAN,
         };
       }
     }
@@ -4264,7 +4645,7 @@ export class Lowerer {
     return this.hostName(skipParens(e));
   }
 
-  private hostName(e: ts.Expression, depth = 0): string | undefined {
+  hostName(e: ts.Expression, depth = 0): string | undefined {
     e = skipParens(e);
     if (depth > 8) return undefined;
     // Other names of the window and the document (M6 overlays: bits-ui's
@@ -4288,6 +4669,19 @@ export class Lowerer {
         e.operatorToken.kind,
       )
     ) {
+      // `node?.ownerDocument ?? document` of a nullable element (bits-ui's
+      // getOwnerDocument): the document either way.
+      const left = skipParens(e.left);
+      if (
+        ts.isPropertyAccessExpression(left) &&
+        left.questionDotToken &&
+        left.name.text === 'ownerDocument' &&
+        plainName(left.expression) &&
+        JSON.stringify(this.types.typeOrUndefined(skipParens(left.expression))) ===
+          JSON.stringify({ maybe: 'element' }) &&
+        this.hostName(e.right, depth + 1) === 'document'
+      )
+        return 'document';
       const l = this.hostName(e.left, depth + 1);
       return l && l === this.hostName(e.right, depth + 1) ? l : undefined;
     }
@@ -4310,6 +4704,9 @@ export class Lowerer {
       const binding = this.binding(e.expression);
       if (binding?.kind === 'pack' && binding.label.startsWith('getWindow of')) return 'window';
       if (binding?.kind === 'pack' && binding.label.startsWith('getDocument of')) return 'document';
+      // A function returning one of them (bits-ui's `getOwnerDocument(el)`:
+      // `return el?.ownerDocument ?? document`).
+      if (binding?.kind === 'host') return binding.name;
       return undefined;
     }
     // svelte-toolbelt's `domContext.getDocument()` and `getWindow()`, of a
@@ -5500,6 +5897,18 @@ export class Lowerer {
         args: [object, this.expr(e.argumentExpression, b)],
         type: { maybe: STRING },
       };
+    // A tuple's item by a literal index.
+    if (
+      kind === 'record' &&
+      this.types.isTuple((t as { record: number }).record) &&
+      ts.isNumericLiteral(e.argumentExpression)
+    ) {
+      const i = Number(e.argumentExpression.text);
+      const fields = this.types.records[(t as { record: number }).record].fields;
+      if (!Number.isInteger(i) || i >= fields.length)
+        return this.fail(e, 'E_MEMBER', `The tuple has no item ${e.argumentExpression.text}`);
+      return { op: 'get', object, field: i };
+    }
     if (kind === 'record' && ts.isStringLiteral(e.argumentExpression))
       return {
         op: 'get',
@@ -5563,6 +5972,9 @@ export class Lowerer {
       );
       for (const a of args) {
         const t = this.irType(a, b);
+        // Tuples are arrays in JavaScript, records here: what these see differs.
+        if (name !== 'structuredClone' && this.types.containsTuple(t))
+          this.fail(at, 'E_OBJECT', `${name} of a tuple of different types is unsupported`);
         if (typeof t === 'object' && 'record' in t && this.types.packageRecords.has(t.record))
           this.fail(
             at,
@@ -5638,7 +6050,11 @@ export class Lowerer {
         return { op: 'call', function: binding.fn, args: this.callArgs(e, b) };
       if (binding?.kind === 'generic') return this.specialise(binding, e, b);
       if (binding)
-        return { op: 'call-value', callee: this.expr(callee, b), args: this.callArgs(e, b) };
+        return {
+          op: 'call-value',
+          callee: this.functionOf(this.expr(callee, b), b),
+          args: this.callArgs(e, b),
+        };
       return this.fail(callee, 'E_UNRESOLVED', `${callee.text} is not a supported function`);
     }
     if (ts.isPropertyAccessExpression(callee)) {
@@ -5726,6 +6142,15 @@ export class Lowerer {
           if (method === 'setAttribute') return op('set-attr', a, 'void');
           if (method === 'removeAttribute') return op('remove-attr', a, 'void');
           if (method === 'getAttribute') return op('get-attr', a, { maybe: 'string' });
+          // (M6 overlays: every element in the document is in the html
+          // element, as is the html element itself.)
+          if (method === 'contains' && a.length === 1)
+            return this.maybeElementTest(a[0], b, e, x => ({
+              op: 'builtin',
+              name: 'element.isConnected',
+              args: [x],
+              type: BOOLEAN,
+            }));
         }
         return this.fail(
           e,
@@ -5838,6 +6263,23 @@ export class Lowerer {
       }
       if (global === 'Object' && method === 'is' && e.arguments.length === 2)
         return this.objectIs(e, b);
+      // A dictionary object's keys or values (bits-ui's
+      // `Object.values(this.#interceptedEvents)`), in its own-key order.
+      if (
+        global === 'Object' &&
+        (method === 'keys' || method === 'values') &&
+        e.arguments.length === 1
+      ) {
+        const v = this.expr(e.arguments[0], b);
+        const t = this.irType(v, b);
+        if (typeof t === 'object' && 'map' in t && t.map[0] === STRING)
+          return {
+            op: 'builtin',
+            name: `map.dictionary-${method}`,
+            args: [v],
+            type: { array: method === 'keys' ? STRING : t.map[1] },
+          };
+      }
       if (global && STATIC_NAMESPACES.has(global))
         return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
       if (global === 'Promise') {
@@ -5877,13 +6319,24 @@ export class Lowerer {
       // An element TypeScript knows is there (`e.currentTarget` during the
       // dispatch): calling a method on null would throw a TypeError.
       const rt = this.irType(receiver, b);
+      const receiverTs = this.checker.getTypeAtLocation(callee.expression);
       if (
         typeof rt === 'object' &&
         'maybe' in rt &&
         rt.maybe === 'element' &&
-        !(this.checker.getTypeAtLocation(callee.expression).flags & ts.TypeFlags.Any) &&
-        this.checker.getNonNullableType(this.checker.getTypeAtLocation(callee.expression)) ===
-          this.checker.getTypeAtLocation(callee.expression)
+        !(receiverTs.flags & ts.TypeFlags.Any) &&
+        this.checker.getNonNullableType(receiverTs) === receiverTs
+      )
+        receiver = { op: 'unwrap', value: receiver };
+      // An untyped nullable element (untyped JavaScript specialised for a
+      // nullable argument: bits-ui's `isValidEvent(e, node)` with
+      // `node.closest(…)`): calling a method of null throws a TypeError,
+      // as unwrapping does.
+      if (
+        typeof rt === 'object' &&
+        'maybe' in rt &&
+        rt.maybe === 'element' &&
+        receiverTs.flags & ts.TypeFlags.Any
       )
         receiver = { op: 'unwrap', value: receiver };
       const kind = this.receiverKind(this.irType(receiver, b));
@@ -6044,7 +6497,11 @@ export class Lowerer {
         kind === 'record' && this.recordMembers.get((recordType as { record: number }).record);
       if (members && members.call) return members.call(method, receiver, e, b);
       if (kind === 'record')
-        return { op: 'call-value', callee: this.expr(callee, b), args: this.callArgs(e, b) };
+        return {
+          op: 'call-value',
+          callee: this.functionOf(this.expr(callee, b), b),
+          args: this.callArgs(e, b),
+        };
       if (kind === 'element') return this.elementMethod(method, receiver, e, b);
       if (kind === 'media-query') {
         const [type, listener, options] = e.arguments;
@@ -6118,6 +6575,32 @@ export class Lowerer {
             ).slice(0, n);
           // An untyped function passed by name (bits-ui's
           // `boundary.filter(isNotNull)`): specialised for the parameters.
+          // The global `Boolean` as a predicate (bits-ui's
+          // `Object.values(…).some(Boolean)`): the truthiness of the element.
+          if (
+            ts.isIdentifier(f) &&
+            f.text === 'Boolean' &&
+            this.symbol(f)?.declarations?.some(d =>
+              /[\\/]lib\.es5\.d\.ts$/.test(d.getSourceFile().fileName),
+            ) &&
+            method !== 'sort' &&
+            method !== 'toSorted'
+          ) {
+            const index = this.reserve();
+            this.functions[index] = {
+              name: 'Boolean',
+              params: [{ name: 'value', type: at.array }],
+              locals: [],
+              result: BOOLEAN,
+              body: [
+                {
+                  op: 'return',
+                  value: { op: 'to-boolean', arg: { op: 'local', local: 0 } } as Expr,
+                },
+              ],
+            };
+            return { op: 'closure', function: index, captures: [] } as Expr;
+          }
           const named = ts.isIdentifier(f) ? this.binding(f) : undefined;
           if (named?.kind === 'generic' && !named.outer)
             return this.genericValue(named, callbackParams(named.decl.parameters.length), f, b);
@@ -6269,17 +6752,11 @@ export class Lowerer {
           [this.coerce(e.arguments[0], b, STRING)],
           method === 'querySelector' ? { maybe: 'element' } : { array: 'element' },
         );
-      case 'closest': {
-        // A tag name selector (bits-ui: `closest("form")`).
-        const [sel] = e.arguments;
-        if (
-          e.arguments.length !== 1 ||
-          !ts.isStringLiteralLike(sel) ||
-          !/^[a-z][a-z0-9]*$/.test(sel.text)
-        )
-          return this.fail(e, 'E_CALL', 'closest takes a literal tag name');
-        return call(method, [lit(sel.text)], { maybe: 'element' });
-      }
+      case 'closest':
+        // A selector of runic_js's subset (bits-ui: `closest("form")`,
+        // `closest(\`[${CONTEXT_MENU_TRIGGER_ATTR}]\`)`).
+        if (e.arguments.length !== 1) this.fail(e, 'E_CALL', 'closest takes a selector');
+        return call(method, [this.coerce(e.arguments[0], b, STRING)], { maybe: 'element' });
       case 'requestSubmit':
         // No form element can be rendered (the tag allow-list); reported
         // unsupported if it ever ran.
@@ -6629,6 +7106,20 @@ export class Lowerer {
     name: string,
     component: number | undefined,
   ): (() => void) | undefined {
+    // A function returning the window or the document: its calls are that
+    // object.
+    const only =
+      decl.body && ts.isBlock(decl.body) && decl.body.statements.length === 1
+        ? decl.body.statements[0]
+        : undefined;
+    const host =
+      only && ts.isReturnStatement(only) && only.expression
+        ? this.hostName(only.expression)
+        : undefined;
+    if (host === 'window' || host === 'document') {
+      this.bindings.set(sym, { kind: 'host', name: host });
+      return undefined;
+    }
     // Parameters without a type, or typed `unknown`/`any` (package
     // functions whose declarations take `unknown`: bits-ui's isHTMLElement),
     // are specialised per call site.
@@ -6680,6 +7171,31 @@ export class Lowerer {
       }
       const sig = this.checker.getResolvedSignature(e);
       const callee = sig?.getDeclaration();
+      // An untyped function value (bits-ui's debounce: `fn(...args)`): the
+      // parameters of its IR function type.
+      const valueParams =
+        (!sig || !callee) &&
+        ts.isIdentifier(e.expression) &&
+        this.checker.getTypeAtLocation(e.expression).flags & ts.TypeFlags.Any
+          ? (() => {
+              const t = this.irType(this.functionOf(this.expr(e.expression, b), b), b);
+              return typeof t === 'object' && 'fn' in t ? t.fn.params : undefined;
+            })()
+          : undefined;
+      if (valueParams && valueParams.length >= items.length)
+        return valueParams.map((pt, i) => {
+          const arg = items[i];
+          if (!arg) return { op: 'undefined', type: pt } as Expr;
+          if (!('op' in arg)) return this.coerce(arg, b, pt);
+          const at = this.irType(arg, b);
+          if (sameType(at, pt)) return arg;
+          if (maybeInner(pt) && sameType(at, maybeInner(pt)!)) return { op: 'some', value: arg };
+          return this.fail(
+            e,
+            'E_CALL',
+            `A spread parameter of type ${JSON.stringify(at)} is passed where ${JSON.stringify(pt)} is expected`,
+          );
+        });
       if (!sig || !callee || sig.parameters.length < items.length)
         return this.fail(e, 'E_CALL', 'A rest parameter is spread into a call of known parameters');
       return sig.parameters.map((p, i) => {
@@ -6709,6 +7225,22 @@ export class Lowerer {
         const arg = argNodes[i];
         return arg ? this.coerce(arg, b, pt) : ({ op: 'undefined', type: pt } as Expr);
       });
+    // Parameters TypeScript types outside the value model (svelte-toolbelt's
+    // `executeCallbacks(…)` result, `(...args: unknown[]) => void`) of a
+    // function value whose IR type is known: its IR parameters.
+    if (
+      plainName(e.expression) &&
+      sig.parameters.some(
+        p => this.types.tryMap(this.checker.getTypeOfSymbolAtLocation(p, e), e) === undefined,
+      )
+    ) {
+      const ft = this.irType(this.functionOf(this.expr(e.expression, b), b), b);
+      if (typeof ft === 'object' && 'fn' in ft && argNodes.length <= ft.fn.params.length)
+        return ft.fn.params.map((pt, i) => {
+          const arg = argNodes[i];
+          return arg ? this.coerce(arg, b, pt) : ({ op: 'undefined', type: pt } as Expr);
+        });
+    }
     return sig.parameters.map((p, i) => {
       const pt = this.types.map(this.checker.getTypeOfSymbolAtLocation(p, e), e);
       const arg = argNodes[i];
@@ -6759,6 +7291,31 @@ export class Lowerer {
    * RunicUnsupportedError with `message`: a value the native runtime does
    * not cover, where it is computed.
    */
+  /** A call throwing a TypeError with `message` where a value of `type` is expected. */
+  typeErrorValue(name: string, type: Type, message: string): Expr {
+    const index = this.reserve();
+    this.functions[index] = {
+      name,
+      params: [],
+      locals: [],
+      result: type,
+      body: [
+        {
+          op: 'throw',
+          value: {
+            op: 'record',
+            record: this.errorRecord(),
+            fields: [
+              { op: 'lit', value: 'TypeError' },
+              { op: 'lit', value: message },
+            ],
+          },
+        },
+      ],
+    };
+    return { op: 'call', function: index, args: [] };
+  }
+
   unsupportedValue(name: string, type: Type, message: string): Expr {
     const index = this.reserve();
     this.functions[index] = {
@@ -6959,6 +7516,74 @@ export class Lowerer {
         op: 'builtin',
         name: 'event.new',
         args: [this.coerce(type, b, STRING), cancelable],
+        type: 'event',
+      };
+    }
+    // new Proxy(target, handler) (bits-ui's dismissible layer wraps a
+    // cancelled event): the target, then RunicUnsupportedError (a handler of
+    // function literals, whose creation has no effect).
+    if (
+      ts.isIdentifier(e.expression) &&
+      e.expression.text === 'Proxy' &&
+      this.symbol(e.expression)?.declarations?.some(d =>
+        /[\\/]lib\.es2015\.proxy\.d\.ts$/.test(d.getSourceFile().fileName),
+      )
+    ) {
+      const [target, handler, ...rest] = e.arguments ?? [];
+      const h = handler && skipParens(handler);
+      const literal = (x: ts.Expression) => {
+        x = skipParens(x);
+        return ts.isArrowFunction(x) || ts.isFunctionExpression(x);
+      };
+      if (
+        !target ||
+        !h ||
+        rest.length ||
+        !ts.isObjectLiteralExpression(h) ||
+        !h.properties.every(
+          p => ts.isMethodDeclaration(p) || (ts.isPropertyAssignment(p) && literal(p.initializer)),
+        )
+      )
+        return this.fail(
+          e,
+          'E_NEW',
+          'new Proxy takes a target and an object literal of handler functions',
+        );
+      const v = this.expr(target, b);
+      const t = this.irType(v, b);
+      return {
+        op: 'with',
+        local: b.local('$target', t),
+        value: v,
+        body: this.unsupportedValue('Proxy$new', t, 'new Proxy(…)'),
+      };
+    }
+    // new PointerEvent(type, e) (bits-ui's dismissible layer wraps a
+    // cancelled event in a Proxy of one): its arguments, then
+    // RunicUnsupportedError.
+    if (this.hostName(e.expression) === 'PointerEvent') {
+      let out = this.unsupportedValue(
+        'PointerEvent$new',
+        'event',
+        'new PointerEvent(…) (an event created by script with pointer members)',
+      );
+      for (const a of [...(e.arguments ?? [])].reverse()) {
+        const v = this.expr(a, b);
+        out = { op: 'with', local: b.local('$argument', this.irType(v, b)), value: v, body: out };
+      }
+      return out;
+    }
+    // new KeyboardEvent(type, e) of another event (M6 overlays: bits-ui's
+    // escape layer): a copy of its key, modifiers and cancelability.
+    if (this.hostName(e.expression) === 'KeyboardEvent') {
+      const [type, init, ...rest] = e.arguments ?? [];
+      const source = init && this.expr(init, b);
+      if (!type || !source || rest.length || this.irType(source, b) !== 'event')
+        return this.fail(e, 'E_NEW', 'new KeyboardEvent takes a type and an event to copy');
+      return {
+        op: 'builtin',
+        name: 'event.keyboard',
+        args: [this.coerce(type, b, STRING), source],
         type: 'event',
       };
     }
@@ -8709,6 +9334,20 @@ export class Lowerer {
       this.isMatchAll(skipParens(only.expression))
     )
       return this.expr(only.expression, b);
+    // `[...map]` (bits-ui's escape layer): the map's entries, tuple records.
+    if (e.elements.length === 1 && ts.isSpreadElement(only)) {
+      const m = this.expr(only.expression, b);
+      const mt = this.irType(m, b);
+      if (typeof mt === 'object' && 'map' in mt) {
+        const entry = this.types.tupleRecord([mt.map[0], mt.map[1]]);
+        return {
+          op: 'builtin',
+          name: 'map.entries',
+          args: [m],
+          type: { array: { record: entry } },
+        };
+      }
+    }
     // An empty literal where an array type is expected (`simpleBox([])` of a
     // box of an array): that type (TypeScript's may be `never[]`).
     const want = this.expected.get(e);
@@ -8730,6 +9369,18 @@ export class Lowerer {
     }
     const type = this.exprType(e);
     const t = typeof type === 'object' && 'maybe' in type ? type.maybe : type;
+    // A tuple of different types (frontend/types.ts `tupleRecord`): its record.
+    if (typeof t === 'object' && 'record' in t && this.types.isTuple(t.record)) {
+      const fields = this.types.records[t.record].fields;
+      if (e.elements.length !== fields.length || e.elements.some(ts.isSpreadElement))
+        return this.fail(e, 'E_ARRAY', 'A tuple literal lists its items');
+      const items = e.elements.map((el, i) => {
+        this.expected.set(skipParens(el), fields[i].type);
+        return this.fitValue(this.coerce(el, b, fields[i].type), fields[i].type, b);
+      });
+      const record: Expr = { op: 'record', record: t.record, fields: items };
+      return t === type ? record : { op: 'some', value: record };
+    }
     if (!(typeof t === 'object' && 'array' in t))
       return this.fail(e, 'E_ARRAY', 'Array literal without an array type');
     const items = e.elements.map(el => {
@@ -8896,6 +9547,16 @@ function exits(s: ts.Statement): boolean {
     ts.isThrowStatement(s) ||
     ts.isBreakStatement(s) ||
     ts.isContinueStatement(s)
+  );
+}
+
+/** A name, `this` or a member of one (reading it has no effect). */
+function plainName(x: ts.Expression): boolean {
+  x = skipParens(x);
+  return (
+    ts.isIdentifier(x) ||
+    x.kind === ts.SyntaxKind.ThisKeyword ||
+    (ts.isPropertyAccessExpression(x) && plainName(x.expression))
   );
 }
 

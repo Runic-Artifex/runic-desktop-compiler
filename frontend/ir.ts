@@ -263,6 +263,8 @@ export interface RecordType {
   extends?: number;
   /** An abstract class (never constructed). */
   abstract?: true;
+  /** A tuple of items of different types (fields `0`…): an array in JavaScript. */
+  tuple?: true;
 }
 
 export interface RecordField {

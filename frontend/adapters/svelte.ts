@@ -1412,7 +1412,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           );
       }
     }
-    const host = l.hostOf(el);
+    // A field holding the document or the window once assigned (bits-ui's
+    // `#documentObj`, frontend/classes.ts `hostFieldOf`): adding the
+    // listener throws a TypeError while it does not.
+    const field = l.classes.hostField(el);
+    const host = field ?? l.hostOf(el);
     const target: 'document' | 'window' | 'element' =
       host === 'document' || host === 'window' ? host : 'element';
     const supported =
@@ -1450,13 +1454,32 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     )
       return tsFail(handler, 'E_EVENT', 'on() takes a listener taking the event or nothing');
     const remover: Type = { fn: { params: [], result: 'void' } };
-    if (once)
+    const guarded = (body: (handler: Expr) => Expr): Expr => {
+      if (!field) return body(f);
+      const local = b.local('$listener', ft);
       return {
         op: 'with',
-        local: b.local('$listener', ft),
+        local,
         value: f,
-        body: l.unsupportedValue('on$once', remover, `on() with { once: true } (${kind})`),
+        body: {
+          op: 'cond',
+          test: l.expr(el, b),
+          then: body({ op: 'local', local }),
+          else: l.typeErrorValue(
+            'on$target',
+            remover,
+            "Cannot read properties of undefined (reading 'addEventListener')",
+          ),
+        },
       };
+    };
+    if (once)
+      return guarded(handler => ({
+        op: 'with',
+        local: b.local('$listener', ft),
+        value: handler,
+        body: l.unsupportedValue('on$once', remover, `on() with { once: true } (${kind})`),
+      }));
     const element = target === 'element';
     const name = target;
     const listen = element ? 'listen' : capture ? 'listen-capture' : 'listen';
@@ -1509,7 +1532,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         },
       ],
     };
-    return { op: 'call', function: add, args: element ? [e!, f] : [f] };
+    return guarded(handler => ({
+      op: 'call',
+      function: add,
+      args: element ? [e!, handler] : [handler],
+    }));
   };
   /**
    * `mount(Component, { target, props, context })` (svelte, M6 overlays): an
@@ -2661,6 +2688,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               cells[cell].init = { op: 'undefined', type };
               return;
             }
+            // A call TypeScript cannot type (untyped JavaScript) returns the
+            // annotated variable's type.
+            const call = skipParens(value);
+            if (d.type && ts.isCallExpression(call) && !lower.expected.has(call))
+              lower.expected.set(call, type);
             // The IR type of the lowered value (a bare `null` takes its contextual type).
             const v = lower.value(value, COMPONENT, `${name}$init`);
             cells[cell].init = coerceInit(v, lower.valueType(v), type, lower.types.records);

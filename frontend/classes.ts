@@ -977,8 +977,69 @@ export class Classes {
       : undefined;
   }
 
+  /** Host fields by declaration (`hostFieldOf`), null for other fields. */
+  private readonly hostFields = new Map<ts.PropertyDeclaration, 'document' | 'window' | null>();
+
+  /**
+   * A field holding the document or the window once the class assigns it
+   * (bits-ui's `#documentObj = undefined`, assigned
+   * `getOwnerDocument(this.opts.ref.current)` in an effect): initialised to
+   * undefined or null, and assigned only that host object (a name for it
+   * that reading has no effect for, `Lowerer.hostName`) or undefined or
+   * null. Its value is whether it holds the object (a boolean); listening
+   * to it throws a TypeError while it does not (svelte/events' `on`).
+   */
+  hostFieldOf(decl: ts.PropertyDeclaration): 'document' | 'window' | undefined {
+    const known = this.hostFields.get(decl);
+    if (known !== undefined) return known ?? undefined;
+    this.hostFields.set(decl, null);
+    const nothing = (x: ts.Expression | undefined) => {
+      if (!x) return false;
+      x = skipParens(x);
+      return x.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(x) && x.text === 'undefined');
+    };
+    const cls = decl.parent;
+    if (!ts.isClassDeclaration(cls) || isStatic(decl) || !nothing(decl.initializer))
+      return undefined;
+    const name = decl.name.getText();
+    let host: string | undefined;
+    let other = false;
+    const visit = (n: ts.Node) => {
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        n.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+        ts.isPropertyAccessExpression(n.left) &&
+        n.left.expression.kind === ts.SyntaxKind.ThisKeyword &&
+        n.left.name.getText() === name
+      ) {
+        if (n.operatorToken.kind !== ts.SyntaxKind.EqualsToken) other = true;
+        else if (!nothing(n.right)) {
+          const h = this.lower.hostName(n.right);
+          if (!h || (host !== undefined && h !== host)) other = true;
+          host = h;
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(cls);
+    const out = !other && (host === 'document' || host === 'window') ? host : undefined;
+    this.hostFields.set(decl, out ?? null);
+    return out;
+  }
+
+  /** `this.f` of a host field (`hostFieldOf`). */
+  hostField(e: ts.Expression): 'document' | 'window' | undefined {
+    e = skipParens(e);
+    if (!ts.isPropertyAccessExpression(e) || e.expression.kind !== ts.SyntaxKind.ThisKeyword)
+      return undefined;
+    const decl = this.lower.checker.getSymbolAtLocation(e.name)?.valueDeclaration;
+    return decl && ts.isPropertyDeclaration(decl) ? this.hostFieldOf(decl) : undefined;
+  }
+
   private fieldType(f: Field, info: ClassInfo): Type {
     const checker = this.lower.checker;
+    if (f.decl && ts.isPropertyDeclaration(f.decl) && this.hostFieldOf(f.decl)) return 'boolean';
     const arrow = this.tupleArrow(f.decl?.initializer);
     if (arrow) {
       const tuple = checker.getTypeAtLocation(arrow.parameters[0]) as ts.TypeReference;
@@ -1946,6 +2007,88 @@ export class Classes {
     return /[\\/]frontend[\\/]packs[\\/]/.test(file);
   }
 
+  /**
+   * Whether `n` is in an arrow function passed to a call of a function
+   * that cannot call it during the call (bits-ui's `#handleInteractOutside
+   * = debounce((e) => …, 10)`): the callee's parameters and body, outside
+   * the function literals in them, make no calls (nor `new`, tagged
+   * templates, spreads, `for…of`, `await` or `yield`), assign properties of
+   * its own constants holding function literals only, and refer to the
+   * parameter only inside function literals. So the arrow runs after the
+   * instance exists, reading `this` from it.
+   */
+  private toStoringCall(n: ts.Node, root: ts.Node): boolean {
+    let arrow: ts.Node | undefined;
+    for (let p: ts.Node | undefined = n.parent; p && p !== root.parent; p = p.parent)
+      if (ts.isArrowFunction(p)) arrow = p;
+    if (!arrow) return false;
+    let at: ts.Node = arrow;
+    while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+    const call = at.parent;
+    if (!ts.isCallExpression(call) || !call.arguments.includes(at as ts.Expression)) return false;
+    const checker = this.lower.checker;
+    const decl = checker.getResolvedSignature(call)?.declaration;
+    if (
+      !decl ||
+      !(
+        ts.isFunctionDeclaration(decl) ||
+        ts.isFunctionExpression(decl) ||
+        ts.isArrowFunction(decl)
+      ) ||
+      !decl.body
+    )
+      return false;
+    const index = call.arguments.indexOf(at as ts.Expression);
+    const param = decl.parameters[index];
+    if (!param || param.dotDotDotToken || !ts.isIdentifier(param.name)) return false;
+    const sym = checker.getSymbolAtLocation(param.name);
+    const fnConst = (x: ts.Expression): boolean => {
+      if (!ts.isIdentifier(x)) return false;
+      const d = checker.getSymbolAtLocation(x)?.valueDeclaration;
+      return (
+        !!d &&
+        ts.isVariableDeclaration(d) &&
+        !!(d.parent.flags & ts.NodeFlags.Const) &&
+        !!d.initializer &&
+        (ts.isArrowFunction(skipParens(d.initializer)) ||
+          ts.isFunctionExpression(skipParens(d.initializer))) &&
+        d.pos >= decl.pos &&
+        d.end <= decl.end
+      );
+    };
+    let ok = true;
+    const visit = (x: ts.Node, nested: boolean) => {
+      if (!ok) return;
+      if (!nested) {
+        if (
+          ts.isCallExpression(x) ||
+          ts.isNewExpression(x) ||
+          ts.isTaggedTemplateExpression(x) ||
+          ts.isSpreadElement(x) ||
+          ts.isSpreadAssignment(x) ||
+          ts.isForOfStatement(x) ||
+          ts.isAwaitExpression(x) ||
+          ts.isYieldExpression(x) ||
+          ts.isDecorator(x)
+        )
+          ok = false;
+        if (
+          ts.isBinaryExpression(x) &&
+          x.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          x.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+          !ts.isIdentifier(x.left) &&
+          !(ts.isPropertyAccessExpression(x.left) && fnConst(x.left.expression))
+        )
+          ok = false;
+        if (ts.isIdentifier(x) && x !== param.name && sym && checker.getSymbolAtLocation(x) === sym)
+          ok = false;
+      }
+      ts.forEachChild(x, c => visit(c, nested || (ts.isFunctionLike(x) && x !== decl)));
+    };
+    visit(decl, false);
+    return ok;
+  }
+
   /** Whether every function between `n` and `root` is an arrow function (it sees the class's `this`). */
   private arrowsUpTo(n: ts.Node, root: ts.Node): boolean {
     for (let p = n.parent; p && p !== root.parent; p = p.parent)
@@ -1980,7 +2123,8 @@ export class Classes {
     const field = this.fieldNamed(info, p.name);
     if (!field || !temps.has(field)) return undefined;
     const fnType = (t: Type | undefined) => typeof t === 'object' && 'fn' in t;
-    if (fnType(field.type) || fnType(maybeInner(field.type))) return undefined;
+    if (fnType(field.type) || fnType(maybeInner(field.type)))
+      return this.storedInLiteral(p, info) ? field : undefined;
     const g = p.parent;
     if (ts.isCallExpression(g) && g.expression === p) return undefined;
     if (
@@ -1993,6 +2137,48 @@ export class Classes {
     )
       return undefined;
     return field;
+  }
+
+  /**
+   * Whether the function-valued field read `p` is a property value of an
+   * object literal that is a whole field initialiser (bits-ui's `props = {
+   * onfocuscapture: this.#onfocuscapture }`), whose field nothing reads
+   * before the instance exists (outside functions, in field initialisers
+   * and the constructor): the function is stored, not called, until then.
+   */
+  private storedInLiteral(p: ts.PropertyAccessExpression, info: ClassInfo): boolean {
+    const assignment = p.parent;
+    if (!ts.isPropertyAssignment(assignment) || assignment.initializer !== p) return false;
+    let literal: ts.Node = assignment.parent;
+    while (ts.isParenthesizedExpression(literal.parent)) literal = literal.parent;
+    const holder = literal.parent;
+    if (
+      !ts.isObjectLiteralExpression(assignment.parent) ||
+      !ts.isPropertyDeclaration(holder) ||
+      holder.initializer !== literal
+    )
+      return false;
+    const name = holder.name.getText();
+    let read = false;
+    const visit = (n: ts.Node) => {
+      if (read || (ts.isFunctionLike(n) && !ts.isConstructorDeclaration(n))) return;
+      if (
+        ts.isPropertyAccessExpression(n) &&
+        n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+        n.name.getText() === name &&
+        !(
+          ts.isBinaryExpression(n.parent) &&
+          n.parent.left === n &&
+          n.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+        )
+      )
+        read = true;
+      ts.forEachChild(n, visit);
+    };
+    for (const m of info.decl.members)
+      if (ts.isPropertyDeclaration(m) && m.initializer) visit(m.initializer);
+      else if (ts.isConstructorDeclaration(m) && m.body) visit(m.body);
+    return !read;
   }
 
   /**
@@ -2009,6 +2195,18 @@ export class Classes {
   ): Expr {
     const lower = this.lower;
     const inner = skipParens(e);
+    // A host field starts without its object.
+    const holder = e.parent;
+    if (ts.isPropertyDeclaration(holder) && holder.initializer === e && this.hostFieldOf(holder))
+      return { op: 'lit', value: false };
+    // A call TypeScript cannot type (untyped JavaScript: bits-ui's
+    // `debounce(…)`) returns the field's type.
+    const initialised =
+      ts.isPropertyDeclaration(holder) && holder.initializer === e
+        ? this.fieldNamed(info, holder.name as ts.MemberName)
+        : undefined;
+    if (initialised && ts.isCallExpression(inner) && !lower.expected.has(inner))
+      lower.expected.set(inner, initialised.type);
     if (ts.isCallExpression(inner) && RUNES.test(inner.expression.getText()))
       this.fail(
         inner,
@@ -2042,7 +2240,12 @@ export class Classes {
         // (runed's ElementSize getter), which stores it and calls it once
         // the instance exists: read when it runs, from the instance (as an
         // arrow function stored whole in a field).
-        if (nested && this.arrowsUpTo(n, inner) && this.toPortConstructor(n, inner)) return;
+        if (
+          nested &&
+          this.arrowsUpTo(n, inner) &&
+          (this.toPortConstructor(n, inner) || this.toStoringCall(n, inner))
+        )
+          return;
         const field = this.earlyRead(n, nested, info, temps);
         if (!field)
           this.fail(

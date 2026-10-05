@@ -211,6 +211,63 @@ export class TypeMapper {
     return this.fail(at, 'E_TYPE_UNSUPPORTED', `Unsupported type ${this.checker.typeToString(t)}`);
   }
 
+  /**
+   * Whether function type `t` has properties, all declared in the program
+   * (not in a package's declaration files: a framework's component types).
+   */
+  private programProperties(t: ts.Type): boolean {
+    const props = this.checker.getPropertiesOfType(t);
+    return (
+      props.length > 0 &&
+      props.every(p => (p.declarations ?? []).every(d => !d.getSourceFile().isDeclarationFile)) &&
+      props.every(p => p.declarations?.length)
+    );
+  }
+
+  /** Whether record `r` is a function with properties (its field 0, `()`, the function). */
+  isCallable(r: number): boolean {
+    return this.records[r]?.fields[0]?.name === '()';
+  }
+
+  /** Tuple records (`Tuple`, fields `0`…), by their items' types. */
+  readonly tuples = new Map<string, number>();
+
+  /** The tuple record of items of these types. */
+  tupleRecord(items: Type[]): number {
+    const key = JSON.stringify(items);
+    const known = this.tuples.get(key);
+    if (known !== undefined) return known;
+    const r = this.records.length;
+    this.records.push({
+      name: 'Tuple',
+      tuple: true,
+      fields: items.map((type, i) => ({ name: String(i), type })),
+    });
+    this.tuples.set(key, r);
+    return r;
+  }
+
+  /** Whether values of type `t` may hold a tuple record. */
+  containsTuple(t: Type, seen = new Set<number>()): boolean {
+    if (typeof t !== 'object') return false;
+    if ('record' in t) {
+      if (this.isTuple(t.record)) return true;
+      if (seen.has(t.record)) return false;
+      seen.add(t.record);
+      return (this.records[t.record]?.fields ?? []).some(f => this.containsTuple(f.type, seen));
+    }
+    if ('maybe' in t) return this.containsTuple(t.maybe, seen);
+    if ('array' in t) return this.containsTuple(t.array, seen);
+    if ('map' in t) return t.map.some(x => this.containsTuple(x, seen));
+    if ('set' in t) return this.containsTuple(t.set, seen);
+    return false;
+  }
+
+  /** Whether record `r` is a tuple record. */
+  isTuple(r: number): boolean {
+    return [...this.tuples.values()].includes(r);
+  }
+
   /** Unions being mapped (recursion guard). */
   private readonly unions = new Set<ts.Type>();
 
@@ -380,8 +437,18 @@ export class TypeMapper {
       if (this.checker.isTupleType(t)) {
         const items = args.map(a => this.map(a, at));
         const first = JSON.stringify(items[0]);
-        if (!items.every(i => JSON.stringify(i) === first))
-          this.fail(at, 'E_TYPE_UNSUPPORTED', 'Heterogeneous tuples are outside the value model');
+        if (!items.every(i => JSON.stringify(i) === first)) {
+          // A pair or triple of other types (a Map's entries, M6 overlays):
+          // a tuple record, read by index and destructuring only.
+          const target = (t as ts.TypeReference).target as ts.TupleType;
+          if (target.elementFlags?.some(f => !(f & ts.ElementFlags.Required)))
+            this.fail(
+              at,
+              'E_TYPE_UNSUPPORTED',
+              'Tuples with optional or rest elements are outside the value model',
+            );
+          return { record: this.tupleRecord(items) };
+        }
         return { array: items[0] ?? 'number' };
       }
       return { array: this.map(args[0], at) };
@@ -396,6 +463,10 @@ export class TypeMapper {
     if (calls.length) {
       if (calls.length > 1)
         this.fail(at, 'E_TYPE_UNSUPPORTED', 'Overloaded function values are unsupported');
+      // A function with properties the program assigns (bits-ui's
+      // `debounce` result, `debounced.destroy = …`): a record of the
+      // function (field `()`) and the properties.
+      if (this.programProperties(t)) return { record: this.record(t, at) };
       const sig = calls[0];
       return {
         fn: {
@@ -507,6 +578,22 @@ export class TypeMapper {
       fields: [],
     };
     this.records.push(placeholder);
+    // A function with properties: the function first.
+    const [call] = t.getCallSignatures();
+    if (call) {
+      placeholder.name = 'Function';
+      placeholder.fields.push({
+        name: '()',
+        type: {
+          fn: {
+            params: call.parameters.map(p =>
+              this.map(this.checker.getTypeOfSymbolAtLocation(p, at), at),
+            ),
+            result: this.map(call.getReturnType(), at),
+          },
+        },
+      });
+    }
     // (Also the widened type of such a literal: a function's inferred
     // result, declared by the literal with getters.)
     const literalDecl = t.symbol?.declarations?.[0];

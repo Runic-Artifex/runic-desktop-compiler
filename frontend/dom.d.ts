@@ -195,6 +195,27 @@ interface Event {
   stopImmediatePropagation(): void;
 }
 interface UIEvent extends Event {}
+/** M6 overlays (bits-ui's escape layer): a copy of a keyboard event, never dispatched. */
+declare var KeyboardEvent: {
+  new (type: string, init: KeyboardEvent): KeyboardEvent;
+  prototype: KeyboardEvent;
+};
+/**
+ * M6 overlays (bits-ui's dismissible layer): `instanceof` of events.
+ * `new PointerEvent(…)` throws RunicUnsupportedError where it runs.
+ */
+declare var PointerEvent: {
+  new (type: string, init: PointerEvent): PointerEvent;
+  prototype: PointerEvent;
+};
+declare var MouseEvent: { prototype: MouseEvent };
+declare var FocusEvent: { prototype: FocusEvent };
+declare var WheelEvent: { prototype: WheelEvent };
+declare var UIEvent: { prototype: UIEvent };
+declare var Event: { prototype: Event };
+/** `x instanceof SVGElement` of element values (M6 overlays). */
+interface SVGElement extends HTMLElement {}
+declare var SVGElement: { prototype: SVGElement };
 /** M6 overlays (bits-ui's focus scope): an event created by script, never dispatched. */
 declare var CustomEvent: {
   new (type: string, init?: { bubbles?: boolean; cancelable?: boolean }): Event;

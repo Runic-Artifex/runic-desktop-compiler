@@ -291,6 +291,35 @@ export function builtinType(name: string, args: Type[]): Type | undefined {
         Type
       >
     )[method];
+  // Map and Set methods (an untyped receiver: bits-ui's global layer maps).
+  if (ns === 'map' && recv && typeof recv === 'object' && 'map' in recv) {
+    const [k, v] = recv.map;
+    return (
+      {
+        get: { maybe: v },
+        set: recv,
+        has: B,
+        delete: B,
+        clear: 'void',
+        size: N,
+        keys: { array: k },
+        values: { array: v },
+        'dictionary-keys': { array: k },
+        'dictionary-values': { array: v },
+      } as Record<string, Type>
+    )[method];
+  }
+  if (ns === 'set' && recv && typeof recv === 'object' && 'set' in recv)
+    return (
+      {
+        add: recv,
+        has: B,
+        delete: B,
+        clear: 'void',
+        size: N,
+        values: { array: recv.set },
+      } as Record<string, Type>
+    )[method];
   if (ns === 'string' && method === 'regexp-search') return N;
   if (ns === 'string' && method.startsWith('regexp-replace')) return S;
   if (ns === 'string' && method.startsWith('regexp-')) return undefined;

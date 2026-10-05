@@ -507,6 +507,7 @@ export function annotate(
   for (const [key, text] of inferred) {
     if (key.startsWith('new:')) add(Number(key.slice(4)), `<${text}>`);
     if (key.startsWith('param:')) add(Number(key.slice(6)), `: ${text}`);
+    if (key.startsWith('ret:')) add(Number(key.slice(4)), `: ${text}`);
   }
   inserts.sort((a, b) => a.at - b.at);
   let text = dts ? `import type * as __dts from ${JSON.stringify(DTS_PREFIX + dts)};\n` : '';
@@ -628,6 +629,97 @@ export function inferFields(
       ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node) ? `(${printed})` : printed;
     return /\bany\b/.test(text) ? undefined : text;
   };
+  /** Whether `n` is `this.<fieldName>`. */
+  const thisField = (n: ts.Node, fieldName: string): n is ts.PropertyAccessExpression =>
+    ts.isPropertyAccessExpression(n) &&
+    n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+    n.name.getText() === fieldName;
+  /**
+   * The event type a function receives where `n` is the listener of
+   * svelte/events' `on(target, "kind", n)`, also as one of the functions
+   * svelte-toolbelt's `executeCallbacks(…)` or `composeHandlers(…)`
+   * calls there (bits-ui's dismissible and text selection layers).
+   */
+  const listenerEvent = (n: ts.Node): string | undefined => {
+    let at = n;
+    const parent = at.parent;
+    if (
+      ts.isCallExpression(parent) &&
+      parent.arguments.includes(at as ts.Expression) &&
+      ts.isIdentifier(parent.expression) &&
+      (parent.expression.text === 'executeCallbacks' ||
+        parent.expression.text === 'composeHandlers') &&
+      /[\\/]svelte-toolbelt[\\/]/.test(declaredIn(checker, parent.expression))
+    )
+      at = parent;
+    const on = at.parent;
+    if (
+      !ts.isCallExpression(on) ||
+      on.arguments[2] !== at ||
+      !ts.isIdentifier(on.expression) ||
+      on.expression.text !== 'on' ||
+      !/[\\/]svelte[\\/]/.test(declaredIn(checker, on.expression)) ||
+      !on.arguments[1] ||
+      !ts.isStringLiteralLike(on.arguments[1])
+    )
+      return undefined;
+    const kind = on.arguments[1].text;
+    return /^key/.test(kind)
+      ? 'KeyboardEvent'
+      : /^pointer/.test(kind)
+        ? 'PointerEvent'
+        : /^focus|^blur/.test(kind)
+          ? 'FocusEvent'
+          : /^(click|dblclick|contextmenu|mouse)/.test(kind)
+            ? 'MouseEvent'
+            : 'Event';
+  };
+  /**
+   * The untyped arrow function of one parameter that call `c` passes
+   * first, where the callee is declared to return a function of that
+   * argument's parameters (`f<T>(fn: T, …): { (...args: Parameters<T>): … }`).
+   */
+  const forwardedArrow = (c: ts.CallExpression): ts.ArrowFunction | undefined => {
+    const fn = c.arguments[0] && skipParensOf(c.arguments[0]);
+    if (!fn || !ts.isArrowFunction(fn) || fn.parameters.length !== 1) return undefined;
+    const p = fn.parameters[0];
+    if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return undefined;
+    let decl = checker.getResolvedSignature(c)?.declaration;
+    // (An untyped package function: as its declaration file declares it.)
+    if (decl && ts.isFunctionDeclaration(decl) && decl.name && !decl.typeParameters) {
+      const name = decl.name.text;
+      const dts = declarationFile(decl.getSourceFile().fileName.replace(/\.__runic\.ts$/, ''));
+      const declared = dts ? declarations(dts).sf : undefined;
+      decl =
+        declared?.statements.find(
+          (s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === name,
+        ) ?? decl;
+    }
+    if (!decl || ts.isJSDocSignature(decl) || !decl.typeParameters || !decl.type) return undefined;
+    const first = decl.parameters[0]?.type;
+    if (!first || !ts.isTypeReferenceNode(first) || !ts.isIdentifier(first.typeName))
+      return undefined;
+    const t = first.typeName.text;
+    if (!decl.typeParameters.some(tp => tp.name.text === t)) return undefined;
+    let forwards = false;
+    const visit = (x: ts.Node) => {
+      if (
+        ts.isTypeReferenceNode(x) &&
+        ts.isIdentifier(x.typeName) &&
+        x.typeName.text === 'Parameters' &&
+        x.typeArguments?.length === 1 &&
+        ts.isTypeReferenceNode(x.typeArguments[0]) &&
+        ts.isIdentifier(x.typeArguments[0].typeName) &&
+        x.typeArguments[0].typeName.text === t &&
+        ts.isParameter(x.parent) &&
+        x.parent.dotDotDotToken
+      )
+        forwards = true;
+      ts.forEachChild(x, visit);
+    };
+    visit(decl.type);
+    return forwards ? fn : undefined;
+  };
   for (const m of modules.values()) {
     // A pack's port is typed as written.
     if (m.port) continue;
@@ -640,7 +732,7 @@ export function inferFields(
       const cls = stmt.name.text;
       const ctor = stmt.members.find(ts.isConstructorDeclaration);
       for (const member of stmt.members) {
-        if (!ts.isPropertyDeclaration(member) || member.type) continue;
+        if (!ts.isPropertyDeclaration(member)) continue;
         if (
           ts.canHaveModifiers(member) &&
           ts.getModifiers(member)?.some(x => x.kind === ts.SyntaxKind.StaticKeyword)
@@ -648,6 +740,9 @@ export function inferFields(
           continue;
         const fieldName = member.name.getText();
         const key = `${cls}.${fieldName}`;
+        // (A type an earlier pass inferred is inferred again: the values
+        // assigned may be typed better now, bits-ui's watch tuples.)
+        if (member.type && !m.inferred.has(key)) continue;
         if (bagInitializer(member.initializer, attachments)) continue;
         const sym = checker.getSymbolAtLocation(member.name);
         const own = sym && checker.getTypeOfSymbolAtLocation(sym, member);
@@ -665,6 +760,41 @@ export function inferFields(
           );
         let open = false;
         const init = member.initializer;
+        // An object literal the class writes by computed keys (bits-ui's
+        // `#interceptedEvents = { pointerdown: false }` and
+        // `this.#interceptedEvents[e.type] = true`): a dictionary of its
+        // values' type.
+        const literal = init && skipParensOf(init);
+        if (literal && ts.isObjectLiteralExpression(literal)) {
+          let computed = false;
+          const visitWrite = (n: ts.Node) => {
+            if (
+              ts.isBinaryExpression(n) &&
+              n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+              ts.isElementAccessExpression(n.left) &&
+              thisField(n.left.expression, fieldName) &&
+              !ts.isStringLiteralLike(n.left.argumentExpression)
+            )
+              computed = true;
+            ts.forEachChild(n, visitWrite);
+          };
+          stmt.members.forEach(visitWrite);
+          if (computed) {
+            const values = new Set(
+              literal.properties.map(p =>
+                ts.isPropertyAssignment(p)
+                  ? valueType(checker.getTypeAtLocation(p.initializer), p.initializer)
+                  : undefined,
+              ),
+            );
+            const [value] = values;
+            if (values.size === 1 && value !== undefined) {
+              const text = `Record<string, ${value}>`;
+              if (next.get(key) !== text) next.set(key, text);
+            }
+            continue;
+          }
+        }
         // An arrow function with untyped parameters that the class passes as
         // runed's `watch(sources, effect)` effect (bits-ui's
         // `watch([() => this.open, () => this.opts.ref.current],
@@ -673,6 +803,7 @@ export function inferFields(
         // untyped effect too, so they are read from the getters).
         if (init && ts.isArrowFunction(init) && init.parameters.some(p => !p.type)) {
           const expected: string[] = [];
+          const direct: ts.CallExpression[] = [];
           const visitArg = (n: ts.Node) => {
             if (
               ts.isPropertyAccessExpression(n) &&
@@ -706,32 +837,18 @@ export function inferFields(
                 const tuple = `[${values.join(', ')}]`;
                 const text = `((values: ${tuple}) => void)`;
                 if (!expected.includes(text)) expected.push(text);
-              } else expected.push('');
+              } else if (watch) expected.push('');
             }
             // svelte/events' `on(target, "keydown", this.#onkeydown)`
             // (bits-ui's escape layer): a listener of that event.
+            const event = thisField(n, fieldName) ? listenerEvent(n) : undefined;
             if (
-              ts.isPropertyAccessExpression(n) &&
-              n.expression.kind === ts.SyntaxKind.ThisKeyword &&
-              n.name.getText() === fieldName &&
+              thisField(n, fieldName) &&
               ts.isCallExpression(n.parent) &&
-              n.parent.arguments[2] === n &&
-              ts.isIdentifier(n.parent.expression) &&
-              n.parent.expression.text === 'on' &&
-              /[\\/]svelte[\\/]/.test(declaredIn(checker, n.parent.expression)) &&
-              n.parent.arguments[1] &&
-              ts.isStringLiteralLike(n.parent.arguments[1])
-            ) {
-              const kind = n.parent.arguments[1].text;
-              const event = /^key/.test(kind)
-                ? 'KeyboardEvent'
-                : /^pointer/.test(kind)
-                  ? 'PointerEvent'
-                  : /^focus|^blur/.test(kind)
-                    ? 'FocusEvent'
-                    : /^(click|dblclick|contextmenu|mouse)/.test(kind)
-                      ? 'MouseEvent'
-                      : 'Event';
+              n.parent.expression === n
+            )
+              direct.push(n.parent);
+            if (event) {
               const text = `((event: ${event}) => void)`;
               if (!expected.includes(text)) expected.push(text);
             }
@@ -741,6 +858,77 @@ export function inferFields(
           if (expected.length === 1 && expected[0] && next.get(key) !== expected[0])
             next.set(key, expected[0]);
           if (expected.length) continue;
+          // Called by the class only (bits-ui's `this.#isTargetWithinLayer(event.target)`):
+          // each untyped parameter takes the one type the calls pass.
+          if (direct.length) {
+            init.parameters.forEach((p, i) => {
+              if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
+              const texts = new Set<string>();
+              let open = false;
+              for (const c of direct) {
+                const a = c.arguments[i];
+                const t = a && !ts.isSpreadElement(a) ? checker.getTypeAtLocation(a) : undefined;
+                const text =
+                  t &&
+                  print(
+                    t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
+                      ? t
+                      : checker.getBaseTypeOfLiteralType(t),
+                    a!,
+                  );
+                if (text === undefined) open = true;
+                else texts.add(text);
+              }
+              const end = p.name.end;
+              const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+              if (open || texts.size !== 1 || !seg) return;
+              const pkey = `param:${seg.orig + (end - seg.synth)}`;
+              const text = [...texts][0];
+              if (next.get(pkey) !== text) next.set(pkey, text);
+            });
+            continue;
+          }
+        }
+        // A listener made by a function forwarding its arguments to an
+        // untyped arrow function (bits-ui's `#handleInteractOutside =
+        // debounce((e) => …, 10)`, declared `debounce<T>(fn: T): { (...args:
+        // Parameters<T>): void; … }`): the arrow's parameter is the event.
+        const wrapped = init && ts.isCallExpression(init) ? forwardedArrow(init) : undefined;
+        if (wrapped) {
+          const events = new Set<string>();
+          let other = false;
+          const visitUse = (n: ts.Node) => {
+            if (thisField(n, fieldName) && !ts.isPropertyAccessExpression(n.parent)) {
+              const event = listenerEvent(n);
+              if (event) events.add(event);
+              else if (!(ts.isCallExpression(n.parent) && n.parent.expression === n)) other = true;
+            }
+            ts.forEachChild(n, visitUse);
+          };
+          stmt.members.forEach(visitUse);
+          const p = wrapped.parameters[0];
+          const end = p.name.end;
+          const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+          if (!other && events.size === 1 && seg) {
+            const pkey = `param:${seg.orig + (end - seg.synth)}`;
+            const event = [...events][0];
+            if (next.get(pkey) !== event) next.set(pkey, event);
+            // The field: a function of the event, with the properties of
+            // the call's result (`destroy`).
+            const result = own?.getCallSignatures()[0]?.getReturnType();
+            const props = own ? checker.getPropertiesOfType(own) : [];
+            const printed = props.map(p =>
+              print(checker.getTypeOfSymbolAtLocation(p, init!), init!),
+            );
+            const ret = result && print(result, init!);
+            if (ret !== undefined && printed.every(p => p !== undefined)) {
+              const text = `{ (event: ${event}): ${ret}; ${props
+                .map((p, i) => `${p.name}: ${printed[i]}`)
+                .join('; ')} }`;
+              if (next.get(key) !== text) next.set(key, text);
+            }
+          }
+          continue;
         }
         // svelte-toolbelt's `box(initial)` (a writable box of any value):
         // the box of its initial value and of the values the class writes
@@ -991,6 +1179,13 @@ export function inferFields(
           ) {
             const args = x.arguments.slice(0, set ? 1 : 2);
             const printed = args.map(a => {
+              // (`this`: its class, by name.)
+              if (a.kind === ts.SyntaxKind.ThisKeyword) {
+                let c: ts.Node | undefined = a.parent;
+                while (c && !ts.isClassDeclaration(c)) c = c.parent;
+                const cls = c as ts.ClassDeclaration | undefined;
+                if (cls?.name && !cls.typeParameters) return cls.name.text;
+              }
               const t = checker.getTypeAtLocation(a);
               return print(
                 t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
@@ -1027,6 +1222,53 @@ export function inferFields(
       ts.forEachChild(n, collections);
     };
     collections(sf);
+    // runed's `watch(() => [a, b, c], ([x, y, z]) => …)` (bits-ui's text
+    // selection layer): TypeScript types the getter's array literal as an
+    // array of the union of its elements' types; the effect destructures it
+    // by position, so the getter returns the tuple of their types.
+    const getters = (n: ts.Node) => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === 'watch' &&
+        /[\\/]runed[\\/]/.test(declaredIn(checker, n.expression)) &&
+        n.arguments.length >= 2
+      ) {
+        const getter = skipParensOf(n.arguments[0]);
+        const effect = skipParensOf(n.arguments[1]);
+        const body =
+          ts.isArrowFunction(getter) && !getter.type && !ts.isBlock(getter.body)
+            ? skipParensOf(getter.body)
+            : undefined;
+        if (
+          body &&
+          ts.isArrayLiteralExpression(body) &&
+          !body.elements.some(ts.isSpreadElement) &&
+          (ts.isArrowFunction(effect) || ts.isFunctionExpression(effect)) &&
+          effect.parameters[0] &&
+          ts.isArrayBindingPattern(effect.parameters[0].name)
+        ) {
+          const items = body.elements.map(x => {
+            const t = checker.getTypeAtLocation(x);
+            return print(
+              t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
+                ? t
+                : checker.getBaseTypeOfLiteralType(t),
+              x,
+            );
+          });
+          const close = sf.text.indexOf(')', (getter as ts.ArrowFunction).parameters.end) + 1;
+          const seg = m.segments.find(g => close >= g.synth && close <= g.synth + g.length);
+          if (items.every(i => i !== undefined) && close > 0 && seg) {
+            const key = `ret:${seg.orig + (close - seg.synth)}`;
+            const text = `[${items.join(', ')}]`;
+            if (next.get(key) !== text) next.set(key, text);
+          }
+        }
+      }
+      ts.forEachChild(n, getters);
+    };
+    getters(sf);
     // Untyped parameters of class constructors and methods (FocusScope's
     // `constructor(opts)` and `static use(opts)`): the one type the
     // program's calls pass, where they agree.
