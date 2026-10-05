@@ -2580,6 +2580,15 @@ impl<'p> Machine<'p> {
                 self.host.title = a[0].string();
                 Val::Undefined
             }
+            ("document", "querySelector") => {
+                let selector = js::parse_selector(&a[0].string().to_rust()).map_err(|m| {
+                    Throw::new("RunicUnsupportedError", format!("querySelector: {m}"))
+                })?;
+                match document_query(&self.last_tree, self.root_len, &selector)? {
+                    Some(e) => Val::Element(js::Element(e)),
+                    None => Val::Null,
+                }
+            }
             ("document", "getElementById") => {
                 let id = a[0].string().to_rust();
                 match element_by_id(&self.last_tree, &id) {
@@ -6730,6 +6739,85 @@ fn query_selector_all(tree: &[VNode], id: u64, selector: &js::Selector) -> Vec<u
         walk(children, &mut path, selector, &mut out);
     }
     out
+}
+
+/// `document.querySelector` over the interpreter's document: `html`,
+/// `head`, `body`, the container `div#root` with the root's nodes, then
+/// the content mounted in the body (after the first `root_len` nodes). The
+/// html element, the head and the container are not program elements: a
+/// selector matching one of them first is unsupported here.
+fn document_query(
+    tree: &[VNode],
+    root_len: usize,
+    selector: &js::Selector,
+) -> std::result::Result<Option<u64>, Throw> {
+    struct Outer(&'static str, Option<(&'static str, &'static str)>);
+    enum View<'a> {
+        Outer(Outer),
+        Node(&'a VNode),
+    }
+    impl js::SelElement for View<'_> {
+        fn tag(&self) -> &str {
+            match self {
+                View::Outer(o) => o.0,
+                View::Node(VNode::Element { tag, .. }) => tag,
+                View::Node(_) => "",
+            }
+        }
+        fn attr(&self, name: &str) -> Option<&str> {
+            match self {
+                View::Outer(o) => o.1.filter(|(n, _)| *n == name).map(|(_, v)| v),
+                View::Node(VNode::Element { attrs, .. }) => attrs.get(name).map(String::as_str),
+                View::Node(_) => None,
+            }
+        }
+    }
+    fn first<'a>(nodes: &'a [VNode], path: &mut Vec<View<'a>>, s: &js::Selector) -> Option<u64> {
+        for n in nodes {
+            if let VNode::Element { id, children, .. } = n {
+                path.push(View::Node(n));
+                if s.matches(path) {
+                    return Some(*id);
+                }
+                let found = first(children, path, s);
+                path.pop();
+                if found.is_some() {
+                    return found;
+                }
+            }
+        }
+        None
+    }
+    let unsupported = |what: &str| -> std::result::Result<Option<u64>, Throw> {
+        Err(Throw::new(
+            "RunicUnsupportedError",
+            format!(
+                "document.querySelector matched the {what}, which the interpreter does not model"
+            ),
+        ))
+    };
+    let html = || View::Outer(Outer("html", None));
+    if selector.matches(&[html()]) {
+        return unsupported("html element");
+    }
+    if selector.matches(&[html(), View::Outer(Outer("head", None))]) {
+        return unsupported("head element");
+    }
+    let body = || View::Outer(Outer("body", None));
+    if selector.matches(&[html(), body()]) {
+        return Ok(Some(js::Element::BODY.0));
+    }
+    let container = View::Outer(Outer("div", Some(("id", "root"))));
+    let mut path = vec![html(), body(), container];
+    if selector.matches(&path) {
+        return unsupported("container");
+    }
+    let split = root_len.min(tree.len());
+    if let Some(found) = first(&tree[..split], &mut path, selector) {
+        return Ok(Some(found));
+    }
+    let mut path = vec![html(), body()];
+    Ok(first(&tree[split..], &mut path, selector))
 }
 
 fn chain_nodes(tree: &[VNode], id: u64) -> Option<Vec<&VNode>> {

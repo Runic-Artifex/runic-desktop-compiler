@@ -2591,8 +2591,10 @@ enum Root {
 
 /// The host service a built-in uses, if any.
 fn host_service(name: &str) -> Option<&'static str> {
-    // The body element never changes.
-    if name == "document.body" {
+    // The body element never changes; a document query reads the DOM as
+    // the element queries do (`element.querySelector`), which are not host
+    // services either (M6 overlays: bits-ui's portal target, a derived value).
+    if name == "document.body" || name == "document.querySelector" {
         return None;
     }
     match name.split_once('.')?.0 {

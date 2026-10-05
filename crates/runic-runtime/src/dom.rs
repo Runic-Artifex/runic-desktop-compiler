@@ -531,6 +531,16 @@ impl Host {
         }
     }
 
+    /// `document.querySelector(selector)` (M6 overlays: bits-ui's portal
+    /// target): the first matching element of the document in tree order,
+    /// the `html` element included.
+    pub fn query_selector_document(&self, selector: &str) -> Option<u64> {
+        let root = self.dom()?.doc.root_node().id;
+        self.query_selector_all(NodeId::from(root).as_u64(), selector)
+            .first()
+            .copied()
+    }
+
     /// `document.getElementById(id)`: the first element in tree order.
     pub fn element_by_id(&self, id: &str) -> Option<u64> {
         let dom = self.dom()?;

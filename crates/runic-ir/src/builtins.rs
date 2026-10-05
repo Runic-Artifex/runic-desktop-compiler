@@ -530,6 +530,12 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &s, "id").map(|_| Maybe(Box::new(Element)))
         }
+        // M6 overlays: the first element of the document a selector
+        // (runic_js::parse_selector's subset) matches, in tree order.
+        ("document", "querySelector") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "selector").map(|_| Maybe(Box::new(Element)))
+        }
         // M6 overlays: the body element (where portals mount).
         ("document", "body") => arity(args, 0, 0).map(|_| Element),
         ("focus", "current") => arity(args, 0, 0).map(|_| Maybe(Box::new(Element))),

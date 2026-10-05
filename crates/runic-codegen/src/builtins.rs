@@ -315,6 +315,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         // The document (M6).
         ("document", "title") => "runic_runtime::history::title()".into(),
         ("document", "set-title") => format!("{{ runic_runtime::history::set_title(&{}); }}", t[0]),
+        ("document", "querySelector") => format!(
+            "(match cx.dom.query_selector_document(&{}.to_rust()) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
+            t[0]
+        ),
         ("document", "getElementById") => format!(
             "(match cx.dom.element_by_id(&{}.to_rust()) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
             t[0]
