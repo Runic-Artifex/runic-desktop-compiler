@@ -253,8 +253,8 @@ A case's `pixelRegions` compare each named element's box with the same 3/255 tol
 Only Collapsible is verified (case `bits-collapsible`); Separator and Progress lower as well but have no case. The first diagnostic each other part gives today (a minimal use of the part, 2026-10-04), in the order the north star needs them:
 
 - **Hidden inputs** (Switch, Checkbox, RadioGroup, Select): svelte-toolbelt's `srOnlyStyles` (a style object constant) is outside the pack.
-- **Top-level statements** (Tooltip.Provider, the floating layer of Popover, DropdownMenu, Select): `State.create(…)` called for its effect, not assigned, in a component script.
-- **`esm-env`** (Dialog's portal): no pack (`BROWSER`/`DEV` constants).
+- **Top-level statements** (Tooltip.Provider, the floating layer of Popover, DropdownMenu, Select): `State.create(…)` called for its effect, not assigned, in a component script. Top-level calls are supported since step 7 ([M6-OVERLAYS](M6-OVERLAYS.md#status-2026-10-05-branch-m6-overlays)).
+- **`esm-env`** (Dialog's portal): no pack (`BROWSER`/`DEV` constants). A pack since step 7; the portal is then blocked by `PortalTarget = Element | string` ([M6-OVERLAYS](M6-OVERLAYS.md#status-2026-10-05-branch-m6-overlays)).
 - **`mergeProps` with an object literal argument** (Toggle: `mergeProps(restProps, state.props, { type })`).
 - **Event members** (Label: `e.detail`).
 - **Unions outside the value model** (Accordion's `value: string | string[]` assigned by the component; Tabs' roving focus group options, an intersection with alternative members).
