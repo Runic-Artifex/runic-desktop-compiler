@@ -190,14 +190,13 @@ test('CSS filter lists are accepted where the renderers draw them', async () => 
       '.d { --tw-drop-shadow-color: oklch(63.7% 0.237 25.331) }',
     undefined,
   );
-  // SVG filter references and drop shadows in currentColor (Blitz draws them black).
+  // SVG filter references; drop shadows in currentColor are drawn in the
+  // element's color (the Blitz fork).
   await check('p { color: red }\np { filter: url(#f) }', 'E_CSS_PROPERTY', 2);
-  await check('p { filter: drop-shadow(2px 2px 4px) }', 'E_CSS_PROPERTY', 1);
-  await check('p { filter: blur(1px) drop-shadow(currentColor 2px 2px) }', 'E_CSS_PROPERTY', 1);
   await check(
-    '.a { --c: currentColor }\n.b { filter: drop-shadow(1px 1px var(--c, red)) }',
-    'E_CSS_PROPERTY',
-    2,
+    'p { filter: drop-shadow(2px 2px 4px) }\nb { filter: blur(1px) drop-shadow(currentColor 2px 2px) }\n' +
+      '.a { --c: currentColor }\n.b { filter: drop-shadow(1px 1px var(--c, red)) }',
+    undefined,
   );
   await check('.a { --f: url(#x) }\n.b { filter: var(--f, none) }', 'E_CSS_PROPERTY', 2);
   await check('p { backdrop-filter: url(#f) }', 'E_CSS_PROPERTY', 1);

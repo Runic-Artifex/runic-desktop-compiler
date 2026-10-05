@@ -1,11 +1,12 @@
 //! Filters that Blitz would draw differently from Chromium.
 //!
 //! Both renderers (CPU and GPU) draw `filter` and `backdrop-filter` with the
-//! same semantics (docs/research/M6-CPU-RENDERER.md), but Blitz builds the filter layer
-//! around part of the element only: its outline and outer box shadows are
-//! painted outside the layer (unfiltered), the layer is clipped to the border
-//! box (plus the filter's reach), and a backdrop is clipped to the border
-//! box's bounding rectangle. These checks find the elements where that shows.
+//! same semantics (docs/research/M6-CPU-RENDERER.md), and the Blitz fork
+//! filters an element's whole rendering (outline, outer shadows and overflow
+//! included) and clips a backdrop to the rounded border box. Two cases remain
+//! different: an element with both `filter` and `backdrop-filter` (one layer,
+//! its backdrop clipped with the filter's reach), and a backdrop below a
+//! Backdrop Root ancestor. These checks find them.
 
 use blitz_dom::BaseDocument;
 use blitz_dom::node::Node;
@@ -47,35 +48,14 @@ fn filter_deviations(doc: &BaseDocument) -> Vec<String> {
         }
         let property = if filter { "filter" } else { "backdrop-filter" };
         let mut reasons = vec![];
-        if effects.box_shadow.0.iter().any(|s| !s.inset) {
-            reasons.push(format!(
-                "its box-shadow is drawn outside the {property} (Blitz paints outer shadows before the filter layer)"
-            ));
-        }
-        let outline = style.get_outline();
-        if !outline.outline_style.none_or_hidden() && outline.outline_width.0.to_f64_px() > 0.0 {
-            reasons.push(format!(
-                "its outline is drawn outside the {property} (Blitz paints outlines before the filter layer)"
-            ));
-        }
-        if overflows_border_box(node) {
-            reasons.push(
-                "content overflowing its border box is clipped (Blitz clips a filter layer to the border box and the filter's reach)"
-                    .to_owned(),
-            );
-        }
         if backdrop {
             if filter {
-                reasons.push(
-                    "it has both filter and backdrop-filter (Blitz clips the backdrop with the filter's reach)"
-                        .to_owned(),
-                );
-            }
-            if !rounded_corners_zero(&style) {
-                reasons.push(
-                    "its backdrop is not clipped to the rounded corners (Blitz clips it to the border box's bounding rectangle)"
-                        .to_owned(),
-                );
+                let mut reason = "it has both filter and backdrop-filter (Blitz clips the backdrop with the filter's reach".to_owned();
+                if !rounded_corners_zero(&style) {
+                    reason.push_str(", to the border box's bounding rectangle");
+                }
+                reason.push(')');
+                reasons.push(reason);
             }
             if let Some(root) = backdrop_root(doc, node) {
                 reasons.push(format!(
@@ -99,17 +79,6 @@ fn filter_deviations(doc: &BaseDocument) -> Vec<String> {
         ));
     }
     out
-}
-
-/// Whether the element's scrollable overflow reaches outside its border box.
-fn overflows_border_box(node: &Node) -> bool {
-    let layout = node.final_layout();
-    let overflow = layout.scrollable_overflow_rect;
-    const EPSILON: f32 = 0.01;
-    overflow.left < -EPSILON
-        || overflow.top < -EPSILON
-        || overflow.right > layout.size.width + EPSILON
-        || overflow.bottom > layout.size.height + EPSILON
 }
 
 fn rounded_corners_zero(style: &ComputedValues) -> bool {

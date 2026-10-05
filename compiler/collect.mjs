@@ -629,36 +629,11 @@ function varAlternatives(node, values, seen) {
   return { name, alternatives };
 }
 
-const COLOR_FUNCTIONS =
-  /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark|contrast-color)$/i;
-
-/**
- * Whether the argument nodes of a shadow name a colour: a colour function, a
- * hex colour or colour keyword, or a var() whose every possible value does.
- * Stylo has validated the declarations without var(), so a word that is not
- * a number or length is a colour keyword there.
- */
-function namesColor(nodes, values, seen = new Set()) {
-  return nodes.some(n => {
-    if (n.type === 'word')
-      return !valueParser.unit(n.value) && n.value.toLowerCase() !== 'currentcolor';
-    if (n.type !== 'function') return false;
-    if (n.value.toLowerCase() !== 'var') return COLOR_FUNCTIONS.test(n.value);
-    const { name, alternatives } = varAlternatives(n, values, seen);
-    const inner = new Set([...seen, name]);
-    return (
-      alternatives.length > 0 &&
-      alternatives.every(v => namesColor(valueParser(v).nodes, values, inner))
-    );
-  });
-}
-
 /**
  * Why a `filter` or `backdrop-filter` value is outside what the renderers
  * draws, or undefined: functions other than the CSS filter functions (SVG
- * filter references with url()), and drop-shadow() without its own colour,
- * which Blitz draws black instead of in currentColor. Through each var()
- * every value the stylesheet gives the custom property is checked.
+ * filter references with url()). Through each var() every value the
+ * stylesheet gives the custom property is checked.
  */
 function unsupportedFilter(value, values) {
   const visit = (nodes, seen) => {
@@ -676,12 +651,6 @@ function unsupportedFilter(value, values) {
       }
       if (!FILTER_FUNCTIONS.has(name))
         return `${name}() is not a CSS filter function the renderers draw (SVG filter references are not supported)`;
-      if (
-        name === 'drop-shadow' &&
-        (!namesColor(n.nodes, values) ||
-          possibleKeywords(valueParser.stringify(n.nodes), values).has('currentcolor'))
-      )
-        return 'drop-shadow() needs its own colour: Blitz draws a shadow without one (currentColor) in black';
     }
     return undefined;
   };
