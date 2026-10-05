@@ -10,6 +10,9 @@ pub enum Job<C> {
     Flush,
     /// Run any pending flush now, then the callback (`flush.tick`).
     FlushThen(C),
+    /// Report the rejections a microtask checkpoint left without a reaction
+    /// (a default-priority task, as Chromium posts it; docs/IR.md, promises).
+    Report(runic_js::Rejections),
 }
 
 pub struct Jobs<C> {
@@ -138,6 +141,15 @@ impl<C> Jobs<C> {
     pub fn next_microtask(&mut self) -> Option<Job<C>> {
         self.note_mutations();
         self.microtasks.pop_front()
+    }
+
+    /// At the end of a microtask checkpoint: the rejections it left without
+    /// a reaction are reported by a default-priority task queued now.
+    pub fn queue_rejections(&mut self) {
+        let r = runic_js::take_rejections();
+        if !r.is_empty() {
+            self.defaults.push_back(Job::Report(r));
+        }
     }
 
     /// The next default-priority task.

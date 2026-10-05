@@ -1,0 +1,13 @@
+{
+  "description": "The rejections case on the fake clock: a rejection in a timer callback is reported after the callback's console line, within the wait; rejections in click handlers as on the real clock",
+  "fixtures": ["rejections-svelte", "rejections-react", "rejections-vue"],
+  "actions": [
+    { "kind": "click", "id": "timer" },
+    { "kind": "wait", "ms": 50 },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "state" },
+    { "kind": "click", "id": "timer" },
+    { "kind": "click", "id": "async" },
+    { "kind": "wait", "ms": 200 }
+  ]
+}

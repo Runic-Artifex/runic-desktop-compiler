@@ -81,6 +81,8 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     crate::layout::take_clamped();
     // The animations of this document, if the program reads them (M6).
     crate::animations::reset(A::TRACKS_ANIMATIONS);
+    // Rejections a previous document left unreported go with it.
+    runic_js::clear_rejections();
     let mut doc = BaseDocument::new(DocumentConfig {
         net_provider: Some(DataUriNetProvider::shared(None)),
         viewport: Some(Viewport::new(width, height, 1.0, ColorScheme::Light)),

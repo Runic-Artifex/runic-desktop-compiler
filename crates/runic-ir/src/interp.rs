@@ -627,6 +627,9 @@ enum Micro {
     Promise(PJob),
     /// The flush job (see [`Schedule`]).
     Flush,
+    /// Report the rejections a checkpoint left without a reaction (a
+    /// default-priority task, as Chromium posts it; docs/IR.md, promises).
+    Report(js::Rejections),
 }
 
 struct Timer {
@@ -950,6 +953,8 @@ impl<'p> Machine<'p> {
 
     /// A machine started in environment `env`.
     pub fn with_env(program: &'p Program, env: Env) -> Result<Self> {
+        // Rejections of an earlier run are not this one's.
+        js::clear_rejections();
         let Env {
             storage,
             clipboard,
@@ -4199,6 +4204,7 @@ impl<'p> Machine<'p> {
             self.restore_due = true;
             let _ = self.render();
         }
+        self.late_rejection_handlers();
         let uncaught = std::mem::take(&mut self.uncaught);
         if let Some(what) = self.unsupported.take() {
             return Err(Diagnostic::new(
@@ -4256,12 +4262,27 @@ impl<'p> Machine<'p> {
         self.enqueue(Micro::Call(callback));
     }
 
-    /// Run microtasks until none are left.
+    /// Run microtasks until none are left; the rejections they left without
+    /// a reaction are reported by a default task.
     fn checkpoint(&mut self) {
         self.note_mutations();
         while let Some(job) = self.microtasks.pop_front() {
             self.run_micro(job);
             self.note_mutations();
+        }
+        let r = js::take_rejections();
+        if !r.is_empty() {
+            self.default_tasks.push_back(Micro::Report(r));
+        }
+    }
+
+    /// A handler added to a promise after its rejection was reported:
+    /// Chromium revokes the report, which console lines do not model.
+    fn late_rejection_handlers(&mut self) {
+        if let Some(t) = js::take_late_handled() {
+            self.unsupported.get_or_insert(format!(
+                "a handler added to a promise after its rejection ({t}) was reported as unhandled"
+            ));
         }
     }
 
@@ -4282,6 +4303,11 @@ impl<'p> Machine<'p> {
                 self.settle_promise(&p, Ok(Val::Undefined));
             }
             Micro::Promise(job) => self.promise_job(job),
+            Micro::Report(r) => {
+                for t in r.report() {
+                    self.host.console.push(("error", js::rejection_line(&t)));
+                }
+            }
         }
     }
 
@@ -5124,6 +5150,7 @@ impl<'p> Machine<'p> {
             self.run_micro(job);
             self.checkpoint();
         }
+        self.late_rejection_handlers();
         match std::mem::take(&mut self.uncaught).into_iter().next() {
             Some(t) => Err(throw_diag(t)),
             None => Ok(()),

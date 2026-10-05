@@ -233,6 +233,7 @@ const ownerId = (f: FnBuilder) => {
 const BOOLEAN: Type = 'boolean';
 const NUMBER: Type = 'number';
 const STRING: Type = 'string';
+const VOID: Type = 'void';
 
 export class Lowerer {
   readonly functions: Fn[] = [];
@@ -676,6 +677,11 @@ export class Lowerer {
     /** The handler's event (`true` means input, `false` click). */
     input: boolean | HandlerEvent,
     parent?: FnBuilder,
+    /**
+     * What the framework does with a promise the handler returns (Vue
+     * handles it); by default it is discarded, as Svelte and React do.
+     */
+    returned?: (promise: Expr) => Expr,
   ): { params?: Local[]; locals: Local[]; body: Stmt[]; args?: Expr[] } {
     const boxed = this.analyseCaptures(decl);
     const b = new FnBuilder('handler', parent, component, boxed, input);
@@ -703,12 +709,32 @@ export class Lowerer {
         decl,
         b,
         typeof t === 'object' && 'promise' in t ? t.promise : 'void',
-        true,
+        !returned,
       );
-    } else body = this.functionBody(decl, b);
-    // A handler's value is discarded: `() => items.push(x)` runs for its effect.
-    if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return')
-      body = body[0].value ? [{ op: 'expr', value: body[0].value }] : [];
+      // The function's promise goes to the framework.
+      if (returned) {
+        const last = body.pop();
+        if (last?.op !== 'return' || !last.value) throw new Error('async body returns its promise');
+        body.push({ op: 'expr', value: returned(last.value) });
+      }
+    } else {
+      body = this.functionBody(decl, b);
+      const ret = this.checker.getSignatureFromDeclaration(decl)?.getReturnType();
+      if (returned && decl.body && ts.isBlock(decl.body) && ret?.symbol?.name === 'Promise')
+        this.fail(
+          decl,
+          'E_EVENT',
+          'A listener returning a promise from a block body is unsupported (return it from an arrow expression or make the listener async)',
+        );
+    }
+    // A handler's value is discarded: `() => items.push(x)` runs for its effect;
+    // a promise goes to the framework.
+    if (decl.body && !ts.isBlock(decl.body) && body.length === 1 && body[0].op === 'return') {
+      const v = body[0].value;
+      const t = v && this.irType(v, b);
+      const promise = returned && typeof t === 'object' && 'promise' in t;
+      body = v ? [{ op: 'expr', value: promise ? returned(v) : v }] : [];
+    }
     body.unshift(...this.hoistedLets(b));
     if (b.eventLocal !== undefined)
       body.unshift({ op: 'let', local: b.eventLocal, value: { op: 'event' } });
@@ -3137,6 +3163,50 @@ export class Lowerer {
       { record: this.errorRecord() },
     ]);
     return { op: 'closure', function: index, captures: builder.captureSources.map(c => c.local) };
+  }
+
+  /**
+   * A promise a listener returns, as Vue's callWithAsyncErrorHandling treats
+   * it: `p.then(() => {}, err => console.error(err))` (production logError),
+   * so a rejection is logged, not reported as unhandled. Chromium shows the
+   * error with its stack (from Vue's code); the line here is `Name: message`.
+   */
+  loggedRejection(p: Expr, component: number | undefined): Expr {
+    const fn = (name: string, params: Local[], body: Stmt[]): Expr => {
+      const index = this.reserve();
+      this.functions[index] = {
+        name,
+        ...(component !== undefined ? { component } : {}),
+        params,
+        locals: [],
+        result: VOID,
+        body,
+      };
+      return { op: 'closure', function: index, captures: [] };
+    };
+    const error: Expr = { op: 'local', local: 0 };
+    const name: Expr = { op: 'get', object: error, field: 0 };
+    const message: Expr = { op: 'get', object: error, field: 1 };
+    const text: Expr = {
+      op: 'cond',
+      test: { op: 'eq', left: message, right: lit('') },
+      then: name,
+      else: { op: 'concat', left: name, right: { op: 'concat', left: lit(': '), right: message } },
+    };
+    const log: Stmt = {
+      op: 'expr',
+      value: { op: 'builtin', name: 'console.error', args: [text], type: VOID },
+    };
+    return {
+      op: 'builtin',
+      name: 'promise.then',
+      args: [
+        p,
+        fn('vue.fulfilled', [], []),
+        fn('vue.rejected', [{ name: 'err', type: { record: this.errorRecord() } }], [log]),
+      ],
+      type: { promise: VOID },
+    };
   }
 
   /** `then`, `catch` and `finally` of a promise. */

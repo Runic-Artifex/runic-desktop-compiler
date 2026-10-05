@@ -53,6 +53,17 @@ pub fn unsupported(what: &str) {
     eprintln!("runic: unsupported: {what}");
 }
 
+/// A reaction added to a promise whose rejection the console already
+/// reported as unhandled: Chromium revokes the report, which console lines
+/// do not model.
+pub fn late_rejection_handlers() {
+    if let Some(t) = runic_js::take_late_handled() {
+        unsupported(&format!(
+            "a handler added to a promise after its rejection ({t}) was reported as unhandled"
+        ));
+    }
+}
+
 /// Reports a `RunicUnsupportedError` a runic-js built-in returns (a value
 /// outside its verified data, such as an Intl locale) before it is thrown.
 pub fn reported<T>(r: runic_js::JsResult<T>) -> runic_js::JsResult<T> {

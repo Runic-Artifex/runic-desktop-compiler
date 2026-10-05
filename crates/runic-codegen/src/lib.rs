@@ -2715,7 +2715,9 @@ pub fn generate(
              /// The object of animation `id`: the same one while the app holds it.\n\
              fn anim_object(cx: &mut Cx, id: u64) -> js::Handle {\n\
              if let Some(h) = cx.anims.iter().find(|h| anim_of(h).id == id) { return h.clone(); }\n\
-             let h = js::Handle::new(Anim { id, finished: RefCell::new(js::JsPromise::pending()), ended: std::cell::Cell::new(\"running\") });\n\
+             // Web Animations marks the finished promise handled: a cancellation is never reported.\n\
+             let finished = js::JsPromise::pending(); finished.mark_handled();\n\
+             let h = js::Handle::new(Anim { id, finished: RefCell::new(finished), ended: std::cell::Cell::new(\"running\") });\n\
              cx.anims.push(h.clone());\n\
              h\n}\n\
              /// Settle the `finished` promises of the objects whose animations ended:\n\
@@ -2945,14 +2947,16 @@ pub fn generate(
          while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          self.cx.dom = Default::default();\n\
+         runic_runtime::late_rejection_handlers();\n\
          result\n}}\n\
-         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} dom.settle_selects(); }}\n\
+         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} dom.settle_selects(); self.cx.jobs.queue_rejections(); }}\n\
          fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          match job {{\n\
          runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} }}\n\
          runic_runtime::Job::Flush => self.flush(dom),\n\
-         runic_runtime::Job::FlushThen(f) => {{ if self.cx.jobs.take_flush() {{ self.flush(dom); }} if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n}}\n}}\n\
+         runic_runtime::Job::FlushThen(f) => {{ if self.cx.jobs.take_flush() {{ self.flush(dom); }} if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n\
+         runic_runtime::Job::Report(r) => {{ for t in r.report() {{ runic_runtime::console::write(\"error\", &[js::rejection_line(&t)]); }} }}\n}}\n}}\n\
          /// The flush job: compute dirty cells since the last flush, commit render snapshots and update the DOM.\n\
          /// Live instances in tree order with their parents' keys (the root's is 0).\n\
          fn walk(&self) -> Vec<(Rc<dyn Inst>, usize)> {{ let mut out: Vec<(Rc<dyn Inst>, usize)> = vec![(Rc::new(H{ri}(Rc::clone(&self.inst))), 0)]; if let Some((_, s)) = &self.root {{ walk_s{root}(s, Rc::as_ptr(&self.inst) as *const u8 as usize, &mut out); }} for m in &self.cx.mounted {{ if let MountState::Live(p) = &*m.borrow() {{ p.walk(&mut out); }} }} out }}\n\
@@ -3027,7 +3031,8 @@ pub fn generate(
          self.cx.jobs.flush_ended();\n\
          {mount_timing}\n\
          self.checkpoint(dom);\n\
-         while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n}}\n\
+         while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
+         runic_runtime::late_rejection_handlers();\n}}\n\
          fn dispatch(&mut self, dom: &mut Dom, deliveries: &[runic_runtime::Delivery]) -> Result<(), String> {{\n\
          // Listeners are resolved before any runs (a flush may free and reuse their slots).\n\
          let resolved: Vec<(Lst, js::Event, u64)> = deliveries.iter().filter_map(|d| self.cx.listeners.get(d.listener as usize).cloned().flatten().map(|f| (f, d.event.clone(), d.current))).collect();\n\
