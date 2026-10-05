@@ -713,6 +713,69 @@ function unsupportedTimeBased(decl, values) {
   return undefined;
 }
 
+/** Split `text` at `separator` characters outside parentheses, brackets and escapes. */
+function splitTopLevel(text, separator) {
+  const parts = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '\\') i++;
+    else if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+    else if (depth === 0 && separator.test(c)) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map(p => p.trim()).filter(Boolean);
+}
+
+/** A rule's selectors with the selectors of the rules it is nested in substituted for `&`. */
+function fullSelectors(rule) {
+  let parent = rule.parent;
+  while (parent && parent.type === 'atrule') parent = parent.parent;
+  const own = splitTopLevel(rule.selector, /,/);
+  if (!parent || parent.type !== 'rule') return own;
+  return fullSelectors(parent).flatMap(outer =>
+    own.map(s => (s.includes('&') ? s.replaceAll('&', `:is(${outer})`) : `${outer} ${s}`)),
+  );
+}
+
+// The SVG children the frontends accept (docs/CONTRACT.md, inline SVG).
+const SVG_CHILDREN = new Set([
+  'g',
+  'path',
+  'circle',
+  'ellipse',
+  'line',
+  'polyline',
+  'polygon',
+  'rect',
+]);
+
+/**
+ * The compound of a complex selector that names an SVG child element type
+ * (also inside `:is()`/`:where()`) and a `:hover` or `:active` state, or undefined.
+ */
+function svgChildState(selector) {
+  const plain = selector.replace(/\\./g, '_');
+  for (const compound of splitTopLevel(plain, /[\s>+~]/)) {
+    if (!/:(hover|active)\b(?!-)/i.test(compound)) continue;
+    const types = [compound.match(/^(?:[\w-]*\|)?([a-z][\w-]*)/i)?.[1]];
+    for (const m of compound.matchAll(/:(?:is|where)\(([^()]*)\)/gi))
+      for (const s of splitTopLevel(m[1], /,/))
+        types.push(
+          splitTopLevel(s, /[\s>+~]/)
+            .at(-1)
+            ?.match(/^(?:[\w-]*\|)?([a-z][\w-]*)/i)?.[1],
+        );
+    if (types.some(t => t && SVG_CHILDREN.has(t.toLowerCase()))) return compound;
+  }
+  return undefined;
+}
+
 /**
  * The CSS contract (docs/CONTRACT.md) for one stylesheet: supported at-rules,
  * the time-based properties the runtime reproduces, no SVG-only properties,
@@ -734,6 +797,20 @@ function checkRules(css, file) {
       throw new Diagnostic(
         'E_CSS',
         `Unsupported selector ${rule.selector}: Blitz never matches :target`,
+        { file, line: rule.source.start.line, column: rule.source.start.column },
+      );
+  });
+  // SVG children have no boxes in Blitz, so pointer hits land on their
+  // <svg> and :hover/:active never match them; Chromium hit-tests the shapes
+  // (docs/BLITZ-GAPS.md, hit testing inside SVG). Selectors naming an SVG
+  // child element with these states are rejected; a class selector that
+  // lands on one cannot be found from the stylesheet.
+  css.walkRules(rule => {
+    const offending = fullSelectors(rule).find(svgChildState);
+    if (offending)
+      throw new Diagnostic(
+        'E_CSS',
+        `Unsupported selector ${rule.selector}: ${offending} gives an SVG child element a pointer state, which Blitz never matches (hit testing ends at the <svg>)`,
         { file, line: rule.source.start.line, column: rule.source.start.column },
       );
   });
