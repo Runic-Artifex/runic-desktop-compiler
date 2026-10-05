@@ -540,7 +540,9 @@ export async function createBrowserHarness() {
         viewport = { width: 800, height: 600 },
         actions = [],
         out,
-        timeout = 5000,
+        // Waits for an action target or a page operation. A loaded machine
+        // (parallel builds) kept a rendered target from appearing within 5 s.
+        timeout = 30_000,
         storage,
         timezone = 'UTC',
         locale = 'en-US',
