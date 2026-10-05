@@ -31,7 +31,7 @@ pub use names::{NamesSpec, check_display_locale, display_name};
 pub use number::{NumberSpec, format_number};
 pub use plural::{PluralSpec, check_plural_locale, plural_categories, plural_select};
 
-use crate::{JsResult, JsString, Throw};
+use crate::{JsResult, JsString};
 
 /// A pattern token: kind 0 is literal text; other kinds are field letters
 /// (`y` year, `Y` two-digit year, `M` month, `L` month name, `d` day, `E`
@@ -123,16 +123,19 @@ pub fn is_supported_locale(tag: &str) -> bool {
 }
 
 /// The locale of an operation: its literal or runtime locale argument, else
-/// the default locale. A runtime tag without verified data throws (no
-/// engine output is approximated).
+/// the default locale. A malformed runtime tag throws Chromium's RangeError;
+/// a well-formed one without verified data, which Chromium may format with
+/// its own data or fall back from, is reported unsupported (no engine output
+/// is approximated, and a program cannot catch it).
 fn resolve_locale(literal: Option<&str>, runtime: Option<&JsString>) -> JsResult<usize> {
     if let Some(tag) = runtime {
         let tag = tag.to_rust();
-        return locale_index(&tag).ok_or_else(|| {
-            Throw::range_error(format!(
+        return locale_index(&tag).ok_or_else(|| match tag::parse(&tag, tag::Kind::List) {
+            Err(tag::TagError::Invalid) => tag::TagError::Invalid.throw(&tag),
+            _ => tag::unsupported(&format!(
                 "Unsupported locale {tag}: runic formats only the verified locales {}",
                 LOCALES.join(", ")
-            ))
+            )),
         });
     }
     match literal {
@@ -172,4 +175,29 @@ fn zone_row(name: &str) -> Option<&'static (&'static str, bool, [u16; 10])> {
 /// `timezone`, an `Intl.DateTimeFormat` `timeZone` literal).
 pub fn is_verified_zone(name: &str) -> bool {
     zone_row(name).is_some_and(|r| r.1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A runtime locale argument: verified tags resolve; a malformed tag
+    /// throws Chromium's RangeError; a well-formed unverified tag is reported
+    /// unsupported, never formatted with another locale's data.
+    #[test]
+    fn runtime_locales() {
+        let resolve = |t: &str| resolve_locale(None, Some(&JsString::from(t)));
+        assert!(resolve("de-DE").is_ok());
+        let e = resolve("en_US").unwrap_err();
+        assert_eq!(
+            (e.name.to_rust(), e.message.to_rust()),
+            ("RangeError".into(), "Invalid language tag: en_US".into())
+        );
+        for t in ["xx-YY", "pt-BR"] {
+            assert_eq!(
+                resolve(t).unwrap_err().name.to_rust(),
+                "RunicUnsupportedError"
+            );
+        }
+    }
 }
