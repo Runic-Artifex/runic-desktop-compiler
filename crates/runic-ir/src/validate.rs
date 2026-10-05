@@ -610,6 +610,23 @@ impl<'a> Scope<'a> {
                         src,
                     );
                 }
+                // (A tuple prints as its items joined: not a record's text.)
+                let mut items = &t;
+                loop {
+                    match items {
+                        Type::Maybe(i) | Type::Array(i) => items = i,
+                        _ => break,
+                    }
+                }
+                if let Type::Record(r) = items {
+                    if self.program.records.get(*r).is_some_and(|rec| rec.tuple) {
+                        return err(
+                            "E_IR",
+                            "A tuple of different types is converted to a string (unsupported)",
+                            src,
+                        );
+                    }
+                }
                 if let Type::Record(r) = inner {
                     if self.program.records.get(*r).is_some_and(|rec| rec.class) {
                         return err(

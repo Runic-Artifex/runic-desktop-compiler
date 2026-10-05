@@ -744,6 +744,20 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &s, "type")?;
             expect(&args[1], &b, "cancelable").map(|_| Event)
         }
+        // `new KeyboardEvent(type, e)` of another event (M6 overlays): a
+        // copy of its key, modifiers and cancelability, never dispatched.
+        ("event", "keyboard") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &s, "type")?;
+            expect(&args[1], &Event, "init").map(|_| Event)
+        }
+        // `event instanceof PointerEvent` (M6 overlays): the interface
+        // Chromium creates the event with, a literal of `EVENT_INTERFACES`.
+        ("event", "instance-of") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Event, "event")?;
+            expect(&args[1], &s, "interface").map(|_| b)
+        }
         // Event objects (docs/design/M5-PLATFORM.md).
         ("event", m) => {
             arity(args, 1, 1)?;
@@ -887,11 +901,12 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| b)
         }
-        // The nearest inclusive ancestor with a tag name (a literal).
+        // The nearest inclusive ancestor matching a selector (runic_js's
+        // subset: a tag name, bits-ui's `[data-context-menu-trigger]`).
         ("element", "closest") => {
             arity(args, 2, 2)?;
             expect(&args[0], &Element, "receiver")?;
-            expect(&args[1], &s, "tag name").map(|_| Maybe(Box::new(Element)))
+            expect(&args[1], &s, "selector").map(|_| Maybe(Box::new(Element)))
         }
         // Form submission is not modelled (no form element can be rendered).
         ("element", "requestSubmit") => {
@@ -1327,6 +1342,29 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 "clear" => arity(args, 1, 1).map(|_| Void),
                 "size" => arity(args, 1, 1).map(|_| n),
                 "keys" => arity(args, 1, 1).map(|_| Type::array(k)),
+                // A dictionary object's keys and values (Object.keys/values,
+                // for-in), in its own-key order (M6 overlays).
+                "dictionary-keys" | "dictionary-values" if k == s => {
+                    arity(args, 1, 1)?;
+                    Ok(Type::array(if m == "dictionary-keys" { k } else { v }))
+                }
+                // The entries as tuple records of the key and the value (M6 overlays).
+                "entries" => {
+                    arity(args, 1, 1)?;
+                    match declared {
+                        Array(e)
+                            if matches!(&**e, Record(r) if records.get(*r).is_some_and(|r| {
+                                r.fields.len() == 2 && r.fields[0].ty == k && r.fields[1].ty == v
+                            })) =>
+                        {
+                            Ok(declared.clone())
+                        }
+                        other => Err(format!(
+                            "map.entries returns an array of records of the key and the value, found {}",
+                            other.name()
+                        )),
+                    }
+                }
                 "values" => arity(args, 1, 1).map(|_| Type::array(v)),
                 _ => Err(format!("unknown Map method {m}")),
             }

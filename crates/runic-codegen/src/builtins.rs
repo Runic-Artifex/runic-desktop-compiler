@@ -236,6 +236,26 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "size" => format!("js::array_ops::map_size(&{})", t[0]),
             "keys" => format!("js::array_ops::map_keys(&{})", t[0]),
             "values" => format!("js::array_ops::map_values(&{})", t[0]),
+            "dictionary-keys" => format!(
+                "js::array_ops::dictionary_keys(&{}, |k: &JsString| k.to_rust())",
+                t[0]
+            ),
+            "dictionary-values" => format!(
+                "js::array_ops::dictionary_values(&{}, |k: &JsString| k.to_rust())",
+                t[0]
+            ),
+            "entries" => {
+                let Type::Array(e) = ty else {
+                    unreachable!("validated entries")
+                };
+                let Type::Record(r) = **e else {
+                    unreachable!("validated entries")
+                };
+                format!(
+                    "{{ let m = &{}; let ks = js::array_ops::map_keys(m); let vs = js::array_ops::map_values(m); let out: Vec<_> = ks.borrow().iter().zip(vs.borrow().iter()).map(|(k, v)| JsRef::new(R{r} {{ f0: k.clone(), f1: v.clone() }})).collect(); js::array(out) }}",
+                    t[0]
+                )
+            }
             other => unreachable!("validated map method {other}"),
         },
         ("set", m) => match m {
@@ -930,14 +950,26 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "js::Event::new(js::EventData {{ kind: {}, cancelable: {}, synthetic: true, ..Default::default() }})",
             t[0], t[1]
         ),
-        // (An event created by script covers only its type and cancellation.)
+        ("event", "instance-of") => format!(
+            "{{ let e = &{}; let c = {}.to_rust(); e.data().instance_of(&c).unwrap_or_else(|| {{ runic_runtime::unsupported(&format!(\"instanceof {{c}} of a {{}} event\", e.data().kind.to_rust())); false }}) }}",
+            t[0], t[1]
+        ),
+        ("event", "keyboard") => format!(
+            "{{ let d = {}.data().clone(); js::Event::new(js::EventData {{ kind: {}, key: d.key, code: d.code, ctrl: d.ctrl, shift: d.shift, alt: d.alt, meta: d.meta, repeat: d.repeat, cancelable: d.cancelable, synthetic: true, keyboard: true, ..Default::default() }}) }}",
+            t[1], t[0]
+        ),
+        // (An event created by script covers only its type and cancellation,
+        // and a keyboard copy its key members.)
         ("event", m) => {
             let e = &t[0];
+            let keys = matches!(m, "key" | "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat");
             let guard = if matches!(
                 m,
                 "type" | "defaultPrevented" | "preventDefault" | "stopPropagation" | "stopImmediatePropagation"
             ) {
                 String::new()
+            } else if keys {
+                format!("if {e}.data().synthetic && !{e}.data().keyboard {{ runic_runtime::unsupported(\"{m} of an event created by script\"); }} ")
             } else {
                 format!("if {e}.data().synthetic {{ runic_runtime::unsupported(\"{m} of an event created by script\"); }} ")
             };

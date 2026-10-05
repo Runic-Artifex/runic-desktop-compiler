@@ -2466,6 +2466,35 @@ impl<'p> Machine<'p> {
                     "size" => Val::Num(arr::map_size(map)),
                     "keys" => Val::Array(arr::map_keys(map)),
                     "values" => Val::Array(arr::map_values(map)),
+                    "dictionary-keys" => {
+                        Val::Array(arr::dictionary_keys(map, |k: &Val| k.string().to_rust()))
+                    }
+                    "dictionary-values" => {
+                        Val::Array(arr::dictionary_values(map, |k: &Val| k.string().to_rust()))
+                    }
+                    "entries" => {
+                        let Type::Array(e) = ty else {
+                            panic!("validated entries")
+                        };
+                        let Type::Record(r) = **e else {
+                            panic!("validated entries")
+                        };
+                        let keys = arr::map_keys(map);
+                        let values = arr::map_values(map);
+                        let items: Vec<Val> = keys
+                            .borrow()
+                            .iter()
+                            .zip(values.borrow().iter())
+                            .map(|(k, v)| {
+                                Val::Record(JsRef::new(RecordData::new(
+                                    r,
+                                    vec![k.clone(), v.clone()],
+                                    false,
+                                )))
+                            })
+                            .collect();
+                        Val::Array(js::array(items))
+                    }
                     other => unreachable!("validated map method {other}"),
                 }
             }
@@ -2757,17 +2786,10 @@ impl<'p> Machine<'p> {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
                 };
-                let tag_name = a[1].string().to_rust();
-                chain_nodes(&self.last_tree, e.0)
-                    .and_then(|nodes| {
-                        nodes.iter().rev().find_map(|n| match n {
-                            VNode::Element { tag, id, .. } if *tag == tag_name => {
-                                Some(Val::Element(js::Element(*id)))
-                            }
-                            _ => None,
-                        })
-                    })
-                    .unwrap_or(Val::Null)
+                let selector = js::parse_selector(&a[1].string().to_rust())
+                    .map_err(|m| Throw::new("RunicUnsupportedError", format!("closest: {m}")))?;
+                closest(&self.last_tree, self.root_len, e.0, &selector)?
+                    .map_or(Val::Null, |n| Val::Element(js::Element(n)))
             }
             ("element", "requestSubmit") => {
                 return Err(Throw::new(
@@ -3115,12 +3137,58 @@ impl<'p> Machine<'p> {
                 synthetic: true,
                 ..Default::default()
             })),
+            ("event", "instance-of") => {
+                let Val::Event(e) = &a[0] else {
+                    panic!("validated event")
+                };
+                let class = a[1].string().to_rust();
+                match e.data().instance_of(&class) {
+                    Some(v) => Val::Bool(v),
+                    None => {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            format!("instanceof {class} of a {} event", e.data().kind.to_rust()),
+                        ));
+                    }
+                }
+            }
+            ("event", "keyboard") => {
+                let Val::Event(src) = &a[1] else {
+                    panic!("validated event")
+                };
+                let d = src.data();
+                Val::Event(js::Event::new(js::EventData {
+                    kind: a[0].string(),
+                    key: d.key.clone(),
+                    code: d.code.clone(),
+                    ctrl: d.ctrl,
+                    shift: d.shift,
+                    alt: d.alt,
+                    meta: d.meta,
+                    repeat: d.repeat,
+                    cancelable: d.cancelable,
+                    synthetic: true,
+                    keyboard: true,
+                    ..Default::default()
+                }))
+            }
             ("event", m) => {
                 let Val::Event(e) = &a[0] else {
                     panic!("validated event")
                 };
                 let d = e.data();
                 if d.synthetic
+                    && !(d.keyboard
+                        && matches!(
+                            m,
+                            "key"
+                                | "code"
+                                | "ctrlKey"
+                                | "shiftKey"
+                                | "altKey"
+                                | "metaKey"
+                                | "repeat"
+                        ))
                     && !matches!(
                         m,
                         "type"
@@ -7017,6 +7085,75 @@ fn query_selector_all(tree: &[VNode], id: u64, selector: &js::Selector) -> Vec<u
         walk(children, &mut path, selector, &mut out);
     }
     out
+}
+
+/// `element.closest(selector)` over the interpreter's document (see
+/// `document_query`): the nearest inclusive ancestor matching; the body
+/// where only it matches, and unsupported where the container or the html
+/// element would be the match.
+fn closest(
+    tree: &[VNode],
+    root_len: usize,
+    id: u64,
+    selector: &js::Selector,
+) -> std::result::Result<Option<u64>, Throw> {
+    enum View<'a> {
+        Outer(&'static str, Option<(&'static str, &'static str)>),
+        Node(&'a VNode),
+    }
+    impl js::SelElement for View<'_> {
+        fn tag(&self) -> &str {
+            match self {
+                View::Outer(t, _) => t,
+                View::Node(VNode::Element { tag, .. }) => tag,
+                View::Node(_) => "",
+            }
+        }
+        fn attr(&self, name: &str) -> Option<&str> {
+            match self {
+                View::Outer(_, a) => a.filter(|(n, _)| *n == name).map(|(_, v)| v),
+                View::Node(VNode::Element { attrs, .. }) => attrs.get(name).map(String::as_str),
+                View::Node(_) => None,
+            }
+        }
+    }
+    let Some(chain) = chain_nodes(tree, id) else {
+        return Ok(None);
+    };
+    let split = root_len.min(tree.len());
+    let in_root = chain
+        .first()
+        .is_some_and(|first| tree[..split].iter().any(|n| std::ptr::eq(n, *first)));
+    let mut path = vec![View::Outer("html", None), View::Outer("body", None)];
+    if in_root {
+        path.push(View::Outer("div", Some(("id", "root"))));
+    }
+    let outer = path.len();
+    path.extend(chain.iter().map(|n| View::Node(n)));
+    for end in (outer..path.len()).rev() {
+        if selector.matches(&path[..=end]) {
+            let View::Node(VNode::Element { id, .. }) = path[end] else {
+                unreachable!("program elements")
+            };
+            return Ok(Some(*id));
+        }
+    }
+    let unsupported = |what: &str| {
+        Err(Throw::new(
+            "RunicUnsupportedError",
+            format!("closest matched the {what}, which the interpreter does not model"),
+        ))
+    };
+    if in_root && selector.matches(&path[..3]) {
+        return unsupported("container");
+    }
+    if selector.matches(&path[..2]) {
+        return Ok(Some(js::Element::BODY.0));
+    }
+    if selector.matches(&path[..1]) {
+        return unsupported("html element");
+    }
+    Ok(None)
 }
 
 /// `document.querySelector` over the interpreter's document: `html`,

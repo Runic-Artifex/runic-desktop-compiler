@@ -439,6 +439,12 @@ pub struct RecordType {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub is_abstract: bool,
+    /// A tuple of items of different types (M6 overlays: a `Map`'s
+    /// entries), fields `0`, `1`…: an array in JavaScript, so converting it
+    /// to a string (or an array holding it) is rejected; read by index and
+    /// destructuring only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tuple: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

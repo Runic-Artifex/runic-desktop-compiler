@@ -489,18 +489,42 @@ impl Host {
         })
     }
 
-    /// `element.closest(tag)`: the nearest inclusive ancestor element with
-    /// that tag name.
-    pub fn closest(&self, node: u64, tag: &str) -> Option<u64> {
-        let dom = self.dom()?;
-        let mut at = dom.doc.get_node(NodeId::from_u64(node));
-        while let Some(n) = at {
-            if n.element_data().is_some_and(|e| *e.name.local == *tag) {
-                return Some(NodeId::from(n.id).as_u64());
+    /// `element.closest(selector)`: the nearest inclusive ancestor element
+    /// matching (a selector outside runic_js's subset is reported
+    /// unsupported, and matches nothing).
+    pub fn closest(&self, node: u64, selector: &str) -> Option<u64> {
+        let selector = match runic_js::parse_selector(selector) {
+            Ok(s) => s,
+            Err(e) => {
+                crate::unsupported(&format!("closest: {e}"));
+                return None;
             }
-            at = n.parent.and_then(|p| dom.doc.get_node(p));
+        };
+        let dom = self.dom()?;
+        struct View<'a>(&'a blitz_dom::Node);
+        impl runic_js::SelElement for View<'_> {
+            fn tag(&self) -> &str {
+                self.0.element_data().map_or("", |e| &e.name.local)
+            }
+            fn attr(&self, name: &str) -> Option<&str> {
+                self.0.attr(name.into())
+            }
         }
-        None
+        let doc = &*dom.doc;
+        // The element ancestors, from the root.
+        let mut path: Vec<View> = vec![];
+        let mut at = doc.get_node(NodeId::from_u64(node));
+        while let Some(n) = at {
+            if n.element_data().is_some() {
+                path.push(View(n));
+            }
+            at = n.parent.and_then(|p| doc.get_node(p));
+        }
+        path.reverse();
+        (0..path.len())
+            .rev()
+            .find(|&end| selector.matches(&path[..=end]))
+            .map(|end| NodeId::from(path[end].0.id).as_u64())
     }
 
     /// `element.hasAttribute(name)`.
