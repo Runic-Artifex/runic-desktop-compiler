@@ -360,6 +360,12 @@ export type Node =
       source?: Source;
     }
   | { kind: 'text'; parts: Expr[]; source?: Source }
+  /**
+   * `{@html value}` (M6): the nodes of the program fragment (`Program.fragments`)
+   * among `fragments` whose `html` is the value (a string, nullish rendering
+   * nothing), parsed at build time; another value is unsupported at run time.
+   */
+  | { kind: 'html'; value: Expr; fragments: number[]; source?: Source }
   | { kind: 'if'; test: Expr; then: Node[]; else?: Node[]; source?: Source }
   | {
       kind: 'component';
@@ -499,7 +505,19 @@ export interface Program {
   restoreFocus?: boolean;
   /** When updates run relative to tasks and microtasks (default: microtask flush, one checkpoint per event). */
   schedule?: Schedule;
+  /** HTML parsed at build time for `{@html}` (M6): each string and its nodes. */
+  fragments?: Fragment[];
 }
+
+/** An HTML string parsed at build time (`{@html}`, M6). */
+export interface Fragment {
+  html: string;
+  nodes: FragmentNode[];
+}
+
+/** A static node of a fragment: an element with literal attributes, or text. */
+export type FragmentNode =
+  { tag: string; attrs?: [string, string][]; children?: FragmentNode[] } | { text: string };
 
 export const lit = (value: Literal): Expr => ({ op: 'lit', value });
 export const str = (value: string): Expr => ({ op: 'lit', value });

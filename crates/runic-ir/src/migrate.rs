@@ -362,6 +362,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
         .map(str::to_owned)
         .collect();
     Ok(Program {
+        fragments: vec![],
         document: Default::default(),
         body: Default::default(),
         container: None,

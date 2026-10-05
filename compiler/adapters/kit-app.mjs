@@ -407,5 +407,26 @@ export async function kitApp(root, config, compiler) {
       return undefined;
     },
     notes: options.notes,
+    /** The strings of the build-time data (`{@html}` may show them, frontend/html-fragments.ts). */
+    htmlStrings: tableStrings(server),
   };
+}
+
+/** The string values of the server data tables and the endpoint responses (JSON bodies parsed). */
+function tableStrings(server) {
+  const out = new Set();
+  const walk = v => {
+    if (typeof v === 'string') out.add(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  for (const node of Object.values(server.nodes)) for (const row of node.table) walk(row.data);
+  for (const r of Object.values(server.fetch)) {
+    let body = r.body;
+    try {
+      if (/json/.test(r.type)) body = JSON.parse(r.body);
+    } catch {}
+    walk(body);
+  }
+  return [...out].sort();
 }

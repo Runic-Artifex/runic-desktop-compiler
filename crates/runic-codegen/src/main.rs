@@ -28,7 +28,7 @@ fn count(nodes: &[Node]) -> usize {
         .iter()
         .map(|n| match n {
             Node::Element { children, .. } => 1 + count(children),
-            Node::Text { .. } => 1,
+            Node::Text { .. } | Node::Html { .. } => 1,
             Node::If {
                 then, otherwise, ..
             }

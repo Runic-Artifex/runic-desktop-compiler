@@ -7,8 +7,10 @@
   const Markdown = $derived(data.component);
   const doc = $derived(data.metadata);
   const index = $derived(data.nav.findIndex(item => item.href === page.url.pathname));
-  const previous = $derived(index > 0 ? data.nav[index - 1] : undefined);
-  const next = $derived(index >= 0 && index < data.nav.length - 1 ? data.nav[index + 1] : undefined);
+  const previous = $derived(index > 0 ? data.nav[index - 1] : { title: '', href: '' });
+  const next = $derived(
+    index >= 0 && index < data.nav.length - 1 ? data.nav[index + 1] : { title: '', href: '' },
+  );
 </script>
 
 <svelte:head>
@@ -23,12 +25,12 @@
     </div>
     <Markdown viewerData={data.viewerData} />
     <div class="flex h-16 items-center gap-2">
-      {#if previous}
+      {#if previous.href}
         <a id="previous" href={previous.href} class="rounded-md bg-secondary px-3 py-1.5 text-sm"
           >{previous.title}</a
         >
       {/if}
-      {#if next}
+      {#if next.href}
         <a id="next" href={next.href} class="ml-auto rounded-md bg-secondary px-3 py-1.5 text-sm"
           >{next.title}</a
         >

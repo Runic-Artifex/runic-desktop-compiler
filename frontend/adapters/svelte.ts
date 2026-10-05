@@ -53,6 +53,7 @@ import { BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '..
 import { packageBindings } from '../package-bindings.ts';
 import { componentBinding, componentGlobal } from '../component-values.ts';
 import { jsonBinding } from '../json-modules.ts';
+import { Fragments } from '../html-fragments.ts';
 import {
   componentValues,
   dynamicSites,
@@ -179,6 +180,8 @@ interface KitGraph {
   routeModules: Set<string>;
   routeComponents: Set<string>;
   typeFiles: Map<string, string>;
+  /** The strings of the build-time data tables (server data, endpoint responses). */
+  htmlStrings?: string[];
   resolveType: (specifier: string, from: string) => string | undefined;
 }
 
@@ -302,6 +305,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // their `<script module>` exports (a barrel may import components the
   // program never renders).
   const units = new Map<string, Unit>();
+  /** HTML parsed at build time for `{@html}` (frontend/html-fragments.ts). */
+  const fragments = new Fragments();
   const order: Unit[] = [];
   /** Optional props bound to variables of the present type (`bind:` on components). */
   const presentWrites: { component: number; cell: number; name: string; at: Source }[] = [];
@@ -881,7 +886,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           for (const a of n.attributes)
             if (a.type === 'Attribute' && Array.isArray(a.value))
               for (const v of a.value) if (v.type === 'ExpressionTag') expr(v.expression);
-        } else if (n.type === 'RenderTag') expr(n.expression);
+        } else if (n.type === 'RenderTag' || n.type === 'HtmlTag') expr(n.expression);
         else if (n.type === 'KeyBlock') {
           expr(n.expression);
           fragment(n.fragment);
@@ -2672,6 +2677,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'RunicDynamic') {
           flush();
           out.push(...dynamicComponent(n));
+        } else if (n.type === 'HtmlTag') {
+          flush();
+          out.push(htmlTag(n));
         } else if (n.type === 'RenderTag') {
           flush();
           out.push(render(n));
@@ -2712,6 +2720,51 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       }
       flush();
       return out;
+    };
+    /**
+     * `{@html value}` (frontend/html-fragments.ts): a constant string's
+     * fragment, or, for another string, the fragments of the build-time data
+     * tables' strings (a SvelteKit app's server data and endpoint
+     * responses); the runtime selects the one whose string is the value.
+     */
+    const htmlTag = (n: SNode): Node => {
+      const e = exprNode(n.expression);
+      const known = lower.staticValue(e);
+      const add = (html: string): number => {
+        try {
+          return fragments.add(html);
+        } catch (err) {
+          return fail('E_TEMPLATE', `{@html}: ${(err as Error).message}`, loc(n));
+        }
+      };
+      if (known && typeof known.value === 'string')
+        return {
+          kind: 'html',
+          value: { op: 'lit', value: known.value },
+          fragments: known.value ? [add(known.value)] : [],
+          source: loc(n),
+        };
+      const v = value(e);
+      const t = typeOf(e, v);
+      if (t !== 'string' && !(typeof t === 'object' && 'maybe' in t && t.maybe === 'string'))
+        return fail('E_TEMPLATE', '{@html} needs a string', loc(n));
+      const strings = graph.kit?.htmlStrings ?? [];
+      if (!strings.length)
+        return fail(
+          'E_TEMPLATE',
+          '{@html} of a value that is neither a constant nor build-time data is unsupported (HTML is parsed at build time only)',
+          loc(n),
+        );
+      const candidates: number[] = [];
+      for (const s of strings) {
+        if (!s) continue;
+        try {
+          candidates.push(fragments.add(s));
+        } catch {
+          // A string holding unsupported markup: unsupported if it is ever the value.
+        }
+      }
+      return { kind: 'html', value: v, fragments: candidates, source: loc(n) };
     };
     /**
      * A tag naming a component value (frontend/adapters/svelte-dynamic.ts):
@@ -3088,6 +3141,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           bag.push(restEntry(a));
           continue;
         }
+        // A prop the child neither declares nor collects in rest props: Svelte
+        // passes it as a getter nothing reads, so it is never evaluated (M6:
+        // mdsx passes its blueprint the page's metadata).
+        if (a.type === 'Attribute' && restCell < 0 && !declared(a.name)) continue;
         if (a.type === 'BindDirective' && writers.has(a.name))
           fail('E_TEMPLATE', `bind:${a.name} after a spread that may hold ${a.name}`, loc(a));
         if (a.type === 'Attribute') {
@@ -3784,6 +3841,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // Delegated listeners and microtask flushes (the defaults); teardowns
     // read state as it was before the batch that destroys or re-runs them.
     schedule: { cleanupReadsPrevious: true },
+    ...(fragments.list.length ? { fragments: fragments.list } : {}),
   };
   // A bound optional prop the child writes: only present values (`some`),
   // which the parent's variable of the present type can hold.

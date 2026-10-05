@@ -111,6 +111,35 @@ pub struct Program {
     /// When updates run relative to tasks and microtasks.
     #[serde(default, skip_serializing_if = "Schedule::is_default")]
     pub schedule: Schedule,
+    /// HTML parsed at build time for `{@html}` nodes (M6).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fragments: Vec<Fragment>,
+}
+
+/// An HTML string and its nodes, parsed at build time (`{@html}`, M6): the
+/// runtime selects a fragment by its string and never parses HTML.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Fragment {
+    pub html: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nodes: Vec<FragmentNode>,
+}
+
+/// A static node of a fragment: an element with literal attributes, or text.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum FragmentNode {
+    Element {
+        tag: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attrs: Vec<(String, String)>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        children: Vec<FragmentNode>,
+    },
+    Text {
+        text: String,
+    },
 }
 
 /// The framework's update scheduling, described as behaviour
@@ -843,7 +872,7 @@ impl Component {
         fn any(nodes: &[Node]) -> bool {
             nodes.iter().any(|n| match n {
                 Node::Element { tag, children, .. } => tag == "svg" || any(children),
-                Node::Text { .. } => false,
+                Node::Text { .. } | Node::Html { .. } => false,
                 Node::If {
                     then, otherwise, ..
                 }
@@ -1844,6 +1873,17 @@ pub enum Node {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source: Option<Source>,
     },
+    /// `{@html value}` (M6): the nodes of the program fragment among
+    /// `fragments` whose `html` is the value (a string; nullish and the empty
+    /// string render nothing), parsed at build time. Another value is
+    /// unsupported at run time: HTML is never parsed natively.
+    Html {
+        value: Expr,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        fragments: Vec<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<Source>,
+    },
     If {
         test: Expr,
         then: Vec<Node>,
@@ -1900,6 +1940,7 @@ impl Node {
         match self {
             Node::Element { source, .. }
             | Node::Text { source, .. }
+            | Node::Html { source, .. }
             | Node::If { source, .. }
             | Node::Component { source, .. }
             | Node::Slot { source, .. }
