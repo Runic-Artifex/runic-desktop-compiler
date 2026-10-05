@@ -47,7 +47,7 @@ Use the locked flake environment. Check `flake.nix`, `.envrc` and the README fir
 ```sh
 npm ci                                   # once
 npm test                                 # compiler suites
-cargo test --offline --workspace         # Rust crates
+node compiler/cargo.mjs test --offline --workspace   # Rust crates (cargo on the shared target, under its lock)
 node conformance/run.mjs [case…] [--pixels] [--no-opt] [--renderer gpu]   # browser vs native (GPU builds on lavapipe)
 node conformance/differential.mjs        # interpreter vs generated code
 node conformance/measure.mjs             # release size and first-frame time (Xvfb)
@@ -58,4 +58,4 @@ prettier --write "compiler/**/*.mjs" "frontend/**/*.ts" "tests/*.mjs" "conforman
 cargo fmt
 ```
 
-Native builds share one cargo target (`RUNIC_TARGET_DIR`, default `target/`) and serialise through `<target>/.runic-build.lock`; worktrees point `RUNIC_TARGET_DIR` at the main tree's `target/` (see WORKING.md). Builds are `--offline` against the workspace `Cargo.lock`. Documentation-only changes need no native rebuild.
+Native builds share one cargo target (`RUNIC_TARGET_DIR`, default `target/`) and serialise through `<target>/.runic-build.lock`, which also keeps one worktree from linking another's build of the workspace crates; worktrees point `RUNIC_TARGET_DIR` at the main tree's `target/` (see WORKING.md). Builds are `--offline` against the workspace `Cargo.lock`. Documentation-only changes need no native rebuild.
