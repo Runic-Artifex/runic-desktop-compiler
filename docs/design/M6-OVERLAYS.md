@@ -47,41 +47,19 @@ Each component gets a case against Chromium from its shadcn-svelte demo, with ke
   - As in Svelte, a mounted instance lives until it is unmounted, not until its creating effect ends. bits-ui unmounts in the effect's cleanup.
   - The content comes before an anchor of its own as the body's last child, updates after the root in every flush pass, and runs its post effects in the pass after its mount.
 - The Svelte adapter lowers `mount`, `unmount` and `getAllContexts`, and lowers top-level calls of a component script (runed's `watch`) as creation-time cells.
-- `document.querySelector` covers only the literal selectors `body` and `#id`.
+- `document.querySelector` takes a selector of the supported subset (since `m6-overlays-2`, also computed when the program runs: bits-ui resolves its portal target in a derived value).
 - Conditions known at build time are folded, so esm-env's `DEV` checks are not lowered. esm-env 1.2.2 is a pack.
-- **bits-ui's own `Portal` does not compile.** It resolves its target through `resolvePortalToProp`, whose type is a box of `PortalTarget = Element | string`. That union is outside the value model: `E_TYPE_UNSUPPORTED` at `bits/utilities/config/prop-resolvers.js:37`. Every overlay reaches this first.
-  - The `portal` case verifies the same code with the target fixed to the body.
-  - Unblocking it needs a value-model decision. Options: a typed union of `element | string` (discriminated by `typeof`, as class references are by class), or a union prop typed by the values that reach it (no site passes `to`, and no `BitsConfig` sets a default).
+- **bits-ui's own `Portal` compiles** since the union narrowing below (branch `m6-overlays-2`): the `portal` case renders `import { Portal } from 'bits-ui'` unchanged.
 
-**Step 2. Partly done.**
-- **`ResizeObserver`: done** (case `resize-observer`).
-  - Chromium's behaviour, measured: every new observation is reported, 0×0 included. Callbacks run after animation frame callbacks, each followed by a microtask checkpoint. The device-pixel content box is snapped at the box's position (100.5px at x=7 is 101).
-  - Delivery is round by round, deepest targets first, with a layout between rounds. The loop error is written to stderr.
-  - The probe now runs two frames before its first snapshot, as the browser harness does.
-- **`@floating-ui/core` does not compile from source.** Its declarations use types outside the value model:
-  - `ReferenceElement`, `FloatingElement`, `getOffsetParent` and `isElement` are typed `any`;
-  - platform methods and middleware return `Promisable<T>` (`T | Promise<T>`);
-  - middleware options are `Derivable<T>` (`T | (state) => T`);
-  - `MiddlewareData` has an `any` index signature.
+## Status (branch `m6-overlays-2`)
 
-  Its code also uses `await` nested in expressions, computed keys (`{ [axis]: … }`), string-indexed reads (`rects.reference[length]`) and spreads into a dictionary of records of different types (`middlewareData[name] = { ...middlewareData[name], ...data }`).
-  - Proposal: give `@floating-ui/core` a pack too. Its positioning math (computePosition, offset, flip, shift with limitShift, size, arrow, hide) would be native in `runic-js`, validated by vectors against the real package in Node with fixed rectangles.
-  - That is a change of the decision above, so it is left to the main session.
-- **`@floating-ui/dom` platform and `autoUpdate` packs: not started.** They need the core first.
-  - `autoUpdate`'s default `layoutShift: true` uses `IntersectionObserver`.
-  - `ancestorScroll` needs scroll listeners on overflow ancestors. Script-added element listeners cover only `beforematch` today.
-- **Versions.** The north star pins core 1.7.3, dom 1.7.4 and utils 0.2.10. This repository's lockfile resolves 1.8.0, 1.8.0 and 0.2.12 through bits-ui's `^1.7.1`. Pin the north star's versions as devDependencies with the packs.
+**Unions, layer 1 (narrowing): done** (`frontend/unions.ts`). A union's census finds the values reaching its slots (assignments, initialisers, arguments, returns, object literal properties, component props from their sites, boxes and getters), traced through constants, props, boxes and options; a union no value reaches takes its first member. Member tests fold at build time (`staticTruth`). Two members reaching a union is `E_TYPE_UNION`, naming a site of each; layer 2 (specialisation) is not started.
 
-**Cases Tooltip and Popover: not reached.**
-- The shadcn-svelte Tooltip's arrow has the class `fill-foreground`. Its CSS `fill` is rejected (`E_CSS_PROPERTY`: Blitz draws inline SVG from attributes).
-- Behind that comes the Portal union above, then the floating layer (`@floating-ui/dom` has no pack).
-- Both contents also render `PopperLayerInner`, which always instantiates step 3's layers (`ScrollLock`, `FocusScope`, `EscapeLayer`, `DismissibleLayer`, `TextSelectionLayer`). Their sources use, among others:
-  - module statements (`globalThis.bitsEscapeLayers ??= new Map()`);
-  - `new KeyboardEvent(e.type, e)`;
-  - a `Proxy` (`createWrappedEvent`);
-  - `instanceof PointerEvent`;
-  - `for…in`;
-  - `SvelteMap` and module-level `$state` (`body-scroll-lock`);
-  - tabbable;
-  - MutationObserver's `childList`.
-- tw-animate-css's presence animations were therefore not reached.
+**Step 2: done for floating-ui** (case `floating`, both viewports, all gates).
+- `@floating-ui/core` 1.7.3's positioning math is native (`runic_js::floating`): `computePosition` as a resumable computation (each `await` of the package a microtask) with offset, shift (limitShift), flip, size, arrow, hide and custom middleware; 401 vectors from the real package in Node (`crates/runic-js/tests/vectors/floating.mjs`).
+- `@floating-ui/dom` 1.7.4's platform reads the native layout (`runic_runtime::floating`): Chromium's offset parents (measured: transforms, filters, `will-change`, `contain`, fixed elements), clipping ancestors with the per-call cache, scale, `isRTL`, the conversion to viewport coordinates, Chromium's serialisation of resolved lengths. 24 layouts and 52 offset-parent cases compared exactly with the real package in Chromium (runtime unit tests).
+- `autoUpdate` is a port of 1.7.4's (`frontend/packs/floating-ui-dom-1.7.4/auto-update.ts`, compiled with the program): ancestor `scroll` listeners added by script, the window's and the visual viewport's `resize` (the visual viewport's after the window's, measured), ResizeObserver, IntersectionObserver for `layoutShift`, the animation-frame loop.
+- **IntersectionObserver** joins ResizeObserver's frame model ([IR](../IR.md#template)): updated after the ResizeObserver deliveries, notified in a host task after the frame. Chromium notifies observers with a document root in the order of its observer set, not their creation order: the `floating` case runs one `layoutShift` observer at a time, and the difference is in the contract.
+- Gaps found by the platform's comparison: fractional lengths (known), absolutely positioned content left out of scroll sizes, inline boxes ([gaps](../BLITZ-GAPS.md)). Positions computed before Chromium has loaded the web font differ (known gap "Web fonts while the app mounts"): the case's references have fixed sizes.
+
+**Cases Tooltip and Popover: in progress.** The Popover fixture (`fixtures/bits-popover-svelte`, shadcn-svelte's popover-demo, vendored as the other bits-* fixtures) lowers through `useFloating`, the floating layer's state and content (`FloatingContentState`, with runed's `ElementSize` as a pack port) and stops in the scroll lock (`internal/body-scroll-lock.svelte.js`): bits-ui's `SharedState` is a generic class (`get(...args: Parameters<T>): ReturnType<T>`), which neither the declaration-file annotation of package modules nor the class lowering covers yet. Behind it come the focus scope (`tabbable`, MutationObserver's `childList`, `CustomEvent`), the escape, dismissible and text-selection layers (`globalThis.x ??= new Map()`, `new KeyboardEvent`, `instanceof PointerEvent`, a `Proxy`), presence (`getAnimations`) and, for Tooltip, `TimeoutFn` and the safe polygon. The Tooltip arrow's `fill-foreground` stays rejected until the SVG CSS fork patch lands.
