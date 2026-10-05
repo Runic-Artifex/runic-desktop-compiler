@@ -736,6 +736,11 @@ impl<'a> FnCtx<'a> {
                 format!("({a} {} {b})", if negate { "!=" } else { "==" })
             }),
             Type::Fn(_) => self.bin(l, r, |a, b| format!("({not}Rc::ptr_eq(&{a}, &{b}))")),
+            // Optional functions (an element read past an array's end):
+            // identity, or the same nullish value.
+            Type::Maybe(ref inner) if matches!(**inner, Type::Fn(_)) => {
+                self.bin(l, r, |a, b| format!("({not}{})", same_expr(&t, a, b)))
+            }
             _ => self.bin(l, r, |a, b| {
                 format!("({not}js::StrictEq::strict_eq(&{a}, &{b}))")
             }),
