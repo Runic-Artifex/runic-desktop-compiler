@@ -29,6 +29,7 @@ pub mod random;
 pub mod regexp;
 pub mod reorder;
 pub mod string_ops;
+pub mod style_parse;
 pub mod tz;
 pub mod uri;
 

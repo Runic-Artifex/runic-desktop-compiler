@@ -502,13 +502,42 @@ pub fn merge_props<V: Clone>(
                         }
                         set(&mut result, &key, Slot::Style(x));
                     }
-                    (Some(_), None, _, true)
-                    | (None, Some(_), true, _)
-                    | (None, None, true, true) => {
-                        return Err(
-                            "merging a style string with another style value (svelte-toolbelt's cssToStyleObj) is not covered"
-                                .into(),
-                        );
+                    // A style string meeting another style value: parsed
+                    // (`cssToStyleObj`, M6 overlays) and merged as objects.
+                    (x, y, sa, sb) if (sa && (y.is_some() || sb)) || (sb && x.is_some()) => {
+                        let text = |k: &Option<MergeKind>| match k {
+                            Some(MergeKind::Text(s)) => Some(s.to_rust()),
+                            _ => None,
+                        };
+                        let parsed =
+                            |css: String| -> Result<Vec<(String, Option<JsString>)>, String> {
+                                crate::style_parse::css_to_style_obj(&css)
+                                    .map(|v| {
+                                        v.into_iter()
+                                            .map(|(k, v)| (k, Some(JsString::from(v.as_str()))))
+                                            .collect()
+                                    })
+                                    .map_err(|e| {
+                                        format!("svelte-toolbelt's cssToStyleObj throws: {e}")
+                                    })
+                            };
+                        let mut merged = match (x, text(&kind_a)) {
+                            (Some(x), _) => x,
+                            (None, Some(s)) => parsed(s)?,
+                            (None, None) => vec![],
+                        };
+                        let later = match (y, text(&kb)) {
+                            (Some(y), _) => y,
+                            (None, Some(s)) => parsed(s)?,
+                            (None, None) => vec![],
+                        };
+                        for (name, v) in later {
+                            match merged.iter_mut().find(|(n, _)| *n == name) {
+                                Some(slot) => slot.1 = v,
+                                None => merged.push((name, v)),
+                            }
+                        }
+                        set(&mut result, &key, Slot::Style(merged));
                     }
                     (Some(_), None, _, _) | (None, None, true, _) => {}
                     (None, Some(y), _, _) => set(&mut result, &key, Slot::Style(y)),
