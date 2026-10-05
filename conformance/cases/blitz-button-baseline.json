@@ -1,0 +1,10 @@
+{
+  "description": "Button baselines as Chromium's (BLITZ-GAPS, fixed in the fork: button baselines). Chromium lays a <button> out as a flex box (LayoutButton), so the CSS 2.1 rule that puts an inline-block's baseline at its bottom margin edge when overflow is not visible does not apply. Buttons sit between text with vertical-align: baseline, once per overflow value (visible, hidden, auto, clip), in four sections shown by Next: the UA display and an author inline-block (the last line's baseline, clamped to the border box when overflow is hidden or auto; empty buttons and buttons without a line box at the content box's bottom edge), author inline-flex and inline-grid (the first baseline, empty ones also at the content box's bottom edge), block-level block, flex and grid buttons in flex rows aligned on baselines (the first baseline, synthesized from the border box when there is none), and floating-ui's reference E (an inline button with an author line height, a height and overflow: hidden, content below it), buttons beside larger text, with contain: layout, a clipped inline-block, an absolutely positioned child, a block after text and a wrapping label. Rows carry author line heights 16px and 24px and the UA's normal. Geometry of every button and row",
+  "fixtures": ["blitz-button-baseline-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" }
+  ]
+}
