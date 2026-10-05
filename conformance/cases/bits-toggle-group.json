@@ -7,7 +7,7 @@
   ],
   "pixelRegions": ["demo", "vertical", "bound"],
   "knownGaps": {
-    "pixels": "At 420px the bound row (four 14px toggle labels and the centred label of the reset button in a 388x36 region) differs by 3.8-3.9/255: with identical boxes Chromium draws glyphs on whole pixel columns and Blitz at their fractional positions (docs/BLITZ-GAPS.md, glyph origins; a fork patch)"
+    "pixels": "At 420px the bound row (four 14px toggle labels and the centred label of the reset button in a 388x36 region) differs by 3.8-3.9/255: with identical boxes and glyph positions, glyph coverage differs (vello against Skia and FreeType; docs/BLITZ-GAPS.md, glyph rasterisation)"
   },
   "actions": [
     { "kind": "click", "id": "bold" },

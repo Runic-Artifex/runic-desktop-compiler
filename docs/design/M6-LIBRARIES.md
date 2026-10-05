@@ -268,7 +268,7 @@ What each remaining part gives today (a minimal use of the part, 2026-10-05), in
 - **Images** (Avatar.Image): `<img>` and `new Image()`; the native runtime loads no images.
 - **`hidden="until-found"`** (Accordion's and Collapsible's `hiddenUntilFound`): Blitz has no find-in-page; reported unsupported.
 
-Rendering gaps met on the way ([BLITZ-GAPS](../BLITZ-GAPS.md)): flex buttons' centred content (Switch), `text-transform: capitalize` (rejected; toggle-group-spacing), glyph origins (ToggleGroup at 420px), web fonts that Chromium loads after the app mounted (layout read while mounting; the accordion fixtures mount on a first action), CSS `fill` on icons (toggle-demo, rejected).
+Rendering gaps met on the way ([BLITZ-GAPS](../BLITZ-GAPS.md)): flex buttons' centred content (Switch; fixed in the Blitz fork 2026-10-05), `text-transform: capitalize` (rejected; toggle-group-spacing), glyph rasterisation (ToggleGroup at 420px; first described as glyph origins), web fonts that Chromium loads after the app mounted (layout read while mounting; the accordion fixtures mount on a first action), CSS `fill` on icons (toggle-demo; drawn since the Blitz fork serialises computed SVG properties, 2026-10-05).
 
 ## Reactive class fields (stage B)
 
