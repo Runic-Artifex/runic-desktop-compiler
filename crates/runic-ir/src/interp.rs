@@ -2114,6 +2114,48 @@ impl<'p> Machine<'p> {
                     m => Val::Num(js::date::get(tv, m)),
                 }
             }
+            ("intl", m @ ("locale" | "plural-select" | "plural-categories" | "display-of")) => {
+                // A locale or value outside the verified data stops the
+                // run (E_UNSUPPORTED), as the native runtime reports it.
+                let result = (|| -> js::JsResult<Val> {
+                    if m == "locale" {
+                        let check = if s(1).to_rust() == "p" {
+                            js::intl::check_plural_locale
+                        } else {
+                            js::intl::check_display_locale
+                        };
+                        check(&s(0))?;
+                        return Ok(Val::Str(s(0)));
+                    }
+                    let operands = usize::from(m != "plural-categories");
+                    let spec = s(operands).to_rust();
+                    let locale = a.get(operands + 1).map(Val::string);
+                    let locale = locale.as_ref();
+                    Ok(match m {
+                        "plural-select" => {
+                            let spec = js::intl::PluralSpec::parse(&spec).expect("validated");
+                            Val::Str(js::intl::plural_select(n(0), &spec, locale)?)
+                        }
+                        "plural-categories" => {
+                            let spec = js::intl::PluralSpec::parse(&spec).expect("validated");
+                            let list = js::intl::plural_categories(&spec, locale)?;
+                            Val::Array(js::array(list.into_iter().map(Val::Str).collect()))
+                        }
+                        _ => {
+                            let spec = js::intl::NamesSpec::parse(&spec).expect("validated");
+                            js::intl::display_name(&s(0), &spec, locale)?
+                                .map_or(Val::Undefined, Val::Str)
+                        }
+                    })
+                })();
+                match result {
+                    Err(t) if t.name.to_rust() == "RunicUnsupportedError" => {
+                        self.unsupported.get_or_insert(t.message.to_rust());
+                        return Err(t);
+                    }
+                    r => r?,
+                }
+            }
             ("intl", m) => {
                 let operands = if m == "compare" { 2 } else { 1 };
                 let spec = s(operands);

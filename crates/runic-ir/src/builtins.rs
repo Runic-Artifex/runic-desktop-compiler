@@ -1323,17 +1323,28 @@ fn date_type(m: &str, args: &[Type]) -> R {
     }
 }
 
-/// `intl.*`: formatting and collation with a literal option string and an
-/// optional runtime locale.
+/// `intl.*`: formatting, collation, plural rules and display names with a
+/// literal option string and an optional runtime locale; `intl.locale`
+/// checks a runtime locale where the object is constructed.
 fn intl_type(m: &str, args: &[Type]) -> R {
     use Type::*;
+    if m == "locale" {
+        arity(args, 2, 2)?;
+        return all(args, &String).map(|_| String);
+    }
     let (operands, result) = match m {
-        "format-date" | "format-number" => (1, String),
+        "format-date" | "format-number" | "plural-select" => (1, String),
         "compare" => (2, Number),
+        "plural-categories" => (0, Type::array(String)),
+        "display-of" => (1, Type::maybe(String)),
         other => return Err(format!("unknown intl member {other}")),
     };
     arity(args, operands + 1, operands + 2)?;
-    let operand = if m == "compare" { String } else { Number };
+    let operand = if m == "compare" || m == "display-of" {
+        String
+    } else {
+        Number
+    };
     all(&args[..operands], &operand)?;
     expect(&args[operands], &String, "options")?;
     if let Some(l) = args.get(operands + 1) {

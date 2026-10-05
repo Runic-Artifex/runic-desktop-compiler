@@ -213,13 +213,13 @@ const rejected = [
     /must be a literal/,
   ],
   [
-    'Intl.PluralRules',
+    'Intl.RelativeTimeFormat',
     [
       'const keys = new Intl.Collator(',
-      'const plural = new Intl.PluralRules();\n  const keys = new Intl.Collator(',
+      'const relative = new Intl.RelativeTimeFormat();\n  const keys = new Intl.Collator(',
     ],
     'E_INTL',
-    /PluralRules is unsupported/,
+    /RelativeTimeFormat is unsupported/,
   ],
   [
     'an Intl object as a value',

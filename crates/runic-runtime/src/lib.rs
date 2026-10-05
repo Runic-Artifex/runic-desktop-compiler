@@ -52,6 +52,17 @@ pub fn unsupported(what: &str) {
     }
     eprintln!("runic: unsupported: {what}");
 }
+
+/// Reports a `RunicUnsupportedError` a runic-js built-in returns (a value
+/// outside its verified data, such as an Intl locale) before it is thrown.
+pub fn reported<T>(r: runic_js::JsResult<T>) -> runic_js::JsResult<T> {
+    if let Err(t) = &r {
+        if t.name.to_rust() == "RunicUnsupportedError" {
+            unsupported(&t.message.to_rust());
+        }
+    }
+    r
+}
 /// CSSOM inline styles, media queries and the document element.
 pub use runic_css as css;
 
