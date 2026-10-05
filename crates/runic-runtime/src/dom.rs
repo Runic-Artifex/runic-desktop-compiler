@@ -609,21 +609,41 @@ impl Host {
         }
     }
 
-    /// `element.getAnimations()` where the element's computed style
-    /// declares no animation and no transition of a positive combined
-    /// duration: none can run, the list is empty. Otherwise the runtime
-    /// cannot list them (Blitz exposes no animation objects): unsupported.
-    pub fn animations_none(&self, node: u64) -> bool {
-        let Some(dom) = self.dom() else { return true };
+    /// `element.getAnimations()` (M6): after bringing styles up to date,
+    /// the ids of the element's running CSS animations and transitions
+    /// (crate::animations), in Chromium's order.
+    pub fn get_animations(&self, node: u64) -> Vec<u64> {
+        let Some(dom) = self.dom() else {
+            return Vec::new();
+        };
         crate::layout::resolve(dom.doc);
-        let declared = dom
-            .doc
-            .get_node(NodeId::from_u64(node))
-            .and_then(|n| n.primary_styles())
-            .is_some_and(|s| {
-                s.get_ui().specifies_animations() || s.get_ui().specifies_transitions()
-            });
-        !declared
+        crate::animations::of(dom.doc, NodeId::from_u64(node))
+    }
+
+    /// `animation.playState` after bringing styles up to date (Chromium
+    /// flushes style for it); None once the app took the animation's end.
+    pub fn animation_play_state(&self, id: u64) -> Option<&'static str> {
+        let dom = self.dom()?;
+        crate::layout::resolve(dom.doc);
+        crate::animations::play_state(id)
+    }
+
+    /// `animation.pending` after bringing styles up to date: no frame has
+    /// seen the animation yet.
+    pub fn animation_pending(&self, id: u64) -> bool {
+        let Some(dom) = self.dom() else { return false };
+        crate::layout::resolve(dom.doc);
+        crate::animations::pending(id)
+    }
+
+    /// The ends of animations the app holds, in order, `(id, finished)`:
+    /// cancellations (at once, after the style resolution that made them),
+    /// and finishes too at a frame's animation step (`frame`).
+    pub fn animation_ends(&self, frame: bool) -> Vec<(u64, bool)> {
+        crate::animations::take_ended(frame)
+            .into_iter()
+            .map(|(id, how)| (id, how == crate::animations::Ended::Finished))
+            .collect()
     }
 
     /// An element metric (`offsetWidth`, `scrollTop`, …).

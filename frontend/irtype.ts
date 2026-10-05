@@ -239,6 +239,13 @@ export const EVENT_MEMBERS: Record<string, Type> = {
   stopImmediatePropagation: 'void',
 };
 
+/** Members of animation objects (`animation.*` built-ins, M6) and their types. */
+export const ANIMATION_MEMBERS: Record<string, Type> = {
+  finished: { promise: 'animation' },
+  playState: S,
+  pending: B,
+};
+
 export function builtinType(name: string, args: Type[]): Type | undefined {
   const [ns, method] = name.includes('.') ? (name.split('.', 2) as [string, string]) : ['', name];
   const recv = args[0];

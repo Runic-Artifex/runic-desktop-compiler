@@ -6,6 +6,13 @@ use crate::expr::{FnCtx, js_str};
 use crate::types::rust_type;
 use runic_ir::{Expr, Program, Type, Value};
 
+thread_local! {
+    /// Whether the program being generated reads animation objects (M6,
+    /// `element.getAnimations()`): built-ins that resolve styles then
+    /// settle the cancellations they caused.
+    pub static TRACKS_ANIMATIONS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// An IR function `f` of type `fty` as a promise handler: it receives the
 /// value (or, for rejections, the Error record of the exception) and its
 /// result settles the derived promise (a returned promise is adopted).
@@ -520,11 +527,18 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "{{ cx.dom.style_set({}.0, &{}.to_rust(), &{}.to_rust()); }}",
             t[0], t[1], t[2]
         ),
-        // No animation or transition can run: none (otherwise unsupported).
+        // Animation objects (M6): one per running CSS animation or
+        // transition, kept by the app while the runtime tracks it.
         ("element", "getAnimations") => format!(
-            "{{ if !cx.dom.animations_none({}.0) {{ runic_runtime::unsupported(\"getAnimations() on an element whose style declares CSS animations or transitions (Blitz exposes no animation objects)\"); }} js::array(Vec::new()) }}",
+            "{{ let ids = cx.dom.get_animations({}.0); js::array(ids.into_iter().map(|id| anim_object(cx, id)).collect()) }}",
             t[0]
         ),
+        ("animation", "finished") => format!("anim_of(&{}).finished.borrow().clone()", t[0]),
+        ("animation", "playState") => format!(
+            "{{ let a = anim_of(&{}); JsString::from(cx.dom.animation_play_state(a.id).unwrap_or(a.ended.get())) }}",
+            t[0]
+        ),
+        ("animation", "pending") => format!("cx.dom.animation_pending(anim_of(&{}).id)", t[0]),
         // `beforematch` listeners: the runtime never fires the event.
         ("element", "listen" | "unlisten") => format!("{{ let _ = (&{}, &{}); }}", t[0], t[2]),
         ("mutation", "observe") => format!(
@@ -829,6 +843,12 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         }
         _ => unreachable!("validated builtin {name}"),
     };
+    // A style resolution may cancel animations the app holds: their
+    // `finished` promises reject at once, as Chromium cancels them in the
+    // style update (M6).
+    if TRACKS_ANIMATIONS.get() && runic_ir::builtins::needs_layout(name) {
+        return format!("{{ {code}let r = {body}; anim_settle(cx, false); r }}");
+    }
     format!("{{ {code}{body} }}")
 }
 

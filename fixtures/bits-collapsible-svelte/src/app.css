@@ -8,8 +8,13 @@
  * As in fixture shadcn-basics-svelte, the Button base's `transition-all` is
  * kept out of Tailwind's generation (the browser reference renders the same
  * stylesheet as the native build).
+ *
+ * tw-animate-css (the version the site pins) gives the app's third
+ * collapsible its open and close animations (animate-collapsible-down and
+ * -up over the measured --bits-collapsible-content-height).
  */
 @import "tailwindcss";
+@import "tw-animate-css";
 @source not inline("transition-all");
 
 @custom-variant dark (&:is(.dark *));

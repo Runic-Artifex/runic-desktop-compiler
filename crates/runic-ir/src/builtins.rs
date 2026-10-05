@@ -142,6 +142,8 @@ pub fn needs_layout(name: &str) -> bool {
         Some(("mutation", "observe")) => true,
         // ResizeObservers report sizes from layout (M6).
         Some(("resize", "observe")) => true,
+        // Animation objects read the native style engine's animations (M6).
+        Some(("animation", _)) => true,
         Some(("window", m)) => WINDOW_METRICS.contains(&m) || matches!(m, "scrollTo" | "scrollBy"),
         _ => false,
     }
@@ -778,16 +780,24 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &Element, "receiver")?;
             all(&args[1..], &s).map(|_| Void)
         }
+        // The element's running CSS animations and transitions (M6).
         ("element", "getAnimations") => {
             arity(args, 1, 1)?;
-            expect(&args[0], &Element, "receiver")?;
-            match declared {
-                Array(t) if matches!(**t, Record(_)) => Ok(declared.clone()),
-                other => Err(format!(
-                    "getAnimations returns an array of animation records, found {}",
-                    other.name()
-                )),
-            }
+            expect(&args[0], &Element, "receiver").map(|_| Array(Box::new(Animation)))
+        }
+        ("animation", "pending") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Animation, "animation").map(|_| Boolean)
+        }
+        ("animation", "playState") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Animation, "animation").map(|_| s)
+        }
+        // Fulfilled with the animation when it finishes, rejected with an
+        // AbortError when it is cancelled.
+        ("animation", "finished") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Animation, "animation").map(|_| Promise(Box::new(Animation)))
         }
         // Listeners added by script (`on` of svelte/events); the kind is a
         // literal checked by the validator.

@@ -59,6 +59,8 @@ function layoutBuiltin(v) {
     if (v.name === 'mutation.observe') return v.name;
     // ResizeObservers report sizes from layout (M6).
     if (v.name === 'resize.observe') return v.name;
+    // Animation objects read the native style engine's animations (M6).
+    if (ns === 'animation') return v.name;
     // Scroll events come from layout (scrolling) too.
     if (m === 'listen' && v.args[0]?.value === 'scroll') return `${v.name} scroll`;
   }
