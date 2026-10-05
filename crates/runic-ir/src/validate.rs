@@ -767,8 +767,18 @@ impl<'a> Scope<'a> {
                                     Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event]
                                 ),
                                 // A style object (M6): property values, absent when nullish.
-                                None if name == "style" && matches!(t, Type::Record(_)) => {
-                                    let Type::Record(r) = t else { unreachable!() };
+                                None if name == "style"
+                                    && (matches!(t, Type::Record(_))
+                                        || matches!(&t, Type::Maybe(i) if matches!(**i, Type::Record(_)))) =>
+                                {
+                                    let r = match &t {
+                                        Type::Record(r) => *r,
+                                        Type::Maybe(i) => match **i {
+                                            Type::Record(r) => r,
+                                            _ => unreachable!(),
+                                        },
+                                        _ => unreachable!(),
+                                    };
                                     self.record(r, src)?.fields.iter().all(|f| {
                                         f.reactive.is_none()
                                             && (f.ty == Type::String
@@ -778,8 +788,11 @@ impl<'a> Scope<'a> {
                                 // A callback for a component that declares it (M6):
                                 // a function under a name that is no event attribute.
                                 None if matches!(t, Type::Fn(_)) => callback_name_ok(name),
+                                // camelCase names are props for components (an
+                                // element's spread sets them lowercased, as
+                                // setAttribute does).
                                 None => {
-                                    attr_name_ok(name)
+                                    (attr_name_ok(name) || callback_name_ok(name))
                                         && (matches!(t, Type::String | Type::Boolean)
                                             || t == Type::maybe(Type::String)
                                             || t == Type::maybe(Type::Boolean))

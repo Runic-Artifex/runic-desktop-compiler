@@ -34,7 +34,20 @@ interface HTMLElement {
   readonly localName: string;
   readonly style: ElementInlineStyle;
   getAnimations(): Animation[];
+  // M6 (bits-ui's checkbox): the nearest ancestor with a tag name, and a
+  // form's submission (no form element can be rendered: reported
+  // unsupported if it ever ran).
+  closest(tagName: string): HTMLElement | null;
+  // M6 (bits-ui's roving focus): the id attribute; descendants matching a
+  // selector (a subset: tags, #id, .class, [attr], [attr=value], :not(),
+  // descendant and child combinators), a static list.
+  readonly id: string;
+  querySelectorAll(selectors: string): HTMLElement[];
+  querySelector(selectors: string): HTMLElement | null;
+  requestSubmit(): void;
 }
+/** M6 (bits-ui's isHTMLElement): `x instanceof HTMLElement` of element values. */
+declare var HTMLElement: { prototype: HTMLElement };
 /** An element's inline style: CSS properties by their camelCase names. */
 interface ElementInlineStyle {
   [property: string]: string;
@@ -189,8 +202,14 @@ interface WindowEventTarget {
     listener: (event: WindowEventMap[K]) => void,
   ): void;
 }
+/** `getComputedStyle(element)` (M6, bits-ui's direction): property reads only. */
+interface ComputedStyle {
+  readonly __runicComputedStyle: true;
+  getPropertyValue(property: string): string;
+}
 interface HostWindow extends WindowEventTarget {
   matchMedia(query: string): MediaQueryList;
+  getComputedStyle(element: HTMLElement): ComputedStyle;
   setTimeout: typeof setTimeout;
   setInterval: typeof setInterval;
   clearTimeout: typeof clearTimeout;
@@ -321,3 +340,29 @@ declare const localStorage: {
   removeItem(key: string): void;
   clear(): void;
 };
+/**
+ * M6: image objects. The native runtime loads no images (and renders no
+ * <img>): `new Image()` throws RunicUnsupportedError when it runs. bits-ui's
+ * Avatar binds a loader that would create one for Avatar.Image, whose <img>
+ * is rejected at compile time.
+ */
+interface HTMLImageElement {
+  readonly __runicImage: true;
+  src: string;
+  crossOrigin: string | null;
+  referrerPolicy: string;
+  onload: (() => void) | null;
+  onerror: (() => void) | null;
+}
+declare var Image: { new (): HTMLImageElement };
+/** M6: the referrer policies (svelte/elements' image attributes name it). */
+type ReferrerPolicy =
+  | ''
+  | 'no-referrer'
+  | 'no-referrer-when-downgrade'
+  | 'origin'
+  | 'origin-when-cross-origin'
+  | 'same-origin'
+  | 'strict-origin'
+  | 'strict-origin-when-cross-origin'
+  | 'unsafe-url';

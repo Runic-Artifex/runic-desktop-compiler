@@ -163,8 +163,23 @@ export class BagShapes {
 
   /** What a declared variable or class field holds: its initialiser and the values assigned to it. */
   private declared(sym: ts.Symbol): Shape {
-    const decl = sym.valueDeclaration;
+    let decl = sym.valueDeclaration;
     if (!decl) return openShape();
+    // A field a package's declaration file declares: its implementation in
+    // the package's JavaScript (bits-ui's `props` getters of state classes).
+    if (
+      ts.isPropertyDeclaration(decl) &&
+      decl.getSourceFile().isDeclarationFile &&
+      ts.isClassDeclaration(decl.parent) &&
+      decl.parent.name
+    ) {
+      const checker = this.lower.checker;
+      const cls = checker.getSymbolAtLocation(decl.parent.name);
+      const impl = cls && this.lower.implementation?.(cls);
+      const member = impl?.members?.get(sym.escapedName);
+      if (!member?.valueDeclaration) return openShape();
+      decl = member.valueDeclaration;
+    }
     const shapes: Shape[] = [];
     if (ts.isVariableDeclaration(decl)) {
       if (!decl.initializer) return openShape();

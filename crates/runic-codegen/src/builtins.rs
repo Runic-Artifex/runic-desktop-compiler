@@ -480,6 +480,26 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ),
         // Libraries compiled from source (M6).
         ("element", "isConnected") => format!("cx.dom.is_connected({}.0)", t[0]),
+        ("element", "isHTML") => format!("cx.dom.is_html({}.0)", t[0]),
+        ("element", "computed-style") => format!(
+            "JsString::from(cx.dom.computed_style({}.0, &{}.to_rust()))",
+            t[0], t[1]
+        ),
+        ("element", "querySelectorAll") => format!(
+            "js::array(cx.dom.query_selector_all({}.0, &{}.to_rust()).into_iter().map(js::Element).collect())",
+            t[0], t[1]
+        ),
+        ("element", "querySelector") => format!(
+            "cx.dom.query_selector_all({}.0, &{}.to_rust()).first().map_or(Maybe::Null, |&n| Maybe::Some(js::Element(n)))",
+            t[0], t[1]
+        ),
+        ("element", "closest") => format!(
+            "cx.dom.closest({}.0, &{}.to_rust()).map_or(Maybe::Null, |n| Maybe::Some(js::Element(n)))",
+            t[0], t[1]
+        ),
+        ("element", "requestSubmit") => {
+            "{ runic_runtime::unsupported(\"requestSubmit (form submission)\"); }".to_string()
+        }
         ("element", "hasAttribute") => {
             format!("cx.dom.has_attribute({}.0, &{}.to_rust())", t[0], t[1])
         }
@@ -688,6 +708,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "buttons" => format!("{e}.data().buttons"),
                 "deltaX" => format!("{e}.data().delta_x"),
                 "deltaY" => format!("{e}.data().delta_y"),
+                "detail" => format!("{e}.data().detail"),
                 "target" => format!("{e}.data().target"),
                 "relatedTarget" => format!("{e}.data().related.map_or(Maybe::Null, Maybe::Some)"),
                 "currentTarget" => {

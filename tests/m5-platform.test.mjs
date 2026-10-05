@@ -131,8 +131,11 @@ test('rest props reaching declared props (M6): a later spread entry overrides th
 
 test('rejected: spreads of unsupported values, unsupported listeners', async () => {
   await rejects(
-    await edits('rest-svelte', 'App.svelte', [['<p id="state">', '<p {...{ a: 1 }} id="state">']]),
-    'E_TEMPLATE',
+    // (An object literal spread is a bag of its entries; an array is no attribute value.)
+    await edits('rest-svelte', 'App.svelte', [
+      ['<p id="state">', '<p {...{ a: [1] }} id="state">'],
+    ]),
+    'E_ATTRS',
     'App.svelte',
   );
   await rejects(

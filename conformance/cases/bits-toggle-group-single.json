@@ -1,0 +1,35 @@
+{
+  "description": "bits-ui's ToggleGroup of type single compiled from its published source through shadcn-svelte's unmodified toggle-group wrappers and the toggle-group-outline and toggle-group-spacing demos (spacing through the --gap custom property, items from an each block over a const tuple), and a vertical outline group bound to the app's string. Pressed by clicks (pressing the pressed item clears the value), by Space and Enter on the focused item; arrow keys move focus through bits-ui's roving focus group (ArrowDown/ArrowUp in the vertical group, looping), Home and End; set from outside through the bound value; onValueChange counts the group's own changes. aria-checked, role radio, data-state, tabindex (roving, following the pressed item), the pressed backgrounds and focus rings (pixel regions)",
+  "fixtures": ["bits-toggle-group-single-svelte"],
+  "viewports": [
+    [800, 700],
+    [420, 700]
+  ],
+  "pixelRegions": ["outline", "spacing", "bound"],
+  "actions": [
+    { "kind": "click", "id": "center" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "center" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Home" },
+    { "kind": "press", "key": "ArrowUp" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "Space" },
+    { "kind": "click", "id": "reset" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "click", "id": "bits-c3" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowLeft" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "End" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "wait", "ms": 200 }
+  ]
+}

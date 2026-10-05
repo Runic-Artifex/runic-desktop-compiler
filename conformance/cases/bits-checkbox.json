@@ -1,0 +1,28 @@
+{
+  "description": "bits-ui's Checkbox and Label compiled from their published source through shadcn-svelte's unmodified checkbox, label and field wrappers and the checkbox and label demos (the check icon through this repository's IconPlaceholder stand-in, the lucide icon the shadcn-svelte CLI installs in its place), and a checkbox bound to the app (bind:checked, bind:indeterminate, onCheckedChange). Toggled by clicks on the boxes, by clicks on their labels (the label's click activates the labelled button), by double clicks on a label (bits-ui's Label cancels the second mousedown: e.detail > 1), by Space on the focused box (Enter is cancelled and does nothing outside forms), from outside through the bound values; the disabled box ignores clicks. aria-checked true/false/mixed, data-state checked/unchecked/indeterminate, the hidden input's checked property (svelte-toolbelt's srOnlyStyles), and the label's and Field's classes; the boxes' focus rings (:focus-visible after a key, also one the page cancels) are compared in pixel regions",
+  "fixtures": ["bits-checkbox-svelte"],
+  "pixelRegions": ["label-demo", "row"],
+  "actions": [
+    { "kind": "click", "id": "terms-checkbox" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "mixed" },
+    { "kind": "click", "id": "bound" },
+    { "kind": "click", "id": "bound-label" },
+    { "kind": "dblclick", "id": "bound-label" },
+    { "kind": "click", "id": "toggle-checkbox" },
+    { "kind": "click", "id": "toggle-checkbox-2" },
+    { "kind": "click", "id": "terms" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "click", "id": "mixed" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "hover", "id": "bound" }
+  ]
+}

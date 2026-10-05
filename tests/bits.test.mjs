@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { collect, Diagnostic } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
@@ -60,14 +60,22 @@ const failWith = (code, file, pattern) => e =>
     `expected ${code} in ${file}, got ${e.code} ${JSON.stringify(e.source)}: ${e.message}`,
   );
 
+/** The fixtures built from vendored shadcn-svelte sources over bits-ui. */
+const BITS_FIXTURES = readdirSync('fixtures')
+  .filter(f => f.startsWith('bits-') && existsSync(path.join('fixtures', f, 'vendor.json')))
+  .map(f => path.join('fixtures', f));
+
 test('the vendored shadcn-svelte sources are unmodified', () => {
-  const vendor = JSON.parse(readFileSync(path.join(FIXTURE, 'vendor.json'), 'utf8'));
-  const corpus = path.join('.cache/corpus', vendor.source);
-  for (const [file, { upstream, sha256 }] of Object.entries(vendor.files)) {
-    const bytes = readFileSync(path.join(FIXTURE, file));
-    assert.equal(createHash('sha256').update(bytes).digest('hex'), sha256, file);
-    if (existsSync(path.join(corpus, upstream)))
-      assert.deepEqual(bytes, readFileSync(path.join(corpus, upstream)), upstream);
+  assert.ok(BITS_FIXTURES.includes(FIXTURE));
+  for (const fixture of BITS_FIXTURES) {
+    const vendor = JSON.parse(readFileSync(path.join(fixture, 'vendor.json'), 'utf8'));
+    const corpus = path.join('.cache/corpus', vendor.source);
+    for (const [file, { upstream, sha256 }] of Object.entries(vendor.files)) {
+      const bytes = readFileSync(path.join(fixture, file));
+      assert.equal(createHash('sha256').update(bytes).digest('hex'), sha256, `${fixture}/${file}`);
+      if (existsSync(path.join(corpus, upstream)))
+        assert.deepEqual(bytes, readFileSync(path.join(corpus, upstream)), upstream);
+    }
   }
 });
 
@@ -95,6 +103,59 @@ test("bits-ui's Collapsible compiles from its published source with the toolbelt
   // The content is measured (getBoundingClientRect): the interpreter has no
   // layout and throws rather than guessing.
   assert.throws(() => interpret(ir, []), /RunicLayoutError|needs the native layout/);
+});
+
+test('Separator and Progress: props through rest bags, values as Svelte spreads them', async () => {
+  const sep = interpret((await lowered('fixtures/bits-separator-svelte')).ir, [
+    { kind: 'click', id: 'orientation' },
+    { kind: 'click', id: 'decorative' },
+  ]);
+  // `decorative` and `orientation` pass through the wrapper's rest props
+  // (a boolean stays a boolean) to the bits-ui component's declared props.
+  const dynamic = s => byId(s, 'dynamic').attrs;
+  assert.equal(dynamic(sep[0]).role, 'separator');
+  assert.equal(dynamic(sep[1])['data-orientation'], 'vertical');
+  assert.deepEqual([dynamic(sep[2]).role, dynamic(sep[2])['aria-hidden']], ['none', 'true']);
+  const progress = interpret((await lowered('fixtures/bits-progress-svelte')).ir, [
+    { kind: 'click', id: 'unknown' },
+  ]);
+  const bar = s => byId(s, 'bar').children.find(n => typeof n !== 'string');
+  // Svelte assigns `value` to a div's (expando) property: no attribute.
+  assert.equal(bar(progress[0]).attrs.value, undefined);
+  assert.equal(bar(progress[0]).attrs['aria-valuenow'], '25');
+  assert.equal(bar(progress[1]).attrs['data-state'], 'indeterminate');
+  assert.equal(bar(progress[1]).children[0].attrs.style, 'transform: translateX(-100%);');
+});
+
+test("svelte-toolbelt's srOnlyStyles in the pack is the package's", async () => {
+  const { SR_ONLY_STYLES } = await import('../frontend/packs/svelte-toolbelt-0.10.6.ts');
+  const { srOnlyStyles } =
+    await import('../node_modules/svelte-toolbelt/dist/utils/sr-only-styles.js');
+  assert.deepEqual(Object.entries(SR_ONLY_STYLES), Object.entries(srOnlyStyles));
+});
+
+test('Checkbox and Label: label activation, double clicks (e.detail), the hidden input', async () => {
+  const { ir } = await lowered('fixtures/bits-checkbox-svelte');
+  const steps = interpret(ir, [
+    { kind: 'click', id: 'bound' },
+    { kind: 'click', id: 'bound-label' },
+    { kind: 'dblclick', id: 'bound-label' },
+    { kind: 'click', id: 'toggle-checkbox' },
+  ]);
+  // checked, indeterminate, onCheckedChange calls: the first click clears
+  // indeterminate and checks; the label's click toggles the button; a
+  // double click toggles twice; the disabled box ignores clicks.
+  assert.deepEqual(
+    steps.map(s => text(byId(s, 'state')).trim()),
+    ['false true 0', 'true false 1', 'false false 2', 'false false 4', 'false false 4'],
+  );
+  // The hidden input: checked as a property (no attribute), srOnlyStyles.
+  const button = byId(steps[1], 'bound');
+  assert.equal(button.attrs['aria-checked'], 'true');
+  const input = flat(steps[1].state.dom).find(n => n.tag === 'input' && n.attrs.name === 'bound');
+  assert.equal(input.attrs.checked, undefined);
+  assert.equal(input.checked, true);
+  assert.match(input.attrs.style, /^position: absolute; width: 1px;.* top: 0px; left: 0px;$/);
 });
 
 test('another version of a package compiled from source is rejected', async () => {
@@ -221,4 +282,282 @@ test('mergeProps shapes outside the pack fail at run time', async () => {
       const { ir } = await lowered(root);
       assert.throws(() => interpret(ir, []), pattern);
     });
+});
+
+test('Avatar: fallbacks compile, Avatar.Image (image loading) is rejected at its <img>', async () => {
+  const { ir } = await lowered('fixtures/bits-avatar-svelte');
+  const steps = interpret(ir, [{ kind: 'click', id: 'small' }]);
+  assert.equal(byId(steps[1], 'cn').attrs['data-size'], 'sm');
+  assert.equal(byId(steps[1], 'cn').attrs['data-status'], 'loading');
+  await mkdir('.cache/tests', { recursive: true });
+  const root = await mkdtemp(path.resolve('.cache/tests/avatar-'));
+  try {
+    await cp('fixtures/bits-avatar-svelte', root, { recursive: true });
+    const app = path.join(root, 'src/App.svelte');
+    await writeFile(
+      app,
+      readFileSync(app, 'utf8').replace(
+        '<Avatar.Root id="cn" {size}>',
+        '<Avatar.Root id="cn" {size}><Avatar.Image src="https://github.com/shadcn.png" alt="@shadcn" />',
+      ),
+    );
+    await assert.rejects(
+      lowered(root),
+      failWith(
+        'E_TEMPLATE',
+        'node_modules/bits-ui/dist/bits/avatar/components/avatar-image.svelte',
+        /<img>/,
+      ),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('SvelteMap reads outside derived values are rejected; dictionary objects guard prototype names', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { SvelteMap } from 'svelte/reactivity';
+  const m = new SvelteMap<string, number>();
+  let seen = $state(0);
+  $effect(() => {
+    seen = m.get('a') ?? 0;
+  });
+</script>
+<button id="b" onclick={() => m.set('a', 1)}>{seen}</button>
+`,
+    },
+    async root =>
+      assert.rejects(lowered(root), failWith('E_REACTIVITY', 'App.svelte', /SvelteMap/)),
+  );
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let key = $state('Home');
+  let out = $state('');
+  function pick(k: string) {
+    const table = { Home: 0, [k + '!']: 1 };
+    out = String(table[key] ?? -1);
+  }
+</script>
+<button id="home" onclick={() => pick('x')}>{out}</button>
+<button id="proto" onclick={() => (key = 'toString')}>proto</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'home' }]);
+      assert.equal(text(byId(steps[1], 'home')), '0');
+      // A prototype member's name is not read as an entry.
+      const rejected = interpret(ir, [
+        { kind: 'click', id: 'proto' },
+        { kind: 'click', id: 'home' },
+      ])[2].outcome.rejected;
+      assert.match(rejected.message, /RunicUnsupportedError.*Object\.prototype member/);
+    },
+  );
+});
+
+test('ToggleGroup: multiple and single programs, one type per program', async () => {
+  const multiple = (await lowered('fixtures/bits-toggle-group-svelte')).ir;
+  const m = interpret(multiple, [
+    { kind: 'click', id: 'italic' },
+    { kind: 'click', id: 'bold' },
+    { kind: 'click', id: 'underline' },
+    { kind: 'click', id: 'reset' },
+  ]);
+  assert.deepEqual(
+    m.map(s => text(byId(s, 'state'))),
+    ['bold 0', 'bold,italic 1', 'italic 2', 'italic 2', 'italic 2'],
+  );
+  assert.equal(byId(m[1], 'italic').attrs['aria-pressed'], 'true');
+  assert.equal(byId(m[1], 'italic').attrs['data-variant'], 'default');
+  const single = (await lowered('fixtures/bits-toggle-group-single-svelte')).ir;
+  const s = interpret(single, [
+    { kind: 'click', id: 'center' },
+    { kind: 'click', id: 'center' },
+    { kind: 'click', id: 'reset' },
+  ]);
+  assert.deepEqual(
+    s.map(x => text(byId(x, 'state'))),
+    ['left 0', 'center 1', ' 2', 'center 2'],
+  );
+  assert.equal(byId(s[1], 'center').attrs['aria-checked'], 'true');
+  assert.equal(byId(s[1], 'center').attrs.role, 'radio');
+  // Both types in one program: the value is a string or an array.
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { ToggleGroup } from 'bits-ui';
+  let one = $state('a');
+  let many = $state<string[]>([]);
+</script>
+<ToggleGroup.Root type="single" bind:value={one}><ToggleGroup.Item value="a">A</ToggleGroup.Item></ToggleGroup.Root>
+<ToggleGroup.Root type="multiple" bind:value={many}><ToggleGroup.Item value="a">A</ToggleGroup.Item></ToggleGroup.Root>
+`,
+    },
+    async root =>
+      assert.rejects(
+        lowered(root),
+        failWith(
+          'E_TYPE_UNION',
+          'node_modules/bits-ui/dist/bits/toggle-group/components/toggle-group.svelte',
+          /type is "single" and "multiple" at different sites/,
+        ),
+      ),
+  );
+});
+
+test('svelte contexts with string keys, getter objects, bound optional props, capitalize', async () => {
+  const context = (body, get) => ({
+    'Ctx.svelte': `<script lang="ts" module>
+  import { getContext, setContext } from 'svelte';
+  interface C { tone?: string }
+  export function setC(c: C) { setContext('c', c); }
+  export function getC() { return ${get}; }
+</script>
+<script lang="ts">
+  let { children }: { children?: import('svelte').Snippet } = $props();
+  let tone = $state('loud');
+  setC({ get tone() { return tone; } });
+</script>
+<button id="t" onclick={() => (tone = tone === 'loud' ? 'soft' : 'loud')}>t</button>
+{@render children?.()}
+`,
+    'Show.svelte': `<script lang="ts">
+  import { getC } from './Ctx.svelte';
+  const c = getC();
+</script>
+<p id="show">${body}</p>
+`,
+    'App.svelte': `<script lang="ts">
+  import Ctx from './Ctx.svelte';
+  import Show from './Show.svelte';
+</script>
+<Ctx><Show /></Ctx>
+<Show />
+`,
+  });
+  // A getter is read each time: the context follows the state. A component
+  // outside the provider reads undefined where the type allows it, and
+  // throws RunicUnsupportedError where it does not.
+  await withApp(context("{c?.tone ?? 'none'}", "getContext<C | undefined>('c')"), async root => {
+    const { ir } = await lowered(root);
+    const steps = interpret(ir, [{ kind: 'click', id: 't' }]);
+    const shown = st =>
+      flat(st.state.dom)
+        .filter(n => n.attrs.id === 'show')
+        .map(text);
+    assert.deepEqual(shown(steps[0]), ['loud', 'none']);
+    assert.deepEqual(shown(steps[1]), ['soft', 'none']);
+  });
+  await withApp(context('{c.tone}', "getContext<Required<C>>('c')"), async root => {
+    const { ir } = await lowered(root);
+    assert.throws(
+      () => interpret(ir, []),
+      /RunicUnsupportedError: getContext\(\\?"c\\?"\): no parent/,
+    );
+  });
+  await withApp(
+    {
+      ...context('{c.tone}', "getContext<Required<C>>('c' + '')"),
+      'App.svelte': `<script lang="ts">
+  import Ctx from './Ctx.svelte';
+  import Show from './Show.svelte';
+</script>
+<Ctx><Show /></Ctx>
+`,
+    },
+    async root =>
+      assert.rejects(lowered(root), failWith('E_CAPABILITY', 'Ctx.svelte', /string literal key/)),
+  );
+  // A variable of the present type bound to an optional prop its component
+  // may set to undefined.
+  await withApp(
+    {
+      'Child.svelte': `<script lang="ts">
+  let { value = $bindable() }: { value?: string } = $props();
+</script>
+<button id="clear" onclick={() => (value = undefined)}>{value}</button>
+`,
+      'App.svelte': `<script lang="ts">
+  import Child from './Child.svelte';
+  let v = $state('a');
+</script>
+<Child bind:value={v} />
+`,
+    },
+    async root => assert.rejects(lowered(root), failWith('E_TEMPLATE', 'App.svelte', /undefined/)),
+  );
+  // Blitz transforms text to upper and lower case only.
+  await withApp(
+    {
+      'style.css': '.c { text-transform: capitalize; }\n',
+      'App.svelte': '<p class="c">a</p>\n',
+    },
+    async root =>
+      assert.rejects(lowered(root), e => {
+        assert.equal(e.code, 'E_CSS_PROPERTY');
+        assert.match(e.message, /capitalize/);
+        return true;
+      }),
+  );
+});
+
+test('Accordion: single and multiple compile; watch effects are functions of the values', async () => {
+  // The fixtures read layout (the content's size), so the conformance cases
+  // bits-accordion and bits-accordion-multiple run them.
+  for (const fixture of [
+    'fixtures/bits-accordion-svelte',
+    'fixtures/bits-accordion-multiple-svelte',
+  ]) {
+    const { ir } = await lowered(fixture);
+    assert.ok(
+      ir.components.some(c => c.name === 'accordion-content'),
+      fixture,
+    );
+  }
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { watch } from 'runed';
+  let a = $state(1);
+  const f = (s: string) => console.log(s);
+  watch(() => a, f as never);
+</script>
+<p>{a}</p>
+`,
+    },
+    async root =>
+      assert.rejects(
+        lowered(root),
+        failWith('E_PACK', 'App.svelte', /function of the sources' values/),
+      ),
+  );
+  // An effect that takes fewer values than there are sources (bits-ui's
+  // RadioGroupItemState watches two values with `() => …`).
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { watch } from 'runed';
+  let a = $state(1);
+  let b = $state(1);
+  let runs = $state(0);
+  watch([() => a, () => b], () => {
+    runs++;
+  });
+</script>
+<button id="a" onclick={() => a++}>{runs}</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'a' }]);
+      assert.deepEqual(
+        steps.map(s => text(byId(s, 'a'))),
+        ['1', '2'],
+      );
+    },
+  );
 });

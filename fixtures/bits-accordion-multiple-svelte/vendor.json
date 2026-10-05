@@ -1,0 +1,39 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/accordion-multiple.svelte": {
+      "upstream": "docs/src/lib/registry/examples/accordion-multiple.svelte",
+      "sha256": "58e621d8aa065933d7c17842f25222a539eddae29ad094e70d69bef9524cd735"
+    },
+    "src/lib/registry/ui/accordion/accordion-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/accordion/accordion-content.svelte",
+      "sha256": "e57b96f06395498a53048c896b717ed8e3ab4e9fa3dac562bf2763c1ac713d7b"
+    },
+    "src/lib/registry/ui/accordion/accordion-item.svelte": {
+      "upstream": "docs/src/lib/registry/ui/accordion/accordion-item.svelte",
+      "sha256": "7830f48cf5312d23b706dfedb4e00c22e3cb674296ed502db9f2f49f9dcc7eab"
+    },
+    "src/lib/registry/ui/accordion/accordion-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/accordion/accordion-trigger.svelte",
+      "sha256": "a92b6315e8335c0ec91a5e34c7bbce8724e0cc4b34cc1b6a726621cb6eb7437a"
+    },
+    "src/lib/registry/ui/accordion/accordion.svelte": {
+      "upstream": "docs/src/lib/registry/ui/accordion/accordion.svelte",
+      "sha256": "bb950cb45d20a612b49d6be9e36fe76b2ed791b82c281a504d334c8ce5f5e940"
+    },
+    "src/lib/registry/ui/accordion/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/accordion/index.ts",
+      "sha256": "09287793984e259485e7f93911fc65a43e958dc92353b66bcb5cab55435daa58"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

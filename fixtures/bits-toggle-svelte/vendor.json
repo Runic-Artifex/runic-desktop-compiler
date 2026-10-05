@@ -1,0 +1,43 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/toggle-disabled.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-disabled.svelte",
+      "sha256": "c1f9e39a5c8b1919e49c6887e1bcffa53061b8d91b77b8cff68b50f355208140"
+    },
+    "src/lib/registry/examples/toggle-lg.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-lg.svelte",
+      "sha256": "3a24b7ea5d981723024d198a7b98dad726af8687d61d9cffbfde1b920daa6a1e"
+    },
+    "src/lib/registry/examples/toggle-outline.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-outline.svelte",
+      "sha256": "e76a30182c4a96cda7abc46a9ed2be97babbf664b3f7abb2c41bf8fcc4b177cf"
+    },
+    "src/lib/registry/examples/toggle-sm.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-sm.svelte",
+      "sha256": "14109c68455bb5770be338f70c4b881c3abf8769abe484ecc9a91878c30806b7"
+    },
+    "src/lib/registry/examples/toggle-with-text.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-with-text.svelte",
+      "sha256": "3058b695cbb6c284a2faa151fcf252edf3dcf09fcdf36151bb0a85768f5e19e9"
+    },
+    "src/lib/registry/ui/toggle/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/toggle/index.ts",
+      "sha256": "96772363857f0c48a0b412dd27a84857a5940273e02b583ae03ebcf2aeda50ef"
+    },
+    "src/lib/registry/ui/toggle/toggle.svelte": {
+      "upstream": "docs/src/lib/registry/ui/toggle/toggle.svelte",
+      "sha256": "324c0a7c77844c729b16add969a4725524170e93380c0f427d63eb4387f36ab8"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

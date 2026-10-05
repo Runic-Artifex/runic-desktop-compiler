@@ -46,6 +46,22 @@ fn function_reads(p: &Program) -> Vec<Option<BTreeSet<usize>>> {
         for s in &f.body {
             stmt_refs(s, &mut cells, &mut calls, &mut unknown);
         }
+        if p.has_derived_fields() {
+            let locals: Vec<Local> = f
+                .captures
+                .iter()
+                .chain(&f.params)
+                .chain(&f.locals)
+                .cloned()
+                .collect();
+            let mut exprs = vec![];
+            for s in &f.body {
+                stmt_exprs(s, &mut exprs);
+            }
+            for e in exprs {
+                derived_reads(p, f.component, &locals, e, &mut calls);
+            }
+        }
         direct.push((cells, calls, unknown));
     }
     let mut reads: Vec<Option<BTreeSet<usize>>> = direct
@@ -74,6 +90,36 @@ fn function_reads(p: &Program) -> Vec<Option<BTreeSet<usize>>> {
         }
     }
     reads
+}
+
+/// Adds to `calls` the functions of the derived class fields `e` (typed in
+/// `component` with `locals`) reads: reading one may compute it, so a
+/// binding reading it depends on what its function reads (a box getter's
+/// cell, for instance), not only on the reactive fields it reads.
+fn derived_reads(
+    p: &Program,
+    component: Option<usize>,
+    locals: &[Local],
+    e: &Expr,
+    calls: &mut BTreeSet<usize>,
+) {
+    if let Expr::Get { object, field } = e {
+        let may_be_derived = p
+            .records
+            .iter()
+            .any(|r| r.fields.get(*field).is_some_and(Field::is_derived));
+        if may_be_derived {
+            let t = runic_ir::validate::infer_in(p, component, locals, None, object);
+            for r in p.class_members(&t).unwrap_or_default() {
+                if let Some(f) = p.records[r].fields.get(*field).and_then(|f| f.derived) {
+                    calls.insert(f);
+                }
+            }
+        }
+    }
+    for c in e.children() {
+        derived_reads(p, component, locals, c, calls);
+    }
 }
 
 /// Whether `e` (typed in `component` with `locals`) reads a reactive class
@@ -548,13 +594,17 @@ impl Gen<'_> {
         )
     }
 
-    /// Cells an expression may read; `None` = unknown.
-    fn deps(&self, exprs: &[&Expr]) -> Option<BTreeSet<usize>> {
+    /// Cells expressions of component `k` may read; `None` = unknown.
+    fn deps(&self, k: usize, exprs: &[&Expr]) -> Option<BTreeSet<usize>> {
         let mut cells = BTreeSet::new();
         let mut calls = BTreeSet::new();
         let mut unknown = false;
         for e in exprs {
             expr_refs(e, &mut cells, &mut calls, &mut unknown);
+            if self.p.has_derived_fields() {
+                let locals = &self.p.components[k].template_locals;
+                derived_reads(self.p, Some(k), locals, e, &mut calls);
+            }
         }
         if unknown {
             return None;
@@ -587,7 +637,7 @@ impl Gen<'_> {
             return "true".into();
         }
         let locals = exprs.iter().any(|e| reads_locals(e));
-        match self.deps(exprs) {
+        match self.deps(k, exprs) {
             None => "true".into(),
             Some(d) => {
                 let mut parts: Vec<String> = d.iter().map(|c| format!("d[{c}]")).collect();
@@ -607,7 +657,7 @@ impl Gen<'_> {
     }
 
     fn is_static(&self, k: usize, exprs: &[&Expr]) -> bool {
-        self.deps(exprs).is_some_and(|d| d.is_empty())
+        self.deps(k, exprs).is_some_and(|d| d.is_empty())
             && !exprs.iter().any(|e| reads_locals(e))
             && !self.reads_reactive(k, exprs)
     }

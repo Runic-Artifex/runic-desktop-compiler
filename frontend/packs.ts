@@ -13,7 +13,10 @@ import type { Shape } from './bags.ts';
 import type { Binding, FnBuilder, Lowerer } from './language.ts';
 import { valueChoice, withRest, wrapperValues, type Choice } from './packs/choice.ts';
 import { sourceVersions } from './sources.ts';
+import { svelteReactivityImport } from './svelte-reactivity.ts';
+import { svelteContextImport } from './svelte-context.ts';
 import { cnPack } from './packs/cn-0.3.0.ts';
+import { esmEnvPack } from './packs/esm-env-1.2.2.ts';
 import { clsxPack } from './packs/clsx-2.1.1.ts';
 import { lucideSveltePack } from './packs/lucide-svelte-1.52.0.ts';
 import { tailwindMergePack } from './packs/tailwind-merge-3.7.0.ts';
@@ -73,6 +76,8 @@ export interface PackFunction {
   inline?: boolean;
   /** Methods called on the export or constant (`watch.pre(…)`, `context.get()`). */
   methods?: Record<string, (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr>;
+  /** `new X(…)` of a class export (svelte-toolbelt's DOMContext). */
+  construct?(node: ts.NewExpression, b: FnBuilder, lower: Lowerer): Expr;
   /** The keys of the attribute bag a call returns (frontend/bags.ts). */
   shape?(node: ts.CallExpression, of: (e: ts.Expression) => Shape): Shape;
 }
@@ -98,7 +103,17 @@ export interface PackComponent {
   ): Node;
 }
 
-export type PackExport = PackFunction | PackComponent;
+/**
+ * A constant export: a plain value the package defines (svelte-toolbelt's
+ * `srOnlyStyles`), folded where it is used as build-time constants are
+ * (`Lowerer.constantMember`, spreads into style objects).
+ */
+export interface PackConstant {
+  kind: 'constant';
+  value: unknown;
+}
+
+export type PackExport = PackFunction | PackComponent | PackConstant;
 
 export interface Pack {
   name: string;
@@ -135,6 +150,7 @@ export function packType(t: ts.Type, at: ts.Node, lower: Lowerer): Type | undefi
 const PACKS: Pack[] = [
   clsxPack,
   cnPack,
+  esmEnvPack,
   lucideSveltePack,
   runedPack,
   svelteToolbeltPack,
@@ -224,6 +240,17 @@ export function bindPackImport(
   const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
   if (isLocal(spec, edge)) return false;
   const pkg = edge?.package;
+  // svelte/reactivity's SvelteMap: a type the language layer lowers
+  // (frontend/svelte-reactivity.ts), in Svelte modules.
+  if (pkg?.name === 'svelte' && spec === 'svelte/reactivity') {
+    svelteReactivityImport(stmt, (n, code, message) => lower.fail(n, code, message));
+    return true;
+  }
+  // svelte's setContext/getContext with string keys (frontend/svelte-context.ts).
+  if (pkg?.name === 'svelte' && spec === 'svelte') {
+    svelteContextImport(stmt, lower);
+    return true;
+  }
   const fail = (n: ts.Node, e: unknown): never => {
     if (e instanceof PackError) return lower.fail(n, e.code, e.message);
     throw e;
@@ -259,10 +286,7 @@ export function bindPackImport(
     if (!sym) return lower.fail(id, 'E_PACK', `Cannot bind ${id.text}`);
     const { pack, value } = found;
     const label = `${imported === 'default' ? spec : `${imported} of ${spec}`} (${pack.name}@${pack.version})`;
-    lower.bindings.set(
-      sym,
-      value.kind === 'function' ? functionBinding(pack, label, value) : { kind: 'pack', label },
-    );
+    lower.bindings.set(sym, exportBinding(lower, pack, label, value));
   }
   return true;
 }
@@ -321,12 +345,19 @@ export function bindPackReexport(
     if (!sym) return lower.fail(el, 'E_PACK', `Cannot bind ${el.name.text}`);
     const { pack, value } = found;
     const label = `${imported} of ${spec} (${pack.name}@${pack.version})`;
-    lower.bindings.set(
-      sym,
-      value.kind === 'function' ? functionBinding(pack, label, value) : { kind: 'pack', label },
-    );
+    lower.bindings.set(sym, exportBinding(lower, pack, label, value));
   }
   return true;
+}
+
+/** The binding of a pack export. */
+function exportBinding(lower: Lowerer, pack: Pack, label: string, value: PackExport): Binding {
+  if (value.kind === 'function') return functionBinding(pack, label, value);
+  if (value.kind === 'constant') {
+    usePack(lower, pack);
+    return { kind: 'constant', label, value: value.value };
+  }
+  return { kind: 'pack', label };
 }
 
 /** The binding of a pack function: its uses record the pack. */
@@ -356,6 +387,12 @@ function functionBinding(pack: Pack, label: string, fn: PackFunction): Binding {
         }
       : undefined,
     inline: fn.inline,
+    construct: fn.construct
+      ? (node, b, l) => {
+          usePack(l, pack);
+          return fn.construct!(node, b, l);
+        }
+      : undefined,
     methods: fn.methods
       ? Object.fromEntries(
           Object.entries(fn.methods).map(([k, m]) => [

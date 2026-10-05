@@ -2650,6 +2650,64 @@ impl<'p> Machine<'p> {
                 };
                 Val::Bool(chain_nodes(&self.last_tree, e.0).is_some())
             }
+            ("element", m @ ("querySelectorAll" | "querySelector")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let selector = js::parse_selector(&a[1].string().to_rust()).map_err(|m| {
+                    Throw::new("RunicUnsupportedError", format!("querySelector: {m}"))
+                })?;
+                let found = query_selector_all(&self.last_tree, e.0, &selector);
+                if m == "querySelector" {
+                    found
+                        .first()
+                        .map_or(Val::Null, |&n| Val::Element(js::Element(n)))
+                } else {
+                    Val::Array(js::array(
+                        found
+                            .into_iter()
+                            .map(|n| Val::Element(js::Element(n)))
+                            .collect(),
+                    ))
+                }
+            }
+            ("element", "isHTML") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                Val::Bool(
+                    chain_nodes(&self.last_tree, e.0)
+                        .and_then(|n| match n.last() {
+                            Some(VNode::Element { tag, .. }) => {
+                                Some(!crate::validate::SVG_TAGS.contains(&tag.as_str()))
+                            }
+                            _ => None,
+                        })
+                        .unwrap_or(true),
+                )
+            }
+            ("element", "closest") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let tag_name = a[1].string().to_rust();
+                chain_nodes(&self.last_tree, e.0)
+                    .and_then(|nodes| {
+                        nodes.iter().rev().find_map(|n| match n {
+                            VNode::Element { tag, id, .. } if *tag == tag_name => {
+                                Some(Val::Element(js::Element(*id)))
+                            }
+                            _ => None,
+                        })
+                    })
+                    .unwrap_or(Val::Null)
+            }
+            ("element", "requestSubmit") => {
+                return Err(Throw::new(
+                    "RunicUnsupportedError",
+                    "requestSubmit (form submission)",
+                ));
+            }
             ("element", "hasAttribute") => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
@@ -2881,6 +2939,7 @@ impl<'p> Machine<'p> {
                     "clientY" => Val::Num(d.client_y),
                     "button" => Val::Num(d.button),
                     "buttons" => Val::Num(d.buttons),
+                    "detail" => Val::Num(d.detail),
                     "deltaX" => Val::Num(d.delta_x),
                     "deltaY" => Val::Num(d.delta_y),
                     "target" => Val::Element(d.target),
@@ -3627,6 +3686,8 @@ impl<'p> Machine<'p> {
                     }
                 }
                 let mut refs = vec![];
+                // An input's `checked` from a Svelte spread (its property).
+                let mut spread_checked = None;
                 if let Some(bag) = spread {
                     let Val::Attrs(bag) = self.eval(bag, frame)? else {
                         panic!("validated attribute bag")
@@ -3669,10 +3730,34 @@ impl<'p> Machine<'p> {
                                     "hidden=\"until-found\" (Blitz has no find-in-page and hides the content)",
                                 ));
                             }
+                            // Svelte assigns an input's `checked` to its property.
+                            ("checked", Val::Bool(b)) if *spread_boolean_text && tag == "input" => {
+                                spread_checked = Some(*b);
+                                continue;
+                            }
+                            // Svelte assigns a defined `value` to the element's property.
+                            ("value", Val::Str(_) | Val::Bool(_)) if *spread_boolean_text => {
+                                match js::spread_value(tag) {
+                                    js::SpreadValue::Expando => continue,
+                                    js::SpreadValue::Reflect => {}
+                                    js::SpreadValue::Unsupported => {
+                                        return Err(Throw::new(
+                                            "RunicUnsupportedError",
+                                            format!(
+                                                "a spread's value on <{tag}> (Svelte assigns the value property)"
+                                            ),
+                                        ));
+                                    }
+                                }
+                                if let Val::Bool(b) = v {
+                                    map.insert("value".into(), b.to_string());
+                                    continue;
+                                }
+                            }
                             (n, Val::Bool(b))
                                 if *spread_boolean_text && !BOOLEAN_PROPERTIES.contains(&n) =>
                             {
-                                map.insert(n.to_owned(), b.to_string());
+                                map.insert(n.to_ascii_lowercase(), b.to_string());
                                 continue;
                             }
                             _ => {}
@@ -3687,15 +3772,16 @@ impl<'p> Machine<'p> {
                                     closure: Some(v.clone()),
                                 });
                             }
+                            // HTML lowercases attribute names.
                             None => match v {
                                 Val::Str(s) => {
-                                    map.insert(name.to_owned(), s.to_rust());
+                                    map.insert(name.to_ascii_lowercase(), s.to_rust());
                                 }
                                 Val::Bool(true) => {
-                                    map.insert(name.to_owned(), String::new());
+                                    map.insert(name.to_ascii_lowercase(), String::new());
                                 }
                                 _ => {
-                                    map.remove(name);
+                                    map.remove(&name.to_ascii_lowercase());
                                 }
                             },
                         }
@@ -3755,6 +3841,18 @@ impl<'p> Machine<'p> {
                             value = Some(map.get("value").cloned().unwrap_or_else(|| "on".into()));
                         }
                         _ => {}
+                    }
+                }
+                if let (Some(b), None) = (spread_checked, checked) {
+                    // Assigned when it changed, as Svelte's set_attributes does.
+                    let cache = self.control_cache.entry(id).or_default();
+                    if cache.1 != Some(b) {
+                        cache.1 = Some(b);
+                        self.live_checked.insert(id, b);
+                    }
+                    checked = self.live_checked.get(&id).copied();
+                    if value.is_none() {
+                        value = Some(map.get("value").cloned().unwrap_or_else(|| "on".into()));
                     }
                 }
                 // An uncontrolled text input shows what was typed, initially its
@@ -5166,13 +5264,18 @@ impl<'p> Machine<'p> {
         // A press closes an open select popup, committing its highlight.
         let closed_popup = self.popup.is_some();
         self.close_popup(false, s)?;
+        // `detail`: the click count of main button presses (one press
+        // of another button counts one).
+        let detail = if button == 0.0 { count as f64 } else { 1.0 };
         let pressed = js::EventData {
             button,
             buttons: if button == 2.0 { 2.0 } else { 1.0 },
+            detail,
             ..Default::default()
         };
         let released = js::EventData {
             button,
+            detail,
             ..Default::default()
         };
         let disabled = self.inside_disabled(target)?;
@@ -5213,9 +5316,13 @@ impl<'p> Machine<'p> {
             self.dispatch(target, EventKind::Mouseup, released, None, s)?;
         }
         if button == 0.0 && !self.inside_disabled(target)? {
-            self.click(target, s)?;
+            self.click_counted(target, detail, s)?;
             if count == 2 {
-                self.dispatch(target, EventKind::Dblclick, Default::default(), None, s)?;
+                let data = js::EventData {
+                    detail: 2.0,
+                    ..Default::default()
+                };
+                self.dispatch(target, EventKind::Dblclick, data, None, s)?;
             }
         }
         Ok(())
@@ -5226,6 +5333,12 @@ impl<'p> Machine<'p> {
     /// click was cancelled (the browser then reverts the toggle), or runs in
     /// the click's dispatch where the framework delivers it with the click.
     fn click(&mut self, target: u64, s: &mut Run) -> Result<()> {
+        self.click_counted(target, 0.0, s)
+    }
+
+    /// The `click` event of a pointer click (`detail`: its click count;
+    /// keyboard and simulated clicks have 0).
+    fn click_counted(&mut self, target: u64, detail: f64, s: &mut Run) -> Result<()> {
         let tree = self.render()?;
         let Some(nodes) = chain_nodes(&tree, target) else {
             return Ok(());
@@ -5261,6 +5374,7 @@ impl<'p> Machine<'p> {
         let with_click = self.program.schedule.change_with_click;
         let data = js::EventData {
             checked: toggled.unwrap_or_default(),
+            detail,
             ..Default::default()
         };
         let with = change
@@ -6368,6 +6482,63 @@ fn element_by_id(tree: &[VNode], id: &str) -> Option<u64> {
 }
 
 /// The nodes from the root to the element with id `id`.
+/// The elements matching `selector` among the descendants of element `id`,
+/// in tree order. Paths start at `<html>`, `<body>` and the root container
+/// (as in the document the runtime builds).
+fn query_selector_all(tree: &[VNode], id: u64, selector: &js::Selector) -> Vec<u64> {
+    enum View<'a> {
+        Outer(&'static str, Option<(&'static str, &'static str)>),
+        Node(&'a VNode),
+    }
+    impl js::SelElement for View<'_> {
+        fn tag(&self) -> &str {
+            match self {
+                View::Outer(t, _) => t,
+                View::Node(VNode::Element { tag, .. }) => tag,
+                View::Node(_) => "",
+            }
+        }
+        fn attr(&self, name: &str) -> Option<&str> {
+            match self {
+                View::Outer(_, a) => a.filter(|(n, _)| *n == name).map(|(_, v)| v),
+                View::Node(VNode::Element { attrs, .. }) => attrs.get(name).map(String::as_str),
+                View::Node(_) => None,
+            }
+        }
+    }
+    fn walk<'a>(
+        nodes: &'a [VNode],
+        path: &mut Vec<View<'a>>,
+        selector: &js::Selector,
+        out: &mut Vec<u64>,
+    ) {
+        for n in nodes {
+            if let VNode::Element { id, children, .. } = n {
+                path.push(View::Node(n));
+                if selector.matches(path) {
+                    out.push(*id);
+                }
+                walk(children, path, selector, out);
+                path.pop();
+            }
+        }
+    }
+    let Some(chain) = chain_nodes(tree, id) else {
+        return vec![];
+    };
+    let mut path = vec![
+        View::Outer("html", None),
+        View::Outer("body", None),
+        View::Outer("div", Some(("id", "root"))),
+    ];
+    path.extend(chain.iter().map(|n| View::Node(n)));
+    let mut out = vec![];
+    if let Some(VNode::Element { children, .. }) = chain.last() {
+        walk(children, &mut path, selector, &mut out);
+    }
+    out
+}
+
 fn chain_nodes(tree: &[VNode], id: u64) -> Option<Vec<&VNode>> {
     fn walk<'t>(nodes: &'t [VNode], id: u64, out: &mut Vec<&'t VNode>) -> bool {
         for n in nodes {

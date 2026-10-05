@@ -68,6 +68,7 @@ pub fn needs_layout(name: &str) -> bool {
                         | "style-get"
                         | "style-set"
                         | "getAnimations"
+                        | "computed-style"
                 )
         }
         // MutationObservers are reported unsupported when they observe.
@@ -561,7 +562,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 "type" | "key" | "code" | "value" => Ok(s),
                 "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "checked"
                 | "defaultPrevented" | "matches" => Ok(b),
-                "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" => Ok(n),
+                "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" | "detail" => Ok(n),
                 "target" => Ok(Element),
                 "relatedTarget" => Ok(Maybe(Box::new(Element))),
                 // Null once the dispatch is over.
@@ -645,6 +646,19 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| b)
         }
+        // `querySelectorAll` / `querySelector` of the descendants (a subset
+        // of selectors, runic_js::parse_selector).
+        ("element", "querySelectorAll") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "selector").map(|_| Type::array(Element))
+        }
+        ("element", "querySelector") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "selector").map(|_| Maybe(Box::new(Element)))
+        }
+        // An attribute's value (`id`), undefined when absent.
         // M6: attribute values, the tag name, and the parent element inside
         // the program's DOM (none for its top-level elements).
         ("element", "getAttribute") => {
@@ -659,6 +673,29 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("element", "parent") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(Element)))
+        }
+        // `getComputedStyle(e).getPropertyValue(name)` of a property whose
+        // resolved value is its computed value (the frontend checks).
+        ("element", "computed-style") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "property").map(|_| s)
+        }
+        // `instanceof HTMLElement`: not in the SVG namespace.
+        ("element", "isHTML") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| b)
+        }
+        // The nearest inclusive ancestor with a tag name (a literal).
+        ("element", "closest") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "tag name").map(|_| Maybe(Box::new(Element)))
+        }
+        // Form submission is not modelled (no form element can be rendered).
+        ("element", "requestSubmit") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Void)
         }
         ("element", "style-get") => {
             arity(args, 2, 2)?;

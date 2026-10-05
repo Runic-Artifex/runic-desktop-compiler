@@ -61,11 +61,13 @@ interface Declared {
       accessors: Set<string>;
     }
   >;
+  /** Constants (`export declare const X: T`). */
+  variables: Set<string>;
 }
 
 function declarations(dts: string): Declared {
   const sf = ts.createSourceFile(dts, readFileSync(dts, 'utf8'), ts.ScriptTarget.Latest, true);
-  const out: Declared = { functions: new Map(), classes: new Map() };
+  const out: Declared = { functions: new Map(), classes: new Map(), variables: new Set() };
   const isStatic = (m: ts.Node) =>
     ts.canHaveModifiers(m) &&
     !!ts.getModifiers(m)?.some(x => x.kind === ts.SyntaxKind.StaticKeyword);
@@ -86,6 +88,9 @@ function declarations(dts: string): Declared {
           },
         ],
       });
+    } else if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && d.type) out.variables.add(d.name.text);
     } else if (ts.isClassDeclaration(stmt) && stmt.name) {
       const c = {
         generic: !!stmt.typeParameters?.length,
@@ -111,6 +116,37 @@ function declarations(dts: string): Declared {
       out.classes.set(stmt.name.text, c);
     }
   }
+  return out;
+}
+
+/**
+ * A package declaration file with its module-private declarations exported:
+ * the typed virtual modules annotate a module's classes from their
+ * declarations (`__dts.C["opts"]`), also of classes and interfaces the
+ * declaration file does not export (bits-ui's `ToggleGroupBaseState`).
+ * Exporting more names changes no other module's types.
+ */
+export function exportAllDeclarations(dts: string): string {
+  const text = readFileSync(dts, 'utf8');
+  const sf = ts.createSourceFile(dts, text, ts.ScriptTarget.Latest, true);
+  const at: number[] = [];
+  for (const stmt of sf.statements) {
+    const declaration =
+      ts.isClassDeclaration(stmt) ||
+      ts.isInterfaceDeclaration(stmt) ||
+      ts.isTypeAliasDeclaration(stmt) ||
+      ts.isFunctionDeclaration(stmt) ||
+      ts.isVariableStatement(stmt) ||
+      ts.isEnumDeclaration(stmt);
+    const exported = ts
+      .getModifiers(stmt as ts.HasModifiers)
+      ?.some(
+        m => m.kind === ts.SyntaxKind.ExportKeyword || m.kind === ts.SyntaxKind.DefaultKeyword,
+      );
+    if (declaration && !exported) at.push(stmt.getStart(sf));
+  }
+  let out = text;
+  for (const pos of at.reverse()) out = out.slice(0, pos) + 'export ' + out.slice(pos);
   return out;
 }
 
@@ -156,7 +192,9 @@ export function annotate(
 ): PackageModule {
   const virtual = file + '.__runic.ts';
   const dts = declarationFile(file);
-  const declared: Declared = dts ? declarations(dts) : { functions: new Map(), classes: new Map() };
+  const declared: Declared = dts
+    ? declarations(dts)
+    : { functions: new Map(), classes: new Map(), variables: new Set() };
   const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const inserts: { at: number; text: string }[] = [];
   const add = (at: number, text: string) => inserts.push({ at, text });
@@ -174,13 +212,23 @@ export function annotate(
     if (at !== undefined && !decl.type) add(at, `: ${type}`);
   };
   for (const stmt of sf.statements) {
+    // Exported constants take their declared types (runed `Context<T>` keys).
+    if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && !d.type && declared.variables.has(d.name.text))
+          add(d.name.end, `: typeof __dts.${d.name.text}`);
+      continue;
+    }
     if (ts.isFunctionDeclaration(stmt) && stmt.name && stmt.body) {
       const d = declared.functions.get(stmt.name.text);
       if (!d || d.generic) continue;
       if (d.signatures === 1) {
         const f = `typeof __dts.${stmt.name.text}`;
         params(stmt, i => `Parameters<${f}>[${i}]`);
-        result(stmt, `ReturnType<${f}>`);
+        // A type predicate (`element is HTMLElement`) narrows at call sites.
+        const predicate = /^(\w+) is /.exec(d.overloads[0].result);
+        const named = predicate && stmt.parameters.some(p => p.name.getText(sf) === predicate[1]);
+        result(stmt, named ? d.overloads[0].result : `ReturnType<${f}>`);
         continue;
       }
       // Overloads (`createId(uid)`, `createId(prefix, uid)`): each parameter
@@ -311,6 +359,93 @@ export function inferFields(
           );
         let open = false;
         const init = member.initializer;
+        // An arrow function with untyped parameters that the class passes as
+        // runed's `watch(sources, effect)` effect (bits-ui's
+        // `watch([() => this.open, () => this.opts.ref.current],
+        // this.#updateDimensions)`): the function of the sources' values, as
+        // if written there (TypeScript infers the sources' types from the
+        // untyped effect too, so they are read from the getters).
+        if (init && ts.isArrowFunction(init) && init.parameters.some(p => !p.type)) {
+          const expected: string[] = [];
+          const visitArg = (n: ts.Node) => {
+            if (
+              ts.isPropertyAccessExpression(n) &&
+              n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+              n.name.getText() === fieldName &&
+              ts.isCallExpression(n.parent) &&
+              n.parent.arguments[1] === n
+            ) {
+              const call = n.parent;
+              const callee = ts.isPropertyAccessExpression(call.expression)
+                ? call.expression.expression
+                : call.expression;
+              const sources = call.arguments[0];
+              const watch =
+                ts.isIdentifier(callee) &&
+                callee.text === 'watch' &&
+                /[\\/]runed[\\/]/.test(declaredIn(checker, callee));
+              const getters =
+                watch && ts.isArrayLiteralExpression(sources)
+                  ? sources.elements.map(g =>
+                      ts.isArrowFunction(g)
+                        ? checker.getSignaturesOfType(
+                            checker.getTypeAtLocation(g),
+                            ts.SignatureKind.Call,
+                          )[0]
+                        : undefined,
+                    )
+                  : undefined;
+              const values = getters?.map(s => (s ? print(s.getReturnType(), n) : undefined));
+              if (values && values.every(v => v !== undefined)) {
+                const tuple = `[${values.join(', ')}]`;
+                const text = `((values: ${tuple}) => void)`;
+                if (!expected.includes(text)) expected.push(text);
+              } else expected.push('');
+            }
+            ts.forEachChild(n, visitArg);
+          };
+          stmt.members.forEach(visitArg);
+          if (expected.length === 1 && expected[0] && next.get(key) !== expected[0])
+            next.set(key, expected[0]);
+          if (expected.length) continue;
+        }
+        // svelte-toolbelt's `box(initial)` (a writable box of any value):
+        // the box of its initial value and of the values the class writes
+        // to its `current` (RovingFocusGroup's `#currentTabStopId = box(null)`).
+        const boxCall =
+          init &&
+          ts.isCallExpression(init) &&
+          ts.isIdentifier(init.expression) &&
+          init.expression.text === 'box' &&
+          /[\\/]svelte-toolbelt[\\/]/.test(declaredIn(checker, init.expression));
+        if (boxCall) {
+          const values: string[] = [];
+          let unknown = false;
+          const add = (e: ts.Expression) => {
+            const p = valueType(checker.getTypeAtLocation(e), e);
+            if (p === undefined) unknown = true;
+            else if (!values.includes(p)) values.push(p);
+          };
+          if (init.arguments[0]) add(init.arguments[0]);
+          const visitBox = (n: ts.Node) => {
+            if (
+              ts.isBinaryExpression(n) &&
+              n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+              ts.isPropertyAccessExpression(n.left) &&
+              n.left.name.text === 'current' &&
+              ts.isPropertyAccessExpression(n.left.expression) &&
+              n.left.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
+              n.left.expression.name.getText() === fieldName
+            )
+              add(n.right);
+            ts.forEachChild(n, visitBox);
+          };
+          stmt.members.forEach(visitBox);
+          if (unknown || !values.length) continue;
+          const text = `import("svelte-toolbelt").WritableBox<${values.join(' | ')}>`;
+          if (next.get(key) !== text) next.set(key, text);
+          continue;
+        }
         if (init) {
           let value: ts.Expression | undefined = init;
           if (ts.isCallExpression(init)) {
@@ -323,13 +458,18 @@ export function inferFields(
           if (p === undefined) open = true;
           else addType(p);
         }
-        // Assignments `this.f = value` in the class.
+        // Assignments `this.f = value` in the class (also `??=` and `||=`,
+        // which keep the field's value or assign `value`).
         let assigned = 0;
         let topLevel = false;
         const visit = (n: ts.Node) => {
           if (
             ts.isBinaryExpression(n) &&
-            n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+            [
+              ts.SyntaxKind.EqualsToken,
+              ts.SyntaxKind.QuestionQuestionEqualsToken,
+              ts.SyntaxKind.BarBarEqualsToken,
+            ].includes(n.operatorToken.kind) &&
             ts.isPropertyAccessExpression(n.left) &&
             n.left.expression.kind === ts.SyntaxKind.ThisKeyword &&
             n.left.name.getText() === fieldName
@@ -389,6 +529,13 @@ export function inferFields(
     }
   }
   return changed;
+}
+
+/** The files declaring what identifier `id` names, through import aliases. */
+function declaredIn(checker: ts.TypeChecker, id: ts.Identifier): string {
+  let sym = checker.getSymbolAtLocation(id);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  return sym?.declarations?.map(d => d.getSourceFile().fileName).join() ?? '';
 }
 
 /**

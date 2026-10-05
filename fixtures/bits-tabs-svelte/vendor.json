@@ -1,0 +1,83 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/tabs-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-demo.svelte",
+      "sha256": "44f2eadb497041ff0cbea249008247f604d1ee7381d4bb956ffa94bbdc15dc7a"
+    },
+    "src/lib/registry/examples/tabs-disabled.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-disabled.svelte",
+      "sha256": "74e60e4fc986872a52f4bfdc4b860e5d6319dd0e1dd48bbd3006d44454624815"
+    },
+    "src/lib/registry/examples/tabs-line.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-line.svelte",
+      "sha256": "27234449043d65054689a9ac7fa0a5135328712676329c4de040f73cefd784e1"
+    },
+    "src/lib/registry/examples/tabs-vertical.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-vertical.svelte",
+      "sha256": "5c4b6a34897e60dfc862b6c0f73d9bff5f0835d6c73b488a6055286df2fb2789"
+    },
+    "src/lib/registry/ui/card/card-action.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-action.svelte",
+      "sha256": "032220a0e351eac68b77e4cedf938597376703f1a95648a615306b0a648d2851"
+    },
+    "src/lib/registry/ui/card/card-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-content.svelte",
+      "sha256": "1fc6e4e49eb6cd16ce76e66d1015fe72503a8538bc8e602326a3f5130ffd8a33"
+    },
+    "src/lib/registry/ui/card/card-description.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-description.svelte",
+      "sha256": "c51e61a11c7b87e3da6b06eb953e7bfffe0388f7721795bfc207c8bea0aabbd3"
+    },
+    "src/lib/registry/ui/card/card-footer.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-footer.svelte",
+      "sha256": "9242ce73ae1fdf89f2dc30c42302e928ae6bf1dfecd18df1c08e1958afb71161"
+    },
+    "src/lib/registry/ui/card/card-header.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-header.svelte",
+      "sha256": "5c15cab4b41f19e406b86a46d767dc7d38936c5870a64707a633f515f59a5215"
+    },
+    "src/lib/registry/ui/card/card-title.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-title.svelte",
+      "sha256": "5deb7cebbb6cb224a4dd62dcf61468ee39094497df2b186210d7e1a36096ac02"
+    },
+    "src/lib/registry/ui/card/card.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card.svelte",
+      "sha256": "263baa411cacfe098ba631ff8696aa02a9134ff40094b56caaf4800de7bfad0b"
+    },
+    "src/lib/registry/ui/card/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/card/index.ts",
+      "sha256": "41b4e0bf782f5e2bbed1863de169ad9f623b47a73f9fc57ba6776779e4be9edb"
+    },
+    "src/lib/registry/ui/tabs/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/tabs/index.ts",
+      "sha256": "e8c5e55fb540595b2a250f2ffd292cac31b2b272820df0f36df348351c7a84b5"
+    },
+    "src/lib/registry/ui/tabs/tabs-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tabs/tabs-content.svelte",
+      "sha256": "49d163282450e1feba057c0d1ca7f72c9ef4ca93d285573f44ed2495b844ce61"
+    },
+    "src/lib/registry/ui/tabs/tabs-list.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tabs/tabs-list.svelte",
+      "sha256": "410e918ca56b033f49e33956e50a85893160efe71876662547cf8568d8fbcb26"
+    },
+    "src/lib/registry/ui/tabs/tabs-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tabs/tabs-trigger.svelte",
+      "sha256": "f758c7a51d37761bb25cfbe78598138620dfe7994e7c6458cb07132a34fa7ab1"
+    },
+    "src/lib/registry/ui/tabs/tabs.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tabs/tabs.svelte",
+      "sha256": "142b05375fab107912b4b1b9ceb5ef76e83bf42c6a2f145b2180b0ff70723e57"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

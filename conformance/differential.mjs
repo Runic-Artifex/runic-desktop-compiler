@@ -47,6 +47,7 @@ const LAYOUT_ELEMENT = new Set([
   'style-get',
   'style-set',
   'getAnimations',
+  'computed-style',
 ]);
 const LAYOUT_WINDOW = new Set(['innerWidth', 'innerHeight', 'scrollX', 'scrollY', 'scrollTo', 'scrollBy']);
 function layoutBuiltin(v) {

@@ -12,6 +12,8 @@
 //   assigning it calls the setter (a readable box has none: TypeError, as
 //   assigning a getter-only property throws in strict code). The types
 //   `ReadableBox<T>` and `WritableBox<T>` both map to the box record of T.
+// - `box(initial)` (dist/box/box.svelte.js): a writable box over a `$state`
+//   of its own (a class record with one reactive field).
 // - `mergeProps(...bags)` (dist/utils/merge-props.js): the IR built-in
 //   `attrs.merge-props`, which implements the package's rules
 //   (crates/runic-js/src/attrs.rs): event listeners compose (each runs
@@ -27,11 +29,15 @@
 // - `afterTick(fn)` (dist/utils/after-tick.js): `tick().then(fn)`.
 // - `onDestroyEffect(fn)` (dist/utils/on-destroy-effect.svelte.js): an
 //   effect of the instance being created whose cleanup calls `fn`.
+// - `new DOMContext(box)` (dist/utils/dom-context.svelte.js): a record of the
+//   element box whose setTimeout and clearTimeout are the window's.
+// - `srOnlyStyles` (dist/utils/sr-only-styles.js): a constant style object,
+//   folded where it is spread into a bag's style object.
 //
 // Other exports and argument shapes are rejected (E_PACK).
 import ts from 'typescript';
 import type { Expr, Fn, Local, Stmt, Type } from '../ir.ts';
-import type { FnBuilder, Lowerer } from '../language.ts';
+import { skipParens, type FnBuilder, type Lowerer } from '../language.ts';
 import type { Pack } from '../packs.ts';
 import { emptyShape, union } from '../bags.ts';
 import { maybeInner } from '../irtype.ts';
@@ -125,7 +131,26 @@ function boxValue(lower: Lowerer, t: Type): Type | undefined {
 
 /** A function value lowered for a parameter of type `want` (a closure or an expression). */
 function functionArg(e: ts.Expression, b: FnBuilder, lower: Lowerer, want: Type): Expr {
-  const v = lower.expr(e, b);
+  // An inline function whose parameters TypeScript types wider than the
+  // value model (a setter of a union TypeScript infers from a prop a
+  // discriminant narrowed): the wanted parameter types.
+  const fn = skipParens(e);
+  const untyped =
+    (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) &&
+    typeof want === 'object' &&
+    'fn' in want &&
+    fn.parameters.length === want.fn.params.length &&
+    fn.parameters.some(
+      p => lower.types.tryMap(lower.checker.getTypeAtLocation(p), p) === undefined,
+    );
+  const v = untyped
+    ? lower.closure(
+        fn as ts.ArrowFunction,
+        b,
+        'closure',
+        (want as { fn: { params: Type[] } }).fn.params,
+      )
+    : lower.expr(e, b);
   const have = lower.irType(v, b);
   // A function whose result is ignored, or taking fewer parameters.
   const adapted = lower.adaptFunction(v, have, want);
@@ -139,25 +164,224 @@ function functionArg(e: ts.Expression, b: FnBuilder, lower: Lowerer, want: Type)
   return v;
 }
 
+/**
+ * `srOnlyStyles` (dist/utils/sr-only-styles.js): a style object, spread into
+ * the style objects of attribute bags (bits-ui's hidden inputs).
+ * tests/bits.test.mjs checks it against the package.
+ */
+export const SR_ONLY_STYLES: Readonly<Record<string, string>> = Object.freeze({
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: '0',
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  borderWidth: '0',
+  transform: 'translateX(-100%)',
+});
+
 /** `boxWith(getter, setter?)`. */
 function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const [getter, setter] = node.arguments;
   if (!getter || node.arguments.length > 2 || node.arguments.some(ts.isSpreadElement))
     return lower.fail(node, 'E_PACK', `${LABEL}: boxWith takes a getter and an optional setter`);
-  const box = lower.types.of(node);
+  // A box of a value TypeScript types `any` or wider than the value model (a
+  // prop typed from its sites, or narrowed by a discriminant): the getter's
+  // result type.
+  const current = lower.checker.getTypeAtLocation(node).getProperty('current');
+  const currentType = current && lower.checker.getTypeOfSymbolAtLocation(current, node);
+  const untyped =
+    currentType &&
+    (currentType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) ||
+      lower.types.tryMap(currentType, node) === undefined);
+  let box: Type;
+  if (untyped) {
+    const g = lower.expr(getter, b);
+    const gt = lower.irType(g, b);
+    if (typeof gt !== 'object' || !('fn' in gt) || gt.fn.params.length)
+      return lower.fail(getter, 'E_PACK', `${LABEL}: boxWith takes a getter`);
+    box = { record: boxRecord(lower, gt.fn.result) };
+  } else box = lower.types.of(node);
   const t = boxValue(lower, box);
   if (t === undefined) return lower.fail(node, 'E_PACK', `${LABEL}: boxWith's type is not a box`);
   const get = functionArg(getter, b, lower, fnType([], t));
+  // A readable box where one of the nullable type is expected (bits-ui's
+  // `value: boxWith(() => value)` for an option `ReadableBox<string |
+  // undefined>`): the box of the nullable type, its getter wrapping the value.
+  const context = lower.checker.getContextualType(node);
+  const wanted = context && lower.types.tryMap(context, node);
+  const wt = wanted && boxValue(lower, wanted);
+  if (!setter && wt && maybeInner(wt) && JSON.stringify(maybeInner(wt)) === JSON.stringify(t)) {
+    const getType = fnType([], t);
+    const widen = define(lower, {
+      name: 'boxWith$widen',
+      captures: [{ name: 'get', type: getType }],
+      params: [],
+      result: wt,
+      body: [
+        {
+          op: 'return',
+          value: { op: 'some', value: { op: 'call-value', callee: local(0), args: [] } },
+        },
+      ],
+    });
+    const tmp = b.local('$get', getType);
+    return {
+      op: 'with',
+      local: tmp,
+      value: get,
+      body: {
+        op: 'record',
+        record: (wanted as { record: number }).record,
+        fields: [
+          { op: 'closure', function: widen, captures: [tmp] },
+          { op: 'undefined', type: { maybe: fnType([wt], 'void') } },
+        ],
+      },
+    };
+  }
   const set: Expr = setter
     ? { op: 'some', value: functionArg(setter, b, lower, fnType([t], 'void')) }
     : { op: 'undefined', type: { maybe: fnType([t], 'void') } };
   return { op: 'record', record: (box as { record: number }).record, fields: [get, set] };
 }
 
+/** State records (one reactive `$state` field) by value type, per program. */
+const states = new WeakMap<Lowerer, Map<string, number>>();
+
+/** The record holding a `$state` value of type `t`. */
+function stateRecord(lower: Lowerer, t: Type): number {
+  let known = states.get(lower);
+  if (!known) states.set(lower, (known = new Map()));
+  const key = JSON.stringify(t);
+  const found = known.get(key);
+  if (found !== undefined) return found;
+  const record = lower.types.records.length;
+  known.set(key, record);
+  lower.types.records.push({
+    name: 'BoxState',
+    class: true,
+    fields: [{ name: 'value', type: t, reactive: 'state' }],
+  });
+  return record;
+}
+
+/**
+ * `box(initial)` (dist/box/box.svelte.js): a writable box over its own
+ * `$state`: the getter reads it, the setter writes it (the box of the
+ * declared or contextual type: `box(null)` for a `WritableBox<string | null>`).
+ */
+function box(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [initial] = node.arguments;
+  if (node.arguments.length > 1 || (initial && ts.isSpreadElement(initial)))
+    return lower.fail(node, 'E_PACK', `${LABEL}: box takes an initial value`);
+  const context = lower.checker.getContextualType(node);
+  const wanted = context && lower.types.tryMap(context, node);
+  const box = wanted && boxValue(lower, wanted) !== undefined ? wanted : lower.types.of(node);
+  const t = boxValue(lower, box);
+  if (t === undefined) return lower.fail(node, 'E_PACK', `${LABEL}: box's type is not a box`);
+  const state = stateRecord(lower, t);
+  const stateType: Type = { record: state };
+  const value: Expr = initial
+    ? initial.kind === ts.SyntaxKind.NullKeyword && maybeInner(t)
+      ? { op: 'null', type: t }
+      : lower.coerce(initial, b, t)
+    : { op: 'undefined', type: t };
+  const getter = define(lower, {
+    name: 'box$get',
+    captures: [{ name: 'state', type: stateType }],
+    params: [],
+    result: t,
+    body: [{ op: 'return', value: { op: 'get', object: local(0), field: 0 } }],
+  });
+  const setter = define(lower, {
+    name: 'box$set',
+    captures: [{ name: 'state', type: stateType }],
+    params: [{ name: 'v', type: t }],
+    result: 'void',
+    body: [
+      { op: 'assign', target: { place: 'field', object: local(0), field: 0 }, value: local(1) },
+    ],
+  });
+  const tmp = b.local('$box', stateType);
+  return {
+    op: 'with',
+    local: tmp,
+    value: { op: 'record', record: state, fields: [value] },
+    body: {
+      op: 'record',
+      record: (box as { record: number }).record,
+      fields: [
+        { op: 'closure', function: getter, captures: [tmp] },
+        { op: 'some', value: { op: 'closure', function: setter, captures: [tmp] } },
+      ],
+    },
+  };
+}
+
+/** DOMContext records, per program. */
+const domContexts = new WeakMap<Lowerer, number>();
+
+/**
+ * The record of `DOMContext` (dist/utils/dom-context.svelte.js): its
+ * element box. `setTimeout` and `clearTimeout` are the window's timers;
+ * its other members (the document, the active element, queries in its root
+ * node) are not covered.
+ */
+function domContextRecord(lower: Lowerer): number {
+  const known = domContexts.get(lower);
+  if (known !== undefined) return known;
+  const record = lower.types.records.length;
+  domContexts.set(lower, record);
+  const element: Type = { record: boxRecord(lower, { maybe: 'element' }) };
+  lower.types.records.push({
+    name: 'DOMContext',
+    class: true,
+    fields: [{ name: 'element', type: element }],
+  });
+  const covered = `${LABEL}: DOMContext covers setTimeout and clearTimeout`;
+  lower.recordMembers.set(record, {
+    read(name, _object, at) {
+      return lower.fail(at, 'E_PACK', `${covered}, not ${name}`);
+    },
+    write(name, _object, _value, at) {
+      return lower.fail(at, 'E_PACK', `${covered}; ${name} cannot be assigned`);
+    },
+    call(name, _object, node, b) {
+      if (name !== 'setTimeout' && name !== 'clearTimeout')
+        return lower.fail(node, 'E_PACK', `${covered}, not ${name}()`);
+      return lower.hostCall(name, node, b)!;
+    },
+  });
+  return record;
+}
+
+/** `new DOMContext(element)` of an element box (a getter is not covered). */
+function newDomContext(node: ts.NewExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [element] = node.arguments ?? [];
+  if (!element || node.arguments!.length !== 1)
+    return lower.fail(node, 'E_PACK', `${LABEL}: new DOMContext takes the element's box`);
+  const record = domContextRecord(lower);
+  const want = lower.types.records[record].fields[0].type;
+  const v = lower.expr(element, b);
+  if (JSON.stringify(lower.irType(v, b)) !== JSON.stringify(want))
+    return lower.fail(
+      element,
+      'E_PACK',
+      `${LABEL}: new DOMContext takes a box of an element or null`,
+    );
+  return { op: 'record', record, fields: [v] };
+}
+
 /** `mergeProps(...bags)`. */
 function mergeProps(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const args = node.arguments.map(a => {
     if (ts.isSpreadElement(a)) return lower.fail(a, 'E_PACK', `${LABEL}: spread arguments`);
+    // An object literal is a bag of its entries (`{ type }`, `{ ...restProps }`).
+    const literal = skipParens(a);
+    if (ts.isObjectLiteralExpression(literal)) return lower.bagLiteral(literal, b);
     const v = lower.expr(a, b);
     if (lower.irType(v, b) !== 'attrs')
       lower.fail(a, 'E_PACK', `${LABEL}: mergeProps takes attribute bags (props objects)`);
@@ -324,6 +548,8 @@ export const svelteToolbeltPack: Pack = {
     switch (imported) {
       case 'boxWith':
         return { kind: 'function', call: boxWith };
+      case 'box':
+        return { kind: 'function', call: box };
       case 'mergeProps':
         return {
           kind: 'function',
@@ -336,10 +562,28 @@ export const svelteToolbeltPack: Pack = {
         return { kind: 'function', call: afterTick };
       case 'onDestroyEffect':
         return { kind: 'function', call: onDestroyEffect };
+      case 'srOnlyStyles':
+        return { kind: 'constant', value: SR_ONLY_STYLES };
+      case 'DOMContext':
+        return {
+          kind: 'function',
+          call: (n, _b, l) =>
+            l.fail(n, 'E_PACK', `${LABEL}: DOMContext is a class (new DOMContext(box))`),
+          construct: newDomContext,
+        };
     }
-    return `${LABEL} covers boxWith, mergeProps, attachRef, afterTick and onDestroyEffect, not ${imported}`;
+    return `${LABEL} covers box, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect, srOnlyStyles and DOMContext, not ${imported}`;
   },
   type(t, at, lower) {
+    // DOMContext (dist/utils/dom-context.svelte.d.ts).
+    const sym = t.getSymbol();
+    if (
+      sym?.name === 'DOMContext' &&
+      /[\\/]svelte-toolbelt[\\/]dist[\\/]utils[\\/]dom-context\.svelte\.d\.ts$/.test(
+        sym.declarations?.[0]?.getSourceFile().fileName ?? '',
+      )
+    )
+      return { record: domContextRecord(lower) };
     // ReadableBox<T> and WritableBox<T> (dist/box/box-extras.svelte.d.ts):
     // a `current` property and the BoxSymbol brand.
     const checker = lower.checker;
