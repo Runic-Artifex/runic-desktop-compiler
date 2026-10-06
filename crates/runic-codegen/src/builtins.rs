@@ -1490,7 +1490,14 @@ fn array(cx: &FnCtx, m: &str, t: &[String], types: &[Type]) -> String {
     match m {
         "length" => format!("{ar}::length(&{a})"),
         "get" => format!("{ar}::get(&{a}, {})", t[1]),
-        "at" => format!("{ar}::at(&{a}, {})", t[1]),
+        "at" => {
+            let at = format!("{ar}::at(&{a}, {})", t[1]);
+            // (Of elements that may be absent: one undefined, as the validator types it.)
+            match types.first() {
+                Some(Type::Array(e)) if matches!(**e, Type::Maybe(_)) => format!("{at}.flatten()"),
+                _ => at,
+            }
+        }
         "push" => format!("{ar}::push(&{a}, {})", owned_rest(1)),
         "unshift" => format!("{ar}::unshift(&{a}, {})", owned_rest(1)),
         "pop" => format!("{ar}::pop(&{a})"),

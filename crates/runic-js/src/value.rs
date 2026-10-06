@@ -46,6 +46,18 @@ impl<T> Maybe<T> {
     }
 }
 
+impl<T> Maybe<Maybe<T>> {
+    /// A read that may find nothing of a value that may be absent: JavaScript
+    /// has one undefined (and a null value stays null).
+    pub fn flatten(self) -> Maybe<T> {
+        match self {
+            Maybe::Some(v) => v,
+            Maybe::Undefined => Maybe::Undefined,
+            Maybe::Null => Maybe::Null,
+        }
+    }
+}
+
 /// ToBoolean.
 pub trait Truthy {
     fn truthy(&self) -> bool;

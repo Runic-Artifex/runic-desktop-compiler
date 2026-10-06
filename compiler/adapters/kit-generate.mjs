@@ -564,14 +564,12 @@ ${
     id: ${js(r.id)},
     index: ${r.index},
     exec: (path: string): Params | undefined => {
+      // A capture that does not participate is undefined (optional and rest
+      // parameters): at() reads it as TypeScript types it, string | undefined.
       const match = ${regexLiteral(r.pattern)}.exec(path);
       if (!match) return undefined;
       const values: (string | undefined)[] = [];
-      for (let i = 1; i < match.length; i++) {
-        // A capture that does not participate is undefined (optional and rest parameters).
-        const value: string | undefined = match[i] ?? undefined;
-        values.push(value);
-      }
+      for (let i = 1; i < match.length; i++) values.push(match.at(i));
       const result = exec_params(values, [${defs}], matches);
       if (!result) return undefined;
       return new Params(${paramNames.map(p => `decode(result.get(${js(p)}))`).join(', ')});

@@ -53,7 +53,7 @@ import { valueSet } from '../packs/choice.ts';
 import { BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
 import { packageBindings } from '../package-bindings.ts';
 import { componentBinding, componentGlobal } from '../component-values.ts';
-import { jsonBinding } from '../json-modules.ts';
+import { jsonBinding, reexportsJson } from '../json-modules.ts';
 import { Fragments } from '../html-fragments.ts';
 import {
   componentValues,
@@ -1057,10 +1057,16 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         packageModules.get(edge.resolved)?.virtual ??
         (source ? undefined : edge.resolved);
       if (target === undefined) return undefined;
-      // A script module with a declaration file beside it is typed by the
-      // declarations, as TypeScript resolves it (velite's content index).
+      // A script module re-exporting JSON files with a declaration file beside
+      // it is typed by the declarations, as TypeScript resolves it (velite's
+      // content index); other script modules are lowered from their source.
       const declarations = target.replace(/\.m?js$/, '.d.ts');
-      if (declarations !== target && existsSync(declarations)) return declarations;
+      if (
+        declarations !== target &&
+        existsSync(declarations) &&
+        reexportsJson(graph.modules.get(target)?.code ?? readFileSync(target, 'utf8'), target)
+      )
+        return declarations;
       // A module only imported for its types is not collected; TypeScript reads it.
       return files.has(target) || (/\.(ts|js|mjs)$/.test(target) && existsSync(target))
         ? target

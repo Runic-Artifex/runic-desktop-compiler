@@ -143,3 +143,22 @@ export function jsonBinding(
   }
   return { kind: 'value', expr: { op: 'global', global: index } };
 }
+
+/**
+ * Whether a script module only re-exports JSON files (velite's content
+ * index): the modules typed by their sibling declaration files. Other script
+ * modules are lowered from their source, typed by it.
+ */
+export function reexportsJson(code: string, file: string): boolean {
+  const sf = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+  return (
+    sf.statements.length > 0 &&
+    sf.statements.every(
+      s =>
+        ts.isExportDeclaration(s) &&
+        !!s.moduleSpecifier &&
+        ts.isStringLiteral(s.moduleSpecifier) &&
+        s.moduleSpecifier.text.endsWith('.json'),
+    )
+  );
+}

@@ -144,6 +144,10 @@ const SEMANTICS = `function extra(s: string): string {
     if (named) out.push(named.groups?.word ?? '-', named.groups?.num ?? '-', named.groups!.word ?? '');
     const ws = s.match(/[a-z]+/g);
     out.push(ws ? ws.join('+') : 'none', String(s.match(/(z)(q)?/)?.[2]), String(s.match(/(z)/)?.index));
+    const opt = /(z)(q)?/.exec(s);
+    if (opt) for (let i = -1; i <= opt.length; i++) out.push(String(opt.at(i)));
+    const all = /(x)-(y)/.exec(s);
+    if (all) for (let i = -1; i <= all.length; i++) out.push(String(all.at(i)));
     const words = new Set(s.toLowerCase().split(/[^\\p{L}\\p{N}]+/u).filter((w) => w.length > 1));
     out.push(String(words.size), String(/\\u212A/i.test('k')), String(/[a-z]/i.test('\\u017F')), String(/[a-z]/iu.test('\\u017F')));
     return out.join(' ');
@@ -200,6 +204,12 @@ test('rejected: captures that may be undefined read as strings, groups objects, 
   await reject(
     'function extra(s: string): string { const [, a] = /(a)?b/.exec(s)!; return a; }',
     /may not participate/,
+  );
+  // `?? undefined` keeps the undefined TypeScript then narrows away.
+  await reject(
+    "function extra(s: string): string { const m = /(a)?b/.exec(s); const a: string | undefined = m ? m[1] ?? undefined : ''; return String(a); }",
+    /sides of \?\?/,
+    'E_TYPE_UNION',
   );
   await reject(
     'function extra(s: string): string { return String(([s] as RegExpExecArray).index); }',

@@ -1700,9 +1700,20 @@ fn array_method(m: &str, args: &[Type], declared: &Type) -> R {
     };
     match m {
         "length" => arity(args, 1, 1).map(|_| n),
-        "get" | "at" => arity(args, 2, 2)
+        "get" => arity(args, 2, 2)
             .and(expect(&args[1], &n, "index"))
             .map(|_| Type::maybe(t)),
+        // (An element that may be absent itself is the result as it is:
+        // JavaScript has one undefined, as TypeScript types `at`.)
+        "at" => arity(args, 2, 2)
+            .and(expect(&args[1], &n, "index"))
+            .map(|_| {
+                if matches!(t, Type::Maybe(_)) {
+                    t
+                } else {
+                    Type::maybe(t)
+                }
+            }),
         "push" | "unshift" => rest
             .iter()
             .try_for_each(|a| expect(a, &t, "item"))

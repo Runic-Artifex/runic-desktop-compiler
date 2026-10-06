@@ -1379,3 +1379,14 @@ fn reduce_errors_and_default_sort_order() {
     assert_eq!(joined.to_rust(), "nul||nz|o|");
     assert!(sorted.borrow()[1].is_null());
 }
+
+/// `at` of elements that may be absent (a match array's captures): one
+/// undefined, out of range or not, and a null element stays null.
+#[test]
+fn at_of_absent_elements_flattens() {
+    let a: JsArray<Maybe<f64>> = array(vec![Maybe::Some(1.0), Maybe::Undefined, Maybe::Null]);
+    assert_eq!(ops::at(&a, 0.0).flatten(), Maybe::Some(1.0));
+    assert_eq!(ops::at(&a, 1.0).flatten(), Maybe::Undefined);
+    assert_eq!(ops::at(&a, -1.0).flatten(), Maybe::Null);
+    assert_eq!(ops::at(&a, 3.0).flatten(), Maybe::Undefined);
+}
