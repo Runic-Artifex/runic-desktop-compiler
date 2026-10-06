@@ -1,0 +1,9 @@
+{
+  "framework": "svelte",
+  "entry": "main.js",
+  "title": "Runic bits-dialog-svelte",
+  "tailwind": true,
+  "alias": {
+    "$lib": "src/lib"
+  }
+}

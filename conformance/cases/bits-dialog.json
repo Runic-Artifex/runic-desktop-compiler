@@ -1,0 +1,29 @@
+{
+  "description": "bits-ui's Dialog compiled from its published source through shadcn-svelte's unmodified dialog, field, button, input, label and separator wrappers and the dialog-demo (a form around the trigger and the content; Field.Group's @container field-group rules through the Blitz fork's container queries). Opened from the trigger by Enter, the content focused on its first input (its value from the Input's defaultValue through bind:value's start, the caret at the start); typing into both inputs, Tab through the content, Escape closing it with focus back on the trigger; reopened and closed by a press outside the content (on the overlay covering the page: `covered`); reopened and closed by Cancel. bits-ui's body scroll lock (overflow hidden, the scrollbar compensation), the portal, the open and close animations, aria and data-state attributes",
+  "fixtures": ["bits-dialog-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "type", "text": "Dr " },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "type", "text": "x" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "click", "id": "demo", "position": { "x": 4, "y": 4 }, "covered": true },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 }
+  ]
+}

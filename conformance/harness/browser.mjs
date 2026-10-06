@@ -447,8 +447,11 @@ async function perform(page, action, timeout, time) {
     case 'click': {
       // Real pointer input at the element centre. A disabled control is still
       // clicked (force skips Playwright's wait-for-enabled); the browser then
-      // naturally ignores it, matching what a user would see.
-      const force = await target.isDisabled({ timeout });
+      // naturally ignores it, matching what a user would see. With
+      // `covered: true` the point is pressed whatever is on top of it there (a
+      // modal overlay), as the native probe always does: force also skips the
+      // check that the element receives the events.
+      const force = action.covered === true || (await target.isDisabled({ timeout }));
       await target.click({ force, timeout, position });
       break;
     }
