@@ -74,6 +74,25 @@ pub fn reported<T>(r: runic_js::JsResult<T>) -> runic_js::JsResult<T> {
     }
     r
 }
+thread_local! {
+    static RENDER_ERRORS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// A throw while rendering (a duplicate key in a keyed list): reported, and
+/// in probes kept for the next snapshot, as the reference interpreter's
+/// snapshot is then the error (the differential compares the two).
+pub fn render_error(e: &runic_js::Throw) {
+    eprintln!("runic: render error: {e}");
+    if probe_mode() {
+        RENDER_ERRORS.with(|r| r.borrow_mut().push(e.to_string()));
+    }
+}
+
+#[cfg(feature = "probe")]
+pub(crate) fn take_render_errors() -> Vec<String> {
+    RENDER_ERRORS.with(|r| std::mem::take(&mut *r.borrow_mut()))
+}
+
 /// CSSOM inline styles, media queries and the document element.
 pub use runic_css as css;
 

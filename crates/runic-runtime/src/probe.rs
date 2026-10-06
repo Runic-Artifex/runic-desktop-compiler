@@ -218,6 +218,10 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
     if !host.is_empty() {
         state["host"] = Value::Object(host);
     }
+    let errors = crate::take_render_errors();
+    if !errors.is_empty() {
+        state["renderErrors"] = json!(errors);
+    }
     state
 }
 

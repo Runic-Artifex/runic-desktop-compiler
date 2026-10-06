@@ -813,7 +813,7 @@ impl Gen<'_> {
                 out,
                 "pub struct PortalI{c} {{ ci: I{c}, ct: Rc<RefCell<T{c}>>, cs: Box<S{root}>, body: NodeId, anchor: NodeId }}\n\
                  impl Portal for PortalI{c} {{\n\
-                 fn update(&mut self, cx: &mut Cx, dom: &mut Dom) {{ {pre}let via = std::mem::take(&mut cx.via); let r = update_s{root}(&mut self.cs, cx, dom, &self.ci, &self.ct, false, self.body, Some(self.anchor)); cx.via = via; if let Err(e) = r {{ eprintln!(\"runic: render error: {{e}}\"); }} if let Err(e) = sync_s{root}(&self.cs, cx, dom, &self.ci, &self.ct) {{ eprintln!(\"runic: render error: {{e}}\"); }} }}\n\
+                 fn update(&mut self, cx: &mut Cx, dom: &mut Dom) {{ {pre}let via = std::mem::take(&mut cx.via); let r = update_s{root}(&mut self.cs, cx, dom, &self.ci, &self.ct, false, self.body, Some(self.anchor)); cx.via = via; if let Err(e) = r {{ runic_runtime::render_error(&e); }} if let Err(e) = sync_s{root}(&self.cs, cx, dom, &self.ci, &self.ct) {{ runic_runtime::render_error(&e); }} }}\n\
                  fn walk(&self, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{ out.push((Rc::new(H{c}(Rc::clone(&self.ci))) as Rc<dyn Inst>, 0)); walk_s{root}(&self.cs, Rc::as_ptr(&self.ci) as *const u8 as usize, out); }}\n\
                  fn remove(&self, cx: &mut Cx, dom: &mut Dom) {{ remove_s{root}(&self.cs, cx, dom); dom.remove(self.anchor); }}\n\
                  fn destroy(&self, cx: &mut Cx) {{ destroy_i{c}(cx, &self.ci); }}\n\
@@ -2934,7 +2934,7 @@ pub fn generate(
     // event wrote no state.
     let restore_controlled = if p.schedule.controlled_restore {
         format!(
-            "if let Some((_, s)) = self.root.as_ref() {{ if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }} }}\n"
+            "if let Some((_, s)) = self.root.as_ref() {{ if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ runic_runtime::render_error(&e); }} }}\n"
         )
     } else {
         String::new()
@@ -3000,8 +3000,8 @@ pub fn generate(
          self.cx.updated = updated;\n\
          {root_update_pre}\
          if let Some((parent, s)) = self.root.as_mut() {{\n\
-         if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n\
-         if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ eprintln!(\"runic: render error: {{e}}\"); }}\n}}\n\
+         if let Err(e) = update_s{root}(s, &mut self.cx, dom, &self.inst, &self.t, false, *parent, None) {{ runic_runtime::render_error(&e); }}\n\
+         if let Err(e) = sync_s{root}(s, &mut self.cx, dom, &self.inst, &self.t) {{ runic_runtime::render_error(&e); }}\n}}\n\
          // Mounted instances (M6), in mount order; one unmounted during its own update goes after it.\n\
          for m in self.cx.mounted.clone() {{ let taken = std::mem::replace(&mut *m.borrow_mut(), MountState::Busy); match taken {{ MountState::Live(mut p) => {{ p.update(&mut self.cx, dom); let now = std::mem::replace(&mut *m.borrow_mut(), MountState::Gone); match now {{ MountState::BusyGone => {{ self.cx.mounted.retain(|x| !Rc::ptr_eq(x, &m)); unmount_portal(&mut self.cx, p); }} _ => *m.borrow_mut() = MountState::Live(p) }} }} other => *m.borrow_mut() = other }} }}\n\
          // Mutations while rendering are not writes.\n\
@@ -3039,7 +3039,7 @@ pub fn generate(
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          {container}match mount_s{root}(&mut self.cx, dom, &self.inst, &self.t, parent, None) {{\n\
          Ok(s) => self.root = Some((parent, s)),\n\
-         Err(e) => eprintln!(\"runic: render error: {{e}}\"),\n}}\n\
+         Err(e) => runic_runtime::render_error(&e),\n}}\n\
          self.free(dom);\n\
          self.cx.jobs.flush_ended();\n\
          {mount_timing}\n\

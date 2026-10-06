@@ -157,6 +157,7 @@ const fixtures = positionals.length
 const random = rng(Number(values.seed));
 let failures = 0;
 let partial = 0;
+let renderErrors = 0;
 let steps = 0;
 const incomplete = [];
 for (const fixture of fixtures) {
@@ -193,6 +194,7 @@ for (const fixture of fixtures) {
   const total = weights.reduce((a, [, w]) => a + w, 0);
   let fixtureFailures = 0;
   let fixturePartial = 0;
+  let fixtureRenderErrors = 0;
   for (let t = 0; t < Number(values.traces); t++) {
     const actions = [];
     for (let i = 0; i < Number(values.length) && weights.length; i++) {
@@ -222,6 +224,23 @@ for (const fixture of fixtures) {
     }
     for (let i = 0; i < Math.min(expected.length, actual.length); i++) {
       steps++;
+      // A throw while rendering (a duplicate key) ends the trace: the
+      // interpreter's snapshot is the error, the probe reports it for the
+      // step. Both must report the same throw; what follows has no
+      // browser model (the program's own error), so it is not compared.
+      const interpError = expected[i].state.dom?.error;
+      if (interpError !== undefined || actual[i].renderErrors) {
+        const want = interpError?.replace(/^E_THROW /, '');
+        const got = actual[i].renderErrors?.[0];
+        if (want === undefined || want !== got) {
+          fixtureFailures++;
+          if (fixtureFailures <= 3)
+            console.log(`MISMATCH ${fixture} trace ${t} step ${i} ${JSON.stringify(actions[i - 1] ?? null)}\n  interp render error ${JSON.stringify(interpError ?? null)}\n  native render errors ${JSON.stringify(actual[i].renderErrors ?? [])}`);
+        } else {
+          fixtureRenderErrors++;
+        }
+        break;
+      }
       const want = {
         dom: expected[i].state.dom.map(n => semantic(canonical(fromInterp(n)))),
         portals: (canonical({ tag: "body", children: (expected[i].state.portals ?? []).map(fromInterp) }).children ?? []).map(semantic),
@@ -247,9 +266,10 @@ for (const fixture of fixtures) {
     }
   }
   failures += fixtureFailures;
+  renderErrors += fixtureRenderErrors;
   console.log(
-    `${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : 'ok'} (${values.traces} traces x ${values.length} actions${fixturePartial ? `; ${fixturePartial} ended early at a hidden pointer target` : ''})`,
+    `${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : 'ok'} (${values.traces} traces x ${values.length} actions${fixturePartial ? `; ${fixturePartial} ended early at a hidden pointer target` : ''}${fixtureRenderErrors ? `; ${fixtureRenderErrors} ended at the same render error` : ''})`,
   );
 }
-console.log(JSON.stringify({ fixtures: fixtures.length, steps, failures, incomplete, partialTraces: partial, seed: Number(values.seed), optimize: !values['no-opt'] }));
+console.log(JSON.stringify({ fixtures: fixtures.length, steps, failures, incomplete, partialTraces: partial, renderErrorTraces: renderErrors, seed: Number(values.seed), optimize: !values['no-opt'] }));
 process.exitCode = failures ? 1 : 0;
