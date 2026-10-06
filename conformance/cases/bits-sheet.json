@@ -1,0 +1,31 @@
+{
+  "description": "bits-ui's Dialog as shadcn-svelte's Sheet, compiled from its published source through the unmodified sheet, button, input and label wrappers and the sheet-demo (the content on the right, three quarters of the viewport wide up to max-w-sm, sliding in and out). Opened from the trigger by Enter, the content focused on its first input; typing into both inputs, Tab through Save, Close and the close icon, Escape closing it with focus back on the trigger; reopened and closed by a press outside the content (on the overlay: `covered`); reopened and closed by the Close button. The body scroll lock, the portal, the open and close animations, aria and data-state attributes",
+  "fixtures": ["bits-sheet-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "type", "text": "Dr " },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "type", "text": "x" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "click", "id": "demo", "position": { "x": 4, "y": 4 }, "covered": true },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 }
+  ]
+}

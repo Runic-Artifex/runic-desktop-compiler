@@ -1,0 +1,87 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/sheet-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/sheet-demo.svelte",
+      "sha256": "2901a64c6ca3a093d9d6fa26d25841c3e8d3a03bd6e69f45627a96ccb69ca05d"
+    },
+    "src/lib/registry/ui/button/button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/button/button.svelte",
+      "sha256": "836d6b14108ce6f20ed88c6500d981c412e1d9cc8bbde02c2f64552b1c0b195c"
+    },
+    "src/lib/registry/ui/button/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/button/index.ts",
+      "sha256": "0f6b6f040d92b4153821d3f9b4d6b9cbc567247e4fda913e64c1d0fcc4a2f386"
+    },
+    "src/lib/registry/ui/input/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/input/index.ts",
+      "sha256": "4e0ad69d49a27194c7f3dfd0cdd5933ee13fc40cc13a77138b547d300701d390"
+    },
+    "src/lib/registry/ui/input/input.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input/input.svelte",
+      "sha256": "831f7af76b1ce768e0fe495ca47c4dc461f98d2ded3825f28fcb521f9fb22009"
+    },
+    "src/lib/registry/ui/label/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/label/index.ts",
+      "sha256": "ea17621b03066fc6c0ab811ec97aac0cb2de4b504c0a1fc3f480c8fc4bef12f1"
+    },
+    "src/lib/registry/ui/label/label.svelte": {
+      "upstream": "docs/src/lib/registry/ui/label/label.svelte",
+      "sha256": "9ffcff650f61f1c19aae78b92c6af88d3b97eaf007a18b9020fc02c069605d05"
+    },
+    "src/lib/registry/ui/sheet/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/sheet/index.ts",
+      "sha256": "76e46597c822fc9a41b6b63b517ba313792cc4419c6e9ec2d6697e485dda9d06"
+    },
+    "src/lib/registry/ui/sheet/sheet-close.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-close.svelte",
+      "sha256": "5513573158c75ade2db6b5a07b59cf40f60f26e456cd811cd1f492057608216d"
+    },
+    "src/lib/registry/ui/sheet/sheet-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-content.svelte",
+      "sha256": "78988a931f6bf85a1d89b6156720a9a738f4164269e5b9fc22189861cf7d9f62"
+    },
+    "src/lib/registry/ui/sheet/sheet-description.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-description.svelte",
+      "sha256": "8abaaf037f299f0e46763a5d2f904f79c974184dc3ea7b628cf6d1912467a1c1"
+    },
+    "src/lib/registry/ui/sheet/sheet-footer.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-footer.svelte",
+      "sha256": "f1b48c7edba19bd3a1456dd7bb74b006a16faeb6239fabda535329ba69b08eaf"
+    },
+    "src/lib/registry/ui/sheet/sheet-header.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-header.svelte",
+      "sha256": "9780b7995f7276f2edf6b9858925dd34d0ed74be47ea9fb95b4c964691815a9f"
+    },
+    "src/lib/registry/ui/sheet/sheet-overlay.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-overlay.svelte",
+      "sha256": "67f2c64fc6e085675b2bf47c85d001cc45b28729f166e450d6aceb34f6009d15"
+    },
+    "src/lib/registry/ui/sheet/sheet-portal.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-portal.svelte",
+      "sha256": "9391a12d66727280eadc465b8edfa04134f92a28468218683140624feebe5c94"
+    },
+    "src/lib/registry/ui/sheet/sheet-title.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-title.svelte",
+      "sha256": "7ce29ed77b2207888ad2fd3b3eb2edeed96b22fec50848b2185236eacdd4c642"
+    },
+    "src/lib/registry/ui/sheet/sheet-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet-trigger.svelte",
+      "sha256": "5e22ce7c04bbe478db7c37a43128902563c90d53febe6aa5684a706c959ca05b"
+    },
+    "src/lib/registry/ui/sheet/sheet.svelte": {
+      "upstream": "docs/src/lib/registry/ui/sheet/sheet.svelte",
+      "sha256": "eed2a698206fc1fb24ca85f7ff351c8520a8fcc3f8fd489c04b974738088f00e"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}
