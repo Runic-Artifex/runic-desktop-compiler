@@ -812,6 +812,43 @@ fn is_link(doc: &BaseDocument, id: NodeId) -> bool {
 }
 
 /// The link a click on `chain` (target first) follows: the innermost one.
+/// The form action activating the element of `chain` (target first)
+/// performs: a submit or reset button (or input) in a form (or naming one
+/// with `form`), the innermost button-like element deciding. Neither
+/// submission (a navigation) nor reset is modelled (M6).
+fn form_action(doc: &BaseDocument, chain: &[NodeId]) -> Option<&'static str> {
+    let i = chain
+        .iter()
+        .position(|&n| matches!(tag(doc, n), Some("button" | "input")))?;
+    let node = doc.get_node(chain[i])?;
+    let input = tag(doc, chain[i]) == Some("input");
+    let ty = node.attr("type".into()).map(|t| t.to_ascii_lowercase());
+    let what = match ty.as_deref() {
+        Some("reset") => "form reset",
+        Some("submit" | "image") => "form submission",
+        Some("button") => return None,
+        // A button's missing or invalid type is the submit state.
+        _ if !input => "form submission",
+        _ => return None,
+    };
+    let in_form = node.attr("form".into()).is_some()
+        || chain[i + 1..].iter().any(|&n| tag(doc, n) == Some("form"));
+    in_form.then_some(what)
+}
+
+/// Whether `id` is a single-line text field in a form, where Enter submits
+/// the form (implicit submission; reported, as submission is not modelled).
+fn submits_on_enter(doc: &BaseDocument, id: NodeId) -> bool {
+    tag(doc, id) == Some("input")
+        && controls::has_editor(doc, id)
+        && (doc
+            .get_node(id)
+            .is_some_and(|n| n.attr("form".into()).is_some())
+            || chain_of(doc, id)
+                .iter()
+                .any(|&n| tag(doc, n) == Some("form")))
+}
+
 fn link_of(doc: &BaseDocument, chain: &[NodeId]) -> Option<NodeId> {
     chain.iter().copied().find(|&n| is_link(doc, n))
 }
@@ -1645,6 +1682,17 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 return;
             }
         }
+        // Enter in a text field of a form submits it (not modelled).
+        if let DomEventData::KeyDown(k) = &event.data {
+            if k.key == Key::Enter && focused_element(doc).is_some_and(|f| submits_on_enter(doc, f))
+            {
+                state.prevent_default();
+                crate::unsupported("form submission (Enter in a text field of a form)");
+                self.fix_focus(doc);
+                doc.shell_provider.request_redraw();
+                return;
+            }
+        }
         // A focused closed select changes its option with the keyboard.
         if let DomEventData::KeyDown(k) = &event.data {
             if let Some(select) = focused_element(doc).filter(|&f| crate::select::is_select(doc, f))
@@ -1837,7 +1885,11 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 // and labels).
                 state.prevent_default();
                 if e.is_some() && !Self::cancelled(&e) {
-                    if let Some(link) = link_of(doc, chain) {
+                    if let Some(what) = form_action(doc, chain) {
+                        crate::unsupported(&format!(
+                            "{what} (a button's default action in a form)"
+                        ));
+                    } else if let Some(link) = link_of(doc, chain) {
                         self.follow_link(doc, link);
                     } else if let Some(control) = labelled_control(doc, chain) {
                         // Label activation is done here, as Chromium does it: a
@@ -1848,7 +1900,14 @@ impl<A: App> EventHandler for Handler<'_, A> {
                                 self.activate_checkbox(doc, control, EventData::default());
                             } else if tag(doc, control) == Some("button") {
                                 let chain = chain_of(doc, control);
-                                self.click(doc, &chain, EventData::default());
+                                let e = self.click(doc, &chain, EventData::default());
+                                if e.is_some() && !Self::cancelled(&e) {
+                                    if let Some(what) = form_action(doc, &chain) {
+                                        crate::unsupported(&format!(
+                                            "{what} (a button's default action in a form)"
+                                        ));
+                                    }
+                                }
                             }
                             if doc
                                 .get_node(control)
@@ -1909,7 +1968,14 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 state.prevent_default();
                 let button = focused_button.unwrap();
                 let chain = chain_of(doc, button);
-                self.click(doc, &chain, EventData::default());
+                let e = self.click(doc, &chain, EventData::default());
+                if e.is_some() && !Self::cancelled(&e) {
+                    if let Some(what) = form_action(doc, &chain) {
+                        crate::unsupported(&format!(
+                            "{what} (a button's default action in a form)"
+                        ));
+                    }
+                }
             }
             DomEventData::KeyDown(k) if focused_link.is_some() && k.key == Key::Enter => {
                 // Enter on a focused link: a simulated click, whose default
@@ -1944,7 +2010,14 @@ impl<A: App> EventHandler for Handler<'_, A> {
                             self.activate_checkbox(doc, target, EventData::default());
                         } else {
                             let chain = chain_of(doc, target);
-                            self.click(doc, &chain, EventData::default());
+                            let e = self.click(doc, &chain, EventData::default());
+                            if e.is_some() && !Self::cancelled(&e) {
+                                if let Some(what) = form_action(doc, &chain) {
+                                    crate::unsupported(&format!(
+                                        "{what} (a button's default action in a form)"
+                                    ));
+                                }
+                            }
                         }
                     }
                 }

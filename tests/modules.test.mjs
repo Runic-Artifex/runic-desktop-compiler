@@ -191,13 +191,15 @@ test('module scripts, barrels, namespace tags and aliases', async () => {
       'E_TEMPLATE',
       'App.svelte',
     ],
-    // Mutable module state in <script module>.
+    // Module state in <script module> that the template reads and a
+    // handler changes: Svelte would not update the text.
     [
       {
         ...files,
-        'App.svelte': '<script lang="ts" module>\n  export let n = 1;\n</script>\n<p>{n}</p>\n',
+        'App.svelte':
+          '<script lang="ts" module>\n  export let n = 1;\n</script>\n<button onclick={() => n++}>{n}</button>\n',
       },
-      'E_MODULE',
+      'E_REACTIVITY',
       'App.svelte',
     ],
   ];

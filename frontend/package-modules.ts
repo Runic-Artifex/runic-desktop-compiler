@@ -442,12 +442,14 @@ export function annotate(
           if (dm.type && at !== undefined && !m.type) add(at, `: ${q(dm.type)}`);
         } else if (ts.isGetAccessor(m) && name) {
           const g = member(name, isStatic, ts.SyntaxKind.GetAccessor) as
-            ts.GetAccessorDeclaration | undefined;
+            | ts.GetAccessorDeclaration
+            | undefined;
           const at = afterParams(m);
           if (g?.type && at !== undefined && !m.type) add(at, `: ${q(g.type)}`);
         } else if (ts.isSetAccessor(m) && name) {
           const s = member(name, isStatic, ts.SyntaxKind.SetAccessor) as
-            ts.SetAccessorDeclaration | undefined;
+            | ts.SetAccessorDeclaration
+            | undefined;
           typedParams(m, s);
         }
       }
@@ -1096,6 +1098,35 @@ export function inferFields(
             topLevel = true;
           }
         }
+        // A field assigned values TypeScript cannot type that a method of a
+        // declared result returns (bits-ui's `SharedState.#state`, assigned
+        // `this.#factory(...args)` of a type parameter's function and
+        // returned by `get(...): ReturnType<T>`): that result, with the
+        // nullish values assigned.
+        if (open && assigned) {
+          const returned = new Set<string>();
+          for (const x of stmt.members) {
+            if (!(ts.isMethodDeclaration(x) || ts.isGetAccessorDeclaration(x)) || !x.body) continue;
+            const visitReturn = (n: ts.Node) => {
+              if (n !== x && ts.isFunctionLike(n)) return;
+              if (
+                ts.isReturnStatement(n) &&
+                n.expression &&
+                thisField(skipParensOf(n.expression), fieldName)
+              )
+                returned.add(x.type ? x.type.getText() : '');
+              ts.forEachChild(n, visitReturn);
+            };
+            visitReturn(x.body);
+          }
+          const [only] = returned;
+          if (returned.size === 1 && only) {
+            const nullish = parts.filter(p => p === 'undefined' || p === 'null');
+            parts.length = 0;
+            parts.push(only, ...nullish);
+            open = false;
+          }
+        }
         if (!assigned || open) continue;
         // A field without an initialiser is undefined until a statement of
         // the constructor's top level (or a later method) assigns it.
@@ -1354,52 +1385,86 @@ export function inferFields(
     };
     nullishReturns(sf);
     // Untyped parameters of class constructors and methods (FocusScope's
-    // `constructor(opts)` and `static use(opts)`): the one type the
-    // program's calls pass, where they agree.
+    // `constructor(opts)` and `static use(opts)`), and of the module's
+    // function declarations at any depth (bits-ui's scroll lock returns its
+    // `resetBodyStyle(documentObj)` in an object its callers call through):
+    // the one type the program's calls pass, where they agree.
+    const untypedParams = (member: ts.FunctionLikeDeclaration) =>
+      member.parameters.forEach((p, i) => {
+        if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
+        if (!(checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+          return;
+        const texts = new Set<string>();
+        let open = false;
+        const sites = calls(member);
+        for (const c of sites) {
+          const a = c.arguments?.[i];
+          if (!a || ts.isSpreadElement(a)) {
+            open = true;
+            continue;
+          }
+          const t = checker.getTypeAtLocation(a);
+          const text =
+            t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+              ? undefined
+              : print(
+                  t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
+                    ? t
+                    : checker.getBaseTypeOfLiteralType(t),
+                  a,
+                );
+          // (The document or the window: a host parameter, Lowerer.hostParam;
+          // nor a type only null or undefined has, which says nothing.)
+          if (
+            text === undefined ||
+            ['HostDocument', 'HostWindow', 'null', 'undefined'].includes(text)
+          )
+            open = true;
+          else texts.add(text);
+        }
+        if (open || texts.size !== 1) return;
+        const end = p.name.end;
+        const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+        if (!seg) return;
+        const key = `param:${seg.orig + (end - seg.synth)}`;
+        const text = [...texts][0];
+        if (next.get(key) !== text) next.set(key, text);
+      });
     for (const stmt of sf.statements) {
       if (!ts.isClassDeclaration(stmt)) continue;
-      for (const member of stmt.members) {
-        if (
-          !(ts.isConstructorDeclaration(member) || ts.isMethodDeclaration(member)) ||
-          !member.body
-        )
-          continue;
-        member.parameters.forEach((p, i) => {
-          if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
-          if (!(checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
-            return;
-          const texts = new Set<string>();
-          let open = false;
-          const sites = calls(member);
-          for (const c of sites) {
-            const a = c.arguments?.[i];
-            if (!a || ts.isSpreadElement(a)) {
-              open = true;
-              continue;
-            }
-            const t = checker.getTypeAtLocation(a);
-            const text =
-              t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
-                ? undefined
-                : print(
-                    t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
-                      ? t
-                      : checker.getBaseTypeOfLiteralType(t),
-                    a,
-                  );
-            if (text === undefined) open = true;
-            else texts.add(text);
-          }
-          if (open || texts.size !== 1) return;
-          const end = p.name.end;
-          const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
-          if (!seg) return;
-          const key = `param:${seg.orig + (end - seg.synth)}`;
-          const text = [...texts][0];
-          if (next.get(key) !== text) next.set(key, text);
-        });
-      }
+      for (const member of stmt.members)
+        if ((ts.isConstructorDeclaration(member) || ts.isMethodDeclaration(member)) && member.body)
+          untypedParams(member);
     }
+    // (Only functions also used as values: calls of one that is only
+    // called are specialised per call site, Lowerer.specialise.)
+    const usedAsValue = (fn: ts.FunctionDeclaration): boolean => {
+      const sym = fn.name && checker.getSymbolAtLocation(fn.name);
+      let found = false;
+      const visit = (x: ts.Node) => {
+        if (found) return;
+        if (
+          ts.isIdentifier(x) &&
+          x !== fn.name &&
+          checker.getSymbolAtLocation(x) === sym &&
+          !(ts.isCallExpression(x.parent) && x.parent.expression === x)
+        )
+          found = true;
+        ts.forEachChild(x, visit);
+      };
+      if (sym) visit(sf);
+      // (A shorthand property names the variable's symbol through its value symbol.)
+      const shorthand = (x: ts.Node): boolean =>
+        (ts.isShorthandPropertyAssignment(x) &&
+          checker.getShorthandAssignmentValueSymbol(x) === sym) ||
+        !!ts.forEachChild(x, shorthand);
+      return found || (!!sym && shorthand(sf));
+    };
+    const functions = (n: ts.Node) => {
+      if (ts.isFunctionDeclaration(n) && n.body && usedAsValue(n)) untypedParams(n);
+      ts.forEachChild(n, functions);
+    };
+    functions(sf);
     if (JSON.stringify([...next]) !== JSON.stringify([...m.inferred])) {
       const code = readFileSync(m.file, 'utf8');
       const again = annotate(m.file, code, next);

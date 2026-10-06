@@ -210,7 +210,8 @@ test('shared local modules give identical behaviour in all three frameworks', as
 
 test('modules reject mutable state, effects and unsupported import/export forms', async () => {
   const cases = [
-    ['export const starting=0;', 'export let starting=0;', 'E_MODULE'],
+    // (`let` is module state since M6; `var` is not supported.)
+    ['export const starting=0;', 'export var starting=0;', 'E_MODULE'],
     ['export const starting=0;', 'console.log(1);export const starting=0;', 'E_MODULE'],
     ['export const starting=0;', 'export default 0;', 'E_IMPORT'],
     ['export const starting=0;', 'class B extends Error {}\nexport const starting=0;', 'E_CLASS'],
@@ -269,7 +270,8 @@ test('Svelte rejects uncovered reactive, component and template behaviour with l
     ['counter-svelte', 'n=2;', 'doubled=2;', 'E_ASSIGN'],
     // A derived value using a host service (M5).
     ['counter-svelte', '()=>n*2', '() => { console.log(n); return n*2; }', 'E_REACTIVITY'],
-    ['counter-svelte', '<script>', '<script context="module">', 'E_MODULE'],
+    // (`$state` in a component module script.)
+    ['counter-svelte', '<script>', '<script context="module">', 'E_RUNE'],
     ['counter-svelte', '</script>', '</script><style>p { color:red; }</style>', 'E_TEMPLATE'],
     ['counter-svelte', 'onclick={toggle}', 'on:click={toggle}', 'E_TEMPLATE'],
     ['counter-svelte', '<main>', '<main use:action>', 'E_TEMPLATE'],

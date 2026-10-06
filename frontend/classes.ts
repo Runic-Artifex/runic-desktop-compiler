@@ -2358,6 +2358,18 @@ export class Classes {
         : undefined;
     if (initialised && ts.isCallExpression(inner) && !lower.expected.has(inner))
       lower.expected.set(inner, initialised.type);
+    // A function of a compatible type (fewer parameters: bits-ui's
+    // `#onPointerDownSnapshot = noopPointer`, `() => {}` for a handler,
+    // `getBitsAttr = (part) => …` declared `typeof dialogAttrs.getAttr`).
+    const adapt = (value: Expr): Expr => {
+      if (!initialised) return value;
+      const have = lower.irType(value, b);
+      const want = maybeInner(initialised.type) ?? initialised.type;
+      if (JSON.stringify(have) === JSON.stringify(want)) return value;
+      const adapted = lower.adaptFunction(value, have, want);
+      if (!adapted) return value;
+      return maybeInner(initialised.type) ? { op: 'some', value: adapted } : adapted;
+    };
     if (ts.isCallExpression(inner) && RUNES.test(inner.expression.getText()))
       this.fail(
         inner,
@@ -2379,7 +2391,7 @@ export class Classes {
         captures: builder.captureSources.map(c => c.local),
       };
     }
-    if (ts.isArrowFunction(inner)) return lower.expr(e, b);
+    if (ts.isArrowFunction(inner)) return adapt(lower.expr(e, b));
     if (ts.isCallExpression(inner) && this.methodToBind(inner, info, temps))
       return this.bind(inner, b, temps)!;
     const overrides = new Map<ts.Node, { expr: Expr; type: Type }>();
@@ -2419,18 +2431,7 @@ export class Classes {
       ts.forEachChild(n, c => visit(c, nested || ts.isFunctionLike(n)));
     };
     visit(inner, false);
-    const value = lower.withOverrides(overrides, () => lower.expr(e, b));
-    // A function of a compatible type (fewer parameters: bits-ui's
-    // `#onPointerDownSnapshot = noopPointer`, \`() => {}\` for a handler).
-    if (initialised) {
-      const have = lower.irType(value, b);
-      const want = maybeInner(initialised.type) ?? initialised.type;
-      if (JSON.stringify(have) !== JSON.stringify(want)) {
-        const adapted = lower.adaptFunction(value, have, want);
-        if (adapted) return maybeInner(initialised.type) ? { op: 'some', value: adapted } : adapted;
-      }
-    }
-    return value;
+    return adapt(lower.withOverrides(overrides, () => lower.expr(e, b)));
   }
 
   // -------------------------------------------------------------------------

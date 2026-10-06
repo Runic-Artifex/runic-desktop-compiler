@@ -128,7 +128,13 @@ export class BagShapes {
         continue;
       }
       const name = p.name && this.propertyName(p.name);
-      if (name === undefined) out.open = true;
+      // A key from a finite set of names (`Lowerer.keyNames`): any of them.
+      const names =
+        name === undefined && p.name && ts.isComputedPropertyName(p.name)
+          ? this.lower.keyNames(p.name.expression)
+          : undefined;
+      if (names) for (const n of names) out.keys.add(n);
+      else if (name === undefined) out.open = true;
       else out.keys.add(name);
     }
     return out;

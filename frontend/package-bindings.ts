@@ -90,8 +90,19 @@ export function packageBindings(
       return lower.bindings.get(symbol);
     }
     if (!ts.isVariableDeclaration(decl)) return undefined;
-    if (!(decl.parent.flags & ts.NodeFlags.Const))
-      return lower.fail(decl, 'E_MODULE', 'Mutable module state is unsupported');
+    if (!(decl.parent.flags & ts.NodeFlags.Const)) {
+      // Module state (M6: bits-ui's scroll lock, its keyboard tracking).
+      if (!(decl.parent.flags & ts.NodeFlags.Let) || !ts.isIdentifier(decl.name))
+        return lower.fail(decl, 'E_MODULE', 'Module variables are `let` declarations of a name');
+      lower.moduleVariable(
+        symbol,
+        decl,
+        decl.name.text,
+        /\.svelte\.js\.__runic\.ts$/.test(decl.getSourceFile().fileName),
+        true,
+      )();
+      return lower.bindings.get(symbol);
+    }
     if (!ts.isIdentifier(decl.name) || !decl.initializer)
       return lower.fail(decl, 'E_MODULE', 'Module constants need a name and an initialiser');
     const name = decl.name.text;

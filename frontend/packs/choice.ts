@@ -774,7 +774,91 @@ export function valueSet(ctx: SetCtx, e: ts.Expression): unknown[] | undefined {
     const binding = lower.binding(node.expression);
     if (binding?.kind === 'pack') return binding.values?.(node, lower);
   }
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    const callee = node.expression;
+    // A function of a build-time constant (bits-ui's
+    // `dialogAttrs.getAttr(part, variant)`): called on each combination.
+    if (
+      ts.isIdentifier(callee.expression) &&
+      lower.binding(callee.expression)?.kind === 'constant'
+    ) {
+      const member = lower.constantMember(callee);
+      if (member && typeof member.value === 'function') {
+        const object = (lower.binding(callee.expression) as { value: unknown }).value;
+        const combos = argsSet(ctx, node.arguments);
+        return (
+          combos &&
+          distinct(
+            combos.map(args => (member.value as (...a: unknown[]) => unknown).apply(object, args)),
+          )
+        );
+      }
+    }
+    const inlined = inlinedSet(ctx, node);
+    if (inlined !== null) return inlined;
+  }
   return typedSet(lower.checker.getTypeAtLocation(node));
+}
+
+/** Parameters standing for a call's arguments while its function is inlined (`inlinedSet`). */
+const paramArgs = new Map<ts.Symbol, ts.Expression | 'undefined'>();
+const inlining = new Set<ts.Node>();
+
+/**
+ * A method, or a function in a class field, returning one expression
+ * (bits-ui's `getBitsAttr = (part) => dialogAttrs.getAttr(part, …)`):
+ * the values of the expression with its parameters standing for the
+ * arguments (`this` and the rest by their types); null where it is not one.
+ */
+function inlinedSet(ctx: SetCtx, node: ts.CallExpression): unknown[] | undefined | null {
+  const { lower } = ctx;
+  const checker = lower.checker;
+  const callee = node.expression as ts.PropertyAccessExpression;
+  const sym = checker.getSymbolAtLocation(callee.name);
+  let decl = sym?.valueDeclaration;
+  // A member a package's declaration file declares: its implementation.
+  if (
+    sym &&
+    decl &&
+    decl.getSourceFile().isDeclarationFile &&
+    ts.isClassDeclaration(decl.parent) &&
+    decl.parent.name
+  ) {
+    const cls = checker.getSymbolAtLocation(decl.parent.name);
+    const impl = cls && lower.implementation?.(cls);
+    decl = impl?.members?.get(sym.escapedName)?.valueDeclaration;
+  }
+  let fn: ts.FunctionLikeDeclaration | undefined;
+  if (decl && ts.isPropertyDeclaration(decl) && decl.initializer) {
+    const init = skip(decl.initializer);
+    if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) fn = init;
+  } else if (decl && ts.isMethodDeclaration(decl)) fn = decl;
+  const body = fn?.body
+    ? ts.isBlock(fn.body)
+      ? fn.body.statements.length === 1 && ts.isReturnStatement(fn.body.statements[0])
+        ? fn.body.statements[0].expression
+        : undefined
+      : fn.body
+    : undefined;
+  if (!fn || !body) return null;
+  if (fn.parameters.some(p => !ts.isIdentifier(p.name) || p.dotDotDotToken || p.initializer))
+    return null;
+  if (node.arguments.some(a => ts.isSpreadElement(a)) || inlining.has(fn)) return undefined;
+  const bound: ts.Symbol[] = [];
+  fn.parameters.forEach((p, i) => {
+    const s = checker.getSymbolAtLocation(p.name);
+    if (s) {
+      paramArgs.set(s, node.arguments[i] ?? 'undefined');
+      bound.push(s);
+    }
+  });
+  inlining.add(fn);
+  try {
+    return valueSet(ctx, body);
+  } finally {
+    inlining.delete(fn);
+    for (const b of bound) paramArgs.delete(b);
+  }
 }
 
 /** Constants whose values are being computed (recursion guard). */
@@ -786,6 +870,8 @@ function identifierSet(
   sym: ts.Symbol | undefined,
 ): unknown[] | undefined {
   const { lower } = ctx;
+  const arg = sym && paramArgs.get(sym);
+  if (arg) return arg === 'undefined' ? [undefined] : valueSet(ctx, arg);
   const rest = restOf(lower, sym);
   if (rest) return argsSet(ctx, rest);
   const members = sym && lower.domains?.values(sym);

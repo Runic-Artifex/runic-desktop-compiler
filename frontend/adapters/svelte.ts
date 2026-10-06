@@ -128,6 +128,7 @@ const TAGS = new Set([
   'dd',
   'figure',
   'figcaption',
+  'form',
   ...SVG_TAGS,
 ]);
 /** The exports of Svelte's modules that component scripts may import. */
@@ -2500,6 +2501,74 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     };
 
     /**
+     * A prop typed wider than the value model that no site passes a value,
+     * written only by `bind:value` of inputs whose type the props' values
+     * decide is not `number` or `range` (shadcn's Input under
+     * `defaultValue`): Svelte's bind_value writes the input's value, so the
+     * prop is a nullable string. (Binds in branches that cannot render are
+     * left out, as for `written`.) Undefined otherwise.
+     */
+    const typeOfBinds = (sym: ts.Symbol, el: ts.BindingElement): Type | undefined => {
+      const passed = domains.siteTypes(sym);
+      if (!passed?.length || passed.some(t => t !== undefined)) return undefined;
+      const name = (el.name as ts.Identifier).text;
+      const numberlike = (v: unknown) => v === 'number' || v === 'range';
+      let ok = true;
+      let found = false;
+      const typeOk = (n: SNode): boolean => {
+        for (const a of n.attributes ?? []) {
+          if (a.type === 'SpreadAttribute') {
+            if (mayHold(shapes.of(nodeIn(u, a.expression) as ts.Expression), 'type')) return false;
+            continue;
+          }
+          if (a.type !== 'Attribute' || a.name !== 'type') continue;
+          if (a.value === true) return false;
+          if (Array.isArray(a.value)) {
+            if (a.value.length === 1 && a.value[0].type === 'Text')
+              return !numberlike(a.value[0].data);
+            return false;
+          }
+          const e = nodeIn(u, a.value.expression) as ts.Expression;
+          const values = valueSet({ lower, label: 'input types' }, e);
+          return (
+            !!values &&
+            values.every(v => v === undefined || (typeof v === 'string' && !numberlike(v)))
+          );
+        }
+        return true;
+      };
+      const visit = (node: unknown) => {
+        if (!ok || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) return node.forEach(visit);
+        const n = node as SNode;
+        if (n.type === 'IfBlock') {
+          const known = decidedTest(u, n.test);
+          if (known !== false) visit(n.consequent);
+          if (known !== true) visit(n.alternate);
+          return;
+        }
+        for (const a of n.attributes ?? [])
+          if (
+            a.type === 'BindDirective' &&
+            a.expression?.type === 'Identifier' &&
+            a.expression.name === name
+          ) {
+            if (
+              n.type !== 'RegularElement' ||
+              n.name !== 'input' ||
+              a.name !== 'value' ||
+              !typeOk(n)
+            )
+              ok = false;
+            else found = true;
+          }
+        for (const [k, v] of Object.entries(n)) if (k !== 'parent' && k !== 'attributes') visit(v);
+      };
+      visit(u.ast.fragment);
+      return ok && found ? { maybe: 'string' } : undefined;
+    };
+
+    /**
      * The member of a discriminated union props type that every instance of
      * the component takes: bits-ui's ToggleGroup and Accordion take
      * `type: "single"` with `value?: string` or `type: "multiple"` with
@@ -2631,7 +2700,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           // A prop typed wider than the value model (svelte/elements'
           // `class?: ClassValue`) takes the type of the values its sites pass.
           const values = domains.values(sym);
-          const t = (values && typeOfValues(values)) ?? typeOfSites(sym, el);
+          const t =
+            (values && typeOfValues(values)) ?? typeOfSites(sym, el) ?? typeOfBinds(sym, el);
           if (!t) {
             if (mixed)
               tsFail(

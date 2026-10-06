@@ -380,8 +380,29 @@ export function lowerModules(
         continue;
       }
       if (ts.isVariableStatement(stmt)) {
-        if (!(stmt.declarationList.flags & ts.NodeFlags.Const))
-          fail(stmt, 'E_MODULE', 'Mutable module state is unsupported');
+        if (!(stmt.declarationList.flags & ts.NodeFlags.Const)) {
+          // Module state (M6): `let` (`var` stays rejected).
+          if (!(stmt.declarationList.flags & ts.NodeFlags.Let))
+            fail(
+              stmt,
+              'E_MODULE',
+              'var declarations in modules are unsupported (use let or const)',
+            );
+          for (const d of stmt.declarationList.declarations) {
+            if (!ts.isIdentifier(d.name))
+              fail(d, 'E_MODULE', 'Module variables need a name (no destructuring)');
+            const sym = checker.getSymbolAtLocation(d.name)!;
+            pending.push(
+              lower.moduleVariable(
+                sym,
+                d,
+                (d.name as ts.Identifier).text,
+                /\.svelte\.(ts|js)$/.test(file),
+              ),
+            );
+          }
+          continue;
+        }
         for (const d of stmt.declarationList.declarations) {
           // `const { a, b: c } = record` (mdsx's markdown modules destructure
           // their metadata): the record once, then each property in order.

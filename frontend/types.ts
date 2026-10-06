@@ -24,6 +24,8 @@ export class TypeMapper {
    * instantiation, frontend/classes.ts), if any.
    */
   typeParameter?: (t: ts.Type) => Type | undefined;
+  /** Whether a parameter is the document or the window (no IR parameter, `Lowerer.hostParam`). */
+  hostParameter?: (p: ts.ParameterDeclaration) => boolean;
   /** The IR type a mapping pack gives a package type (frontend/packs.ts), if any. */
   packType?: (t: ts.Type, at: ts.Node) => Type | undefined;
   /** The record of Error values (`{ name, message }`), from the language layer. */
@@ -155,6 +157,23 @@ export class TypeMapper {
     if (t.flags & F.TypeParameter) {
       const bound = this.typeParameter?.(t);
       if (bound !== undefined) return bound;
+    }
+    // `ReturnType<F>` of a type parameter bound to a function type (a
+    // generic class's one instantiation; bits-ui's `SharedState.get`):
+    // TypeScript leaves it deferred, its result is the function's.
+    const [f] = t.aliasTypeArguments ?? [];
+    if (
+      t.flags & F.Conditional &&
+      t.aliasSymbol?.name === 'ReturnType' &&
+      /[\\/]lib\.[\w.]*\.d\.ts$/.test(
+        t.aliasSymbol.declarations?.[0]?.getSourceFile().fileName ?? '',
+      ) &&
+      f &&
+      f.flags & F.TypeParameter &&
+      this.typeParameter?.(f)
+    ) {
+      const fn = this.map(f, at);
+      if (typeof fn === 'object' && 'fn' in fn) return fn.fn.result;
     }
     if (t.flags & (F.Number | F.NumberLiteral)) return 'number';
     if (t.flags & (F.String | F.StringLiteral | F.TemplateLiteral)) return 'string';
@@ -528,6 +547,7 @@ export class TypeMapper {
             // A rest parameter of a tuple type: one parameter per item, as
             // functions declaring it are lowered.
             const decl = p.valueDeclaration;
+            if (decl && ts.isParameter(decl) && this.hostParameter?.(decl)) return [];
             const items =
               decl && ts.isParameter(decl) && decl.dotDotDotToken
                 ? this.restParams(pt, at)

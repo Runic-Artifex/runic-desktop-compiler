@@ -6084,6 +6084,15 @@ impl<'p> Machine<'p> {
         // click on a labelled checkbox or button.
         if click.is_some() && !cancelled {
             let tree = self.render()?;
+            // A form's submit or reset button: its default action
+            // (navigation, resetting the controls) is not modelled.
+            if let Some(what) = form_action(&tree, target) {
+                return Err(Diagnostic::new(
+                    "E_UNSUPPORTED",
+                    format!("unsupported: {what} (a button's default action in a form)"),
+                    None,
+                ));
+            }
             if let Some(href) = link_of(&tree, target) {
                 self.follow_link(&tree, &href, s)?;
             } else if let Some(control) = labelled_control(&tree, target) {
@@ -6990,6 +6999,32 @@ fn payload_of(event: &js::Event) -> Option<Val> {
 }
 
 /// The `href` of the innermost link (`<a href>`) around `target`.
+/// The form action activating `target` performs: a submit or reset button
+/// (or input) in a form (or naming one with `form`), the innermost
+/// button-like element of the chain deciding.
+fn form_action(tree: &[VNode], target: u64) -> Option<&'static str> {
+    let chain = chain_nodes(tree, target)?;
+    let (i, attrs, input) = chain.iter().enumerate().rev().find_map(|(i, n)| match n {
+        VNode::Element { tag, attrs, .. } if tag == "button" => Some((i, attrs, false)),
+        VNode::Element { tag, attrs, .. } if tag == "input" => Some((i, attrs, true)),
+        _ => None,
+    })?;
+    let ty = attrs.get("type").map(|t| t.to_ascii_lowercase());
+    let what = match ty.as_deref() {
+        Some("reset") => "form reset",
+        Some("submit") | Some("image") => "form submission",
+        // A button's missing or invalid type is the submit state.
+        Some("button") => return None,
+        _ if !input => "form submission",
+        _ => return None,
+    };
+    let in_form = attrs.contains_key("form")
+        || chain[..i]
+            .iter()
+            .any(|n| matches!(n, VNode::Element { tag, .. } if tag == "form"));
+    in_form.then_some(what)
+}
+
 fn link_of(tree: &[VNode], target: u64) -> Option<String> {
     chain_nodes(tree, target)?
         .iter()

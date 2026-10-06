@@ -147,3 +147,48 @@ test('a number in a style object is printed as its string, as mergeProps prints 
     },
   );
 });
+
+test('a bag key from a finite set of names: the entry of the name it evaluates to', async () => {
+  await withApp(
+    {
+      'state.svelte.ts': `export class Root {
+  variant: 'dialog' | 'alert' = $state('dialog');
+  attr = (part: 'trigger' | 'content') =>
+    this.variant === 'dialog'
+      ? part === 'trigger' ? 'data-dialog-trigger' : 'data-dialog-content'
+      : part === 'trigger' ? 'data-alert-trigger' : 'data-alert-content';
+}
+export class Trigger {
+  root: Root;
+  constructor(root: Root) {
+    this.root = root;
+  }
+  props: Record<string, unknown> = $derived.by(() => ({ id: 't', [this.root.attr('trigger')]: '', title: 'x' }));
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { Root, Trigger } from './state.svelte';
+  const root = new Root();
+  const trigger = new Trigger(root);
+</script>
+
+<div {...trigger.props}></div>
+<button id="b" onclick={() => (root.variant = 'alert')}>alert</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.deepEqual(byId(steps[0].state.dom, 't').attrs, {
+        id: 't',
+        'data-dialog-trigger': '',
+        title: 'x',
+      });
+      assert.deepEqual(byId(steps[1].state.dom, 't').attrs, {
+        id: 't',
+        'data-alert-trigger': '',
+        title: 'x',
+      });
+    },
+  );
+});

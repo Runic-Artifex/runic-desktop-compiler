@@ -41,6 +41,7 @@ import { newSvelteMap, svelteMapType } from './svelte-reactivity.ts';
 import { componentValueType, knownComponentRecord } from './component-values.ts';
 import {
   type Choice,
+  valueSet,
   graft as graftChoice,
   leaf as choiceLeaf,
   sequence as choiceSequence,
@@ -146,6 +147,11 @@ export type Binding =
       outer?: { params: readonly ts.ParameterDeclaration[]; owner: FnBuilder; locals: number[] };
     }
   | { kind: 'derived'; fn: number }
+  /**
+   * A module `let` (M6): field 0 of the one-field record program global
+   * `global` holds it (reactive for `$state`; `Lowerer.moduleVariable`).
+   */
+  | { kind: 'module-let'; global: number }
   | { kind: 'value'; expr: Expr }
   /**
    * A function returning the window or the document (bits-ui's
@@ -392,6 +398,7 @@ export class Lowerer {
     this.classes = new Classes(this);
     types.classType = (cls, t, at) => this.classes.typeOf(cls, t, at);
     types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
+    types.hostParameter = p => this.hostParam(p) !== undefined;
     types.packType = (t, at) =>
       packType(t, at, this) ?? svelteMapType(t, at, this) ?? componentValueType(t, at, this);
     // Error objects are the Error records thrown values are (catch bindings, rejections).
@@ -628,6 +635,8 @@ export class Lowerer {
       restOf?: ts.Symbol;
     }[] = [];
     for (const [i, p] of paramDecls.entries()) {
+      // A parameter that is the document or the window (`hostParam`): no IR parameter.
+      if (this.hostParam(p)) continue;
       const literal = options?.inline?.get(i);
       if (literal) {
         const sym = ts.isIdentifier(p.name) ? this.checker.getSymbolAtLocation(p.name) : undefined;
@@ -3237,6 +3246,7 @@ export class Lowerer {
       const binding = this.binding(target);
       if (binding?.kind === 'cell') return this.hooks.cellType(binding.cell);
       if (binding?.kind === 'local') return b.typeOf(b.resolve(binding.owner, binding.local));
+      if (binding?.kind === 'module-let') return this.moduleVariableType(binding.global);
       // A field of a local's record (a function's `$state` local).
       if (binding?.kind === 'member' && binding.path.length) {
         let t = b.typeOf(b.resolve(binding.owner, binding.local));
@@ -3571,6 +3581,19 @@ export class Lowerer {
           this.fail(target, 'E_ASSIGN', 'This framework does not support direct state assignment');
         return this.hooks.writeCell!(binding.cell, value, b, target);
       }
+      if (binding?.kind === 'module-let')
+        return [
+          {
+            op: 'assign',
+            target: {
+              place: 'field',
+              object: { op: 'global', global: binding.global },
+              field: 0,
+            },
+            value,
+            ...this.src(target),
+          },
+        ];
       // A field of a local's record (a function's `$state` local).
       if (binding?.kind === 'member' && binding.path.length) {
         let object: Expr = { op: 'local', local: b.resolve(binding.owner, binding.local) };
@@ -4173,6 +4196,134 @@ export class Lowerer {
    * The IR type of an expression. Literals take their contextual type
    * (`[]` assigned to `Entry[]` is an `Entry[]`, not `never[]`).
    */
+  /** The type of the module `let` global `global` holds. */
+  private moduleVariableType(global: number): Type {
+    const t = this.globals[global].type as { record: number };
+    return this.types.records[t.record].fields[0].type;
+  }
+
+  /**
+   * A module `let` (M6, bits-ui's scroll lock and keyboard tracking):
+   * module state lives as long as the program, so the variable is field 0 of
+   * a one-field class record in a program global created where the
+   * declaration is (in order with the module's constants). `$state` and
+   * `$state.raw` (in modules Svelte compiles runes in) make the field
+   * reactive, a signal as Svelte's module state is. Its type is the
+   * declared one, or in untyped JavaScript that of its initialiser and of the
+   * values the module assigns it (nullable where one is null or undefined).
+   * Returns the function initialising it, to run in the module's order;
+   * `eager` (package modules, bound on first use) lowers the initialiser
+   * first, so the globals it reaches are created before this one.
+   */
+  moduleVariable(
+    sym: ts.Symbol,
+    d: ts.VariableDeclaration,
+    name: string,
+    runes: boolean,
+    eager = false,
+  ): () => void {
+    const init0 = d.initializer && skipParens(d.initializer);
+    const rune =
+      runes && init0 && ts.isCallExpression(init0) ? init0.expression.getText() : undefined;
+    const reactive =
+      rune === '$state' ? ('state' as const) : rune === '$state.raw' ? ('raw' as const) : undefined;
+    if (rune?.startsWith('$') && !reactive)
+      this.fail(
+        d,
+        'E_MODULE',
+        `${rune} in a module variable is unsupported ($state and $state.raw are)`,
+      );
+    if (reactive && (init0 as ts.CallExpression).arguments.length > 1)
+      this.fail(d, 'E_MODULE', `${rune} takes one initial value`);
+    const init = reactive ? (init0 as ts.CallExpression).arguments[0] : init0;
+    const declared = this.types.typeOrUndefined(d.name);
+    const type = declared ?? this.untypedVariableType(sym, d, init);
+    const initial = (): Expr =>
+      init
+        ? this.coerceValue(this.value(init, undefined, `${name}$module`), type, init)
+        : { op: 'undefined', type };
+    const first = eager ? initial() : undefined;
+    const record = this.types.records.length;
+    this.types.records.push({
+      name: `${name}$module`,
+      class: true,
+      fields: [{ name, type, ...(reactive ? { reactive } : {}) }],
+    });
+    const global = this.globals.length;
+    this.globals.push({
+      name: `${name}$module`,
+      type: { record },
+      init: { op: 'undefined', type: { maybe: 'number' } },
+    });
+    this.bindings.set(sym, { kind: 'module-let', global });
+    const set = (value: Expr) =>
+      void (this.globals[global].init = { op: 'record', record, fields: [value] });
+    if (first) {
+      set(first);
+      return () => {};
+    }
+    return () => set(initial());
+  }
+
+  /** A value of an initialiser as type `want` (nullable widening, null of the type). */
+  private coerceValue(v: Expr, want: Type, at: ts.Node): Expr {
+    if (v.op === 'null' || v.op === 'undefined') return { ...v, type: want } as Expr;
+    const have = this.valueType(v);
+    if (sameType(have, want)) return v;
+    if (maybeInner(want) && sameType(have, maybeInner(want)!)) return { op: 'some', value: v };
+    return this.fail(
+      at,
+      'E_MODULE',
+      `The module variable's initial value has type ${JSON.stringify(have)}, not ${JSON.stringify(want)}`,
+    );
+  }
+
+  /**
+   * The type of an untyped module `let`: of its initialiser and the values
+   * assigned to it in its module (nullable where one is null, undefined or
+   * missing).
+   */
+  private untypedVariableType(
+    sym: ts.Symbol,
+    d: ts.VariableDeclaration,
+    init?: ts.Expression,
+  ): Type {
+    const values: ts.Expression[] = init ? [init] : [];
+    let nullable = !init;
+    const visit = (n: ts.Node) => {
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(n.left) &&
+        this.checker.getSymbolAtLocation(n.left) === sym
+      )
+        values.push(n.right);
+      ts.forEachChild(n, visit);
+    };
+    visit(d.getSourceFile());
+    let base: Type | undefined;
+    for (const v of values) {
+      const x = skipParens(v);
+      if (x.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(x) && x.text === 'undefined')) {
+        nullable = true;
+        continue;
+      }
+      const t = this.exprType(v);
+      const inner = maybeInner(t) ?? t;
+      nullable ||= inner !== t;
+      if (base && !sameType(base, inner))
+        return this.fail(
+          d,
+          'E_MODULE',
+          `The module variable ${d.name.getText()} is given values of different types (${JSON.stringify(base)} and ${JSON.stringify(inner)})`,
+        );
+      base = inner;
+    }
+    if (!base)
+      return this.fail(d, 'E_MODULE', `The module variable ${d.name.getText()} needs a type`);
+    return nullable ? { maybe: base } : base;
+  }
+
   exprType(e: ts.Expression): Type {
     const inner = skipParens(e);
     if (ts.isArrayLiteralExpression(inner) || ts.isObjectLiteralExpression(inner)) {
@@ -4557,6 +4708,10 @@ export class Lowerer {
       }
       case 'derived':
         return { op: 'call', function: binding.fn, args: [] };
+      case 'module-let': {
+        const e: Expr = { op: 'get', object: { op: 'global', global: binding.global }, field: 0 };
+        return narrow(e, this.moduleVariableType(binding.global));
+      }
       case 'value':
         return binding.expr;
       case 'function':
@@ -5280,6 +5435,8 @@ export class Lowerer {
     const s = this.symbol(e);
     const decl = s?.valueDeclaration ?? s?.declarations?.[0];
     if (decl && path.resolve(decl.getSourceFile().fileName) === DOM) return e.text;
+    // A parameter every call passes one of them for.
+    if (decl && ts.isParameter(decl)) return this.hostParam(decl);
     // A constant holding one of them.
     if (
       decl &&
@@ -5290,6 +5447,58 @@ export class Lowerer {
     )
       return this.hostName(decl.initializer, depth + 1);
     return undefined;
+  }
+
+  private hostParams = new Map<ts.ParameterDeclaration, 'document' | 'window' | null>();
+  private callIndex?: Map<ts.Node, ts.CallExpression[]>;
+
+  /**
+   * Whether `p` is an untyped parameter of a function for which every
+   * call of the program passes the document (or every one the window):
+   * bits-ui's scroll lock `resetBodyStyle(documentObj)`, called through
+   * the object holding it with `const documentObj = document`. The
+   * parameter is that object (`hostName`), so the function has no IR
+   * parameter for it and its calls pass none (`callArgs`, function types).
+   */
+  hostParam(p: ts.ParameterDeclaration): 'document' | 'window' | undefined {
+    const known = this.hostParams.get(p);
+    if (known !== undefined) return known ?? undefined;
+    this.hostParams.set(p, null);
+    const fn = p.parent;
+    const t = this.checker.getTypeAtLocation(p);
+    if (
+      p.type ||
+      p.dotDotDotToken ||
+      !ts.isIdentifier(p.name) ||
+      !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) ||
+      !(ts.isFunctionDeclaration(fn) || ts.isFunctionExpression(fn) || ts.isArrowFunction(fn))
+    )
+      return undefined;
+    if (!this.callIndex) {
+      this.callIndex = new Map();
+      for (const sf of this.program.getSourceFiles()) {
+        if (sf.isDeclarationFile) continue;
+        const visit = (n: ts.Node) => {
+          if (ts.isCallExpression(n)) {
+            const d = this.checker.getResolvedSignature(n)?.declaration;
+            if (d) this.callIndex!.set(d, [...(this.callIndex!.get(d) ?? []), n]);
+          }
+          ts.forEachChild(n, visit);
+        };
+        visit(sf);
+      }
+    }
+    const calls = this.callIndex.get(fn) ?? [];
+    const i = fn.parameters.indexOf(p);
+    const names = calls.map(c => {
+      const a = c.arguments[i];
+      return a && !ts.isSpreadElement(a) ? this.hostName(a) : undefined;
+    });
+    const name = names[0];
+    if (!calls.length || (name !== 'document' && name !== 'window') || names.some(n => n !== name))
+      return undefined;
+    this.hostParams.set(p, name);
+    return name;
   }
 
   /** Timer, microtask and clock host calls. */
@@ -7921,6 +8130,8 @@ export class Lowerer {
       // A rest parameter of a tuple type: one argument per item (its
       // parameters, frontend/types.ts).
       const decl = p.valueDeclaration;
+      // (The document or the window as a parameter: none, `hostParam`.)
+      if (decl && ts.isParameter(decl) && this.hostParam(decl)) return [];
       const items =
         decl && ts.isParameter(decl) && decl.dotDotDotToken
           ? this.types.restParams(t, e)
@@ -8429,11 +8640,13 @@ export class Lowerer {
     // typed as one (frontend/package-modules.ts types bits-ui's `props`).
     // A dictionary (a string index signature of one value type), also with
     // computed keys.
+    // (A literal returned where a bag is declared is one, also with keys
+    // computed at run time, which its own type gives an index signature.)
     const mapped = this.types.tryMap(t, e);
+    if (mapped === 'attrs' || this.returnsBag(e, b)) return this.bagLiteral(e, b);
     if (typeof mapped === 'object' && 'map' in mapped && mapped.map[0] === STRING)
       return this.dictionaryLiteral(e, mapped, b);
-    if (this.isBagLiteral(e) || mapped === 'attrs' || this.returnsBag(e, b))
-      return this.bagLiteral(e, b);
+    if (this.isBagLiteral(e)) return this.bagLiteral(e, b);
     // Without a contextual type (untyped JavaScript), a record expected
     // here (a class field's declared type, bits-ui's derived
     // `detectOverflowOptions`) is the literal's type.
@@ -8626,12 +8839,20 @@ export class Lowerer {
           ? { value: inner.text }
           : this.constantMember(inner);
         if (c && typeof c.value === 'string') name = c.value;
+        // A key from a finite set of names (bits-ui's
+        // `[this.root.getBitsAttr("trigger")]`, which depends on the
+        // dialog's variant): the entry of the name the key evaluates to.
+        const names = name === undefined ? this.keyNames(p.name.expression) : undefined;
+        if (names && ts.isPropertyAssignment(p)) {
+          items.push({ spread: this.chosenEntry(p.name.expression, names, p, b) });
+          continue;
+        }
       }
       if (name === undefined)
         return this.fail(
           p,
           'E_ATTRS',
-          'Attribute bag keys are static names or build-time constants',
+          'Attribute bag keys are static names, build-time constants or one of a finite set of names (not on<event>, style or class)',
         );
       let value: Expr;
       if (ts.isPropertyAssignment(p)) {
@@ -8654,6 +8875,87 @@ export class Lowerer {
       items.push({ name, value: this.bagEntry(name, value, p, b) });
     }
     return { op: 'attrs', items };
+  }
+
+  /**
+   * The names a computed bag key can evaluate to (`valueSet`, a superset),
+   * where they are finitely many plain attribute names; undefined otherwise.
+   */
+  keyNames(e: ts.Expression): string[] | undefined {
+    const names = valueSet({ lower: this, label: 'attribute names' }, e);
+    return names?.length &&
+      names.every(
+        n => typeof n === 'string' && n !== 'style' && n !== 'class' && !n.startsWith('on'),
+      )
+      ? (names as string[])
+      : undefined;
+  }
+
+  /**
+   * A bag entry under a key computed at run time from `names`: the key and
+   * then the value evaluated, as JavaScript evaluates them, and the entry of
+   * the name it is (a name outside the set throws).
+   */
+  private chosenEntry(
+    key: ts.Expression,
+    names: string[],
+    p: ts.PropertyAssignment,
+    b: FnBuilder,
+  ): Expr {
+    const k = b.local('$key', STRING);
+    const keyValue = this.coerce(key, b, STRING);
+    const v = this.bagEntry(names[0], this.expr(p.initializer, b), p, b);
+    const local = b.local('$entry', this.irType(v, b));
+    let chain: Expr = this.throwing(
+      'attrs',
+      'TypeError',
+      'An attribute name outside the names known at build time',
+    );
+    for (const n of [...names].reverse())
+      chain = {
+        op: 'cond',
+        test: { op: 'eq', left: { op: 'local', local: k }, right: { op: 'lit', value: n } },
+        then: { op: 'attrs', items: [{ name: n, value: { op: 'local', local } }] },
+        else: chain,
+      };
+    return {
+      op: 'with',
+      local: k,
+      value: keyValue,
+      body: { op: 'with', local, value: v, body: chain },
+    };
+  }
+
+  private readonly throwingHelpers = new Map<string, number>();
+
+  /** A call that throws `name: message`, typed `type` (for branches that cannot be reached). */
+  throwing(type: Type, name: string, message: string): Expr {
+    const key = JSON.stringify([type, name, message]);
+    let index = this.throwingHelpers.get(key);
+    if (index === undefined) {
+      index = this.reserve();
+      this.throwingHelpers.set(key, index);
+      this.functions[index] = {
+        name: `throw$${this.throwingHelpers.size}`,
+        params: [],
+        locals: [],
+        result: type,
+        body: [
+          {
+            op: 'throw',
+            value: {
+              op: 'record',
+              record: this.errorRecord(),
+              fields: [
+                { op: 'lit', value: name },
+                { op: 'lit', value: message },
+              ],
+            },
+          },
+        ],
+      };
+    }
+    return { op: 'call', function: index, args: [] };
   }
 
   /** A value as a bag entry: strings, booleans (or nullable), numbers as strings, listeners. */

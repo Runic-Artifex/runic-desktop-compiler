@@ -13,8 +13,10 @@ pub const MAX_EXPRESSIONS: usize = 1 << 20;
 
 /// Elements the runtime renders with browser semantics, default actions
 /// included: links (`a` with an `href`) follow fragment links of this
-/// document (docs/IR.md). Elements with other navigation or submission
-/// behaviour stay out until the runtime implements those actions.
+/// document (docs/IR.md); a form's submission and reset (a submit or reset
+/// button's activation, Enter in its text fields) are reported unsupported
+/// (M6). Elements with other navigation behaviour stay out until the
+/// runtime implements those actions.
 // One line per group (rustfmt would put one tag per line: figcaption is long).
 #[rustfmt::skip]
 pub const TAGS: &[&str] = &[
@@ -22,7 +24,7 @@ pub const TAGS: &[&str] = &[
     "article", "section", "header", "footer", "nav", "aside", "ul", "ol", "li", "strong", "em",
     "small", "b", "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option", "dl",
     "dt", "dd", "figure", "figcaption", "svg", "g", "path", "circle", "ellipse", "line",
-    "polyline", "polygon", "rect",
+    "polyline", "polygon", "rect", "form",
 ];
 
 /// Inline SVG (M5): elements in the SVG namespace. Blitz renders an `<svg>`
