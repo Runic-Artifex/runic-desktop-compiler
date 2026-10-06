@@ -276,6 +276,28 @@ impl<T> StrictEq for JsRef<T> {
         JsRef::ptr_eq(self, other)
     }
 }
+/// `()`: the content of `Maybe<()>`, a value holding nothing but null and
+/// undefined (`maybe<void>`); never present, it behaves as undefined.
+impl StrictEq for () {
+    fn strict_eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Truthy for () {
+    fn truthy(&self) -> bool {
+        false
+    }
+}
+impl TypeOf for () {
+    fn type_of(&self) -> &'static str {
+        "undefined"
+    }
+}
+impl ToJsString for () {
+    fn to_js_string(&self) -> JsString {
+        JsString::from("undefined")
+    }
+}
 impl<T: StrictEq> StrictEq for Maybe<T> {
     fn strict_eq(&self, other: &Self) -> bool {
         match (self, other) {

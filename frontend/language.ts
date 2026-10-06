@@ -1056,7 +1056,12 @@ export class Lowerer {
       ...(component !== undefined ? { component } : {}),
       params: [],
       locals: b.locals,
-      result: this.exprType(e),
+      // (A type TypeScript cannot give, such as svelte-toolbelt's merged
+      // props of a plain record: the lowered value's.)
+      result:
+        this.types.tryMap(this.checker.getTypeAtLocation(e), e) === undefined
+          ? this.irType(v, b)
+          : this.exprType(e),
       body: [...this.hoistedLets(b), { op: 'return', value: v }],
     };
     return { op: 'call', function: index, args: [] };
@@ -4759,6 +4764,52 @@ export class Lowerer {
     }
     const v = this.expr(e, b);
     const t = this.irType(v, b);
+    // An event's `currentTarget` where an element is expected (bits-ui's
+    // `isFocusVisible(e.currentTarget)` in a listener, where it is the
+    // listener's element): null after the dispatch, a TypeError as soon as
+    // it is used as one.
+    if (
+      target === 'element' &&
+      JSON.stringify(t) === JSON.stringify({ maybe: 'element' }) &&
+      ts.isPropertyAccessExpression(bare) &&
+      bare.name.text === 'currentTarget' &&
+      this.irType(this.expr(bare.expression, b), b) === 'event'
+    )
+      return { op: 'unwrap', value: v };
+    // A nullable value where one holding nothing but null and undefined is
+    // expected (bits-ui's tooltip snippet: `payload: rootState.activePayload
+    // as [T] extends [never] ? null : T | null`): null and undefined pass;
+    // another value breaks the types, which throws a TypeError (`unwrap`,
+    // as other broken types do: `presentIn`).
+    if (
+      JSON.stringify(target) === JSON.stringify({ maybe: 'void' }) &&
+      maybeInner(t) !== undefined &&
+      maybeInner(t) !== 'void'
+    ) {
+      const tmp = b.local('$nothing', t);
+      const read: Expr = { op: 'local', local: tmp };
+      return {
+        op: 'with',
+        local: tmp,
+        value: v,
+        body: {
+          op: 'cond',
+          test: { op: 'builtin', name: 'maybe.is-null', args: [read], type: BOOLEAN },
+          then: { op: 'null', type: target },
+          else: {
+            op: 'cond',
+            test: { op: 'builtin', name: 'maybe.is-undefined', args: [read], type: BOOLEAN },
+            then: { op: 'undefined', type: target },
+            else: {
+              op: 'with',
+              local: b.local('$broken', 'void'),
+              value: { op: 'unwrap', value: { op: 'undefined', type: target } },
+              body: { op: 'undefined', type: target },
+            },
+          },
+        },
+      };
+    }
     // A nullable value TypeScript narrowed to its value (`if (o.x) f(o.x)`).
     const inner = maybeInner(t);
     if (inner !== undefined && sameType(inner, target)) {
@@ -5002,6 +5053,9 @@ export class Lowerer {
       if (maybeInner(declared) && this.knownPresent(id)) return { op: 'unwrap', value: e };
       const own = this.symbol(id);
       if (own && this.widened.has(own)) return e;
+      // (An attribute bag is not narrowed: TypeScript's type of merged
+      // props says nothing about it.)
+      if (declared === 'attrs') return e;
       here ??= this.types.typeOrUndefined(id);
       if (here === undefined) return e;
       const unwrap =
@@ -5381,6 +5435,14 @@ export class Lowerer {
       // A left operand that is never nullish (a prop with a default) is the
       // value; the right one is not evaluated.
       if (!maybeInner(lt) && lt !== 'void') return left;
+      // A left operand that holds nothing but null or undefined (bits-ui's
+      // tooltip payload): the right one, after the left is read.
+      if (JSON.stringify(lt) === JSON.stringify({ maybe: 'void' })) {
+        const tmp = b.local('$nothing', lt);
+        const want = this.types.typeOrUndefined(e);
+        const right = want === undefined ? this.expr(e.right, b) : this.coerce(e.right, b, want);
+        return { op: 'with', local: tmp, value: left, body: right };
+      }
       const result = this.types.typeOrUndefined(e) ?? maybeInner(lt) ?? 'void';
       // (An untyped literal takes the left operand's type.)
       const r0 = skipParens(e.right);
@@ -6315,6 +6377,17 @@ export class Lowerer {
   }
 
   private property(e: ts.PropertyAccessExpression, b: FnBuilder): Expr {
+    // A property of an untyped constant a test proved present (`presentIn`).
+    const path = this.pathKey(e);
+    if (path && this.present.has(path)) {
+      this.present.delete(path);
+      try {
+        const v = this.property(e, b);
+        return maybeInner(this.irType(v, b)) !== undefined ? { op: 'unwrap', value: v } : v;
+      } finally {
+        this.present.add(path);
+      }
+    }
     const name = e.name.text;
     if (e.expression.kind === ts.SyntaxKind.SuperKeyword) return this.classes.superRead(e, b);
     // `this.name` in a static member: the class's static member.
@@ -6767,7 +6840,27 @@ export class Lowerer {
    * nullable value read there converts to its value where one is expected,
    * as TypeScript narrows typed code.
    */
-  private readonly present = new Set<ts.Symbol>();
+  /** Untyped locals (symbols) and their properties (`pathKey`) known present. */
+  private readonly present = new Set<ts.Symbol | string>();
+  private readonly symbolIds = new Map<ts.Symbol, number>();
+
+  /** The key of `local.name` for a constant local. */
+  private pathKey(e: ts.Expression): string | undefined {
+    e = skipParens(e);
+    if (!ts.isPropertyAccessExpression(e) || !ts.isIdentifier(e.expression)) return undefined;
+    const sym = this.symbol(e.expression);
+    const decl = sym?.valueDeclaration;
+    if (
+      !sym ||
+      !decl ||
+      !ts.isVariableDeclaration(decl) ||
+      !(decl.parent.flags & ts.NodeFlags.Const)
+    )
+      return undefined;
+    let id = this.symbolIds.get(sym);
+    if (id === undefined) this.symbolIds.set(sym, (id = this.symbolIds.size));
+    return `${id}.${e.name.text}`;
+  }
 
   /** The expected function type of an untyped function literal, if one is known. */
   private expectedFunction(
@@ -6811,11 +6904,19 @@ export class Lowerer {
    * The symbols of untyped locals a test proves present when it is true
    * (`negated`: when it is false).
    */
-  private presentIn(test: ts.Expression, negated: boolean, branch?: ts.Statement): ts.Symbol[] {
+  private presentIn(
+    test: ts.Expression,
+    negated: boolean,
+    branch?: ts.Statement,
+  ): (ts.Symbol | string)[] {
     test = skipParens(test);
     const K = ts.SyntaxKind;
-    const local = (e: ts.Expression): ts.Symbol | undefined => {
+    const local = (e: ts.Expression): ts.Symbol | string | undefined => {
       e = skipParens(e);
+      // (A property of an untyped constant: bits-ui's `if (record.node)`
+      // over the registry's records.)
+      const path = this.pathKey(e);
+      if (path) return path;
       if (!ts.isIdentifier(e)) return undefined;
       const sym = this.symbol(e);
       const decl = sym?.valueDeclaration;
@@ -6942,7 +7043,7 @@ export class Lowerer {
   }
 
   /** Lower with `symbols` known present. */
-  private withPresent<T>(symbols: ts.Symbol[], f: () => T): T {
+  private withPresent<T>(symbols: (ts.Symbol | string)[], f: () => T): T {
     const added = symbols.filter(x => !this.present.has(x));
     for (const x of added) this.present.add(x);
     try {
@@ -9481,6 +9582,16 @@ export class Lowerer {
     const t = this.irType(v, b);
     const inner = maybeInner(t) ?? t;
     if (inner === 'string' || inner === 'boolean') return v;
+    // An element (or none) under a component prop's camelCase name (bits-ui's
+    // tooltip content merges `customAnchor ?? triggerNode` into the floating
+    // layer's props): the value, for a component declaring the prop. Set on
+    // an element (where Svelte writes `[object HTML…Element]`), it is
+    // unsupported: the native runtime reports it, the interpreter throws.
+    if (inner === 'element' && /^[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*$/.test(name)) return v;
+    // A number under a component prop's camelCase name (bits-ui's tooltip
+    // merges `sideOffset` into the floating layer's props): the number, for a
+    // component declaring the prop (set on an element, its text).
+    if (inner === 'number' && /^[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*$/.test(name)) return v;
     if (inner === 'number') {
       if (!maybeInner(t)) return { op: 'to-string', arg: v };
       const tmp = b.local('$entry', t);
@@ -9504,6 +9615,15 @@ export class Lowerer {
         },
       };
     }
+    // A bag used as a style object (bits-ui's arrow: a derived object with a
+    // computed key): its entries as style properties.
+    if (name === 'style' && t === 'attrs')
+      return {
+        op: 'builtin',
+        name: 'attrs.style-map',
+        args: [v],
+        type: { map: [STRING, { maybe: STRING }] },
+      };
     // A style object, or none (bits-ui's Avatar.Fallback: `style: this.style`).
     if (name === 'style' && typeof inner === 'object' && 'record' in inner) {
       const fields = this.types.records[inner.record].fields;

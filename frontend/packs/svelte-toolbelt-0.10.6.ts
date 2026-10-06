@@ -257,10 +257,66 @@ function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
       },
     };
   }
+  // A readable box given to an option whose boxes hold nothing (bits-ui's
+  // trigger options' `payload: ReadableBox<unknown>`, which no trigger
+  // passes): a box of nothing, its getter keeping a null as null and
+  // anything else as undefined (the census found only those reach it).
+  const slot = optionDeclaration(node, lower);
+  const unknownCurrent = (() => {
+    const cur = context?.getProperty('current');
+    return !!cur && !!(lower.checker.getTypeOfSymbol(cur).flags & ts.TypeFlags.Unknown);
+  })();
+  if (!setter && unknownCurrent && slot && lower.unions.nothingInBoxes(slot)) {
+    const getType = fnType([], t);
+    const nothing: Type = { maybe: 'void' };
+    const read = define(lower, {
+      name: 'boxWith$nothing',
+      captures: [{ name: 'get', type: getType }],
+      params: [],
+      locals: [{ name: 'value', type: t }],
+      result: nothing,
+      body: [
+        { op: 'let', local: 1, value: { op: 'call-value', callee: local(0), args: [] } },
+        {
+          op: 'return',
+          value: {
+            op: 'cond',
+            test: { op: 'builtin', name: 'maybe.is-null', args: [local(1)], type: 'boolean' },
+            then: { op: 'null', type: nothing },
+            else: { op: 'undefined', type: nothing },
+          },
+        },
+      ],
+    });
+    const tmp = b.local('$get', getType);
+    return {
+      op: 'with',
+      local: tmp,
+      value: get,
+      body: {
+        op: 'record',
+        record: boxRecord(lower, nothing),
+        fields: [
+          { op: 'closure', function: read, captures: [tmp] },
+          { op: 'undefined', type: { maybe: fnType([nothing], 'void') } },
+        ],
+      },
+    };
+  }
   const set: Expr = setter
     ? { op: 'some', value: functionArg(setter, b, lower, fnType([t], 'void')) }
     : { op: 'undefined', type: { maybe: fnType([t], 'void') } };
   return { op: 'record', record: (box as { record: number }).record, fields: [get, set] };
+}
+
+/** The declaration of the option property an object literal gives `node` to. */
+function optionDeclaration(node: ts.Expression, lower: Lowerer): ts.Declaration | undefined {
+  const p = node.parent;
+  if (!ts.isPropertyAssignment(p) || !ts.isObjectLiteralExpression(p.parent)) return undefined;
+  const ctx = lower.checker.getContextualType(p.parent);
+  const prop = ctx && lower.checker.getPropertyOfType(ctx, p.name.getText());
+  const target = (prop as unknown as { target?: ts.Symbol })?.target ?? prop;
+  return target?.valueDeclaration ?? target?.declarations?.[0];
 }
 
 /** State records (one reactive `$state` field) by value type, per program. */

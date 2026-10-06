@@ -580,6 +580,12 @@ struct RootScope {
 struct EffectState {
     /// Dependencies are recorded (the effect is mounted).
     started: bool,
+    /// The effect whose run created this one (M6 overlays: bits-ui's
+    /// `TimeoutFn` made in a `watch` callback): destroyed before that one
+    /// runs again or is destroyed.
+    parent: Option<usize>,
+    /// Destroyed with its parent: never runs again.
+    dead: bool,
     cleanup: Option<Val>,
     /// `values` dependencies of the last check.
     values: Vec<Val>,
@@ -817,6 +823,9 @@ pub struct Machine<'p> {
     /// The instance whose cells are being initialised (effects and contexts
     /// created now belong to it).
     creating: Option<usize>,
+    /// The instance effects running (innermost last): effects created there
+    /// are their children.
+    running: Vec<(usize, usize)>,
     /// Attachments applied to rendered elements: per element, the bag key,
     /// the function, its cleanup once it ran, and the instance rendering it.
     attached: HashMap<u64, Vec<Attached>>,
@@ -1094,6 +1103,7 @@ impl<'p> Machine<'p> {
             attachment_keys: 0,
             uids: 0,
             creating: None,
+            running: Vec::new(),
             attached: HashMap::new(),
             detached: vec![],
             rendered_ids: HashSet::new(),
@@ -2540,7 +2550,12 @@ impl<'p> Machine<'p> {
             }
             ("Array", "isArray") => Val::Bool(matches!(a[0], Val::Array(_))),
             ("Array", "of") => Val::Array(js::array(a.clone())),
-            ("Map", "new") => Val::Map(arr::map_new::<Val, Val>(vec![])),
+            ("Map", "new") => match a.first() {
+                Some(Val::Map(m)) => Val::Map(arr::map_new::<Val, Val>(
+                    m.borrow().entries.values().cloned().collect(),
+                )),
+                _ => Val::Map(arr::map_new::<Val, Val>(vec![])),
+            },
             ("Set", "new") => Val::Set(arr::set_new(
                 a.first().map_or(vec![], |x| x.array().borrow().clone()),
             )),
@@ -3428,6 +3443,25 @@ impl<'p> Machine<'p> {
                 other => panic!("validated bag, found {other:?}"),
             }
         };
+        if m == "style-map" {
+            let b = bag(&a[0]);
+            let mut entries = vec![];
+            for (n, v) in resolve_attrs(&b) {
+                let value = match v {
+                    Val::Str(s) => Val::Str(s.clone()),
+                    Val::Num(x) => Val::Str(JsString::from(js::number_to_string(*x))),
+                    Val::Undefined | Val::Null => Val::Undefined,
+                    _ => {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            format!("a style property {n} that is not text or a number"),
+                        ));
+                    }
+                };
+                entries.push((Val::Str(JsString::from(n)), value));
+            }
+            return Ok(Val::Map(js::array_ops::map_new(entries)));
+        }
         if m == "style-text" {
             let ops = MergeVals {
                 program: self.program,
@@ -5341,7 +5375,12 @@ impl<'p> Machine<'p> {
             self.roots[r].states.push(EffectState::default());
             return Ok(());
         }
-        let Some(i) = self.creating else {
+        // In an effect's run: a child of that effect.
+        let parent = match (self.creating, self.running.last()) {
+            (None, Some(&(i, e))) => Some((i, e)),
+            _ => None,
+        };
+        let Some(i) = self.creating.or(parent.map(|(i, _)| i)) else {
             return Err(Throw::new(
                 "RunicEffectError",
                 "effects are created while a component instance is created",
@@ -5364,7 +5403,10 @@ impl<'p> Machine<'p> {
             source: None,
         };
         self.instances[i].dynamic.push((meta, run));
-        self.instances[i].effects.push(EffectState::default());
+        self.instances[i].effects.push(EffectState {
+            parent: parent.map(|(_, e)| e),
+            ..EffectState::default()
+        });
         if phase == EffectPhase::Pre {
             let e = self.instances[i].effects.len() - 1;
             self.run_effect(i, e);
@@ -5457,10 +5499,21 @@ impl<'p> Machine<'p> {
     /// Run the due effects of `phase` of instance `i`, each checked when
     /// its turn comes (earlier effects may have written its dependencies).
     fn run_phase_at(&mut self, i: usize, phase: EffectPhase, updated: &[bool]) {
-        for e in self.effects_of(i, phase) {
-            if self.instances[i].alive && self.effect_due(i, e, updated) {
-                self.run_cleanup(i, e);
-                self.run_effect(i, e);
+        // (Effects created by those running are run after them, in the same
+        // pass: children of the effect that created them.)
+        let mut done = 0;
+        loop {
+            let all = self.effects_of(i, phase);
+            let list: Vec<usize> = all.into_iter().filter(|&e| e >= done).collect();
+            if list.is_empty() {
+                break;
+            }
+            done = self.instances[i].effects.len();
+            for e in list {
+                if self.instances[i].alive && self.effect_due(i, e, updated) {
+                    self.run_cleanup(i, e);
+                    self.run_effect(i, e);
+                }
             }
         }
     }
@@ -5474,6 +5527,9 @@ impl<'p> Machine<'p> {
 
     /// Whether effect `e` of instance `i` runs now; records `values`.
     fn effect_due(&mut self, i: usize, e: usize, updated: &[bool]) -> bool {
+        if self.instances[i].effects[e].dead {
+            return false;
+        }
         let effect = self.effect_at(i, e);
         let started = self.instances[i].effects[e].started;
         match &effect.deps {
@@ -5517,6 +5573,20 @@ impl<'p> Machine<'p> {
     }
 
     fn run_cleanup(&mut self, i: usize, e: usize) {
+        // The effects its last run created, first (in creation order).
+        let children: Vec<usize> = (0..self.instances[i].effects.len())
+            .filter(|&c| {
+                let st = &self.instances[i].effects[c];
+                st.parent == Some(e) && !st.dead
+            })
+            .collect();
+        for c in children {
+            self.instances[i].effects[c].dead = true;
+            self.run_cleanup(i, c);
+            let st = &mut self.instances[i].effects[c];
+            st.reads.clear();
+            st.heap.clear();
+        }
         if let Some(c) = self.instances[i].effects[e].cleanup.take() {
             self.reading_previous = self.program.schedule.cleanup_reads_previous;
             let r = self.call_value(&c, vec![]);
@@ -5568,10 +5638,12 @@ impl<'p> Machine<'p> {
         let saved = std::mem::replace(&mut self.current, i);
         let saved_snap = self.snap.take();
         let effect_outer = std::mem::replace(&mut self.in_effect, tracked);
+        self.running.push((i, e));
         let result = match &dynamic {
             Some(run) => self.call_value(run, vec![]),
             None => self.call(effect.run, vec![], args),
         };
+        self.running.pop();
         self.in_effect = effect_outer;
         self.current = saved;
         self.snap = saved_snap;

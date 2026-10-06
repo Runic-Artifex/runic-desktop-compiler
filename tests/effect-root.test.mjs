@@ -52,7 +52,7 @@ const byId = (nodes, id) => {
 test('$effect.root: its effects track state until the root is destroyed', async () => {
   await withApp(
     {
-      'log.svelte.ts': `export const log: string[] = $state([]);
+      'log.svelte.ts': `export let log = $state<string[]>([]);
 let count = $state(0);
 export function bump() {
   count++;
@@ -93,6 +93,44 @@ export function start(): () => void {
       assert.equal(t(1), 'run 0, cleanup, run 1');
       assert.equal(t(2), 'run 0, cleanup, run 1, cleanup, root destroyed');
       assert.equal(t(3), 'run 0, cleanup, run 1, cleanup, root destroyed');
+    },
+  );
+});
+
+test('an effect created while an effect runs is its child', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  const log: string[] = [];
+  let count = $state(0);
+  let shown = $state('');
+  $effect(() => {
+    const n = count;
+    log.push('outer ' + n);
+    $effect(() => {
+      log.push('inner ' + n);
+      return () => {
+        log.push('inner cleanup ' + n);
+      };
+    });
+  });
+</script>
+
+<p id="log">{shown}</p>
+<button id="bump" onclick={() => count++}>bump</button>
+<button id="show" onclick={() => (shown = log.join(', '))}>show</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'show' },
+        { kind: 'click', id: 'bump' },
+        { kind: 'click', id: 'show' },
+      ]);
+      const t = i => text(byId(steps[i].state.dom, 'log'));
+      assert.equal(t(1), 'outer 0, inner 0');
+      assert.equal(t(3), 'outer 0, inner 0, inner cleanup 0, outer 1, inner 1');
     },
   );
 });

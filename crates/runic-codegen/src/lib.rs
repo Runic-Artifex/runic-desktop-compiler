@@ -2267,10 +2267,15 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
             self.roots[r].fx.push(runic_runtime::Fx::default());
             return Ok(());
         }
-        let Some(i) = self.creating.last().cloned() else {
+        if let Some(i) = self.creating.last().cloned() {
+            i.add_effect(self, pre, f);
+            return Ok(());
+        }
+        // In an effect's run: a child of that effect.
+        let Some((i, e)) = self.running_fx.last().cloned() else {
             return Err(js::Throw::new("RunicEffectError", "effects are created while a component instance is created"));
         };
-        i.add_effect(self, pre, f);
+        i.add_child_effect(self, pre, f, e);
         Ok(())
     }
     /// The attachments a spread gives element `node` now: those with the same key and function stay;
@@ -2670,15 +2675,18 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
          fn changed(&self) -> bool {{ self.0.borrow().changed }}\n\
          fn fx_meta(&self) -> std::borrow::Cow<'static, [(u8, bool, bool)]> {{ {fx_meta} }}\n\
          fn fx_due(&self, cx: &mut Cx, e: usize, updated: bool) -> bool {{ fx_due_i{k}(cx, &self.0, e, updated) }}\n\
-         fn fx_cleanup(&self, cx: &mut Cx, e: usize) {{ let c = self.0.borrow_mut().fx[e].cleanup.take(); if let Some(c) = c {{ {set}let r = c(cx); {unset}if let Err(err) = r {{ eprintln!(\"runic: uncaught exception in a cleanup: {{err}}\"); }} }} }}\n\
+         fn fx_cleanup(&self, cx: &mut Cx, e: usize) {{ let children: Vec<usize> = self.0.borrow().fx.iter().enumerate().filter(|(_, f)| f.parent == Some(e) && !f.dead).map(|(c, _)| c).collect(); for c in children {{ self.0.borrow_mut().fx[c].dead = true; self.fx_cleanup(cx, c); self.0.borrow_mut().fx[c].deps.clear(); }} let c = self.0.borrow_mut().fx[e].cleanup.take(); if let Some(c) = c {{ {set}let r = c(cx); {unset}if let Err(err) = r {{ eprintln!(\"runic: uncaught exception in a cleanup: {{err}}\"); }} }} }}\n\
          fn fx_run(&self, cx: &mut Cx, e: usize) {{ fx_run_i{k}(cx, &self.0, e) }}\n\
          fn contexts(&self) -> Rc<Contexts> {{ Rc::clone(&self.0.borrow().ctx) }}\n\
          fn add_effect(&self, cx: &mut Cx, pre: bool, f: Dfx) {{ let e = {{ let mut st = self.0.borrow_mut(); st.dfx.push((pre, f)); st.fx.push(runic_runtime::Fx::default()); st.fx.len() - 1 }}; if pre {{ fx_run_i{k}(cx, &self.0, e); }} }}\n\
+         fn add_child_effect(&self, cx: &mut Cx, pre: bool, f: Dfx, parent: usize) {{ let e = {{ let mut st = self.0.borrow_mut(); st.dfx.push((pre, f)); st.fx.push(runic_runtime::Fx {{ parent: Some(parent), ..Default::default() }}); st.fx.len() - 1 }}; if pre {{ fx_run_i{k}(cx, &self.0, e); }} }}\n\
          }}\n\
-         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_due_i{k}(cx: &mut Cx, inst: &I{k}, e: usize, updated: bool) -> bool {{\nconst S: usize = {statics};\nlet started = inst.borrow().fx.get(e).is_some_and(|f| f.started);\nmatch e {{\n{due}{dynamic_due}_ => false,\n}}\n}}\n\
-         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_run_i{k}(cx: &mut Cx, inst: &I{k}, e: usize) {{\nconst S: usize = {statics};\nmatch e {{\n{run}{dynamic_run}_ => {{}}\n}}\n}}\n\
+         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_due_i{k}(cx: &mut Cx, inst: &I{k}, e: usize, updated: bool) -> bool {{\nconst S: usize = {statics};\nif inst.borrow().fx.get(e).is_some_and(|f| f.dead) {{ return false; }}\nlet started = inst.borrow().fx.get(e).is_some_and(|f| f.started);\nmatch e {{\n{due}{dynamic_due}_ => false,\n}}\n}}\n\
+         /// Run effect `e` of an instance of {name}, effects created meanwhile being its children.\n\
+         fn fx_run_i{k}(cx: &mut Cx, inst: &I{k}, e: usize) {{ cx.running_fx.push((Rc::new(H{k}(Rc::clone(inst))) as Rc<dyn Inst>, e)); fx_run_body_i{k}(cx, inst, e); cx.running_fx.pop(); }}\n\
+         #[allow(unused_variables, unused_mut, unreachable_code)]\nfn fx_run_body_i{k}(cx: &mut Cx, inst: &I{k}, e: usize) {{\nconst S: usize = {statics};\nmatch e {{\n{run}{dynamic_run}_ => {{}}\n}}\n}}\n\
          /// Run the due effects of `phase` of an instance of {name}, each cleanup right before its effect.\n\
-         fn fx_phase_i{k}(cx: &mut Cx, inst: &I{k}, phase: u8, updated: bool) {{ let h = H{k}(Rc::clone(inst)); let meta = h.fx_meta(); for (e, m) in meta.iter().enumerate() {{ if m.0 == phase && h.fx_due(cx, e, updated) {{ h.fx_cleanup(cx, e); h.fx_run(cx, e); }} }} }}",
+         fn fx_phase_i{k}(cx: &mut Cx, inst: &I{k}, phase: u8, updated: bool) {{ let h = H{k}(Rc::clone(inst)); let mut done = 0; loop {{ let meta = h.fx_meta(); if meta.len() <= done {{ break; }} let from = done; done = meta.len(); for (e, m) in meta.iter().enumerate().skip(from) {{ if m.0 == phase && h.fx_due(cx, e, updated) {{ h.fx_cleanup(cx, e); h.fx_run(cx, e); }} }} }} }}",
         name = c.name.replace('\n', " "),
         name_str = rust_str(&c.name),
         set = previous.0,
@@ -2824,6 +2832,8 @@ pub fn generate(
          fn contexts(&self) -> Rc<Contexts>;\n\
          /// An effect created while the instance is created (`pre`: it runs at once).\n\
          fn add_effect(&self, cx: &mut Cx, pre: bool, f: Dfx);\n\
+         /// An effect created while its effect `parent` runs: a child of that effect.\n\
+         fn add_child_effect(&self, cx: &mut Cx, pre: bool, f: Dfx, parent: usize);\n\
          }\n\
          /// Contexts of an instance, by key, and its parent's (the instance rendering it).\n\
          pub struct Contexts { parent: Option<Rc<Contexts>>, map: RefCell<Vec<(JsString, Rc<dyn std::any::Any>)>> }\n\
@@ -3103,12 +3113,12 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, {resize_fields}{io_fields}{mo_fields}{anim_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, pub running_fx: Vec<(Rc<dyn Inst>, usize)>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          /// Effects track the heap objects they read only where references are owned (proxied state, signal fields).\nconst OWNED_ONLY: bool = {owned_only_v};\n\
          /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, {resize_init}{io_init}{mo_init}{anim_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -3322,7 +3332,7 @@ pub fn generate(
          self.cx.jobs.phase = Some(p);\n\
          if {batched} && phase == 2 {{ for i in &post {{ self.cx.run_attachments(i.key()); }} }}\n\
          let mut due = Vec::new();\n\
-         for i in &post {{ let u = self.cx.updated.get(&i.key()).copied().unwrap_or(true); if !{batched} && phase == 2 {{ self.cx.run_attachments(i.key()); }} let meta = i.fx_meta(); for (e, m) in meta.iter().enumerate() {{ if m.0 != phase {{ continue; }} if {batched} {{ if i.fx_due(&mut self.cx, e, u) {{ due.push((Rc::clone(i), e)); }} }} else if i.fx_due(&mut self.cx, e, u) {{ i.fx_cleanup(&mut self.cx, e); i.fx_run(&mut self.cx, e); }} }} }}\n\
+         for i in &post {{ let u = self.cx.updated.get(&i.key()).copied().unwrap_or(true); if !{batched} && phase == 2 {{ self.cx.run_attachments(i.key()); }} let mut done = 0; loop {{ let meta = i.fx_meta(); if meta.len() <= done {{ break; }} let from = done; done = meta.len(); for (e, m) in meta.iter().enumerate().skip(from) {{ if m.0 != phase {{ continue; }} if {batched} {{ if i.fx_due(&mut self.cx, e, u) {{ due.push((Rc::clone(i), e)); }} }} else if i.fx_due(&mut self.cx, e, u) {{ i.fx_cleanup(&mut self.cx, e); i.fx_run(&mut self.cx, e); }} }} }} }}\n\
          if {batched} {{ for (r, p) in &after {{ if !keys.contains(p) {{ batched_cleanups(&mut self.cx, r, phase, &due, &after, &destroyed, &tree); }} }} }}\n\
          for (i, e) in &due {{ i.fx_run(&mut self.cx, *e); }}\n\
          }}\n\

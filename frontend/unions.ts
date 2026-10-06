@@ -350,6 +350,10 @@ export class Unions {
             if (!this.contains(pt, key, 0)) continue;
             const q = this.checker.getPropertyOfType(a, p.name);
             if (q) walk(pt, this.checker.getTypeOfSymbol(q), n, e, depth + 1, [...path, p.name]);
+            // (An object literal whose TypeScript type lacks the property, as
+            // a spread of svelte-toolbelt's merged props does: what it holds
+            // there, followed through its spreads.)
+            else if (ts.isObjectLiteralExpression(skip(e))) classify(pt, n, e, [...path, p.name]);
           }
           const cs = c.getCallSignatures();
           const as = a.getCallSignatures();
@@ -360,6 +364,10 @@ export class Unions {
     };
     for (const sf of this.files()) {
       const visit = (n: ts.Node) => {
+        // A class no code outside it names is never instantiated: its code
+        // gives nothing (bits-ui's `FloatingAnchorState`, created only by
+        // an anchor component the tooltip does not render).
+        if (ts.isClassDeclaration(n) && this.unreferencedClass(n)) return;
         // A prop's default, where no site can leave the prop undefined:
         // it never takes effect.
         if (ts.isBindingElement(n) && n.initializer && this.unusedDefault(n)) {
@@ -580,6 +588,32 @@ export class Unions {
       if (h === 'present') return found;
     }
     return found;
+  }
+
+  private readonly referencedClasses = new Map<ts.ClassDeclaration, boolean>();
+
+  /**
+   * Whether no code of the program outside class `c` names it (by name, so
+   * any mention counts: an import, a re-export, a type position).
+   */
+  private unreferencedClass(c: ts.ClassDeclaration): boolean {
+    const name = c.name?.text;
+    if (!name) return false;
+    const known = this.referencedClasses.get(c);
+    if (known !== undefined) return !known;
+    let found = false;
+    for (const sf of this.allFiles()) {
+      if (sf.isDeclarationFile || found) continue;
+      if (!sf.text.includes(name)) continue;
+      const visit = (n: ts.Node) => {
+        if (found || n === c) return;
+        if (ts.isIdentifier(n) && n.text === name) found = true;
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+    this.referencedClasses.set(c, found);
+    return !found;
   }
 
   /** Whether `e` calls svelte-toolbelt's `mergeProps`. */

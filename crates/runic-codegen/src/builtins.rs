@@ -235,6 +235,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             ),
         },
         ("Array", "of") => format!("js::array(vec![{}])", t.join(", ")),
+        ("Map", "new") if t.len() == 1 => format!(
+            "js::array_ops::map_new({}.borrow().entries.values().cloned().collect())",
+            t[0]
+        ),
         ("Map", "new") => "js::array_ops::map_new(Vec::new())".into(),
         ("Set", "new") => match t.first() {
             Some(items) => format!("js::array_ops::set_new({items}.borrow().clone())"),
@@ -837,6 +841,13 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 t[0]
             ),
         },
+        ("attrs", "style-map") => {
+            let failed = cx.q("Err::<(), _>(js::Throw::new(\"RunicUnsupportedError\", m))");
+            format!(
+                "{{ let mut entries = Vec::new(); for (n, v) in {}.resolved() {{ let value = match v {{ js::AttrValue::Text(s) => Ok(Maybe::Some(s.clone())), js::AttrValue::Absent | js::AttrValue::Null => Ok(Maybe::Undefined), js::AttrValue::Value(x, ops) => (ops.text)(&**x).map(|t| t.map_or(Maybe::Undefined, Maybe::Some)), _ => Err(format!(\"a style property {{n}} that is not text or a number\")) }}; match value {{ Ok(v) => entries.push((n.clone(), v)), Err(m) => {{ runic_runtime::unsupported(&m); {failed}; unreachable!() }} }} }} js::array_ops::map_new(entries) }}",
+                t[0]
+            )
+        }
         ("attrs", m) => attrs_builtin(cx, m, &t, ty),
         ("element", "scrollIntoView") => format!(
             "cx.dom.scroll_into_view({}.0, &{}.to_rust(), &{}.to_rust())",

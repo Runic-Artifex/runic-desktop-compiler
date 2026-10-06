@@ -320,6 +320,11 @@ pub struct Fx<C, X> {
     pub started: bool,
     pub cleanup: Option<C>,
     pub deps: Vec<Dep<X>>,
+    /// The effect whose run created this one: destroyed before that one
+    /// runs again or is destroyed (M6 overlays).
+    pub parent: Option<usize>,
+    /// Destroyed with its parent: never runs again.
+    pub dead: bool,
 }
 
 impl<C, X> Default for Fx<C, X> {
@@ -328,6 +333,8 @@ impl<C, X> Default for Fx<C, X> {
             started: false,
             cleanup: None,
             deps: Vec::new(),
+            parent: None,
+            dead: false,
         }
     }
 }

@@ -1130,6 +1130,13 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("attrs", "merge-props") => all(args, &Attrs).map(|_| Attrs),
         // svelte-toolbelt's `styleToString(style)` (M6 overlays): a style
         // record (string or maybe<string> fields) or a style map.
+        // A bag used as a style object (M6 overlays: bits-ui's arrow style,
+        // built with a computed key): its entries as style properties.
+        ("attrs", "style-map") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Attrs, "bag")?;
+            Ok(Type::Map(Box::new(s.clone()), Box::new(Type::maybe(s.clone()))))
+        }
         ("attrs", "style-text") => {
             arity(args, 1, 1)?;
             let ok = match &args[0] {
@@ -1376,8 +1383,15 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             Array(t) => all(args, t).map(|_| declared.clone()),
             _ => Err("Array.of needs an array type".into()),
         },
+        // (A copy of a map of the same type: `new Map(m)`, its entries in order.)
         ("Map", "new") => match declared {
-            Map(..) => arity(args, 0, 0).map(|_| declared.clone()),
+            Map(..) => {
+                arity(args, 0, 1)?;
+                if let Some(a) = args.first() {
+                    expect(a, declared, "map to copy")?;
+                }
+                Ok(declared.clone())
+            }
             _ => Err("Map constructor needs a Map type".into()),
         },
         ("Set", "new") => match declared {
