@@ -356,6 +356,12 @@ enum Item<'a> {
         key: usize,
         parts: &'a [Expr],
     },
+    /// `{@html}` (M6): the nodes of the fragment whose string is the value.
+    Html {
+        key: usize,
+        value: &'a Expr,
+        fragments: &'a [usize],
+    },
     Element {
         key: usize,
         node: &'a Node,
@@ -437,6 +443,13 @@ impl<'a> Planner<'a> {
         let key = self.key;
         match n {
             Node::Text { parts, .. } => Item::Text { key, parts },
+            Node::Html {
+                value, fragments, ..
+            } => Item::Html {
+                key,
+                value,
+                fragments,
+            },
             Node::Element { children, .. } => Item::Element {
                 key,
                 node: n,
@@ -507,6 +520,55 @@ impl<'a> Planner<'a> {
     }
 }
 
+/// The program's `{@html}` fragments (M6) as a static table the runtime
+/// builds nodes from; HTML is parsed at build time only.
+fn fragments(p: &Program) -> String {
+    fn node(n: &FragmentNode, out: &mut String) {
+        match n {
+            FragmentNode::Text { text } => {
+                let _ = write!(
+                    out,
+                    "runic_runtime::FragmentNode::Text({}), ",
+                    rust_str(text)
+                );
+            }
+            FragmentNode::Element {
+                tag,
+                attrs,
+                children,
+            } => {
+                let _ = write!(
+                    out,
+                    "runic_runtime::FragmentNode::Element({}, &[",
+                    rust_str(tag)
+                );
+                for (k, v) in attrs {
+                    let _ = write!(out, "({}, {}), ", rust_str(k), rust_str(v));
+                }
+                out.push_str("], &[");
+                for c in children {
+                    node(c, out);
+                }
+                out.push_str("]), ");
+            }
+        }
+    }
+    let mut out = String::from("static FRAGMENTS: &[runic_runtime::HtmlFragment] = &[\n");
+    for f in &p.fragments {
+        let _ = write!(
+            out,
+            "runic_runtime::HtmlFragment {{ html: {}, nodes: &[",
+            rust_str(&f.html)
+        );
+        for n in &f.nodes {
+            node(n, &mut out);
+        }
+        out.push_str("] },\n");
+    }
+    out.push_str("];\n");
+    out
+}
+
 /// Rust expression for the first mounted node among `items`, falling back to `tail`.
 fn first_of(items: &[Item], tail: &str) -> String {
     let mut out = String::new();
@@ -522,6 +584,7 @@ fn first_of(items: &[Item], tail: &str) -> String {
                 "s.then{key}.as_deref().and_then(first_s{then}).or_else(|| s.else{key}.as_deref().and_then(first_s{otherwise}))"
             ),
             Item::Component { key, root, .. } => format!("first_s{root}(&s.cs{key})"),
+            Item::Html { key, .. } => format!("s.h{key}.first().copied()"),
             Item::Slot { key, fallback, .. } => format!(
                 "s.sl{key}.as_ref().and_then(|b| b.first()).or_else(|| s.fb{key}.as_deref().and_then(first_s{fallback}))"
             ),
@@ -829,6 +892,9 @@ impl Gen<'_> {
         match item {
             Item::Text { key, .. } | Item::Element { key, .. } => {
                 let _ = writeln!(out, "out.push(s.n{key});");
+            }
+            Item::Html { key, .. } => {
+                let _ = writeln!(out, "out.extend(s.h{key}.iter().copied());");
             }
             Item::If {
                 key,
@@ -1219,6 +1285,43 @@ impl Gen<'_> {
                     self.item(k, c, o, Some(key), &children[i + 1..]);
                 }
                 o.mount.push_str(&attach(&format!("n{key}")));
+            }
+            Item::Html {
+                key,
+                value,
+                fragments,
+            } => {
+                let key = *key;
+                let mut cx = self.ctx(k);
+                let v = cx.expr(value);
+                let html = match cx.ty(value) {
+                    Type::String => format!("{v}.to_rust()"),
+                    _ => format!(
+                        "(match {{ let m: Maybe<JsString> = {v}; m }} {{ Maybe::Some(s) => s.to_rust(), _ => String::new() }})"
+                    ),
+                };
+                let list = fragments
+                    .iter()
+                    .map(|f| f.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                o.fields.push((format!("h{key}"), "Vec<NodeId>".into()));
+                o.fields.push((format!("hv{key}"), "String".into()));
+                let attach_all = match parent {
+                    Some(p) => format!("for x in &h{key} {{ dom.append(n{p}, *x); }}\n"),
+                    None => format!("for x in &h{key} {{ dom.insert(parent, *x, before); }}\n"),
+                };
+                let _ = writeln!(
+                    o.mount,
+                    "let hv{key}: String = {html};\nlet h{key} = dom.html(&hv{key}, &[{list}], FRAGMENTS)?;\n{attach_all}"
+                );
+                let anchor = first_of(following, tail);
+                let refs = [*value];
+                let guard = self.guard(k, &refs);
+                let _ = writeln!(
+                    o.update,
+                    "if {guard} {{ let v: String = {html}; if v != s.hv{key} {{ let anchor = {anchor}; for x in s.h{key}.drain(..) {{ dom.remove(x); }} let fresh = dom.html(&v, &[{list}], FRAGMENTS)?; for x in &fresh {{ dom.insert({up}, *x, anchor); }} s.h{key} = fresh; s.hv{key} = v; }} }}"
+                );
             }
             Item::If {
                 key,
@@ -2573,6 +2676,7 @@ pub fn generate(
          #[allow(unused_macros)]\n\
          macro_rules! tri {{ ($e:expr, $l:lifetime) => {{ match $e {{ Ok(v) => v, Err(e) => break $l Err(e) }} }}; }}\n"
     );
+    out.push_str(&fragments(p));
     out.push_str(&records(p));
     // `batched_cleanups` mirrors the interpreter's definition, which follows
     // React's commit walk (react-dom `recursivelyTraverseMutationEffects`,

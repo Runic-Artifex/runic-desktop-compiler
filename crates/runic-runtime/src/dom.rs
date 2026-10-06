@@ -997,7 +997,64 @@ fn attr(name: &str) -> QualName {
     QualName::new(None, Namespace::from(""), LocalName::from(name))
 }
 
+/// A static node of an HTML fragment parsed at build time (`{@html}`, M6).
+pub enum FragmentNode {
+    Element(
+        &'static str,
+        &'static [(&'static str, &'static str)],
+        &'static [FragmentNode],
+    ),
+    Text(&'static str),
+}
+
+/// An HTML string and its nodes, parsed at build time (`{@html}`, M6).
+pub struct HtmlFragment {
+    pub html: &'static str,
+    pub nodes: &'static [FragmentNode],
+}
+
 impl Dom<'_> {
+    /// The detached top-level nodes of the fragment among `candidates` whose
+    /// string is `html` (`{@html}`): HTML is never parsed natively, so
+    /// another string is unsupported. The empty string is no nodes.
+    pub fn html(
+        &mut self,
+        html: &str,
+        candidates: &[usize],
+        table: &[HtmlFragment],
+    ) -> Result<Vec<NodeId>, runic_js::Throw> {
+        if html.is_empty() {
+            return Ok(vec![]);
+        }
+        let Some(&f) = candidates.iter().find(|&&f| table[f].html == html) else {
+            let what = "{@html} of a string that was not parsed at build time";
+            crate::unsupported(what);
+            return Err(runic_js::Throw::new("RunicUnsupportedError", what));
+        };
+        Ok(table[f]
+            .nodes
+            .iter()
+            .map(|n| self.fragment_node(n))
+            .collect())
+    }
+
+    fn fragment_node(&mut self, node: &FragmentNode) -> NodeId {
+        match node {
+            FragmentNode::Text(text) => self.text(text),
+            FragmentNode::Element(tag, attrs, children) => {
+                let id = self.element(tag);
+                for (name, value) in attrs.iter() {
+                    self.set_attr(id, name, value);
+                }
+                for c in children.iter() {
+                    let child = self.fragment_node(c);
+                    self.append(id, child);
+                }
+                id
+            }
+        }
+    }
+
     pub fn element(&mut self, tag: &str) -> NodeId {
         // SVG elements are created in the SVG namespace, as the frameworks
         // create them (the IR validator keeps them inside an `<svg>`).

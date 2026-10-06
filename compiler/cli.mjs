@@ -148,7 +148,7 @@ async function buildInto(ir, graph, out, options) {
 async function main() {
   if (!command || !app) {
     console.log(
-      'runic-compiler analyze|build <app>\nrunic-compiler scan <project-dir>\nOptions: --out PATH --no-opt --release --probe --renderer cpu|gpu --json',
+      'runic-compiler analyze|build|generate <app>\nrunic-compiler scan <project-dir>\nOptions: --out PATH --no-opt --release --probe --renderer cpu|gpu --json',
     );
     return;
   }
@@ -161,6 +161,18 @@ async function main() {
       renderer: values.renderer,
     });
     console.log(JSON.stringify({ executable: path.join(r.out, 'runic-app') }));
+    return;
+  }
+  if (command === 'generate') {
+    const { generate, RECORD } = await import('./generate.mjs');
+    const record = await generate(app);
+    console.log(
+      JSON.stringify({
+        record: path.join(app, RECORD),
+        steps: record.steps.map(s => s.name),
+        server: Boolean(record.server),
+      }),
+    );
     return;
   }
   if (command === 'scan') {

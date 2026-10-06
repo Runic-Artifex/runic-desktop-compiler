@@ -1,0 +1,78 @@
+{
+  "description": "The kit-docs fixture at 420px (the table of contents hidden): the Tabs page's demo activated by click, ArrowRight and End, the sidebar links to Separator and Toggle, back and forward",
+  "fixtures": [
+    "kit-docs-svelte"
+  ],
+  "url": "/docs/components/tabs",
+  "viewports": [
+    [
+      420,
+      600
+    ]
+  ],
+  "pixelRegions": [
+    "sidebar",
+    "preview-tabs-demo",
+    "preview-separator-demo"
+  ],
+  "actions": [
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "click",
+      "id": "bits-c4"
+    },
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "press",
+      "key": "ArrowRight"
+    },
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "press",
+      "key": "End"
+    },
+    {
+      "kind": "wait",
+      "ms": 50
+    },
+    {
+      "kind": "click",
+      "id": "nav-separator"
+    },
+    {
+      "kind": "wait",
+      "ms": 100
+    },
+    {
+      "kind": "click",
+      "id": "nav-toggle"
+    },
+    {
+      "kind": "wait",
+      "ms": 100
+    },
+    {
+      "kind": "back"
+    },
+    {
+      "kind": "wait",
+      "ms": 100
+    },
+    {
+      "kind": "forward"
+    },
+    {
+      "kind": "wait",
+      "ms": 100
+    }
+  ]
+}

@@ -99,15 +99,19 @@ async function serveKitFixture(root, config) {
   const types = { '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css', '.html': 'text/html', '.woff2': 'font/woff2' };
   const server = createHttpServer(async (req, res) => {
     const pathname = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    let file = path.join(site, pathname);
-    if (!file.startsWith(site)) file = path.join(site, 'index.html');
+    // A file, a prerendered page (`/docs/x` → `docs/x.html`, as static hosts
+    // serve adapter-static's output), else the SPA fallback page.
+    const base = path.join(site, pathname);
+    let file = path.join(site, 'index.html');
     let body;
-    try {
-      body = await readFile(file);
-    } catch {
-      file = path.join(site, 'index.html');
-      body = await readFile(file);
+    for (const candidate of base.startsWith(site) ? [base, base + '.html', path.join(base, 'index.html')] : []) {
+      try {
+        body = await readFile(candidate);
+        file = candidate;
+        break;
+      } catch {}
     }
+    body ??= await readFile(file);
     res.writeHead(200, { 'content-type': types[path.extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(body);
   });

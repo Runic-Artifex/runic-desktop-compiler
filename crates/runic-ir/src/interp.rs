@@ -3737,6 +3737,50 @@ impl<'p> Machine<'p> {
         r
     }
 
+    /// A node of fragment `f` (`{@html}`), its elements identified by their
+    /// order in the fragment.
+    fn fragment_node(
+        &mut self,
+        node: &FragmentNode,
+        base: &InstKey,
+        f: usize,
+        ordinal: &mut usize,
+    ) -> VNode {
+        match node {
+            FragmentNode::Text { text } => VNode::Text(text.clone()),
+            FragmentNode::Element {
+                tag,
+                attrs,
+                children,
+            } => {
+                *ordinal += 1;
+                let key = (base.clone(), (f << 24) + *ordinal);
+                let id = match self.element_ids.get(&key) {
+                    Some(&id) => id,
+                    None => {
+                        self.next_element += 1;
+                        self.element_ids.insert(key.clone(), self.next_element);
+                        self.next_element
+                    }
+                };
+                self.rendered_elements.insert(key);
+                let children = children
+                    .iter()
+                    .map(|c| self.fragment_node(c, base, f, ordinal))
+                    .collect();
+                VNode::Element {
+                    tag: tag.clone(),
+                    attrs: attrs.iter().cloned().collect(),
+                    value: None,
+                    checked: None,
+                    id,
+                    listeners: vec![],
+                    children,
+                }
+            }
+        }
+    }
+
     fn render_node(
         &mut self,
         n: &'p Node,
@@ -3752,6 +3796,39 @@ impl<'p> Machine<'p> {
                     text.push_str(&self.eval(p, frame)?.string().to_rust());
                 }
                 out.push(VNode::Text(text));
+            }
+            Node::Html {
+                value, fragments, ..
+            } => {
+                let html = match self.eval(value, frame)? {
+                    Val::Str(s) => s.to_rust(),
+                    _ => String::new(),
+                };
+                if html.is_empty() {
+                    return Ok(());
+                }
+                let program = self.program;
+                let Some(&f) = fragments
+                    .iter()
+                    .find(|&&f| program.fragments[f].html == html)
+                else {
+                    let what = "{@html} of a string that was not parsed at build time".to_owned();
+                    self.unsupported.get_or_insert(what.clone());
+                    return Err(Throw::new("RunicUnsupportedError", what));
+                };
+                // Elements of the fragment keep their identity while the value
+                // stays (a new value is new nodes, as Svelte inserts them).
+                let mut ordinal = 0;
+                let base = InstKey {
+                    parent: self.current,
+                    node: n as *const Node as usize,
+                    path: path.clone(),
+                    via: self.via.clone(),
+                };
+                for node in &program.fragments[f].nodes {
+                    let v = self.fragment_node(node, &base, f, &mut ordinal);
+                    out.push(v);
+                }
             }
             Node::If {
                 test,

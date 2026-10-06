@@ -29,7 +29,7 @@ mod timeline;
 mod timers;
 
 pub use blitz_traits::node_id::NodeId;
-pub use dom::{ClassState, Dom, Event, Host, Spread};
+pub use dom::{ClassState, Dom, Event, FragmentNode, Host, HtmlFragment, Spread};
 pub use random::Random;
 
 /// Whether this process runs as a conformance probe (host services keep

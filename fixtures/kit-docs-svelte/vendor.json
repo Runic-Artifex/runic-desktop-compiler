@@ -1,0 +1,163 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/kit-docs.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The site's markdown pages (content/), its velite and mdsx configurations, the examples they preview and the components those use are the site's; svelte.config.js holds the site's componentPreviews() preprocessor verbatim with this fixture's adapter (adapter-static instead of adapter-cloudflare); the routes, the markdown blueprint and wrapper components (src/lib/components/), the registry script and the theme are this repository's. The packages are the compiler's checked versions, not the site's lockfile pins (docs/design/M6-SVELTEKIT.md, phase 2).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "content/components/separator.md": {
+      "upstream": "docs/content/components/separator.md",
+      "sha256": "f1c159e1507b2fca66b152c0096b3e2354150c8fa7011eca6b4f84bb216a5d4b"
+    },
+    "content/components/tabs.md": {
+      "upstream": "docs/content/components/tabs.md",
+      "sha256": "1fd3450386b436c75287934ee3b7c54c553cdeab506e07514d2d031e631fcd49"
+    },
+    "content/components/toggle.md": {
+      "upstream": "docs/content/components/toggle.md",
+      "sha256": "03bfc96cd664de41fce3826755af1e4c05d727d611173a8cca17cd903ab533bd"
+    },
+    "mdsx.config.js": {
+      "upstream": "docs/mdsx.config.js",
+      "sha256": "1567877b0d250838d813311de49a1639eb1427e955f827d1e0ba052022a4b675"
+    },
+    "src/lib/highlight-code.ts": {
+      "upstream": "docs/src/lib/highlight-code.ts",
+      "sha256": "8411f7970a25df8e4f1a1b7b20f0e764505252cb4334a4b68065e810d248f811"
+    },
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/separator-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/separator-demo.svelte",
+      "sha256": "88e9a532e92f9f4bd3855e22ecd1177713309bcb1778cfbe093c27b53db7e3f0"
+    },
+    "src/lib/registry/examples/separator-list.svelte": {
+      "upstream": "docs/src/lib/registry/examples/separator-list.svelte",
+      "sha256": "87ea47b658bb8bb0a5e8af8ac48918fcd4c9530a4af177e7aa2216aaf55d1228"
+    },
+    "src/lib/registry/examples/separator-menu.svelte": {
+      "upstream": "docs/src/lib/registry/examples/separator-menu.svelte",
+      "sha256": "4063f937d9d608cd9cd5e0ee6b4fb24ff649446c5298f6d6669945b6241a770f"
+    },
+    "src/lib/registry/examples/separator-vertical.svelte": {
+      "upstream": "docs/src/lib/registry/examples/separator-vertical.svelte",
+      "sha256": "6573d2f7ddae743c769664ddcb4a3745c05e1a312ca2581e950b6f1dde70382a"
+    },
+    "src/lib/registry/examples/tabs-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-demo.svelte",
+      "sha256": "44f2eadb497041ff0cbea249008247f604d1ee7381d4bb956ffa94bbdc15dc7a"
+    },
+    "src/lib/registry/examples/tabs-disabled.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-disabled.svelte",
+      "sha256": "74e60e4fc986872a52f4bfdc4b860e5d6319dd0e1dd48bbd3006d44454624815"
+    },
+    "src/lib/registry/examples/tabs-icons.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-icons.svelte",
+      "sha256": "7155966eaa7fded281a8c13c739e3649655cb6c46d87b786a90f9a926fc81eb9"
+    },
+    "src/lib/registry/examples/tabs-line.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-line.svelte",
+      "sha256": "27234449043d65054689a9ac7fa0a5135328712676329c4de040f73cefd784e1"
+    },
+    "src/lib/registry/examples/tabs-vertical.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tabs-vertical.svelte",
+      "sha256": "5c4b6a34897e60dfc862b6c0f73d9bff5f0835d6c73b488a6055286df2fb2789"
+    },
+    "src/lib/registry/examples/toggle-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-demo.svelte",
+      "sha256": "bf667ca181daf7f759b434967b5aeafb2a69429660e85dbe0c49e68b67de0b51"
+    },
+    "src/lib/registry/examples/toggle-disabled.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-disabled.svelte",
+      "sha256": "c1f9e39a5c8b1919e49c6887e1bcffa53061b8d91b77b8cff68b50f355208140"
+    },
+    "src/lib/registry/examples/toggle-outline.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-outline.svelte",
+      "sha256": "e76a30182c4a96cda7abc46a9ed2be97babbf664b3f7abb2c41bf8fcc4b177cf"
+    },
+    "src/lib/registry/examples/toggle-sizes.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-sizes.svelte",
+      "sha256": "02dc8780edf2252c15750a7a2ea65457d1475292aafe7a7c5ee774c129ce5079"
+    },
+    "src/lib/registry/examples/toggle-with-text.svelte": {
+      "upstream": "docs/src/lib/registry/examples/toggle-with-text.svelte",
+      "sha256": "3058b695cbb6c284a2faa151fcf252edf3dcf09fcdf36151bb0a85768f5e19e9"
+    },
+    "src/lib/registry/ui/card/card-action.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-action.svelte",
+      "sha256": "032220a0e351eac68b77e4cedf938597376703f1a95648a615306b0a648d2851"
+    },
+    "src/lib/registry/ui/card/card-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-content.svelte",
+      "sha256": "1fc6e4e49eb6cd16ce76e66d1015fe72503a8538bc8e602326a3f5130ffd8a33"
+    },
+    "src/lib/registry/ui/card/card-description.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-description.svelte",
+      "sha256": "c51e61a11c7b87e3da6b06eb953e7bfffe0388f7721795bfc207c8bea0aabbd3"
+    },
+    "src/lib/registry/ui/card/card-footer.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-footer.svelte",
+      "sha256": "9242ce73ae1fdf89f2dc30c42302e928ae6bf1dfecd18df1c08e1958afb71161"
+    },
+    "src/lib/registry/ui/card/card-header.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-header.svelte",
+      "sha256": "5c15cab4b41f19e406b86a46d767dc7d38936c5870a64707a633f515f59a5215"
+    },
+    "src/lib/registry/ui/card/card-title.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card-title.svelte",
+      "sha256": "5deb7cebbb6cb224a4dd62dcf61468ee39094497df2b186210d7e1a36096ac02"
+    },
+    "src/lib/registry/ui/card/card.svelte": {
+      "upstream": "docs/src/lib/registry/ui/card/card.svelte",
+      "sha256": "263baa411cacfe098ba631ff8696aa02a9134ff40094b56caaf4800de7bfad0b"
+    },
+    "src/lib/registry/ui/card/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/card/index.ts",
+      "sha256": "41b4e0bf782f5e2bbed1863de169ad9f623b47a73f9fc57ba6776779e4be9edb"
+    },
+    "src/lib/registry/ui/separator/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/separator/index.ts",
+      "sha256": "beeaaaab286f1aeff1e43a8ef1c02a60de5e6349780d12af73e9646c6db98bf6"
+    },
+    "src/lib/registry/ui/separator/separator.svelte": {
+      "upstream": "docs/src/lib/registry/ui/separator/separator.svelte",
+      "sha256": "6640a4c992ec62329efe8d5aa499c39d3b1163b50f4f2bee0edebf5a4f49a9db"
+    },
+    "src/lib/registry/ui/tabs/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/tabs/index.ts",
+      "sha256": "e8c5e55fb540595b2a250f2ffd292cac31b2b272820df0f36df348351c7a84b5"
+    },
+    "src/lib/registry/ui/tabs/tabs-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tabs/tabs-content.svelte",
+      "sha256": "49d163282450e1feba057c0d1ca7f72c9ef4ca93d285573f44ed2495b844ce61"
+    },
+    "src/lib/registry/ui/tabs/tabs-list.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tabs/tabs-list.svelte",
+      "sha256": "410e918ca56b033f49e33956e50a85893160efe71876662547cf8568d8fbcb26"
+    },
+    "src/lib/registry/ui/tabs/tabs-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tabs/tabs-trigger.svelte",
+      "sha256": "f758c7a51d37761bb25cfbe78598138620dfe7994e7c6458cb07132a34fa7ab1"
+    },
+    "src/lib/registry/ui/tabs/tabs.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tabs/tabs.svelte",
+      "sha256": "142b05375fab107912b4b1b9ceb5ef76e83bf42c6a2f145b2180b0ff70723e57"
+    },
+    "src/lib/registry/ui/toggle/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/toggle/index.ts",
+      "sha256": "96772363857f0c48a0b412dd27a84857a5940273e02b583ae03ebcf2aeda50ef"
+    },
+    "src/lib/registry/ui/toggle/toggle.svelte": {
+      "upstream": "docs/src/lib/registry/ui/toggle/toggle.svelte",
+      "sha256": "324c0a7c77844c729b16add969a4725524170e93380c0f427d63eb4387f36ab8"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/utils.ts",
+      "sha256": "c6731acfe3984e34e510b6d39310489976bee085c351b550e877f63419a48fec"
+    },
+    "velite.config.js": {
+      "upstream": "docs/velite.config.js",
+      "sha256": "d679bf2a09aaa0ccbe8b0a84f310247d0e3c60cd83e0ac99ea9476aa8665af8d"
+    }
+  }
+}

@@ -74,7 +74,11 @@ function literal(node, file, text) {
  * configure the build (`adapter`, `prerender`, `appDir`, `version.name`,
  * `outDir`, …) are skipped; others are rejected.
  */
-export function readSvelteConfig(root) {
+export function readSvelteConfig(root, runic = {}) {
+  // Preprocessors run only in a declared generation step (runic.json
+  // `generate`, compiler/generate.mjs), whose outputs builds read; the
+  // extensions they compile are the preprocessed files' (`.md`).
+  const preprocessSteps = (runic.generate ?? []).filter(s => s?.preprocess !== undefined);
   const file = path.join(root, 'svelte.config.js');
   if (!existsSync(file))
     kitFail(
@@ -112,9 +116,42 @@ export function readSvelteConfig(root) {
     );
   const config = literal(exported, 'svelte.config.js', text);
   const value = entry => literal(entry.node, 'svelte.config.js', text);
-  const out = { routerType: 'pathname', aliases: {}, bundleStrategy: 'split', notes: [] };
+  const out = {
+    routerType: 'pathname',
+    aliases: {},
+    bundleStrategy: 'split',
+    notes: [],
+    extensions: ['.svelte'],
+  };
   for (const [key, entry] of Object.entries(config)) {
     if (key === 'kit') continue;
+    if (key === 'preprocess' && preprocessSteps.length) {
+      // Not read here: `runic generate` runs it (the step's record is checked).
+      out.notes.push(
+        `preprocess runs in the generation step ${preprocessSteps.map(s => s.name).join(', ')}`,
+      );
+      continue;
+    }
+    if (key === 'extensions' && preprocessSteps.length) {
+      const ext = value(entry);
+      if (
+        !Array.isArray(ext) ||
+        !ext.includes('.svelte') ||
+        ext.some(
+          e =>
+            typeof e !== 'string' ||
+            !/^\.[a-z]+$/.test(e) ||
+            (e !== '.svelte' && !preprocessSteps.some(s => s.preprocess.endsWith('*' + e))),
+        )
+      )
+        kitFail(
+          'E_KIT_CONFIG',
+          'Svelte extensions other than .svelte must be the files of a preprocess generation step (runic.json generate, "preprocess": "…/*.md")',
+          where(entry.node),
+        );
+      out.extensions = ext;
+      continue;
+    }
     if (key === 'compilerOptions') {
       const opts = value(entry);
       for (const [k, v] of Object.entries(opts))
@@ -485,12 +522,17 @@ export function routeModule(root, rel) {
           [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(d.initializer.kind)
         ) {
           // Server rendering only: the app is a client-rendered SPA.
-        } else if (name === 'prerender' && d.initializer?.kind === ts.SyntaxKind.FalseKeyword) {
-          // The default.
+        } else if (
+          name === 'prerender' &&
+          [ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.TrueKeyword].includes(d.initializer?.kind)
+        ) {
+          // false is the default; true makes generation evaluate the route
+          // (its server data and the endpoints its loads fetch), and the
+          // native app renders it on the client as any other route.
         } else
           kitFail(
             'E_KIT_LOAD',
-            `The page option ${name} is unsupported (ssr and prerender = false are; prerendered pages are hydrated, which the native app does not model)`,
+            `The page option ${name} is unsupported (ssr, and prerender true or false, are)`,
             where(d),
           );
       }
@@ -502,6 +544,58 @@ export function routeModule(root, rel) {
       );
   }
   return { load, data, text };
+}
+
+/**
+ * The exports of a server route module (`+page.server.ts`/`+layout.server.ts`),
+ * which only generation runs: `load`, the page options `prerender` and
+ * `ssr`, and `entries`. Form actions and other exports need a server.
+ */
+export function serverModule(root, rel) {
+  const file = path.join(root, rel);
+  const text = readFileSync(file, 'utf8');
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const where = n => {
+    const p = position(text, n.getStart(sf));
+    return at(rel, p.line, p.column);
+  };
+  const ALLOWED = new Set(['load', 'prerender', 'entries', 'ssr']);
+  let load = false;
+  for (const stmt of sf.statements) {
+    const exported = stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+    if (!exported) {
+      if (ts.isExportDeclaration(stmt) || ts.isExportAssignment(stmt))
+        kitFail(
+          'E_KIT_SERVER',
+          'Server route modules declare their exports (export function load, export const …)',
+          where(stmt),
+        );
+      continue;
+    }
+    const names = ts.isFunctionDeclaration(stmt)
+      ? [stmt.name?.text]
+      : ts.isVariableStatement(stmt)
+        ? stmt.declarationList.declarations.map(d => (ts.isIdentifier(d.name) ? d.name.text : ''))
+        : ts.isInterfaceDeclaration(stmt) || ts.isTypeAliasDeclaration(stmt)
+          ? []
+          : [''];
+    for (const name of names) {
+      if (name === 'actions')
+        kitFail(
+          'E_KIT_SERVER',
+          'Form actions need a server (the native app has none)',
+          where(stmt),
+        );
+      if (!ALLOWED.has(name))
+        kitFail(
+          'E_KIT_SERVER',
+          `The server route module export ${name || '(unnamed)'} is unsupported (load, prerender, ssr and entries are)`,
+          where(stmt),
+        );
+      if (name === 'load') load = true;
+    }
+  }
+  return { load };
 }
 
 /** Whether a component declares props by name, and which. */

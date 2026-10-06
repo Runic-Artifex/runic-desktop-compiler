@@ -5,7 +5,7 @@
 // events → handlers. Ordinary code goes through frontend/language.ts.
 import ts from 'typescript';
 import path from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { Diagnostic, hash } from '../../compiler/collect.mjs';
 import type {
   AttrItem,
@@ -52,6 +52,16 @@ import { svelteContextImport } from '../svelte-context.ts';
 import { valueSet } from '../packs/choice.ts';
 import { BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
 import { packageBindings } from '../package-bindings.ts';
+import { componentBinding, componentGlobal } from '../component-values.ts';
+import { jsonBinding } from '../json-modules.ts';
+import { Fragments } from '../html-fragments.ts';
+import {
+  componentValues,
+  dynamicSites,
+  requiredProps,
+  rewriteGlobs,
+  type GlobCall,
+} from './svelte-dynamic.ts';
 import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import {
   bindPackImport,
@@ -113,6 +123,11 @@ const TAGS = new Set([
   'pre',
   'br',
   'hr',
+  'dl',
+  'dt',
+  'dd',
+  'figure',
+  'figcaption',
   ...SVG_TAGS,
 ]);
 /** The exports of Svelte's modules that component scripts may import. */
@@ -145,7 +160,12 @@ interface Graph {
   config: { title: string; renderer?: 'cpu' | 'gpu' };
   modules: Map<
     string,
-    { code: string; imports: Edge[]; package?: { name: string; version: string; dir: string } }
+    {
+      code: string;
+      imports: Edge[];
+      package?: { name: string; version: string; dir: string };
+      globs?: GlobCall[];
+    }
   >;
   tooling: {
     packages: Record<string, string>;
@@ -162,6 +182,8 @@ interface KitGraph {
   routeModules: Set<string>;
   routeComponents: Set<string>;
   typeFiles: Map<string, string>;
+  /** The strings of the build-time data tables (server data, endpoint responses). */
+  htmlStrings?: string[];
   resolveType: (specifier: string, from: string) => string | undefined;
 }
 
@@ -285,6 +307,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // their `<script module>` exports (a barrel may import components the
   // program never renders).
   const units = new Map<string, Unit>();
+  /** HTML parsed at build time for `{@html}` (frontend/html-fragments.ts). */
+  const fragments = new Fragments();
   const order: Unit[] = [];
   /** Optional props bound to variables of the present type (`bind:` on components). */
   const presentWrites: { component: number; cell: number; name: string; at: Source }[] = [];
@@ -459,6 +483,17 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   /** A reached component: its checks, and the components its template instantiates. */
   const reach = (u: Unit) => {
     const loc = (n: SNode) => locate(u.original, n.start ?? 0, u.rel);
+    // Tags naming a component value (`<Markdown />`): a copy per candidate.
+    dynamicSites(
+      u,
+      name =>
+        u.children.has(name) ||
+        u.packs.has(name) ||
+        (r => r !== undefined && r.kind !== 'binding')(resolver.dotted(u.file, name)),
+      componentFiles,
+      file => requiredProps(unitOfFile(file)),
+      offset => locate(u.original, offset, u.rel),
+    );
     const { ast } = u;
     if (ast.css)
       fail(
@@ -561,9 +596,20 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     });
     return found;
   };
-  visit(rootFile!, []);
   for (const id of graph.modules.keys())
     if (id.endsWith('.svelte') && id.startsWith(root + path.sep)) unitOfFile(id);
+  // Components used as values (frontend/adapters/svelte-dynamic.ts).
+  const componentFiles = componentValues(
+    units.values(),
+    graph.modules,
+    id => units.has(id),
+    (file, name) => {
+      const ref = resolver.dotted(file, name);
+      return ref?.kind === 'component' ? ref.file : undefined;
+    },
+    root,
+  );
+  visit(rootFile!, []);
 
   // Rest props (docs/design/M5-PLATFORM.md): each component's declared prop
   // names and rest binding, and the names its rest bag may hold, gathered
@@ -838,6 +884,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           fragment(n.body);
           s += '}\n';
           fragment(n.fallback);
+        } else if (n.type === 'RunicDynamic') {
+          // A dynamic tag: its value, and a copy of the tag per candidate.
+          expr(n.nameNode);
+          fragment({ nodes: n.cases });
         } else if (n.type === 'Component' && u.packs.has(n.name)) {
           // A pack component: its attribute expressions, typed in place.
           attrs(n.attributes);
@@ -909,7 +959,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           for (const a of n.attributes)
             if (a.type === 'Attribute' && Array.isArray(a.value))
               for (const v of a.value) if (v.type === 'ExpressionTag') expr(v.expression);
-        } else if (n.type === 'RenderTag') expr(n.expression);
+        } else if (n.type === 'RenderTag' || n.type === 'HtmlTag') expr(n.expression);
         else if (n.type === 'KeyBlock') {
           expr(n.expression);
           fragment(n.fragment);
@@ -960,7 +1010,18 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     for (const u of units.values()) files.set(u.virtual, u.synthetic);
     for (const [id, m] of graph.modules)
       if (/\.(ts|js|mjs)$/.test(id) && id.startsWith(root + path.sep) && !isPackageModule(id))
-        files.set(id, m.code);
+        files.set(
+          id,
+          m.globs?.length
+            ? rewriteGlobs(
+                id,
+                m.code,
+                m.globs,
+                f => readFileSync(f, 'utf8'),
+                (offset, message) => fail('E_GLOB', message, locate(m.code, offset, rel(id))),
+              )
+            : m.code,
+        );
     for (const m of packageModules.values()) {
       files.set(m.virtual, m.text);
       if (m.dts) files.set(m.dts, exportAllDeclarations(m.dts));
@@ -973,6 +1034,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // are read by TypeScript from their declaration files.
     return createProgram(files, [RUNES], (specifier, containing) => {
       if (specifier.startsWith(DTS_PREFIX)) return specifier.slice(DTS_PREFIX.length);
+      // A module an import.meta.glob loads (rewriteGlobs): its id.
+      if (path.isAbsolute(specifier) && units.has(specifier)) return units.get(specifier)!.virtual;
       // A package's declaration files name the modules the program reaches
       // by their typed virtual modules (one class, one constant, everywhere).
       if (/\.d\.m?ts$/.test(containing) && specifier.startsWith('.')) {
@@ -994,6 +1057,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         packageModules.get(edge.resolved)?.virtual ??
         (source ? undefined : edge.resolved);
       if (target === undefined) return undefined;
+      // A script module with a declaration file beside it is typed by the
+      // declarations, as TypeScript resolves it (velite's content index).
+      const declarations = target.replace(/\.m?js$/, '.d.ts');
+      if (declarations !== target && existsSync(declarations)) return declarations;
       // A module only imported for its types is not collected; TypeScript reads it.
       return files.has(target) || (/\.(ts|js|mjs)$/.test(target) && existsSync(target))
         ? target
@@ -1279,6 +1346,48 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     cellType: cell => cells[cell].type,
     writeCell: (cell, value) => [{ op: 'set', cell, value }],
     call(node, ctx, lower) {
+      // A load's `await res.json()` (frontend/adapters/kit/client.ts
+      // KitResponse): the recorded body parsed into the type the program
+      // declares for it.
+      if (
+        graph.kit &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === 'json' &&
+        node.arguments.length === 0
+      ) {
+        const receiver = node.expression.expression;
+        const symbol = checker.getTypeAtLocation(receiver).getSymbol();
+        if (
+          symbol?.getName() === 'KitResponse' &&
+          symbol.declarations?.some(
+            d => d.getSourceFile().fileName === path.join(graph.kit!.generated, 'client.ts'),
+          )
+        ) {
+          const awaited = ts.isAwaitExpression(node.parent) ? node.parent : undefined;
+          const contextual = awaited && checker.getContextualType(awaited);
+          if (!contextual)
+            return tsFail(
+              node,
+              'E_KIT_FETCH',
+              'res.json() needs a declared result type (const item: Item = await res.json())',
+            );
+          const type = lower.types.map(contextual, node);
+          const r = lower.expr(receiver, ctx);
+          const rt = lower.irType(r, ctx);
+          const record = typeof rt === 'object' && 'record' in rt ? rt.record : -1;
+          const field =
+            record < 0 ? -1 : lower.types.records[record].fields.findIndex(f => f.name === 'body');
+          if (field < 0) return tsFail(node, 'E_INTERNAL', 'KitResponse has no body');
+          return {
+            op: 'builtin',
+            name: 'promise.resolve',
+            args: [
+              { op: 'builtin', name: 'JSON.parse', args: [{ op: 'get', object: r, field }], type },
+            ],
+            type: { promise: type },
+          };
+        }
+      }
       // In a SvelteKit app the router owns these listeners: Kit's click
       // listener on <html> runs before the document's (the native runtime has
       // document listeners only), and its focus reset navigates to fragments,
@@ -1785,7 +1894,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // The script runs once per instance: its functions keep their identity.
   lower.stableFunctions = true;
   // Declarations of package modules are lowered when the program reaches them.
-  lower.lazy = packageBindings(lower, graph.modules, packageModules);
+  const packageLazy = packageBindings(lower, graph.modules, packageModules);
+  // A component's default export used as a value (frontend/component-values.ts).
+  const unitOfVirtual = new Map([...units.values()].map(u => [u.virtual, u.rel]));
+  lower.lazy = symbol =>
+    componentBinding(lower, symbol, f => unitOfVirtual.get(f)) ??
+    jsonBinding(lower, symbol, graph.modules) ??
+    packageLazy(symbol);
   lower.implementation = implementationOf(program, packageModules);
   const runeName = (e: ts.Expression | undefined): string | undefined => {
     if (!e || !ts.isCallExpression(e)) return undefined;
@@ -3041,6 +3156,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'Component') {
           flush();
           out.push(component(n));
+        } else if (n.type === 'RunicDynamic') {
+          flush();
+          out.push(...dynamicComponent(n));
+        } else if (n.type === 'HtmlTag') {
+          flush();
+          out.push(htmlTag(n));
         } else if (n.type === 'RenderTag') {
           flush();
           out.push(render(n));
@@ -3081,6 +3202,95 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       }
       flush();
       return out;
+    };
+    /**
+     * `{@html value}` (frontend/html-fragments.ts): a constant string's
+     * fragment, or, for another string, the fragments of the build-time data
+     * tables' strings (a SvelteKit app's server data and endpoint
+     * responses); the runtime selects the one whose string is the value.
+     */
+    const htmlTag = (n: SNode): Node => {
+      const e = exprNode(n.expression);
+      const known = lower.staticValue(e);
+      const add = (html: string): number => {
+        try {
+          return fragments.add(html);
+        } catch (err) {
+          return fail('E_TEMPLATE', `{@html}: ${(err as Error).message}`, loc(n));
+        }
+      };
+      if (known && typeof known.value === 'string')
+        return {
+          kind: 'html',
+          value: { op: 'lit', value: known.value },
+          fragments: known.value ? [add(known.value)] : [],
+          source: loc(n),
+        };
+      const v = value(e);
+      const t = typeOf(e, v);
+      if (t !== 'string' && !(typeof t === 'object' && 'maybe' in t && t.maybe === 'string'))
+        return fail('E_TEMPLATE', '{@html} needs a string', loc(n));
+      const strings = graph.kit?.htmlStrings ?? [];
+      if (!strings.length)
+        return fail(
+          'E_TEMPLATE',
+          '{@html} of a value that is neither a constant nor build-time data is unsupported (HTML is parsed at build time only)',
+          loc(n),
+        );
+      const candidates: number[] = [];
+      for (const s of strings) {
+        if (!s) continue;
+        try {
+          candidates.push(fragments.add(s));
+        } catch {
+          // A string holding unsupported markup: unsupported if it is ever the value.
+        }
+      }
+      return { kind: 'html', value: v, fragments: candidates, source: loc(n) };
+    };
+    /**
+     * A tag naming a component value (frontend/adapters/svelte-dynamic.ts):
+     * an `if` chain on the value, one branch per candidate component (Svelte
+     * creates the new component and destroys the old one when the value
+     * changes, as switching branches does). A nullish value renders nothing;
+     * another component (only through casts TypeScript cannot check) throws
+     * a `TypeError`, as an unchecked class downcast does.
+     */
+    const dynamicComponent = (n: SNode): Node[] => {
+      const e = exprNode(n.nameNode);
+      const v = value(e);
+      const t = typeOf(e, v);
+      const inner = maybeInner(t) ?? t;
+      if (
+        typeof inner !== 'object' ||
+        !('record' in inner) ||
+        lower.types.records[inner.record].name !== 'Component'
+      )
+        return fail('E_TEMPLATE', `${n.name} is not a component`, loc(n));
+      const nullable = maybeInner(t) !== undefined;
+      const missing: Node = {
+        kind: 'text',
+        parts: [{ op: 'unwrap', value: { op: 'undefined', type: { maybe: 'string' } } }],
+      };
+      let chain: Node[] = nullable
+        ? [{ kind: 'if', test: { op: 'to-boolean', arg: v }, then: [missing], source: loc(n) }]
+        : [missing];
+      for (let k = n.cases.length - 1; k >= 0; k--) {
+        const global: Expr = {
+          op: 'global',
+          global: componentGlobal(lower, rel(n.files[k])),
+        };
+        chain = [
+          {
+            kind: 'if',
+            test: { op: 'eq', left: v, right: nullable ? { op: 'some', value: global } : global },
+            then: [component(n.cases[k])],
+            else: chain,
+            source: loc(n),
+          },
+        ];
+      }
+      return chain;
     };
     /**
      * `<svelte:element this={tag}>` whose tag takes a finite set of values
@@ -3470,9 +3680,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           bag.push(restEntry(a));
           continue;
         }
-        // A prop the child neither declares nor collects (bits-ui passes
-        // FocusScope `forceMount`): Svelte passes it as a getter nothing
-        // calls, so its expression is never evaluated.
+        // A prop the child neither declares nor collects in rest props: Svelte
+        // passes it as a getter nothing reads, so it is never evaluated (M6:
+        // bits-ui passes FocusScope `forceMount`, mdsx its blueprint the
+        // page's metadata).
         if (a.type === 'Attribute' && restCell < 0 && !declared(a.name)) continue;
         if (a.type === 'BindDirective' && writers.has(a.name))
           fail('E_TEMPLATE', `bind:${a.name} after a spread that may hold ${a.name}`, loc(a));
@@ -4193,6 +4404,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // Delegated listeners and microtask flushes (the defaults); teardowns
     // read state as it was before the batch that destroys or re-runs them.
     schedule: { cleanupReadsPrevious: true },
+    ...(fragments.list.length ? { fragments: fragments.list } : {}),
   };
   lower.checkStyleSpreads(ir);
   // A bound optional prop the child writes: only present values (`some`),

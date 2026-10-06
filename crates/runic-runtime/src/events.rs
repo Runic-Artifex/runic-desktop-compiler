@@ -1107,10 +1107,41 @@ impl<A: App> Handler<'_, A> {
                 ));
                 return;
             }
-            if doc.get_element_by_id(&decoded).is_some() || named_anchor(doc, &decoded) {
+            if named_anchor(doc, &decoded) && doc.get_element_by_id(&decoded).is_none() {
                 crate::unsupported(&format!(
-                    "following the link {href:?} to an element (scrolling to and focusing fragment targets)"
+                    "following the link {href:?} to a named anchor (<a name>)"
                 ));
+                return;
+            }
+            // A fragment naming an element (M6, SvelteKit's table of contents):
+            // the history entry and popstate, then the HTML standard's "scroll
+            // to the fragment" (scrollIntoView with block start and inline
+            // nearest; the element becomes the sequential focus navigation
+            // starting point), then hashchange as a task.
+            if let Some(target) = doc.get_element_by_id(&decoded) {
+                match crate::history::follow_fragment(&href.as_str().into()) {
+                    Ok(changed) => {
+                        self.window(doc, Event::Popstate);
+                        for moved in
+                            crate::layout::scroll_into_view(doc, target, "start", "nearest")
+                        {
+                            self.listeners.scrolled(Some(moved));
+                        }
+                        // Chromium's ElementFragmentAnchor: a focusable target is
+                        // focused; otherwise focus is cleared and the target
+                        // becomes the navigation starting point.
+                        if is_focusable_element(doc, target) {
+                            self.move_focus(doc, Some(target));
+                        } else {
+                            self.move_focus(doc, None);
+                            *self.nav_start = Some(target);
+                        }
+                        if changed {
+                            self.app.hashchange();
+                        }
+                    }
+                    Err(e) => crate::unsupported(&e.message.to_rust()),
+                }
                 return;
             }
         }

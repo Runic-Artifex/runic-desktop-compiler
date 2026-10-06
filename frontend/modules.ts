@@ -188,6 +188,59 @@ export class ModuleResolver {
   }
 }
 
+/**
+ * A module constant destructuring a record (`const { a, b: c } = value`):
+ * the value is a program global evaluated once, and each name a global
+ * reading its property, in order. Nested patterns, defaults and rest
+ * elements are rejected.
+ */
+function destructureConstant(
+  d: ts.VariableDeclaration & { name: ts.ObjectBindingPattern },
+  lower: Lowerer,
+  pending: (() => void)[],
+): void {
+  const init = skipParens(d.initializer!);
+  const type = lower.exprType(init);
+  const record = typeof type === 'object' && 'record' in type ? type.record : undefined;
+  if (
+    record === undefined ||
+    lower.types.records[record].class ||
+    lower.types.accessors.has(record)
+  )
+    lower.fail(d, 'E_MODULE', 'Destructured module constants need a plain object value');
+  const source = lower.globals.length;
+  lower.globals.push({
+    name: '$destructured',
+    type,
+    init: { op: 'undefined', type: { maybe: 'number' } },
+  });
+  pending.push(
+    () => (lower.globals[source].init = lower.value(init, undefined, 'destructured$module')),
+  );
+  for (const el of d.name.elements) {
+    if (el.dotDotDotToken || el.initializer || !ts.isIdentifier(el.name))
+      lower.fail(
+        el,
+        'E_MODULE',
+        'Destructured module constants take plain names (no defaults, rest or nesting)',
+      );
+    const key = el.propertyName ?? el.name;
+    if (!ts.isIdentifier(key))
+      lower.fail(el, 'E_MODULE', 'Destructured module constants take plain names');
+    const fields = lower.types.records[record!].fields;
+    const field = fields.findIndex(f => f.name === (key as ts.Identifier).text);
+    if (field < 0) lower.fail(el, 'E_MODULE', `The value has no ${(key as ts.Identifier).text}`);
+    const sym = lower.checker.getSymbolAtLocation(el.name)!;
+    const global = lower.globals.length;
+    lower.globals.push({
+      name: (el.name as ts.Identifier).text,
+      type: fields[field].type,
+      init: { op: 'get', object: { op: 'global', global: source }, field },
+    });
+    lower.bindings.set(sym, { kind: 'value', expr: { op: 'global', global } });
+  }
+}
+
 /** The first reference to `sym` in `statements` other than in an export list. */
 function valueUse(
   statements: readonly ts.Statement[],
@@ -330,6 +383,16 @@ export function lowerModules(
         if (!(stmt.declarationList.flags & ts.NodeFlags.Const))
           fail(stmt, 'E_MODULE', 'Mutable module state is unsupported');
         for (const d of stmt.declarationList.declarations) {
+          // `const { a, b: c } = record` (mdsx's markdown modules destructure
+          // their metadata): the record once, then each property in order.
+          if (ts.isObjectBindingPattern(d.name) && d.initializer) {
+            destructureConstant(
+              d as ts.VariableDeclaration & { name: ts.ObjectBindingPattern },
+              lower,
+              pending,
+            );
+            continue;
+          }
           if (!ts.isIdentifier(d.name) || !d.initializer)
             fail(d, 'E_MODULE', 'Module constants need a name and an initialiser');
           // Intl and pack constants have no runtime value (their uses are lowered).

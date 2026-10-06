@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url';
 import { createBrowserHarness } from './harness/browser.mjs';
 import { buildProbe, runProbe } from './harness/native.mjs';
 import { compareTraces } from './harness/compare.mjs';
+import { generate } from '../compiler/generate.mjs';
+import { globSync, readFileSync } from 'node:fs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
@@ -63,6 +65,20 @@ await mkdir(out, { recursive: true });
 const cases = await loadCases(positionals);
 const browser = await createBrowserHarness();
 const binaries = new Map();
+/** Fixtures whose generated inputs this run made. */
+const generated = new Set();
+/**
+ * A fixture's generated inputs (runic.json `generate`, a SvelteKit app's server
+ * code), made once per run with `runic generate` before either side builds:
+ * builds never run generators (compiler/generate.mjs).
+ */
+async function prepare(dir) {
+  if (generated.has(dir)) return;
+  generated.add(dir);
+  const config = JSON.parse(readFileSync(path.join(dir, 'runic.json'), 'utf8'));
+  const server = config.kit === true && globSync('src/routes/**/+*server.{ts,js}', { cwd: dir }).length > 0;
+  if (config.generate?.length || server) await generate(dir);
+}
 const runs = [];
 let incomplete = false;
 try {
@@ -71,6 +87,7 @@ try {
     const actions = expand(c.actions);
     for (const fixture of c.fixtures) {
       const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
+      await prepare(dir);
       if (!binaries.has(fixture)) binaries.set(fixture, await buildProbe(dir, { release: values.release, noOpt: values['no-opt'], renderer }));
       const { binary, ir } = binaries.get(fixture);
       for (const viewport of viewports) {

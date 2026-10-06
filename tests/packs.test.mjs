@@ -458,8 +458,8 @@ test('packages without a pack, other versions and uncovered shapes are rejected 
       svelte("import X from '@lucide/svelte/icons/x';\nconst c = 'a';", '<X class="a {c}" />'),
       'E_PACK',
     ],
-    // A component used as a value: its props type is outside the value model.
-    [svelte("import X from '@lucide/svelte/icons/x';\nconst y = X;"), 'E_TYPE_UNSUPPORTED'],
+    // A pack component used as a value: it has no value (it expands in place).
+    [svelte("import X from '@lucide/svelte/icons/x';\nconst y = X;"), 'E_PACK'],
   ];
   const wrong = [];
   for (const [source, code, files] of cases)

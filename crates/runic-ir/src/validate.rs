@@ -15,11 +15,14 @@ pub const MAX_EXPRESSIONS: usize = 1 << 20;
 /// included: links (`a` with an `href`) follow fragment links of this
 /// document (docs/IR.md). Elements with other navigation or submission
 /// behaviour stay out until the runtime implements those actions.
+// One line per group (rustfmt would put one tag per line: figcaption is long).
+#[rustfmt::skip]
 pub const TAGS: &[&str] = &[
     "a", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button", "input", "main",
     "article", "section", "header", "footer", "nav", "aside", "ul", "ol", "li", "strong", "em",
-    "small", "b", "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option", "svg",
-    "g", "path", "circle", "ellipse", "line", "polyline", "polygon", "rect",
+    "small", "b", "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option", "dl",
+    "dt", "dd", "figure", "figcaption", "svg", "g", "path", "circle", "ellipse", "line",
+    "polyline", "polygon", "rect",
 ];
 
 /// Inline SVG (M5): elements in the SVG namespace. Blitz renders an `<svg>`
@@ -1711,10 +1714,90 @@ fn is_event_attribute(name: &str) -> bool {
 
 fn attr_name_ok(name: &str) -> bool {
     let mut chars = name.chars();
-    matches!(chars.next(), Some('a'..='z'))
+    // Underscores as HTML allows them (mdsx's `__src__`, M6).
+    matches!(chars.next(), Some('a'..='z' | '_'))
         && name.len() <= 64
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
         && !name.starts_with("on")
+}
+
+/// Elements a `{@html}` fragment may hold (M6): static, non-interactive ones
+/// (no links, controls or SVG, whose rules the template has).
+pub const FRAGMENT_TAGS: &[&str] = &[
+    "div",
+    "span",
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "main",
+    "article",
+    "section",
+    "header",
+    "footer",
+    "nav",
+    "aside",
+    "ul",
+    "ol",
+    "li",
+    "strong",
+    "em",
+    "small",
+    "b",
+    "i",
+    "code",
+    "pre",
+    "br",
+    "hr",
+    "dl",
+    "dt",
+    "dd",
+    "figure",
+    "figcaption",
+];
+/// The nodes all fragments may hold together.
+pub const MAX_FRAGMENT_NODES: usize = 1 << 18;
+
+/// `{@html}` fragments (M6): distinct non-empty strings whose nodes are
+/// elements of `FRAGMENT_TAGS` with plain attributes (no event handlers) and text.
+fn check_fragments(p: &Program) -> Result<()> {
+    fn nodes(list: &[FragmentNode], count: &mut usize) -> Result<()> {
+        for n in list {
+            *count += 1;
+            if *count > MAX_FRAGMENT_NODES {
+                return err("E_RESOURCE", "{@html} fragments have too many nodes", None);
+            }
+            if let FragmentNode::Element {
+                tag,
+                attrs,
+                children,
+            } = n
+            {
+                if !FRAGMENT_TAGS.contains(&tag.as_str()) {
+                    return err("E_IR", format!("<{tag}> in a {{@html}} fragment"), None);
+                }
+                for (name, _) in attrs {
+                    if !attr_name_ok(name) || name.starts_with("on") {
+                        return err("E_IR", format!("Fragment attribute {name}"), None);
+                    }
+                }
+                nodes(children, count)?;
+            }
+        }
+        Ok(())
+    }
+    let mut count = 0;
+    let mut seen = HashSet::new();
+    for f in &p.fragments {
+        if f.html.is_empty() || !seen.insert(f.html.as_str()) {
+            return err("E_IR", "Fragments are distinct non-empty strings", None);
+        }
+        nodes(&f.nodes, &mut count)?;
+    }
+    Ok(())
 }
 
 pub fn validate(p: &Program) -> Result<()> {
@@ -1747,6 +1830,7 @@ pub fn validate(p: &Program) -> Result<()> {
             return err("E_IR", format!("Invalid container attribute {name}"), None);
         }
     }
+    check_fragments(p)?;
     if p.root >= p.components.len() {
         return err("E_IR", "The root component does not exist", None);
     }
@@ -2034,7 +2118,7 @@ fn validate_component(p: &Program, ci: usize, nodes: &mut usize) -> Result<()> {
                     }
                 }
                 Node::Slot { fallback, .. } => each_locals(fallback, out),
-                Node::Text { .. } => {}
+                Node::Text { .. } | Node::Html { .. } => {}
             }
         }
     }
@@ -2258,6 +2342,20 @@ impl<'p> NodeCx<'_, 'p> {
                         "Text inside <svg> is unsupported (only whitespace between elements)",
                         src,
                     );
+                }
+            }
+            Node::Html {
+                value, fragments, ..
+            } => {
+                if self.stack.contains(&"svg") {
+                    return err("E_SVG", "{@html} inside <svg> is unsupported", src);
+                }
+                let t = s.infer(value, 0, src)?;
+                if t != Type::String && t != Type::Maybe(Box::new(Type::String)) {
+                    return err("E_IR", "{@html} needs a string or nullable string", src);
+                }
+                if fragments.iter().any(|&f| f >= self.p.fragments.len()) {
+                    return err("E_IR", "{@html} names an unknown fragment", src);
                 }
             }
             Node::If {
@@ -3325,6 +3423,7 @@ fn template_sourced<'a>(
         let src = match n {
             Node::Element { source, .. }
             | Node::Text { source, .. }
+            | Node::Html { source, .. }
             | Node::If { source, .. }
             | Node::Component { source, .. }
             | Node::Slot { source, .. }
@@ -3905,6 +4004,7 @@ fn template_exprs<'a>(nodes: &'a [Node], out: &mut Vec<&'a Expr>) {
                 template_exprs(children, out);
             }
             Node::Text { parts, .. } => out.extend(parts),
+            Node::Html { value, .. } => out.push(value),
             Node::If {
                 test,
                 then,
@@ -3989,6 +4089,7 @@ fn visit_template(
         let src = match n {
             Node::Element { source, .. }
             | Node::Text { source, .. }
+            | Node::Html { source, .. }
             | Node::If { source, .. }
             | Node::Component { source, .. }
             | Node::Slot { source, .. }
@@ -4019,6 +4120,7 @@ fn visit_template(
                 visit_template(p, k, children, src, f);
             }
             Node::Text { parts, .. } => exprs.extend(parts),
+            Node::Html { value, .. } => exprs.push(value),
             Node::If {
                 test,
                 then,

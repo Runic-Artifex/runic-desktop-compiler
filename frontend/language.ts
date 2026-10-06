@@ -38,6 +38,7 @@ import { Classes, type ClassInfo } from './classes.ts';
 import { Unions } from './unions.ts';
 import { bindPackConstant, packType } from './packs.ts';
 import { newSvelteMap, svelteMapType } from './svelte-reactivity.ts';
+import { componentValueType, knownComponentRecord } from './component-values.ts';
 import type { Choice } from './packs/choice.ts';
 import type { DomainHook } from './domains.ts';
 import type { Shape } from './bags.ts';
@@ -373,7 +374,8 @@ export class Lowerer {
     this.classes = new Classes(this);
     types.classType = (cls, t, at) => this.classes.typeOf(cls, t, at);
     types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
-    types.packType = (t, at) => packType(t, at, this) ?? svelteMapType(t, at, this);
+    types.packType = (t, at) =>
+      packType(t, at, this) ?? svelteMapType(t, at, this) ?? componentValueType(t, at, this);
     // Error objects are the Error records thrown values are (catch bindings, rejections).
     types.errorType = () => this.errorRecord();
     // Unions outside the value model, narrowed by the values reaching them.
@@ -4092,7 +4094,24 @@ export class Lowerer {
         // The host's globals (`typeof document`): native apps have them.
         if (ts.isIdentifier(operand) && this.hostGlobal(operand))
           return { op: 'lit', value: 'object' };
-        return { op: 'typeof', arg: this.expr((e as ts.TypeOfExpression).expression, b) };
+        const arg = this.expr((e as ts.TypeOfExpression).expression, b);
+        // A component value (frontend/component-values.ts) is a function in JavaScript.
+        const argType = this.irType(arg, b);
+        const component = maybeInner(argType) ?? argType;
+        if (
+          typeof component === 'object' &&
+          'record' in component &&
+          component.record === knownComponentRecord(this)
+        )
+          return maybeInner(argType)
+            ? {
+                op: 'cond',
+                test: { op: 'to-boolean', arg },
+                then: { op: 'lit', value: 'function' },
+                else: { op: 'typeof', arg },
+              }
+            : { op: 'lit', value: 'function' };
+        return { op: 'typeof', arg };
       }
       case K.PropertyAccessExpression:
         return this.property(e as ts.PropertyAccessExpression, b);

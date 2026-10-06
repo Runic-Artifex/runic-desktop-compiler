@@ -3,6 +3,7 @@ import ts from 'typescript';
 import postcss from 'postcss';
 import valueParser from 'postcss-value-parser';
 import { readFile, realpath } from 'node:fs/promises';
+import { globSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { frontendTooling } from './adapters/tooling.mjs';
@@ -180,6 +181,92 @@ async function owningPackage(file) {
   return packageInfos.get(dir);
 }
 
+/**
+ * The `import.meta.glob(patterns, options)` calls of a module, with the files
+ * each matches as Vite 8.3.2's `transformGlobImport` finds them (absolute
+ * patterns from the root, relative ones from the module's directory,
+ * `node_modules` ignored, sorted) and the module id each resolves to. The
+ * patterns and options must be literals, as Vite requires.
+ */
+async function globCalls(ctx, root, id, code) {
+  const sf = ts.createSourceFile(id, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const calls = [];
+  const visit = n => {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === 'glob' &&
+      ts.isMetaProperty(n.expression.expression)
+    )
+      calls.push(n);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  const out = [];
+  for (const call of calls) {
+    const fail = message => {
+      throw new Diagnostic('E_GLOB', message, location(call, root));
+    };
+    const [first, options] = call.arguments;
+    const patterns = !first
+      ? []
+      : ts.isStringLiteralLike(first)
+        ? [first.text]
+        : ts.isArrayLiteralExpression(first) && first.elements.every(ts.isStringLiteralLike)
+          ? first.elements.map(e => e.text)
+          : fail('import.meta.glob takes literal patterns');
+    if (!patterns.length || patterns.some(p => p.startsWith('!')))
+      fail(
+        'import.meta.glob takes one or more literal patterns (negative patterns are unsupported)',
+      );
+    const opts = {};
+    if (options) {
+      if (!ts.isObjectLiteralExpression(options))
+        fail('import.meta.glob options must be a literal object');
+      for (const p of options.properties) {
+        if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name))
+          fail('import.meta.glob options must be literal properties');
+        const v = p.initializer;
+        const value =
+          v.kind === ts.SyntaxKind.TrueKeyword
+            ? true
+            : v.kind === ts.SyntaxKind.FalseKeyword
+              ? false
+              : ts.isStringLiteralLike(v)
+                ? v.text
+                : fail('import.meta.glob options must be literals');
+        if (!['eager', 'import', 'query'].includes(p.name.text))
+          fail(
+            `The import.meta.glob option ${p.name.text} is unsupported (eager, import and query are)`,
+          );
+        opts[p.name.text] = value;
+      }
+    }
+    const dir = path.dirname(id);
+    const matched = new Set();
+    for (const pattern of patterns) {
+      if (!pattern.startsWith('/') && !pattern.startsWith('./') && !pattern.startsWith('../'))
+        fail('import.meta.glob patterns start with /, ./ or ../ (aliases are unsupported)');
+      const cwd = pattern.startsWith('/') ? root : dir;
+      const rel = pattern.startsWith('/') ? pattern.slice(1) : pattern;
+      for (const f of globSync(rel, { cwd, exclude: f => f === 'node_modules' }))
+        matched.add(path.resolve(cwd, f));
+    }
+    const files = [...matched].filter(f => f !== id && statSync(f).isFile()).sort();
+    const entries = [];
+    for (const file of files) {
+      const posix = p => p.split(path.sep).join('/');
+      const key = patterns.every(p => p.startsWith('/'))
+        ? '/' + posix(path.relative(root, file))
+        : (r => (r.startsWith('.') ? r : './' + r))(posix(path.relative(dir, file)));
+      const resolved = opts.query ? undefined : await ctx.resolve(file, id);
+      entries.push({ key, file, ...(resolved ? { id: resolved.id.split('?')[0] } : {}) });
+    }
+    out.push({ start: call.getStart(sf), end: call.end, options: opts, entries });
+  }
+  return out;
+}
+
 // This plugin sees original application modules before Vite's JSX transform.
 // Collection is deliberately independent of the React lowering adapter.
 // Modules of packages compiled from source (frontend/sources.ts) are
@@ -276,7 +363,19 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic) {
             }
           }
         }
-        modules.set(id, { id, code, imports, ...(source ? { package: source } : {}) });
+        // `import.meta.glob(…)` in an app module: its matched files, as Vite
+        // expands them (the frontend lowers the call to a table of modules).
+        const globs =
+          !source && /import\.meta\.glob\b/.test(code) && /\.(ts|js|mjs)$/.test(id)
+            ? await globCalls(this, root, id, code)
+            : [];
+        modules.set(id, {
+          id,
+          code,
+          imports,
+          ...(globs.length ? { globs } : {}),
+          ...(source ? { package: source } : {}),
+        });
       } catch (e) {
         if (e instanceof Diagnostic) onDiagnostic?.(e);
         throw e;
@@ -810,6 +909,14 @@ function checkRules(css, file) {
           line: decl.source.start.line,
           column: decl.source.start.column,
         },
+      );
+    // Blitz lays sticky boxes out as relative ones and never moves them while
+    // their scroll container scrolls (docs/BLITZ-GAPS.md).
+    if (decl.prop === 'position' && possibleKeywords(decl.value, values).has('sticky'))
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        'Unsupported CSS declaration position: sticky: Blitz lays sticky boxes out as relative ones and does not keep them in view while scrolling',
+        { file, line: decl.source.start.line, column: decl.source.start.column },
       );
     // Blitz transforms text to upper and lower case only (docs/BLITZ-GAPS.md).
     if (decl.prop === 'text-transform' && /capitalize|full-width|full-size-kana/.test(decl.value))

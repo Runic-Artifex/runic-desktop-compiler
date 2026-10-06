@@ -188,6 +188,8 @@ export type AppHooks = {
   default_loaders: () => void;
   /** The `data-sveltekit-*` attributes of the container and `<body>` (app.html). */
   link_options: (name: string) => string | null;
+  /** The responses of prerendered endpoints by URL (build-time data, `runic generate`). */
+  fetch_table: (url: string) => KitResponse | undefined;
   /** Marks the app as mounted (Kit creates its root component). */
   mount: () => void;
 };
@@ -611,6 +613,65 @@ export class NavigateOptions {
     this.type = type;
     this.url = url;
   }
+}
+
+/**
+ * A response of a load's `fetch`: a prerendered endpoint's recorded
+ * response (build-time data). `res.json()` parses the body into the type
+ * the program declares for it (the Svelte adapter lowers the call).
+ */
+export class KitResponse {
+  readonly status: number;
+  readonly ok: boolean;
+  readonly type: string;
+  readonly body: string;
+
+  constructor(status: number, type: string, body: string) {
+    this.status = status;
+    this.ok = status >= 200 && status <= 299;
+    this.type = type;
+    this.body = body;
+  }
+
+  text(): Promise<string> {
+    return Promise.resolve(this.body);
+  }
+}
+
+/**
+ * A load's `fetch` (client.js `resolve_fetch_url`): same-origin URLs of
+ * prerendered endpoints, from the build-time table. During the first
+ * navigation Kit reads the responses the server rendering inlined; later a
+ * fetch is a network round trip (a host task).
+ */
+export async function kit_fetch(input: string, url: KitURL): Promise<KitResponse> {
+  const resolved = __runic.resolve(input, url.__href);
+  if (resolved === undefined) {
+    __runic.unsupported(
+      `a fetch of ${input}, at another origin (the native app makes no network requests)`,
+    );
+    throw new Error('Unsupported fetch');
+  }
+  const at = resolved.indexOf('#');
+  const key = at < 0 ? resolved : resolved.slice(0, at);
+  const response = A().fetch_table(key);
+  if (response === undefined) {
+    __runic.unsupported(
+      `a fetch of ${key}, which is not a prerendered endpoint's response (runic generate records them)`,
+    );
+    throw new Error('Unsupported fetch');
+  }
+  if (R.started) await __runic.hostReply();
+  return response;
+}
+
+/**
+ * client.js `load_data`: the server data of a navigation, a network round
+ * trip (`__data.json`) once the app has started; the first navigation's
+ * data comes with the page, as server rendering inlines it.
+ */
+export async function load_data(): Promise<void> {
+  if (R.started) await __runic.hostReply();
 }
 
 /** `native_navigation`: a full-page navigation (another document), not modelled natively. */

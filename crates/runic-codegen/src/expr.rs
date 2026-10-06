@@ -275,8 +275,9 @@ impl<'a> FnCtx<'a> {
                 value: Value::String(s),
             } => js_str(s),
             Undefined { ty } if *ty == Type::Void => "()".into(),
-            Undefined { .. } => "Maybe::Undefined".into(),
-            Null { .. } => "Maybe::Null".into(),
+            // Typed: an `undefined` whose use infers nothing (an unwrap) needs it.
+            Undefined { ty } => format!("<{}>::Undefined", rust_type(ty)),
+            Null { ty } => format!("<{}>::Null", rust_type(ty)),
             Cell { cell, read } => self.cell_read(*cell, *read),
             Global { global } => format!("cx.g{global}.clone()"),
             Local { local } => self.local_read(*local),
@@ -312,6 +313,9 @@ impl<'a> FnCtx<'a> {
                 let v = self.expr(arg);
                 if t == Type::Boolean {
                     v
+                } else if matches!(t, Type::Fn(_)) {
+                    // Functions are objects: always truthy.
+                    format!("{{ let _ = &{v}; true }}")
                 } else {
                     format!("js::Truthy::truthy(&{v})")
                 }

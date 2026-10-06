@@ -17,6 +17,20 @@ import path from 'node:path';
 
 const js = s => JSON.stringify(s);
 
+/** A JSON value as a TypeScript literal (identifier keys where they are names). */
+function literal(value, indent = '') {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  const inner = indent + '  ';
+  if (Array.isArray(value))
+    return value.length
+      ? `[\n${value.map(v => inner + literal(v, inner)).join(',\n')},\n${indent}]`
+      : '[]';
+  const entries = Object.entries(value);
+  if (!entries.length) return '{}';
+  const key = k => (/^[A-Za-z_$][\w$]*$/.test(k) ? k : JSON.stringify(k));
+  return `{\n${entries.map(([k, v]) => `${inner}${key(k)}: ${literal(v, inner)}`).join(',\n')},\n${indent}}`;
+}
+
 /** A RegExp literal of `pattern`. */
 const regexLiteral = pattern => `/${pattern.source}/${pattern.flags}`;
 
@@ -27,9 +41,106 @@ export function generate(m) {
   const parentData = t => (trie[t].parent < 0 ? 'Empty' : dataType(trie[t].parent));
   const own = n => `Own_${n}`;
   // A level's record: its data and what its load read (Branch_n), what a
-  // load without data read (LoadOnly), or nothing (NoLoad).
-  const hasData = n => nodes[n].load && nodes[n].data;
+  // load without data read (LoadOnly), or nothing (NoLoad). A level with a
+  // server load (build-time data, compiler/adapters/kit-server.mjs) has data
+  // (its universal load's, else the server's) and its server node.
+  const hasServer = n => !!nodes[n].server;
+  const hasUniversalData = n => nodes[n].load && nodes[n].data;
+  const hasData = n => hasUniversalData(n) || hasServer(n);
   const branchType = n => (hasData(n) ? `Branch_${n}` : nodes[n].load ? 'LoadOnly' : 'NoLoad');
+  // A level's `params` in its load: Kit's tracked proxy over the route's
+  // parameters, `string` where every route reaching the level has the
+  // parameter (rest parameters included), else possibly undefined.
+  const loadParams = node => {
+    const n = node.index;
+    const reaching = routes.filter(r => r.leaf === n || r.layouts.includes(n));
+    const names = [];
+    for (const r of reaching)
+      for (const p of r.params) if (!names.includes(p.name)) names.push(p.name);
+    const required = name =>
+      reaching.length > 0 &&
+      reaching.every(r => r.params.some(p => p.name === name && (!p.optional || p.rest)));
+    return `/** The \`params\` of ${node.universal}'s load: reads are dependencies (Kit's Proxy). */
+export class LoadParams_${n} {
+  #params: Params;
+  #uses: Uses;
+
+  constructor(params: Params, uses: Uses) {
+    this.#params = params;
+    this.#uses = uses;
+  }
+${names
+  .map(p =>
+    required(p)
+      ? `
+  get ${p}(): string {
+    this.#uses.params.add(${js(p)});
+    return present(this.#params.${p});
+  }`
+      : `
+  get ${p}(): string | undefined {
+    this.#uses.params.add(${js(p)});
+    return this.#params.${p};
+  }`,
+  )
+  .join('\n')}
+}
+`;
+  };
+  // A server load's build-time data (compiler/adapters/kit-server.mjs): a
+  // table by what its load read; each lookup gives new objects, as each
+  // response Kit parses does.
+  const serverDecls = node => {
+    const n = node.index;
+    const s = node.server;
+    const conds = key => {
+      const out = [];
+      s.uses.params.forEach((p, i) =>
+        out.push(
+          `intent.params.get(${js(p)}) === ${key.params[i] === null ? 'undefined' : js(key.params[i])}`,
+        ),
+      );
+      if (key.path !== null)
+        out.push(`intent.url.pathname + intent.url.search === ${js(key.path)}`);
+      if (key.route !== null) out.push(`intent.route_id === ${js(key.route)}`);
+      s.uses.search_params.forEach((name, i) =>
+        out.push(
+          `intent.url.searchParams.getAll(${js(name)}).join('\\u0000') === ${js(key.search[i].join('\u0000'))}`,
+        ),
+      );
+      return out.length ? out.join(' && ') : 'true';
+    };
+    const uses = [
+      ...s.uses.params.map(p => `    uses.params.add(${js(p)});`),
+      ...(s.uses.url ? ['    uses.url = true;'] : []),
+      ...(s.uses.route ? ['    uses.route = true;'] : []),
+      ...(s.uses.parent ? ['    uses.parent = true;'] : []),
+      ...s.uses.search_params.map(p => `    uses.search_params.add(${js(p)});`),
+    ];
+    return `
+export type ServerData_${n} = Awaited<ReturnType<typeof server_load_${n}>>;
+
+/** A server data node of ${s.rel}: its data and what its server load read (generation). */
+export class ServerNode_${n} {
+  data: ServerData_${n};
+  uses: Uses;
+
+  constructor(data: ServerData_${n}) {
+    this.data = data;
+    const uses = new Uses();
+${uses.join('\n')}
+    this.uses = uses;
+  }
+}
+
+/** The build-time data of ${s.rel} for a navigation (runic generate). */
+function server_data_${n}(intent: Intent): ServerData_${n} {
+${s.table.map(r => `  if (${conds(r.key)}) return ${literal(r.data, '  ')};`).join('\n')}
+  __runic.unsupported(\`the server data of ${s.rel} for \${intent.url.pathname}, which generation did not evaluate (not an entry of a prerendered route)\`);
+  throw new Error('No server data');
+}
+`;
+  };
   // The trie node of each layout and page (their chains are fixed).
   const nodeTrie = new Map();
   for (const t of trie) if (!nodeTrie.has(t.node)) nodeTrie.set(t.node, t.id);
@@ -82,14 +193,23 @@ ${paramNames
     if (node.load) {
       imports.push(`import { load as load_${node.index} } from ${js(node.universalImport)};`);
     }
+  for (const node of nodes)
+    if (node.server)
+      imports.push(
+        `import type { load as server_load_${node.index} } from ${js(node.server.import)};`,
+      );
   for (const x of matchers)
     imports.push(`import { match as match_${x.name} } from ${js(x.import)};`);
   if (m.hooksClient) imports.push(`import { handleError } from ${js(m.hooksClient)};`);
 
   let decls = '';
-  for (const node of nodes)
-    if (hasData(node.index))
+  for (const node of nodes) {
+    if (hasServer(node.index)) decls += serverDecls(node);
+    if (hasUniversalData(node.index))
       decls += `export type ${own(node.index)} = Awaited<ReturnType<typeof load_${node.index}>>;\n`;
+    else if (hasServer(node.index))
+      decls += `export type ${own(node.index)} = ServerData_${node.index};\n`;
+  }
   for (const t of trie) {
     const node = nodes[t.node];
     const withData = hasData(node.index);
@@ -99,69 +219,99 @@ ${paramNames
     decls += `export type ${dataType(t.id)} = ReturnType<typeof merge_t${t.id}>;\n`;
   }
   for (const node of nodes) {
-    if (!node.load) continue;
-    const t = nodeTrie.get(node.index);
-    decls += `
+    const n = node.index;
+    const t = nodeTrie.get(n);
+    const server = hasServer(n);
+    if (node.load)
+      decls += `
+${loadParams(node)}
 /** The load event of ${node.universal}. */
-export class LoadEvent_${node.index} {
-  readonly params: LoadParams;
+export class LoadEvent_${n} {
+  readonly params: LoadParams_${n};
   readonly url: LoadURL;
   readonly route: LoadRoute;
   readonly parent: () => Promise<${parentData(t)}>;
-
-  constructor(intent: Intent, uses: Uses, parent: () => Promise<${parentData(t)}>) {
-    this.params = new LoadParams(intent.params, uses);
+  readonly fetch: (input: string) => Promise<KitResponse>;
+${server ? `  readonly data: ServerData_${n};\n` : ''}
+  constructor(intent: Intent, uses: Uses, parent: () => Promise<${parentData(t)}>${server ? `, server: ServerNode_${n}` : ''}) {
+    this.params = new LoadParams_${n}(intent.params, uses);
     this.url = new LoadURL(intent.url, uses, HASH);
     this.route = new LoadRoute(intent.route_id, uses);
     this.parent = () => {
       uses.parent = true;
       return parent();
     };
-  }
+    this.fetch = (input: string) => kit_fetch(input, intent.url);
+${server ? '    this.data = server.data;\n' : ''}  }
 }
-
-${
-  hasData(node.index)
-    ? `/** A level of ${node.universal}: its data and what its load read. */
-export class Branch_${node.index} {
-  data: ${own(node.index)};
-  uses: Uses;
-
-  constructor(data: ${own(node.index)}, uses: Uses) {
+`;
+    if (hasData(n))
+      decls += `
+/** A level of ${node.universal ?? node.server.rel}: its data, what its universal load read${server ? ' and its server node' : ''}. */
+export class Branch_${n} {
+  data: ${own(n)};
+  uses: Uses | undefined;
+${server ? `  server: ServerNode_${n};\n` : ''}
+  constructor(data: ${own(n)}, uses: Uses | undefined${server ? `, server: ServerNode_${n}` : ''}) {
     this.data = data;
     this.uses = uses;
-  }
+${server ? '    this.server = server;\n' : ''}  }
 }
-
-async function load_node_${node.index}(intent: Intent, parent: () => Promise<${parentData(t)}>): Promise<Branch_${node.index}> {
+`;
+    const args = [
+      ...(node.load ? ['intent: Intent', `parent: () => Promise<${parentData(t)}>`] : []),
+      ...(server ? [`server: ServerNode_${n}`] : []),
+    ].join(', ');
+    const event = `new LoadEvent_${n}(intent, uses, parent${server ? ', server' : ''})`;
+    if (node.load && hasUniversalData(n))
+      decls += `
+async function load_node_${n}(${args}): Promise<Branch_${n}> {
   const uses = new Uses();
   await node_loader();
-  const event = new LoadEvent_${node.index}(intent, uses, parent);
-  const data = await load_${node.index}(event);
-  return new Branch_${node.index}(data, uses);
+  const event = ${event};
+  const data = await load_${n}(event);
+  return new Branch_${n}(data, uses${server ? ', server' : ''});
 }
-`
-    : `
+`;
+    else if (node.load && server)
+      decls += `
+/** A level of ${node.universal} whose universal load gives no data: the server's (Kit: data ?? server data). */
+async function load_node_${n}(${args}): Promise<Branch_${n}> {
+  const uses = new Uses();
+  await node_loader();
+  const event = ${event};
+  await load_${n}(event);
+  return new Branch_${n}(server.data, uses, server);
+}
+`;
+    else if (node.load)
+      decls += `
 /** A level of ${node.universal}, whose load gives no data (Kit: data null). */
-async function load_node_${node.index}(intent: Intent, parent: () => Promise<${parentData(t)}>): Promise<LoadOnly> {
+async function load_node_${n}(${args}): Promise<LoadOnly> {
   const uses = new Uses();
   await node_loader();
-  const event = new LoadEvent_${node.index}(intent, uses, parent);
-  await load_${node.index}(event);
+  const event = ${event};
+  await load_${n}(event);
   return new LoadOnly(uses);
 }
-`
-}`;
-  }
-  // Nodes without a load (layouts, pages; error pages never run as levels).
-  for (const node of nodes)
-    if (!node.load && nodeTrie.has(node.index))
+`;
+    else if (server)
       decls += `
-async function load_node_${node.index}(): Promise<NoLoad> {
+/** A level with a server load only: its data is the server's. */
+async function load_node_${n}(${args}): Promise<Branch_${n}> {
+  await node_loader();
+  return new Branch_${n}(server.data, undefined, server);
+}
+`;
+    // Nodes without a load (layouts, pages; error pages never run as levels).
+    else if (nodeTrie.has(n))
+      decls += `
+async function load_node_${n}(): Promise<NoLoad> {
   await node_loader();
   return new NoLoad();
 }
 `;
+  }
 
   // The previous level records (`current.branch`), by node.
   const recordNodes = nodes.filter(n => nodeTrie.has(n.index) && !n.errorOnly);
@@ -286,13 +436,33 @@ ${depths.join('\n')}
     // nothing waits for, whose jobs do not reorder any other job, so they
     // are left out.
     body += '  const ctx = new LoadContext(intent);\n  let parent_changed = false;\n';
+    // Server data (Kit's `invalid_server_nodes` and `load_data`): a level
+    // whose server load is new or read what changed gets new data.
+    const serverLevels = loaders
+      .map((n, i) => ({ n, i }))
+      .filter(x => x.n !== undefined && hasServer(x.n));
+    if (serverLevels.length) {
+      body += '  let parent_invalid = false;\n';
+      for (const { n, i } of serverLevels)
+        body += `  const prev_s${i} = cur.nodes.length > ${i} && cur.nodes[${i}] === ${n} ? cur.p${n} : undefined;
+  const inv${i} = prev_s${i} === undefined || ctx.has_changed(parent_invalid, prev_s${i}.server.uses);
+  if (inv${i}) parent_invalid = true;
+  let sd${i}: ServerNode_${n} | undefined = undefined;
+`;
+      body += `  if (${serverLevels.map(x => `inv${x.i}`).join(' || ')}) {
+    await load_data();
+${serverLevels.map(x => `    if (inv${x.i}) sd${x.i} = new ServerNode_${x.n}(server_data_${x.n}(intent));`).join('\n')}
+  }
+`;
+    }
     loaders.forEach((n, i) => {
       if (n === undefined) {
         body += `  const run${i} = async (): Promise<undefined> => undefined;\n  const bp${i} = run${i}();\n`;
         return;
       }
       const t = nodeTrie.get(n);
-      let call = `load_node_${n}()`;
+      const server = hasServer(n);
+      const args = [];
       if (nodes[n].load) {
         // parent(): the data of the levels above, each awaited in order.
         let fn = `async (): Promise<${parentData(t)}> => {\n`;
@@ -303,13 +473,21 @@ ${depths.join('\n')}
           else fn += `      void p${j};\n`;
         }
         fn += `      return { ${spread.join(', ')} };\n    }`;
-        call = `load_node_${n}(intent, ${fn})`;
+        args.push('intent', fn);
       }
+      if (server) args.push('server');
+      const call = `load_node_${n}(${args.join(', ')})`;
       body += `  const run${i} = async (): Promise<${branchType(n)}> => {
     const previous = cur.nodes.length > ${i} && cur.nodes[${i}] === ${n} ? cur.p${n} : undefined;
-    if (previous !== undefined && !ctx.has_changed(parent_changed, ${nodes[n].load ? 'previous.uses' : 'undefined'})) return previous;
+    if (${server ? `sd${i} === undefined && ` : ''}previous !== undefined && !ctx.has_changed(parent_changed, ${nodes[n].load || server ? 'previous.uses' : 'undefined'})) return previous;
     parent_changed = true;
-    return ${call};
+${
+  server
+    ? `    const server = sd${i} ?? (previous !== undefined ? previous.server : undefined);
+    if (server === undefined) throw new Error('No server data');
+`
+    : ''
+}    return ${call};
   };
   const bp${i} = run${i}();
 `;
@@ -362,7 +540,13 @@ ${body}}
   const rootErrorPage = `
 async function root_error_page(url: KitURL, status: number, error: KitError, route_id: string | null): Promise<NavResult> {
   const intent = new Intent(get_page_key(url), false, -1, route_id ?? '', new Params(), url);
-  const b0 = await load_node_0(${rootLoad ? 'intent, () => Promise.resolve({})' : ''});
+${
+  hasServer(0)
+    ? `  await load_data();
+  const s0 = new ServerNode_0(server_data_0(intent));
+`
+    : ''
+}  const b0 = await load_node_0(${[...(rootLoad ? ['intent', '() => Promise.resolve({})'] : []), ...(hasServer(0) ? ['s0'] : [])].join(', ')});
   await node_loader();
   return result_root_error(undefined, url, new Params(), b0, status, error);
 }
@@ -384,7 +568,8 @@ async function root_error_page(url: KitURL, status: number, error: KitError, rou
       if (!match) return undefined;
       const values: (string | undefined)[] = [];
       for (let i = 1; i < match.length; i++) {
-        const value: string | undefined = match[i];
+        // A capture that does not participate is undefined (optional and rest parameters).
+        const value: string | undefined = match[i] ?? undefined;
         values.push(value);
       }
       const result = exec_params(values, [${defs}], matches);
@@ -411,6 +596,9 @@ ${imports.join('\n')}
 import {
   start as start_router,
   Intent,
+  kit_fetch,
+  KitResponse,
+  load_data,
   LoadContext,
   NavResult,
   get_page_key,
@@ -426,7 +614,7 @@ import {
   type HandleErrorInput,
   type RouteDef,
 } from './client.ts';
-import { exec_params, LoadRoute, LoadURL, Uses } from './load.ts';
+import { exec_params, LoadRoute, LoadURL, present, Uses } from './load.ts';
 import type { KitError } from './page.svelte.ts';
 import { KitURL } from './url.ts';
 import { LoadParams, Params } from './params.ts';
@@ -503,6 +691,21 @@ ${routes.map(r => `  if (intent.route === ${r.index}) return load_route_r${r.ind
   throw new Error('No route');
 }
 
+/**
+ * The responses of the prerendered endpoints the loads fetch, by URL
+ * (generation, compiler/adapters/kit-server.mjs); a new response per fetch.
+ */
+function fetch_table(url: string): KitResponse | undefined {
+${Object.entries(m.fetchTable ?? {})
+  .map(
+    ([url, r]) =>
+      `  if (url === ${js(url)}) return new KitResponse(${r.status}, ${js(r.type)}, ${js(r.body)});`,
+  )
+  .join('\n')}
+  void url;
+  return undefined;
+}
+
 /** \`data-sveltekit-*\` of app.html's container and body. */
 function link_options(name: string): string | null {
 ${OPTIONS.map(o => `  if (name === ${js(o)}) return ${linkOption(o)};`).join('\n')}
@@ -529,6 +732,7 @@ export function start() {
     // The root layout's and error page's modules (void loader(): nothing waits for them).
     default_loaders: () => {},
     link_options,
+    fetch_table,
     mount: () => {
       tree.mounted = true;
     },
