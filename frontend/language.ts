@@ -623,11 +623,7 @@ export class Lowerer {
         p.dotDotDotToken && !paramTypes ? this.checker.getTypeAtLocation(p) : undefined;
       const restTypes = paramTypes
         ? paramTypes.slice(pending.length)
-        : restTuple && this.checker.isTupleType(restTuple)
-          ? this.checker
-              .getTypeArguments(restTuple as ts.TypeReference)
-              .map(t => this.types.map(t, p))
-          : undefined;
+        : restTuple && this.types.restParams(restTuple, p);
       if (
         p.dotDotDotToken &&
         restTypes &&
@@ -638,6 +634,9 @@ export class Lowerer {
         const restOf = this.checker.getSymbolAtLocation(p.name);
         for (const [j, type] of restTypes.entries())
           pending.push({ type, name: `${p.name.text}$${j}`, restOf });
+        // (An empty one has no parameters to register: spreading it passes none.)
+        if (!restTypes.length && restOf)
+          this.bindings.set(restOf, { kind: 'rest', owner: b, locals: [] });
         continue;
       }
       if (p.dotDotDotToken) this.fail(p, 'E_FUNCTION', 'Rest parameters are planned for later');
@@ -1371,11 +1370,13 @@ export class Lowerer {
     this.guards.set(key, index);
     const names = write ? ['__proto__'] : Lowerer.PROTOTYPE_NAMES;
     const test = names
-      .map((n): Expr => ({
-        op: 'eq',
-        left: { op: 'local', local: 0 },
-        right: { op: 'lit', value: n },
-      }))
+      .map(
+        (n): Expr => ({
+          op: 'eq',
+          left: { op: 'local', local: 0 },
+          right: { op: 'lit', value: n },
+        }),
+      )
       .reduce((a, c) => ({ op: 'or', left: a, right: c }));
     const error: Expr = {
       op: 'record',
@@ -2100,12 +2101,14 @@ export class Lowerer {
     }
     if (ts.isLabeledStatement(s)) {
       const inner = s.statement;
-      if (!(
-        ts.isForStatement(inner) ||
-        ts.isForOfStatement(inner) ||
-        ts.isWhileStatement(inner) ||
-        ts.isDoStatement(inner)
-      ))
+      if (
+        !(
+          ts.isForStatement(inner) ||
+          ts.isForOfStatement(inner) ||
+          ts.isWhileStatement(inner) ||
+          ts.isDoStatement(inner)
+        )
+      )
         this.fail(s, 'E_STATEMENT', 'Labels are supported on loops');
       LABELS.set(inner, s.label.text);
       return this.statement(inner, b);
@@ -7815,12 +7818,15 @@ export class Lowerer {
       }
       const sig = this.checker.getResolvedSignature(e);
       const callee = sig?.getDeclaration();
-      // An untyped function value (bits-ui's debounce: `fn(...args)`): the
-      // parameters of its IR function type.
+      // An untyped function value (bits-ui's debounce: `fn(...args)`), or one
+      // of a generic class's type parameter (TimeoutFn's `this.#cb(...args)`,
+      // TypeScript calls its constraint): the parameters of its IR function type.
+      const calleeType = this.checker.getTypeAtLocation(e.expression);
       const valueParams =
-        (!sig || !callee) &&
-        ts.isIdentifier(e.expression) &&
-        this.checker.getTypeAtLocation(e.expression).flags & ts.TypeFlags.Any
+        ((!sig || !callee) &&
+          ts.isIdentifier(e.expression) &&
+          calleeType.flags & ts.TypeFlags.Any) ||
+        (calleeType.flags & ts.TypeFlags.TypeParameter && this.types.typeParameter?.(calleeType))
           ? (() => {
               const t = this.irType(this.functionOf(this.expr(e.expression, b), b), b);
               return typeof t === 'object' && 'fn' in t ? t.fn.params : undefined;
@@ -7885,11 +7891,20 @@ export class Lowerer {
           return arg ? this.coerce(arg, b, pt) : ({ op: 'undefined', type: pt } as Expr);
         });
     }
-    return sig.parameters.map((p, i) => {
-      const pt = this.types.map(this.checker.getTypeOfSymbolAtLocation(p, e), e);
-      const arg = argNodes[i];
-      if (!arg) return { op: 'undefined', type: pt } as Expr;
-      return this.coerce(arg, b, pt);
+    return sig.parameters.flatMap((p, i) => {
+      const t = this.checker.getTypeOfSymbolAtLocation(p, e);
+      // A rest parameter of a tuple type: one argument per item (its
+      // parameters, frontend/types.ts).
+      const decl = p.valueDeclaration;
+      const items =
+        decl && ts.isParameter(decl) && decl.dotDotDotToken
+          ? this.types.restParams(t, e)
+          : undefined;
+      return (items ?? [this.types.map(t, e)]).map((pt, j) => {
+        const arg = argNodes[i + j];
+        if (!arg) return { op: 'undefined', type: pt } as Expr;
+        return this.coerce(arg, b, pt);
+      });
     });
   }
 

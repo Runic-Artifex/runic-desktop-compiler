@@ -355,9 +355,10 @@ test('classes: unsupported forms are rejected where they are written', async () 
     {},
     '<button id="go" onclick={go}>go</button><p id="out">{a.n}</p>',
   );
-  // Modules: generic classes and static field writes through a subclass
-  // (which would give it a field of its own).
-  await rejects(`import { Box } from './box';\n${go}`, 'E_CLASS', 'box.ts:1:18', {
+  // Modules: a generic class the program never instantiates with type
+  // arguments (tests/generic-classes.test.mjs) and static field writes
+  // through a subclass (which would give it a field of its own).
+  await rejects(`import { Box } from './box';\n${go}`, 'E_CLASS', 'box.ts:1:14', {
     'box.ts': 'export class Box<T> { v: T; constructor(v: T) { this.v = v; } }\n',
   });
   await rejects(

@@ -49,6 +49,16 @@ interface Callable {
   fn?: number;
   /** Untyped parameters (JavaScript): an IR function per call site's argument types. */
   specs?: Map<string, number>;
+  /** Parameter types of a generic class's instantiation (`Classes.instantiate`). */
+  params?: Type[];
+}
+
+/** The one instantiation of a generic class in the program. */
+interface Instance {
+  /** The instance type with its type arguments. */
+  type: ts.Type;
+  /** A `new` of it, whose resolved signature is the constructor's. */
+  construct?: ts.NewExpression;
 }
 
 interface Field {
@@ -163,9 +173,14 @@ export class Classes {
   private readonly bound = new Map<string, number>();
   /** Subclass declarations by base class symbol (the program's sources). */
   private subclassIndex?: Map<ts.Symbol, ts.ClassDeclaration[]>;
+  /** Type parameters of generic classes, bound to their instantiation's types. */
+  private readonly typeArgs = new Map<ts.Symbol, Type>();
+  /** The instantiation of each generic class. */
+  private readonly instances = new Map<ts.ClassDeclaration, Instance>();
 
   constructor(lower: Lowerer) {
     this.lower = lower;
+    lower.types.typeParameter = t => (t.symbol ? this.typeArgs.get(t.symbol) : undefined);
   }
 
   private fail(n: ts.Node, message: string): never {
@@ -268,10 +283,130 @@ export class Classes {
 
   /** The IR type of class instance type `t` (TypeMapper hook). */
   typeOf(cls: ts.Symbol, t: ts.Type, at: ts.Node): Type {
+    const info = this.layout(cls, at);
     const checker = this.lower.checker;
-    if ((t as ts.TypeReference).target && checker.getTypeArguments(t as ts.TypeReference).length)
-      this.fail(at, `Generic classes (${cls.name}) are planned for later`);
-    return this.selfType(this.layout(cls, at));
+    const args = (t as ts.TypeReference).target
+      ? checker.getTypeArguments(t as ts.TypeReference)
+      : [];
+    // A generic class: the instantiation the program uses (`instantiate`).
+    info.decl.typeParameters?.forEach((p, i) => {
+      const bound = this.typeArgs.get(checker.getSymbolAtLocation(p.name)!);
+      const arg = args[i];
+      if (
+        !arg ||
+        !bound ||
+        (arg.flags & ts.TypeFlags.TypeParameter && arg.symbol?.declarations?.includes(p))
+      )
+        return;
+      const got = this.lower.types.map(arg, at);
+      if (JSON.stringify(got) !== JSON.stringify(bound))
+        this.fail(
+          at,
+          `${info.name} is used with ${p.name.text} = ${checker.typeToString(arg)} here and another type elsewhere; a generic class takes one instantiation per program`,
+        );
+    });
+    return this.selfType(info);
+  }
+
+  /**
+   * Bind the type parameters of generic class `decl` to the one
+   * instantiation the program uses: the type arguments of its `new`
+   * expressions and type references (inside the class, references to
+   * itself with its own parameters do not count). Another instantiation is
+   * rejected where it is written (specialisation per instantiation is not
+   * implemented). A type parameter no member mentions (bits-ui's
+   * `TooltipTether<Payload = never>`) types no value and is left unbound.
+   */
+  private instantiate(decl: ts.ClassDeclaration, sym: ts.Symbol) {
+    const checker = this.lower.checker;
+    const all = decl.typeParameters!;
+    const own = new Set(all.map(p => checker.getSymbolAtLocation(p.name)));
+    const mentioned = new Set<ts.Symbol>();
+    const mentions = (n: ts.Node) => {
+      if (ts.isIdentifier(n)) {
+        const s = checker.getSymbolAtLocation(n);
+        if (s && own.has(s)) mentioned.add(s);
+      }
+      ts.forEachChild(n, mentions);
+    };
+    decl.members.forEach(mentions);
+    const used = all.flatMap((p, i) =>
+      mentioned.has(checker.getSymbolAtLocation(p.name)!) ? [i] : [],
+    );
+    if (!used.length) return;
+    const params = used.map(i => all[i]);
+    const ofClass = (t: ts.Type) => t.symbol === sym && !!(t as ts.TypeReference).target;
+    const sites: { node: ts.Node; type: ts.Type }[] = [];
+    const visit = (n: ts.Node) => {
+      if (ts.isNewExpression(n) || ts.isTypeReferenceNode(n) || ts.isImportTypeNode(n)) {
+        const t = ts.isNewExpression(n)
+          ? checker.getTypeAtLocation(n)
+          : checker.getTypeFromTypeNode(n);
+        if (ofClass(t)) {
+          const args = checker.getTypeArguments(t as ts.TypeReference);
+          if (!args.every(a => a.symbol && own.has(a.symbol))) sites.push({ node: n, type: t });
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    for (const sf of this.lower.program.getSourceFiles()) if (!sf.isDeclarationFile) visit(sf);
+    if (!sites.length)
+      this.fail(
+        decl.name ?? decl,
+        `Generic class ${sym.name} is never instantiated with type arguments`,
+      );
+    const mapped = sites.map(site =>
+      used.map((u, i) => {
+        const a = checker.getTypeArguments(site.type as ts.TypeReference)[u];
+        if (a.flags & ts.TypeFlags.TypeParameter)
+          this.fail(
+            site.node,
+            `${sym.name}<${params[i].name.text}> is instantiated with a type parameter; a generic class takes one concrete instantiation per program`,
+          );
+        return this.lower.types.map(a, site.node);
+      }),
+    );
+    const first = JSON.stringify(mapped[0]);
+    const other = mapped.findIndex(m => JSON.stringify(m) !== first);
+    if (other >= 0)
+      this.fail(
+        sites[other].node,
+        `${sym.name} is instantiated with ${checker.typeToString(sites[other].type)} here and ${checker.typeToString(sites[0].type)} elsewhere; a generic class takes one instantiation per program`,
+      );
+    params.forEach((p, i) => this.typeArgs.set(checker.getSymbolAtLocation(p.name)!, mapped[0][i]));
+    const construct = sites.find(x => ts.isNewExpression(x.node))?.node as
+      | ts.NewExpression
+      | undefined;
+    this.instances.set(decl, { type: sites[0].type, ...(construct ? { construct } : {}) });
+  }
+
+  /**
+   * The parameter types of constructor or method `decl` of a generic class
+   * in its instantiation, as TypeScript instantiates the signature (`...args:
+   * Parameters<T> | []` resolved): one type per parameter, a tuple rest
+   * parameter's items each.
+   */
+  private instanceParams(decl: ts.FunctionLikeDeclaration, info: ClassInfo): Type[] | undefined {
+    const inst = this.instances.get(info.decl);
+    if (!inst) return undefined;
+    const checker = this.lower.checker;
+    let sig: ts.Signature | undefined;
+    if (ts.isConstructorDeclaration(decl))
+      sig = inst.construct ? checker.getResolvedSignature(inst.construct) : undefined;
+    else if (ts.isMethodDeclaration(decl)) {
+      const prop = checker.getPropertiesOfType(inst.type).find(p => p.declarations?.includes(decl));
+      sig = prop ? checker.getTypeOfSymbol(prop).getCallSignatures()[0] : undefined;
+    }
+    if (!sig) return undefined;
+    return sig.parameters.flatMap(p => {
+      const t = checker.getTypeOfSymbol(p);
+      const d = p.valueDeclaration;
+      const items =
+        d && ts.isParameter(d) && d.dotDotDotToken
+          ? this.lower.types.restParams(t, decl)
+          : undefined;
+      return items ?? [this.lower.types.map(t, decl)];
+    });
   }
 
   /** The IR type of a union of class instance types (TypeMapper hook). */
@@ -556,6 +691,7 @@ export class Classes {
     base: ClassInfo | undefined,
   ): ClassInfo {
     this.check(decl);
+    if (decl.typeParameters?.length) this.instantiate(decl, sym);
     const types = this.lower.types;
     const record = types.records.length;
     // Registered before the fields are typed, so recursive types terminate.
@@ -860,8 +996,6 @@ export class Classes {
 
   /** Structural checks: what the class lowering supports. */
   private check(decl: ts.ClassDeclaration) {
-    if (decl.typeParameters?.length)
-      this.fail(decl.typeParameters[0], 'Generic classes are planned for later');
     if (ts.getDecorators(decl)?.length) this.fail(decl, 'Decorators are unsupported');
     if (!decl.name) this.fail(decl, 'Anonymous classes are unsupported (name the class)');
     if (modifier(decl, ts.SyntaxKind.DefaultKeyword))
@@ -1156,7 +1290,7 @@ export class Classes {
       if (ctor) {
         const c = this.callable(ctor, `${info.name}.constructor`, info, false);
         info.construct = c;
-        if (c.fn !== undefined) pending.push(() => this.lowerConstructor(info, c.fn!));
+        if (c.fn !== undefined) pending.push(() => this.lowerConstructor(info, c.fn!, c.params));
       } else {
         const fn = lower.reserve();
         lower.functions[fn] = this.placeholder(`${info.name}.constructor`, info, [], {
@@ -1195,7 +1329,7 @@ export class Classes {
           this.fail(c.decl, 'Accessors need typed values');
         if (typed.fn !== undefined)
           pending.push(() =>
-            lower.function(c.decl, c.name, undefined, info.component, typed.fn, undefined, {
+            lower.function(c.decl, c.name, undefined, info.component, typed.fn, typed.params, {
               self,
             }),
           );
@@ -1313,9 +1447,11 @@ export class Classes {
     self: boolean,
   ): Callable {
     const lower = this.lower;
-    const untyped = decl.parameters.some(
-      p => !p.type && lower.types.typeOrUndefined(p) === undefined,
-    );
+    // A member of a generic class: its parameters in the instantiation.
+    const instance = this.instanceParams(decl, info);
+    const untyped =
+      !instance &&
+      decl.parameters.some(p => !p.type && lower.types.typeOrUndefined(p) === undefined);
     if (untyped) return { decl, name, specs: new Map() };
     const sig = lower.checker.getSignatureFromDeclaration(decl);
     const ret = sig?.getReturnType();
@@ -1341,13 +1477,28 @@ export class Classes {
           : 'void';
     const params: Local[] = [
       ...(self ? [{ name: 'this', type: this.selfType(info) }] : []),
-      ...decl.parameters.map(p => ({
-        name: ts.isIdentifier(p.name) ? p.name.text : 'arg',
-        type: lower.types.map(lower.checker.getTypeAtLocation(p), p),
-      })),
+      ...(instance
+        ? instance.map((type, i) => ({ name: `arg${i}`, type }))
+        : this.declaredParams(decl)),
     ];
     lower.functions[fn] = this.placeholder(name, info, params, result);
-    return { decl, name, fn };
+    return { decl, name, fn, ...(instance ? { params: instance } : {}) };
+  }
+
+  /** The parameters of `decl` as declared (a tuple rest parameter's items each). */
+  private declaredParams(decl: ts.FunctionLikeDeclaration): Local[] {
+    const lower = this.lower;
+    return [
+      ...decl.parameters.flatMap(p => {
+        const name = ts.isIdentifier(p.name) ? p.name.text : 'arg';
+        const t = lower.checker.getTypeAtLocation(p);
+        // A rest parameter of a tuple type: one parameter per item, as the
+        // function is lowered (`Lowerer.function`).
+        const items = p.dotDotDotToken ? lower.types.restParams(t, p) : undefined;
+        if (items) return items.map((type, j) => ({ name: `${name}${j}`, type }));
+        return [{ name, type: lower.types.map(t, p) }];
+      }),
+    ];
   }
 
   private placeholder(name: string, info: ClassInfo, params: Local[], result: Type) {
@@ -3175,11 +3326,13 @@ export class Classes {
     if (!(typeof t === 'object' && 'fn' in t)) return undefined;
     // Function values never read `this` (it is rejected outside class members),
     // so the receiver is ignored; it must be free of effects.
-    if (!(
-      thisArg.kind === ts.SyntaxKind.ThisKeyword ||
-      thisArg.kind === ts.SyntaxKind.NullKeyword ||
-      ts.isIdentifier(thisArg)
-    ))
+    if (
+      !(
+        thisArg.kind === ts.SyntaxKind.ThisKeyword ||
+        thisArg.kind === ts.SyntaxKind.NullKeyword ||
+        ts.isIdentifier(thisArg)
+      )
+    )
       return this.fail(
         thisArg,
         'Binding a function value is supported with this, null, undefined or a variable as the receiver (the function ignores it)',

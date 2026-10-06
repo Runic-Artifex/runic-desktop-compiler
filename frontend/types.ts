@@ -19,6 +19,11 @@ export class TypeMapper {
   classType?: (cls: ts.Symbol, t: ts.Type, at: ts.Node) => Type;
   /** The IR type of a union of class instance types (a class reference). */
   classUnion?: (parts: ts.Type[], at: ts.Node) => Type;
+  /**
+   * The IR type a type parameter is bound to (a generic class's one
+   * instantiation, frontend/classes.ts), if any.
+   */
+  typeParameter?: (t: ts.Type) => Type | undefined;
   /** The IR type a mapping pack gives a package type (frontend/packs.ts), if any. */
   packType?: (t: ts.Type, at: ts.Node) => Type | undefined;
   /** The record of Error values (`{ name, message }`), from the language layer. */
@@ -147,6 +152,10 @@ export class TypeMapper {
       const c = this.checker.getBaseConstraintOfType(t);
       if (c && c !== t) return this.map(c, at);
     }
+    if (t.flags & F.TypeParameter) {
+      const bound = this.typeParameter?.(t);
+      if (bound !== undefined) return bound;
+    }
     if (t.flags & (F.Number | F.NumberLiteral)) return 'number';
     if (t.flags & (F.String | F.StringLiteral | F.TemplateLiteral)) return 'string';
     if (t.flags & (F.Boolean | F.BooleanLiteral)) return 'boolean';
@@ -227,6 +236,48 @@ export class TypeMapper {
   /** Whether record `r` is a function with properties (its field 0, `()`, the function). */
   isCallable(r: number): boolean {
     return this.records[r]?.fields[0]?.name === '()';
+  }
+
+  /**
+   * The parameters a rest parameter of type `t` stands for, one per item: a
+   * tuple of required items, or a union of such tuples of the same item
+   * types (bits-ui's `...args: Parameters<T> | []` with T = `() => void`).
+   */
+  restParams(t: ts.Type, at: ts.Node): Type[] | undefined {
+    const parts = t.isUnion() ? t.types : [t];
+    const items = parts.map(p => this.tupleItems(p, at));
+    if (items.some(i => i === undefined)) return undefined;
+    const first = JSON.stringify(items[0]);
+    return items.every(i => JSON.stringify(i) === first) ? items[0] : undefined;
+  }
+
+  /**
+   * The item types of a tuple of required items, or of `Parameters<F>` of a
+   * type parameter bound to a function type (TypeScript leaves it deferred
+   * inside a generic class).
+   */
+  private tupleItems(t: ts.Type, at: ts.Node): Type[] | undefined {
+    if (this.checker.isTupleType(t))
+      return ((t as ts.TypeReference).target as ts.TupleType).elementFlags.every(
+        f => f & ts.ElementFlags.Required,
+      )
+        ? this.checker.getTypeArguments(t as ts.TypeReference).map(x => this.map(x, at))
+        : undefined;
+    const [f] = t.aliasTypeArguments ?? [];
+    if (
+      t.flags & ts.TypeFlags.Conditional &&
+      t.aliasSymbol?.name === 'Parameters' &&
+      /[\\/]lib\.[\w.]*\.d\.ts$/.test(
+        t.aliasSymbol.declarations?.[0]?.getSourceFile().fileName ?? '',
+      ) &&
+      f &&
+      f.flags & ts.TypeFlags.TypeParameter &&
+      this.typeParameter?.(f)
+    ) {
+      const fn = this.map(f, at);
+      return typeof fn === 'object' && 'fn' in fn ? fn.fn.params : undefined;
+    }
+    return undefined;
   }
 
   /** Tuple records (`Tuple`, fields `0`…), by their items' types. */
@@ -472,9 +523,17 @@ export class TypeMapper {
       const sig = calls[0];
       return {
         fn: {
-          params: sig.parameters.map(p =>
-            this.map(this.checker.getTypeOfSymbolAtLocation(p, at), at),
-          ),
+          params: sig.parameters.flatMap(p => {
+            const pt = this.checker.getTypeOfSymbolAtLocation(p, at);
+            // A rest parameter of a tuple type: one parameter per item, as
+            // functions declaring it are lowered.
+            const decl = p.valueDeclaration;
+            const items =
+              decl && ts.isParameter(decl) && decl.dotDotDotToken
+                ? this.restParams(pt, at)
+                : undefined;
+            return items ?? [this.map(pt, at)];
+          }),
           result: this.map(sig.getReturnType(), at),
         },
       };
