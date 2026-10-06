@@ -84,6 +84,8 @@ export interface DomainHook {
    * no finite domain.
    */
   values(sym: ts.Symbol): unknown[] | undefined;
+  /** Whether prop `sym` is written by its component (undefined: not a declared prop). */
+  written(sym: ts.Symbol): boolean | undefined;
   /** Why the prop `sym` has no finite domain (undefined if it is not a prop or has one). */
   explain(sym: ts.Symbol): string | undefined;
   /** The component whose prop with a domain `sym` is. */
@@ -269,6 +271,11 @@ export class PropDomains implements DomainHook {
   componentOf(sym: ts.Symbol): number | undefined {
     const d = this.decls.get(sym);
     return d && !d.written ? d.component : undefined;
+  }
+
+  /** Whether prop `sym` is written by its component (undefined: not a declared prop). */
+  written(sym: ts.Symbol): boolean | undefined {
+    return this.decls.get(sym)?.written;
   }
 
   values(sym: ts.Symbol): unknown[] | undefined {

@@ -1,0 +1,51 @@
+{
+  "description": "",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/tooltip-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/tooltip-demo.svelte",
+      "sha256": "e5a6d82e7ebd74c6882e1308a2563d7604ba13c108b96d5292281f75ef3545ed"
+    },
+    "src/lib/registry/ui/button/button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/button/button.svelte",
+      "sha256": "836d6b14108ce6f20ed88c6500d981c412e1d9cc8bbde02c2f64552b1c0b195c"
+    },
+    "src/lib/registry/ui/button/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/button/index.ts",
+      "sha256": "0f6b6f040d92b4153821d3f9b4d6b9cbc567247e4fda913e64c1d0fcc4a2f386"
+    },
+    "src/lib/registry/ui/tooltip/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/tooltip/index.ts",
+      "sha256": "a5924dc1196bf9f431af3ef3d9675ded3f30d38f9f3148118cb6f4cad433e0c4"
+    },
+    "src/lib/registry/ui/tooltip/tooltip-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tooltip/tooltip-content.svelte",
+      "sha256": "795e2f3eee0fdd2b797f2a65f9df86caece557d830a8b64b79fd04b49f5df78b"
+    },
+    "src/lib/registry/ui/tooltip/tooltip-portal.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tooltip/tooltip-portal.svelte",
+      "sha256": "d38e62fa30732ba5ea79df440badb59331d22c13a19fdc1ad777857f6039b648"
+    },
+    "src/lib/registry/ui/tooltip/tooltip-provider.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tooltip/tooltip-provider.svelte",
+      "sha256": "3599daffb73460dc3377582b99fb04503cc1f3facd660f99db5e9c785c48367e"
+    },
+    "src/lib/registry/ui/tooltip/tooltip-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tooltip/tooltip-trigger.svelte",
+      "sha256": "139ecd079c457f1318a8cfee9495143859a84fda92b0b811e893a738b46dddbd"
+    },
+    "src/lib/registry/ui/tooltip/tooltip.svelte": {
+      "upstream": "docs/src/lib/registry/ui/tooltip/tooltip.svelte",
+      "sha256": "a33d843a5e4e6e5fe426654f6742a453f44f4ff928e94a21d188d9035e4d02f8"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

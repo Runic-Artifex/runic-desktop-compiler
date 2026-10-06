@@ -1,0 +1,16 @@
+{
+  "description": "bits-ui's Tooltip compiled from its published source through shadcn-svelte's unmodified tooltip wrappers and the tooltip-demo (the provider's delay 0, the content portalled and positioned by floating-ui above the trigger with its arrow, the site's style rules). Opened by the pointer entering the trigger and closed when it leaves (the grace area's transit check), opened by keyboard focus (Tab, :focus-visible) and closed by Escape; data-state (instant-open, closed), the open and close animations",
+  "fixtures": ["bits-tooltip-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "wait", "ms": 100 },
+    { "kind": "hover", "id": "demo" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "hover", "id": "demo", "position": { "x": 4, "y": 4 } },
+    { "kind": "wait", "ms": 600 },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "wait", "ms": 400 }
+  ]
+}

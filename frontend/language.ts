@@ -416,6 +416,7 @@ export class Lowerer {
             ? [undefined]
             : undefined,
       () => program.getSourceFiles(),
+      sym => this.domains?.written(sym),
     );
     types.narrow = (parts, at, fail) => this.unions.member(parts, at, fail);
     types.nothingSlot = decl => this.unions.nothingSlot(decl);

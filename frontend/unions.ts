@@ -41,6 +41,13 @@
 // also through a bag known to hold it (rest props passed on, a mergeProps
 // result), does not contribute the default (`mayBeAbsent`).
 //
+// Props are followed back to their sites (2026-10-06, `propFromSites`): a
+// prop its component never writes, or an entry of its rest props, holds
+// what the sites pass, through their bags, whatever the size of the props
+// type (bits-ui's tooltip content passes `customAnchor ?? triggerNode` to
+// the floating layer through two `mergeProps` bags and components whose
+// props types the walk below does not search).
+//
 // A property TypeScript types `unknown` (bits-ui's tooltip trigger record's
 // `payload`) is decided by its origins instead (`nothingSlot`): a value can
 // only get into it where an object is built with the property (an object
@@ -89,6 +96,9 @@ export class Unions {
   /** Unions resolved to a member, by key. */
   private readonly resolved = new Map<string, ts.Type>();
 
+  /** Whether a prop is written by its component (undefined: not a declared prop). */
+  private readonly propWritten: (sym: ts.Symbol) => boolean | undefined;
+
   /** Every file of the program, declaration files included. */
   private readonly allFiles: () => readonly ts.SourceFile[];
 
@@ -98,7 +108,9 @@ export class Unions {
     sourceOf: SourceOf,
     propValues: PropValues,
     allFiles: () => readonly ts.SourceFile[] = files,
+    propWritten: (sym: ts.Symbol) => boolean | undefined = () => undefined,
   ) {
+    this.propWritten = propWritten;
     this.allFiles = allFiles;
     this.checker = checker;
     this.files = files;
@@ -374,7 +386,12 @@ export class Unions {
           ts.forEachChild(n.initializer, visit);
           return;
         }
-        if (ts.isExpression(n) && !ts.isPartOfTypeNode(n)) {
+        // (Not a property's name: `"key": value` gives the value.)
+        const named =
+          !!n.parent &&
+          (ts.isPropertyAssignment(n.parent) || ts.isPropertyDeclaration(n.parent)) &&
+          n.parent.name === n;
+        if (ts.isExpression(n) && !ts.isPartOfTypeNode(n) && !named) {
           const ctx = this.checker.getContextualType(n);
           if (ctx && this.contains(ctx, key, 0)) {
             seen.clear();
@@ -417,7 +434,7 @@ export class Unions {
     depth: number,
     strict = false,
   ): ts.Type[] | undefined {
-    if (depth > 12) return undefined;
+    if (depth > 40) return undefined;
     e = skipAll(e);
     const K = ts.SyntaxKind;
     const all = (parts: (ts.Type[] | undefined)[]) =>
@@ -428,6 +445,17 @@ export class Unions {
     if (!path.length) {
       if (e.kind === K.NullKeyword || ts.isVoidExpression(e)) return [];
       if (ts.isIdentifier(e) && e.text === 'undefined' && !this.declared(e)) return [];
+      // A value built here: its own type.
+      if (isLiteralLike(e))
+        return [this.checker.getBaseTypeOfLiteralType(this.checker.getTypeAtLocation(e))];
+      if (
+        ts.isObjectLiteralExpression(e) ||
+        ts.isArrayLiteralExpression(e) ||
+        ts.isArrowFunction(e) ||
+        ts.isFunctionExpression(e) ||
+        ts.isTemplateExpression(e)
+      )
+        return [this.checker.getTypeAtLocation(e)];
       if (ts.isConditionalExpression(e)) return all([orType(e.whenTrue), orType(e.whenFalse)]);
       if (
         ts.isBinaryExpression(e) &&
@@ -442,6 +470,9 @@ export class Unions {
         if (values && values.every(v => v === null || v === undefined)) return [];
         const init = this.constant(sym);
         if (init) return this.trace(init, [], depth + 1, strict);
+        // A prop: what its sites pass.
+        const passed = this.propFromSites(sym, [], depth, strict);
+        if (passed) return passed;
       }
       if (ts.isPropertyAccessExpression(e) && e.name.text === 'current') {
         const inner = this.trace(e.expression, ['current'], depth + 1, strict);
@@ -472,7 +503,8 @@ export class Unions {
     if (ts.isIdentifier(e)) {
       const sym = this.symbol(e);
       const init = sym && this.constant(sym);
-      return init ? this.trace(init, path, depth + 1, strict) : undefined;
+      if (init) return this.trace(init, path, depth + 1, strict);
+      return sym && this.propFromSites(sym, path, depth, strict);
     }
     if (ts.isPropertyAccessExpression(e)) {
       // An option or field holding a box: the boxes given to it, and the
@@ -509,6 +541,54 @@ export class Unions {
   }
 
   /**
+   * The values at `path` inside prop `sym` (a `$props()` binding of a
+   * component its component never writes) or inside its rest props (at an
+   * entry of a name the component does not declare): what the component's
+   * sites pass, followed through their bags (a spread of mergeProps, rest
+   * props passed on), and the prop's default where a site may leave it out.
+   * Undefined for other names, a component without sites (the root) or a
+   * site that cannot be followed.
+   */
+  private propFromSites(
+    sym: ts.Symbol,
+    path: string[],
+    depth: number,
+    strict: boolean,
+  ): ts.Type[] | undefined {
+    const decl = sym.valueDeclaration;
+    if (!decl || !ts.isBindingElement(decl)) return undefined;
+    const sf = decl.getSourceFile();
+    const pattern = this.propsPattern(sf);
+    if (!pattern) return undefined;
+    let key: string | undefined;
+    let inner = path;
+    if (decl.dotDotDotToken) {
+      if (pattern.rest !== sym || !path.length || path[0] === 'current') return undefined;
+      [key, ...inner] = path;
+      if (pattern.byKey.has(key)) return [];
+    } else {
+      key =
+        decl.propertyName && ts.isIdentifier(decl.propertyName)
+          ? decl.propertyName.text
+          : ts.isIdentifier(decl.name)
+            ? decl.name.text
+            : undefined;
+      if (!key || pattern.byKey.get(key) !== decl || this.propWritten(sym) !== false)
+        return undefined;
+    }
+    const sites = this.sites().get(sf.fileName) ?? [];
+    if (!sites.length) return undefined;
+    const parts: (ts.Type[] | undefined)[] = sites.map(s =>
+      this.bagHas(s, key, depth + 1) === 'absent'
+        ? []
+        : this.traceEntry(s, [key, ...inner], depth + 1, strict),
+    );
+    if (!decl.dotDotDotToken && decl.initializer && this.mayBeAbsent(sf, key, depth + 1))
+      parts.push(this.trace(defaultOf(decl.initializer), inner, depth + 1, strict));
+    return parts.some(p => p === undefined) ? undefined : (parts as ts.Type[][]).flat();
+  }
+
+  /**
    * The values at `path` (an entry, then what is inside it) of the bag or
    * object `e`: constants and `$derived(…)` followed, svelte-toolbelt's
    * `mergeProps(…)` (`style` is a string where a bag after the first holds
@@ -524,7 +604,8 @@ export class Unions {
     if (ts.isIdentifier(e)) {
       const sym = this.symbol(e);
       const init = sym && this.constant(sym);
-      return init ? this.trace(init, path, depth + 1, strict) : undefined;
+      if (init) return this.trace(init, path, depth + 1, strict);
+      return sym && this.propFromSites(sym, path, depth, strict);
     }
     // An object literal: the last property of the name (bits-ui's tooltip
     // content's `floatingProps`, whose `customAnchor ?? triggerNode`
@@ -548,15 +629,13 @@ export class Unions {
         if (!p.name || p.name.getText().replace(/^["']|["']$/g, '') !== name) continue;
         let v: ts.Type[] | undefined;
         if (ts.isPropertyAssignment(p)) v = this.trace(p.initializer, rest, depth + 1, strict);
+        // (A name: a constant's initialiser, a prop's sites.)
         else if (ts.isShorthandPropertyAssignment(p)) {
-          const d = this.checker.getShorthandAssignmentValueSymbol(p)?.valueDeclaration;
-          v =
-            d &&
-            ts.isVariableDeclaration(d) &&
-            d.initializer &&
-            ts.getCombinedNodeFlags(d) & ts.NodeFlags.Const
-              ? this.trace(d.initializer, rest, depth + 1, strict)
-              : undefined;
+          const sym = this.checker.getShorthandAssignmentValueSymbol(p);
+          const init = sym && this.constant(sym);
+          v = init
+            ? this.trace(init, rest, depth + 1, strict)
+            : sym && this.propFromSites(sym, rest, depth + 1, strict);
         }
         return v && [...found, ...v];
       }
@@ -842,6 +921,33 @@ export class Unions {
           : undefined;
     if (!pattern || !key || pattern.byKey.get(key) !== el) return false;
     return !this.mayBeAbsent(el.getSourceFile(), key, 0);
+  }
+
+  /**
+   * Whether the function prop (a snippet) declared by `decl`, a `$props()`
+   * binding without a default, holds a function at every site (true: each
+   * passes it, also through bags known to hold it, as bits-ui passes its
+   * `child` snippet down through rest props and mergeProps) or at none
+   * (false: no site's bag holds it); undefined otherwise.
+   */
+  functionPropPassed(decl: ts.Declaration): boolean | undefined {
+    if (!ts.isBindingElement(decl) || decl.dotDotDotToken || decl.initializer) return undefined;
+    const pattern = this.propsPattern(decl.getSourceFile());
+    const key =
+      decl.propertyName && ts.isIdentifier(decl.propertyName)
+        ? decl.propertyName.text
+        : ts.isIdentifier(decl.name)
+          ? decl.name.text
+          : undefined;
+    if (!pattern || !key || pattern.byKey.get(key) !== decl) return undefined;
+    const t = this.checker.getNonNullableType(this.checker.getTypeAtLocation(decl.name));
+    if (t.isUnion() || !t.getCallSignatures().length) return undefined;
+    const sites = this.sites().get(decl.getSourceFile().fileName) ?? [];
+    if (!sites.length) return undefined;
+    const held = sites.map(s => this.bagHas(s, key, 0));
+    if (held.every(h => h === 'present')) return true;
+    if (held.every(h => h === 'absent')) return false;
+    return undefined;
   }
 
   /** Whether `t` is a svelte-toolbelt box (the `BoxSymbol` brand). */

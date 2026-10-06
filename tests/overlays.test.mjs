@@ -577,3 +577,107 @@ test('animation members outside the model are rejected', async () => {
       assert.rejects(lowered(root), failWith('E_MEMBER', 'App.svelte', /Animation currentTime/)),
   );
 });
+
+test('snippet branches decided by the sites; snippets passed on through mergeProps constants', async () => {
+  const files = (sites, middle = 'mergeProps(rest, { "data-m": "" })') => ({
+    'Arrow.svelte': `<script lang="ts">
+  import type { Snippet } from 'svelte';
+  let { child, ...rest }: { child?: Snippet; id?: string; 'data-m'?: string } = $props();
+</script>
+
+{#if child}
+  {@render child()}
+{:else}
+  <svg {...rest} width="10" height="5" viewBox="0 0 30 10" preserveAspectRatio="none"><polygon points="0,0 30,0 15,10" /></svg>
+{/if}
+`,
+    'Middle.svelte': `<script lang="ts">
+  import { mergeProps } from 'svelte-toolbelt';
+  import type { Snippet } from 'svelte';
+  import Arrow from './Arrow.svelte';
+  let { ...rest }: { child?: Snippet; id?: string } = $props();
+  const merged = $derived(${middle});
+</script>
+
+<Arrow {...merged} />
+`,
+    'App.svelte': `<script lang="ts">
+  import Middle from './Middle.svelte';
+</script>
+
+${sites}
+`,
+  });
+  // Every site passes `child` (through the rest props and a mergeProps
+  // constant): the branch rendering the svg is never taken.
+  await withApp(
+    files('<Middle id="m">{#snippet child()}<i id="c">child</i>{/snippet}</Middle>'),
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, []);
+      assert.deepEqual(steps[0].state.dom.filter(n => typeof n !== 'string').map(text), ['child']);
+    },
+  );
+  // A site without it renders the svg, whose attribute is unsupported.
+  await withApp(
+    files('<Middle id="m">{#snippet child()}<i>child</i>{/snippet}</Middle>\n<Middle />'),
+    root =>
+      assert.rejects(lowered(root), failWith('E_TEMPLATE', 'Arrow.svelte', /preserveAspectRatio/)),
+  );
+  // A bag built otherwise from the rest props would lose the snippet.
+  await withApp(
+    files('<Middle id="m">{#snippet child()}<i>child</i>{/snippet}</Middle>', 'rest'),
+    root =>
+      assert.rejects(
+        lowered(root),
+        failWith('E_TEMPLATE', 'Middle.svelte', /passes on the rest props/),
+      ),
+  );
+});
+
+test('values reach a union from the sites of props, through bags and large props types', async () => {
+  const files = site => ({
+    'Inner.svelte': `<script lang="ts">
+  import type { HTMLAttributes } from 'svelte/elements';
+  type Target = HTMLElement | string;
+  let { customAnchor, ...rest }: HTMLAttributes<HTMLDivElement> & { customAnchor?: Target | null } = $props();
+  const chosen: Target | null = customAnchor ?? null;
+  const label = $derived(typeof chosen === 'string' ? 'selector' : chosen ? 'element' : 'none');
+</script>
+
+<p {...rest}>{label}</p>
+`,
+    'Outer.svelte': `<script lang="ts">
+  import { mergeProps } from 'svelte-toolbelt';
+  import type { HTMLAttributes } from 'svelte/elements';
+  import Inner from './Inner.svelte';
+  let {
+    customAnchor,
+    ...rest
+  }: HTMLAttributes<HTMLDivElement> & { customAnchor?: HTMLElement | string | null } = $props();
+  let el = $state<HTMLElement | null>(null);
+  const merged = $derived(mergeProps(rest, { customAnchor: customAnchor ?? el }));
+</script>
+
+<span bind:this={el}>s</span>
+<Inner {...merged} />
+`,
+    'App.svelte': `<script lang="ts">
+  import Outer from './Outer.svelte';
+</script>
+
+${site}
+`,
+  });
+  // No site passes a customAnchor: only the element reaches the union.
+  await withApp(files('<Outer id="o" />'), async root => {
+    const { ir } = await lowered(root);
+    const steps = interpret(ir, [{ kind: 'wait', ms: 0 }]);
+    const p = s => steps[s].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'o');
+    assert.equal(text(p(1)), 'element');
+  });
+  // A selector passed at the outer site reaches it through both components.
+  await withApp(files('<Outer id="o" customAnchor="#x" />'), root =>
+    assert.rejects(lowered(root), failWith('E_TYPE_UNION', 'Inner.svelte', /HTMLElement at/)),
+  );
+});

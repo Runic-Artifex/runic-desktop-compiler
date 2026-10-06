@@ -412,6 +412,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (results.every(r => !r)) return negate;
         return undefined;
       }
+      // A snippet prop every site passes (or none does): a function is truthy.
+      if (ts.isIdentifier(x)) {
+        const decl = checker.getSymbolAtLocation(x)?.valueDeclaration;
+        const passed = decl && lower.unions.functionPropPassed(decl);
+        if (passed !== undefined) return passed;
+      }
       const v = values(x);
       if (!v || !v.length) return undefined;
       if (v.every(Boolean)) return true;
@@ -656,11 +662,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // Rest props (docs/design/M5-PLATFORM.md): each component's declared prop
   // names and rest binding, and the names its rest bag may hold, gathered
   // from every call site and through forwarding (`<Child {...rest} />`).
-  const decls = new Map<string, { declared: Set<string>; rest?: string }>();
+  const decls = new Map<string, { declared: Set<string>; rest?: string; restBags: Set<string> }>();
   for (const u of order) {
     const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
     const sf = ts.createSourceFile(u.file + '.ts', script, ts.ScriptTarget.Latest, true);
-    const d: { declared: Set<string>; rest?: string } = { declared: new Set() };
+    const d: { declared: Set<string>; rest?: string; restBags: Set<string> } = {
+      declared: new Set(),
+      restBags: new Set(),
+    };
     for (const stmt of sf.statements)
       if (ts.isVariableStatement(stmt))
         for (const v of stmt.declarationList.declarations) {
@@ -681,6 +690,33 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               );
           }
         }
+    // Constants holding the rest props merged with other bags
+    // (`mergedProps = $derived(mergeProps(restProps, arrowState.props))`,
+    // bits-ui's FloatingLayerArrow): spreading them passes the rest props on.
+    if (d.rest)
+      for (const stmt of sf.statements)
+        if (ts.isVariableStatement(stmt) && stmt.declarationList.flags & ts.NodeFlags.Const)
+          for (const v of stmt.declarationList.declarations) {
+            let init = v.initializer;
+            if (
+              init &&
+              ts.isCallExpression(init) &&
+              init.expression.getText(sf) === '$derived' &&
+              init.arguments.length === 1
+            )
+              init = init.arguments[0];
+            if (
+              ts.isIdentifier(v.name) &&
+              init &&
+              ts.isCallExpression(init) &&
+              ts.isIdentifier(init.expression) &&
+              init.expression.text === 'mergeProps' &&
+              init.arguments.some(
+                a => ts.isIdentifier(a) && (a.text === d.rest || d.restBags.has(a.text)),
+              )
+            )
+              d.restBags.add(v.name.text);
+          }
     decls.set(u.file, d);
   }
   // Snippets a component receives through its rest props: content or
@@ -704,11 +740,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       out.push('children');
     return out;
   };
-  /** Whether attribute `a` spreads the rest props of the component `file`. */
+  /**
+   * Whether attribute `a` spreads the rest props of the component `file`
+   * (or a constant merging them with other bags).
+   */
   const spreadsRest = (file: string, a: SNode) =>
     a.type === 'SpreadAttribute' &&
     a.expression.type === 'Identifier' &&
-    a.expression.name === decls.get(file)?.rest;
+    (a.expression.name === decls.get(file)?.rest ||
+      !!decls.get(file)?.restBags.has(a.expression.name));
   const slotForwards: { from: string; to: string }[] = [];
   for (const u of order)
     walkTemplate(u.ast.fragment, n => {
@@ -969,6 +1009,17 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               if (kind && childDecl.rest && !childDecl.declared.has(a.name))
                 s += ` satisfies (event: RunicEventMap[${JSON.stringify(kind)}]) => unknown`;
               s += ',\n';
+            } else if (a.type === 'Attribute') {
+              // Text (a string; mixed with expressions, typed below) and
+              // bare attributes (true): the values the site passes.
+              const text = Array.isArray(a.value) && a.value.every((v: SNode) => v.type === 'Text');
+              s += `${JSON.stringify(a.name)}: ${
+                a.value === true
+                  ? 'true'
+                  : text
+                    ? JSON.stringify(a.value.map((v: SNode) => v.data).join(''))
+                    : '"" as string'
+              },\n`;
             } else if (a.type === 'SpreadAttribute') {
               s += '...';
               inline(a.expression);
@@ -2071,6 +2122,25 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                 const sym = checker.getSymbolAtLocation(el.name);
                 if (sym) restOf.set(sym, u.file);
               }
+  /** Whether `e` reads the rest props of component `file` (also through constants). */
+  const mentionsRest = (e: ts.Node, file: string, seen = new Set<ts.Node>()): boolean => {
+    if (seen.has(e)) return false;
+    seen.add(e);
+    if (ts.isIdentifier(e)) {
+      const sym = checker.getSymbolAtLocation(e);
+      if (!sym) return false;
+      if (restOf.get(sym) === file) return true;
+      const d = sym.valueDeclaration;
+      return (
+        !!d &&
+        ts.isVariableDeclaration(d) &&
+        !!d.initializer &&
+        !!(ts.getCombinedNodeFlags(d) & ts.NodeFlags.Const) &&
+        mentionsRest(d.initializer, file, seen)
+      );
+    }
+    return !!ts.forEachChild(e, c => mentionsRest(c, file, seen) || undefined);
+  };
   /** The local name of snippet prop `name` of component `file`. */
   const snippetLocal = (file: string, name: string): string | undefined => {
     const u = units.get(file)!;
@@ -3860,7 +3930,17 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             );
           const shape = shapes.of(e);
           const index = spreads.length;
-          spreads.push({ expr: e, shape, rest: spreadsRest(u.file, a), at: a });
+          const rest = spreadsRest(u.file, a);
+          // Snippets this component received in its rest props are passed
+          // on only by spreads of the rest props (or of constants merging
+          // them): another bag built from them would lose them.
+          if (!rest && forwardedSlots.size && mentionsRest(e, u.file))
+            fail(
+              'E_TEMPLATE',
+              `This spread passes on the rest props, which hold the snippets ${[...forwardedSlots].join(', ')}: spread the rest props or a mergeProps(…) constant of them`,
+              loc(a),
+            );
+          spreads.push({ expr: e, shape, rest, at: a });
           const held: string[] = [];
           for (const c of target.cells)
             if (c.prop && c.prop !== '...' && c.prop !== '$site' && mayHold(shape, c.prop)) {
