@@ -4927,6 +4927,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     // default `interleaved`) and read live state.
     schedule: { checkpoint: 'listener', mount: 'sync' },
   };
+  lower.checkStyleSpreads(ir);
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
 }

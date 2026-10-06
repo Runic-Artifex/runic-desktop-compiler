@@ -110,6 +110,8 @@ impl<A: App> Document for Native<A> {
             self.advance(now);
             self.wake_at = None;
         }
+        // The tasks the last frame queued (IntersectionObserver notifications).
+        self.host_tasks();
         // The rendering step: resize, scroll and media query events due.
         let environ = self.environ_changed();
         if environ.is_some() || !self.listeners.pending_scroll.is_empty() || self.focus_fixup_due()
@@ -385,7 +387,23 @@ impl<A: App> Native<A> {
                 log: &mut self.log,
                 pointer: &mut self.pointer,
             };
+            handler.capture(&mut self.doc, Event::Resize, &event, false);
             handler.host(&mut self.doc, Event::Resize, &event);
+            event.finish();
+            // Then the visual viewport's (it resizes with the window).
+            let event = runic_js::Event::new(EventData {
+                kind: Event::Resize.name().into(),
+                target: Element::VISUAL_VIEWPORT,
+                ..Default::default()
+            });
+            for listener in handler.app.viewport_listeners(Event::Resize) {
+                let delivery = Delivery {
+                    listener,
+                    event: event.clone(),
+                    current: Element::VISUAL_VIEWPORT.0,
+                };
+                handler.dispatch(&mut self.doc, &[delivery]);
+            }
             event.finish();
         }
         self.run_scroll_steps();
@@ -450,6 +468,16 @@ impl<A: App> Native<A> {
             self.fix_focus_after_update();
             self.host_tasks();
         }
+        // IntersectionObserver updates (M6 overlays), after ResizeObserver's:
+        // their notifications are a task after the frame.
+        let mut dom = Dom {
+            doc: &mut self.doc,
+            listeners: &mut self.listeners,
+        };
+        let intersections = self.app.intersection_step(&mut dom);
+        if intersections && let Some(w) = &self.waker {
+            w.wake_by_ref();
+        }
         // Text that no loaded font draws would silently be missing (Chromium
         // falls back to a system font): a probe fails, an app reports it once.
         for text in crate::layout::unfonted_text(&self.doc) {
@@ -505,6 +533,8 @@ impl<A: App> Native<A> {
     /// One frame (probes): the rendering step, then layout.
     #[cfg(feature = "probe")]
     pub(crate) fn frame(&mut self) {
+        // The tasks the last frame queued (IntersectionObserver notifications).
+        self.host_tasks();
         self.rendering_step(false);
         self.layout_frame();
     }
@@ -963,17 +993,22 @@ impl<A: App> Handler<'_, A> {
         } else {
             &elements[..1]
         };
-        let deliveries: Vec<Delivery> = path
-            .iter()
-            .flat_map(|&n| {
-                let event = &event;
-                self.listeners.all(n, kind).map(move |listener| Delivery {
-                    listener,
-                    event: event.clone(),
-                    current: n.as_u64(),
-                })
+        // The elements' capture listeners first, from the root to the
+        // target (M6 overlays: along the target's ancestors also for events
+        // that do not bubble, such as focus), then the target's and the
+        // ancestors'.
+        let chain = element_chain(doc, elements[0]);
+        let mut deliveries: Vec<Delivery> = self.listeners.capture_deliveries(&chain, kind, &event);
+        deliveries.extend(path.iter().flat_map(|&n| {
+            let event = &event;
+            self.listeners.all(n, kind).map(move |listener| Delivery {
+                listener,
+                event: event.clone(),
+                current: n.as_u64(),
             })
-            .collect();
+        }));
+        // The capture listeners of the window, then the document, first.
+        self.capture(doc, kind, &event, true);
         self.dispatch(doc, &deliveries);
         if kind.bubbles() {
             self.host(doc, kind, &event);
@@ -990,6 +1025,7 @@ impl<A: App> Handler<'_, A> {
                 target: Element::DOCUMENT,
                 ..Default::default()
             });
+            self.capture(doc, Event::Scroll, &event, true);
             self.host(doc, Event::Scroll, &event);
             event.finish();
         } else if doc
@@ -1004,6 +1040,35 @@ impl<A: App> Handler<'_, A> {
     /// each a callback of its own (a microtask checkpoint follows it). A
     /// target's listeners are those registered when the event reaches it;
     /// one removed meanwhile is not called.
+    /// The capture listeners of the window, then (`document`) the
+    /// document's, each a callback of its own (M6 overlays).
+    fn capture(
+        &mut self,
+        doc: &mut BaseDocument,
+        kind: Event,
+        event: &runic_js::Event,
+        document: bool,
+    ) {
+        for window in [true, false] {
+            if !window && !document {
+                continue;
+            }
+            let current = if window {
+                Element::WINDOW
+            } else {
+                Element::DOCUMENT
+            };
+            for listener in self.app.capture_listeners(window, kind) {
+                let delivery = Delivery {
+                    listener,
+                    event: event.clone(),
+                    current: current.0,
+                };
+                self.dispatch(doc, &[delivery]);
+            }
+        }
+    }
+
     fn host(&mut self, doc: &mut BaseDocument, kind: Event, event: &runic_js::Event) {
         for window in [false, true] {
             let current = if window {
@@ -1068,6 +1133,7 @@ impl<A: App> Handler<'_, A> {
             target: Element::WINDOW,
             ..Default::default()
         });
+        self.capture(doc, kind, &event, false);
         self.host(doc, kind, &event);
         event.finish();
     }

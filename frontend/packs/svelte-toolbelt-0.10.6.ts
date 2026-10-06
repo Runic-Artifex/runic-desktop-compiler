@@ -29,6 +29,18 @@
 // - `afterTick(fn)` (dist/utils/after-tick.js): `tick().then(fn)`.
 // - `onDestroyEffect(fn)` (dist/utils/on-destroy-effect.svelte.js): an
 //   effect of the instance being created whose cleanup calls `fn`.
+// - `afterSleep(ms, cb)` (dist/utils/after-sleep.js): `setTimeout(cb, ms)`.
+// - `executeCallbacks(...callbacks)` (dist/utils/execute-callbacks.js): a
+//   function calling each callback that is a function with its arguments.
+//   Its parameters are the expected function type's (an `on()` listener
+//   takes the event), else the longest callback's; each callback's
+//   parameters are a prefix of them (JavaScript ignores the extra
+//   arguments). Undefined callbacks are skipped.
+// - `composeHandlers(...handlers)` (dist/utils/compose-handlers.js): a
+//   listener calling each handler (skipping undefined ones) with the event
+//   until the event is cancelled. Boxes of handlers are rejected.
+// - `contains(parent, child)` (dist/utils/dom.js): false unless both are
+//   elements, else `parent.contains(child)` (no shadow roots exist).
 // - `new DOMContext(box)` (dist/utils/dom-context.svelte.js): a record of the
 //   element box whose setTimeout and clearTimeout are the window's.
 // - `srOnlyStyles` (dist/utils/sr-only-styles.js): a constant style object,
@@ -278,12 +290,16 @@ function box(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   if (node.arguments.length > 1 || (initial && ts.isSpreadElement(initial)))
     return lower.fail(node, 'E_PACK', `${LABEL}: box takes an initial value`);
   const context = lower.checker.getContextualType(node);
-  const wanted = context && lower.types.tryMap(context, node);
+  // (Or the type expected where TypeScript cannot say: `const floating = simpleBox(null)`.)
+  const wanted = (context && lower.types.tryMap(context, node)) ?? lower.expected.get(node);
   const box = wanted && boxValue(lower, wanted) !== undefined ? wanted : lower.types.of(node);
   const t = boxValue(lower, box);
   if (t === undefined) return lower.fail(node, 'E_PACK', `${LABEL}: box's type is not a box`);
   const state = stateRecord(lower, t);
   const stateType: Type = { record: state };
+  // (The box's type is what an initial value TypeScript types too narrowly
+  // takes: `simpleBox([])` of a box of an array.)
+  if (initial) lower.expected.set(skipParens(initial), t);
   const value: Expr = initial
     ? initial.kind === ts.SyntaxKind.NullKeyword && maybeInner(t)
       ? { op: 'null', type: t }
@@ -319,6 +335,21 @@ function box(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
       ],
     },
   };
+}
+
+/**
+ * `boxFrom(value)` (dist/box/box-extras.svelte.js): a box as it is, a
+ * function as `boxWith(value)`, anything else as `simpleBox(value)`,
+ * decided by the value's type.
+ */
+function boxFrom(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [value] = node.arguments;
+  if (!value || node.arguments.length !== 1 || ts.isSpreadElement(value))
+    return lower.fail(node, 'E_PACK', `${LABEL}: boxFrom takes a value`);
+  const t = lower.types.typeOrUndefined(value);
+  if (t !== undefined && boxValue(lower, t) !== undefined) return lower.expr(value, b);
+  if (typeof t === 'object' && 'fn' in t) return boxWith(node, b, lower);
+  return box(node, b, lower);
 }
 
 /** DOMContext records, per program. */
@@ -504,6 +535,193 @@ function afterTick(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr 
   };
 }
 
+/** `afterSleep(ms, cb)`: `setTimeout(cb, ms)` (the arguments evaluated in order). */
+function afterSleep(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [ms, cb] = node.arguments;
+  if (!ms || !cb || node.arguments.length !== 2)
+    return lower.fail(node, 'E_PACK', `${LABEL}: afterSleep takes a delay and a function`);
+  const delay = b.local('$ms', 'number');
+  const f = b.local('$cb', fnType([], 'void'));
+  return {
+    op: 'with',
+    local: delay,
+    value: lower.coerce(ms, b, 'number'),
+    body: {
+      op: 'with',
+      local: f,
+      value: functionArg(cb, b, lower, fnType([], 'void')),
+      body: {
+        op: 'builtin',
+        name: 'timer.timeout',
+        args: [local(f), local(delay)],
+        type: 'number',
+      },
+    },
+  };
+}
+
+/** `executeCallbacks(...callbacks)` (see the header). */
+function executeCallbacks(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const values = node.arguments.map(a => {
+    if (ts.isSpreadElement(a))
+      return lower.fail(a, 'E_PACK', `${LABEL}: executeCallbacks takes the callbacks one by one`);
+    return lower.functionOf(lower.expr(a, b), b);
+  });
+  const types = values.map(v => lower.irType(v, b));
+  const fnOf = (t: Type) => {
+    const inner = maybeInner(t) ?? t;
+    return typeof inner === 'object' && 'fn' in inner ? inner.fn : undefined;
+  };
+  types.forEach((t, i) => {
+    if (!fnOf(t))
+      lower.fail(node.arguments[i], 'E_PACK', `${LABEL}: executeCallbacks takes functions`);
+  });
+  const expected = lower.expected.get(node);
+  const longest = types
+    .map(t => fnOf(t)!.params)
+    .reduce((a, p) => (p.length > a.length ? p : a), [] as Type[]);
+  const params = typeof expected === 'object' && 'fn' in expected ? expected.fn.params : longest;
+  const same = (a: Type, c: Type) => JSON.stringify(a) === JSON.stringify(c);
+  types.forEach((t, i) => {
+    const p = fnOf(t)!.params;
+    if (p.length > params.length || !p.every((x, j) => same(x, params[j])))
+      lower.fail(
+        node.arguments[i],
+        'E_PACK',
+        `${LABEL}: executeCallbacks' callbacks take the first of the same parameters`,
+      );
+  });
+  const n = values.length;
+  const body: Stmt[] = types.map((t, i): Stmt => {
+    const p = fnOf(t)!.params;
+    const args = p.map((_, j) => local(n + j));
+    if (!maybeInner(t)) return { op: 'expr', value: { op: 'call-value', callee: local(i), args } };
+    return {
+      op: 'if',
+      test: {
+        op: 'not',
+        arg: { op: 'builtin', name: 'maybe.is-nullish', args: [local(i)], type: 'boolean' },
+      },
+      then: [
+        {
+          op: 'expr',
+          value: { op: 'call-value', callee: { op: 'unwrap', value: local(i) }, args },
+        },
+      ],
+    };
+  });
+  const run = define(lower, {
+    name: 'executeCallbacks$run',
+    captures: types.map((type, i) => ({ name: `callback${i}`, type })),
+    params: params.map((type, j) => ({ name: `arg${j}`, type })),
+    result: 'void',
+    body,
+  });
+  const temps = types.map(t => b.local('$callback', t));
+  let out: Expr = { op: 'closure', function: run, captures: temps };
+  for (let i = n - 1; i >= 0; i--)
+    out = { op: 'with', local: temps[i], value: values[i], body: out };
+  return out;
+}
+
+/** `composeHandlers(...handlers)` (see the header). */
+function composeHandlers(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const values = node.arguments.map(a => {
+    if (ts.isSpreadElement(a))
+      return lower.fail(a, 'E_PACK', `${LABEL}: composeHandlers takes the handlers one by one`);
+    return lower.functionOf(lower.expr(a, b), b);
+  });
+  const types = values.map(v => lower.irType(v, b));
+  const ok = (t: Type) => {
+    const inner = maybeInner(t) ?? t;
+    return (
+      typeof inner === 'object' &&
+      'fn' in inner &&
+      (inner.fn.params.length === 0 ||
+        (inner.fn.params.length === 1 && inner.fn.params[0] === 'event'))
+    );
+  };
+  types.forEach((t, i) => {
+    if (!ok(t))
+      lower.fail(
+        node.arguments[i],
+        'E_PACK',
+        `${LABEL}: composeHandlers takes functions of the event (or of nothing)`,
+      );
+  });
+  const n = values.length;
+  const event = local(n);
+  const body: Stmt[] = [];
+  types.forEach((t, i) => {
+    const inner = (maybeInner(t) ?? t) as { fn: { params: Type[] } };
+    const args = inner.fn.params.length ? [event] : [];
+    const callee: Expr = maybeInner(t) ? { op: 'unwrap', value: local(i) } : local(i);
+    const call: Stmt[] = [
+      {
+        op: 'if',
+        test: { op: 'builtin', name: 'event.defaultPrevented', args: [event], type: 'boolean' },
+        then: [{ op: 'return' }],
+      },
+      { op: 'expr', value: { op: 'call-value', callee, args } },
+    ];
+    body.push(
+      ...(maybeInner(t)
+        ? [
+            {
+              op: 'if',
+              test: {
+                op: 'not',
+                arg: { op: 'builtin', name: 'maybe.is-nullish', args: [local(i)], type: 'boolean' },
+              },
+              then: call,
+            } as Stmt,
+          ]
+        : call),
+    );
+  });
+  const run = define(lower, {
+    name: 'composeHandlers$run',
+    captures: types.map((type, i) => ({ name: `handler${i}`, type })),
+    params: [{ name: 'e', type: 'event' }],
+    result: 'void',
+    body,
+  });
+  const temps = types.map(t => b.local('$handler', t));
+  let out: Expr = { op: 'closure', function: run, captures: temps };
+  for (let i = n - 1; i >= 0; i--)
+    out = { op: 'with', local: temps[i], value: values[i], body: out };
+  return out;
+}
+
+/** `contains(parent, child)` (see the header). */
+function contains(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [parent, child] = node.arguments;
+  if (!parent || !child || node.arguments.length !== 2)
+    return lower.fail(node, 'E_PACK', `${LABEL}: contains takes a parent and a child`);
+  const p = lower.expr(parent, b);
+  const c = lower.expr(child, b);
+  const pl = b.local('$parent', lower.irType(p, b));
+  const cl = b.local('$child', lower.irType(c, b));
+  return {
+    op: 'with',
+    local: pl,
+    value: p,
+    body: {
+      op: 'with',
+      local: cl,
+      value: c,
+      body: lower.maybeElementTest(local(pl), b, parent, x =>
+        lower.maybeElementTest(local(cl), b, child, y => ({
+          op: 'builtin',
+          name: 'element.contains',
+          args: [x, y],
+          type: 'boolean',
+        })),
+      ),
+    },
+  };
+}
+
 /** `onDestroyEffect(fn)`: an effect whose cleanup calls `fn`. */
 function onDestroyEffect(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const [fn] = node.arguments;
@@ -549,7 +767,12 @@ export const svelteToolbeltPack: Pack = {
       case 'boxWith':
         return { kind: 'function', call: boxWith };
       case 'box':
+      // simpleBox(initial) (dist/box/box-extras.svelte.js): a `$state` behind
+      // a getter and a setter, as box(initial).
+      case 'simpleBox':
         return { kind: 'function', call: box };
+      case 'boxFrom':
+        return { kind: 'function', call: boxFrom };
       case 'mergeProps':
         return {
           kind: 'function',
@@ -562,8 +785,48 @@ export const svelteToolbeltPack: Pack = {
         return { kind: 'function', call: afterTick };
       case 'onDestroyEffect':
         return { kind: 'function', call: onDestroyEffect };
+      case 'afterSleep':
+        return { kind: 'function', call: afterSleep };
+      case 'executeCallbacks':
+        return { kind: 'function', call: executeCallbacks };
+      case 'composeHandlers':
+        return { kind: 'function', call: composeHandlers };
+      case 'contains':
+        return { kind: 'function', call: contains };
       case 'srOnlyStyles':
         return { kind: 'constant', value: SR_ONLY_STYLES };
+      // styleToString(style) (dist/utils/style.js): the style object's
+      // `name: value;` text (`attrs.style-text`).
+      case 'styleToString':
+        return {
+          kind: 'function',
+          call: (n, b, l) => {
+            const [arg] = n.arguments;
+            if (!arg || n.arguments.length !== 1 || !ts.isObjectLiteralExpression(skipParens(arg)))
+              return l.fail(n, 'E_PACK', `${LABEL}: styleToString takes a style object literal`);
+            return {
+              op: 'builtin',
+              name: 'attrs.style-text',
+              args: [l.styleValue(skipParens(arg) as ts.ObjectLiteralExpression, b)],
+              type: 'string',
+            };
+          },
+        };
+      // getWindow(node) and getDocument(node) (dist/utils/dom.js): the
+      // window and the document (an element's owner document is the
+      // document, its default view the window). Their uses are the host's
+      // (Lowerer.hostName); they are not values.
+      case 'getWindow':
+      case 'getDocument':
+        return {
+          kind: 'function',
+          call: (n, _b, l) =>
+            l.fail(
+              n,
+              'E_PACK',
+              `${LABEL}: ${imported}(node) is the ${imported === 'getWindow' ? 'window' : 'document'}: use its members (${imported}(node).addEventListener(…)) or a const naming it`,
+            ),
+        };
       case 'DOMContext':
         return {
           kind: 'function',
@@ -572,7 +835,7 @@ export const svelteToolbeltPack: Pack = {
           construct: newDomContext,
         };
     }
-    return `${LABEL} covers box, boxWith, mergeProps, attachRef, afterTick, onDestroyEffect, srOnlyStyles and DOMContext, not ${imported}`;
+    return `${LABEL} covers box, simpleBox, boxFrom, boxWith, mergeProps, attachRef, afterTick, afterSleep, executeCallbacks, composeHandlers, contains, onDestroyEffect, srOnlyStyles, styleToString, getWindow, getDocument and DOMContext, not ${imported}`;
   },
   type(t, at, lower) {
     // DOMContext (dist/utils/dom-context.svelte.d.ts).

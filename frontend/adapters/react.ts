@@ -3918,6 +3918,7 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     components,
     root: rootIndex,
   };
+  lower.checkStyleSpreads(ir);
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
 }

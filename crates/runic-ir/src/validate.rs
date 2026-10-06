@@ -351,13 +351,17 @@ fn check_library_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Re
         "context.set" | "context.get" => need(0, "context key"),
         "uid.next" => need(0, "id prefix"),
         "element.style-get" | "element.style-set" => need(1, "property name"),
-        // Element listeners added by script: `beforematch` only, which the
-        // runtime never fires (it has no find-in-page).
+        // Element listeners added by script: `beforematch`, which the
+        // runtime never fires (it has no find-in-page), and `scroll`.
+        // M6 overlays: and the element events (bits-ui's `on(node, "keydown", f)`).
         "element.listen" | "element.unlisten" => match literal(1) {
             Some("beforematch") => Ok(()),
+            Some(k) if crate::EventKind::parse(k).is_some_and(|k| !k.window_only()) => Ok(()),
             _ => err(
                 "E_BUILTIN",
-                format!("{name}: element listeners added by script are supported for beforematch"),
+                format!(
+                    "{name}: element listeners added by script are supported for beforematch and the element events"
+                ),
                 src,
             ),
         },
@@ -626,6 +630,23 @@ impl<'a> Scope<'a> {
                         src,
                     );
                 }
+                // (A tuple prints as its items joined: not a record's text.)
+                let mut items = &t;
+                loop {
+                    match items {
+                        Type::Maybe(i) | Type::Array(i) => items = i,
+                        _ => break,
+                    }
+                }
+                if let Type::Record(r) = items {
+                    if self.program.records.get(*r).is_some_and(|rec| rec.tuple) {
+                        return err(
+                            "E_IR",
+                            "A tuple of different types is converted to a string (unsupported)",
+                            src,
+                        );
+                    }
+                }
                 if let Type::Record(r) = inner {
                     if self.program.records.get(*r).is_some_and(|rec| rec.class) {
                         return err(
@@ -792,11 +813,29 @@ impl<'a> Scope<'a> {
                         }
                         AttrItem::Entry { name, value } => {
                             let t = self.infer(value, d, src)?;
-                            let ok = match name.strip_prefix("on").and_then(EventKind::parse) {
+                            let ok = match EventKind::listener(name).map(|(k, _)| k) {
                                 Some(_) => matches!(
                                     &t,
                                     Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event]
                                 ),
+                                // A style object of keys that may be absent (M6
+                                // overlays): a map of property values in order.
+                                None if name == "style" && {
+                                    let style_map = |t: &Type| {
+                                        *t == Type::Map(
+                                            Box::new(Type::String),
+                                            Box::new(Type::maybe(Type::String)),
+                                        ) || *t
+                                            == Type::Map(
+                                                Box::new(Type::String),
+                                                Box::new(Type::String),
+                                            )
+                                    };
+                                    style_map(&t) || matches!(&t, Type::Maybe(i) if style_map(i))
+                                } =>
+                                {
+                                    true
+                                }
                                 // A style object (M6): property values, absent when nullish.
                                 None if name == "style"
                                     && (matches!(t, Type::Record(_))
@@ -826,7 +865,12 @@ impl<'a> Scope<'a> {
                                     (attr_name_ok(name) || callback_name_ok(name))
                                         && (matches!(t, Type::String | Type::Boolean)
                                             || t == Type::maybe(Type::String)
-                                            || t == Type::maybe(Type::Boolean))
+                                            || t == Type::maybe(Type::Boolean)
+                                            // Values of other types (M6 overlays:
+                                            // props passed through rest props).
+                                            || crate::builtins::bag_value_type(&t)
+                                            || matches!(&t, Type::Maybe(i)
+                                                if crate::builtins::bag_value_type(i)))
                                 }
                             };
                             if !ok {
@@ -1045,7 +1089,14 @@ impl<'a> Scope<'a> {
                 }
                 if matches!(
                     name.as_str(),
-                    "window.listen" | "window.unlisten" | "document.listen" | "document.unlisten"
+                    "window.listen"
+                        | "window.unlisten"
+                        | "document.listen"
+                        | "document.unlisten"
+                        | "window.listen-capture"
+                        | "window.unlisten-capture"
+                        | "document.listen-capture"
+                        | "document.unlisten-capture"
                 ) {
                     let kind = match args.first() {
                         Some(Lit {
@@ -1067,6 +1118,21 @@ impl<'a> Scope<'a> {
                             src,
                         );
                     }
+                }
+                // The visual viewport (M6 overlays) resizes with the window;
+                // it scrolls only when pinch-zoomed, which the runtime is not.
+                if matches!(
+                    name.as_str(),
+                    "visual-viewport.listen" | "visual-viewport.unlisten"
+                ) && !matches!(
+                    args.first(),
+                    Some(Lit { value: Value::String(k) }) if k == "resize" || k == "scroll"
+                ) {
+                    return err(
+                        "E_BUILTIN",
+                        format!("{name}: the visual viewport has resize and scroll listeners"),
+                        src,
+                    );
                 }
                 check_host_literals(name, args, src)?;
                 check_library_literals(name, args, src)?;
@@ -2611,8 +2677,10 @@ enum Root {
 
 /// The host service a built-in uses, if any.
 fn host_service(name: &str) -> Option<&'static str> {
-    // The body element never changes.
-    if name == "document.body" {
+    // The body element never changes; a document query reads the DOM as
+    // the element queries do (`element.querySelector`), which are not host
+    // services either (M6 overlays: bits-ui's portal target, a derived value).
+    if name == "document.body" || name == "document.querySelector" {
         return None;
     }
     match name.split_once('.')?.0 {
@@ -2885,6 +2953,12 @@ impl Origins<'_> {
     }
 
     fn origin(&self, e: &Expr) -> Origin {
+        self.origin_in(e, &[])
+    }
+
+    /// The origin of `e` with the locals `bound` binds inside it (`with`
+    /// expressions around it).
+    fn origin_in(&self, e: &Expr, bound: &[(usize, Origin)]) -> Origin {
         let element = |o: Origin| match o {
             Origin::Root(r) => Origin::Root(r),
             Origin::Reactive => Origin::Reactive,
@@ -2901,21 +2975,50 @@ impl Origins<'_> {
                 None => Origin::Unknown,
             },
             Expr::Global { global } => Origin::Root(Root::Global(*global)),
-            Expr::Local { local } => self.locals.get(*local).copied().unwrap_or(Origin::Unknown),
-            Expr::Get { object, .. } => element(self.origin(object)),
-            Expr::Index { array, .. } => element(self.origin(array)),
+            Expr::Local { local } => bound
+                .iter()
+                .rev()
+                .find(|(l, _)| l == local)
+                .map(|(_, o)| *o)
+                .unwrap_or_else(|| self.locals.get(*local).copied().unwrap_or(Origin::Unknown)),
+            // (A value a `with` computes: its body's, with its local bound;
+            // M6 overlays: style dictionaries built in derived values.)
+            Expr::With { local, value, body } => {
+                let o = self.origin_in(value, bound);
+                let mut inner = bound.to_vec();
+                inner.push((*local, o));
+                self.origin_in(body, &inner)
+            }
+            // (A conditional of two values of one origin.)
+            Expr::Cond {
+                then, otherwise, ..
+            } => {
+                let a = self.origin_in(then, bound);
+                if a == self.origin_in(otherwise, bound) {
+                    a
+                } else {
+                    Origin::Unknown
+                }
+            }
+            // (Filling a map or set returns it.)
+            Expr::Builtin { name, args, .. } if name == "map.set" || name == "set.add" => args
+                .first()
+                .map_or(Origin::Unknown, |a| self.origin_in(a, bound)),
+            Expr::Get { object, .. } => element(self.origin_in(object, bound)),
+            Expr::Index { array, .. } => element(self.origin_in(array, bound)),
             Expr::Unwrap { value }
             | Expr::Some { value }
             | Expr::Upcast { value, .. }
-            | Expr::Downcast { value, .. } => self.origin(value),
+            | Expr::Downcast { value, .. } => self.origin_in(value, bound),
             Expr::Array { .. } | Expr::Record { .. } | Expr::Closure { .. } => Origin::Fresh,
             Expr::Builtin { name, args, .. } if FRESH.contains(&name.as_str()) => {
                 let _ = args;
                 Origin::Fresh
             }
-            Expr::Builtin { name, args, .. } if ELEMENT.contains(&name.as_str()) => {
-                element(args.first().map_or(Origin::Unknown, |a| self.origin(a)))
-            }
+            Expr::Builtin { name, args, .. } if ELEMENT.contains(&name.as_str()) => element(
+                args.first()
+                    .map_or(Origin::Unknown, |a| self.origin_in(a, bound)),
+            ),
             Expr::Lit { .. } | Expr::Undefined { .. } | Expr::Null { .. } => Origin::Fresh,
             _ => Origin::Unknown,
         }
@@ -3425,6 +3528,45 @@ fn exposes(
     }
 }
 
+/// `exposes`, where a class instance exposes only what the fields templates
+/// read hold (`template_field_reads`): a value in a private field no
+/// template reads changes nothing rendering shows (M6 overlays: bits-ui's
+/// DismissibleLayerState keeps its intercepted events in a map).
+fn exposes_read(
+    p: &Program,
+    outer: &Type,
+    inner: &Type,
+    read: &HashSet<(usize, usize)>,
+    seen: &mut HashSet<usize>,
+) -> bool {
+    if same_value_type(p, outer, inner) {
+        return true;
+    }
+    match outer {
+        Type::Class(_) | Type::Classes(_) => p
+            .class_members(outer)
+            .unwrap_or_default()
+            .into_iter()
+            .any(|r| exposes_read(p, &Type::Record(r), inner, read, seen)),
+        Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
+            exposes_read(p, t, inner, read, seen)
+        }
+        Type::Map(k, v) => {
+            exposes_read(p, k, inner, read, seen) || exposes_read(p, v, inner, read, seen)
+        }
+        Type::Record(r) => {
+            let rec = &p.records[*r];
+            seen.insert(*r)
+                && rec.fields.iter().enumerate().any(|(i, f)| {
+                    (!rec.class || read.contains(&(*r, i)))
+                        && f.reactive != Some(Reactive::Derived)
+                        && exposes_read(p, &f.ty, inner, read, seen)
+                })
+        }
+        _ => false,
+    }
+}
+
 /// Whether values of types `a` and `b` can be the same value: equal
 /// types, or class types with a class in common (M6 inheritance).
 fn same_value_type(p: &Program, a: &Type, b: &Type) -> bool {
@@ -3585,7 +3727,7 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                     matches!(t, Type::Map(..) | Type::Set(_))
                         && holds(p, ty, t, &mut HashSet::new())
                 } else {
-                    t.is_reference() && exposes(p, ty, t, false, &mut HashSet::new())
+                    t.is_reference() && exposes_read(p, ty, t, &read_fields, &mut HashSet::new())
                 }
             })
         };

@@ -121,6 +121,14 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
         .into_iter()
         // The runtime's own select popup is not page content.
         .filter(|&n| native.pointer.popup_list() != Some(n))
+        // Like the browser harness, which cannot tell the page's own
+        // whitespace from a portal's: whitespace-only text directly in
+        // the body is left out.
+        .filter(|&n| {
+            doc.get_node(n)
+                .and_then(|n| n.text_data())
+                .is_none_or(|t| !t.content.trim().is_empty())
+        })
         .collect();
     let mut geometry = Map::new();
     let mut stack: Vec<NodeId> = portals.iter().rev().copied().collect();
@@ -387,13 +395,23 @@ fn hidden_pointer_target<A: App>(native: &mut Native<A>, action: &Value) -> Opti
         None => native.doc.get_element_by_id(action["id"].as_str()?)?,
     };
     // Hidden: a pointer at the target's centre (where the probe aims) hits
-    // something outside the target (it is scrolled out, clipped or covered).
+    // something outside the target (it is scrolled out, clipped or covered),
+    // or a descendant with a capture listener for the event (M6 overlays),
+    // which runs before the target's listeners there and which the
+    // interpreter, delivering to the target, would not run.
     let r = crate::layout::client_rect(&native.doc, target)?;
     let (x, y) = ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32);
     let mut hit = native.doc.hit(x, y).map(|h| h.node_id);
+    let mut listening_descendant = false;
     while let Some(n) = hit {
         if n == target {
+            if listening_descendant {
+                break;
+            }
             return None;
+        }
+        if native.listeners.captures(n, kind) {
+            listening_descendant = true;
         }
         hit = native.doc.get_node(n).and_then(|node| node.parent);
     }

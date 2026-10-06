@@ -19,9 +19,15 @@
 //   callback destructures them, `([node, flag]) => …`) and the previous
 //   values are not covered.
 //
-// Other exports (`watchOnce`, `IsMounted`, `ElementSize`, …) and shapes are
-// rejected (E_PACK).
+// - `ElementSize` (dist/utilities/element-size/element-size.svelte.js): a
+//   typed port compiled in place of the package's module
+//   (runed-0.35.1/element-size.svelte.ts, which says how it observes).
+//
+// Other exports (`watchOnce`, `IsMounted`, …) and shapes are rejected
+// (E_PACK).
 import ts from 'typescript';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Expr, Local, Stmt, Type } from '../ir.ts';
 import type { FnBuilder, Lowerer } from '../language.ts';
 import type { Pack, PackFunction } from '../packs.ts';
@@ -428,6 +434,15 @@ export const runedPack: Pack = {
   name: 'runed',
   version: '0.35.1',
   module: import.meta.url,
+  ports: [
+    {
+      module: 'dist/utilities/element-size/element-size.svelte.js',
+      file: path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        'runed-0.35.1/element-size.svelte.ts',
+      ),
+    },
+  ],
   export(pkg, imported) {
     if (pkg.subpath !== '.') return `${LABEL} covers the main module, not ${pkg.subpath}`;
     switch (imported) {
@@ -440,7 +455,9 @@ export const runedPack: Pack = {
         };
       case 'watch':
         return { kind: 'function', call: watch('post'), methods: { pre: watch('pre') } };
+      case 'ElementSize':
+        return { kind: 'ported' };
     }
-    return `${LABEL} covers Context and watch (watch.pre), not ${imported}`;
+    return `${LABEL} covers Context, watch (watch.pre) and ElementSize, not ${imported}`;
   },
 };

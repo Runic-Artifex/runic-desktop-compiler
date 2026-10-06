@@ -61,6 +61,17 @@ export function packageBindings(
       while (!ts.isImportDeclaration(stmt)) stmt = stmt.parent;
       const spec = (stmt.moduleSpecifier as ts.StringLiteral).text;
       if (spec === 'svelte' || spec.startsWith('svelte/')) return undefined;
+      // A pack's port importing its own package: the pack's exports.
+      if (m.portOf && spec === m.portOf.name) {
+        const name = ts.isImportSpecifier(decl) || ts.isImportClause(decl) ? decl.name : undefined;
+        bindPackImport(
+          stmt,
+          { specifier: spec, resolved: '', package: { ...m.portOf, subpath: '.' } },
+          lower,
+          name,
+        );
+        return lower.bindings.get(symbol);
+      }
       const edge = modules.get(m.file)?.imports.find(i => i.specifier === spec);
       if (!edge?.package || modules.get(edge.resolved)?.package) return undefined;
       const name = ts.isImportSpecifier(decl) || ts.isImportClause(decl) ? decl.name : undefined;
@@ -104,7 +115,12 @@ export function packageBindings(
       lower.declare(symbol, init, name, undefined)?.();
       return lower.bindings.get(symbol);
     }
-    const type = lower.exprType(init);
+    // A constant the declaration file types (annotated in the typed module):
+    // that type, which untyped JavaScript in the initialiser takes as
+    // expected (bits-ui's `resolvePortalToProp = createPropResolver(…)`).
+    const declared = decl.type ? lower.types.of(decl.name) : undefined;
+    const type = declared ?? lower.exprType(init);
+    if (declared) lower.expected.set(init, declared);
     // The initialiser first: the globals it reaches are created before this one.
     const value = lower.value(init, undefined, `${name}$module`);
     if (type === 'number' || type === 'string' || type === 'boolean') {

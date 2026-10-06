@@ -18,6 +18,8 @@ impl Element {
     /// (`document.body`, where imperative mounts append; M6). The native
     /// runtime uses Blitz's node.
     pub const BODY: Element = Element(u64::MAX - 2);
+    /// The window's visual viewport (M6 overlays: its `resize` listeners).
+    pub const VISUAL_VIEWPORT: Element = Element(u64::MAX - 3);
 }
 
 /// An opaque host object compared by identity (M6 overlays: imperatively

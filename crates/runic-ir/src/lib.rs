@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod builtins;
+pub mod floating;
 pub mod interp;
 pub mod migrate;
 pub mod validate;
@@ -448,6 +449,12 @@ pub struct RecordType {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub is_abstract: bool,
+    /// A tuple of items of different types (M6 overlays: a `Map`'s
+    /// entries), fields `0`, `1`…: an array in JavaScript, so converting it
+    /// to a string (or an array holding it) is rejected; read by index and
+    /// destructuring only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tuple: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1084,6 +1091,19 @@ impl EventKind {
     /// The kind named `name` (`event.type`).
     pub fn parse(name: &str) -> Option<EventKind> {
         EventKind::ALL.into_iter().find(|k| k.name() == name)
+    }
+
+    /// The event of a listener attribute name, and whether it listens in the
+    /// capture phase (Svelte's `onfocuscapture`, M6 overlays: bits-ui's
+    /// dismissible layer): `on<event>` or `on<event>capture`.
+    pub fn listener(name: &str) -> Option<(EventKind, bool)> {
+        let rest = name.strip_prefix("on")?;
+        if let Some(k) = EventKind::parse(rest) {
+            return Some((k, false));
+        }
+        rest.strip_suffix("capture")
+            .and_then(EventKind::parse)
+            .map(|k| (k, true))
     }
 
     /// `event.type`.

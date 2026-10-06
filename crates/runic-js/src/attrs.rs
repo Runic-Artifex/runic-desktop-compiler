@@ -23,11 +23,50 @@ pub enum AttrValue<L> {
     /// component that declares it, M6): its identity and the function, in
     /// the generated app's type-erased calling convention.
     Callback(usize, Rc<dyn Any>),
-    /// A style object: property names and values (`None`: undefined).
-    Style(Vec<(String, Option<JsString>)>),
+    /// A style object: property names and values (`None`: undefined), and
+    /// the object itself where a bag entry holds one (M6 overlays: a
+    /// component declaring the `style` prop receives that object).
+    Style(Vec<(String, Option<JsString>)>, Option<Rc<dyn Any>>),
     /// An attachment (under an [`ATTACHMENT`] name): the function, in the
     /// generated app's representation.
     Attach(Rc<dyn Any>),
+    /// A value of another type passed through rest props to a component
+    /// that declares the prop (M6 overlays: bits-ui forwards `sideOffset`,
+    /// `collisionBoundary`…): the value in the generated app's
+    /// representation, with its operations.
+    Value(Rc<dyn Any>, ValueOps),
+}
+
+/// The operations of an [`AttrValue::Value`] (functions of its type).
+#[derive(Clone, Copy)]
+pub struct ValueOps {
+    /// Strict equality with another value (false for another type).
+    pub same: fn(&dyn Any, &dyn Any) -> bool,
+    /// The attribute text set when the bag is spread onto an element
+    /// (`String(value)`; `None` removes it); `Err` names a value whose text
+    /// is not covered.
+    pub text: fn(&dyn Any) -> Result<Option<JsString>, String>,
+}
+
+/// [`ValueOps::same`] of values of type `T`.
+pub fn value_same<T: StrictEq + 'static>(a: &dyn Any, b: &dyn Any) -> bool {
+    match (a.downcast_ref::<T>(), b.downcast_ref::<T>()) {
+        (Some(x), Some(y)) => x.strict_eq(y),
+        _ => false,
+    }
+}
+
+/// [`ValueOps::text`] of a number: `Number.prototype.toString`.
+pub fn number_attr_text(v: &dyn Any) -> Result<Option<JsString>, String> {
+    v.downcast_ref::<f64>()
+        .map(|n| Some(JsString::from(crate::number_to_string(*n).as_str())))
+        .ok_or_else(|| "a number entry of another type".to_string())
+}
+
+/// [`ValueOps::text`] of a value whose text is not covered (an array, an
+/// object, an element: Svelte sets `String(value)`).
+pub fn no_attr_text(_: &dyn Any) -> Result<Option<JsString>, String> {
+    Err("a spread entry that is neither text, a boolean, a number nor a listener, set on an element as its string".to_string())
 }
 
 impl<L> std::fmt::Debug for AttrValue<L> {
@@ -39,8 +78,9 @@ impl<L> std::fmt::Debug for AttrValue<L> {
             AttrValue::Flag(b) => write!(f, "Flag({b})"),
             AttrValue::Listener(id, _) => write!(f, "Listener({id})"),
             AttrValue::Callback(id, _) => write!(f, "Callback({id})"),
-            AttrValue::Style(s) => write!(f, "Style({s:?})"),
+            AttrValue::Style(s, _) => write!(f, "Style({s:?})"),
             AttrValue::Attach(a) => write!(f, "Attach({:p})", Rc::as_ptr(a)),
+            AttrValue::Value(v, _) => write!(f, "Value({:p})", Rc::as_ptr(v)),
         }
     }
 }
@@ -197,6 +237,9 @@ pub enum MergeKind {
     Function,
     /// A style object: property names and values (`None`: undefined).
     Style(Vec<(String, Option<JsString>)>),
+    /// A value of another kind (a number, an array, an object): the later
+    /// one wins unless undefined.
+    Other,
 }
 
 /// The value operations [`merge_props`] needs from a bag representation.
@@ -406,6 +449,12 @@ pub fn merge_props<V: Clone>(
                 return Err(format!(
                     "merging two functions under {key} (svelte-toolbelt's executeCallbacks) is not covered"
                 ));
+            } else if (key == "class" || key == "style")
+                && (matches!(kind_a, Some(MergeKind::Other)) || matches!(kind_b, MergeKind::Other))
+            {
+                return Err(format!(
+                    "merging a {key} value that is neither text nor an object is not covered"
+                ));
             } else if key == "class" {
                 // clsx over strings: truthy strings joined by a space.
                 let class_value = |k: &Option<MergeKind>| {
@@ -453,13 +502,42 @@ pub fn merge_props<V: Clone>(
                         }
                         set(&mut result, &key, Slot::Style(x));
                     }
-                    (Some(_), None, _, true)
-                    | (None, Some(_), true, _)
-                    | (None, None, true, true) => {
-                        return Err(
-                            "merging a style string with another style value (svelte-toolbelt's cssToStyleObj) is not covered"
-                                .into(),
-                        );
+                    // A style string meeting another style value: parsed
+                    // (`cssToStyleObj`, M6 overlays) and merged as objects.
+                    (x, y, sa, sb) if (sa && (y.is_some() || sb)) || (sb && x.is_some()) => {
+                        let text = |k: &Option<MergeKind>| match k {
+                            Some(MergeKind::Text(s)) => Some(s.to_rust()),
+                            _ => None,
+                        };
+                        let parsed =
+                            |css: String| -> Result<Vec<(String, Option<JsString>)>, String> {
+                                crate::style_parse::css_to_style_obj(&css)
+                                    .map(|v| {
+                                        v.into_iter()
+                                            .map(|(k, v)| (k, Some(JsString::from(v.as_str()))))
+                                            .collect()
+                                    })
+                                    .map_err(|e| {
+                                        format!("svelte-toolbelt's cssToStyleObj throws: {e}")
+                                    })
+                            };
+                        let mut merged = match (x, text(&kind_a)) {
+                            (Some(x), _) => x,
+                            (None, Some(s)) => parsed(s)?,
+                            (None, None) => vec![],
+                        };
+                        let later = match (y, text(&kb)) {
+                            (Some(y), _) => y,
+                            (None, Some(s)) => parsed(s)?,
+                            (None, None) => vec![],
+                        };
+                        for (name, v) in later {
+                            match merged.iter_mut().find(|(n, _)| *n == name) {
+                                Some(slot) => slot.1 = v,
+                                None => merged.push((name, v)),
+                            }
+                        }
+                        set(&mut result, &key, Slot::Style(merged));
                     }
                     (Some(_), None, _, _) | (None, None, true, _) => {}
                     (None, Some(y), _, _) => set(&mut result, &key, Slot::Style(y)),
@@ -507,6 +585,23 @@ pub fn merge_props<V: Clone>(
     Ok(out)
 }
 
+/// svelte-toolbelt 0.10.6's `styleToString(style)` called directly:
+/// `name: value;` per property (camelCase names in kebab case, undefined
+/// values printed as such), joined by newlines, of which only the first
+/// becomes a space (`.replace("\n", " ")`).
+pub fn style_to_string(entries: &[(String, Option<JsString>)]) -> JsString {
+    let mut out = String::new();
+    for (i, e) in entries.iter().enumerate() {
+        match i {
+            0 => {}
+            1 => out.push(' '),
+            _ => out.push('\n'),
+        }
+        out.push_str(&style_text(std::slice::from_ref(e)).to_rust());
+    }
+    JsString::from(out)
+}
+
 /// svelte-toolbelt's `styleToString`: `name: value;` per property (camelCase
 /// names in kebab case), joined by spaces; undefined values print as such.
 fn style_text(entries: &[(String, Option<JsString>)]) -> JsString {
@@ -543,10 +638,20 @@ impl<L> StrictEq for Attrs<L> {
                         (AttrValue::Absent, AttrValue::Absent)
                         | (AttrValue::Null, AttrValue::Null) => true,
                         (AttrValue::Callback(x, _), AttrValue::Callback(y, _)) => x == y,
-                        (AttrValue::Style(x), AttrValue::Style(y)) => x == y,
+                        (AttrValue::Style(x, a), AttrValue::Style(y, b)) => {
+                            x == y
+                                && match (a, b) {
+                                    (Some(a), Some(b)) => Rc::ptr_eq(a, b),
+                                    (None, None) => true,
+                                    _ => false,
+                                }
+                        }
                         (AttrValue::Attach(x), AttrValue::Attach(y)) => Rc::ptr_eq(x, y),
                         (AttrValue::Flag(x), AttrValue::Flag(y)) => x == y,
                         (AttrValue::Listener(x, _), AttrValue::Listener(y, _)) => x == y,
+                        (AttrValue::Value(x, ops), AttrValue::Value(y, _)) => {
+                            (ops.same)(&**x, &**y)
+                        }
                         _ => false,
                     }
             })

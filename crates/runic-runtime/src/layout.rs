@@ -75,7 +75,7 @@ pub(crate) fn any_scrolled(doc: &BaseDocument) -> bool {
 }
 
 /// A length in layout units (1/64 px, Blink's `LayoutUnit`).
-fn lu(v: f64) -> i64 {
+pub(crate) fn lu(v: f64) -> i64 {
     (v * 64.0).round() as i64
 }
 
@@ -249,6 +249,157 @@ pub(crate) fn rect(doc: &mut BaseDocument, node: NodeId) -> [f64; 8] {
     [x, y, w, h, y, x + w, y + h, x]
 }
 
+/// Elements of inline display that are atomic inline boxes (one box, not
+/// line fragments).
+const ATOMIC: [&str; 9] = [
+    "img", "svg", "canvas", "video", "embed", "iframe", "input", "textarea", "button",
+];
+
+/// Whether `node` is a non-atomic inline box (its content flows in its
+/// inline root's text, without a box of its own).
+pub(crate) fn non_atomic_inline(doc: &BaseDocument, node: NodeId) -> bool {
+    use style::values::specified::box_::{DisplayInside, DisplayOutside};
+    let Some(n) = doc.get_node(node) else {
+        return false;
+    };
+    let Some(display) = n.primary_styles().map(|s| s.clone_display()) else {
+        return false;
+    };
+    display.outside() == DisplayOutside::Inline
+        && display.inside() == DisplayInside::Flow
+        && !n.flags.is_inline_root()
+        && !n
+            .element_data()
+            .is_some_and(|e| ATOMIC.contains(&&*e.name.local))
+}
+
+/// What an IntersectionObserver computes for a target (M6 overlays):
+/// rectangles as x, y, width, height in viewport coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Intersection {
+    /// The target's bounding box (`getBoundingClientRect`).
+    pub target: [f64; 4],
+    /// The part of it inside its clipping ancestors and the root.
+    pub intersection: [f64; 4],
+    /// The root intersection rectangle: the viewport grown by the margins.
+    pub root: [f64; 4],
+    /// Whether target and root intersect (edge-adjacent ones do).
+    pub intersecting: bool,
+    pub ratio: f64,
+}
+
+/// The edge-inclusive intersection of two rectangles, if they intersect.
+fn inclusive_intersect(a: [f64; 4], b: [f64; 4]) -> Option<[f64; 4]> {
+    let x0 = a[0].max(b[0]);
+    let y0 = a[1].max(b[1]);
+    let x1 = (a[0] + a[2]).min(b[0] + b[2]);
+    let y1 = (a[1] + a[3]).min(b[1] + b[3]);
+    (x1 >= x0 && y1 >= y0).then_some([x0, y0, x1 - x0, y1 - y0])
+}
+
+/// The IntersectionObserver geometry of `node` with the document's
+/// viewport as root (the implicit root and `root: document` of a top-level
+/// document): its bounding box clipped by each ancestor of its containing
+/// block chain that clips overflow (to the padding box), then by the root
+/// intersection rectangle. A target without boxes does not intersect.
+/// Clipping under a transformed ancestor and `clip-path` are not covered
+/// (reported unsupported).
+pub(crate) fn intersection(
+    doc: &mut BaseDocument,
+    node: NodeId,
+    margins: &[runic_js::intersection::Margin; 4],
+) -> Intersection {
+    resolve(doc);
+    let (vw, vh) = viewport(doc);
+    let root = {
+        let [top, right, bottom, left] = *margins;
+        let (t, r, b, l) = (
+            top.resolve(vh),
+            right.resolve(vw),
+            bottom.resolve(vh),
+            left.resolve(vw),
+        );
+        [-l, -t, (vw + l + r).max(0.0), (vh + t + b).max(0.0)]
+    };
+    let none = Intersection {
+        target: [0.0; 4],
+        intersection: [0.0; 4],
+        root,
+        intersecting: false,
+        ratio: 0.0,
+    };
+    let Some(r) = client_rect(doc, node).filter(|_| rendered(doc, node)) else {
+        return none;
+    };
+    let target = [r.x, r.y, r.width, r.height];
+    let mut clipped = Some(target);
+    let mut current = doc.get_node(node).and_then(|n| n.containing_block());
+    while let (Some(id), Some(rect)) = (current, clipped) {
+        let Some(a) = doc.get_node(id) else { break };
+        if is_root(doc, id) {
+            break;
+        }
+        if a.transform().as_deref().is_some() {
+            crate::unsupported("IntersectionObserver of a target under a transformed ancestor");
+        }
+        if style(doc, id, "clip-path") != "none" {
+            crate::unsupported("IntersectionObserver of a target under a clip-path");
+        }
+        let (ox, oy) = (style(doc, id, "overflow-x"), style(doc, id, "overflow-y"));
+        if ox != "visible" || oy != "visible" {
+            if let Some(b) = client_rect(doc, id) {
+                let l = *a.unrounded_layout();
+                let px = b.x + l.border.left as f64;
+                let py = b.y + l.border.top as f64;
+                let pw = (b.width
+                    - (l.border.left + l.border.right + l.scrollbar_size.width) as f64)
+                    .max(0.0);
+                let ph = (b.height
+                    - (l.border.top + l.border.bottom + l.scrollbar_size.height) as f64)
+                    .max(0.0);
+                // An axis whose overflow is visible is not clipped.
+                let big = f64::MAX / 4.0;
+                let clip = [
+                    if ox == "visible" { -big } else { px },
+                    if oy == "visible" { -big } else { py },
+                    if ox == "visible" { 2.0 * big } else { pw },
+                    if oy == "visible" { 2.0 * big } else { ph },
+                ];
+                clipped = inclusive_intersect(rect, clip);
+            }
+        }
+        current = a.containing_block();
+    }
+    let Some(inter) = clipped.and_then(|c| inclusive_intersect(c, root)) else {
+        return Intersection { target, ..none };
+    };
+    let area = target[2] * target[3];
+    let ratio = if area > 0.0 {
+        inter[2] * inter[3] / area
+    } else {
+        1.0
+    };
+    Intersection {
+        target,
+        intersection: inter,
+        root,
+        intersecting: true,
+        ratio,
+    }
+}
+
+/// `getClientRects()`: the border box (as [`rect`]), none without a box.
+pub(crate) fn client_rects(doc: &mut BaseDocument, node: NodeId) -> Vec<[f64; 8]> {
+    resolve(doc);
+    if client_rect(doc, node).is_none() || !rendered(doc, node) {
+        return vec![];
+    }
+    if non_atomic_inline(doc, node) {
+        crate::unsupported("getClientRects of an inline element (one rect per line box)");
+    }
+    vec![rect(doc, node)]
+}
+
 /// The scroll offset of a scroller (the viewport's for the root element).
 fn scroll_offset(doc: &BaseDocument, node: NodeId) -> (f64, f64) {
     if is_root(doc, node) {
@@ -375,6 +526,8 @@ pub(crate) fn window_metric(doc: &mut BaseDocument, name: &str) -> f64 {
         "innerHeight" => vh,
         "scrollX" => s.x,
         "scrollY" => s.y,
+        // CSS pixels per device pixel (M6 overlays: floating-ui rounds by it).
+        "devicePixelRatio" => doc.viewport().scale_f64(),
         other => panic!("validated window metric {other}"),
     }
 }

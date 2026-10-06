@@ -1,0 +1,15 @@
+{
+  "description": "Capture listeners of attribute bags (Svelte's on<event>capture, M6 overlays: bits-ui's dismissible layer), compared with Chromium: clicks run the capture listeners from the outer element down to the target before the target's and the bubbling listeners, stopPropagation in a capture listener ends the dispatch, focus and blur (which do not bubble) reach the ancestors' capture listeners, and a key's capture listener sees the key",
+  "fixtures": ["capture-svelte"],
+  "actions": [
+    { "kind": "click", "id": "first" },
+    { "kind": "click", "id": "second" },
+    { "kind": "press", "key": "a" },
+    { "kind": "press", "key": "Shift+Tab" },
+    { "kind": "click", "id": "stop" },
+    { "kind": "click", "id": "first" },
+    { "kind": "click", "id": "clear" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Tab" }
+  ]
+}

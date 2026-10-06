@@ -57,8 +57,22 @@ function layoutBuiltin(v) {
     if ((ns === 'element' && LAYOUT_ELEMENT.has(m)) || (ns === 'window' && LAYOUT_WINDOW.has(m))) return v.name;
     // MutationObservers are reported unsupported when they observe.
     if (v.name === 'mutation.observe') return v.name;
-    // ResizeObservers report sizes from layout (M6).
+    // ResizeObservers report sizes from layout (M6); M6 overlays: child-list
+    // observations, IntersectionObservers, floating-ui, tabbable and the
+    // document's client size.
     if (v.name === 'resize.observe') return v.name;
+    if (
+      [
+        'mutation.observe-children',
+        'intersection.observe',
+        'element.getClientRects',
+        'document.clientWidth',
+        'document.clientHeight',
+      ].includes(v.name) ||
+      ns === 'floating' ||
+      (ns === 'focus' && ['tabbables', 'focusables', 'is-tabbable', 'is-focusable'].includes(m))
+    )
+      return v.name;
     // Animation objects read the native style engine's animations (M6).
     if (ns === 'animation') return v.name;
     // Scroll events come from layout (scrolling) too.

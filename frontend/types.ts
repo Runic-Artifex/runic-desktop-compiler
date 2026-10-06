@@ -23,10 +23,17 @@ export class TypeMapper {
   packType?: (t: ts.Type, at: ts.Node) => Type | undefined;
   /** The record of Error values (`{ name, message }`), from the language layer. */
   errorType?: () => number;
+  /**
+   * The member a union outside the value model is narrowed to by the values
+   * that reach it (frontend/unions.ts), or a failure through `fail`.
+   */
+  narrow?: (parts: ts.Type[], at: ts.Node, fail: Fail) => ts.Type;
   /** The record of MutationObservers, once a program uses one. */
   mutationObserver?: number;
   /** The record of ResizeObservers (M6), once a program uses one. */
   resizeObserver?: number;
+  /** The IntersectionObserver record (frontend/dom.d.ts), once mapped. */
+  intersectionObserver?: number;
   /**
    * Records of types a package's declaration files declare (interfaces of
    * options objects): literals may list their properties in any order, so
@@ -69,12 +76,24 @@ export class TypeMapper {
     return this.map(this.checker.getTypeAtLocation(node), node);
   }
 
-  /** Like `of`, but undefined instead of failing on any/unknown. */
+  /**
+   * Like `of`, but undefined instead of failing on any/unknown, also where
+   * they are part of the type (`ReadableBox<any>` in untyped JavaScript).
+   */
   typeOrUndefined(node: ts.Node): Type | undefined {
     const o = this.overridden(node);
     if (o) return o;
     const t = this.checker.getTypeAtLocation(node);
-    if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return undefined;
+    // (A value TypeScript types as only null says nothing about its IR type.)
+    // (Nor does `never`: a narrowing of such a value, `simpleBox(null).current`.)
+    if (
+      t.flags &
+      (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Null | ts.TypeFlags.Never)
+    )
+      return undefined;
+    const mapped = this.tryMap(t, node);
+    if (mapped !== undefined) return mapped;
+    if (containsAny(t, this.checker, 0, true)) return undefined;
     return this.map(t, node);
   }
 
@@ -133,7 +152,21 @@ export class TypeMapper {
     if (t.flags & (F.Boolean | F.BooleanLiteral)) return 'boolean';
     if (t.flags & (F.Void | F.Undefined)) return 'void';
     if (t.flags & F.EnumLiteral && t.isUnion()) return this.map(t.types[0], at);
-    if (t.isUnion()) return this.union(t.types, at);
+    if (t.isUnion()) {
+      // A union containing itself (`ClassValue = … | ClassValue[]`) is outside the value model.
+      if (this.unions.has(t))
+        return this.fail(
+          at,
+          'E_TYPE_UNION',
+          `Recursive union ${this.checker.typeToString(t)} is outside the value model`,
+        );
+      this.unions.add(t);
+      try {
+        return this.union(t.types, at);
+      } finally {
+        this.unions.delete(t);
+      }
+    }
     if (t.flags & (F.Any | F.Unknown))
       this.fail(
         at,
@@ -160,6 +193,13 @@ export class TypeMapper {
       if (packed) return packed;
     }
     if (t.flags & F.Object) return this.object(t as ts.ObjectType, at);
+    // A style object typed by csstype (bits-ui's and svelte-toolbelt's
+    // `StyleProperties = CSS.Properties & { [str: \`--${string}\`]: any }`): a
+    // dictionary of property names (camelCase or custom) and values, in
+    // insertion order, a value of another type converted to a string where
+    // it is given (style objects only ever print their values).
+    if (t.flags & F.Intersection && (t as ts.IntersectionType).types.some(cssType))
+      return { map: ['string', { maybe: 'string' }] };
     // An intersection of object types (`Props & { props: … }`) is the record of their properties.
     if (t.flags & F.Intersection) {
       // A DOM handle refined by an intersection (bits-ui's `MouseEvent & { currentTarget: … }`).
@@ -170,6 +210,66 @@ export class TypeMapper {
     }
     return this.fail(at, 'E_TYPE_UNSUPPORTED', `Unsupported type ${this.checker.typeToString(t)}`);
   }
+
+  /**
+   * Whether function type `t` has properties, all declared in the program
+   * (not in a package's declaration files: a framework's component types).
+   */
+  private programProperties(t: ts.Type): boolean {
+    const props = this.checker.getPropertiesOfType(t);
+    return (
+      props.length > 0 &&
+      props.every(p => (p.declarations ?? []).every(d => !d.getSourceFile().isDeclarationFile)) &&
+      props.every(p => p.declarations?.length)
+    );
+  }
+
+  /** Whether record `r` is a function with properties (its field 0, `()`, the function). */
+  isCallable(r: number): boolean {
+    return this.records[r]?.fields[0]?.name === '()';
+  }
+
+  /** Tuple records (`Tuple`, fields `0`…), by their items' types. */
+  readonly tuples = new Map<string, number>();
+
+  /** The tuple record of items of these types. */
+  tupleRecord(items: Type[]): number {
+    const key = JSON.stringify(items);
+    const known = this.tuples.get(key);
+    if (known !== undefined) return known;
+    const r = this.records.length;
+    this.records.push({
+      name: 'Tuple',
+      tuple: true,
+      fields: items.map((type, i) => ({ name: String(i), type })),
+    });
+    this.tuples.set(key, r);
+    return r;
+  }
+
+  /** Whether values of type `t` may hold a tuple record. */
+  containsTuple(t: Type, seen = new Set<number>()): boolean {
+    if (typeof t !== 'object') return false;
+    if ('record' in t) {
+      if (this.isTuple(t.record)) return true;
+      if (seen.has(t.record)) return false;
+      seen.add(t.record);
+      return (this.records[t.record]?.fields ?? []).some(f => this.containsTuple(f.type, seen));
+    }
+    if ('maybe' in t) return this.containsTuple(t.maybe, seen);
+    if ('array' in t) return this.containsTuple(t.array, seen);
+    if ('map' in t) return t.map.some(x => this.containsTuple(x, seen));
+    if ('set' in t) return this.containsTuple(t.set, seen);
+    return false;
+  }
+
+  /** Whether record `r` is a tuple record. */
+  isTuple(r: number): boolean {
+    return [...this.tuples.values()].includes(r);
+  }
+
+  /** Unions being mapped (recursion guard). */
+  private readonly unions = new Set<ts.Type>();
 
   private union(parts: ts.Type[], at: ts.Node): Type {
     const F = ts.TypeFlags;
@@ -188,9 +288,24 @@ export class TypeMapper {
     else if (rest.every(p => this.plainObject(p)) && this.mergeable(rest, at))
       base = { record: this.unionRecord(rest, at) };
     else {
-      const mapped = rest.map(p => this.map(p, at));
+      // (A member outside the value model does not decide yet: the union
+      // may be narrowed to another one.)
+      const mapped = rest.map(p => (this.narrow ? this.tryMap(p, at) : this.map(p, at)));
       const first = JSON.stringify(mapped[0]);
-      if (mapped.every(m => JSON.stringify(m) === first)) base = mapped[0];
+      // Functions where one member's type takes every other's values
+      // (bits-ui's `(() => null) | Getter<number | null>`): that type.
+      const widest = rest.every(p => p.getCallSignatures().length)
+        ? rest.findIndex(
+            (w, i) =>
+              mapped[i] !== undefined &&
+              rest.every(p => p === w || this.checker.isTypeAssignableTo(p, w)),
+          )
+        : -1;
+      if (mapped[0] !== undefined && mapped.every(m => JSON.stringify(m) === first))
+        base = mapped[0]!;
+      else if (widest >= 0) base = mapped[widest]!;
+      // Narrowed by the values that reach it (frontend/unions.ts).
+      else if (this.narrow) base = this.map(this.narrow(rest, at, this.fail), at);
       else
         return this.fail(
           at,
@@ -268,6 +383,17 @@ export class TypeMapper {
       }
       return { record: this.resizeObserver };
     }
+    // An IntersectionObserver (frontend/dom.d.ts): likewise.
+    const ioCallback = t.getProperty('__runicIntersectionObserver');
+    if (ioCallback) {
+      if (this.intersectionObserver === undefined) {
+        this.intersectionObserver = this.records.length;
+        this.records.push({ name: 'IntersectionObserver', class: true, fields: [] });
+        const type = this.map(this.checker.getTypeOfSymbolAtLocation(ioCallback, at), at);
+        this.records[this.intersectionObserver].fields = [{ name: 'callback', type }];
+      }
+      return { record: this.intersectionObserver };
+    }
     if (!this.checker.getPropertiesOfType(t).length && !t.getCallSignatures().length) {
       const infos = this.checker.getIndexInfosOfType(t);
       if (
@@ -313,20 +439,36 @@ export class TypeMapper {
       if (this.checker.isTupleType(t)) {
         const items = args.map(a => this.map(a, at));
         const first = JSON.stringify(items[0]);
-        if (!items.every(i => JSON.stringify(i) === first))
-          this.fail(at, 'E_TYPE_UNSUPPORTED', 'Heterogeneous tuples are outside the value model');
+        if (!items.every(i => JSON.stringify(i) === first)) {
+          // A pair or triple of other types (a Map's entries, M6 overlays):
+          // a tuple record, read by index and destructuring only.
+          const target = (t as ts.TypeReference).target as ts.TupleType;
+          if (target.elementFlags?.some(f => !(f & ts.ElementFlags.Required)))
+            this.fail(
+              at,
+              'E_TYPE_UNSUPPORTED',
+              'Tuples with optional or rest elements are outside the value model',
+            );
+          return { record: this.tupleRecord(items) };
+        }
         return { array: items[0] ?? 'number' };
       }
       return { array: this.map(args[0], at) };
     }
-    if ((name === 'Map' || name === 'ReadonlyMap') && args.length === 2)
+    // (A WeakMap or WeakSet is a Map or Set: neither is iterable, and what
+    // they keep alive is not observable.)
+    if ((name === 'Map' || name === 'ReadonlyMap' || name === 'WeakMap') && args.length === 2)
       return { map: [this.map(args[0], at), this.map(args[1], at)] };
-    if ((name === 'Set' || name === 'ReadonlySet') && args.length === 1)
+    if ((name === 'Set' || name === 'ReadonlySet' || name === 'WeakSet') && args.length === 1)
       return { set: this.map(args[0], at) };
     const calls = t.getCallSignatures();
     if (calls.length) {
       if (calls.length > 1)
         this.fail(at, 'E_TYPE_UNSUPPORTED', 'Overloaded function values are unsupported');
+      // A function with properties the program assigns (bits-ui's
+      // `debounce` result, `debounced.destroy = …`): a record of the
+      // function (field `()`) and the properties.
+      if (this.programProperties(t)) return { record: this.record(t, at) };
       const sig = calls[0];
       return {
         fn: {
@@ -438,7 +580,30 @@ export class TypeMapper {
       fields: [],
     };
     this.records.push(placeholder);
-    const accessors = this.accessorTypes.has(t);
+    // A function with properties: the function first.
+    const [call] = t.getCallSignatures();
+    if (call) {
+      placeholder.name = 'Function';
+      placeholder.fields.push({
+        name: '()',
+        type: {
+          fn: {
+            params: call.parameters.map(p =>
+              this.map(this.checker.getTypeOfSymbolAtLocation(p, at), at),
+            ),
+            result: this.map(call.getReturnType(), at),
+          },
+        },
+      });
+    }
+    // (Also the widened type of such a literal: a function's inferred
+    // result, declared by the literal with getters.)
+    const literalDecl = t.symbol?.declarations?.[0];
+    const accessors =
+      this.accessorTypes.has(t) ||
+      (!!literalDecl &&
+        ts.isObjectLiteralExpression(literalDecl) &&
+        literalDecl.properties.some(ts.isGetAccessorDeclaration));
     for (const p of this.checker.getPropertiesOfType(t)) {
       const decl = p.valueDeclaration ?? p.declarations?.[0];
       let pt = this.checker.getTypeOfSymbolAtLocation(p, decl ?? at);
@@ -541,7 +706,9 @@ export class TypeMapper {
     if (markers.some(m => t.getProperty(m))) return false;
     if (this.checker.isArrayType(t) || this.checker.isTupleType(t)) return false;
     const s = t.symbol?.name;
-    return !(s && ['Map', 'Set', 'Promise', 'Date', 'RegExp', 'Array'].includes(s));
+    return !(
+      s && ['Map', 'Set', 'WeakMap', 'WeakSet', 'Promise', 'Date', 'RegExp', 'Array'].includes(s)
+    );
   }
 
   /** The member types of property `name` of each union member (undefined where absent or optional). */
@@ -723,4 +890,54 @@ export class TypeMapper {
   }
 }
 
+/** Whether `t` is declared by the csstype package (CSS property types). */
+const cssType = (t: ts.Type): boolean =>
+  /[\\/]node_modules[\\/]csstype[\\/]/.test(
+    (t.aliasSymbol ?? t.symbol)?.declarations?.[0]?.getSourceFile().fileName ?? '',
+  );
+
 export const sameType = (a: Type, b: Type) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Whether TypeScript's type `t` has `any` (or `unknown`) in it: itself, a
+ * union member, a property, a type argument, a parameter or a result.
+ */
+export function containsAny(
+  t: ts.Type,
+  checker: ts.TypeChecker,
+  depth = 0,
+  /** Also a value that is only ever null (`simpleBox(null)`). */
+  nulls = false,
+): boolean {
+  if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return true;
+  if (nulls && t.flags & ts.TypeFlags.Null) return true;
+  if (depth > 3) return false;
+  if (t.isUnion() || t.isIntersection())
+    return t.types.some(m => containsAny(m, checker, depth + 1, nulls));
+  if (!(t.flags & ts.TypeFlags.Object)) return false;
+  if (t.getProperty('__runicElement') || t.getProperty('__runicEvent')) return false;
+  // Types of TypeScript's library (Set<T>, Promise<T>): their type arguments.
+  const file = t.symbol?.declarations?.[0]?.getSourceFile().fileName ?? '';
+  if (/[\\/]lib\.[\w.]*\.d\.ts$/.test(file))
+    return (
+      !!(t as ts.TypeReference).target &&
+      checker
+        .getTypeArguments(t as ts.TypeReference)
+        .some(a => containsAny(a, checker, depth + 1, nulls))
+    );
+  const props = checker.getPropertiesOfType(t);
+  if (
+    props.length <= 40 &&
+    props.some(p => containsAny(checker.getTypeOfSymbol(p), checker, depth + 1, nulls))
+  )
+    return true;
+  return t
+    .getCallSignatures()
+    .some(
+      sig =>
+        containsAny(sig.getReturnType(), checker, depth + 1, nulls) ||
+        sig.parameters.some(p =>
+          containsAny(checker.getTypeOfSymbol(p), checker, depth + 1, nulls),
+        ),
+    );
+}

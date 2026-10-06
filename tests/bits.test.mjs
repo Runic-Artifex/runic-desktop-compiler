@@ -274,14 +274,63 @@ test('mergeProps shapes outside the pack fail at run time', async () => {
 <div id="out" {...m}></div>
 `,
   });
-  for (const [entries, pattern] of [
-    ['onPick: () => {}', /executeCallbacks/],
-    ["style: { color: 'blue' }", /cssToStyleObj/],
-  ])
+  for (const [entries, pattern] of [['onPick: () => {}', /executeCallbacks/]])
     await withApp(app(entries), async root => {
       const { ir } = await lowered(root);
       assert.throws(() => interpret(ir, []), pattern);
     });
+  // A style string and a style object merge through cssToStyleObj
+  // (crates/runic-js/src/style_parse.rs), as svelte-toolbelt does.
+  await withApp(app("style: { color: 'blue', marginTop: '1px' }"), async root => {
+    const { ir } = await lowered(root);
+    assert.equal(byId(interpret(ir, [])[0], 'out').attrs.style, 'color: blue; margin-top: 1px;');
+  });
+});
+
+// (Records spread with keys a package's object literals may leave out,
+// bits-ui's floatingStyles, are compared with Chromium by the bits-popover
+// conformance case.)
+test('a style record spread into a style object keeps its keys in order', async () => {
+  await withApp(
+    {
+      'state.svelte.ts': `export class S {
+  wide = $state(false);
+  styles = $derived.by(() => ({
+    position: 'absolute',
+    left: this.wide ? '2px' : '0',
+    top: '1px',
+  }));
+  props: Record<string, unknown> = $derived.by(() => ({
+    id: 'p',
+    style: { ...this.styles, zIndex: '2' },
+  }));
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { mergeProps } from 'svelte-toolbelt';
+  import { S } from './state.svelte.ts';
+  const s = new S();
+  const m = $derived(mergeProps(s.props, { style: { color: 'red' } }));
+</script>
+<p {...m}>x</p>
+<button id="b" onclick={() => (s.wide = !s.wide)}>wide</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      // (svelte-toolbelt's mergeProps in Node gives the same keys in the
+      // same order; the element's style serialises `0` as `0px`.)
+      assert.equal(
+        byId(steps[0], 'p').attrs.style,
+        'position: absolute; left: 0px; top: 1px; z-index: 2; color: red;',
+      );
+      assert.equal(
+        byId(steps[1], 'p').attrs.style,
+        'position: absolute; left: 2px; top: 1px; z-index: 2; color: red;',
+      );
+    },
+  );
 });
 
 test('Avatar: fallbacks compile, Avatar.Image (image loading) is rejected at its <img>', async () => {

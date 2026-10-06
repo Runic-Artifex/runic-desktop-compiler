@@ -712,6 +712,63 @@ pub fn map_values<K, V: Clone>(m: &JsMap<K, V>) -> JsArray<V> {
             .collect(),
     )
 }
+/// The array index a property key names (a canonical numeric string of an
+/// integer below 2^32 - 1), which an object's own keys list first.
+fn index_key(k: &str) -> Option<u32> {
+    if k == "0" {
+        return Some(0);
+    }
+    if k.is_empty() || k.len() > 10 || k.starts_with('0') || !k.bytes().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let n: u64 = k.parse().ok()?;
+    (n < 4_294_967_295).then_some(n as u32)
+}
+
+/// The entries of a map standing for a dictionary object (M6 overlays: a
+/// string-keyed object literal written by computed keys), in the order of
+/// the object's own keys (OrdinaryOwnPropertyKeys): array indices
+/// ascending, then the other keys in insertion order. `key` gives a key's
+/// string.
+pub fn dictionary_entries<K: Clone, V: Clone>(
+    m: &JsMap<K, V>,
+    key: impl Fn(&K) -> String,
+) -> Vec<(K, V)> {
+    let all: Vec<(K, V)> = m.borrow().entries.values().cloned().collect();
+    let mut indices: Vec<(u32, (K, V))> = vec![];
+    let mut others = vec![];
+    for e in all {
+        match index_key(&key(&e.0)) {
+            Some(i) => indices.push((i, e)),
+            None => others.push(e),
+        }
+    }
+    indices.sort_by_key(|(i, _)| *i);
+    indices.into_iter().map(|(_, e)| e).chain(others).collect()
+}
+pub fn dictionary_keys<K: Clone, V: Clone>(
+    m: &JsMap<K, V>,
+    key: impl Fn(&K) -> String,
+) -> JsArray<K> {
+    array(
+        dictionary_entries(m, key)
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect(),
+    )
+}
+pub fn dictionary_values<K: Clone, V: Clone>(
+    m: &JsMap<K, V>,
+    key: impl Fn(&K) -> String,
+) -> JsArray<V> {
+    array(
+        dictionary_entries(m, key)
+            .into_iter()
+            .map(|(_, v)| v)
+            .collect(),
+    )
+}
 pub fn set_new<T: ToMapKey>(items: Vec<T>) -> JsSet<T> {
     let mut data = SetData::default();
     for v in items {

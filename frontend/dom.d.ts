@@ -8,6 +8,10 @@ interface HTMLElement {
   blur(): void;
   // Layout reads and scrolling (CSSOM View), from the native layout.
   getBoundingClientRect(): DOMRect;
+  /** M6 (bits-ui's floating layer): the element's border boxes (none without a box). */
+  getClientRects(): DOMRect[];
+  /** M6: the `hidden` attribute's presence (`until-found` is reported unsupported). */
+  readonly hidden: boolean;
   readonly offsetWidth: number;
   readonly offsetHeight: number;
   readonly offsetLeft: number;
@@ -44,7 +48,12 @@ interface HTMLElement {
   readonly id: string;
   querySelectorAll(selectors: string): HTMLElement[];
   querySelector(selectors: string): HTMLElement | null;
+  /** M6 overlays: whether the node is this element or one of its descendants. */
+  contains(other: HTMLElement | null): boolean;
   requestSubmit(): void;
+  // M6 overlays (floating-ui's autoUpdate): listeners added by script.
+  addEventListener(type: 'scroll', listener: (event: Event) => void): void;
+  removeEventListener(type: 'scroll', listener: (event: Event) => void): void;
 }
 /** M6 (bits-ui's isHTMLElement): `x instanceof HTMLElement` of element values. */
 declare var HTMLElement: { prototype: HTMLElement };
@@ -85,6 +94,41 @@ declare var ResizeObserver: {
     callback: (entries: ResizeObserverEntry[], observer: ResizeObserver) => void,
   ): ResizeObserver;
 };
+/**
+ * An IntersectionObserver (M6 overlays): the document's viewport is its root
+ * (`root` is the document or absent); its callback receives the entries in
+ * a task after a frame's layout.
+ */
+interface IntersectionObserver {
+  /** The callback type (a record of the IR holds the callback). */
+  readonly __runicIntersectionObserver: (
+    entries: IntersectionObserverEntry[],
+    observer: IntersectionObserver,
+  ) => void;
+  observe(target: HTMLElement): void;
+  unobserve(target: HTMLElement): void;
+  disconnect(): void;
+}
+interface IntersectionObserverInit {
+  root?: HostDocument | null;
+  rootMargin?: string;
+  threshold?: number | number[];
+}
+declare var IntersectionObserver: {
+  new (
+    callback: (entries: IntersectionObserverEntry[], observer: IntersectionObserver) => void,
+    options?: IntersectionObserverInit,
+  ): IntersectionObserver;
+};
+interface IntersectionObserverEntry {
+  readonly boundingClientRect: DOMRect;
+  readonly intersectionRatio: number;
+  readonly intersectionRect: DOMRect;
+  readonly isIntersecting: boolean;
+  readonly rootBounds: DOMRect | null;
+  readonly target: HTMLElement;
+  readonly time: number;
+}
 interface ResizeObserverSize {
   readonly inlineSize: number;
   readonly blockSize: number;
@@ -127,6 +171,8 @@ interface HTMLLIElement extends HTMLElement {}
 interface HTMLUListElement extends HTMLElement {}
 interface HTMLHeadingElement extends HTMLElement {}
 interface Element extends HTMLElement {}
+/** M6 (bits-ui's floating layer): `x instanceof Element` of element values. */
+declare var Element: { prototype: Element };
 interface EventTarget {}
 /**
  * An attribute bag (docs/IR.md `attrs`): attribute values, listeners and
@@ -150,6 +196,31 @@ interface Event {
   stopImmediatePropagation(): void;
 }
 interface UIEvent extends Event {}
+/** M6 overlays (bits-ui's escape layer): a copy of a keyboard event, never dispatched. */
+declare var KeyboardEvent: {
+  new (type: string, init: KeyboardEvent): KeyboardEvent;
+  prototype: KeyboardEvent;
+};
+/**
+ * M6 overlays (bits-ui's dismissible layer): `instanceof` of events.
+ * `new PointerEvent(…)` throws RunicUnsupportedError where it runs.
+ */
+declare var PointerEvent: {
+  new (type: string, init: PointerEvent): PointerEvent;
+  prototype: PointerEvent;
+};
+declare var MouseEvent: { prototype: MouseEvent };
+declare var FocusEvent: { prototype: FocusEvent };
+declare var WheelEvent: { prototype: WheelEvent };
+declare var UIEvent: { prototype: UIEvent };
+declare var Event: { prototype: Event };
+/** `x instanceof SVGElement` of element values (M6 overlays). */
+interface SVGElement extends HTMLElement {}
+declare var SVGElement: { prototype: SVGElement };
+/** M6 overlays (bits-ui's focus scope): an event created by script, never dispatched. */
+declare var CustomEvent: {
+  new (type: string, init?: { bubbles?: boolean; cancelable?: boolean }): Event;
+};
 interface InputEvent extends UIEvent {}
 interface KeyboardEvent extends UIEvent {
   readonly key: string;
@@ -237,6 +308,8 @@ interface WindowEventTarget {
 interface ComputedStyle {
   readonly __runicComputedStyle: true;
   getPropertyValue(property: string): string;
+  /** M6 overlays (bits-ui's floating layer). */
+  readonly zIndex: string;
 }
 interface HostWindow extends WindowEventTarget {
   matchMedia(query: string): MediaQueryList;
@@ -258,6 +331,15 @@ interface HostWindow extends WindowEventTarget {
   scrollBy(x: number, y: number): void;
 }
 declare const window: HostWindow;
+/**
+ * M6 overlays (floating-ui's autoUpdate): the visual viewport. Without
+ * pinch zoom it resizes with the window, after it, and never scrolls.
+ */
+interface HostVisualViewport {
+  addEventListener(type: 'resize' | 'scroll', listener: (event: Event) => void): void;
+  removeEventListener(type: 'resize' | 'scroll', listener: (event: Event) => void): void;
+}
+declare const visualViewport: HostVisualViewport;
 declare const document: HostDocument;
 
 // Host services (docs/design/M5-PLATFORM.md); members lower to `console.*`,
@@ -302,6 +384,10 @@ interface HostDocument extends HostEventTarget {
   readonly body: HTMLElement;
   /** M6 overlays: a literal selector, `body` or `#id`. */
   querySelector(selectors: string): HTMLElement | null;
+  /** M6 overlays: the focused element (the body when none is). */
+  readonly activeElement: HTMLElement | null;
+  /** M6 overlays: whether the element is in the document. */
+  contains(other: HTMLElement | null): boolean;
 }
 
 /**
@@ -344,6 +430,9 @@ interface HostRootElement {
   };
   lang: string;
   dir: string;
+  /** M6 overlays: the viewport's size without scrollbars. */
+  readonly clientWidth: number;
+  readonly clientHeight: number;
   setAttribute(name: string, value: string): void;
   removeAttribute(name: string): void;
 }

@@ -59,10 +59,11 @@ const failWith = (code, file, pattern) => e =>
 
 test('svelte mount lowers to a mount site of the mounting component', async () => {
   const { ir } = await lowered(FIXTURE);
-  const portal = ir.components.find(c => c.name === 'Portal');
+  // bits-ui's own Portal (utilities/portal/portal.svelte), compiled from source.
+  const portal = ir.components.find(c => c.name === 'portal');
   assert.equal(portal.mounts.length, 1);
   const consumer = ir.components[portal.mounts[0].component];
-  assert.equal(consumer.name, 'PortalConsumer');
+  assert.equal(consumer.name, 'portal-consumer');
   // The children snippet is forwarded: rendered in the Portal, which owns it.
   assert.deepEqual(portal.mounts[0].slots, [
     {
@@ -242,6 +243,276 @@ test('a closure created in its variable’s initialiser sees the variable', asyn
       const { ir } = await lowered(root);
       const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
       assert.equal(text(steps[1].state.dom[0]), '3 2');
+    },
+  );
+});
+
+test('bits-ui’s Portal narrows its target union to the selector and queries the document', async () => {
+  const { ir } = await lowered(FIXTURE);
+  const json = JSON.stringify(ir);
+  // `typeof to.current === "string"` is decided: the element branch is not lowered.
+  assert.match(json, /"name":"document\.querySelector"/);
+  assert.doesNotMatch(json, /"op":"typeof"/);
+});
+
+test('a union outside the value model takes the member of the values that reach it', async () => {
+  await withApp(
+    {
+      'Target.svelte': `<script lang="ts">
+  type Target = HTMLElement | string;
+  let { to = 'body' }: { to?: Target } = $props();
+  const label = $derived(typeof to === 'string' ? to : 'element');
+</script>
+
+<p id="t">{label}</p>
+`,
+      'App.svelte': `<script lang="ts">
+  import Target from './Target.svelte';
+</script>
+
+<Target />
+<Target to="#x" />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, []);
+      const shown = steps[0].state.dom.filter(n => typeof n !== 'string').map(text);
+      assert.deepEqual(shown, ['body', '#x']);
+    },
+  );
+});
+
+test('a union reached by values of two members is rejected, naming a site of each', async () => {
+  const files = sites => ({
+    'Target.svelte': `<script lang="ts">
+  type Target = HTMLElement | string;
+  let { to = 'body' }: { to?: Target } = $props();
+  const label = $derived(typeof to === 'string' ? to : 'element');
+</script>
+
+<p>{label}</p>
+`,
+    'App.svelte': `<script lang="ts">
+  import Target from './Target.svelte';
+  let el = $state<HTMLElement | null>(null);
+</script>
+
+<div bind:this={el}></div>
+${sites}
+`,
+  });
+  // The default (a site without \`to\`) and an element.
+  await withApp(files('<Target />\n{#if el}<Target to={el} />{/if}'), root =>
+    assert.rejects(
+      lowered(root),
+      failWith('E_TYPE_UNION', 'Target.svelte', /outside the value model/),
+    ),
+  );
+  // Only elements: the default never applies, so the prop holds an element,
+  // which the nullable \`el\` (narrowed by the block, which the lowering does
+  // not see) is not.
+  await withApp(files('{#if el}<Target to={el} />{/if}'), root =>
+    assert.rejects(lowered(root), failWith('E_PROPS', 'App.svelte', /may be null or undefined/)),
+  );
+});
+
+test('untyped helpers: function literals typed by their use, curried helpers, presence tests', async () => {
+  await withApp(
+    {
+      'helpers.js': `export function makeResolver(fallback) {
+  return getProp => {
+    const value = getProp();
+    if (value !== undefined) return value;
+    return fallback;
+  };
+}
+export function apply(f, a, b) {
+  return [f(a), f(b)];
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { makeResolver, apply } from './helpers.js';
+  let out = $state('');
+  function run(given: string | undefined) {
+    const resolve = makeResolver('fallback');
+    const both = apply(o => o.n, { n: 1 }, { n: 2, m: 3 });
+    out = \`\${resolve(() => given)} \${both.join(',')}\`;
+  }
+</script>
+
+<button id="a" onclick={() => run(undefined)}>{out}</button>
+<button id="b" onclick={() => run('given')}>b</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'a' },
+        { kind: 'click', id: 'b' },
+      ]);
+      assert.equal(text(steps[1].state.dom[0]), 'fallback 1,2');
+      assert.equal(text(steps[2].state.dom[0]), 'given 1,2');
+    },
+  );
+});
+
+test('values a union takes are traced: a prop no site passes gives none', async () => {
+  await withApp(
+    {
+      'Target.svelte': `<script lang="ts">
+  type Target = HTMLElement | string;
+  let { anchor, to = 'body' }: { anchor?: HTMLElement; to?: string } = $props();
+  const chosen: Target = anchor ?? to;
+  const label = $derived(typeof chosen === 'string' ? chosen : 'element');
+</script>
+
+<p>{label}</p>
+`,
+      'App.svelte': `<script lang="ts">
+  import Target from './Target.svelte';
+</script>
+
+<Target to="#x" />
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, []);
+      const shown = steps[0].state.dom.filter(n => typeof n !== 'string').map(text);
+      assert.deepEqual(shown, ['#x']);
+    },
+  );
+});
+
+test('values reach a union through bags; a default reaches it only where a site can omit the prop', async () => {
+  const files = sites => ({
+    'Inner.svelte': `<script lang="ts">
+  type Style = string | Record<string, string>;
+  let { style = {}, ...rest }: { style?: Style; id?: string } = $props();
+  const css = $derived(typeof style === 'string' ? style : 'object');
+</script>
+
+<p {...rest}>{css}</p>
+`,
+    'Outer.svelte': `<script lang="ts">
+  import Inner from './Inner.svelte';
+  let { ...rest }: { style?: string | Record<string, string>; id?: string } = $props();
+</script>
+
+<Inner {...rest} />
+`,
+    'App.svelte': `<script lang="ts">
+  import { mergeProps } from 'svelte-toolbelt';
+  import Outer from './Outer.svelte';
+  let color = $state('red');
+  const props = $derived(mergeProps({ id: 'p', style: { margin: '0' } }, { style: \`color: \${color}\` }));
+</script>
+
+${sites}
+<button id="b" onclick={() => (color = 'blue')}>c</button>
+`,
+  });
+  // mergeProps prints the merged style: only strings reach \`style\`, and
+  // every site passes it, so the default \`{}\` does not.
+  await withApp(files('<Outer {...props} />'), async root => {
+    const { ir } = await lowered(root);
+    const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+    const p = s => steps[s].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'p');
+    assert.equal(text(p(0)), 'margin: 0; color: red;');
+    assert.equal(text(p(1)), 'margin: 0; color: blue;');
+  });
+  // A site without it gives the default: both members reach the union.
+  await withApp(files('<Outer {...props} />\n<Outer id="q" />'), root =>
+    assert.rejects(
+      lowered(root),
+      failWith('E_TYPE_UNION', 'Inner.svelte', /outside the value model/),
+    ),
+  );
+});
+
+test('a field only null where it is declared, set elsewhere, is not decided null', async () => {
+  await withApp(
+    {
+      'timer.svelte.js': `export class Timer {
+  #pending = null;
+  label = $state('idle');
+  start() {
+    this.#pending = setTimeout(() => {}, 1000);
+  }
+  stop() {
+    if (this.#pending !== null) {
+      clearTimeout(this.#pending);
+      this.#pending = null;
+      this.label = 'cleared';
+      return;
+    }
+    this.label = 'nothing';
+  }
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { Timer } from './timer.svelte.js';
+  const timer = new Timer();
+</script>
+
+<button id="stop" onclick={() => timer.stop()}>{timer.label}</button>
+<button id="start" onclick={() => timer.start()}>start</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'stop' },
+        { kind: 'click', id: 'start' },
+        { kind: 'click', id: 'stop' },
+        { kind: 'click', id: 'stop' },
+      ]);
+      const label = s => text(steps[s].state.dom.find(n => typeof n !== 'string'));
+      assert.deepEqual([1, 3, 4].map(label), ['nothing', 'cleared', 'nothing']);
+    },
+  );
+});
+
+test('untyped class fields only ever null, untyped conditionals, pointerType', async () => {
+  await withApp(
+    {
+      'timer.svelte.js': `export class Timer {
+  #pending = null;
+  label = $state('idle');
+  pick(flag) {
+    return flag ? this.word('yes') : this.word('no');
+  }
+  word(w) {
+    return w;
+  }
+  stop() {
+    if (this.#pending !== null) {
+      clearTimeout(this.#pending);
+      this.label = 'cleared';
+      return;
+    }
+    this.label = 'nothing';
+  }
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { Timer } from './timer.svelte.js';
+  const timer = new Timer();
+  let kinds = $state('');
+</script>
+
+<button id="b" onclick={(e) => { timer.stop(); kinds += e.pointerType + ';' + timer.pick(kinds.length > 0) + ';'; }}>{timer.label} {kinds}</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'b' },
+        { kind: 'keydown', id: 'b', key: 'Enter' },
+      ]);
+      assert.equal(text(steps[1].state.dom[0]), 'nothing mouse;no;');
+      assert.equal(text(steps[2].state.dom[0]), 'nothing mouse;no;;yes;');
     },
   );
 });

@@ -6,6 +6,7 @@
 // rejected with a located diagnostic.
 import ts from 'typescript';
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Expr, Node, Type } from './ir.ts';
@@ -23,6 +24,8 @@ import { tailwindMergePack } from './packs/tailwind-merge-3.7.0.ts';
 import { tailwindVariantsPack } from './packs/tailwind-variants-3.3.1.ts';
 import { runedPack } from './packs/runed-0.35.1.ts';
 import { svelteToolbeltPack } from './packs/svelte-toolbelt-0.10.6.ts';
+import { floatingUiDomPack } from './packs/floating-ui-dom-1.7.4.ts';
+import { tabbablePack } from './packs/tabbable-6.5.0.ts';
 
 type Source = { file: string; line: number; column: number };
 
@@ -113,7 +116,27 @@ export interface PackConstant {
   value: unknown;
 }
 
-export type PackExport = PackFunction | PackComponent | PackConstant;
+/**
+ * An export of a module the pack ports (`Pack.ports`): its uses resolve to
+ * the port's declaration, lowered as package code compiled from source is.
+ */
+export interface PackPorted {
+  kind: 'ported';
+}
+
+export type PackExport = PackFunction | PackComponent | PackConstant | PackPorted;
+
+/**
+ * A typed port of one module of the packed package (a file next to the
+ * pack, in the language the compiler lowers): the program compiles it in
+ * place of the package's module at `module` (relative to the package
+ * directory), as a module of a package compiled from source. The package's
+ * declaration files reach it as they reach that module.
+ */
+export interface PackPort {
+  module: string;
+  file: string;
+}
 
 export interface Pack {
   name: string;
@@ -122,6 +145,8 @@ export interface Pack {
   module: string;
   /** Packs whose lowering this one reuses (also listed when it is used). */
   requires?: Pack[];
+  /** Modules of the package the pack ports (`PackPort`). */
+  ports?: PackPort[];
   /**
    * The export `imported` (`default` or a name) of the package module at
    * `pkg.subpath`, or a message saying why it is not covered.
@@ -151,6 +176,8 @@ const PACKS: Pack[] = [
   clsxPack,
   cnPack,
   esmEnvPack,
+  floatingUiDomPack,
+  tabbablePack,
   lucideSveltePack,
   runedPack,
   svelteToolbeltPack,
@@ -285,6 +312,11 @@ export function bindPackImport(
     const sym = lower.checker.getSymbolAtLocation(id);
     if (!sym) return lower.fail(id, 'E_PACK', `Cannot bind ${id.text}`);
     const { pack, value } = found;
+    // A ported module's export: the name resolves to the port's declaration.
+    if (value.kind === 'ported') {
+      usePack(lower, pack);
+      continue;
+    }
     const label = `${imported === 'default' ? spec : `${imported} of ${spec}`} (${pack.name}@${pack.version})`;
     lower.bindings.set(sym, exportBinding(lower, pack, label, value));
   }
@@ -344,10 +376,31 @@ export function bindPackReexport(
     const sym = lower.checker.getSymbolAtLocation(el.name);
     if (!sym) return lower.fail(el, 'E_PACK', `Cannot bind ${el.name.text}`);
     const { pack, value } = found;
+    if (value.kind === 'ported') {
+      usePack(lower, pack);
+      continue;
+    }
     const label = `${imported} of ${spec} (${pack.name}@${pack.version})`;
     lower.bindings.set(sym, exportBinding(lower, pack, label, value));
   }
   return true;
+}
+
+/**
+ * The ports of the packs of the packages `refs` name, by the path of the
+ * package module each stands for.
+ */
+export function packPorts(
+  refs: Iterable<PackageRef>,
+): Map<string, { pack: Pack; file: string; ref: PackageRef }> {
+  const out = new Map<string, { pack: Pack; file: string; ref: PackageRef }>();
+  for (const ref of refs) {
+    const pack = PACKS.find(p => p.name === ref.name && p.version === ref.version);
+    if (!pack) continue;
+    for (const port of pack.ports ?? [])
+      out.set(path.join(ref.dir, port.module), { pack, file: port.file, ref });
+  }
+  return out;
 }
 
 /** The binding of a pack export. */

@@ -154,6 +154,7 @@ Decisions:
 
 - **svelte-toolbelt and runed are packs, not source.**
   - Their sources dispatch on runtime types. `mergeProps` checks `typeof` per key, and boxes are getter objects with symbol brands. Compiling them would mean modelling dynamic typing for code whose behaviour is small and documented.
+  - A pack may also *port* a module: a typed TypeScript copy compiled with the program in place of the package's (runed's `ElementSize`, floating-ui's `autoUpdate`), for code the language covers but whose published form it does not (`frontend/packs.ts` `PackPort`).
   - The packs cover `boxWith`, `mergeProps`, `attachRef`, runed's `Context` and `watch`/`watch.pre`, and the helpers bits-ui calls (`afterTick`, `executeCallbacks`, `composeHandlers`). Each lowers to IR constructs below, validated against the real packages on vectors and fixtures.
 - **bits-ui compiles from its published source.**
   - Its `dist` JavaScript is typed by combining two sources. The package's `.d.ts` files give public fields, methods and options. The language layer's existing inference for untyped JavaScript gives private fields and locals, specialising per call site where needed.
@@ -250,7 +251,7 @@ Decided 2026-10-05 ([M6-OVERLAYS](M6-OVERLAYS.md#decisions-after-step-1-2026-10-
 
 What each remaining part gives today (a minimal use of the part, 2026-10-05), in the order the north star needs them:
 
-- **Overlays** (Tooltip, Popover, DropdownMenu, Select, Dialog: step 7): imperative mounts, `ResizeObserver`, top-level calls and the `esm-env` pack are done; bits-ui's `Portal` is blocked by `PortalTarget = Element | string`, then floating-ui, focus scopes, `MutationObserver`, dismissal and scroll lock ([status](M6-OVERLAYS.md#status-2026-10-05-branch-m6-overlays)).
+- **Overlays** (Tooltip, Popover, DropdownMenu, Select, Dialog: step 7): imperative mounts, `ResizeObserver`, top-level calls, the `esm-env` pack, union narrowing (bits-ui's `Portal`), the floating-ui packs (core's math native, dom's platform over the native layout, `autoUpdate` ported) `IntersectionObserver` and the host layer (listeners, capture phases, tabbable, `MutationObserver`, the focus scope, escape, dismissible and text selection layers) are done; the Popover compiles and builds, and fails at run time on a `StyleProperties | string` prop both of whose members reach it, which needs a decision (layer 2 or lazy props); Tooltip also needs the generic `TimeoutFn`, DropdownMenu and Dialog the scroll lock ([status](M6-OVERLAYS.md#status-branch-m6-overlays-2)).
 - **Overlay enter and exit animations**: `getAnimations()` is implemented and verified with the Accordion's and Collapsible's content animations ([Animations](#animations)); the overlays' presence path waits for the overlays themselves (step 7).
 - **Slider**: its `step` prop, `number | number[]`, is outside the value model (`E_TYPE_UNION`, also where no site passes it).
 - **Scoped component styles** (ScrollArea's viewport `<style>`).

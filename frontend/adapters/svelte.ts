@@ -42,6 +42,7 @@ import {
   exportAllDeclarations,
   implementationOf,
   inferFields,
+  portModule,
   reachedPackageModules,
   type PackageModule,
 } from '../package-modules.ts';
@@ -57,6 +58,7 @@ import {
   packExport,
   packFor,
   packMappings,
+  packPorts,
   PackError,
   usePack,
   type Edge,
@@ -288,6 +290,70 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const presentWrites: { component: number; cell: number; name: string; at: Source }[] = [];
   /** `bind:` setters (function index) by the child component and prop cell they follow. */
   const bindSetters = new Map<number, { component: number; cell: number }>();
+  /**
+   * The truth of an `{#if}` test that the values of props decide at every
+   * site (shadcn-svelte's Input: `{#if type === "file"}` where no site
+   * passes `type`): a prop, its negation, comparisons of it with literals,
+   * and `&&`/`||` of such tests; undefined otherwise. Reading a prop has no
+   * effect, so a decided test leaves the other branch unrendered.
+   */
+  const decidedTest = (u: Unit, test: SNode): boolean | undefined => {
+    const e = nodeIn(u, test) as ts.Expression;
+    const K = ts.SyntaxKind;
+    const values = (x: ts.Expression): unknown[] | undefined => {
+      x = skipParens(x);
+      if (ts.isStringLiteralLike(x)) return [x.text];
+      if (ts.isNumericLiteral(x)) return [Number(x.text)];
+      if (x.kind === K.TrueKeyword) return [true];
+      if (x.kind === K.FalseKeyword) return [false];
+      if (x.kind === K.NullKeyword) return [null];
+      if (!ts.isIdentifier(x)) return undefined;
+      if (x.text === 'undefined' && !checker.getSymbolAtLocation(x)?.valueDeclaration)
+        return [undefined];
+      const sym = checker.getSymbolAtLocation(x);
+      // (Not a snippet or function prop: sites pass snippets as content,
+      // which the prop domains do not see.)
+      const t = sym && checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(sym, x));
+      if (!sym || !t || t.getCallSignatures().length) return undefined;
+      return lower.domains?.values(sym);
+    };
+    const truth = (x: ts.Expression): boolean | undefined => {
+      x = skipParens(x);
+      if (ts.isPrefixUnaryExpression(x) && x.operator === K.ExclamationToken) {
+        const v = truth(x.operand);
+        return v === undefined ? undefined : !v;
+      }
+      if (ts.isBinaryExpression(x)) {
+        const op = x.operatorToken.kind;
+        if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
+          const l = truth(x.left);
+          const r = truth(x.right);
+          if (op === K.AmpersandAmpersandToken)
+            return l === false || r === false ? false : l && r ? true : undefined;
+          return l === true || r === true ? true : l === false && r === false ? false : undefined;
+        }
+        const strict = op === K.EqualsEqualsEqualsToken || op === K.ExclamationEqualsEqualsToken;
+        const loose = op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken;
+        if (!strict && !loose) return undefined;
+        const a = values(x.left);
+        const b = values(x.right);
+        if (!a || !b) return undefined;
+        const same = (p: unknown, q: unknown) =>
+          strict ? p === q : p === q || (p == null && q == null);
+        const results = a.flatMap(p => b.map(q => same(p, q)));
+        const negate = op === K.ExclamationEqualsEqualsToken || op === K.ExclamationEqualsToken;
+        if (results.every(r => r)) return !negate;
+        if (results.every(r => !r)) return negate;
+        return undefined;
+      }
+      const v = values(x);
+      if (!v || !v.length) return undefined;
+      if (v.every(Boolean)) return true;
+      if (v.every(y => !y)) return false;
+      return undefined;
+    };
+    return truth(e);
+  };
   const walkTemplate = (node: unknown, f: (n: SNode) => void, seen = new Set<unknown>()) => {
     if (!node || typeof node !== 'object' || seen.has(node)) return;
     seen.add(node);
@@ -742,6 +808,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             if (v.type === 'ExpressionTag') expr(v.expression);
     };
     const fragment = (f: SNode) => {
+      // `{@const}` declarations hold for their whole block (Svelte hoists them).
+      for (const n of f?.nodes ?? [])
+        if (n.type === 'ConstTag') {
+          u.starts.set(n.declaration, s.length);
+          copy(n.declaration.start, n.declaration.end);
+          s += ';\n';
+        }
       for (const n of f?.nodes ?? []) {
         if (n.type === 'ExpressionTag') expr(n.expression);
         else if (n.type === 'IfBlock') {
@@ -874,6 +947,13 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         roots.push(id);
     for (const f of reachedPackageModules(resolver, roots, isPackageModule))
       packageModules.set(f, annotate(f, graph.modules.get(f)!.code));
+    // Modules of packed packages that their packs port (frontend/packs.ts
+    // `PackPort`): the port stands for the package's module.
+    const refs = [...graph.modules.values()].flatMap(m =>
+      m.imports.flatMap(i => (i.package && !i.package.source ? [i.package] : [])),
+    );
+    for (const [js, { file, ref }] of packPorts(refs))
+      packageModules.set(js, portModule(js, file, ref));
   }
   const buildProgram = () => {
     const files = new Map<string, string>();
@@ -922,7 +1002,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   };
   let program = buildProgram();
   // Class fields of package modules typed from what the classes assign.
-  if (inferFields(packageModules, program).length) program = buildProgram();
+  // (Again while types change: a field typed by a pass types the values
+  // assigned to others, bits-ui's `#closeTimeout = this.#domContext.setTimeout(…)`.)
+  for (let pass = 0; pass < 8 && inferFields(packageModules, program).length; pass++)
+    program = buildProgram();
   const unitOf = new Map<ts.SourceFile, Unit>();
   for (const u of units.values()) unitOf.set(program.getSourceFile(u.virtual)!, u);
   const packageOf = new Map<ts.SourceFile, PackageModule>();
@@ -941,10 +1024,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (m) {
         const pos = n.getStart(f);
         const seg = m.segments.find(s => pos >= s.synth && pos <= s.synth + s.length);
-        const code = graph.modules.get(m.file)!.code;
+        // (A pack's port is its own text.)
+        const code = graph.modules.get(m.file)?.code ?? (m.port ? m.text : '');
+        const where = rel(m.port ? m.virtual : m.file);
         return seg
-          ? locate(code, seg.orig + (pos - seg.synth), rel(m.file))
-          : { file: rel(m.file), line: 1, column: 1 };
+          ? locate(code, seg.orig + (pos - seg.synth), where)
+          : { file: where, line: 1, column: 1 };
       }
       const p = f.getLineAndCharacterOfPosition(n.getStart(f));
       return { file: rel(f.fileName), line: p.line + 1, column: p.character + 1 };
@@ -1056,7 +1141,140 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     | undefined;
   const runeFile = (n: ts.Node) =>
     /\.svelte(\.__runic\.ts|\.ts|\.js|\.js\.__runic\.ts)$/.test(n.getSourceFile().fileName);
+  /** Records of a function's `$state` and `$derived` locals, by kind and value type. */
+  const localRuneRecords = new Map<string, number>();
   const hooks: Hooks = {
+    // `let x = $state(v)`, `$state.raw(v)`, `$derived(e)` and `$derived.by(f)`
+    // in a function of a rune module (bits-ui's useFloating): a signal of
+    // the function's invocation, a record with one reactive field the
+    // local's reads and writes go to (a derived one with the getter its
+    // value is computed by), captured by reference as closures capture it.
+    localRune(d, b, lower) {
+      const rune = runeName(d.initializer);
+      if (!rune || !['$state', '$state.raw', '$derived', '$derived.by'].includes(rune))
+        return undefined;
+      if (!ts.isIdentifier(d.name)) return tsFail(d, 'E_RUNE', `${rune} locals are plain names`);
+      if (!runeFile(d)) return undefined;
+      const call = d.initializer as ts.CallExpression;
+      const [arg] = call.arguments;
+      const name = d.name.text;
+      const sym = checker.getSymbolAtLocation(d.name)!;
+      // TypeScript's type where it has one; in untyped JavaScript the type
+      // of the initial value, or where that is a literal saying little (`{}`,
+      // `null`) the type its uses expect (the getter of a returned object
+      // of a declared type reading it).
+      let init: ts.Expression | undefined = arg && skipParens(arg);
+      if (
+        rune === '$derived.by' &&
+        init &&
+        (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+      )
+        init = ts.isBlock(init.body) ? undefined : skipParens(init.body);
+      const literal =
+        !init ||
+        ts.isObjectLiteralExpression(init) ||
+        ts.isArrayLiteralExpression(init) ||
+        init.kind === ts.SyntaxKind.NullKeyword ||
+        (ts.isIdentifier(init) && init.text === 'undefined');
+      const declared = literal
+        ? (lower.flowType(d, sym) ?? lower.types.typeOrUndefined(d.name))
+        : (lower.types.typeOrUndefined(d.name) ??
+          (rune === '$derived.by' ? lower.flowType(d, sym) : undefined));
+      if (rune.startsWith('$state')) {
+        let value: Expr;
+        let t: Type;
+        if (declared !== undefined) {
+          t = declared;
+          // (An object literal takes the declared record: `$state({})` of
+          // floating-ui's middleware data, all of whose fields are optional.)
+          if (arg && !lower.expected.has(skipParens(arg))) lower.expected.set(skipParens(arg), t);
+          value = arg ? lower.coerce(arg, b, t) : { op: 'undefined', type: t };
+        } else {
+          if (!arg) return tsFail(d, 'E_RUNE', `${name} needs a type or an initial value`);
+          value = lower.expr(arg, b);
+          t = lower.irType(value, b);
+        }
+        const reactive = rune === '$state' ? 'state' : 'raw';
+        const key = JSON.stringify([reactive, t]);
+        let r = localRuneRecords.get(key);
+        if (r === undefined) {
+          r = lower.types.records.length;
+          lower.types.records.push({
+            name: 'State',
+            class: true,
+            fields: [{ name: 'value', type: t, reactive }],
+          });
+          localRuneRecords.set(key, r);
+        }
+        const local = b.local(name, { record: r }, b.boxed.has(sym));
+        lower.bindings.set(sym, { kind: 'member', owner: b, local, path: [0] });
+        return [{ op: 'let', local, value: { op: 'record', record: r, fields: [value] } }];
+      }
+      // `$derived(e)` / `$derived.by(f)`: the getter, and the derived field reading it.
+      if (!arg)
+        return tsFail(
+          d,
+          'E_RUNE',
+          `${rune} takes ${rune === '$derived' ? 'an expression' : 'a function'}`,
+        );
+      let getter: Expr;
+      let t: Type;
+      if (rune === '$derived') {
+        getter = lower.expressionClosure(arg, b, `${name}$derived`, declared);
+        const gt = lower.irType(getter, b);
+        t = (gt as { fn: { result: Type } }).fn.result;
+      } else {
+        if (declared !== undefined)
+          lower.expected.set(skipParens(arg), { fn: { params: [], result: declared } });
+        getter = lower.expr(arg, b);
+        const gt = lower.irType(getter, b);
+        if (typeof gt !== 'object' || !('fn' in gt) || gt.fn.params.length)
+          return tsFail(arg, 'E_RUNE', '$derived.by takes a function without parameters');
+        t = gt.fn.result;
+      }
+      const key = JSON.stringify(['derived', t]);
+      let r = localRuneRecords.get(key);
+      if (r === undefined) {
+        r = lower.types.records.length;
+        const derived = lower.reserve();
+        lower.types.records.push({
+          name: 'Derived',
+          class: true,
+          fields: [
+            { name: 'get', type: { fn: { params: [], result: t } } },
+            { name: 'value', type: t, reactive: 'derived', derived },
+          ],
+        });
+        lower.functions[derived] = {
+          name: 'Derived.value$derived',
+          params: [{ name: 'this', type: { record: r } }],
+          locals: [],
+          result: t,
+          body: [
+            {
+              op: 'return',
+              value: {
+                op: 'call-value',
+                callee: { op: 'get', object: { op: 'local', local: 0 }, field: 0 },
+                args: [],
+              },
+            },
+          ],
+        };
+        localRuneRecords.set(key, r);
+      }
+      const local = b.local(name, { record: r }, b.boxed.has(sym));
+      lower.bindings.set(sym, { kind: 'member', owner: b, local, path: [1] });
+      return [{ op: 'let', local, value: { op: 'record', record: r, fields: [getter] } }];
+    },
+    // svelte/events' `on(target, type, handler)`: the handler takes the event.
+    argumentType(call, index) {
+      return index === 2 &&
+        ts.isIdentifier(call.expression) &&
+        svelteImport(call.expression, 'svelte/events') === 'on'
+        ? { fn: { params: ['event'], result: 'void' } }
+        : undefined;
+    },
     readCell: cell => ({ op: 'cell', cell, read: 'current' }),
     cellType: cell => cells[cell].type,
     writeCell: (cell, value) => [{ op: 'set', cell, value }],
@@ -1164,19 +1382,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const rune = runeName(node);
       if ((rune === '$effect' || rune === '$effect.pre') && runeFile(node)) {
         const [fn] = node.arguments;
+        // (An inline function, or a function value: `$effect(attach)`.)
+        const inline = fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn));
+        const bad = () =>
+          tsFail(node, 'E_EFFECT', `${rune} takes one synchronous function without parameters`);
         if (
           !fn ||
           node.arguments.length !== 1 ||
-          !(ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ||
-          fn.parameters.length
+          (inline &&
+            (fn.parameters.length ||
+              fn.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword)))
         )
-          return tsFail(
-            node,
-            'E_EFFECT',
-            `${rune} takes one synchronous function without parameters`,
-          );
+          return bad();
         const f = lower.expr(fn, ctx);
         const t = lower.irType(f, ctx) as { fn: { params: Type[]; result: Type } };
+        if (typeof t !== 'object' || !('fn' in t) || t.fn.params.length) return bad();
         const r = t.fn.result;
         const cleanup = (x: Type) =>
           typeof x === 'object' && 'fn' in x && !x.fn.params.length && x.fn.result === 'void';
@@ -1225,17 +1445,80 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
    * reported when a spread sets it).
    */
   const svelteOn = (node: ts.CallExpression, b: FnBuilder, l: Lowerer): Expr => {
-    const [el, type, handler, options] = node.arguments;
-    if (!el || !type || !handler || options || !ts.isStringLiteralLike(type))
-      return tsFail(node, 'E_EVENT', 'on(element, "event", handler) takes a literal event name');
-    if (type.text !== 'beforematch')
+    const [el, type, handler, options, ...more] = node.arguments;
+    if (!el || !type || !handler || more.length || !ts.isStringLiteralLike(type))
+      return tsFail(
+        node,
+        'E_EVENT',
+        'on(target, "event", handler, options?) takes a literal event name',
+      );
+    const kind = type.text;
+    // Options: `capture` (the document's and the window's), `passive: false`
+    // (the default of every event the runtime fires), `once` (reported
+    // unsupported where the listener would be added: bits-ui adds one only
+    // for touch input, which the runtime has not).
+    let capture = false;
+    let once = false;
+    if (options) {
+      const o = skipParens(options);
+      if (!ts.isObjectLiteralExpression(o))
+        return tsFail(options, 'E_EVENT', 'on() options are an object literal');
+      for (const p of o.properties) {
+        const key = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
+        const v = ts.isPropertyAssignment(p) ? skipParens(p.initializer) : undefined;
+        const flag =
+          v?.kind === ts.SyntaxKind.TrueKeyword
+            ? true
+            : v?.kind === ts.SyntaxKind.FalseKeyword
+              ? false
+              : undefined;
+        if (!key || flag === undefined)
+          return tsFail(p, 'E_EVENT', 'on() options are boolean literals');
+        if (key === 'capture') capture = flag;
+        else if (key === 'once') once = flag;
+        else if (key === 'passive' && !flag) {
+          // the default
+        } else
+          return tsFail(
+            p,
+            'E_EVENT',
+            `on() option ${key}${key === 'passive' ? ': true' : ''} is not covered`,
+          );
+      }
+    }
+    // A field holding the document or the window once assigned (bits-ui's
+    // `#documentObj`, frontend/classes.ts `hostFieldOf`): adding the
+    // listener throws a TypeError while it does not.
+    const field = l.classes.hostField(el);
+    const host = field ?? l.hostOf(el);
+    const target: 'document' | 'window' | 'element' =
+      host === 'document' || host === 'window' ? host : 'element';
+    const supported =
+      target === 'element'
+        ? kind === 'beforematch' ||
+          (EVENT_KINDS.includes(kind as HandlerEvent) && kind !== 'resize')
+        : EVENT_KINDS.includes(kind as HandlerEvent) ||
+          (target === 'window' && ['popstate', 'hashchange'].includes(kind));
+    if (!supported)
       return tsFail(
         type,
         'E_EVENT',
-        `Element listeners added with on() are supported for beforematch (never fired natively: there is no find-in-page), not ${type.text}`,
+        `on() of ${target === 'element' ? 'an element' : `the ${target}`} for ${kind} is not covered`,
       );
-    const e = l.expr(el, b);
-    if (l.irType(e, b) !== 'element') return tsFail(el, 'E_EVENT', 'on() takes an element');
+    if (capture && target === 'element')
+      return tsFail(
+        options!,
+        'E_EVENT',
+        'Capture listeners are supported on the document and the window',
+      );
+    // The handler takes the event (an untyped function its declaration
+    // types from here: `flowType`).
+    const want: Type = { fn: { params: ['event'], result: 'void' } };
+    // (The element is evaluated before the handler, as the arguments are.)
+    const e = target === 'element' ? l.expr(el, b) : undefined;
+    if (e && l.irType(e, b) !== 'element')
+      return tsFail(el, 'E_EVENT', 'on() takes an element, the document or the window');
+    l.expected.set(skipParens(handler), want);
     const f = l.expr(handler, b);
     const ft = l.irType(f, b);
     if (
@@ -1244,46 +1527,90 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       !(ft.fn.params.length === 0 || (ft.fn.params.length === 1 && ft.fn.params[0] === 'event'))
     )
       return tsFail(handler, 'E_EVENT', 'on() takes a listener taking the event or nothing');
-    const args = (): Expr[] => [
-      { op: 'local', local: 0 },
-      { op: 'lit', value: type.text },
-      { op: 'local', local: 1 },
-    ];
+    const remover: Type = { fn: { params: [], result: 'void' } };
+    const guarded = (body: (handler: Expr) => Expr): Expr => {
+      if (!field) return body(f);
+      const local = b.local('$listener', ft);
+      return {
+        op: 'with',
+        local,
+        value: f,
+        body: {
+          op: 'cond',
+          test: l.expr(el, b),
+          then: body({ op: 'local', local }),
+          else: l.typeErrorValue(
+            'on$target',
+            remover,
+            "Cannot read properties of undefined (reading 'addEventListener')",
+          ),
+        },
+      };
+    };
+    if (once)
+      return guarded(handler => ({
+        op: 'with',
+        local: b.local('$listener', ft),
+        value: handler,
+        body: l.unsupportedValue('on$once', remover, `on() with { once: true } (${kind})`),
+      }));
+    const element = target === 'element';
+    const name = target;
+    const listen = element ? 'listen' : capture ? 'listen-capture' : 'listen';
+    const unlisten = element ? 'unlisten' : capture ? 'unlisten-capture' : 'unlisten';
+    const argsOf = (): Expr[] =>
+      element
+        ? [
+            { op: 'local', local: 0 },
+            { op: 'lit', value: kind },
+            { op: 'local', local: 1 },
+          ]
+        : [
+            { op: 'lit', value: kind },
+            { op: 'local', local: 0 },
+          ];
+    const captured = element
+      ? [
+          { name: 'element', type: 'element' as Type },
+          { name: 'handler', type: ft },
+        ]
+      : [{ name: 'handler', type: ft }];
     const remove = l.reserve();
     l.functions[remove] = {
       name: 'on$remove',
-      captures: [
-        { name: 'element', type: 'element' },
-        { name: 'handler', type: ft },
-      ],
+      captures: captured,
       params: [],
       locals: [],
       result: 'void',
       body: [
         {
           op: 'expr',
-          value: { op: 'builtin', name: 'element.unlisten', args: args(), type: 'void' },
+          value: { op: 'builtin', name: `${name}.${unlisten}`, args: argsOf(), type: 'void' },
         },
       ],
     };
     const add = l.reserve();
     l.functions[add] = {
       name: 'on',
-      params: [
-        { name: 'element', type: 'element' },
-        { name: 'handler', type: ft },
-      ],
+      params: captured,
       locals: [],
-      result: { fn: { params: [], result: 'void' } },
+      result: remover,
       body: [
         {
           op: 'expr',
-          value: { op: 'builtin', name: 'element.listen', args: args(), type: 'void' },
+          value: { op: 'builtin', name: `${name}.${listen}`, args: argsOf(), type: 'void' },
         },
-        { op: 'return', value: { op: 'closure', function: remove, captures: [0, 1] } },
+        {
+          op: 'return',
+          value: { op: 'closure', function: remove, captures: element ? [0, 1] : [0] },
+        },
       ],
     };
-    return { op: 'call', function: add, args: [e, f] };
+    return guarded(handler => ({
+      op: 'call',
+      function: add,
+      args: element ? [e!, handler] : [handler],
+    }));
   };
   /**
    * `mount(Component, { target, props, context })` (svelte, M6 overlays): an
@@ -1605,6 +1932,37 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     }
     return openShape();
   };
+  // Before prop domains exist (bag shapes come first): a prop without a
+  // default that no site passes, by an attribute, a binding or a spread
+  // (which may hold any name), holds only undefined.
+  {
+    const unpassed = new Map<ts.Symbol, boolean>();
+    for (const u of order)
+      for (const stmt of instanceStatements(u)) {
+        if (!ts.isVariableStatement(stmt)) continue;
+        for (const d of stmt.declarationList.declarations) {
+          if (runeName(d.initializer) !== '$props' || !ts.isObjectBindingPattern(d.name)) continue;
+          for (const el of d.name.elements) {
+            if (el.dotDotDotToken || el.initializer || !ts.isIdentifier(el.name)) continue;
+            const symbol = checker.getSymbolAtLocation(el.name);
+            const key = ((el.propertyName ?? el.name) as ts.Identifier).text;
+            let passed = false;
+            for (const p of order)
+              walkTemplate(p.ast.fragment, n => {
+                if (n.type !== 'Component' || p.children.get(n.name) !== u.file) return;
+                for (const a of n.attributes)
+                  if (
+                    a.type === 'SpreadAttribute' ||
+                    ((a.type === 'Attribute' || a.type === 'BindDirective') && a.name === key)
+                  )
+                    passed = true;
+              });
+            if (symbol) unpassed.set(symbol, !passed);
+          }
+        }
+      }
+    lower.unpassedProp = sym => unpassed.get(sym) === true;
+  }
   const shapes: BagShapes = new BagShapes(lower, {
     binding(sym) {
       const rest = restOf.get(sym);
@@ -1675,11 +2033,32 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const restComponent = new Map<ts.Symbol, number>();
   for (const u of order) {
     const sf = program.getSourceFile(u.virtual)!;
-    const bound = new Set<string>();
-    walkTemplate(u.ast.fragment, n => {
-      if (n.type === 'BindDirective' && n.expression?.type === 'Identifier')
-        bound.add(n.expression.name);
-    });
+    /** The names bound in branches that can render (`decidedTest`). */
+    let boundLive: Set<string> | undefined;
+    const bound = {
+      has(name: string): boolean {
+        if (!boundLive) {
+          boundLive = new Set();
+          const visit = (node: unknown) => {
+            if (!node || typeof node !== 'object') return;
+            if (Array.isArray(node)) return node.forEach(visit);
+            const n = node as SNode;
+            if (n.type === 'BindDirective' && n.expression?.type === 'Identifier')
+              boundLive!.add(n.expression.name);
+            if (n.type === 'IfBlock') {
+              const known = decidedTest(u, n.test);
+              visit(n.test);
+              if (known !== false) visit(n.consequent);
+              if (known !== true) visit(n.alternate);
+              return;
+            }
+            for (const [k, v] of Object.entries(n)) if (k !== 'parent') visit(v);
+          };
+          visit(u.ast.fragment);
+        }
+        return boundLive.has(name);
+      },
+    };
     for (const stmt of instanceStatements(u)) {
       if (!ts.isVariableStatement(stmt)) continue;
       for (const d of stmt.declarationList.declarations) {
@@ -1695,12 +2074,22 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           let fallback = el.initializer;
           if (fallback && runeName(fallback) === '$bindable')
             fallback = (fallback as ts.CallExpression).arguments[0];
+          // (Written: decided when first asked, as binds in branches that
+          // cannot render do not count, which the other props' values decide.)
+          const name = el.name.text;
+          let written: boolean | undefined;
           propDecls.push({
             component: u.index,
-            key: el.propertyName ? (el.propertyName as ts.Identifier).text : el.name.text,
+            key: el.propertyName ? (el.propertyName as ts.Identifier).text : name,
             symbol,
             fallback,
-            written: bound.has(el.name.text) || assigned(checker, sf, symbol),
+            get written() {
+              if (written === undefined) {
+                written = true;
+                written = bound.has(name) || assigned(checker, sf, symbol);
+              }
+              return written;
+            },
           });
         }
       }
@@ -1778,6 +2167,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   };
   /** The `$site` prop cell of each component that has one. */
   const siteCells = new Map<number, number>();
+  /** Prop cells (`component:cell`) whose default no site lets take effect, so not lowered. */
+  const unusedDefaults = new Set<string>();
   let lowering: number | undefined;
   const domains = new PropDomains(lower, propDecls, sites, (component, _b) => {
     if (component !== lowering) fail('E_INTERNAL', 'A site index was read outside its component');
@@ -2063,6 +2454,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           inMember ??
           types.tryMap(checker.getTypeAtLocation(el.name), el.name);
         if (member && type && !types.overridden(el.name)) types.override(sym, type);
+        const fromSites = !type;
         if (!type) {
           // A prop typed wider than the value model (svelte/elements'
           // `class?: ClassValue`) takes the type of the values its sites pass.
@@ -2101,6 +2493,20 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         let fallback = el.initializer;
         if (fallback && runeName(fallback) === '$bindable')
           fallback = (fallback as ts.CallExpression).arguments[0];
+        // A default no site lets take effect (every site passes the prop
+        // with a value that is never undefined, frontend/unions.ts) is not
+        // lowered: it never runs, and it may be of a member of the prop's
+        // union that no value of the program reaches (bits-ui's
+        // FloatingLayerContent `style = {}` under a Popover, which always
+        // passes a style string).
+        if (
+          fallback &&
+          lower.unions.narrowed(checker.getNonNullableType(checker.getTypeAtLocation(el.name))) &&
+          lower.unions.unusedDefault(el)
+        ) {
+          fallback = undefined;
+          unusedDefaults.add(`${u.index}:${cell}`);
+        }
         if (fallback) {
           const f = fallback;
           // A parent passing undefined gets the default too, as with $props().
@@ -2113,6 +2519,20 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             }
             const v = lower.value(f, COMPONENT, `${name}$default`);
             const t = lower.valueType(v);
+            // A prop typed by its sites whose default is of another type (a
+            // union of an element and a string: `to = 'body'` and `to={el}`).
+            const inner = (x: Type) => maybeInner(x) ?? x;
+            if (
+              fromSites &&
+              v.op !== 'null' &&
+              v.op !== 'undefined' &&
+              JSON.stringify(inner(t)) !== JSON.stringify(inner(type))
+            )
+              tsFail(
+                f,
+                'E_TYPE_UNION',
+                `The type of ${name} (${checker.typeToString(checker.getTypeAtLocation(el.name))}) is outside the value model, so it takes the values its sites pass (${JSON.stringify(inner(type))}), but its default is of another type (${JSON.stringify(inner(t))})`,
+              );
             // A function taking fewer parameters (`onOpenChange = noop`).
             cells[cell].init =
               lower.adaptFunction(v, t, type) ?? coerceInit(v, t, type, lower.types.records);
@@ -2389,6 +2809,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               cells[cell].init = { op: 'undefined', type };
               return;
             }
+            // A call TypeScript cannot type (untyped JavaScript) returns the
+            // annotated variable's type.
+            const call = skipParens(value);
+            if (d.type && ts.isCallExpression(call) && !lower.expected.has(call))
+              lower.expected.set(call, type);
             // The IR type of the lowered value (a bare `null` takes its contextual type).
             const v = lower.value(value, COMPONENT, `${name}$init`);
             cells[cell].init = coerceInit(v, lower.valueType(v), type, lower.types.records);
@@ -2522,13 +2947,65 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       }
     };
     const childNodes = (fragment: SNode, parent?: string): Node[] => {
+      const cleaned = clean(fragment, parent);
+      // `{@const name = value}` (bits-ui's `{@const finalProps =
+      // mergeProps(…)}`): Svelte hoists it to its block as a derived value,
+      // computed when first read. A value without identity whose evaluation
+      // has no effect (Lowerer.effectFree) is evaluated as the block
+      // renders, as the item of a one-item list around the block's content;
+      // others are rejected.
+      const consts = cleaned.filter(n => n.type === 'ConstTag');
+      if (consts.length) {
+        const bound = consts.map(c => {
+          const list = nodeAt(c.declaration);
+          const decl =
+            ts.isVariableDeclarationList(list) && list.declarations.length === 1
+              ? list.declarations[0]
+              : undefined;
+          if (!decl || !ts.isIdentifier(decl.name) || !decl.initializer)
+            return fail('E_TEMPLATE', '{@const} declares one name with a value', loc(c));
+          const v = value(decl.initializer);
+          const t = lower.irType(v, tb);
+          const plain = (x: Type): boolean =>
+            ['string', 'number', 'boolean', 'attrs'].includes(x as string) ||
+            (typeof x === 'object' && 'maybe' in x && plain(x.maybe));
+          if (!plain(t) || !lower.effectFree(v))
+            fail(
+              'E_TEMPLATE',
+              '{@const} is supported for text, numbers, booleans and attribute bags computed without effects',
+              loc(c),
+            );
+          const local = tb.local(decl.name.text, t);
+          lower.bindings.set(checker.getSymbolAtLocation(decl.name)!, {
+            kind: 'local',
+            owner: tb,
+            local,
+          });
+          return { local, v, t };
+        });
+        // (Whitespace around the declarations is trimmed as at the block's edges.)
+        let body = childNodes(
+          { ...fragment, nodes: fragment.nodes.filter((n: SNode) => n.type !== 'ConstTag') },
+          parent,
+        );
+        for (const { local, v, t } of bound.reverse())
+          body = [
+            {
+              kind: 'each',
+              items: { op: 'array', type: { array: t }, items: [v] },
+              item: local,
+              body,
+            },
+          ];
+        return body;
+      }
       const out: Node[] = [];
       let parts: Expr[] = [];
       const flush = () => {
         if (parts.length) out.push({ kind: 'text', parts });
         parts = [];
       };
-      for (const n of clean(fragment, parent)) {
+      for (const n of cleaned) {
         if (n.type === 'Text') {
           if (n.data) parts.push({ op: 'lit', value: n.data });
         } else if (n.type === 'ExpressionTag') parts.push(display(exprNode(n.expression)));
@@ -2538,6 +3015,11 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'SvelteElement') {
           flush();
           out.push(...dynamicElement(n));
+        } else if (n.type === 'IfBlock' && decidedTest(u, n.test) !== undefined) {
+          // A test the props' values decide: the branch that renders.
+          flush();
+          const branch = decidedTest(u, n.test) ? n.consequent : n.alternate;
+          if (branch) out.push(...children(branch));
         } else if (n.type === 'IfBlock') {
           flush();
           const testNode = exprNode(n.test);
@@ -2773,7 +3255,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const e = exprNode(a.value.expression);
       const v = value(e);
       const t = typeOf(e, v);
-      const kind = /^on([a-z]+)$/.exec(name)?.[1];
+      const named = /^on([a-z]+)$/.exec(name)?.[1];
+      // (`on<event>capture`: a listener of the capture phase.)
+      const kind =
+        named && !EVENT_KINDS.includes(named as HandlerEvent) && named.endsWith('capture')
+          ? named.slice(0, -'capture'.length)
+          : named;
       // A callback the receiving component (or one it forwards to) declares
       // (`onOpenChange`): a function entry, never an attribute.
       if (!kind && typeof t === 'object' && 'fn' in t) return { name, value: v };
@@ -2795,6 +3282,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       // become what Svelte's set_attributes writes (`spreadBooleanText`).
       if (t === 'string' || t === 'boolean') return { name, value: v };
       if (typeof t === 'object' && 'maybe' in t && t.maybe === 'boolean') return { name, value: v };
+      // Values of other types (a number, an array, an object: M6 overlays,
+      // bits-ui forwards `sideOffset` and `collisionBoundary`) reach the
+      // receiving component as they are; an element the bag is spread onto
+      // sets a number's text (docs/IR.md, attrs).
+      const inner = typeof t === 'object' && 'maybe' in t ? t.maybe : t;
+      if (bagValueType(inner)) return { name, value: v };
       if (typeof t === 'object' && 'maybe' in t) return { name, value: maybeAttribute(v, t, a) };
       return { name, value: { op: 'to-string', arg: v } };
     };
@@ -2877,7 +3370,53 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const spreads: { expr: ts.Expression; shape: Shape; rest: boolean; at: SNode }[] = [];
       /** The writers of declared props a spread may hold, in source order. */
       const writers = new Map<string, ({ explicit: Expr } | { spread: number })[]>();
+      /** Snippet props of this component passed on as the child's (`{content}`). */
+      const forwarded: { name: string; params?: number[]; body: Node[]; when?: Expr }[] = [];
       for (const a of n.attributes) {
+        // A snippet prop of this component passed on as one of the child's
+        // (bits-ui's `<FloatingLayerContent {content} />`): provided to the
+        // child when it was to this component.
+        const slotDecl =
+          a.type === 'Attribute' && !declared(a.name)
+            ? target.slots?.find(d => d.name === a.name)
+            : undefined;
+        if (slotDecl) {
+          const e =
+            a.value !== true && !Array.isArray(a.value)
+              ? skipParens(exprNode(a.value.expression))
+              : undefined;
+          const own =
+            e && ts.isIdentifier(e) ? snippetOf.get(checker.getSymbolAtLocation(e)!) : undefined;
+          if (!own)
+            fail(
+              'E_TEMPLATE',
+              `${a.name} is a snippet prop of ${n.name}: pass a {#snippet} block or a snippet prop of this component`,
+              loc(a),
+            );
+          const mine = slots.find(d => d.name === own)!;
+          if (JSON.stringify(mine.params ?? []) !== JSON.stringify(slotDecl.params ?? []))
+            fail(
+              'E_TEMPLATE',
+              `${own} and ${n.name}'s ${a.name} take different parameters`,
+              loc(a),
+            );
+          const params = (slotDecl.params ?? []).map((t, i) => tb.local(`$${a.name}${i}`, t));
+          forwarded.push({
+            name: a.name,
+            ...(params.length ? { params } : {}),
+            body: [
+              {
+                kind: 'slot',
+                name: own!,
+                ...(params.length
+                  ? { args: params.map(p => ({ op: 'local', local: p }) as Expr) }
+                  : {}),
+              },
+            ],
+            when: { op: 'slot-provided', name: own! },
+          });
+          continue;
+        }
         if (a.type === 'SpreadAttribute') {
           const e = exprNode(a.expression);
           // A bag, or a plain record spread as its fields (bits-ui's
@@ -2931,6 +3470,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           bag.push(restEntry(a));
           continue;
         }
+        // A prop the child neither declares nor collects (bits-ui passes
+        // FocusScope `forceMount`): Svelte passes it as a getter nothing
+        // calls, so its expression is never evaluated.
+        if (a.type === 'Attribute' && restCell < 0 && !declared(a.name)) continue;
         if (a.type === 'BindDirective' && writers.has(a.name))
           fail('E_TEMPLATE', `bind:${a.name} after a spread that may hold ${a.name}`, loc(a));
         if (a.type === 'Attribute') {
@@ -2953,7 +3496,22 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             v = value(e);
             // A function of a compatible type (fewer parameters, a result
             // where none is expected) is adapted to the prop's.
-            const from = typeOf(e, v);
+            let from = typeOf(e, v);
+            // A prop whose default is not lowered (no site leaves it
+            // undefined) takes a nullable value only where TypeScript has
+            // narrowed it to present (`{#if el}<Target to={el} />`).
+            const inner = maybeInner(from);
+            if (inner && !maybeInner(want) && unusedDefaults.has(`${child.index}:${propCell(a)}`)) {
+              const t = checker.getTypeAtLocation(e);
+              if (checker.getNonNullableType(t) !== t)
+                fail(
+                  'E_PROPS',
+                  `${n.name}'s prop ${a.name} is passed a value that may be null or undefined here, which its type does not hold`,
+                  loc(a),
+                );
+              v = { op: 'unwrap', value: v };
+              from = inner;
+            }
             const fn = maybeInner(want) ?? want;
             const adapted = lower.adaptFunction(v, from, fn);
             v = adapted
@@ -3023,7 +3581,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           !(typeof cell.type === 'object' && 'maybe' in cell.type) && !cell.undefinedDefault;
         const sure =
           required &&
-          ws.every(w => 'explicit' in w || spreadHolds(spreads[w.spread].expr, key, new Set()));
+          ws.every(
+            w =>
+              'explicit' in w ||
+              spreadHolds(spreads[w.spread].expr, key, new Set()) ||
+              // (Also a bag the census knows holds it: a mergeProps
+              // result, frontend/unions.ts `bagHas`.)
+              lower.unions.bagHolds(spreads[w.spread].expr, key),
+          );
         if (required && !sure)
           fail(
             'E_PROPS',
@@ -3065,6 +3630,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           fail('E_PROPS', `${n.name} requires the prop ${c.prop}`, loc(n));
       // Snippets and children: parent-owned content for the child's slots.
       const defs: { name: string; params?: number[]; body: Node[]; when?: Expr }[] = [];
+      defs.push(...forwarded);
       const declOf = (name: string, at: SNode) =>
         target.slots?.find(d => d.name === name) ??
         fail('E_PROPS', `${n.name} has no snippet prop ${name}`, loc(at));
@@ -3628,6 +4194,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // read state as it was before the batch that destroys or re-runs them.
     schedule: { cleanupReadsPrevious: true },
   };
+  lower.checkStyleSpreads(ir);
   // A bound optional prop the child writes: only present values (`some`),
   // which the parent's variable of the present type can hold.
   // A `bind:` setter passes on what its own child writes.
@@ -3704,6 +4271,16 @@ function mergeHandlers(
  * A URL fragment percent-decoded as UTF-8. A malformed run of escapes is
  * kept as written (the runtime checks the targets of followed links again).
  */
+/**
+ * A type of the values a bag passes to declared props besides text,
+ * booleans, functions and style objects (runic_ir::builtins::bag_value_type).
+ */
+function bagValueType(t: Type): boolean {
+  if (typeof t === 'string')
+    return !['void', 'event', 'attrs', 'string', 'boolean', 'contexts', 'mounted'].includes(t);
+  return !('fn' in t) && !('maybe' in t);
+}
+
 function decodeFragment(s: string): string {
   return s.replace(/(?:%[0-9a-fA-F]{2})+/g, run => {
     try {

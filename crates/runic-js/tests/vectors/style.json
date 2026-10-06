@@ -1,0 +1,581 @@
+{
+ "parse": [
+  {
+   "css": "",
+   "entries": []
+  },
+  {
+   "css": "color: red",
+   "entries": [
+    [
+     "color",
+     "red"
+    ]
+   ]
+  },
+  {
+   "css": "color: red;",
+   "entries": [
+    [
+     "color",
+     "red"
+    ]
+   ]
+  },
+  {
+   "css": "pointer-events: auto; contain: layout style;",
+   "entries": [
+    [
+     "pointerEvents",
+     "auto"
+    ],
+    [
+     "contain",
+     "layout style"
+    ]
+   ]
+  },
+  {
+   "css": "  color :  red  ;  ; background: blue",
+   "entries": [
+    [
+     "color",
+     "red"
+    ],
+    [
+     "background",
+     "blue"
+    ]
+   ]
+  },
+  {
+   "css": "color: red; color: blue",
+   "entries": [
+    [
+     "color",
+     "blue"
+    ]
+   ]
+  },
+  {
+   "css": "--bits-x: 1px; --Bits-Y: 2px",
+   "entries": [
+    [
+     "--bits-x",
+     "1px"
+    ],
+    [
+     "--Bits-Y",
+     "2px"
+    ]
+   ]
+  },
+  {
+   "css": "-webkit-transition: none; -moz-appearance: none; -ms-flex: 1; -o-x: y",
+   "entries": [
+    [
+     "WebkitTransition",
+     "none"
+    ],
+    [
+     "MozAppearance",
+     "none"
+    ],
+    [
+     "MsFlex",
+     "1"
+    ],
+    [
+     "OX",
+     "y"
+    ]
+   ]
+  },
+  {
+   "css": "background: url(\"a;b.png\"); font-family: 'A;B', serif",
+   "entries": [
+    [
+     "background",
+     "url(\"a;b.png\")"
+    ],
+    [
+     "fontFamily",
+     "'A;B', serif"
+    ]
+   ]
+  },
+  {
+   "css": "background: url(a;b.png) no-repeat",
+   "entries": [
+    [
+     "background",
+     "url(a;b.png) no-repeat"
+    ]
+   ]
+  },
+  {
+   "css": "content: \"a\\\"b;c\"; x: y",
+   "entries": [
+    [
+     "content",
+     "\"a\\\"b;c\""
+    ],
+    [
+     "x",
+     "y"
+    ]
+   ]
+  },
+  {
+   "css": "content: 'it\\'s'; x: y",
+   "entries": [
+    [
+     "content",
+     "'it\\'s'"
+    ],
+    [
+     "x",
+     "y"
+    ]
+   ]
+  },
+  {
+   "css": "content: \"unterminated; x: y",
+   "entries": [
+    [
+     "content",
+     "\"unterminated"
+    ],
+    [
+     "x",
+     "y"
+    ]
+   ]
+  },
+  {
+   "css": "/* lead */ color: /* mid */ red /* tail */; x: y",
+   "entries": [
+    [
+     "color",
+     "red"
+    ],
+    [
+     "x",
+     "y"
+    ]
+   ]
+  },
+  {
+   "css": "color/* c */: red",
+   "error": "property missing ':'"
+  },
+  {
+   "css": "color: red /* unterminated",
+   "entries": [
+    [
+     "color",
+     "red /* unterminated"
+    ]
+   ]
+  },
+  {
+   "css": "/* unterminated",
+   "error": "End of comment missing"
+  },
+  {
+   "css": "color red",
+   "error": "property missing ':'"
+  },
+  {
+   "css": "color: ; x: y",
+   "entries": [
+    [
+     "color",
+     ""
+    ],
+    [
+     "x",
+     "y"
+    ]
+   ]
+  },
+  {
+   "css": "grid-template-areas: \"a b\" \"c d\"",
+   "entries": [
+    [
+     "gridTemplateAreas",
+     "\"a b\" \"c d\""
+    ]
+   ]
+  },
+  {
+   "css": "transform: translate(1px, 2px) rotate(3deg); x: y",
+   "entries": [
+    [
+     "transform",
+     "translate(1px, 2px) rotate(3deg)"
+    ],
+    [
+     "x",
+     "y"
+    ]
+   ]
+  },
+  {
+   "css": "a: b} c: d",
+   "entries": [
+    [
+     "a",
+     "b"
+    ]
+   ]
+  },
+  {
+   "css": "*zoom: 1; _height: 2px",
+   "entries": [
+    [
+     "*zoom",
+     "1"
+    ],
+    [
+     "height",
+     "2px"
+    ]
+   ]
+  },
+  {
+   "css": "foo[bar]: 1; foo[BAR]: 2",
+   "error": "property missing ':'"
+  },
+  {
+   "css": "font-size: 12px !important",
+   "entries": [
+    [
+     "fontSize",
+     "12px !important"
+    ]
+   ]
+  },
+  {
+   "css": "margin:0;padding:0",
+   "entries": [
+    [
+     "margin",
+     "0"
+    ],
+    [
+     "padding",
+     "0"
+    ]
+   ]
+  },
+  {
+   "css": "\n  color: red;\n  width: 10px\n",
+   "entries": [
+    [
+     "color",
+     "red"
+    ],
+    [
+     "width",
+     "10px"
+    ]
+   ]
+  },
+  {
+   "css": "WebkitX: y; fontSize: 1px; XMLHttp: 2; a-b-c: d; a_b: c; a.b: c; a/b: c",
+   "error": "property missing ':'"
+  },
+  {
+   "css": "background-color: rgb(1, 2, 3); line-height: 1.5",
+   "entries": [
+    [
+     "backgroundColor",
+     "rgb(1, 2, 3)"
+    ],
+    [
+     "lineHeight",
+     "1.5"
+    ]
+   ]
+  },
+  {
+   "css": "x: y;;; ;z: w",
+   "entries": [
+    [
+     "x",
+     "y"
+    ],
+    [
+     "z",
+     "w"
+    ]
+   ]
+  },
+  {
+   "css": "x: \"multi\nline\"; y: z",
+   "entries": [
+    [
+     "x",
+     "\"multi\nline\""
+    ],
+    [
+     "y",
+     "z"
+    ]
+   ]
+  },
+  {
+   "css": "x:  value ; y: z",
+   "entries": [
+    [
+     "x",
+     "value"
+    ],
+    [
+     "y",
+     "z"
+    ]
+   ]
+  }
+ ],
+ "merge": [
+  {
+   "a": "pointer-events: auto; contain: layout style;",
+   "b": "pointer-events: auto; contain: layout style;",
+   "result": "pointer-events: auto; contain: layout style;"
+  },
+  {
+   "a": "pointer-events: auto; contain: layout style;",
+   "b": "color: red; --x: 1px",
+   "result": "pointer-events: auto; contain: layout style; color: red; --x: 1px;"
+  },
+  {
+   "a": "pointer-events: auto; contain: layout style;",
+   "b": {
+    "object": [
+     [
+      "pointerEvents",
+      "auto"
+     ],
+     [
+      "color",
+      "blue"
+     ]
+    ]
+   },
+   "result": "pointer-events: auto; contain: layout style; color: blue;"
+  },
+  {
+   "a": "pointer-events: auto; contain: layout style;",
+   "b": {
+    "object": [
+     [
+      "--bits-y",
+      "2px"
+     ],
+     [
+      "WebkitTransition",
+      "none"
+     ]
+    ]
+   },
+   "result": "pointer-events: auto; contain: layout style; --bits-y: 2px; -webkit-transition: none;"
+  },
+  {
+   "a": "pointer-events: auto; contain: layout style;",
+   "b": "",
+   "result": "pointer-events: auto; contain: layout style;"
+  },
+  {
+   "a": "color: red; --x: 1px",
+   "b": "pointer-events: auto; contain: layout style;",
+   "result": "color: red; --x: 1px; pointer-events: auto; contain: layout style;"
+  },
+  {
+   "a": "color: red; --x: 1px",
+   "b": "color: red; --x: 1px",
+   "result": "color: red; --x: 1px;"
+  },
+  {
+   "a": "color: red; --x: 1px",
+   "b": {
+    "object": [
+     [
+      "pointerEvents",
+      "auto"
+     ],
+     [
+      "color",
+      "blue"
+     ]
+    ]
+   },
+   "result": "color: blue; --x: 1px; pointer-events: auto;"
+  },
+  {
+   "a": "color: red; --x: 1px",
+   "b": {
+    "object": [
+     [
+      "--bits-y",
+      "2px"
+     ],
+     [
+      "WebkitTransition",
+      "none"
+     ]
+    ]
+   },
+   "result": "color: red; --x: 1px; --bits-y: 2px; -webkit-transition: none;"
+  },
+  {
+   "a": "color: red; --x: 1px",
+   "b": "",
+   "result": "color: red; --x: 1px;"
+  },
+  {
+   "a": {
+    "object": [
+     [
+      "pointerEvents",
+      "auto"
+     ],
+     [
+      "color",
+      "blue"
+     ]
+    ]
+   },
+   "b": "pointer-events: auto; contain: layout style;",
+   "result": "pointer-events: auto; color: blue; contain: layout style;"
+  },
+  {
+   "a": {
+    "object": [
+     [
+      "pointerEvents",
+      "auto"
+     ],
+     [
+      "color",
+      "blue"
+     ]
+    ]
+   },
+   "b": "color: red; --x: 1px",
+   "result": "pointer-events: auto; color: red; --x: 1px;"
+  },
+  {
+   "a": {
+    "object": [
+     [
+      "pointerEvents",
+      "auto"
+     ],
+     [
+      "color",
+      "blue"
+     ]
+    ]
+   },
+   "b": "",
+   "result": "pointer-events: auto; color: blue;"
+  },
+  {
+   "a": {
+    "object": [
+     [
+      "--bits-y",
+      "2px"
+     ],
+     [
+      "WebkitTransition",
+      "none"
+     ]
+    ]
+   },
+   "b": "pointer-events: auto; contain: layout style;",
+   "result": "--bits-y: 2px; -webkit-transition: none; pointer-events: auto; contain: layout style;"
+  },
+  {
+   "a": {
+    "object": [
+     [
+      "--bits-y",
+      "2px"
+     ],
+     [
+      "WebkitTransition",
+      "none"
+     ]
+    ]
+   },
+   "b": "color: red; --x: 1px",
+   "result": "--bits-y: 2px; -webkit-transition: none; color: red; --x: 1px;"
+  },
+  {
+   "a": {
+    "object": [
+     [
+      "--bits-y",
+      "2px"
+     ],
+     [
+      "WebkitTransition",
+      "none"
+     ]
+    ]
+   },
+   "b": "",
+   "result": "--bits-y: 2px; -webkit-transition: none;"
+  },
+  {
+   "a": "",
+   "b": "pointer-events: auto; contain: layout style;",
+   "result": "pointer-events: auto; contain: layout style;"
+  },
+  {
+   "a": "",
+   "b": "color: red; --x: 1px",
+   "result": "color: red; --x: 1px;"
+  },
+  {
+   "a": "",
+   "b": {
+    "object": [
+     [
+      "pointerEvents",
+      "auto"
+     ],
+     [
+      "color",
+      "blue"
+     ]
+    ]
+   },
+   "result": "pointer-events: auto; color: blue;"
+  },
+  {
+   "a": "",
+   "b": {
+    "object": [
+     [
+      "--bits-y",
+      "2px"
+     ],
+     [
+      "WebkitTransition",
+      "none"
+     ]
+    ]
+   },
+   "result": "--bits-y: 2px; -webkit-transition: none;"
+  },
+  {
+   "a": "",
+   "b": "",
+   "result": ""
+  }
+ ]
+}

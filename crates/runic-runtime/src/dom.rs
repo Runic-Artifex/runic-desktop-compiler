@@ -76,6 +76,19 @@ impl Event {
         Event::ALL.into_iter().find(|e| e.name() == name)
     }
 
+    /// The event of a listener attribute name and whether it listens in the
+    /// capture phase: `on<event>` or `on<event>capture` (Svelte's
+    /// `onfocuscapture`, M6 overlays).
+    pub fn listener(name: &str) -> Option<(Event, bool)> {
+        let rest = name.strip_prefix("on")?;
+        if let Some(e) = Event::parse(rest) {
+            return Some((e, false));
+        }
+        rest.strip_suffix("capture")
+            .and_then(Event::parse)
+            .map(|e| (e, true))
+    }
+
     /// `event.type`.
     pub fn name(self) -> &'static str {
         match self {
@@ -175,10 +188,15 @@ impl Event {
 #[derive(Default)]
 pub(crate) struct Listeners {
     map: HashMap<NodeId, Vec<(Event, u32)>>,
+    /// Capture listeners of elements (attribute bag entries
+    /// `on<event>capture`, M6 overlays).
+    capture: HashMap<NodeId, Vec<(Event, u32)>>,
     /// Keys of listeners whose elements were removed (the app frees them).
     freed: Vec<u32>,
     /// An element that lost focus because a list move detached it.
     pub(crate) blurred: Option<NodeId>,
+    /// Parents whose child lists changed (MutationObserver, M6 overlays).
+    pub(crate) child_mutations: Vec<NodeId>,
     /// Inputs whose value was set by script before their editor existed: the
     /// caret moves to the end once the editor is created (as `input.value = v`).
     pending_caret: Vec<NodeId>,
@@ -260,10 +278,50 @@ impl Listeners {
             .map(|(_, h)| *h)
     }
 
+    /// The capture listeners of `node` for `event`, in registration order.
+    pub(crate) fn all_capture(&self, node: NodeId, event: Event) -> impl Iterator<Item = u32> + '_ {
+        self.capture
+            .get(&node)
+            .into_iter()
+            .flatten()
+            .filter(move |(e, _)| *e == event)
+            .map(|(_, h)| *h)
+    }
+
+    /// The capture-phase deliveries of an event along `chain` (the target
+    /// first, then its ancestors): from the root down to the target.
+    pub(crate) fn capture_deliveries(
+        &self,
+        chain: &[NodeId],
+        event: Event,
+        e: &runic_js::Event,
+    ) -> Vec<crate::Delivery> {
+        chain
+            .iter()
+            .rev()
+            .flat_map(|&n| {
+                self.all_capture(n, event)
+                    .map(move |listener| crate::Delivery {
+                        listener,
+                        event: e.clone(),
+                        current: n.as_u64(),
+                    })
+            })
+            .collect()
+    }
+
     /// Whether `node` has a listener for an event `action` delivers.
     #[cfg(feature = "probe")]
     pub(crate) fn listens(&self, node: NodeId, action: &str) -> bool {
         self.map
+            .get(&node)
+            .is_some_and(|l| l.iter().any(|(e, _)| e.action() == action))
+    }
+
+    /// Whether `node` has a capture listener for an event `action` delivers.
+    #[cfg(feature = "probe")]
+    pub(crate) fn captures(&self, node: NodeId, action: &str) -> bool {
+        self.capture
             .get(&node)
             .is_some_and(|l| l.iter().any(|(e, _)| e.action() == action))
     }
@@ -281,7 +339,7 @@ pub struct ClassState {
 pub struct Spread<L> {
     bag: Option<runic_js::Attrs<L>>,
     names: Vec<String>,
-    listeners: Vec<(Event, u32, usize)>,
+    listeners: Vec<(Event, bool, u32, usize)>,
     /// The inline style a `style` entry manages, and whether one does.
     style: runic_css::StyleState,
     styled: bool,
@@ -319,7 +377,7 @@ impl Host {
         }
     }
 
-    fn dom(&self) -> Option<Dom<'_>> {
+    pub(crate) fn dom(&self) -> Option<Dom<'_>> {
         // SAFETY: attached only while the generated app runs app code inside
         // a runtime call that holds the document; that call does not use the
         // document while app code runs.
@@ -336,6 +394,49 @@ impl Host {
     pub fn rect(&self, node: u64) -> [f64; 8] {
         self.dom().map_or([0.0; 8], |dom| {
             crate::layout::rect(dom.doc, NodeId::from_u64(node))
+        })
+    }
+
+    /// `getClientRects()` of `node`: its border box (as `rect`), or none
+    /// where it has no box. The line boxes of an inline element are not
+    /// covered (reported unsupported; its bounding box stands for them).
+    pub fn client_rects(&self, node: u64) -> Vec<[f64; 8]> {
+        self.dom().map_or(vec![], |dom| {
+            crate::layout::client_rects(dom.doc, NodeId::from_u64(node))
+        })
+    }
+
+    /// A listener added by script (`addEventListener`): `key` receives
+    /// `event` at `node`, as a template listener does.
+    pub fn listen_element(&self, node: u64, event: Event, key: u32) {
+        if let Some(mut dom) = self.dom() {
+            dom.listen(NodeId::from_u64(node), event, key);
+        }
+    }
+
+    /// Remove a listener added by script (`removeEventListener`); its key is
+    /// released. A listener of a removed element was released with it.
+    pub fn unlisten_element(&self, node: u64, key: u32) {
+        if let Some(mut dom) = self.dom() {
+            let node = NodeId::from_u64(node);
+            if dom
+                .listeners
+                .map
+                .get(&node)
+                .is_some_and(|l| l.iter().any(|(_, k)| *k == key))
+            {
+                dom.unlisten(node, key);
+            }
+        }
+    }
+
+    /// A metric of the document element (`document.documentElement.clientWidth`).
+    pub fn root_metric(&self, name: &str) -> f64 {
+        self.dom().map_or(0.0, |dom| {
+            let Some(root) = dom.doc.try_root_element().map(|r| r.id) else {
+                return 0.0;
+            };
+            crate::layout::metric(dom.doc, root, name)
         })
     }
 
@@ -444,18 +545,42 @@ impl Host {
         })
     }
 
-    /// `element.closest(tag)`: the nearest inclusive ancestor element with
-    /// that tag name.
-    pub fn closest(&self, node: u64, tag: &str) -> Option<u64> {
-        let dom = self.dom()?;
-        let mut at = dom.doc.get_node(NodeId::from_u64(node));
-        while let Some(n) = at {
-            if n.element_data().is_some_and(|e| *e.name.local == *tag) {
-                return Some(NodeId::from(n.id).as_u64());
+    /// `element.closest(selector)`: the nearest inclusive ancestor element
+    /// matching (a selector outside runic_js's subset is reported
+    /// unsupported, and matches nothing).
+    pub fn closest(&self, node: u64, selector: &str) -> Option<u64> {
+        let selector = match runic_js::parse_selector(selector) {
+            Ok(s) => s,
+            Err(e) => {
+                crate::unsupported(&format!("closest: {e}"));
+                return None;
             }
-            at = n.parent.and_then(|p| dom.doc.get_node(p));
+        };
+        let dom = self.dom()?;
+        struct View<'a>(&'a blitz_dom::Node);
+        impl runic_js::SelElement for View<'_> {
+            fn tag(&self) -> &str {
+                self.0.element_data().map_or("", |e| &e.name.local)
+            }
+            fn attr(&self, name: &str) -> Option<&str> {
+                self.0.attr(name.into())
+            }
         }
-        None
+        let doc = &*dom.doc;
+        // The element ancestors, from the root.
+        let mut path: Vec<View> = vec![];
+        let mut at = doc.get_node(NodeId::from_u64(node));
+        while let Some(n) = at {
+            if n.element_data().is_some() {
+                path.push(View(n));
+            }
+            at = n.parent.and_then(|p| doc.get_node(p));
+        }
+        path.reverse();
+        (0..path.len())
+            .rev()
+            .find(|&end| selector.matches(&path[..=end]))
+            .map(|end| NodeId::from(path[end].0.id).as_u64())
     }
 
     /// `element.hasAttribute(name)`.
@@ -498,6 +623,22 @@ impl Host {
 
     /// The parent element inside the app's DOM: none for the app's
     /// top-level elements (whose parent is the mount container).
+    /// `a.contains(b)`: `b` is `a` or one of its descendants.
+    pub fn contains(&self, a: u64, b: u64) -> bool {
+        let Some(dom) = self.dom() else {
+            return a == b;
+        };
+        let a = NodeId::from_u64(a);
+        let mut at = Some(NodeId::from_u64(b));
+        while let Some(n) = at {
+            if n == a {
+                return true;
+            }
+            at = dom.doc.get_node(n).and_then(|x| x.parent);
+        }
+        false
+    }
+
     pub fn parent_element(&self, node: u64) -> Option<u64> {
         let dom = self.dom()?;
         let parent = dom.doc.get_node(NodeId::from_u64(node))?.parent?;
@@ -529,6 +670,16 @@ impl Host {
                 listeners: &mut *self.listeners?,
             })
         }
+    }
+
+    /// `document.querySelector(selector)` (M6 overlays: bits-ui's portal
+    /// target): the first matching element of the document in tree order,
+    /// the `html` element included.
+    pub fn query_selector_document(&self, selector: &str) -> Option<u64> {
+        let root = self.dom()?.doc.root_node().id;
+        self.query_selector_all(NodeId::from(root).as_u64(), selector)
+            .first()
+            .copied()
     }
 
     /// `document.getElementById(id)`: the first element in tree order.
@@ -767,19 +918,18 @@ fn focus_event(
         value: value.map(|v| v.as_str().into()).unwrap_or_default(),
         ..Default::default()
     });
-    let deliveries = path
-        .iter()
-        .flat_map(|&n| {
-            let event = &event;
-            dom.listeners
-                .all(n, kind)
-                .map(move |listener| crate::Delivery {
-                    listener,
-                    event: event.clone(),
-                    current: n.as_u64(),
-                })
-        })
-        .collect();
+    // The elements' capture listeners first, from the root to the target.
+    let mut deliveries = dom.listeners.capture_deliveries(&chain, kind, &event);
+    deliveries.extend(path.iter().flat_map(|&n| {
+        let event = &event;
+        dom.listeners
+            .all(n, kind)
+            .map(move |listener| crate::Delivery {
+                listener,
+                event: event.clone(),
+                current: n.as_u64(),
+            })
+    }));
     (event, kind, deliveries)
 }
 
@@ -794,6 +944,16 @@ impl Dom<'_> {
     /// width, height; device-pixel content box width, height.
     pub fn observed_sizes(&self, node: u64) -> [f64; 8] {
         crate::layout::observed_sizes(self.doc, NodeId::from_u64(node))
+    }
+
+    /// IntersectionObserver geometry of element `node` (M6 overlays,
+    /// `layout::intersection`) against the viewport grown by `margins`.
+    pub fn intersection(
+        &mut self,
+        node: u64,
+        margins: &[runic_js::intersection::Margin; 4],
+    ) -> crate::layout::Intersection {
+        crate::layout::intersection(self.doc, NodeId::from_u64(node), margins)
     }
 
     /// The depth of element `node` in the document.
@@ -914,12 +1074,14 @@ impl Dom<'_> {
     }
 
     pub fn append(&mut self, parent: NodeId, child: NodeId) {
+        self.listeners.child_mutations.push(parent);
         self.doc.mutate().append_children(parent, &[child]);
         self.radios_connected(&[child]);
     }
 
     /// Insert `child` into `parent` before `before`, or append.
     pub fn insert(&mut self, parent: NodeId, child: NodeId, before: Option<NodeId>) {
+        self.listeners.child_mutations.push(parent);
         let mut m = self.doc.mutate();
         match before {
             Some(anchor) => m.insert_nodes_before(anchor, &[child]),
@@ -931,11 +1093,22 @@ impl Dom<'_> {
 
     /// Detach and free a subtree, dropping its listener registrations.
     pub fn remove(&mut self, node: NodeId) {
-        let Listeners { map, freed, .. } = &mut *self.listeners;
+        if let Some(parent) = self.doc.get_node(node).and_then(|n| n.parent) {
+            self.listeners.child_mutations.push(parent);
+        }
+        let Listeners {
+            map,
+            capture,
+            freed,
+            ..
+        } = &mut *self.listeners;
         self.doc
             .mutate()
             .remove_and_drop_node_with(node, &mut |gone| {
-                if let Some(list) = map.remove(&gone) {
+                for list in [map.remove(&gone), capture.remove(&gone)]
+                    .into_iter()
+                    .flatten()
+                {
                     freed.extend(list.into_iter().map(|(_, key)| key));
                 }
             });
@@ -969,6 +1142,30 @@ impl Dom<'_> {
         vec![]
     }
 
+    /// Parents whose child lists changed since the last call (node ids).
+    pub fn take_child_mutations(&mut self) -> Vec<u64> {
+        let mut out: Vec<u64> = Vec::new();
+        for n in std::mem::take(&mut self.listeners.child_mutations) {
+            if !out.contains(&n.as_u64()) {
+                out.push(n.as_u64());
+            }
+        }
+        out
+    }
+
+    /// Whether node `b` is `a` or one of its descendants.
+    pub fn contains(&self, a: u64, b: u64) -> bool {
+        let a = NodeId::from_u64(a);
+        let mut at = Some(NodeId::from_u64(b));
+        while let Some(n) = at {
+            if n == a {
+                return true;
+            }
+            at = self.doc.get_node(n).and_then(|x| x.parent);
+        }
+        false
+    }
+
     /// Listener keys released by removed elements since the last call.
     pub fn take_freed(&mut self) -> Vec<u32> {
         std::mem::take(&mut self.listeners.freed)
@@ -981,6 +1178,13 @@ impl Dom<'_> {
         if nodes.is_empty() {
             return;
         }
+        // (Moved nodes leave their old parents' child lists too.)
+        for &n in nodes {
+            if let Some(old) = self.doc.get_node(n).and_then(|x| x.parent) {
+                self.listeners.child_mutations.push(old);
+            }
+        }
+        self.listeners.child_mutations.push(parent);
         if let Some(focused) = self.doc.get_focussed_node_id() {
             let mut cur = Some(focused);
             while let Some(c) = cur {
@@ -1030,7 +1234,7 @@ impl Dom<'_> {
             return None;
         }
         let mut names = vec![];
-        let mut wanted: Vec<(Event, usize, L)> = vec![];
+        let mut wanted: Vec<(Event, bool, usize, L)> = vec![];
         let mut attachments = vec![];
         let mut style = false;
         let mut checked = false;
@@ -1043,8 +1247,8 @@ impl Dom<'_> {
                 continue;
             }
             if let AttrValue::Listener(id, f) = value {
-                if let Some(event) = name.strip_prefix("on").and_then(Event::parse) {
-                    wanted.push((event, *id, f.clone()));
+                if let Some((event, capture)) = Event::listener(&name) {
+                    wanted.push((event, capture, *id, f.clone()));
                 }
                 continue;
             }
@@ -1066,7 +1270,7 @@ impl Dom<'_> {
                     style = true;
                     continue;
                 }
-                ("style", AttrValue::Style(_)) => {
+                ("style", AttrValue::Style(..)) => {
                     crate::unsupported(
                         "a style object spread onto an element (set as the string [object Object])",
                     );
@@ -1128,6 +1332,15 @@ impl Dom<'_> {
                     self.set_attr(node, &name, if *b { "true" } else { "false" })
                 }
                 AttrValue::Flag(true) => self.set_attr(node, &name, ""),
+                // A typed value (a number): its text, as Svelte sets it.
+                AttrValue::Value(v, ops) => match (ops.text)(&**v) {
+                    Ok(Some(t)) => self.set_attr(node, &name, &t.to_rust()),
+                    Ok(None) => continue,
+                    Err(m) => {
+                        crate::unsupported(&m);
+                        continue;
+                    }
+                },
                 _ => continue,
             }
             names.push(name);
@@ -1150,18 +1363,28 @@ impl Dom<'_> {
         // Listeners: keep registrations of the same function, drop the
         // others, register the new ones.
         let mut kept = vec![];
-        for (event, key, id) in std::mem::take(&mut applied.listeners) {
-            if wanted.iter().any(|(e, i, _)| *e == event && *i == id) {
-                kept.push((event, key, id));
+        for (event, capture, key, id) in std::mem::take(&mut applied.listeners) {
+            if wanted
+                .iter()
+                .any(|(e, c, i, _)| *e == event && *c == capture && *i == id)
+            {
+                kept.push((event, capture, key, id));
             } else {
                 self.unlisten(node, key);
             }
         }
-        for (event, id, f) in wanted {
-            if !kept.iter().any(|(e, _, i)| *e == event && *i == id) {
+        for (event, capture, id, f) in wanted {
+            if !kept
+                .iter()
+                .any(|(e, c, _, i)| *e == event && *c == capture && *i == id)
+            {
                 let key = listen(f);
-                self.listen(node, event, key);
-                kept.push((event, key, id));
+                if capture {
+                    self.listen_capture(node, event, key);
+                } else {
+                    self.listen(node, event, key);
+                }
+                kept.push((event, capture, key, id));
             }
         }
         applied.listeners = kept;
@@ -1296,12 +1519,24 @@ impl Dom<'_> {
         if let Some(list) = self.listeners.map.get_mut(&node) {
             list.retain(|(_, k)| *k != key);
         }
+        if let Some(list) = self.listeners.capture.get_mut(&node) {
+            list.retain(|(_, k)| *k != key);
+        }
         self.listeners.freed.push(key);
     }
 
     pub fn listen(&mut self, node: NodeId, event: Event, handler: u32) {
         self.listeners
             .map
+            .entry(node)
+            .or_default()
+            .push((event, handler));
+    }
+
+    /// Register a capture listener of an element (M6 overlays).
+    pub fn listen_capture(&mut self, node: NodeId, event: Event, handler: u32) {
+        self.listeners
+            .capture
             .entry(node)
             .or_default()
             .push((event, handler));

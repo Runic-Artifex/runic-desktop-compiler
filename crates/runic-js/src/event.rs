@@ -40,6 +40,94 @@ pub struct EventData {
     pub cancelable: bool,
     /// A `MediaQueryList` change event: whether the query matches now.
     pub matches: bool,
+    /// Created by script (`new CustomEvent(type, { cancelable })`, M6
+    /// overlays) and never dispatched: only its type and cancellation are
+    /// covered.
+    pub synthetic: bool,
+    /// A synthetic `KeyboardEvent` initialised from another event (bits-ui's
+    /// `new KeyboardEvent(e.type, e)`): its key members are covered too.
+    pub keyboard: bool,
+}
+
+/// The event interfaces `instanceof` tests (M6 overlays), each with its
+/// base interface.
+pub const EVENT_INTERFACES: &[(&str, &str)] = &[
+    ("Event", ""),
+    ("UIEvent", "Event"),
+    ("MouseEvent", "UIEvent"),
+    ("PointerEvent", "MouseEvent"),
+    ("WheelEvent", "MouseEvent"),
+    ("KeyboardEvent", "UIEvent"),
+    ("FocusEvent", "UIEvent"),
+    ("InputEvent", "UIEvent"),
+    ("CustomEvent", "Event"),
+];
+
+impl EventData {
+    /// The interface of the event, as Chromium creates it for its type (a
+    /// script's `CustomEvent`, a keyboard copy a `KeyboardEvent`); None
+    /// for types whose interface the runtime does not know.
+    pub fn interface(&self) -> Option<&'static str> {
+        if self.synthetic {
+            return Some(if self.keyboard {
+                "KeyboardEvent"
+            } else {
+                "CustomEvent"
+            });
+        }
+        let kind = self.kind.to_rust();
+        Some(match kind.as_str() {
+            "pointerdown" | "pointerup" | "pointermove" | "pointerover" | "pointerout"
+            | "pointerenter" | "pointerleave" | "pointercancel" | "gotpointercapture"
+            | "lostpointercapture" | "click" | "auxclick" | "contextmenu" => "PointerEvent",
+            "mousedown" | "mouseup" | "mousemove" | "mouseover" | "mouseout" | "mouseenter"
+            | "mouseleave" | "dblclick" => "MouseEvent",
+            "wheel" => "WheelEvent",
+            "keydown" | "keyup" | "keypress" => "KeyboardEvent",
+            "focus" | "blur" | "focusin" | "focusout" => "FocusEvent",
+            "input" | "beforeinput" => "InputEvent",
+            "change" | "scroll" | "scrollend" | "load" | "error" | "select" => "Event",
+            _ => return None,
+        })
+    }
+
+    /// `event instanceof class` for an interface of `EVENT_INTERFACES`;
+    /// None where the event's interface is unknown (and `class` is not
+    /// `Event`).
+    pub fn instance_of(&self, class: &str) -> Option<bool> {
+        if class == "Event" {
+            return Some(true);
+        }
+        let mut at = self.interface()?;
+        while !at.is_empty() {
+            if at == class {
+                return Some(true);
+            }
+            at = EVENT_INTERFACES
+                .iter()
+                .find(|(name, _)| *name == at)
+                .map_or("", |(_, base)| base);
+        }
+        Some(false)
+    }
+
+    /// `pointerType` (M6, bits-ui's `isTouch`): pointer events, and the
+    /// `click`, `auxclick` and `contextmenu` events Chromium dispatches as
+    /// pointer events, come from the mouse (the only pointer device the
+    /// runtime has), except a `click` with no click count (the activation
+    /// of a focused control by a key, or a simulated click), whose pointer
+    /// type is empty. Other events have none (`undefined` in JavaScript).
+    pub fn pointer_type(&self) -> Option<&'static str> {
+        let kind = self.kind.to_rust();
+        match kind.as_str() {
+            "pointerdown" | "pointerup" | "pointermove" | "pointerover" | "pointerout"
+            | "pointerenter" | "pointerleave" | "pointercancel" | "contextmenu" | "auxclick" => {
+                Some("mouse")
+            }
+            "click" => Some(if self.detail > 0.0 { "mouse" } else { "" }),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]

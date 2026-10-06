@@ -703,12 +703,24 @@ pub struct Machine<'p> {
     media: runic_css::MediaEnv,
     /// Document and window listeners in registration order: (window, kind, listener).
     host_listeners: Vec<(bool, EventKind, Val)>,
+    /// Capture listeners of the document and the window (M6 overlays:
+    /// `on(document, "focusin", f, { capture: true })`), called before the
+    /// event's path.
+    capture_listeners: Vec<(bool, EventKind, Val)>,
+    /// Element listeners added by script (M6 overlays), after the
+    /// template's listeners of their element.
+    element_listeners: Vec<(u64, EventKind, Val)>,
+    /// The visual viewport's listeners (M6 overlays).
+    viewport_listeners: Vec<(EventKind, Val)>,
     /// MediaQueryList change listeners: each list (in creation order) with
     /// its listeners in registration order.
     media_lists: Vec<(js::MediaQueryList, Vec<Val>)>,
     children: HashMap<InstKey, usize>,
     /// Listeners of the last render, indexed by `VNode` listener ids.
     listeners: Vec<ListenerRef>,
+    /// Capture listeners of elements by element id (attribute bag entries
+    /// `on<event>capture`, M6 overlays): indices into `listeners`.
+    capture_elements: HashMap<u64, Vec<(EventKind, usize)>>,
     /// Child instances in tree order (last render).
     order: Vec<usize>,
     /// Stable ids of rendered elements, by identity.
@@ -997,6 +1009,9 @@ impl<'p> Machine<'p> {
             style_states: HashMap::new(),
             replace_states: HashMap::new(),
             host_listeners: vec![],
+            capture_listeners: vec![],
+            element_listeners: vec![],
+            viewport_listeners: vec![],
             media_lists: vec![],
             root: runic_css::Root::with_attrs(
                 program
@@ -1007,6 +1022,7 @@ impl<'p> Machine<'p> {
             media: runic_css::MediaEnv::default(),
             children: HashMap::new(),
             listeners: vec![],
+            capture_elements: HashMap::new(),
             order: vec![],
             snap: None,
             microtasks: VecDeque::new(),
@@ -2504,6 +2520,35 @@ impl<'p> Machine<'p> {
                     "size" => Val::Num(arr::map_size(map)),
                     "keys" => Val::Array(arr::map_keys(map)),
                     "values" => Val::Array(arr::map_values(map)),
+                    "dictionary-keys" => {
+                        Val::Array(arr::dictionary_keys(map, |k: &Val| k.string().to_rust()))
+                    }
+                    "dictionary-values" => {
+                        Val::Array(arr::dictionary_values(map, |k: &Val| k.string().to_rust()))
+                    }
+                    "entries" => {
+                        let Type::Array(e) = ty else {
+                            panic!("validated entries")
+                        };
+                        let Type::Record(r) = **e else {
+                            panic!("validated entries")
+                        };
+                        let keys = arr::map_keys(map);
+                        let values = arr::map_values(map);
+                        let items: Vec<Val> = keys
+                            .borrow()
+                            .iter()
+                            .zip(values.borrow().iter())
+                            .map(|(k, v)| {
+                                Val::Record(JsRef::new(RecordData::new(
+                                    r,
+                                    vec![k.clone(), v.clone()],
+                                    false,
+                                )))
+                            })
+                            .collect();
+                        Val::Array(js::array(items))
+                    }
                     other => unreachable!("validated map method {other}"),
                 }
             }
@@ -2629,6 +2674,15 @@ impl<'p> Machine<'p> {
             ("document", "set-title") => {
                 self.host.title = a[0].string();
                 Val::Undefined
+            }
+            ("document", "querySelector") => {
+                let selector = js::parse_selector(&a[0].string().to_rust()).map_err(|m| {
+                    Throw::new("RunicUnsupportedError", format!("querySelector: {m}"))
+                })?;
+                match document_query(&self.last_tree, self.root_len, &selector)? {
+                    Some(e) => Val::Element(js::Element(e)),
+                    None => Val::Null,
+                }
             }
             ("document", "getElementById") => {
                 let id = a[0].string().to_rust();
@@ -2786,17 +2840,10 @@ impl<'p> Machine<'p> {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
                 };
-                let tag_name = a[1].string().to_rust();
-                chain_nodes(&self.last_tree, e.0)
-                    .and_then(|nodes| {
-                        nodes.iter().rev().find_map(|n| match n {
-                            VNode::Element { tag, id, .. } if *tag == tag_name => {
-                                Some(Val::Element(js::Element(*id)))
-                            }
-                            _ => None,
-                        })
-                    })
-                    .unwrap_or(Val::Null)
+                let selector = js::parse_selector(&a[1].string().to_rust())
+                    .map_err(|m| Throw::new("RunicUnsupportedError", format!("closest: {m}")))?;
+                closest(&self.last_tree, self.root_len, e.0, &selector)?
+                    .map_or(Val::Null, |n| Val::Element(js::Element(n)))
             }
             ("element", "requestSubmit") => {
                 return Err(Throw::new(
@@ -2841,6 +2888,17 @@ impl<'p> Machine<'p> {
                 }
             }
             // The parent inside the program's DOM: none at its top level.
+            ("element", "contains") => {
+                let (Val::Element(a0), Val::Element(b0)) = (&a[0], &a[1]) else {
+                    panic!("validated elements")
+                };
+                let chain = chain_nodes(&self.last_tree, b0.0);
+                Val::Bool(
+                    a0 == b0
+                        || (*a0 == js::Element::BODY && chain.is_some())
+                        || chain.is_some_and(|c| c.iter().any(|n| element_id(n) == Some(a0.0))),
+                )
+            }
             ("element", "parent") => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
@@ -2864,9 +2922,38 @@ impl<'p> Machine<'p> {
                 }
             }
             // `beforematch` listeners: the runtime never fires the event.
-            ("element", "listen" | "unlisten") => Val::Undefined,
+            ("element", "listen" | "unlisten") if a[1].string().to_rust() == "beforematch" => {
+                Val::Undefined
+            }
+            // Other element listeners added by script (the interpreter
+            // scrolls no element: its `scroll` listeners are never called).
+            ("element", m @ ("listen" | "unlisten")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let kind = EventKind::parse(&a[1].string().to_rust()).expect("validated kind");
+                let f = a[2].clone();
+                let at = self
+                    .element_listeners
+                    .iter()
+                    .position(|g| g.0 == e.0 && g.1 == kind && g.2.same(&f));
+                match (m, at) {
+                    ("listen", None) => self.element_listeners.push((e.0, kind, f)),
+                    ("unlisten", Some(i)) => {
+                        self.element_listeners.remove(i);
+                    }
+                    _ => {}
+                }
+                Val::Undefined
+            }
             // An observer that never observed has nothing to disconnect.
             ("mutation", "disconnect") => Val::Undefined,
+            ("mutation", "new") => {
+                let Type::Record(r) = ty else {
+                    panic!("validated MutationObserver record")
+                };
+                Val::Record(JsRef::new(RecordData::new(*r, vec![a[0].clone()], true)))
+            }
             // ResizeObservers (M6): created as records holding their
             // callback; observing needs layout (above), so an observer that
             // never observed has nothing to stop.
@@ -2877,6 +2964,19 @@ impl<'p> Machine<'p> {
                 Val::Record(JsRef::new(RecordData::new(*r, vec![a[0].clone()], true)))
             }
             ("resize", "unobserve" | "disconnect") => Val::Undefined,
+            // IntersectionObservers (M6 overlays): the options are checked as
+            // the constructor checks them; observing needs layout (above).
+            ("intersection", "new") => {
+                let Type::Record(r) = ty else {
+                    panic!("validated IntersectionObserver record")
+                };
+                js::intersection::parse_root_margin(&a[1].string().to_rust())
+                    .map_err(|m| Throw::new("SyntaxError", m))?;
+                let values: Vec<f64> = a[2].array().borrow().iter().map(|v| v.num()).collect();
+                js::intersection::thresholds(&values).map_err(|m| Throw::new("RangeError", m))?;
+                Val::Record(JsRef::new(RecordData::new(*r, vec![a[0].clone()], true)))
+            }
+            ("intersection", "unobserve" | "disconnect") => Val::Undefined,
             ("effect", phase @ ("pre" | "post")) => {
                 let phase = if phase == "pre" {
                     EffectPhase::Pre
@@ -3034,6 +3134,39 @@ impl<'p> Machine<'p> {
                     other => panic!("validated media query list member {other}"),
                 }
             }
+            ("visual-viewport", m @ ("listen" | "unlisten")) => {
+                let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
+                let f = a[1].clone();
+                let at = self
+                    .viewport_listeners
+                    .iter()
+                    .position(|g| g.0 == kind && g.1.same(&f));
+                match (m, at) {
+                    ("listen", None) => self.viewport_listeners.push((kind, f)),
+                    ("unlisten", Some(i)) => {
+                        self.viewport_listeners.remove(i);
+                    }
+                    _ => {}
+                }
+                Val::Undefined
+            }
+            (target @ ("window" | "document"), m @ ("listen-capture" | "unlisten-capture")) => {
+                let window = target == "window";
+                let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
+                let f = a[1].clone();
+                let at = self
+                    .capture_listeners
+                    .iter()
+                    .position(|g| g.0 == window && g.1 == kind && g.2.same(&f));
+                match (m, at) {
+                    ("listen-capture", None) => self.capture_listeners.push((window, kind, f)),
+                    ("unlisten-capture", Some(i)) => {
+                        self.capture_listeners.remove(i);
+                    }
+                    _ => {}
+                }
+                Val::Undefined
+            }
             (target @ ("window" | "document"), m @ ("listen" | "unlisten")) => {
                 let window = target == "window";
                 let kind = EventKind::parse(&a[0].string().to_rust()).expect("validated kind");
@@ -3052,11 +3185,78 @@ impl<'p> Machine<'p> {
                 }
                 Val::Undefined
             }
+            ("event", "new") => Val::Event(js::Event::new(js::EventData {
+                kind: a[0].string(),
+                cancelable: matches!(a[1], Val::Bool(true)),
+                synthetic: true,
+                ..Default::default()
+            })),
+            ("event", "instance-of") => {
+                let Val::Event(e) = &a[0] else {
+                    panic!("validated event")
+                };
+                let class = a[1].string().to_rust();
+                match e.data().instance_of(&class) {
+                    Some(v) => Val::Bool(v),
+                    None => {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            format!("instanceof {class} of a {} event", e.data().kind.to_rust()),
+                        ));
+                    }
+                }
+            }
+            ("event", "keyboard") => {
+                let Val::Event(src) = &a[1] else {
+                    panic!("validated event")
+                };
+                let d = src.data();
+                Val::Event(js::Event::new(js::EventData {
+                    kind: a[0].string(),
+                    key: d.key.clone(),
+                    code: d.code.clone(),
+                    ctrl: d.ctrl,
+                    shift: d.shift,
+                    alt: d.alt,
+                    meta: d.meta,
+                    repeat: d.repeat,
+                    cancelable: d.cancelable,
+                    synthetic: true,
+                    keyboard: true,
+                    ..Default::default()
+                }))
+            }
             ("event", m) => {
                 let Val::Event(e) = &a[0] else {
                     panic!("validated event")
                 };
                 let d = e.data();
+                if d.synthetic
+                    && !(d.keyboard
+                        && matches!(
+                            m,
+                            "key"
+                                | "code"
+                                | "ctrlKey"
+                                | "shiftKey"
+                                | "altKey"
+                                | "metaKey"
+                                | "repeat"
+                        ))
+                    && !matches!(
+                        m,
+                        "type"
+                            | "defaultPrevented"
+                            | "preventDefault"
+                            | "stopPropagation"
+                            | "stopImmediatePropagation"
+                    )
+                {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        format!("{m} of an event created by script"),
+                    ));
+                }
                 match m {
                     "type" => Val::Str(d.kind.clone()),
                     "key" => Val::Str(d.key.clone()),
@@ -3075,6 +3275,15 @@ impl<'p> Machine<'p> {
                     "button" => Val::Num(d.button),
                     "buttons" => Val::Num(d.buttons),
                     "detail" => Val::Num(d.detail),
+                    "pointerType" => match d.pointer_type() {
+                        Some(t) => Val::Str(JsString::from(t)),
+                        None => {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "pointerType of an event that is not a pointer event",
+                            ));
+                        }
+                    },
                     "deltaX" => Val::Num(d.delta_x),
                     "deltaY" => Val::Num(d.delta_y),
                     "target" => Val::Element(d.target),
@@ -3144,6 +3353,15 @@ impl<'p> Machine<'p> {
                 other => panic!("validated bag, found {other:?}"),
             }
         };
+        if m == "style-text" {
+            let ops = MergeVals {
+                program: self.program,
+            };
+            let js::MergeKind::Style(entries) = js::MergeOps::kind(&ops, &a[0]) else {
+                panic!("validated style object")
+            };
+            return Ok(Val::Str(js::style_to_string(&entries)));
+        }
         Ok(match m {
             "has" => {
                 let name = a[1].string().to_rust();
@@ -3159,10 +3377,54 @@ impl<'p> Machine<'p> {
                 let Type::Maybe(inner) = ty else {
                     panic!("validated attrs.get type")
                 };
+                // A style object entry read as a dictionary (M6 overlays:
+                // bits-ui forwards \`style\`): a new dictionary of its
+                // properties in order, as the native runtime builds one.
+                let v = match (&v, &**inner) {
+                    (Val::Record(r), Type::Map(k, _))
+                        if **k == Type::String && !r.borrow().class =>
+                    {
+                        let data = r.borrow();
+                        let rec = &self.program.records[data.record];
+                        Val::Map(js::array_ops::map_new(
+                            rec.fields
+                                .iter()
+                                .zip(&data.fields)
+                                .map(|(f, x)| {
+                                    (Val::Str(JsString::from(f.name.as_str())), x.clone())
+                                })
+                                .collect(),
+                        ))
+                    }
+                    _ => v,
+                };
                 let fits = match (&v, &**inner) {
                     (Val::Undefined | Val::Null, _) => true,
                     (Val::Str(_), Type::String) | (Val::Bool(_), Type::Boolean) => true,
                     (Val::Closure(_) | Val::Listeners(_), Type::Fn(_)) => true,
+                    // A value of another type (M6 overlays), by its kind.
+                    (v, t) if crate::builtins::bag_value_type(t) => match (v, t) {
+                        (Val::Num(_), Type::Number)
+                        | (Val::Array(_), Type::Array(_))
+                        | (Val::Map(_), Type::Map(..))
+                        | (Val::Set(_), Type::Set(_))
+                        | (Val::Element(_), Type::Element)
+                        | (Val::Promise(_), Type::Promise(_))
+                        | (Val::RegExp(_), Type::Regexp)
+                        | (Val::MediaQuery(_), Type::MediaQuery)
+                        | (Val::Date(_), Type::Date) => true,
+                        (Val::Record(r), t) => {
+                            let record = r.borrow().record;
+                            match t {
+                                Type::Record(x) => *x == record,
+                                _ => self
+                                    .program
+                                    .class_members(t)
+                                    .is_some_and(|m| m.contains(&record)),
+                            }
+                        }
+                        _ => false,
+                    },
                     _ => false,
                 };
                 if !fits {
@@ -3329,6 +3591,7 @@ impl<'p> Machine<'p> {
         // The listeners of the tree before this update (a focused element
         // that the update removes gets its blur events on that tree).
         let previous_listeners = std::mem::take(&mut self.listeners);
+        let previous_capture = std::mem::take(&mut self.capture_elements);
         self.moved.clear();
         self.order.clear();
         let mut visited = HashSet::new();
@@ -3418,6 +3681,7 @@ impl<'p> Machine<'p> {
         {
             self.focused = None;
             let current = std::mem::replace(&mut self.listeners, previous_listeners);
+            let current_capture = std::mem::replace(&mut self.capture_elements, previous_capture);
             let value = chain_nodes(&self.last_tree, f).and_then(|n| match n.last() {
                 Some(VNode::Element { value, .. }) => value.clone(),
                 _ => None,
@@ -3431,6 +3695,7 @@ impl<'p> Machine<'p> {
                 self.dispatch_nested(f, kind, data, elements);
             }
             self.listeners = current;
+            self.capture_elements = current_capture;
             if moved.is_some() && self.program.restore_focus {
                 self.last_tree = tree.clone();
                 let elements = !self.program.schedule.commit_events_ignored;
@@ -3869,7 +4134,7 @@ impl<'p> Machine<'p> {
                                 self.style_states.insert(id, (state, current));
                                 continue;
                             }
-                            ("style", Val::Record(_)) => {
+                            ("style", Val::Record(_) | Val::Map(_)) => {
                                 return Err(Throw::new(
                                     "RunicUnsupportedError",
                                     "a style object spread onto an element (set as the string [object Object])",
@@ -3915,9 +4180,18 @@ impl<'p> Machine<'p> {
                             }
                             _ => {}
                         }
-                        match name.strip_prefix("on").and_then(EventKind::parse) {
-                            Some(kind) => {
-                                refs.push((kind, self.listeners.len()));
+                        match EventKind::listener(name) {
+                            Some((kind, capture)) => {
+                                // (A capture listener: the element's capture
+                                // phase list, M6 overlays.)
+                                if capture {
+                                    self.capture_elements
+                                        .entry(id)
+                                        .or_default()
+                                        .push((kind, self.listeners.len()));
+                                } else {
+                                    refs.push((kind, self.listeners.len()));
+                                }
                                 self.listeners.push(ListenerRef {
                                     instance: self.current,
                                     handler: usize::MAX,
@@ -3932,6 +4206,24 @@ impl<'p> Machine<'p> {
                                 }
                                 Val::Bool(true) => {
                                     map.insert(name.to_ascii_lowercase(), String::new());
+                                }
+                                // A number passed through rest props: its text.
+                                Val::Num(n) => {
+                                    map.insert(name.to_ascii_lowercase(), js::number_to_string(*n));
+                                }
+                                Val::Array(_)
+                                | Val::Record(_)
+                                | Val::Map(_)
+                                | Val::Set(_)
+                                | Val::Element(_)
+                                | Val::Promise(_)
+                                | Val::RegExp(_)
+                                | Val::MediaQuery(_)
+                                | Val::Date(_) => {
+                                    return Err(Throw::new(
+                                        "RunicUnsupportedError",
+                                        "a spread entry that is neither text, a boolean, a number nor a listener, set on an element as its string",
+                                    ));
                                 }
                                 _ => {
                                     map.remove(&name.to_ascii_lowercase());
@@ -5439,7 +5731,36 @@ impl<'p> Machine<'p> {
                 target: js::Element::WINDOW,
                 ..Default::default()
             });
+            self.dispatch_capture(EventKind::Resize, &event, false, s);
             self.dispatch_globals(EventKind::Resize, &event, s);
+            event.finish();
+            // Then the visual viewport's (it resizes with the window).
+            let event = js::Event::new(js::EventData {
+                kind: "resize".into(),
+                target: js::Element::VISUAL_VIEWPORT,
+                ..Default::default()
+            });
+            let listeners: Vec<Val> = self
+                .viewport_listeners
+                .iter()
+                .filter(|g| g.0 == EventKind::Resize)
+                .map(|g| g.1.clone())
+                .collect();
+            for f in listeners {
+                let live = self
+                    .viewport_listeners
+                    .iter()
+                    .any(|g| g.0 == EventKind::Resize && g.1.same(&f));
+                if !live || !event.enter(js::Element::VISUAL_VIEWPORT) {
+                    continue;
+                }
+                s.ran = true;
+                let arg = Val::Event(event.clone());
+                let result = self.task(None, true, |m| m.call_value(&f, vec![arg]).map(|_| ()));
+                if let Err(d) = result {
+                    s.error.get_or_insert(d);
+                }
+            }
             event.finish();
         }
         let lists: Vec<js::MediaQueryList> =
@@ -5989,12 +6310,49 @@ impl<'p> Machine<'p> {
         // Without element listeners where the framework ignores events
         // dispatched during its DOM update.
         let path = if elements { path } else { vec![] };
+        // The elements' capture listeners first, from the root to the target.
+        if elements {
+            for n in &nodes {
+                if let VNode::Element { id, .. } = n {
+                    for &(k, l) in self.capture_elements.get(id).into_iter().flatten() {
+                        if k == kind {
+                            calls.push((l, *id));
+                        }
+                    }
+                }
+            }
+        }
+        // The capture listeners of the window, then the document, first.
+        for window in [true, false] {
+            let current = if window {
+                js::Element::WINDOW
+            } else {
+                js::Element::DOCUMENT
+            };
+            let listeners: Vec<Val> = self
+                .capture_listeners
+                .iter()
+                .filter(|g| g.0 == window && g.1 == kind)
+                .map(|g| g.2.clone())
+                .collect();
+            for f in listeners {
+                if !event.enter(current) {
+                    continue;
+                }
+                if let Err(t) = self.call_value(&f, vec![Val::Event(event.clone())]) {
+                    self.uncaught.push(t);
+                }
+            }
+        }
         for n in path {
             if let VNode::Element { id, listeners, .. } = n {
                 for &(k, l) in listeners {
                     if k == kind {
                         calls.push((l, *id));
                     }
+                }
+                for f in self.script_listeners(*id, kind) {
+                    calls.push((f, *id));
                 }
             }
         }
@@ -6086,12 +6444,26 @@ impl<'p> Machine<'p> {
             vec![target_node]
         };
         let mut entries: Vec<(usize, js::Event, u64)> = vec![];
+        // The elements' capture listeners first, from the root to the target
+        // (M6 overlays).
+        for n in &nodes {
+            if let VNode::Element { id, .. } = n {
+                for &(k, l) in self.capture_elements.get(id).into_iter().flatten() {
+                    if k == kind {
+                        entries.push((l, event.clone(), *id));
+                    }
+                }
+            }
+        }
         for n in path {
             if let VNode::Element { id, listeners, .. } = n {
                 for &(k, l) in listeners {
                     if k == kind {
                         entries.push((l, event.clone(), *id));
                     }
+                }
+                for f in self.script_listeners(*id, kind) {
+                    entries.push((f, event.clone(), *id));
                 }
             }
         }
@@ -6124,6 +6496,9 @@ impl<'p> Machine<'p> {
             })
             .collect();
         s.ran |= !refs.is_empty();
+        // The capture listeners of the window, then the document, first,
+        // each a callback of its own.
+        self.dispatch_capture(kind, &event, true, s);
         // One task per event, or per listener where each listener ends with a
         // microtask checkpoint; an exception does not stop later listeners.
         let tasks: Vec<Vec<(ListenerRef, js::Event, u64)>> =
@@ -6270,6 +6645,7 @@ impl<'p> Machine<'p> {
             target: js::Element::WINDOW,
             ..Default::default()
         });
+        self.dispatch_capture(kind, &event, false, s);
         self.dispatch_globals(kind, &event, s);
         event.finish();
     }
@@ -6308,6 +6684,70 @@ impl<'p> Machine<'p> {
     /// each a callback of its own (a microtask checkpoint follows it). A
     /// target's listeners are those registered when the event reaches it;
     /// one removed meanwhile is not called.
+    /// Listener table entries (until the next render) for the listeners
+    /// script added to element `id` for `kind`, in registration order.
+    fn script_listeners(&mut self, id: u64, kind: EventKind) -> Vec<usize> {
+        let fs: Vec<Val> = self
+            .element_listeners
+            .iter()
+            .filter(|g| g.0 == id && g.1 == kind)
+            .map(|g| g.2.clone())
+            .collect();
+        fs.into_iter()
+            .map(|f| {
+                self.listeners.push(ListenerRef {
+                    instance: 0,
+                    handler: 0,
+                    args: vec![],
+                    closure: Some(f),
+                });
+                self.listeners.len() - 1
+            })
+            .collect()
+    }
+
+    /// The capture listeners of the window, then (`document`) the
+    /// document's, each a callback of its own.
+    fn dispatch_capture(
+        &mut self,
+        kind: EventKind,
+        event: &js::Event,
+        document: bool,
+        s: &mut Run,
+    ) {
+        for window in [true, false] {
+            if !window && !document {
+                continue;
+            }
+            let current = if window {
+                js::Element::WINDOW
+            } else {
+                js::Element::DOCUMENT
+            };
+            let listeners: Vec<Val> = self
+                .capture_listeners
+                .iter()
+                .filter(|g| g.0 == window && g.1 == kind)
+                .map(|g| g.2.clone())
+                .collect();
+            for f in listeners {
+                let live = self
+                    .capture_listeners
+                    .iter()
+                    .any(|g| g.0 == window && g.1 == kind && g.2.same(&f));
+                if !live || !event.enter(current) {
+                    continue;
+                }
+                s.ran = true;
+                let arg = Val::Event(event.clone());
+                let result = self.task(None, true, |m| m.call_value(&f, vec![arg]).map(|_| ()));
+                if let Err(d) = result {
+                    s.error.get_or_insert(d);
+                }
+            }
+        }
+    }
+
     fn dispatch_globals(&mut self, kind: EventKind, event: &js::Event, s: &mut Run) {
         for window in [false, true] {
             let current = if window {
@@ -6374,6 +6814,22 @@ impl js::MergeOps<Val> for MergeVals<'_> {
             Val::Str(s) => js::MergeKind::Text(s.clone()),
             Val::Bool(b) => js::MergeKind::Flag(*b),
             Val::Closure(_) | Val::Listeners(_) => js::MergeKind::Function,
+            // A style object of keys that may be absent: a map.
+            Val::Map(m) => js::MergeKind::Style(
+                m.peek()
+                    .entries
+                    .values()
+                    .map(|(k, v)| {
+                        (
+                            k.string().to_rust(),
+                            match v {
+                                Val::Str(s) => Some(s.clone()),
+                                _ => None,
+                            },
+                        )
+                    })
+                    .collect(),
+            ),
             // A style object: a record of nullable property values.
             Val::Record(r) => {
                 let data = r.peek();
@@ -6394,7 +6850,8 @@ impl js::MergeOps<Val> for MergeVals<'_> {
                         .collect(),
                 )
             }
-            other => panic!("validated bag value, found {other:?}"),
+            // A value of another type passed through rest props (M6 overlays).
+            _ => js::MergeKind::Other,
         }
     }
     fn text(&self, s: JsString) -> Val {
@@ -6825,6 +7282,154 @@ fn query_selector_all(tree: &[VNode], id: u64, selector: &js::Selector) -> Vec<u
         walk(children, &mut path, selector, &mut out);
     }
     out
+}
+
+/// `element.closest(selector)` over the interpreter's document (see
+/// `document_query`): the nearest inclusive ancestor matching; the body
+/// where only it matches, and unsupported where the container or the html
+/// element would be the match.
+fn closest(
+    tree: &[VNode],
+    root_len: usize,
+    id: u64,
+    selector: &js::Selector,
+) -> std::result::Result<Option<u64>, Throw> {
+    enum View<'a> {
+        Outer(&'static str, Option<(&'static str, &'static str)>),
+        Node(&'a VNode),
+    }
+    impl js::SelElement for View<'_> {
+        fn tag(&self) -> &str {
+            match self {
+                View::Outer(t, _) => t,
+                View::Node(VNode::Element { tag, .. }) => tag,
+                View::Node(_) => "",
+            }
+        }
+        fn attr(&self, name: &str) -> Option<&str> {
+            match self {
+                View::Outer(_, a) => a.filter(|(n, _)| *n == name).map(|(_, v)| v),
+                View::Node(VNode::Element { attrs, .. }) => attrs.get(name).map(String::as_str),
+                View::Node(_) => None,
+            }
+        }
+    }
+    let Some(chain) = chain_nodes(tree, id) else {
+        return Ok(None);
+    };
+    let split = root_len.min(tree.len());
+    let in_root = chain
+        .first()
+        .is_some_and(|first| tree[..split].iter().any(|n| std::ptr::eq(n, *first)));
+    let mut path = vec![View::Outer("html", None), View::Outer("body", None)];
+    if in_root {
+        path.push(View::Outer("div", Some(("id", "root"))));
+    }
+    let outer = path.len();
+    path.extend(chain.iter().map(|n| View::Node(n)));
+    for end in (outer..path.len()).rev() {
+        if selector.matches(&path[..=end]) {
+            let View::Node(VNode::Element { id, .. }) = path[end] else {
+                unreachable!("program elements")
+            };
+            return Ok(Some(*id));
+        }
+    }
+    let unsupported = |what: &str| {
+        Err(Throw::new(
+            "RunicUnsupportedError",
+            format!("closest matched the {what}, which the interpreter does not model"),
+        ))
+    };
+    if in_root && selector.matches(&path[..3]) {
+        return unsupported("container");
+    }
+    if selector.matches(&path[..2]) {
+        return Ok(Some(js::Element::BODY.0));
+    }
+    if selector.matches(&path[..1]) {
+        return unsupported("html element");
+    }
+    Ok(None)
+}
+
+/// `document.querySelector` over the interpreter's document: `html`,
+/// `head`, `body`, the container `div#root` with the root's nodes, then
+/// the content mounted in the body (after the first `root_len` nodes). The
+/// html element, the head and the container are not program elements: a
+/// selector matching one of them first is unsupported here.
+fn document_query(
+    tree: &[VNode],
+    root_len: usize,
+    selector: &js::Selector,
+) -> std::result::Result<Option<u64>, Throw> {
+    struct Outer(&'static str, Option<(&'static str, &'static str)>);
+    enum View<'a> {
+        Outer(Outer),
+        Node(&'a VNode),
+    }
+    impl js::SelElement for View<'_> {
+        fn tag(&self) -> &str {
+            match self {
+                View::Outer(o) => o.0,
+                View::Node(VNode::Element { tag, .. }) => tag,
+                View::Node(_) => "",
+            }
+        }
+        fn attr(&self, name: &str) -> Option<&str> {
+            match self {
+                View::Outer(o) => o.1.filter(|(n, _)| *n == name).map(|(_, v)| v),
+                View::Node(VNode::Element { attrs, .. }) => attrs.get(name).map(String::as_str),
+                View::Node(_) => None,
+            }
+        }
+    }
+    fn first<'a>(nodes: &'a [VNode], path: &mut Vec<View<'a>>, s: &js::Selector) -> Option<u64> {
+        for n in nodes {
+            if let VNode::Element { id, children, .. } = n {
+                path.push(View::Node(n));
+                if s.matches(path) {
+                    return Some(*id);
+                }
+                let found = first(children, path, s);
+                path.pop();
+                if found.is_some() {
+                    return found;
+                }
+            }
+        }
+        None
+    }
+    let unsupported = |what: &str| -> std::result::Result<Option<u64>, Throw> {
+        Err(Throw::new(
+            "RunicUnsupportedError",
+            format!(
+                "document.querySelector matched the {what}, which the interpreter does not model"
+            ),
+        ))
+    };
+    let html = || View::Outer(Outer("html", None));
+    if selector.matches(&[html()]) {
+        return unsupported("html element");
+    }
+    if selector.matches(&[html(), View::Outer(Outer("head", None))]) {
+        return unsupported("head element");
+    }
+    let body = || View::Outer(Outer("body", None));
+    if selector.matches(&[html(), body()]) {
+        return Ok(Some(js::Element::BODY.0));
+    }
+    let container = View::Outer(Outer("div", Some(("id", "root"))));
+    let mut path = vec![html(), body(), container];
+    if selector.matches(&path) {
+        return unsupported("container");
+    }
+    let split = root_len.min(tree.len());
+    if let Some(found) = first(&tree[..split], &mut path, selector) {
+        return Ok(Some(found));
+    }
+    let mut path = vec![html(), body()];
+    Ok(first(&tree[split..], &mut path, selector))
 }
 
 fn chain_nodes(tree: &[VNode], id: u64) -> Option<Vec<&VNode>> {

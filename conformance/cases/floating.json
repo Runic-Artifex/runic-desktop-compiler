@@ -1,0 +1,18 @@
+{
+  "description": "@floating-ui/dom 1.7.4 (M6 overlays, docs/design/M6-OVERLAYS.md) over the native layout, compared with the package in Chromium: computePosition with offset, flip, shift (with limitShift), arrow, size (apply writing the floating box's style) and hide, absolute and fixed strategies, a positioned container with a border and padding, a reference at the right edge flipped to the left, and autoUpdate (an overflow ancestor's scroll, the window's resize, ResizeObserver of the reference, IntersectionObserver of its position) re-positioning a floating box when its reference grows or its scroller scrolls",
+  "fixtures": ["floating-svelte"],
+  "actions": [
+    { "kind": "wait", "ms": 50 },
+    { "kind": "click", "id": "clear" },
+    { "kind": "click", "id": "wider" },
+    { "kind": "wait", "ms": 50 },
+    { "kind": "click", "id": "clear" },
+    { "kind": "wheel", "id": "scroller", "deltaX": 0, "deltaY": 40 },
+    { "kind": "wait", "ms": 50 },
+    { "kind": "wheel", "id": "scroller", "deltaX": 0, "deltaY": 30 },
+    { "kind": "wait", "ms": 50 },
+    { "kind": "click", "id": "clear" },
+    { "kind": "resize", "width": 360, "height": 560 },
+    { "kind": "wait", "ms": 50 }
+  ]
+}

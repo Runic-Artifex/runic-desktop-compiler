@@ -15,6 +15,8 @@
 // - calls of local functions through their returned values, and of pack
 //   functions through the pack (`mergeProps` holds what its arguments hold;
 //   `attachRef` holds only an attachment, which has no name);
+// - a value that only holds null or undefined (a prop no site passes)
+//   holds nothing;
 // - what the adapter knows: rest props hold what the component's sites pass
 //   beyond its declared props, snippet parameters what the snippet's render
 //   sites pass.
@@ -87,6 +89,10 @@ export class BagShapes {
     if (e.kind === ts.SyntaxKind.NullKeyword) return emptyShape();
     if (ts.isIdentifier(e) && e.text === 'undefined') return emptyShape();
     if (ts.isCallExpression(e)) return this.call(e);
+    // A value that only holds null or undefined (a prop no site passes,
+    // frontend/unions.ts) holds no names.
+    if ((ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) && this.lower.unions.nothing(e))
+      return emptyShape();
     if (ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) {
       const sym = checker.getSymbolAtLocation(ts.isIdentifier(e) ? e : e.name);
       const target = sym && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
