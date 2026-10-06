@@ -50,7 +50,7 @@ import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domain
 import { checkMapReads, svelteReactivityImport } from '../svelte-reactivity.ts';
 import { svelteContextImport } from '../svelte-context.ts';
 import { valueSet } from '../packs/choice.ts';
-import { BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
+import { ABSENT, BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
 import { packageBindings } from '../package-bindings.ts';
 import { componentBinding, componentGlobal } from '../component-values.ts';
 import { jsonBinding, reexportsJson } from '../json-modules.ts';
@@ -678,7 +678,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (n.attributes.some((a: SNode) => spreadsRest(u.file, a)))
         slotForwards.push({ from: u.file, to });
     });
-  for (let changed = true; changed;) {
+  for (let changed = true; changed; ) {
     changed = false;
     for (const { from, to } of slotForwards)
       for (const s of restSlots.get(from) ?? [])
@@ -1157,7 +1157,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   if (graph.kit) {
     const kitModule = path.join(graph.kit.generated, 'kit.ts');
     const reaching = new Set<string>([kitModule]);
-    for (let changed = true; changed;) {
+    for (let changed = true; changed; ) {
       changed = false;
       for (const [id, m] of graph.modules)
         if (
@@ -2107,7 +2107,54 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ),
       );
     },
+    bindingValues(sym, key) {
+      // Rest props: what the component's sites pass.
+      const rest = restOf.get(sym);
+      if (rest) return domains.passed(units.get(rest)!.index, key);
+      // A field of a destructured snippet parameter: what the render sites pass.
+      const found = snippetParamOf(sym);
+      if (!found) return null;
+      const { site, field } = found;
+      const to = site.unit.children.get(site.node.name);
+      if (!to) return undefined;
+      let out: unknown[] | undefined = [];
+      for (const args of renderArgs(to, site.name)) {
+        const v = args[site.index] ? argFieldValues(args[site.index], field, key) : [ABSENT];
+        out = v && out && [...out, ...v];
+        if (!out) return undefined;
+      }
+      return out;
+    },
   });
+  /** The snippet parameter a destructured field `sym` belongs to, and the field. */
+  function snippetParamOf(sym: ts.Symbol) {
+    const decl = sym.valueDeclaration;
+    if (!decl || !ts.isBindingElement(decl)) return undefined;
+    let param: ts.Node = decl;
+    while (param.parent && !ts.isParameter(param)) param = param.parent;
+    if (!ts.isParameter(param) || decl.parent.parent !== param) return undefined;
+    const site = snippetParams.find(
+      p => p.virtual === param.getSourceFile().fileName && p.start === param.getStart(),
+    );
+    return site && { site, field: ((decl.propertyName ?? decl.name) as ts.Identifier).text };
+  }
+  /** The values for `key` of the bag a snippet argument's field `field` holds. */
+  const argFieldValues = (
+    arg: ts.Expression,
+    field: string,
+    key: string,
+  ): unknown[] | undefined => {
+    const e = skipParens(arg);
+    if (!ts.isObjectLiteralExpression(e)) return undefined;
+    for (const p of [...e.properties].reverse()) {
+      if (ts.isPropertyAssignment(p) && shapes.propertyName(p.name) === field)
+        return shapes.values(p.initializer, key);
+      if (ts.isShorthandPropertyAssignment(p) && p.name.text === field)
+        return shapes.values(p.name, key);
+      if (ts.isSpreadAssignment(p)) return undefined;
+    }
+    return [ABSENT];
+  };
   /** What site `n` (a component node of `u`) passes into the rest props of `to`. */
   const siteRestShape = (u: Unit, n: SNode, to: string): Shape => {
     const declared = decls.get(to)!.declared;
@@ -2123,7 +2170,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     }
     return out;
   };
-  for (let changed = true; changed;) {
+  for (let changed = true; changed; ) {
     changed = false;
     for (const u of order)
       walkTemplate(u.ast.fragment, n => {
@@ -2241,12 +2288,15 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           const own = ts.isIdentifier(spread) ? checker.getSymbolAtLocation(spread) : undefined;
           const rest = own && restComponent.get(own);
           for (const key of decls.get(child)!.declared)
-            if (mayHold(s, key))
+            if (mayHold(s, key)) {
+              const before = values.get(key);
               values.set(key, {
                 open: true,
                 spread,
                 ...(rest !== undefined ? { restOf: rest } : {}),
+                ...(before ? { before } : {}),
               });
+            }
         }
       }
       const site: Site = {
@@ -2308,6 +2358,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     return { op: 'cell', cell, read: 'current' };
   });
   lower.domains = domains;
+  domains.spreadValues = (spread, key) => shapes.values(spread, key);
 
   /** The fragments links may navigate to (checked against the element ids below). */
   const linkFragments: { name: string; at: Source }[] = [];
@@ -3674,12 +3725,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                   }
                 : v,
             });
-          else if (shape.open || [...shape.keys].some(k => !declared(k)))
-            fail(
-              'E_PROPS',
-              `${n.name} takes no rest props, and the spread may hold other names`,
-              loc(a),
-            );
+          // (Without rest props, names the child does not declare are getters
+          // nothing reads, as for attributes: bits-ui's
+          // `<EscapeLayer {...mergedProps} …>` of DialogContent's props.)
           continue;
         }
         if (a.type === 'Attribute' && restCell >= 0 && !declared(a.name)) {

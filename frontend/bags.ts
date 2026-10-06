@@ -24,8 +24,17 @@
 // A shape is a superset (a name the code may hold), or `open` where the
 // analysis cannot see the names; code needing the names then fails with a
 // diagnostic.
+//
+// The same syntax gives the values a bag holds for one name (`values`),
+// where a component's prop takes its value from a spread (shadcn's Button
+// `{...props}` of bits-ui's DialogClose `child` snippet: its `class`
+// values, which the prop's domain needs, frontend/domains.ts).
 import ts from 'typescript';
 import { skipParens, type Lowerer } from './language.ts';
+import { valueSet } from './packs/choice.ts';
+
+/** A bag's name it does not hold (unlike one it holds with the value undefined). */
+export const ABSENT: unique symbol = Symbol('absent');
 
 export interface Shape {
   keys: Set<string>;
@@ -50,6 +59,11 @@ export const mayHold = (s: Shape, name: string): boolean => s.open || s.keys.has
 export interface ShapeHooks {
   /** The shape of a binding the adapter knows (rest props, snippet parameters), if any. */
   binding(symbol: ts.Symbol, at: ts.Node): Shape | undefined;
+  /**
+   * The values for `key` of a binding the adapter knows (`null`: not one it
+   * knows; undefined: open).
+   */
+  bindingValues?(symbol: ts.Symbol, key: string): unknown[] | undefined | null;
 }
 
 export class BagShapes {
@@ -201,6 +215,132 @@ export class BagShapes {
     return openShape();
   }
 
+  /**
+   * The values the bag `e` holds for `key` (`ABSENT` where it may not
+   * hold it), a superset; undefined where they are open.
+   */
+  values(e: ts.Expression, key: string): unknown[] | undefined {
+    const at = `${key}\0`;
+    const mark = this.activeValues.get(e);
+    if (mark?.has(at)) return [];
+    const set = mark ?? new Set<string>();
+    set.add(at);
+    this.activeValues.set(e, set);
+    try {
+      const v = this.computeValues(e, key);
+      return v && distinctValues(v);
+    } finally {
+      set.delete(at);
+    }
+  }
+
+  private readonly activeValues = new Map<ts.Node, Set<string>>();
+
+  private computeValues(e: ts.Expression, key: string): unknown[] | undefined {
+    const checker = this.lower.checker;
+    e = skipParens(e);
+    while (ts.isNonNullExpression(e)) e = skipParens(e.expression);
+    if (!mayHold(this.of(e), key)) return [ABSENT];
+    const ctx = { lower: this.lower, label: 'bag values' };
+    if (ts.isObjectLiteralExpression(e)) {
+      // Later entries win; a spread that may not hold the name leaves it to
+      // the entries before it.
+      const out: unknown[] = [];
+      for (const p of [...e.properties].reverse()) {
+        if (ts.isSpreadAssignment(p)) {
+          if (!mayHold(this.of(p.expression), key)) continue;
+          const v = this.values(p.expression, key);
+          if (!v) return undefined;
+          out.push(...v.filter(x => x !== ABSENT));
+          if (!v.includes(ABSENT)) return out;
+          continue;
+        }
+        const name = p.name && this.propertyName(p.name);
+        if (name === undefined) return undefined;
+        if (name !== key) continue;
+        const v = ts.isPropertyAssignment(p)
+          ? valueSet(ctx, p.initializer)
+          : ts.isShorthandPropertyAssignment(p)
+            ? valueSet(ctx, p.name)
+            : undefined;
+        return v && [...out, ...v];
+      }
+      return [...out, ABSENT];
+    }
+    if (ts.isConditionalExpression(e))
+      return both(this.values(e.whenTrue, key), this.values(e.whenFalse, key));
+    if (ts.isBinaryExpression(e)) {
+      const op = e.operatorToken.kind;
+      // (A falsy left operand spreads nothing.)
+      if (op === ts.SyntaxKind.AmpersandAmpersandToken)
+        return both([ABSENT], this.values(e.right, key));
+      if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken)
+        return both(this.values(e.left, key), this.values(e.right, key));
+      return undefined;
+    }
+    if (e.kind === ts.SyntaxKind.NullKeyword) return [ABSENT];
+    if (ts.isIdentifier(e) && e.text === 'undefined') return [ABSENT];
+    if (ts.isCallExpression(e)) {
+      const callee = skipParens(e.expression);
+      const text = callee.getText();
+      if (text === '$derived' && e.arguments[0]) return this.values(e.arguments[0], key);
+      if (text === '$derived.by' && e.arguments[0]) return this.returnedValues(e.arguments[0], key);
+      if (ts.isIdentifier(callee)) {
+        const decl = this.lower.symbol(callee)?.valueDeclaration;
+        if (decl && ts.isFunctionDeclaration(decl) && decl.body)
+          return this.returnedValues(decl, key);
+        const b = this.lower.binding(callee);
+        if (b?.kind === 'pack' && b.keyValues)
+          return b.keyValues(
+            e,
+            key,
+            x => this.of(x),
+            x => this.values(x, key),
+          );
+      }
+      return undefined;
+    }
+    if ((ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) && this.lower.unions.nothing(e))
+      return [ABSENT];
+    if (ts.isIdentifier(e) || ts.isPropertyAccessExpression(e)) {
+      const sym = checker.getSymbolAtLocation(ts.isIdentifier(e) ? e : e.name);
+      const target = sym && sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
+      if (!target) return undefined;
+      const known = this.hooks.bindingValues?.(target, key);
+      if (known !== null && known !== undefined) return known;
+      if (known === undefined && this.hooks.bindingValues) return undefined;
+      // A constant, or a field nothing assigns: its initialiser.
+      const decl = target.valueDeclaration;
+      if (
+        decl &&
+        (ts.isVariableDeclaration(decl) || ts.isPropertyDeclaration(decl)) &&
+        decl.initializer &&
+        (ts.isVariableDeclaration(decl)
+          ? !!(decl.parent.flags & ts.NodeFlags.Const)
+          : !this.assignments(target, decl.parent).length)
+      )
+        return this.values(decl.initializer, key);
+      return undefined;
+    }
+    return undefined;
+  }
+
+  /** The values a function's returned bags hold for `key`. */
+  private returnedValues(fn: ts.Node, key: string): unknown[] | undefined {
+    if (!(ts.isFunctionLike(fn) && 'body' in fn) || !fn.body) return undefined;
+    const body = fn.body as ts.Node;
+    if (!ts.isBlock(body)) return this.values(body as ts.Expression, key);
+    let out: unknown[] | undefined = [];
+    const visit = (n: ts.Node) => {
+      if (!out) return;
+      if (ts.isReturnStatement(n))
+        out = both(out, n.expression ? this.values(n.expression, key) : [ABSENT]);
+      if (!ts.isFunctionLike(n)) ts.forEachChild(n, visit);
+    };
+    visit(body);
+    return out;
+  }
+
   /** The shapes of the values assigned to `sym` in `scope`. */
   private assignments(sym: ts.Symbol, scope: ts.Node): Shape[] {
     const checker = this.lower.checker;
@@ -219,4 +359,26 @@ export class BagShapes {
     visit(scope);
     return out;
   }
+}
+
+/** Both sets of values (open if either is). */
+function both(a: unknown[] | undefined, b: unknown[] | undefined): unknown[] | undefined {
+  return a && b && [...a, ...b];
+}
+
+/** The distinct values of `values` (by identity and JSON). */
+function distinctValues(values: unknown[]): unknown[] {
+  const seen = new Set<unknown>();
+  const keys = new Set<string>();
+  return values.filter(v => {
+    if (typeof v === 'object' && v !== null) {
+      const k = JSON.stringify(v);
+      if (keys.has(k)) return false;
+      keys.add(k);
+      return true;
+    }
+    if (seen.has(v)) return false;
+    seen.add(v);
+    return true;
+  });
 }

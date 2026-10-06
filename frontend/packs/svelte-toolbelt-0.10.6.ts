@@ -51,7 +51,7 @@ import ts from 'typescript';
 import type { Expr, Fn, Local, Stmt, Type } from '../ir.ts';
 import { skipParens, type FnBuilder, type Lowerer } from '../language.ts';
 import type { Pack } from '../packs.ts';
-import { emptyShape, union } from '../bags.ts';
+import { ABSENT, emptyShape, mayHold, union, type Shape } from '../bags.ts';
 import { maybeInner } from '../irtype.ts';
 
 const LABEL = 'svelte-toolbelt@0.10.6 pack';
@@ -404,6 +404,37 @@ function newDomContext(node: ts.NewExpression, b: FnBuilder, lower: Lowerer): Ex
       `${LABEL}: new DOMContext takes a box of an element or null`,
     );
   return { op: 'record', record, fields: [v] };
+}
+
+/**
+ * The values `mergeProps(...bags)` gives `key` where at most one bag may
+ * hold it (dist/utils/merge-props.js): the first bag's as they are (the
+ * result starts as a copy of it); a later bag's as merged into an absent
+ * value, where it holds the key (`class`: `clsx(undefined, b)`, as null
+ * and undefined are class values: a string's text, "" for null and
+ * undefined; a value of another name replaces the absent one, undefined
+ * included; event handlers, functions and `style`, which the result prints,
+ * stay open). `hidden` and `disabled` set to false are then deleted.
+ * Several bags holding it: open.
+ */
+function mergedValues(
+  node: ts.CallExpression,
+  key: string,
+  of: (e: ts.Expression) => Shape,
+  values: (e: ts.Expression) => unknown[] | undefined,
+): unknown[] | undefined {
+  const holding = node.arguments.flatMap((a, i) => (mayHold(of(a), key) ? [i] : []));
+  if (!holding.length) return [ABSENT];
+  if (holding.length > 1 || node.arguments.some(a => ts.isSpreadElement(a))) return undefined;
+  if (key === 'style') return undefined;
+  const [i] = holding;
+  let v = values(node.arguments[i]);
+  if (v && i > 0 && key.startsWith('on')) return undefined;
+  if (v && i > 0 && key === 'class')
+    v = v.every(x => x === ABSENT || x === undefined || x === null || typeof x === 'string')
+      ? v.map(x => (x === ABSENT ? ABSENT : typeof x === 'string' ? x : ''))
+      : undefined;
+  return key === 'hidden' || key === 'disabled' ? v?.map(x => (x === false ? ABSENT : x)) : v;
 }
 
 /** `mergeProps(...bags)`. */
@@ -778,6 +809,7 @@ export const svelteToolbeltPack: Pack = {
           kind: 'function',
           call: mergeProps,
           shape: (node, of) => union(...node.arguments.map(of)),
+          keyValues: mergedValues,
         };
       case 'attachRef':
         return { kind: 'function', call: attachRef, shape: () => emptyShape() };

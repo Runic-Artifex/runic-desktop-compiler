@@ -83,6 +83,17 @@ export interface PackFunction {
   construct?(node: ts.NewExpression, b: FnBuilder, lower: Lowerer): Expr;
   /** The keys of the attribute bag a call returns (frontend/bags.ts). */
   shape?(node: ts.CallExpression, of: (e: ts.Expression) => Shape): Shape;
+  /**
+   * The values the bag a call returns holds for `key` (`undefined` where it
+   * may not hold it; frontend/bags.ts `BagShapes.values`), given those of
+   * its arguments; undefined where they are open.
+   */
+  keyValues?(
+    node: ts.CallExpression,
+    key: string,
+    of: (e: ts.Expression) => Shape,
+    values: (e: ts.Expression) => unknown[] | undefined,
+  ): unknown[] | undefined;
 }
 
 /** An attribute of a component instance, as written. */
@@ -458,6 +469,7 @@ function functionBinding(pack: Pack, label: string, fn: PackFunction): Binding {
         )
       : undefined,
     shape: fn.shape,
+    keyValues: fn.keyValues,
   };
 }
 

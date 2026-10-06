@@ -32,6 +32,7 @@ import ts from 'typescript';
 import type { Expr } from './ir.ts';
 import type { FnBuilder, Lowerer } from './language.ts';
 import { distinct, valueSet } from './packs/choice.ts';
+import { ABSENT } from './bags.ts';
 
 /** A declared prop of a component (a destructured `$props()` binding). */
 export interface PropDecl {
@@ -63,6 +64,8 @@ export type SiteValue =
        * component): it passes what that component's sites pass.
        */
       restOf?: number;
+      /** What an earlier attribute passes, where the spread does not hold the name. */
+      before?: SiteValue;
     };
 
 /** One place that instantiates a component, with the values it passes by prop name. */
@@ -152,12 +155,15 @@ export class PropDomains implements DomainHook {
         : typeof passed.value === 'boolean'
           ? [checker.getBooleanType()]
           : undefined;
+    // (Where the spread does not hold the name, an earlier attribute's value.)
+    const before = passed.before ? this.passedTypes(passed.before, key, seen) : [undefined];
     if (passed.restOf !== undefined) {
       if (seen.has(passed.restOf)) return undefined;
       seen.add(passed.restOf);
       const out: (ts.Type | undefined)[] = [];
       for (const site of this.byComponent.get(passed.restOf) ?? []) {
-        const types = this.passedTypes(site.values.get(key), key, seen);
+        const p = site.values.get(key);
+        const types = p ? this.passedTypes(p, key, seen) : before;
         if (!types) return undefined;
         out.push(...types);
       }
@@ -168,7 +174,9 @@ export class PropDomains implements DomainHook {
       const bag = checker.getTypeAtLocation(passed.spread);
       const prop = checker.getPropertyOfType(bag, key);
       // The bag may also not hold it (a spread is read with attrs.has).
-      return prop ? [checker.getTypeOfSymbolAtLocation(prop, passed.spread), undefined] : undefined;
+      return prop && before
+        ? [checker.getTypeOfSymbolAtLocation(prop, passed.spread), ...before]
+        : undefined;
     }
     return undefined;
   }
@@ -183,11 +191,23 @@ export class PropDomains implements DomainHook {
     if ('value' in passed) return [passed.value];
     if ('expr' in passed)
       return valueSet({ lower: this.lower, label: 'prop domains' }, passed.expr);
+    // A spread of another bag: the values it holds for the name (absent: the
+    // prop's fallback, as undefined).
+    if (passed.restOf === undefined && passed.spread) {
+      const v = this.spreadValues?.(passed.spread, key);
+      if (!v?.includes(ABSENT)) return v;
+      const before = passed.before ? this.passedValues(passed.before, key, seen) : [undefined];
+      return before && [...v.filter(x => x !== ABSENT), ...before];
+    }
     if (passed.restOf === undefined || seen.has(passed.restOf)) return undefined;
     seen.add(passed.restOf);
     let out: unknown[] | undefined = [];
+    // (A site of that component not passing the name leaves an earlier
+    // attribute's value.)
+    const before = passed.before ? this.passedValues(passed.before, key, seen) : [undefined];
     for (const site of this.byComponent.get(passed.restOf) ?? []) {
-      const v = this.passedValues(site.values.get(key), key, seen);
+      const p = site.values.get(key);
+      const v = p ? this.passedValues(p, key, seen) : before;
       out = v && out && [...out, ...v];
       if (!out) break;
     }
@@ -209,6 +229,29 @@ export class PropDomains implements DomainHook {
     }
     return out && distinct(out);
   }
+
+  /**
+   * The values the sites of `component` pass for `key` (`ABSENT` where a
+   * site does not pass it), for the values of its rest props
+   * (frontend/bags.ts); undefined where any is open.
+   */
+  passed(component: number, key: string): unknown[] | undefined {
+    const out: unknown[] = [];
+    for (const site of this.byComponent.get(component) ?? []) {
+      const p = site.values.get(key);
+      if (!p) {
+        out.push(ABSENT);
+        continue;
+      }
+      const v = this.passedValues(p, key, new Set([component]));
+      if (!v) return undefined;
+      out.push(...v);
+    }
+    return out;
+  }
+
+  /** The values a spread bag holds for a name (frontend/bags.ts `BagShapes.values`). */
+  spreadValues?: (spread: ts.Expression, key: string) => unknown[] | undefined;
 
   /** The index of `site` among its component's sites. */
   indexOf(site: Site): number {

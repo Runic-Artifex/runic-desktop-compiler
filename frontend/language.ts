@@ -39,7 +39,14 @@ import { Unions } from './unions.ts';
 import { bindPackConstant, packType } from './packs.ts';
 import { newSvelteMap, svelteMapType } from './svelte-reactivity.ts';
 import { componentValueType, knownComponentRecord } from './component-values.ts';
-import type { Choice } from './packs/choice.ts';
+import {
+  type Choice,
+  graft as graftChoice,
+  leaf as choiceLeaf,
+  sequence as choiceSequence,
+  toExpr as choiceExpr,
+  valueChoice,
+} from './packs/choice.ts';
 import type { DomainHook } from './domains.ts';
 import type { Shape } from './bags.ts';
 
@@ -187,6 +194,17 @@ export type Binding =
       methods?: Record<string, (node: ts.CallExpression, b: FnBuilder, lower: Lowerer) => Expr>;
       /** The keys of the attribute bag a call returns (frontend/bags.ts). */
       shape?: (node: ts.CallExpression, of: (e: ts.Expression) => Shape) => Shape;
+      /**
+       * The values the bag a call returns holds for `key` (`undefined` where it
+       * may not hold it; frontend/bags.ts `BagShapes.values`), given those of
+       * its arguments; undefined where they are open.
+       */
+      keyValues?: (
+        node: ts.CallExpression,
+        key: string,
+        of: (e: ts.Expression) => Shape,
+        values: (e: ts.Expression) => unknown[] | undefined,
+      ) => unknown[] | undefined;
       /** `new X(…)` of a pack class (svelte-toolbelt's DOMContext). */
       construct?: (node: ts.NewExpression, b: FnBuilder, lower: Lowerer) => Expr;
     }
@@ -6681,19 +6699,26 @@ export class Lowerer {
       ) {
         const member = this.constantMember(callee)!;
         if (typeof member.value === 'function') {
-          const args = e.arguments.map(a => this.staticValue(a));
-          if (args.some(a => a === undefined))
-            return this.fail(
-              e,
-              'E_CONST',
-              `${member.label} is called at build time: its arguments are literals`,
-            );
           const object = (this.binding(callee.expression) as { value: unknown }).value;
-          const result = (member.value as (...a: unknown[]) => unknown).apply(
-            object,
-            args.map(a => a!.value),
+          const apply = (args: unknown[]) =>
+            (member.value as (...a: unknown[]) => unknown).apply(object, args);
+          const args = e.arguments.map(a => this.staticValue(a));
+          if (args.every(a => a !== undefined))
+            return this.constantExpr(apply(args.map(a => a!.value)), `${member.label}(…)`, e);
+          // Arguments over finite sets of values (bits-ui's
+          // `dialogAttrs.getAttr(part, this.opts.variant.current)`, both
+          // unions of string literals): called for each combination, the
+          // program selecting the result (frontend/packs/choice.ts).
+          const ctx = { lower: this, b, label: `${member.label} (called at build time)` };
+          const choice = graftChoice(
+            choiceSequence(
+              ctx,
+              e,
+              e.arguments.map(a => valueChoice(ctx, a)),
+            ),
+            values => choiceLeaf(apply(values as unknown[])),
           );
-          return this.constantExpr(result, `${member.label}(…)`, e);
+          return choiceExpr(ctx, choice, v => this.constantExpr(v, `${member.label}(…)`, e));
         }
       }
       const kept = this.filterBoolean(e, b);
@@ -8722,8 +8747,14 @@ export class Lowerer {
       | { call: number; arg: Expr };
     const steps: Step[] = [];
     const styleValue = (x: ts.Expression, at: ts.Node): Expr => {
-      const v = this.expr(x, b);
-      const t = this.irType(v, b);
+      let v = this.expr(x, b);
+      let t = this.irType(v, b);
+      // A number (bits-ui's `"--bits-dialog-depth": this.root.depth`) is
+      // printed as its string, as svelte-toolbelt's styleToCSS does (`${v}`).
+      if (t === 'number') {
+        v = { op: 'builtin', name: 'String', args: [v], type: 'string' };
+        t = 'string';
+      }
       if (t !== 'string' && maybeInner(t) !== 'string')
         return this.fail(at, 'E_ATTRS', 'Style object values are strings or undefined');
       return t === 'string' ? { op: 'some', value: v } : v;
