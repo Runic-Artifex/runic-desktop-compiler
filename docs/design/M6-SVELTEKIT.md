@@ -72,11 +72,11 @@ Phase 1's core landed on Kit **2.70.1** (the site's pin) rather than 3.0.0: Kit 
 
 Refinement of "the native router is the runtime's": the router is Kit's own client (`client.js` of 2.70.1) ported to the compiled language and generated per app (route table, loads, data merges, error-page variants, the composition tree), so it follows Kit's ordering, tracking and error routing line by line. The runtime adds only generic host primitives (history entry state, `document.title`, focus reset and starting point, origin-less URL resolution, a host reply task, element attributes and parents), keeping the backend free of framework knowledge (D10).
 
-Open: Kit 3 and the editor's `#lib` imports and bridge scripts; build-time server data and endpoints; `page.data`/`page.state`, shallow routing, `invalidate`, `navigating`; render errors routed to `+error.svelte`; reload scroll restoration.
+Open: Kit 3 and the editor's `#lib` imports and bridge scripts; `page.data`/`page.state`, shallow routing, `invalidate`, `navigating`; render errors routed to `+error.svelte`; reload scroll restoration.
 
-Phase 2 is not started: it stopped at its design checkpoint (addendum below) with two decisions open and a blocker inventory showing that no `/docs/components/[name]` page can render from the site's source before the overlays and about twenty other features land.
+Phase 2's machinery landed on 2026-10-06 (branch `m6-kit-2`, [contract](../CONTRACT.md#sveltekit), [implemented](#implemented-2026-10-06)): `runic generate` with pinned, recorded steps, server data and prerendered endpoints as build-time tables, markdown pages through the site's velite and mdsx configurations and its previews preprocessor, `import.meta.glob`, component values and dynamic tags, `{@html}` of build-time fragments. Cases `kit-docs` (800px) and `kit-docs-narrow` (420px) run the site's markdown pages for Toggle, Tabs and Separator in a Kit fixture with a layout of its own (fixture `kit-docs-svelte`) against its own Kit build. The site's own `/docs/components/[name]` route family still renders no page: its layouts, page component and markdown wrappers need the [blocker inventory](#blocker-inventory-why-no-page-renders-yet) lifted first.
 
-## Phase 2 addendum (2026-10-05, proposed)
+## Phase 2 addendum (proposed 2026-10-05, decided and implemented 2026-10-06)
 
 Scope: `/docs/components/[name]` of the shadcn-svelte site at the pinned commit, which is the URL family `/docs/components/*` of the route `(app)/(layout)/docs/[...slug]`. Its layout chain is `+layout.svelte` → `(app)/+layout.svelte` (with `+layout.ts` and `+layout.server.ts`) → `(app)/(layout)/+layout.svelte` → `docs/+layout.svelte` (with `+layout.server.ts`, `prerender` only). The page's `+page.ts` calls `getDoc(slug)` (`src/lib/docs.ts`: a lazy `import.meta.glob("/content/**/*.md")` and the velite metadata) and, for component pages, `fetch('/api/block/<name>')`. That endpoint is prerendered by Kit's crawl, not by `entries()`: its URLs are the ones the docs pages' loads fetch while they are prerendered.
 
@@ -109,7 +109,15 @@ Scope: `/docs/components/[name]` of the shadcn-svelte site at the pinned commit,
 - `import.meta.glob` with non-literal patterns or options other than `eager` and `import`, and template-literal `import()` with targets outside the app.
 - `{@html}` of any other value.
 
-### Open decisions (reserved: they change how build-time tools may run)
+### Decisions (2026-10-06)
+
+Both were reserved (they change how build-time tools may run); the coordinator chose:
+
+- **Previews preprocessor: option 1.** `svelte.config.js` is imported only inside `runic generate` (`compiler/generate-preprocess.mjs`), with its SHA-256 recorded as an input of the step; `runic build` reads it as literals and never imports it. The rule that the app's configs are never run still holds for builds; generation is the one explicit, recorded exception.
+- **Versions: option 2 for M6.** The fixture builds the site's unmodified sources against the compiler's checked versions in both the native app and the reference Kit build, and `vendor.json` declares the substitution. **M7 prerequisite:** option 1, checked identities (version environments and pack vectors) for the site's pins (Svelte 5.54.0, `@lucide/svelte` 1.27.0, runed 0.37.1, tailwind-variants 3.3.0, tailwind-merge 3.6.0), before M7 claims the site.
+- **`{@html}`: approved without HTML parsing at run time.** Every string that can reach a `{@html}` comes from build-time strings, is parsed at build time, and the runtime only selects among the parsed fragments; anything else stays rejected with a location (or, for a dynamic value outside the strings, reported at run time).
+
+The options as they were proposed:
 
 1. **The `componentPreviews` preprocessor lives inside `svelte.config.js`.** mdsx's own configuration is the separate `mdsx.config.js`, which a step can run. But every component page also needs `componentPreviews()`, a function defined inline in `svelte.config.js` (it injects the example imports and `component={…}` into each `<ComponentPreview>`). Running it changes the rule that the app's `svelte.config.js` is never run as a whole. Options:
    1. Import `svelte.config.js` inside `runic generate` only, and run its `preprocess` list over the `.md` files. This runs the whole config module (it imports `@sveltejs/adapter-cloudflare`, `magic-string`, `mdsx` and `mdsx.config.js`), but not in builds. Recommended: generation already runs app code (the registry script), and the record hashes the config.
@@ -120,6 +128,30 @@ Scope: `/docs/components/[name]` of the shadcn-svelte site at the pinned commit,
    2. Build the site's unmodified sources against the compiler's checked versions, in both the native app and the reference Kit build, with the substitution declared in the case. This is how the `bits-*` fixtures use shadcn-svelte's files.
    
    Recommended: option 2 for M6 conformance, option 1 before M7 claims the site.
+
+### Implemented (2026-10-06)
+
+As proposed, with these refinements:
+
+- **Steps** (`compiler/generate.mjs`): a step is a command (`node <app script>` or a bin of one of its pinned tools, with `outputs`) or a `preprocess` glob; its tools are pinned by version and the SHA-256 of their package files (`compiler/generate-pins.mjs`, written by `generate-pins-update.mjs`; their dependencies are pinned by the repository's lockfile). The record holds each step's declaration hash and every input and output file's hash; builds report the first difference. Steps run with `TZ=UTC`, `LC_ALL=C` and `SOURCE_DATE_EPOCH=0`. The generator tools are devDependencies of this repository at the site's lockfile versions; the fixture needs no pnpm or corpus preparation (its registry step is a script of its own in the site's output format), so the flake is unchanged. The real site will need the corpus preparation described above.
+- **Server phase** (`compiler/adapters/kit-server.mjs`): prerendered routes per entry; server loads with tracked reads, keyed natively by what they read (the union over entries); universal loads run for their fetches (also with `ssr = false`, where Kit's own crawl runs none: endpoints may list `entries()`); a fetched endpoint must be `prerender = true`. Vite's dependency cache lives outside the app (Tailwind would scan it). Server data is JSON only.
+- **Native tables** (`compiler/adapters/kit-generate.mjs`, `frontend/adapters/kit/client.ts`): a server node's data is a lookup returning new objects (as each parsed response is), invalidated by Kit's `load_route` rules; `load_data` and `fetch` are host round trips once the app has started and immediate during the first navigation (server rendering inlines them). `await res.json()` parses the body into the type the program declares at the `await` (JSON.parse's checks, at run time).
+- **`import.meta.glob`**: the call is replaced, in the module the frontend lowers, by a function appended to the module that builds Vite's table from the matched modules' exports named by the module type argument; a loader resolves through Vite's preload helper and Rollup's inlined dynamic import (two chained microtask steps), as the reference bundle does.
+- **Component values** (not in the proposal, needed by `getDoc` and the previews preprocessor's `component={…}`): a class record per program, a module constant per component; dynamic tags become an `if` chain over the component values whose required props the tag passes (frontend/adapters/svelte-dynamic.ts).
+- **`{@html}`**: candidates are a constant's own fragment, or every string of the app's build-time tables; the IR gains the additive `html` node and `Program.fragments` ([IR](../IR.md#template)), built natively from a static table.
+- **Found on the way:** JSON modules behind declaration files (velite's index), module constants destructuring a record (mdsx), undeclared props not evaluated, `dl`/`dt`/`dd`/`figure`/`figcaption`, underscores in attribute names (`__src__`), links to fragments naming an element followed as Chromium follows them (Kit leaves same-page hash links to the browser), `position: sticky` rejected ([gaps](../BLITZ-GAPS.md)), and codegen fixes (typed `undefined`/`null`, truthiness of functions, `JSON.parse` into a record).
+- **Not modelled:** server rendering and hydration (the fixture is an SPA, `ssr = false`; hydrated elements get `$props.id()` ids `s1`, `s2`, … where the native app's are `c1`, `c2`, …), `entries` in universal modules (`E_KIT_LOAD`), globs in component scripts and without a type argument (the site's `getDoc` casts an untyped glob: `E_GLOB` until untyped loaders are typed through their casts).
+
+The site's own pages, as of 2026-10-06 (all fail at the shared chain below; the fixture shows the markdown side of the pages marked):
+
+| Page | In the fixture | Its own blockers besides the shared chain |
+|---|---|---|
+| toggle | all 5 previews (toggle-sizes newly verified) | none |
+| tabs | all 5 previews (tabs-icons newly verified) | none |
+| separator | all 4 previews (separator-menu, separator-list newly verified) | none |
+| accordion | no | its previews mix Accordion types `single` and `multiple` in one program (`E_TYPE_UNION` until components are specialised per discriminant) |
+| button, badge, card, progress, checkbox, label, switch, toggle-group, collapsible | no | previews not yet verified (table above); toggle-group mixes types like accordion |
+| avatar | no | every preview uses `Avatar.Image` (`<img>`) |
 
 ### Blocker inventory: why no page renders yet
 
@@ -142,8 +174,9 @@ A static import closure of the layout chain, the page component and the markdown
   - `class IsMobile extends MediaQuery` (`registry/hooks/is-mobile.svelte.ts`): library base classes are rejected;
   - `MediaQuery` in `component-source.svelte`;
   - `<slot>` in `mdsx/blueprint.svelte`;
-  - `{@html}` in `component-code-viewer-code.svelte` (needs the table form above);
-  - `<svelte:head>` meta tags in `metadata.svelte`.
+  - `{@html}` in `component-code-viewer-code.svelte` (supported since 2026-10-06 for the endpoint's strings);
+  - `<svelte:head>` meta tags in `metadata.svelte`;
+  - `position: sticky` (the header, the sidebar, the table of contents; rejected since 2026-10-06, a Blitz gap).
 - **DOM and host APIs:**
   - `innerText` (`mdsx/pre.svelte`, `component-code-viewer-code.svelte`);
   - `IntersectionObserver` (`docs-toc.svelte`);
@@ -151,11 +184,11 @@ A static import closure of the layout chain, the page component and the markdown
   - `document.cookie` (`(app)/+layout.ts`, `user-config.svelte.ts`);
   - runed's `PersistedState` (`design-system-provider-state.svelte.ts`);
   - network `fetch` (`github-link.svelte`).
-- **Kit:**
-  - `+layout.server.ts` data (`(app)`: cookies, which are absent during prerendering, so the defaults apply);
-  - `import.meta.glob` (`docs/[...slug]/+page.ts`, `lib/docs.ts`);
-  - `fetch` in loads;
-  - the generation steps above.
+- **Kit** (the machinery landed 2026-10-06; what the site still needs from it):
+  - `entries` in `docs/[...slug]/+page.ts` (only server modules may export it natively);
+  - `import.meta.glob` without a type argument, cast later (`lib/docs.ts`: `resolver as unknown as DocResolver`);
+  - the registry step (`scripts/build-registry.ts` through tsx, after building the workspace packages: the corpus preparation above);
+  - `api/block` imports `shadcn-svelte`'s schema and zod (fine at generation, Node runs them).
 
 Every page also renders all of its own previews (`<ComponentPreview name>`). For the 14 pages the phase was meant to cover, the previews already verified by the `bits-*` cases are a minority:
 

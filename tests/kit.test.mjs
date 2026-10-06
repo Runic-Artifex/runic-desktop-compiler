@@ -78,16 +78,18 @@ test('a Kit app lowers with the body and container attributes of app.html', asyn
   assert.doesNotMatch(rust, /react|vue|svelte|\$state/i);
 });
 
-test('server code, hooks and service workers are rejected', async () => {
+test('server code needs generation; hooks and service workers are rejected', async () => {
+  // Server loads and endpoints are build-time data of `runic generate`
+  // (tests/generate.test.mjs): without its record the build stops.
   await rejects(
     { 'src/routes/items/+page.server.ts': 'export const load = () => ({});\n' },
-    'E_KIT_SERVER',
-    'src/routes/items/+page.server.ts',
+    'E_GENERATED',
+    'runic.json',
   );
   await rejects(
     { 'src/routes/api/+server.ts': 'export const GET = () => new Response();\n' },
-    'E_KIT_SERVER',
-    'src/routes/api/+server.ts',
+    'E_GENERATED',
+    'runic.json',
   );
   await rejects(
     { 'src/hooks.server.ts': 'export const handle = ({ event, resolve }) => resolve(event);\n' },

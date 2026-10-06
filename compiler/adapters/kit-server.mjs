@@ -20,7 +20,8 @@
 // On a diagnostic, the last line of stdout is its JSON.
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { Diagnostic } from '../collect.mjs';
 import { at, manifestOf, readSvelteConfig } from './kit.mjs';
@@ -91,10 +92,12 @@ async function main() {
       return undefined;
     },
   };
+  const cacheDir = mkdtempSync(path.join(tmpdir(), 'runic-kit-server-'));
   const server = await createServer({
     root,
     configFile: false,
-    cacheDir: path.join(root, '.runic', 'vite'),
+    // Vite's dependency cache stays out of the app (Tailwind would scan it).
+    cacheDir,
     logLevel: 'error',
     appType: 'custom',
     server: { middlewareMode: true, hmr: false, watch: null },
@@ -452,6 +455,7 @@ async function main() {
     }
   }
   await server.close();
+  rmSync(cacheDir, { recursive: true, force: true });
   // Server nodes: each table by the parameters, url parts, route and parent
   // its load read in any entry (one data value per key).
   const nodesOut = {};

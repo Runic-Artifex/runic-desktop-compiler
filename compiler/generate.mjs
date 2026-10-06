@@ -365,8 +365,8 @@ export function checkGeneration(root, config, kit) {
     const r = record.steps[i];
     const stale = why =>
       fail(`Generation step ${step.name} is stale (${why}): run generate again`, step.line);
-    if (r.name !== step.name || r.definition !== definition(step)) stale('its declaration changed');
     const used = tools(root, step, true);
+    if (r.name !== step.name || r.definition !== definition(step)) stale('its declaration changed');
     for (const t of used) {
       const rt = r.tools.find(x => x.name === t.name);
       if (!rt || rt.version !== t.version || rt.sha256 !== t.sha256) stale(`${t.name} changed`);

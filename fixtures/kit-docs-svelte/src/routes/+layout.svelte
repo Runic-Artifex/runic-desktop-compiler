@@ -1,7 +1,7 @@
 <script lang="ts">
   // The docs layout: a header, the components sidebar (server data) and the
-  // page, which scrolls in its own pane (sticky positioning is unsupported:
-  // docs/BLITZ-GAPS.md).
+  // page, which scrolls in its own pane (Blitz keeps no box in view while the
+  // document scrolls: docs/BLITZ-GAPS.md).
   import '../app.css';
   import { page } from '$app/state';
   import type { LayoutProps } from './$types';

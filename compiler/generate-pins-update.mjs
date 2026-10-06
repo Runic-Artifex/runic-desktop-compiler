@@ -6,6 +6,7 @@
 //   node compiler/generate-pins-update.mjs name@version …
 import path from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { packageHash } from './generate.mjs';
 import { TOOL_PINS } from './generate-pins.mjs';
@@ -31,4 +32,6 @@ ${sorted.map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)},`).join('
 };
 `,
 );
+// The repository's formatting (prettier is in the dev shell).
+spawnSync('prettier', ['--write', path.join(here, 'generate-pins.mjs')], { stdio: 'ignore' });
 console.log(sorted.length, 'pins');

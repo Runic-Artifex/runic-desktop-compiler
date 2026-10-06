@@ -1057,7 +1057,8 @@ impl<A: App> Handler<'_, A> {
                 match crate::history::follow_fragment(&href.as_str().into()) {
                     Ok(changed) => {
                         self.window(doc, Event::Popstate);
-                        for moved in crate::layout::scroll_into_view(doc, target, "start", "nearest")
+                        for moved in
+                            crate::layout::scroll_into_view(doc, target, "start", "nearest")
                         {
                             self.listeners.scrolled(Some(moved));
                         }

@@ -13,7 +13,9 @@
  * of these components queries, out of Tailwind's generation (the browser
  * reference renders the same stylesheet as the native build).
  */
-@import "tailwindcss";
+/* Classes are found in this app only (its copies under .cache/ for the
+ * reference build and the tests would otherwise scan their surroundings). */
+@import "tailwindcss" source("..");
 @source not inline("@container/card-header");
 
 @custom-variant dark (&:is(.dark *));
