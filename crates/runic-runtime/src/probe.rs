@@ -174,6 +174,24 @@ fn snapshot<A: App>(native: &Native<A>, width: u32, height: u32) -> Value {
         "geometry": geometry,
         "cells": native.app.cells_json(),
     });
+    // `<body>`'s attributes (sorted; M6: scripts change them).
+    if let Some(body) = doc.try_root_element().and_then(|html| {
+        html.children
+            .iter()
+            .filter_map(|&c| doc.get_node(c))
+            .find(|n| n.element_data().is_some_and(|e| &*e.name.local == "body"))
+    }) {
+        let mut attrs: Vec<(String, String)> = body
+            .attrs()
+            .into_iter()
+            .flatten()
+            .map(|a| (a.name.local.to_string(), a.value.to_string()))
+            .collect();
+        attrs.sort();
+        if !attrs.is_empty() {
+            state["body"] = Value::Object(attrs.into_iter().map(|(k, v)| (k, json!(v))).collect());
+        }
+    }
     // The document element's attributes (sorted).
     if let Some(html) = doc.try_root_element() {
         let mut attrs: Vec<(String, String)> = html

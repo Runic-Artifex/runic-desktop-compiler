@@ -363,7 +363,8 @@ test('Avatar: fallbacks compile, Avatar.Image (image loading) is rejected at its
   }
 });
 
-test('SvelteMap reads outside derived values are rejected; dictionary objects guard prototype names', async () => {
+test('SvelteMap key reads in effects are reported; iteration and untracked reads are not; dictionary objects guard prototype names', async () => {
+  // A key read by a tracked effect: Svelte tracks that key, this the map.
   await withApp(
     {
       'App.svelte': `<script lang="ts">
@@ -377,8 +378,41 @@ test('SvelteMap reads outside derived values are rejected; dictionary objects gu
 <button id="b" onclick={() => m.set('a', 1)}>{seen}</button>
 `,
     },
-    async root =>
-      assert.rejects(lowered(root), failWith('E_REACTIVITY', 'App.svelte', /SvelteMap/)),
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.match(
+        JSON.stringify(steps.map(x => x.outcome)),
+        /keyed collection read by a tracked effect/,
+      );
+    },
+  );
+  // Iteration depends on every entry in Svelte too, and handlers do not track.
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { SvelteMap } from 'svelte/reactivity';
+  const m = new SvelteMap<string, number>();
+  let total = $state(0);
+  let size = $state(0);
+  $effect(() => {
+    let t = 0;
+    for (const [, v] of m) t += v;
+    for (const v of m.values()) t += v;
+    total = t;
+  });
+</script>
+<button id="b" onclick={() => { m.set(String(size), 2); size = m.size; }}>{total} {size}</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'b' },
+        { kind: 'click', id: 'b' },
+      ]);
+      assert.equal(text(byId(steps[2], 'b')), '8 2');
+    },
   );
   await withApp(
     {

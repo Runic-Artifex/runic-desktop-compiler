@@ -20,6 +20,10 @@ impl Element {
     pub const BODY: Element = Element(u64::MAX - 2);
     /// The window's visual viewport (M6 overlays: its `resize` listeners).
     pub const VISUAL_VIEWPORT: Element = Element(u64::MAX - 3);
+    /// The document element where the interpreter has no node for it
+    /// (M6: `getComputedStyle(document.documentElement)`). The native
+    /// runtime uses Blitz's node.
+    pub const HTML: Element = Element(u64::MAX - 4);
 }
 
 /// An opaque host object compared by identity (M6 overlays: imperatively
@@ -123,5 +127,18 @@ impl ToMapKey for Element {
         // Reference identity; element ids never collide with heap addresses
         // in one map because a map's key type is static.
         MapKey::Ref(self.0 as usize)
+    }
+}
+
+/// `navigator.userAgent` (M6): the runtime's own, naming the desktop
+/// platform it runs on (no browser engine; programs test it for platforms,
+/// as bits-ui's `isIOS` does).
+pub fn user_agent() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Runic"
+    } else if cfg!(target_os = "macos") {
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Runic"
+    } else {
+        "Mozilla/5.0 (X11; Linux x86_64) Runic"
     }
 }

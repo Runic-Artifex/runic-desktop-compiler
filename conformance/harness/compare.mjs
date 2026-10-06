@@ -101,6 +101,9 @@ export function compareTraces(browser, native, { pixels = false, pixelRegions = 
     // The document element's attributes (theming: class, data-*, style).
     if (JSON.stringify(b.document ?? {}) !== JSON.stringify(nv.document ?? {}))
       step.dom.push({ at: 'document', browser: b.document ?? {}, native: nv.document ?? {} });
+    // <body>'s attributes (M6: scripts change them, bits-ui's scroll lock).
+    if (JSON.stringify(b.body ?? {}) !== JSON.stringify(nv.body ?? {}))
+      step.dom.push({ at: 'body', browser: b.body ?? {}, native: nv.body ?? {} });
     if ((b.focused ?? null) !== (nv.focused ?? null)) step.focus = { browser: b.focused, native: nv.focused };
     // Host effects: console lines, clipboard, location, history length.
     if (JSON.stringify(canonicalHost(b.host)) !== JSON.stringify(canonicalHost(nv.host)))

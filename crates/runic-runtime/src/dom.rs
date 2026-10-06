@@ -522,6 +522,12 @@ impl Host {
             return String::new();
         };
         crate::layout::resolve(dom.doc);
+        // Stylo supports scrollbar-gutter for Gecko only: stylesheets cannot
+        // set it (the compiler rejects declarations Stylo drops), so it is
+        // its initial value.
+        if name == "scrollbar-gutter" {
+            return "auto".into();
+        }
         let Ok(id) = PropertyId::parse_enabled_for_all_content(name) else {
             return String::new();
         };
@@ -532,6 +538,15 @@ impl Host {
             .get_node(NodeId::from_u64(node))
             .and_then(|n| n.primary_styles())
             .map(|s| s.computed_value_to_string(PropertyDeclarationId::Longhand(longhand)))
+            .map(|v| {
+                // The resolved value of a percentage padding or margin is the
+                // used length, which this does not compute.
+                if (name.starts_with("padding-") || name.starts_with("margin-")) && v.ends_with('%')
+                {
+                    crate::unsupported(&format!("getComputedStyle {name} of a percentage ({v})"));
+                }
+                v
+            })
             .unwrap_or_default()
     }
 
@@ -655,6 +670,12 @@ impl Host {
     pub fn body(&self) -> Option<u64> {
         let dom = self.dom()?;
         dom.listeners.body.map(NodeId::as_u64)
+    }
+
+    /// The document element's node (M6: `getComputedStyle(document.documentElement)`).
+    pub fn html(&self) -> Option<u64> {
+        let dom = self.dom()?;
+        dom.doc.try_root_element().map(|e| e.id.as_u64())
     }
 
     /// The attached document for code that mounts and removes subtrees from
@@ -1483,10 +1504,30 @@ impl Dom<'_> {
     }
 
     /// Apply the document element's attributes to `<html>`.
+    /// Apply `<body>` as scripts changed it (M6, bits-ui's scroll lock).
+    pub fn apply_body(&mut self, body: &runic_css::Root) {
+        let body_node = self.doc.try_root_element().and_then(|html| {
+            html.children.iter().copied().find(|&c| {
+                self.doc
+                    .get_node(c)
+                    .and_then(|n| n.element_data())
+                    .is_some_and(|e| &*e.name.local == "body")
+            })
+        });
+        if let Some(node) = body_node {
+            self.apply_attrs(node, body);
+        }
+    }
+
     pub fn apply_root(&mut self, root: &runic_css::Root) {
         let Some(html) = self.doc.try_root_element().map(|e| e.id) else {
             return;
         };
+        self.apply_attrs(html, root);
+    }
+
+    /// Make an element's attributes those of `state`.
+    fn apply_attrs(&mut self, html: NodeId, root: &runic_css::Root) {
         let current: Vec<String> = self
             .doc
             .get_node(html)

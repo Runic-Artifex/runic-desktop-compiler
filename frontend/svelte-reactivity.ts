@@ -11,12 +11,19 @@
 // notify readers of another), so this notifies a superset of Svelte's
 // readers: derived values and template bindings recompute and keep equal
 // results, which is not observable (a derived value read by an effect
-// notifies it only when its result changed); effects reading a SvelteMap
-// themselves would run where Svelte's do not, so reads are accepted only
-// directly in derived values and derived class fields (`checkMapReads`).
+// notifies it only when its result changed); an effect reading a key or the
+// size itself would run where Svelte's does not, so such a read made while a
+// tracked effect runs (not in a derived value it reads) is reported at run
+// time (`reactive.keyed-read`). Reads elsewhere (handlers, initialisation,
+// untracked callbacks) depend on nothing and are exact.
 //
-// Rejected: constructor entries, iteration (`keys`, `values`, `entries`,
-// `forEach`, spreads), `getOrInsert*`.
+// Iteration by `values()`, `entries()` and for-of (M6 overlays: bits-ui's
+// scroll lock) reads every entry in Svelte too (its version and each key's
+// source), so it depends on any change, as here: it is exact anywhere, also
+// in effects.
+//
+// Rejected: constructor entries, `keys` (Svelte tracks only additions and
+// removals there), `forEach`, spreads, `getOrInsert*`.
 import ts from 'typescript';
 import type { Expr, Fn, Source, Stmt, Type } from './ir.ts';
 import type { Lowerer } from './language.ts';
@@ -26,10 +33,6 @@ const get = (object: Expr, field: number): Expr => ({ op: 'get', object, field }
 
 /** SvelteMap records by key and value type, per program. */
 const records = new WeakMap<Lowerer, Map<string, number>>();
-/** Where each read call of a SvelteMap stands (for diagnostics). */
-const readSites = new WeakMap<object, ts.Node>();
-/** The functions that read a SvelteMap, per program (effects must not call them). */
-export const mapReaders = new WeakMap<Lowerer, Set<number>>();
 
 /** Checks an import from svelte/reactivity: SvelteMap only (by name). */
 export function svelteReactivityImport(
@@ -88,8 +91,6 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
     class: true,
     fields: [{ name: 'map', type: map, reactive: 'raw' }],
   });
-  let readers = mapReaders.get(lower);
-  if (!readers) mapReaders.set(lower, (readers = new Set()));
   const builtin = (name: string, args: Expr[], type: Type): Expr => ({
     op: 'builtin',
     name: `map.${name}`,
@@ -108,9 +109,15 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
       params: [{ name: 'this', type: self }, ...params],
       locals: [],
       result,
-      body: [{ op: 'return', value: value(get(local(0), 0)) }],
+      body: [
+        // (Reported where a tracked effect reads a key or the size.)
+        {
+          op: 'expr',
+          value: { op: 'builtin', name: 'reactive.keyed-read', args: [], type: 'void' },
+        },
+        { op: 'return', value: value(get(local(0), 0)) },
+      ],
     });
-    readers!.add(f);
     return f;
   };
   const getFn = reader('get', [{ name: 'key', type: k }], { maybe: v }, m =>
@@ -251,7 +258,33 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
       },
     ],
   });
+  // Iteration (not a checked reader: exact anywhere, see the header).
+  const entry = lower.types.tupleRecord([k, v]);
+  const valuesFn = define(lower, {
+    name: 'ReactiveMap.values',
+    params: [{ name: 'this', type: self }],
+    locals: [],
+    result: { array: v },
+    body: [{ op: 'return', value: builtin('values', [get(local(0), 0)], { array: v }) }],
+  });
+  const entriesFn = define(lower, {
+    name: 'ReactiveMap.entries',
+    params: [{ name: 'this', type: self }],
+    locals: [],
+    result: { array: { record: entry } },
+    body: [
+      {
+        op: 'return',
+        value: builtin('entries', [get(local(0), 0)], { array: { record: entry } }),
+      },
+    ],
+  });
+  let iterators = iteration.get(lower);
+  if (!iterators) iteration.set(lower, (iterators = new Map()));
+  iterators.set(record, entriesFn);
   const methods: Record<string, number> = {
+    values: valuesFn,
+    entries: entriesFn,
     get: getFn,
     has: hasFn,
     set: setFn,
@@ -268,7 +301,6 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
           `${label}: ${name} is not covered (get, has, set, delete, clear, size)`,
         );
       const call: Expr = { op: 'call', function: sizeFn, args: [object] };
-      readSites.set(call, at);
       return call;
     },
     write(name, _object, _value, at) {
@@ -290,11 +322,19 @@ function svelteMapRecord(lower: Lowerer, k: Type, v: Type): number {
         function: fn,
         args: [object, ...node.arguments.map((a, i) => lower.coerce(a, b, want[i]))],
       };
-      if (readers!.has(fn)) readSites.set(call, node);
       return call;
     },
   });
   return record;
+}
+
+const iteration = new WeakMap<Lowerer, Map<number, number>>();
+
+/** for-of over a SvelteMap of record `t`: its entries (undefined for other types). */
+export function svelteMapEntries(lower: Lowerer, t: Type, object: Expr): Expr | undefined {
+  const fn =
+    typeof t === 'object' && 'record' in t ? iteration.get(lower)?.get(t.record) : undefined;
+  return fn === undefined ? undefined : { op: 'call', function: fn, args: [object] };
 }
 
 /** `new SvelteMap()`: an empty map (constructor entries are not covered). */
@@ -312,32 +352,4 @@ export function newSvelteMap(e: ts.NewExpression, lower: Lowerer): Expr | undefi
     record: type.record,
     fields: [{ op: 'builtin', name: 'Map.new', args: [], type: map }],
   };
-}
-
-/**
- * SvelteMap reads outside derived values (`$derived`, derived class fields):
- * the callers of the read functions that are not derived functions, with
- * the function calling them (undefined when none).
- */
-export function checkMapReads(
-  lower: Lowerer,
-): { caller: string; at: ts.Node | undefined; source: Source | undefined } | undefined {
-  const readers = mapReaders.get(lower);
-  if (!readers?.size) return undefined;
-  const derived = new Set<number>();
-  lower.functions.forEach((f, i) => f?.derived && derived.add(i));
-  for (const r of lower.types.records)
-    for (const f of r.fields) if (f.derived !== undefined) derived.add(f.derived);
-  let found: { caller: string; at: ts.Node | undefined; source: Source | undefined } | undefined;
-  // The nearest statement's source stands for a read the lowering copied.
-  const visit = (v: unknown, caller: number, source: Source | undefined) => {
-    if (found || !v || typeof v !== 'object') return;
-    const x = v as { op?: string; function?: number; source?: Source };
-    const here = x.source ?? source;
-    if (x.op === 'call' && readers.has(x.function!) && !derived.has(caller) && !readers.has(caller))
-      found = { caller: lower.functions[caller].name, at: readSites.get(x), source: here };
-    for (const c of Array.isArray(v) ? v : Object.values(v)) visit(c, caller, here);
-  };
-  lower.functions.forEach((f, i) => f && visit(f.body, i, f.source));
-  return found;
 }

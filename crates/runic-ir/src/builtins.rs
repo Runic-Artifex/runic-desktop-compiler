@@ -651,6 +651,10 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         }
         // M6 overlays: the body element (where portals mount).
         ("document", "body") => arity(args, 0, 0).map(|_| Element),
+        // The document element as an element value (M6: getComputedStyle).
+        ("document", "element") => arity(args, 0, 0).map(|_| Element),
+        // The runtime's user agent (M6: bits-ui's platform checks).
+        ("navigator", "user-agent") => arity(args, 0, 0).map(|_| s.clone()),
         ("focus", "current") => arity(args, 0, 0).map(|_| Maybe(Box::new(Element))),
         // tabbable 6.5.0 (M6 overlays): the tabbable and focusable elements
         // of a container (with it, where the flag says so), and the tests.
@@ -693,9 +697,9 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // pending flush, then fulfils; `after` fulfils when the pending (or
         // running) flush ends, or is fulfilled already.
         ("flush", "tick" | "after") => arity(args, 0, 0).map(|_| Promise(Box::new(Void))),
-        // The document element (docs/design/M5-PLATFORM.md): attributes,
-        // class list and inline style.
-        ("root", m) => {
+        // The document element (docs/design/M5-PLATFORM.md) and `<body>`
+        // (M6): attributes, class list and inline style.
+        ("root" | "body", m) => {
             let strings = |k: usize| -> std::result::Result<(), std::string::String> {
                 arity(args, k, k)?;
                 args.iter().try_for_each(|a| expect(a, &s, "argument"))
@@ -1191,6 +1195,8 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 )),
             }
         }
+        // A keyed read of a collection tracked as a whole (M6): reported where a tracked effect makes it.
+        ("reactive", "keyed-read") => arity(args, 0, 0).map(|_| Void),
         ("effect", "destroy-root") => arity(args, 1, 1).and(expect(&args[0], &Number, "root")).map(|_| Void),
         // A call whose reads are not dependencies of the running effect or derived value.
         ("reactive", "untrack-call") => {

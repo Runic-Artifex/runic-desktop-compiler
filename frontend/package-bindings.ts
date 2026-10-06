@@ -107,6 +107,15 @@ export function packageBindings(
     if (!ts.isIdentifier(decl.name) || !decl.initializer)
       return lower.fail(decl, 'E_MODULE', 'Module constants need a name and an initialiser');
     const name = decl.name.text;
+    // A value known at build time (`isBrowser = typeof document !== "undefined"`,
+    // bits-ui's `isIOS = getIsIOS()` of the platform), before pack constants
+    // (which would bind the function it calls).
+    const early = lower.staticValue(decl.initializer);
+    if (early) {
+      const binding: Binding = { kind: 'constant', label: name, value: early.value };
+      lower.bindings.set(symbol, binding);
+      return binding;
+    }
     if (lower.isIntlConstant(decl) || lower.isPackConstant(decl)) return lower.bindings.get(symbol);
     // A constant holding module state (`const x = $state(v)`).
     if (

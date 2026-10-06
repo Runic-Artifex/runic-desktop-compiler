@@ -82,6 +82,12 @@ impl<T> Truthy for JsRef<T> {
         true
     }
 }
+/// Function values (generated closures, `Rc<dyn Fn…>`) are objects: truthy.
+impl<F: ?Sized> Truthy for std::rc::Rc<F> {
+    fn truthy(&self) -> bool {
+        true
+    }
+}
 impl<T: Truthy> Truthy for Maybe<T> {
     fn truthy(&self) -> bool {
         match self {

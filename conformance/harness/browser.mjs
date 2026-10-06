@@ -219,8 +219,13 @@ function pageSnapshot(container) {
   const html = Object.fromEntries(
     [...document.documentElement.attributes].map(a => [a.name, a.value]).sort(([a], [b]) => (a < b ? -1 : 1)),
   );
+  // <body>'s attributes (M6: scripts change them, bits-ui's scroll lock).
+  const body = Object.fromEntries(
+    [...document.body.attributes].map(a => [a.name, a.value]).sort(([a], [b]) => (a < b ? -1 : 1)),
+  );
   return {
     ...(Object.keys(html).length ? { document: html } : {}),
+    ...(Object.keys(body).length ? { body } : {}),
     dom: node(root),
     ...(after.length ? { portals: after } : {}),
     focused: active === document.body || !active ? null : active.id || active.localName,

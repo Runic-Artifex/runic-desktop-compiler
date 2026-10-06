@@ -770,6 +770,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 ),
             )
         }
+        ("reactive", "keyed-read") => "{ if cx.tracking.is_some() && cx.in_effect { runic_runtime::unsupported(\"a keyed collection read by a tracked effect (the framework tracks one key; the program tracks the whole collection)\"); } }".into(),
         ("effect", "destroy-root") => format!("{{ cx.destroy_root({} as usize); }}", t[0]),
         ("reactive", "untrack-call") => {
             let args: String = t[1..].iter().map(|a| format!(", {a}")).collect();
@@ -813,6 +814,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("document", "body") => {
             "js::Element(cx.dom.body().expect(\"an attached document\"))".into()
         }
+        ("document", "element") => {
+            "js::Element(cx.dom.html().expect(\"an attached document\"))".into()
+        }
+        ("navigator", "user-agent") => "JsString::from(js::user_agent())".into(),
         ("uid", "next") => format!(
             "{{ cx.uids += 1; JsString::from(format!(\"{{}}{{}}\", {}.to_rust(), cx.uids)) }}",
             t[0]
@@ -845,28 +850,28 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ),
         // The document element and media queries (runic_css, applied to
         // <html> by the runtime).
-        ("root", m) => {
+        (family @ ("root" | "body"), m) => {
             let arg = |i: usize| format!("&{}.to_rust()", t[i]);
             let dom_error = "map_err(|(n, m)| js::Throw::new(n, m))";
             match m {
                 "get-attr" => format!(
-                    "(match cx.root.get({}) {{ Some(v) => Maybe::Some(JsString::from(v)), None => Maybe::Null }})",
+                    "(match cx.{family}.get({}) {{ Some(v) => Maybe::Some(JsString::from(v)), None => Maybe::Null }})",
                     arg(0)
                 ),
-                "set-attr" => format!("{{ cx.root.set({}, {}); }}", arg(0), arg(1)),
-                "remove-attr" => format!("{{ cx.root.remove({}); }}", arg(0)),
-                "class-contains" => format!("cx.root.class_contains({})", arg(0)),
+                "set-attr" => format!("{{ cx.{family}.set({}, {}); }}", arg(0), arg(1)),
+                "remove-attr" => format!("{{ cx.{family}.remove({}); }}", arg(0)),
+                "class-contains" => format!("cx.{family}.class_contains({})", arg(0)),
                 "class-toggle" => {
                     let force = t.get(1).map_or("None".to_string(), |f| format!("Some({f})"));
-                    q(cx, format!("cx.root.class_toggle({}, {force}).{dom_error}", arg(0)))
+                    q(cx, format!("cx.{family}.class_toggle({}, {force}).{dom_error}", arg(0)))
                 }
                 "class-add" | "class-remove" => {
                     let on = m == "class-add";
-                    format!("{{ {}; }}", q(cx, format!("cx.root.class_set({}, {on}).{dom_error}", arg(0))))
+                    format!("{{ {}; }}", q(cx, format!("cx.{family}.class_set({}, {on}).{dom_error}", arg(0))))
                 }
-                "style-set" => format!("{{ cx.root.style_set({}, {}); }}", arg(0), arg(1)),
-                "style-remove" => format!("JsString::from(cx.root.style_remove({}))", arg(0)),
-                "style-get" => format!("JsString::from(cx.root.style_get({}))", arg(0)),
+                "style-set" => format!("{{ cx.{family}.style_set({}, {}); }}", arg(0), arg(1)),
+                "style-remove" => format!("JsString::from(cx.{family}.style_remove({}))", arg(0)),
+                "style-get" => format!("JsString::from(cx.{family}.style_get({}))", arg(0)),
                 other => unreachable!("validated document element operation {other}"),
             }
         }

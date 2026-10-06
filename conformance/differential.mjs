@@ -261,6 +261,7 @@ for (const fixture of fixtures) {
         cells: expected[i].state.cells,
         instances: expected[i].state.instances ?? [],
         document: expected[i].state.document ?? {},
+        body: expected[i].state.body ?? {},
         host: canonicalHost(expected[i].state.host),
       };
       const got = {
@@ -269,6 +270,7 @@ for (const fixture of fixtures) {
         cells: actual[i].cells,
         instances: actual[i].instances ?? [],
         document: actual[i].document ?? {},
+        body: actual[i].body ?? {},
         host: canonicalHost(actual[i].host),
       };
       if (JSON.stringify(want) !== JSON.stringify(got)) {

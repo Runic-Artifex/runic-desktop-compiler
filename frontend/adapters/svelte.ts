@@ -47,7 +47,7 @@ import {
   type PackageModule,
 } from '../package-modules.ts';
 import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domains.ts';
-import { checkMapReads, svelteReactivityImport } from '../svelte-reactivity.ts';
+import { svelteReactivityImport } from '../svelte-reactivity.ts';
 import { svelteContextImport } from '../svelte-context.ts';
 import { valueSet } from '../packs/choice.ts';
 import { ABSENT, BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
@@ -4584,13 +4584,6 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         `bind:${w.name} binds a variable that cannot be undefined to a prop its component may set to undefined; declare the variable with undefined in its type`,
         w.at,
       );
-  }
-  // SvelteMap reads only in derived values (frontend/svelte-reactivity.ts).
-  const mapRead = checkMapReads(lower);
-  if (mapRead) {
-    const message = `A SvelteMap is read outside a derived value (in ${mapRead.caller}): its reads depend on the whole map, where Svelte's depend on one key, so an effect reading it would run where Svelte's does not; read it in a $derived value`;
-    if (mapRead.at) tsFail(mapRead.at, 'E_REACTIVITY', message);
-    fail('E_REACTIVITY', message, mapRead.source);
   }
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };

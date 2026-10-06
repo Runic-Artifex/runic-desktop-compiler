@@ -556,6 +556,11 @@ impl std::fmt::Debug for DerivedSlot {
     }
 }
 
+/// A read of one key (or the size) of a keyed collection tracked as a
+/// whole, while a tracked effect runs: the framework tracks keys one by one,
+/// so the effect would re-run where the framework's does not.
+const KEYED_READ: &str = "a keyed collection read by a tracked effect (the framework tracks one key; the program tracks the whole collection)";
+
 /// An effect root (`effect.root`, Svelte's `$effect.root`, M6): effects
 /// created while its function ran belong to it, not to an instance; they
 /// run after the instances' effects in each flush pass until it is
@@ -713,6 +718,8 @@ pub struct Machine<'p> {
     replace_states: HashMap<u64, (runic_css::ReplaceState, Option<String>)>,
     /// The document element as scripts changed it.
     root: runic_css::Root,
+    /// `<body>` as scripts change it (M6, bits-ui's scroll lock).
+    body: runic_css::Root,
     /// What media queries see (the probe's default viewport and preferences).
     media: runic_css::MediaEnv,
     /// Document and window listeners in registration order: (window, kind, listener).
@@ -794,6 +801,9 @@ pub struct Machine<'p> {
     /// Effect roots (`effect.root`) and those whose functions are running.
     roots: Vec<RootScope>,
     root_stack: Vec<usize>,
+    /// A tracked effect runs (not a derived value it reads): keyed reads
+    /// tracked as a whole are reported (`reactive.keyed-read`).
+    in_effect: bool,
     /// localStorage items in insertion order.
     storage: Vec<(JsString, JsString)>,
     /// Host services in probe mode (docs/design/M5-PLATFORM.md).
@@ -1036,6 +1046,9 @@ impl<'p> Machine<'p> {
                     .iter()
                     .map(|(k, v)| (k.as_str(), v.as_str())),
             ),
+            body: runic_css::Root::with_attrs(
+                program.body.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+            ),
             media: runic_css::MediaEnv::default(),
             children: HashMap::new(),
             listeners: vec![],
@@ -1064,6 +1077,7 @@ impl<'p> Machine<'p> {
             flush_promise: None,
             roots: Vec::new(),
             root_stack: Vec::new(),
+            in_effect: false,
             storage,
             host: HostState {
                 console: vec![],
@@ -1704,7 +1718,9 @@ impl<'p> Machine<'p> {
         let heap_outer = js::begin_heap_reads(Some(self.tracks_owned));
         let saved = std::mem::replace(&mut self.current, inst);
         let saved_snap = self.snap.take();
+        let effect_outer = std::mem::replace(&mut self.in_effect, false);
         let result = self.call(f, vec![], vec![]);
+        self.in_effect = effect_outer;
         self.current = saved;
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);
@@ -1768,7 +1784,9 @@ impl<'p> Machine<'p> {
         let outer = self.tracking.replace(vec![]);
         let heap_outer = js::begin_heap_reads(Some(self.tracks_owned));
         let saved_snap = self.snap.take();
+        let effect_outer = std::mem::replace(&mut self.in_effect, false);
         let result = self.call(function, vec![], vec![Val::Record(object.clone())]);
+        self.in_effect = effect_outer;
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);
         let reads = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
@@ -3006,6 +3024,12 @@ impl<'p> Machine<'p> {
                 Val::Undefined
             }
             ("effect", "root") => Val::Num(self.create_root(&a[0])? as f64),
+            ("reactive", "keyed-read") => {
+                if self.tracking.is_some() && self.in_effect {
+                    self.unsupported.get_or_insert(KEYED_READ.to_string());
+                }
+                Val::Undefined
+            }
             ("effect", "destroy-root") => {
                 self.destroy_root(a[0].num() as usize);
                 Val::Undefined
@@ -3070,6 +3094,8 @@ impl<'p> Machine<'p> {
                 Val::Promise(Promise::fulfilled(Val::Undefined))
             }
             ("document", "body") => Val::Element(js::Element::BODY),
+            ("document", "element") => Val::Element(js::Element::HTML),
+            ("navigator", "user-agent") => Val::Str(JsString::from(js::user_agent())),
             ("uid", "next") => {
                 self.uids += 1;
                 Val::Str(JsString::from(format!(
@@ -3079,27 +3105,32 @@ impl<'p> Machine<'p> {
                 )))
             }
             ("attrs", m) => self.attrs_builtin(m, &a, ty)?,
-            ("root", m) => {
+            (family @ ("root" | "body"), m) => {
                 let arg = |i: usize| a[i].string().to_rust();
+                let el = if family == "root" {
+                    &mut self.root
+                } else {
+                    &mut self.body
+                };
                 let dom_error =
                     |(name, message): runic_css::root::TokenError| Throw::new(name, message);
                 match m {
-                    "get-attr" => match self.root.get(&arg(0)) {
+                    "get-attr" => match el.get(&arg(0)) {
                         Some(v) => Val::Str(JsString::from(v)),
                         None => Val::Null,
                     },
                     "set-attr" => {
-                        self.root.set(&arg(0), &arg(1));
+                        el.set(&arg(0), &arg(1));
                         Val::Undefined
                     }
                     "remove-attr" => {
-                        self.root.remove(&arg(0));
+                        el.remove(&arg(0));
                         Val::Undefined
                     }
-                    "class-contains" => Val::Bool(self.root.class_contains(&arg(0))),
+                    "class-contains" => Val::Bool(el.class_contains(&arg(0))),
                     "class-toggle" => {
                         let force = a.get(1).map(Val::boolean);
-                        Val::Bool(self.root.class_toggle(&arg(0), force).map_err(dom_error)?)
+                        Val::Bool(el.class_toggle(&arg(0), force).map_err(dom_error)?)
                     }
                     "class-add" | "class-remove" => {
                         self.root
@@ -3108,11 +3139,11 @@ impl<'p> Machine<'p> {
                         Val::Undefined
                     }
                     "style-set" => {
-                        self.root.style_set(&arg(0), &arg(1));
+                        el.style_set(&arg(0), &arg(1));
                         Val::Undefined
                     }
-                    "style-remove" => Val::Str(JsString::from(self.root.style_remove(&arg(0)))),
-                    "style-get" => Val::Str(JsString::from(self.root.style_get(&arg(0)))),
+                    "style-remove" => Val::Str(JsString::from(el.style_remove(&arg(0)))),
+                    "style-get" => Val::Str(JsString::from(el.style_get(&arg(0)))),
                     other => panic!("validated document element operation {other}"),
                 }
             }
@@ -4516,6 +4547,9 @@ impl<'p> Machine<'p> {
         if !self.root.attrs().is_empty() {
             state["document"] = json!(self.root.attrs());
         }
+        if !self.body.attrs().is_empty() {
+            state["body"] = json!(self.body.attrs());
+        }
         // Host effects (console lines since the last snapshot, the
         // clipboard, the location and the history length), without defaults.
         let mut host = Map::new();
@@ -5431,10 +5465,12 @@ impl<'p> Machine<'p> {
         let heap_outer = js::begin_heap_reads(tracked.then_some(self.tracks_owned));
         let saved = std::mem::replace(&mut self.current, i);
         let saved_snap = self.snap.take();
+        let effect_outer = std::mem::replace(&mut self.in_effect, tracked);
         let result = match &dynamic {
             Some(run) => self.call_value(run, vec![]),
             None => self.call(effect.run, vec![], args),
         };
+        self.in_effect = effect_outer;
         self.current = saved;
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);
@@ -5481,7 +5517,9 @@ impl<'p> Machine<'p> {
         let heap_outer = js::begin_heap_reads(Some(self.tracks_owned));
         let saved = std::mem::replace(&mut self.current, self.roots[r].current);
         let saved_snap = self.snap.take();
+        let effect_outer = std::mem::replace(&mut self.in_effect, true);
         let result = self.call_value(&run, vec![]);
+        self.in_effect = effect_outer;
         self.current = saved;
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);

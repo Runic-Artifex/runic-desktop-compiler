@@ -31,3 +31,6 @@ declare module 'node:url' {
 interface ImportMeta {
   url: string;
 }
+declare module 'node:os' {
+  export function platform(): string;
+}

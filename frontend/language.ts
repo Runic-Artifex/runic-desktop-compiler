@@ -2,6 +2,7 @@
 // schema 4 (docs/design/M2-VALUES.md). Framework adapters supply only the
 // semantics of their reactive bindings through `Hooks`.
 import ts from 'typescript';
+import { platform } from 'node:os';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import {
@@ -37,7 +38,7 @@ import { intlSpec, LOCALES, verifiedLocale, type IntlKind } from './intl.ts';
 import { Classes, type ClassInfo } from './classes.ts';
 import { Unions } from './unions.ts';
 import { bindPackConstant, packType } from './packs.ts';
-import { newSvelteMap, svelteMapType } from './svelte-reactivity.ts';
+import { newSvelteMap, svelteMapEntries, svelteMapType } from './svelte-reactivity.ts';
 import { componentValueType, knownComponentRecord } from './component-values.ts';
 import {
   type Choice,
@@ -1950,6 +1951,18 @@ export class Lowerer {
         value = { op: value.op, type: b.result! };
       else if (value && inner && sameType(this.irType(value, b), inner))
         value = { op: 'some', value };
+      // A nullable value where the declared result is present (untyped
+      // package JavaScript whose declarations say so: bits-ui's SharedState
+      // `get(): ReturnType<T>` returning `this.#state`): a TypeError if the
+      // program broke its types (JavaScript would return undefined).
+      else if (
+        value &&
+        b.result &&
+        !inner &&
+        maybeInner(this.irType(value, b)) !== undefined &&
+        sameType(maybeInner(this.irType(value, b))!, b.result)
+      )
+        value = { op: 'unwrap', value };
       // A class instance returned as a class reference.
       else if (value && b.result)
         value = this.classes.fitAt(value, this.irType(value, b), b.result, s);
@@ -2012,8 +2025,21 @@ export class Lowerer {
     }
     if (ts.isForOfStatement(s)) {
       if (s.awaitModifier) this.fail(s, 'E_ASYNC', 'for await is planned for M4');
-      const iterable = this.expr(s.expression, b);
-      const iterType = this.irType(iterable, b);
+      let iterable = this.expr(s.expression, b);
+      let iterType = this.irType(iterable, b);
+      // A map (M6 overlays: bits-ui's `for (const [_, value] of map)`): its
+      // entries, tuple records, taken when the loop starts as for sets.
+      if (typeof iterType === 'object' && 'map' in iterType) {
+        const entry = this.types.tupleRecord([iterType.map[0], iterType.map[1]]);
+        iterType = { array: { record: entry } };
+        iterable = { op: 'builtin', name: 'map.entries', args: [iterable], type: iterType };
+      }
+      // A SvelteMap: its entries, read as Svelte reads them (all of them).
+      const reactiveEntries = svelteMapEntries(this, iterType, iterable);
+      if (reactiveEntries) {
+        iterable = reactiveEntries;
+        iterType = this.irType(iterable, b);
+      }
       const init = s.initializer;
       if (!ts.isVariableDeclarationList(init) || init.declarations.length !== 1)
         this.fail(s, 'E_STATEMENT', 'for-of requires a single declared loop variable');
@@ -2294,6 +2320,16 @@ export class Lowerer {
   private declaration(d: ts.VariableDeclaration, b: FnBuilder): Stmt[] {
     // Intl and pack constants have no runtime value (their uses are lowered).
     if (this.isIntlConstant(d) || this.isPackConstant(d)) return [];
+    // A constant naming the document or the window (bits-ui's `const
+    // documentObj = document`): its uses are that object (`hostName`).
+    if (
+      d.initializer &&
+      ts.isIdentifier(d.name) &&
+      ts.isVariableDeclarationList(d.parent) &&
+      d.parent.flags & ts.NodeFlags.Const &&
+      ['document', 'window'].includes(this.hostName(d.initializer) ?? '')
+    )
+      return [];
     const rune = this.hooks.localRune?.(d, b, this);
     if (rune) return rune;
     // `const id = ++counter` (and `counter++`, `--`, of a variable): the
@@ -3376,18 +3412,42 @@ export class Lowerer {
     );
   }
 
-  /** A document element member: an attribute (`lang`, `dir`, `dataset.x`) or a style property. */
-  private rootMember(e: ts.Expression): { kind: 'attr' | 'style'; name: string } | undefined {
+  /**
+   * A host element scripts change (`root`: `document.documentElement`;
+   * `body`: `document.body`, M6, bits-ui's scroll lock), whose built-ins
+   * are the `root.*` and `body.*` families.
+   */
+  private hostElement(e: ts.Expression): 'root' | 'body' | undefined {
+    e = skipParens(e);
+    if (this.isRoot(e)) return 'root';
+    return ts.isPropertyAccessExpression(e) &&
+      e.name.text === 'body' &&
+      this.hostName(e.expression) === 'document'
+      ? 'body'
+      : undefined;
+  }
+
+  /**
+   * A member of a host element: an attribute (the document element's
+   * `lang` and `dir`, `dataset.x`) or a style property.
+   */
+  private rootMember(
+    e: ts.Expression,
+  ): { family: 'root' | 'body'; kind: 'attr' | 'style'; name: string } | undefined {
     e = skipParens(e);
     if (!ts.isPropertyAccessExpression(e)) return undefined;
     const n = e.name.text;
     const kebab = (s: string) => s.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
     if (this.isRoot(e.expression))
-      return ['lang', 'dir'].includes(n) ? { kind: 'attr', name: n } : undefined;
+      return ['lang', 'dir'].includes(n) ? { family: 'root', kind: 'attr', name: n } : undefined;
     const inner = skipParens(e.expression);
-    if (!ts.isPropertyAccessExpression(inner) || !this.isRoot(inner.expression)) return undefined;
-    if (inner.name.text === 'dataset') return { kind: 'attr', name: 'data-' + kebab(n) };
-    if (inner.name.text === 'style') return { kind: 'style', name: kebab(n) };
+    const family = ts.isPropertyAccessExpression(inner)
+      ? this.hostElement(inner.expression)
+      : undefined;
+    if (!family) return undefined;
+    const part = (inner as ts.PropertyAccessExpression).name.text;
+    if (part === 'dataset') return { family, kind: 'attr', name: 'data-' + kebab(n) };
+    if (part === 'style') return { family, kind: 'style', name: kebab(n) };
     return undefined;
   }
 
@@ -3452,7 +3512,7 @@ export class Lowerer {
           op: 'expr',
           value: {
             op: 'builtin',
-            name: root.kind === 'attr' ? 'root.set-attr' : 'root.style-set',
+            name: `${root.family}.${root.kind === 'attr' ? 'set-attr' : 'style-set'}`,
             args: [{ op: 'lit', value: root.name }, text],
             type: 'void',
           },
@@ -3987,8 +4047,7 @@ export class Lowerer {
     if (t === 'string') return 'string';
     if (typeof t === 'object' && 'array' in t) return t.array;
     if (typeof t === 'object' && 'set' in t) return t.set;
-    if (typeof t === 'object' && 'map' in t) return { array: t.map[0] }; // [key, value] pairs need tuples
-    return this.fail(e, 'E_ITERATE', 'for-of is supported over arrays, sets and strings');
+    return this.fail(e, 'E_ITERATE', 'for-of is supported over arrays, sets, maps and strings');
   }
 
   expr(e: ts.Expression, b: FnBuilder): Expr {
@@ -4859,9 +4918,67 @@ export class Lowerer {
         case K.ExclamationEqualsToken:
           return { value: l.value != r.value };
       }
+      if (typeof l.value === 'number' && typeof r.value === 'number')
+        switch (op) {
+          case K.GreaterThanToken:
+            return { value: l.value > r.value };
+          case K.GreaterThanEqualsToken:
+            return { value: l.value >= r.value };
+          case K.LessThanToken:
+            return { value: l.value < r.value };
+          case K.LessThanEqualsToken:
+            return { value: l.value <= r.value };
+        }
+    }
+    // The platform (M6 overlays: bits-ui's isIOS): the runtime's user agent
+    // (builds target the platform they run on) and no touch points.
+    if (ts.isPropertyAccessExpression(e) && this.hostName(e.expression) === 'navigator') {
+      if (e.name.text === 'userAgent') return { value: platformUserAgent() };
+      if (e.name.text === 'maxTouchPoints') return { value: 0 };
+    }
+    if (ts.isCallExpression(e) && !e.arguments.some(ts.isSpreadElement)) {
+      const callee = skipParens(e.expression);
+      // A literal pattern's `test` of a constant string (ECMAScript's
+      // semantics, as here).
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        callee.name.text === 'test' &&
+        ts.isRegularExpressionLiteral(skipParens(callee.expression)) &&
+        e.arguments.length === 1
+      ) {
+        const arg = this.staticValue(e.arguments[0]);
+        if (!arg || typeof arg.value !== 'string') return undefined;
+        const text = skipParens(callee.expression).getText();
+        const end = text.lastIndexOf('/');
+        const re = new RegExp(text.slice(1, end), text.slice(end + 1));
+        return { value: re.test(arg.value) };
+      }
+      // A function without parameters returning one expression known at
+      // build time (bits-ui's `getIsIOS()`).
+      if (ts.isIdentifier(callee) && !e.arguments.length) {
+        const decl = this.symbol(callee)?.valueDeclaration;
+        const ret =
+          decl &&
+          ts.isFunctionDeclaration(decl) &&
+          !decl.parameters.length &&
+          decl.body?.statements.length === 1 &&
+          ts.isReturnStatement(decl.body.statements[0])
+            ? decl.body.statements[0].expression
+            : undefined;
+        if (ret && !this.staticCalls.has(decl!)) {
+          this.staticCalls.add(decl!);
+          try {
+            return this.staticValue(ret);
+          } finally {
+            this.staticCalls.delete(decl!);
+          }
+        }
+      }
     }
     return undefined;
   }
+
+  private readonly staticCalls = new Set<ts.Node>();
 
   /** A value computed at build time as an IR literal (strings, numbers, booleans, undefined). */
   constantExpr(value: unknown, label: string, at: ts.Node): Expr {
@@ -5374,6 +5491,8 @@ export class Lowerer {
       if (name === 'defaultView' && this.hostName(inner, depth + 1) === 'document') return 'window';
       if (name === 'ownerDocument' && this.hostName(inner, depth + 1) === 'document')
         return 'document';
+      // `window.navigator` (also `window?.navigator`: the window is never nullish).
+      if (name === 'navigator' && this.hostName(inner, depth + 1) === 'window') return 'navigator';
       return undefined;
     }
     if (
@@ -5514,6 +5633,12 @@ export class Lowerer {
       type,
     });
     switch (name) {
+      // getComputedStyle(element): the element, whose properties are read
+      // through getPropertyValue (elementMethod).
+      case 'getComputedStyle':
+        if (e.arguments.length !== 1)
+          return this.fail(e, 'E_CALL', 'getComputedStyle takes an element (no pseudo-element)');
+        return this.coerce(e.arguments[0], b, 'element');
       case 'matchMedia':
         return builtin('media.query', [args[0]], 'media-query');
       case 'setTimeout':
@@ -5886,8 +6011,16 @@ export class Lowerer {
         );
       return this.fail(e, 'E_MEMBER', `location.${name} is unsupported`);
     }
+    // The platform (M6 overlays: bits-ui's isIOS): the runtime's user agent,
+    // and no touch points.
+    if (host === 'navigator' && name === 'userAgent')
+      return { op: 'builtin', name: 'navigator.user-agent', args: [], type: STRING };
+    if (host === 'navigator' && name === 'maxTouchPoints') return { op: 'lit', value: 0 };
     if (host === 'navigator' || host === 'console' || host === 'crypto')
       return this.fail(e, 'E_MEMBER', `${host}.${name} is unsupported here; call its methods`);
+    // The document element as an element value (getComputedStyle's argument).
+    if (host === 'document' && name === 'documentElement')
+      return { op: 'builtin', name: 'document.element', args: [], type: 'element' };
     if (host === 'document' && name === 'title')
       return { op: 'builtin', name: 'document.title', args: [], type: STRING };
     if (host === 'document' && name === 'body')
@@ -6009,14 +6142,14 @@ export class Lowerer {
     if (root?.kind === 'style')
       return {
         op: 'builtin',
-        name: 'root.style-get',
+        name: `${root.family}.style-get`,
         args: [{ op: 'lit', value: root.name }],
         type: 'string',
       };
     if (root) {
       const read: Expr = {
         op: 'builtin',
-        name: 'root.get-attr',
+        name: `${root.family}.get-attr`,
         args: [{ op: 'lit', value: root.name }],
         type: { maybe: 'string' },
       };
@@ -6975,15 +7108,24 @@ export class Lowerer {
         return { op: 'builtin', name: 'clock.now', args: [], type: NUMBER };
       // Document element methods.
       const owner = skipParens(callee.expression);
-      const rootPart =
-        ts.isPropertyAccessExpression(owner) && this.isRoot(owner.expression)
-          ? owner.name.text
-          : undefined;
-      if (rootPart === 'classList' || rootPart === 'style' || this.isRoot(callee.expression)) {
+      const partOf = ts.isPropertyAccessExpression(owner)
+        ? this.hostElement(owner.expression)
+        : undefined;
+      const rootPart = partOf ? (owner as ts.PropertyAccessExpression).name.text : undefined;
+      const family = this.hostElement(callee.expression) ?? partOf;
+      if (
+        family &&
+        (rootPart === 'classList' ||
+          rootPart === 'style' ||
+          (this.hostElement(callee.expression) &&
+            // (The body's other methods are an element's: `document.body.focus()`.)
+            (family === 'root' ||
+              ['setAttribute', 'removeAttribute', 'getAttribute'].includes(method))))
+      ) {
         const a = e.arguments.map(x => this.expr(x, b));
         const op = (n: string, args: Expr[], type: Type): Expr => ({
           op: 'builtin',
-          name: `root.${n}`,
+          name: `${family}.${n}`,
           args,
           type,
         });
@@ -7028,7 +7170,7 @@ export class Lowerer {
         return this.fail(
           e,
           'E_CALL',
-          `document.documentElement ${rootPart ? rootPart + '.' : ''}${method} is unsupported`,
+          `document.${family === 'root' ? 'documentElement' : 'body'} ${rootPart ? rootPart + '.' : ''}${method} is unsupported`,
         );
       }
       const host = this.hostName(callee.expression);
@@ -8528,6 +8670,25 @@ export class Lowerer {
    * A literal of an object type implemented with getters (frontend/types.ts
    * `accessors`): each property a getter, called where it is read.
    */
+  /** Whether code in `sf` assigns the binding `sym`. */
+  private assignedSymbol(sym: ts.Symbol, sf: ts.SourceFile): boolean {
+    let found = false;
+    const visit = (n: ts.Node) => {
+      if (found) return;
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        n.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+        ts.isIdentifier(skipParens(n.left)) &&
+        this.checker.getSymbolAtLocation(skipParens(n.left)) === sym
+      )
+        found = true;
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    return found;
+  }
+
   private accessorLiteral(e: ts.ObjectLiteralExpression, record: number, b: FnBuilder): Expr {
     const r = this.types.records[record];
     const values: (Expr | undefined)[] = r.fields.map(() => undefined);
@@ -8547,11 +8708,14 @@ export class Lowerer {
           ? this.checker.getShorthandAssignmentValueSymbol(p)
           : this.checker.getSymbolAtLocation(constant));
       const decl = sym?.valueDeclaration;
+      // (A function declaration nothing assigns is one too: bits-ui's
+      // scroll lock returns `{ get lockMap() { … }, resetBodyStyle, … }`.)
       const isConst =
         !!decl &&
-        ts.isVariableDeclaration(decl) &&
-        ts.isVariableDeclarationList(decl.parent) &&
-        !!(decl.parent.flags & ts.NodeFlags.Const);
+        ((ts.isVariableDeclaration(decl) &&
+          ts.isVariableDeclarationList(decl.parent) &&
+          !!(decl.parent.flags & ts.NodeFlags.Const)) ||
+          (ts.isFunctionDeclaration(decl) && !this.assignedSymbol(sym!, decl.getSourceFile())));
       if (constant && isConst && p.name && ts.isIdentifier(p.name)) {
         const i = this.types.fieldIndex(record, p.name.text, p);
         const want = r.fields[i].type as { fn: { params: Type[]; result: Type } };
@@ -10731,7 +10895,23 @@ const GLOBAL_FUNCTIONS = new Set([
   'decodeURI',
 ]);
 /** Properties getComputedStyle reads (their resolved value is the computed value). */
-const COMPUTED_PROPERTIES = new Set(['direction', 'z-index']);
+const COMPUTED_PROPERTIES = new Set([
+  'direction',
+  'z-index',
+  // M6 overlays (bits-ui's scroll lock): computed lengths (a percentage is
+  // reported unsupported at run time; the resolved value would be the used
+  // one), and scrollbar-gutter, which the style engine does not support for
+  // stylesheets (always auto).
+  'scrollbar-gutter',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'margin-top',
+  'margin-right',
+  'margin-bottom',
+  'margin-left',
+]);
 
 /** Array methods whose callbacks take (element, index, array), or two elements (sort). */
 const ARRAY_CALLBACKS = new Set([
@@ -10929,3 +11109,10 @@ const WINDOW_FUNCTIONS = new Set([
   'cancelAnimationFrame',
   'queueMicrotask',
 ]);
+
+/** The runtime's user agent on this platform (runic_js::user_agent). */
+function platformUserAgent(): string {
+  if (platform() === 'win32') return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Runic';
+  if (platform() === 'darwin') return 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Runic';
+  return 'Mozilla/5.0 (X11; Linux x86_64) Runic';
+}

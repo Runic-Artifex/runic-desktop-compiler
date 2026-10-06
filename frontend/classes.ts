@@ -2018,7 +2018,9 @@ export class Classes {
       let i = 0;
       for (; i < statements.length; i++) {
         const s = statements[i];
-        this.noReturn(s);
+        // (A statement using `this` goes to the rest, where `return;` ends the
+        // constructor with its instance.)
+        this.noReturn(s, mentionsThis(s));
         const reactive = runeStatement(s);
         if (reactive) {
           if (isDerived(reactive)) continue;
@@ -2117,18 +2119,29 @@ export class Classes {
           local: instance,
           ...(chain.length > 1 ? { cls: info } : {}),
         });
+    // (A `return;` there ends the constructor with its instance: bits-ui's
+    // BodyScrollLock `if (!this.#countState) return;`.)
+    const exits = (stmts: Stmt[]): Stmt[] =>
+      JSON.parse(JSON.stringify(stmts), (_key, v) =>
+        v && typeof v === 'object' && v.op === 'return' && !('value' in v)
+          ? { ...v, value: local(instance) }
+          : v,
+      );
     for (const s of rest) {
-      this.noReturn(s);
-      out.push(...lower.statement(s, b));
+      this.noReturn(s, true);
+      out.push(...exits(lower.statement(s, b)));
     }
     out.push({ op: 'return', value: local(instance) });
     return out;
   }
 
-  /** Constructors return their instance: `return` statements are rejected. */
-  private noReturn(s: ts.Node) {
+  /**
+   * Constructors return their instance: `return` statements are rejected
+   * (`bare`: those without a value are not, where the instance exists).
+   */
+  private noReturn(s: ts.Node, bare = false) {
     const visit = (n: ts.Node) => {
-      if (ts.isReturnStatement(n))
+      if (ts.isReturnStatement(n) && !(bare && !n.expression))
         this.fail(
           n,
           'return in a constructor is unsupported (the constructor returns its instance)',
@@ -2766,13 +2779,18 @@ export class Classes {
       const c = classes[0];
       switch (shared.kind) {
         case 'field':
+          // (A nullable function field where TypeScript narrowed it present:
+          // bits-ui's SharedState `if (this.#scope && …) this.#scope()`.)
           return {
             op: 'call-value',
-            callee: lateRead(shared.field, {
-              op: 'get',
-              object: receiver,
-              field: c.fields.indexOf(shared.field),
-            }),
+            callee: lower.calleeOf(
+              lateRead(shared.field, {
+                op: 'get',
+                object: receiver,
+                field: c.fields.indexOf(shared.field),
+              }),
+              b,
+            ),
             args: lower.callArgs(e, b),
           };
         case 'method': {
@@ -2841,11 +2859,14 @@ export class Classes {
         } else if (target.kind === 'field')
           call = {
             op: 'call-value',
-            callee: lateRead(target.field, {
-              op: 'get',
-              object: local,
-              field: c.fields.indexOf(target.field),
-            }),
+            callee: lower.calleeOf(
+              lateRead(target.field, {
+                op: 'get',
+                object: local,
+                field: c.fields.indexOf(target.field),
+              }),
+              b,
+            ),
             args: argValues,
           };
         else if (target.kind === 'accessor' && target.get)

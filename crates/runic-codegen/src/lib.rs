@@ -2152,7 +2152,9 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
         let f = Rc::clone(&self.roots[r].dfx[e].1);
         let outer = std::mem::replace(&mut self.tracking, Some(Vec::new()));
         let heap_outer = js::begin_heap_reads(Some(OWNED_ONLY));
+        let effect_outer = std::mem::replace(&mut self.in_effect, true);
         let res = f(self);
+        self.in_effect = effect_outer;
         let heap = js::end_heap_reads(heap_outer);
         let mut deps = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
         deps.extend(runic_runtime::Dep::heap(heap));
@@ -2418,7 +2420,9 @@ fn derived_fields(p: &Program, out: &mut String) {
                  if !stale {{ return Ok(()); }}\n\
                  let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new()));\n\
                  let heap_outer = js::begin_heap_reads(Some(true));\n\
+                 let effect_outer = std::mem::replace(&mut cx.in_effect, false);\n\
                  let r = f{d}(cx{args}, {this});\n\
+                 cx.in_effect = effect_outer;\n\
                  let heap = js::end_heap_reads(heap_outer);\n\
                  let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default();\n\
                  let v: {t} = r?;\n\
@@ -2464,7 +2468,9 @@ fn component_derived(p: &Program, k: usize, out: &mut String) {
              let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new()));\n\
              let heap_outer = js::begin_heap_reads(Some({owned_only}));\n\
              let snap = {{ let s = Rc::clone(&inst.borrow().snap); s }};\n\
+             let effect_outer = std::mem::replace(&mut cx.in_effect, false);\n\
              let r = f{f}(cx, inst, &snap);\n\
+             cx.in_effect = effect_outer;\n\
              let heap = js::end_heap_reads(heap_outer);\n\
              let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default();\n\
              let v: {t} = r?;\n\
@@ -2575,7 +2581,7 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
         let tracked = effect.deps == EffectDeps::Tracked;
         let begin = if tracked {
             format!(
-                "let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({}));",
+                "let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({})); let effect_outer = std::mem::replace(&mut cx.in_effect, true);",
                 owned_only(p)
             )
         } else {
@@ -2583,7 +2589,7 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
                 .to_string()
         };
         let end = if tracked {
-            "let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); inst.borrow_mut().fx[e].deps = deps;"
+            "cx.in_effect = effect_outer; let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); inst.borrow_mut().fx[e].deps = deps;"
         } else {
             "js::end_heap_reads(heap_outer); cx.tracking = outer;"
         };
@@ -2624,7 +2630,7 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
             ),
             "_ if e >= S => { !started || { let deps = inst.borrow().fx[e].deps.clone(); deps.iter().any(|d| d.changed(cx)) } }\n".to_string(),
             format!(
-                "_ if e >= S => {{ let f = Rc::clone(&inst.borrow().dfx[e - S].1); let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({})); let r = f(cx); let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); {{ let mut st = inst.borrow_mut(); st.fx[e].deps = deps; st.fx[e].started = true; }} match r {{ Ok(Some(c)) => inst.borrow_mut().fx[e].cleanup = Some(c), Ok(None) => {{}} Err(err) => eprintln!(\"runic: uncaught exception in an effect: {{err}}\"), }} }}\n",
+                "_ if e >= S => {{ let f = Rc::clone(&inst.borrow().dfx[e - S].1); let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({})); let effect_outer = std::mem::replace(&mut cx.in_effect, true); let r = f(cx); cx.in_effect = effect_outer; let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); {{ let mut st = inst.borrow_mut(); st.fx[e].deps = deps; st.fx[e].started = true; }} match r {{ Ok(Some(c)) => inst.borrow_mut().fx[e].cleanup = Some(c), Ok(None) => {{}} Err(err) => eprintln!(\"runic: uncaught exception in an effect: {{err}}\"), }} }}\n",
                 owned_only(p)
             ),
         )
@@ -2720,6 +2726,11 @@ pub fn generate(
     // The document element starts with index.html's <html> attributes.
     let document_attrs: String = p
         .document
+        .iter()
+        .map(|(k, v)| format!("({}, {}), ", rust_str(k), rust_str(v)))
+        .collect();
+    let body_attrs: String = p
+        .body
         .iter()
         .map(|(k, v)| format!("({}, {}), ", rust_str(k), rust_str(v)))
         .collect();
@@ -3074,12 +3085,12 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, {resize_fields}{io_fields}{mo_fields}{anim_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          /// Effects track the heap objects they read only where references are owned (proxied state, signal fields).\nconst OWNED_ONLY: bool = {owned_only_v};\n\
          /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, {resize_init}{io_init}{mo_init}{anim_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -3223,22 +3234,22 @@ pub fn generate(
          let result = f(&mut self.cx);\n\
          self.cx.jobs.dispatching = false;\n\
          self.mutation_step(dom);\n\
-         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
+         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          self.cx.payload = None;\n\
          if let Err(e) = &result {{ if e.name.to_rust() == \"RunicDomainError\" {{\n{rollback}self.cx.jobs.clear();\nself.cx.jobs.in_event = false;\n// Re-synchronise controlled inputs.\nself.cx.force_sync = true;\nself.flush(dom);\nself.cx.force_sync = false;\nreturn result;\n}} }}\n\
          self.checkpoint(dom);\n\
          self.cx.jobs.in_event = false;\n\
          // Inside a frame (rendering step, layout) default tasks wait for its end.\n\
          if !self.cx.defer {{ while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }} }}\n\
-         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
+         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          self.cx.dom = Default::default();\n\
          runic_runtime::late_rejection_handlers();\n\
          result\n}}\n\
-         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} dom.settle_selects(); self.cx.jobs.queue_rejections(); }}\n\
+         fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }} dom.settle_selects(); self.cx.jobs.queue_rejections(); }}\n\
          fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          match job {{\n\
-         runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} }}\n\
+         runic_runtime::Job::Call(f) => {{ if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }} }}\n\
          runic_runtime::Job::Flush => self.flush(dom),\n\
          runic_runtime::Job::FlushThen(f) => {{ if self.cx.jobs.take_flush() {{ self.flush(dom); }} if let Err(e) = f(&mut self.cx) {{ eprintln!(\"runic: uncaught exception in a microtask: {{e}}\"); }} }}\n\
          runic_runtime::Job::Report(r) => {{ for t in r.report() {{ runic_runtime::console::write(\"error\", &[js::rejection_line(&t)]); }} }}\n}}\n}}\n\
@@ -3279,7 +3290,7 @@ pub fn generate(
          // Mutations while rendering are not writes.\n\
          self.cx.jobs.take_mutated();\n\
          {restore}\
-         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
+         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          self.mutation_step(dom);\n\
          self.free(dom);\n\
          let destroyed: std::collections::HashSet<usize> = self.cx.destroyed.drain(..).map(|i| i.key()).collect();\n\
@@ -3299,7 +3310,7 @@ pub fn generate(
          }}\n\
          // Effect roots after the instances (a root queued during the flush runs after those already queued).\n\
          self.cx.run_roots();\n\
-         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
+         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          }}\n\
          }}\n\
          impl runic_runtime::App for App {{\n\
@@ -3370,7 +3381,7 @@ pub fn generate(
          fn run_deferred(&mut self, dom: &mut Dom, limit: Option<usize>) {{\n\
          let mut left = limit.unwrap_or(usize::MAX);\n\
          while left > 0 {{ let Some(job) = self.cx.jobs.next_default() else {{ break }}; left -= 1; self.run_job(dom, job); self.checkpoint(dom); }}\n\
-         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
+         if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          self.free(dom);\n\
          self.cx.dom = Default::default();\n\
          runic_runtime::late_rejection_handlers();\n}}\n\

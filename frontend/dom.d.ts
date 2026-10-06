@@ -310,10 +310,22 @@ interface ComputedStyle {
   getPropertyValue(property: string): string;
   /** M6 overlays (bits-ui's floating layer). */
   readonly zIndex: string;
+  /** M6 overlays (bits-ui's scroll lock). */
+  readonly scrollbarGutter: string;
+  readonly paddingTop: string;
+  readonly paddingRight: string;
+  readonly paddingBottom: string;
+  readonly paddingLeft: string;
+  readonly marginTop: string;
+  readonly marginRight: string;
+  readonly marginBottom: string;
+  readonly marginLeft: string;
 }
 interface HostWindow extends WindowEventTarget {
   matchMedia(query: string): MediaQueryList;
-  getComputedStyle(element: HTMLElement): ComputedStyle;
+  getComputedStyle(element: HTMLElement | HostRootElement): ComputedStyle;
+  /** M6 overlays (bits-ui's platform checks). */
+  readonly navigator: typeof navigator;
   setTimeout: typeof setTimeout;
   setInterval: typeof setInterval;
   clearTimeout: typeof clearTimeout;
@@ -352,6 +364,10 @@ declare const console: {
   debug(...data: any[]): void;
 };
 declare const navigator: {
+  /** The runtime's user agent (M6: a desktop platform's, not a browser's). */
+  readonly userAgent: string;
+  /** No touch points: the runtime takes no touch input (M6). */
+  readonly maxTouchPoints: number;
   readonly clipboard: {
     writeText(data: string): Promise<void>;
     readText(): Promise<string>;
@@ -490,3 +506,5 @@ type ReferrerPolicy =
   | 'strict-origin'
   | 'strict-origin-when-cross-origin'
   | 'unsafe-url';
+/** `getComputedStyle(element)` as a global (M6 overlays: bits-ui's scroll lock). */
+declare function getComputedStyle(element: HTMLElement | HostRootElement): ComputedStyle;
