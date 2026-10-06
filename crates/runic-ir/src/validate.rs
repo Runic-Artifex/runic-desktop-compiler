@@ -2512,6 +2512,7 @@ impl<'p> NodeCx<'_, 'p> {
                 styles,
                 style_update,
                 restore,
+                adopt,
                 ..
             } => {
                 let text = |t: &Type| *t == Type::String || *t == Type::maybe(Type::String);
@@ -2745,6 +2746,30 @@ impl<'p> NodeCx<'_, 'p> {
                         s.expect(a, param.ty.clone(), 0, src)?;
                     }
                     self.used[l.handler] = true;
+                }
+                if let Some(a) = adopt {
+                    if !((tag == "input" && !checkbox) || tag == "textarea") {
+                        return err(
+                            "E_IR",
+                            "Only text inputs and text areas adopt their value",
+                            src,
+                        );
+                    }
+                    let Some(h) = c.handlers.get(a.handler) else {
+                        return err("E_IR", "Adopt refers to an unknown handler", src);
+                    };
+                    if h.event != EventKind::Input || a.args.len() != h.params.len() {
+                        return err(
+                            "E_IR",
+                            "Adopt needs an input handler and arguments for its parameters",
+                            src,
+                        );
+                    }
+                    s.expect(&a.when, Type::Boolean, 0, src)?;
+                    for (x, param) in a.args.iter().zip(&h.params) {
+                        s.expect(x, param.ty.clone(), 0, src)?;
+                    }
+                    self.used[a.handler] = true;
                 }
                 self.stack.push(tag);
                 self.nodes(children, src, depth)?;
@@ -3991,6 +4016,7 @@ fn template_exprs<'a>(nodes: &'a [Node], out: &mut Vec<&'a Expr>) {
                 classes,
                 style_text,
                 styles,
+                adopt,
                 ..
             } => {
                 out.extend(
@@ -4002,6 +4028,10 @@ fn template_exprs<'a>(nodes: &'a [Node], out: &mut Vec<&'a Expr>) {
                         .map(|a| &a.value),
                 );
                 out.extend(spread);
+                if let Some(a) = adopt {
+                    out.push(&a.when);
+                    out.extend(&a.args);
+                }
                 out.extend(style_text);
                 template_exprs(children, out);
             }

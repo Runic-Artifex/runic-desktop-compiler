@@ -679,7 +679,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (n.attributes.some((a: SNode) => spreadsRest(u.file, a)))
         slotForwards.push({ from: u.file, to });
     });
-  for (let changed = true; changed; ) {
+  for (let changed = true; changed;) {
     changed = false;
     for (const { from, to } of slotForwards)
       for (const s of restSlots.get(from) ?? [])
@@ -1158,7 +1158,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   if (graph.kit) {
     const kitModule = path.join(graph.kit.generated, 'kit.ts');
     const reaching = new Set<string>([kitModule]);
-    for (let changed = true; changed; ) {
+    for (let changed = true; changed;) {
       changed = false;
       for (const [id, m] of graph.modules)
         if (
@@ -2190,7 +2190,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     }
     return out;
   };
-  for (let changed = true; changed; ) {
+  for (let changed = true; changed;) {
     changed = false;
     for (const u of order)
       walkTemplate(u.ast.fragment, n => {
@@ -4187,6 +4187,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           (a: SNode) => a.type === 'Attribute' && a.name === 'type' && a.value[0].data === 'radio',
         );
       let bound: { event: HandlerEvent; handler: ReturnType<Lowerer['bindHandler']> } | undefined;
+      // bind_value's start: a nullish bound value takes the control's value
+      // (a spread's defaultValue) at mount.
+      let adoptWhen: Expr | undefined;
       const styles: { name: string; value: Expr }[] = [];
       const classes: { name: string; value: Expr }[] = [];
       let spread: { at: number; value: Expr; shape: Shape } | undefined;
@@ -4366,6 +4369,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               ? { op: 'some', value: { op: 'payload' } }
               : undefined;
           bound = { event, handler: lower.bindHandler(target, COMPONENT, event, tb, written) };
+          if (nullable)
+            adoptWhen = { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: 'boolean' };
         } else if (a.type === 'StyleDirective') {
           if (a.modifiers?.length)
             fail(
@@ -4491,6 +4496,17 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           if (!own.args?.length) delete own.args;
         }
       }
+      // The binding's write alone, not the element's own input handler.
+      let adopt: { when: Expr; handler: number; args?: Expr[] } | undefined;
+      if (bound && adoptWhen) {
+        const { args, ...h } = JSON.parse(JSON.stringify(bound.handler)) as typeof bound.handler;
+        handlers.push({ event: 'input', ...h, source: loc(n) });
+        adopt = {
+          when: adoptWhen,
+          handler: handlers.length - 1,
+          ...(args?.length ? { args } : {}),
+        };
+      }
       return {
         kind: 'element',
         tag: n.name,
@@ -4502,6 +4518,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ...(classes.length ? { classes } : {}),
         ...(styleText ? { styleText } : {}),
         ...(styles.length ? { styles } : {}),
+        ...(adopt ? { adopt } : {}),
         ...(n.fragment.nodes.length ? { children: children(n.fragment, n.name) } : {}),
         source: loc(n),
       };

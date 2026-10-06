@@ -261,6 +261,7 @@ fn node(v: &Json, handlers: &[Json]) -> Result<Node> {
                 styles: vec![],
                 style_update: StyleUpdate::Compose,
                 restore: None,
+                adopt: None,
                 children: children(v)?,
                 source: source(v),
             })

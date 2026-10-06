@@ -995,6 +995,7 @@ impl Gen<'_> {
                     styles,
                     style_update,
                     restore: restore_mode,
+                    adopt,
                     ..
                 } = node
                 else {
@@ -1196,6 +1197,23 @@ impl Gen<'_> {
                         );
                     }
                     let _ = writeln!(o.dispose, "for a in &s.att{key} {{ cx.detach(a); }}");
+                }
+                // A text control adopting the value its attributes gave it:
+                // the handler runs once at mount for an input event of it.
+                if let Some(a) = adopt {
+                    let mut cx = self.ctx(k);
+                    let when = cx.expr(&a.when);
+                    let mut args = String::new();
+                    let mut names = String::new();
+                    for (i, x) in a.args.iter().enumerate() {
+                        let _ = write!(args, "let a{i} = {}; ", cx.expr(x));
+                        let _ = write!(names, ", a{i}");
+                    }
+                    let _ = writeln!(
+                        o.mount,
+                        "if {when} {{ let shown = dom.control_value(n{key}); if !shown.is_empty() {{ {args}let ev = js::Event::new(js::EventData {{ kind: JsString::from(\"input\"), value: JsString::from(shown.as_str()), target: js::Element(n{key}.as_u64()), ..Default::default() }}); let outer = (cx.payload.replace(JsString::from(shown.as_str())), cx.event.replace(ev)); let r = handler_{k}_{}(cx, inst{names}); (cx.payload, cx.event) = outer; r?; }} }}",
+                        a.handler
+                    );
                 }
                 // Controlled values: restored at every sync (restore), or
                 // applied when they differ from the value last applied.

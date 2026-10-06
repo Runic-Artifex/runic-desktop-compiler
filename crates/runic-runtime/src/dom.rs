@@ -345,6 +345,8 @@ pub struct Spread<L> {
     styled: bool,
     /// The `checked` a Svelte spread last assigned to an input's property.
     checked: Option<bool>,
+    /// The `defaultValue` a Svelte spread last assigned to a text control.
+    default_value: Option<String>,
 }
 
 impl<L> Default for Spread<L> {
@@ -356,6 +358,7 @@ impl<L> Default for Spread<L> {
             style: Default::default(),
             styled: false,
             checked: None,
+            default_value: None,
         }
     }
 }
@@ -1316,6 +1319,7 @@ impl Dom<'_> {
         let mut attachments = vec![];
         let mut style = false;
         let mut checked = false;
+        let mut default_value = false;
         for (name_js, value) in bag.resolved() {
             let name = name_js.to_rust();
             if name.starts_with(runic_js::ATTACHMENT) {
@@ -1370,6 +1374,51 @@ impl Dom<'_> {
                         self.set_checked(node, *b);
                     }
                     checked = true;
+                    continue;
+                }
+                // Svelte's set_attributes assigns `defaultValue` to the
+                // property, when it changed: an input's `value` attribute,
+                // a text area's text content; on other elements an expando
+                // (a select's default comes from its options).
+                ("defaultValue", _) if boolean_text => {
+                    let tag = self
+                        .doc
+                        .get_node(node)
+                        .and_then(|n| n.element_data())
+                        .map(|e| e.name.local.to_string())
+                        .unwrap_or_default();
+                    if tag != "input" && tag != "textarea" {
+                        continue;
+                    }
+                    let AttrValue::Text(t) = value else {
+                        crate::unsupported(&format!(
+                            "a spread's defaultValue on <{tag}> that is not a string"
+                        ));
+                        continue;
+                    };
+                    let t = t.to_rust();
+                    default_value = true;
+                    if applied.default_value.as_deref() == Some(t.as_str()) {
+                        continue;
+                    }
+                    let previous = applied.default_value.replace(t.clone());
+                    if tag == "textarea" {
+                        self.set_default_value(node, &t);
+                    } else if previous.is_some() {
+                        // The live value follows until the user edits it,
+                        // which Blitz's editor does not track.
+                        crate::unsupported("a spread's defaultValue changing on an <input>");
+                    } else {
+                        self.set_attr(node, "value", &t);
+                    }
+                    continue;
+                }
+                // `defaultChecked`: an input's `checked` attribute, which
+                // its live state follows until changed; elsewhere an expando.
+                ("defaultChecked", _) if boolean_text => {
+                    if self.tag_is(node, "input") {
+                        crate::unsupported("a spread's defaultChecked on an <input>");
+                    }
                     continue;
                 }
                 // Svelte's set_attributes assigns a defined `value` to the
@@ -1434,6 +1483,10 @@ impl Dom<'_> {
             applied.style = Default::default();
         }
         applied.styled = style;
+        // A `defaultValue` the bag no longer holds: Svelte assigns null.
+        if !default_value && applied.default_value.take().is_some() {
+            crate::unsupported("a spread no longer holding a defaultValue (Svelte assigns null)");
+        }
         // A `checked` the bag no longer holds: Svelte assigns null (false).
         if !checked && applied.checked.take() == Some(true) {
             self.set_checked(node, false);
@@ -1780,8 +1833,29 @@ impl Dom<'_> {
             }
             replace_text_content(self.doc, node, value);
         } else {
+            // A value equal to the `value` attribute changes nothing (the
+            // caret stays at the start, as in Chromium).
+            let current = self.doc.get_node(node).and_then(|n| n.attr("value".into()));
+            if current == Some(value) && !self.listeners.pending_caret.contains(&node) {
+                return;
+            }
             self.set_attr(node, "value", value);
             self.listeners.pending_caret.push(node);
+        }
+    }
+
+    /// The value a text control shows: its editor's, or before the editor
+    /// exists its `value` attribute (an input) or text content (a text area).
+    pub fn control_value(&self, node: NodeId) -> String {
+        if let Some(v) = self.value(node) {
+            return v;
+        }
+        let Some(n) = self.doc.get_node(node) else {
+            return String::new();
+        };
+        match n.element_data() {
+            Some(e) if &*e.name.local == "textarea" => n.text_content(),
+            _ => n.attr("value".into()).unwrap_or_default().to_owned(),
         }
     }
 

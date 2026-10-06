@@ -714,6 +714,8 @@ pub struct Machine<'p> {
     class_states: HashMap<u64, (JsString, Vec<bool>, Option<JsString>)>,
     /// Managed inline style state by element id, with the attribute it produced.
     style_states: HashMap<u64, (runic_css::StyleState, Option<String>)>,
+    /// The `defaultValue` a Svelte spread last assigned to a text control.
+    spread_defaults: HashMap<u64, String>,
     /// The same in `replace` mode.
     replace_states: HashMap<u64, (runic_css::ReplaceState, Option<String>)>,
     /// The document element as scripts changed it.
@@ -1034,6 +1036,7 @@ impl<'p> Machine<'p> {
             tasks_run: 0,
             class_states: HashMap::new(),
             style_states: HashMap::new(),
+            spread_defaults: HashMap::new(),
             replace_states: HashMap::new(),
             host_listeners: vec![],
             capture_listeners: vec![],
@@ -4106,6 +4109,7 @@ impl<'p> Machine<'p> {
                 styles,
                 style_update,
                 restore: restore_mode,
+                adopt,
                 ..
             } => {
                 let key = (
@@ -4117,6 +4121,7 @@ impl<'p> Machine<'p> {
                     },
                     0,
                 );
+                let fresh = !self.element_ids.contains_key(&key);
                 let id = match self.element_ids.get(&key) {
                     Some(&id) => id,
                     None => {
@@ -4238,6 +4243,9 @@ impl<'p> Machine<'p> {
                 let mut refs = vec![];
                 // An input's `checked` from a Svelte spread (its property).
                 let mut spread_checked = None;
+                // A text area's text content from a Svelte spread's defaultValue.
+                let mut spread_text = None;
+                let mut spread_default = false;
                 if let Some(bag) = spread {
                     let Val::Attrs(bag) = self.eval(bag, frame)? else {
                         panic!("validated attribute bag")
@@ -4283,6 +4291,47 @@ impl<'p> Machine<'p> {
                             // Svelte assigns an input's `checked` to its property.
                             ("checked", Val::Bool(b)) if *spread_boolean_text && tag == "input" => {
                                 spread_checked = Some(*b);
+                                continue;
+                            }
+                            // Svelte assigns `defaultValue` to the property: an
+                            // input's `value` attribute, a text area's text
+                            // content; elsewhere an expando.
+                            ("defaultValue", _) if *spread_boolean_text => {
+                                if tag != "input" && tag != "textarea" {
+                                    continue;
+                                }
+                                let Val::Str(s) = v else {
+                                    return Err(Throw::new(
+                                        "RunicUnsupportedError",
+                                        format!(
+                                            "a spread's defaultValue on <{tag}> that is not a string"
+                                        ),
+                                    ));
+                                };
+                                let s = s.to_rust();
+                                spread_default = true;
+                                let previous = self.spread_defaults.insert(id, s.clone());
+                                if tag == "input" && previous.is_some_and(|p| p != s) {
+                                    return Err(Throw::new(
+                                        "RunicUnsupportedError",
+                                        "a spread's defaultValue changing on an <input>",
+                                    ));
+                                }
+                                if tag == "input" {
+                                    map.insert("value".into(), s);
+                                } else {
+                                    spread_text = Some(s);
+                                }
+                                continue;
+                            }
+                            // An input's `checked` attribute; elsewhere an expando.
+                            ("defaultChecked", _) if *spread_boolean_text => {
+                                if tag == "input" {
+                                    return Err(Throw::new(
+                                        "RunicUnsupportedError",
+                                        "a spread's defaultChecked on an <input>",
+                                    ));
+                                }
                                 continue;
                             }
                             // Svelte assigns a defined `value` to the element's property.
@@ -4365,6 +4414,41 @@ impl<'p> Machine<'p> {
                     }
                     self.note_attachments(id, attachments);
                 }
+                if !spread_default && self.spread_defaults.remove(&id).is_some() {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        "a spread no longer holding a defaultValue (Svelte assigns null)",
+                    ));
+                }
+                // A text control adopting its value at mount (Svelte's
+                // bind_value with a nullish value): the handler runs for an
+                // input event of the value its attributes gave it.
+                if let Some(a) = adopt.as_ref().filter(|_| fresh) {
+                    if self.eval(&a.when, frame)?.boolean() {
+                        let shown = if tag == "textarea" {
+                            spread_text.clone().unwrap_or_default()
+                        } else {
+                            map.get("value").cloned().unwrap_or_default()
+                        };
+                        if !shown.is_empty() {
+                            let args = a
+                                .args
+                                .iter()
+                                .map(|x| self.eval(x, frame))
+                                .collect::<Res<Vec<_>>>()?;
+                            let event = js::Event::new(js::EventData {
+                                kind: JsString::from("input"),
+                                value: JsString::from(shown.as_str()),
+                                target: js::Element(id),
+                                ..Default::default()
+                            });
+                            self.run(self.current, a.handler, args, Some(event))?;
+                            if self.phase.is_some() {
+                                self.again = true;
+                            }
+                        }
+                    }
+                }
                 self.rendered_ids.insert(id);
                 let mut value = None;
                 let mut checked = None;
@@ -4439,6 +4523,7 @@ impl<'p> Machine<'p> {
                         self.live_values
                             .get(&id)
                             .cloned()
+                            .or_else(|| spread_text.clone().filter(|_| tag == "textarea"))
                             .or_else(|| map.get("value").cloned())
                             .unwrap_or_default(),
                     );
@@ -4461,7 +4546,7 @@ impl<'p> Machine<'p> {
                 for c in children {
                     self.render_node(c, frame, path, &mut kids, visited)?;
                 }
-                if let Some(t) = text_content {
+                if let Some(t) = text_content.or(spread_text) {
                     kids.push(VNode::Text(t));
                 }
                 // A select's value is its shown option's: the controlled value

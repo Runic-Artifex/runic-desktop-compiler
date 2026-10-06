@@ -1771,6 +1771,20 @@ pub struct Listener {
     pub args: Vec<Expr>,
 }
 
+/// At an element's mount, after its attributes and spread and before its
+/// live properties: when `when` (boolean, template scope) holds and the
+/// control's value is not empty, `handler` (an `input` handler) runs once
+/// with an input event carrying that value.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Adopt {
+    pub when: Expr,
+    pub handler: usize,
+    /// Arguments for the handler's params, evaluated in the template scope.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<Expr>,
+}
+
 /// Keyed reorder strategy of an `each` node (see runic-runtime's `reorder`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -1883,6 +1897,10 @@ pub enum Node {
         /// (docs/IR.md "Live properties").
         #[serde(default, skip_serializing_if = "Option::is_none")]
         restore: Option<Restore>,
+        /// A text control adopting its own value at mount (docs/IR.md "Live
+        /// properties").
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        adopt: Option<Adopt>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         children: Vec<Node>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -358,6 +358,13 @@ export type Node =
       styleUpdate?: 'compose' | 'replace';
       /** `render`: live properties are also applied at each re-render of the instance. */
       restore?: 'render';
+      /**
+       * A text control adopting its own value at mount (Svelte's bind_value):
+       * after the attributes and spread, before the live properties, when
+       * `when` holds and the value is not empty, the `input` handler runs
+       * once for an input event of it.
+       */
+      adopt?: { when: Expr; handler: number; args?: Expr[] };
       children?: Node[];
       source?: Source;
     }
