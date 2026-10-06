@@ -1,0 +1,12 @@
+{
+  "description": "Unhandled promise rejections reported on the console as Chromium reports them (M6): an `Uncaught (in promise) Error: message` error line in a task after the microtask checkpoint that left the promise without a handler, after the task's console lines, its microtasks and the framework's flush and effects; Promise.reject, a throwing then callback, Promise.all, finally, an async function failing after an await, an empty message, and a rejection handled in a later microtask (not reported); in Svelte, React and Vue on Chromium's real clock",
+  "fixtures": ["rejections-svelte", "rejections-react", "rejections-vue"],
+  "actions": [
+    { "kind": "click", "id": "reject" },
+    { "kind": "click", "id": "handled" },
+    { "kind": "click", "id": "chained" },
+    { "kind": "click", "id": "async" },
+    { "kind": "click", "id": "state" },
+    { "kind": "click", "id": "reject" }
+  ]
+}

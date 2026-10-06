@@ -285,7 +285,23 @@ fn check_regexp_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Res
 /// The option string of the `intl.*` built-ins is a literal the runtime
 /// accepts: verified locales, options and option combinations only.
 fn check_intl_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Result<()> {
-    let index = if name == "intl.compare" { 2 } else { 1 };
+    let index = match name {
+        "intl.compare" => 2,
+        "intl.plural-categories" => 0,
+        _ => 1,
+    };
+    if name == "intl.locale" {
+        return match args.get(1) {
+            Some(Expr::Lit {
+                value: Value::String(k),
+            }) if k == "p" || k == "n" => Ok(()),
+            _ => err(
+                "E_INTL",
+                "intl.locale: the kind must be the literal \"p\" or \"n\"",
+                src,
+            ),
+        };
+    }
     let Some(Expr::Lit {
         value: Value::String(spec),
     }) = args.get(index)
@@ -300,6 +316,10 @@ fn check_intl_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Resul
         "intl.format-date" => runic_js::intl::DateSpec::parse(spec).map(|_| ()),
         "intl.format-number" => runic_js::intl::NumberSpec::parse(spec).map(|_| ()),
         "intl.compare" => runic_js::intl::CollatorSpec::parse(spec).map(|_| ()),
+        "intl.plural-select" | "intl.plural-categories" => {
+            runic_js::intl::PluralSpec::parse(spec).map(|_| ())
+        }
+        "intl.display-of" => runic_js::intl::NamesSpec::parse(spec).map(|_| ()),
         _ => Ok(()),
     };
     checked.or_else(|m| err("E_INTL", m, src))

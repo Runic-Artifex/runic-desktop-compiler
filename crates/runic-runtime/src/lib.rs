@@ -54,6 +54,28 @@ pub fn unsupported(what: &str) {
     }
     eprintln!("runic: unsupported: {what}");
 }
+
+/// A reaction added to a promise whose rejection the console already
+/// reported as unhandled: Chromium revokes the report, which console lines
+/// do not model.
+pub fn late_rejection_handlers() {
+    if let Some(t) = runic_js::take_late_handled() {
+        unsupported(&format!(
+            "a handler added to a promise after its rejection ({t}) was reported as unhandled"
+        ));
+    }
+}
+
+/// Reports a `RunicUnsupportedError` a runic-js built-in returns (a value
+/// outside its verified data, such as an Intl locale) before it is thrown.
+pub fn reported<T>(r: runic_js::JsResult<T>) -> runic_js::JsResult<T> {
+    if let Err(t) = &r {
+        if t.name.to_rust() == "RunicUnsupportedError" {
+            unsupported(&t.message.to_rust());
+        }
+    }
+    r
+}
 /// CSSOM inline styles, media queries and the document element.
 pub use runic_css as css;
 
@@ -211,6 +233,22 @@ pub trait App: 'static {
     }
     /// Queue the `hashchange` of a fragment navigation (a followed link) as a task.
     fn hashchange(&mut self) {}
+    /// A rendering step starts (`true`) or its frame's layout ended
+    /// (`false`): no task runs inside a frame, so default-priority tasks
+    /// queued meanwhile (React's scheduler, rejection reports) wait for its
+    /// end (M6).
+    fn defer_tasks(&mut self, on: bool) {
+        let _ = on;
+    }
+    /// The number of default-priority tasks queued.
+    fn deferred_len(&self) -> usize {
+        0
+    }
+    /// Run the default-priority tasks the frame deferred, the first `limit`
+    /// of them or all.
+    fn run_deferred(&mut self, dom: &mut Dom, limit: Option<usize>) {
+        let _ = (dom, limit);
+    }
     /// Deliver the ResizeObserver notifications due after a layout (M6):
     /// observations whose size changed since last reported, deepest first
     /// across rounds, each observer's callback a task, with a layout after

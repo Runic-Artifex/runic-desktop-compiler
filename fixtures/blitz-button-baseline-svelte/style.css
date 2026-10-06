@@ -1,0 +1,24 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 14px; line-height: 20px; }
+body { padding: 12px 16px; }
+.area { width: 380px; }
+.head { margin: 0 0 6px; }
+button { font-family: RunicFixture; font-size: 14px; border: 1px solid #52665b; border-radius: 3px; background: #e2e8df; color: #252c28; padding: 2px 6px; margin: 0 4px; vertical-align: baseline; }
+#next { margin: 0; }
+.line { margin-bottom: 4px; background: #f4f2ec; }
+.frow { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; background: #f4f2ec; }
+.frow button { margin: 0; }
+.box { display: block; width: 14px; height: 6px; background: #a0452a; }
+.big { font-size: 24px; line-height: 30px; }
+.clipped { display: inline-block; overflow: hidden; }
+.abs { position: absolute; left: 2px; top: 2px; }
+.narrow { width: 220px; }
+/* floating-ui's fixture: 12px text on 16px lines, a fixed-size reference that clips its label. */
+.ref-box { font-size: 12px; line-height: 16px; padding: 8px; margin-bottom: 8px; background: #f4f2ec; }
+.ref { box-sizing: border-box; width: 100px; height: 22px; margin: 0; padding: 2px 8px; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; }
+.below { background: #2f4a3a; color: #f4f2ec; padding: 4px; }
+/* Inline grids (not buttons): two columns, a padded item, an item placed in the second row. */
+.igrid { display: inline-grid; grid-template-columns: auto auto; gap: 4px; margin: 0 4px; padding: 2px; border: 1px solid #52665b; }
+.pad { padding-top: 10px; }
+.second-row { grid-row: 2; }

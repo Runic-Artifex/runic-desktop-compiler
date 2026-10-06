@@ -540,7 +540,9 @@ export async function createBrowserHarness() {
         viewport = { width: 800, height: 600 },
         actions = [],
         out,
-        timeout = 5000,
+        // Waits for an action target or a page operation. A loaded machine
+        // (parallel builds) kept a rendered target from appearing within 5 s.
+        timeout = 30_000,
         storage,
         timezone = 'UTC',
         locale = 'en-US',
@@ -683,13 +685,31 @@ export async function createBrowserHarness() {
           },
         };
         page.setDefaultTimeout(timeout);
-        page.on('pageerror', e => errors.push({ kind: 'pageerror', message: e.message }));
         // Console lines of app code are host effects of the step (compared
         // like the DOM); other console errors (the framework's, failed
         // loads) remain harness errors.
         const origin = new URL(server.url).origin;
         const LEVELS = { log: 'log', info: 'info', warning: 'warn', error: 'error', debug: 'debug' };
         let lines = [];
+        // Uncaught exceptions are harness errors, except unhandled promise
+        // rejections: Chromium reports them on the console as `Uncaught (in
+        // promise) Error: message` (the error's lines without its stack) in
+        // a task after the microtask checkpoint that left them unhandled,
+        // and the program cannot observe them, so they are console lines of
+        // the step (M6). A report Chromium revokes (a handler added later)
+        // is not modelled.
+        await cdp.send('Runtime.enable');
+        cdp.on('Runtime.exceptionThrown', ({ exceptionDetails: d }) => {
+          const description = d.exception?.description ?? String(d.exception?.value);
+          const own = description.split('\n');
+          const stack = own.findIndex(l => l.startsWith('    at '));
+          const text = `${d.text} ${(stack < 0 ? own : own.slice(0, stack)).join('\n')}`;
+          if (d.text === 'Uncaught (in promise)') lines.push({ level: 'error', text: textJson(text) });
+          else errors.push({ kind: 'pageerror', message: text });
+        });
+        cdp.on('Runtime.exceptionRevoked', e =>
+          errors.push({ kind: 'revoked', message: `a reported rejection was handled: ${e.reason}` }),
+        );
         page.on('console', m => {
           if (appSource(m.location().url, origin))
             lines.push({ level: LEVELS[m.type()] ?? m.type(), text: textJson(m.text()) });

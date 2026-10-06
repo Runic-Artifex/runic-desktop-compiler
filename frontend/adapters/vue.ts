@@ -3252,19 +3252,25 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             ? [{ op: 'event' }]
             : undefined;
       const misfit = 'Event handlers take no parameter or the event object';
+      // Vue catches a promise a listener returns (callWithAsyncErrorHandling).
+      const returned = (p: Expr) => lower.loggedRejection(p, COMPONENT);
+      const caught = (call: Expr, result: Type | undefined): Expr =>
+        typeof result === 'object' && 'promise' in result ? returned(call) : call;
       if (ts.isArrowFunction(e) || ts.isFunctionExpression(e))
-        h = lower.handler(e, COMPONENT, event, tb);
+        h = lower.handler(e, COMPONENT, event, tb, returned);
       else if (ts.isIdentifier(e)) {
         const b = lower.binding(e);
         if (b?.kind === 'function') {
           // A method handler is called with the event (Vue passes it to every handler).
           const args = eventArgs(lower.functions[b.fn]?.params.map(q => q.type) ?? []);
           if (!args) return tsFail(e, 'E_EVENT', misfit);
-          h = { body: [{ op: 'expr', value: { op: 'call', function: b.fn, args } }] };
+          const call: Expr = { op: 'call', function: b.fn, args };
+          h = { body: [{ op: 'expr', value: caught(call, lower.functions[b.fn]?.result) }] };
         } else if (b?.kind === 'generic') {
           // An untyped method handler: its body is lowered with the event parameter.
           const decl = setupDecl(e.text);
-          if (decl && decl.parameters.length) h = lower.handler(decl, COMPONENT, event);
+          if (decl && decl.parameters.length)
+            h = lower.handler(decl, COMPONENT, event, undefined, returned);
           else return tsFail(e, 'E_EVENT', 'Unsupported handler');
         } else if (b?.kind === 'cell') {
           // A function-valued prop or ref: called with the event.
@@ -3273,14 +3279,8 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
             return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
           const args = eventArgs(t.fn.params);
           if (!args) return tsFail(e, 'E_EVENT', misfit);
-          h = {
-            body: [
-              {
-                op: 'expr',
-                value: { op: 'call-value', callee: { op: 'cell', cell: b.cell }, args },
-              },
-            ],
-          };
+          const call: Expr = { op: 'call-value', callee: { op: 'cell', cell: b.cell }, args };
+          h = { body: [{ op: 'expr', value: caught(call, t.fn.result) }] };
         } else return tsFail(e, 'E_EVENT', 'Event handlers must be functions');
       } else return tsFail(e, 'E_EVENT', 'Unsupported event handler');
       return { ...h, source: loc(p) };
@@ -3373,11 +3373,15 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
         body: [
           {
             op: 'expr',
-            value: {
+            // Vue's emit catches a promise the listener returns.
+            value: ((call: Expr) =>
+              typeof f.result === 'object' && 'promise' in f.result
+                ? lower.loggedRejection(call, COMPONENT)
+                : call)({
               op: 'call-value',
               callee,
               args: f.params.map((_, i): Expr => ({ op: 'local', local: captures.length + i })),
-            },
+            }),
           },
         ],
       };

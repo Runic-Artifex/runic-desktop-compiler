@@ -70,6 +70,9 @@ pub(crate) struct Native<A: App> {
     /// Wakes the shell to poll: the next rendering step runs pending
     /// `scroll` events.
     pub waker: Option<std::task::Waker>,
+    /// A focus fixup the rendering step found due: the element, and the
+    /// default-priority tasks queued before it (they run first).
+    pub fixup: Option<(NodeId, usize)>,
 }
 
 impl<A: App> Document for Native<A> {
@@ -367,6 +370,9 @@ impl<A: App> Native<A> {
     /// changed, the scroll steps, then the `change` events of media query
     /// lists whose state changed (Chromium's order).
     pub(crate) fn rendering_step(&mut self, resized: bool) {
+        // No task runs inside the frame: default-priority tasks its events
+        // queue (React's scroll updates) run after its layout.
+        self.app.defer_tasks(true);
         if resized {
             let event = runic_js::Event::new(EventData {
                 kind: Event::Resize.name().into(),
@@ -424,27 +430,25 @@ impl<A: App> Native<A> {
         // Update animations (after media queries in Chromium's rendering
         // steps): the ends of animations the app holds settle (M6).
         self.animation_step();
-        // Focus fixup (after animation frames in Chromium): a focused element
-        // that became disabled or lost its box is blurred, with `blur` and
-        // `focusout` as events of their own.
+        // Focus fixup: a focused element that became disabled or lost its
+        // box is blurred, with `blur` and `focusout` as events of their own,
+        // in a task after the frame (Chromium's style update starts a 0 ms
+        // timer: after animation frames, and after the tasks the frame's
+        // events queued before it, such as React's render of a scroll).
         crate::timeline::resolve(&mut self.doc);
-        if let Some(f) = focused_element(&self.doc) {
-            let boxless = !crate::layout::client_rect(&self.doc, f).is_some()
-                || !self.doc.get_node(f).is_some_and(|n| n.has_boxes());
-            if is_disabled_control(&self.doc, f) || boxless {
-                let mut handler = Handler {
-                    app: &mut self.app,
-                    listeners: &mut self.listeners,
-                    space_target: &mut self.space_target,
-                    nav_start: &mut self.nav_start,
-                    log: &mut self.log,
-                    pointer: &mut self.pointer,
-                };
-                handler.move_focus(&mut self.doc, None);
-                self.nav_start = Some(f);
-            }
+        if let Some(f) = self.fixup_target() {
+            self.fixup = Some((f, self.app.deferred_len()));
         }
         self.doc.shell_provider.request_redraw();
+    }
+
+    /// The focused element when it must lose focus (disabled, or without a
+    /// box).
+    fn fixup_target(&self) -> Option<NodeId> {
+        let f = focused_element(&self.doc)?;
+        let boxless = !crate::layout::client_rect(&self.doc, f).is_some()
+            || !self.doc.get_node(f).is_some_and(|n| n.has_boxes());
+        (is_disabled_control(&self.doc, f) || boxless).then_some(f)
     }
 
     /// A frame's layout after its rendering step. Scroll offsets that layout
@@ -492,6 +496,37 @@ impl<A: App> Native<A> {
         for &node in &clamped {
             self.listeners.scrolled(Some(node));
         }
+        // The default-priority tasks the frame deferred (React renders
+        // updates from scroll events in a scheduler task after the frame),
+        // and the focus fixup's task after those queued before it.
+        self.app.defer_tasks(false);
+        if let Some((f, before)) = self.fixup.take() {
+            let mut dom = Dom {
+                doc: &mut self.doc,
+                listeners: &mut self.listeners,
+            };
+            self.app.run_deferred(&mut dom, Some(before));
+            self.fix_focus_after_update();
+            crate::timeline::resolve(&mut self.doc);
+            if self.fixup_target() == Some(f) {
+                let mut handler = Handler {
+                    app: &mut self.app,
+                    listeners: &mut self.listeners,
+                    space_target: &mut self.space_target,
+                    nav_start: &mut self.nav_start,
+                    log: &mut self.log,
+                    pointer: &mut self.pointer,
+                };
+                handler.move_focus(&mut self.doc, None);
+                self.nav_start = Some(f);
+            }
+        }
+        let mut dom = Dom {
+            doc: &mut self.doc,
+            listeners: &mut self.listeners,
+        };
+        self.app.run_deferred(&mut dom, None);
+        self.fix_focus_after_update();
         !clamped.is_empty()
     }
 

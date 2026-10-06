@@ -1238,8 +1238,66 @@ fn date(cx: &FnCtx, m: &str, t: &[String]) -> String {
     }
 }
 
-/// Formatting and collation (`js::intl`): the option string is parsed once.
+/// Formatting, collation, plural rules and display names (`js::intl`): the
+/// option string is parsed once. Plural rules and display names report
+/// locales and values outside their verified data before throwing.
 fn intl(cx: &FnCtx, m: &str, t: &[String], args: &[Expr]) -> String {
+    if m == "locale" {
+        let Some(Expr::Lit {
+            value: runic_ir::Value::String(kind),
+        }) = args.get(1)
+        else {
+            unreachable!("validated intl.locale kind")
+        };
+        let check = if kind == "p" {
+            "check_plural_locale"
+        } else {
+            "check_display_locale"
+        };
+        let call = cx.q(&format!(
+            "runic_runtime::reported(js::intl::{check}(&locale))"
+        ));
+        return format!("{{ let locale = {}; {call}; locale }}", t[0]);
+    }
+    if matches!(m, "plural-select" | "plural-categories" | "display-of") {
+        let operands = usize::from(m != "plural-categories");
+        let Some(Expr::Lit {
+            value: runic_ir::Value::String(spec),
+        }) = args.get(operands)
+        else {
+            unreachable!("validated intl options")
+        };
+        let kind = if m == "display-of" {
+            "NamesSpec"
+        } else {
+            "PluralSpec"
+        };
+        let spec = format!(
+            "{{ static SPEC: std::sync::LazyLock<js::intl::{kind}> = std::sync::LazyLock::new(|| js::intl::{kind}::parse({spec:?}).expect(\"validated options\")); &*SPEC }}"
+        );
+        let locale = t
+            .get(operands + 1)
+            .map_or("None".to_string(), |l| format!("Some(&{l})"));
+        let call = |f: String| cx.q(&format!("runic_runtime::reported({f})"));
+        let value = match m {
+            "plural-select" => call(format!(
+                "js::intl::plural_select({}, {spec}, {locale})",
+                t[0]
+            )),
+            "plural-categories" => format!(
+                "js::array({})",
+                call(format!("js::intl::plural_categories({spec}, {locale})"))
+            ),
+            _ => format!(
+                "{}.map_or(Maybe::Undefined, Maybe::Some)",
+                call(format!(
+                    "js::intl::display_name(&{}, {spec}, {locale})",
+                    t[0]
+                ))
+            ),
+        };
+        return format!("{{ let _ = &{}; {value} }}", t[operands]);
+    }
     let operands = if m == "compare" { 2 } else { 1 };
     let Some(Expr::Lit {
         value: runic_ir::Value::String(spec),

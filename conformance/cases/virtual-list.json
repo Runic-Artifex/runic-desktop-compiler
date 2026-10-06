@@ -1,8 +1,9 @@
 {
-  "description": "A virtualized 10,000-row list (M5 example): only the rows in view plus three above and below are rendered, positioned by the spacer's padding and updated from scrollTop and clientHeight in the list's scroll events (rendering step after each action); clicking a row selects it; Jump to 5,000 sets scrollTop; typing in the filter shrinks the list, which clamps the scroll position (one scroll event, a rendering step later); wheel scrolling to the end. Clicks target rows fully visible in the list, so Playwright's click does not scroll first",
+  "description": "A virtualized 10,000-row list (M5 example; React in M6, whose scroll updates render after the frame): only the rows in view plus three above and below are rendered, positioned by the spacer's padding and updated from scrollTop and clientHeight in the list's scroll events (rendering step after each action); clicking a row selects it; Jump to 5,000 sets scrollTop; typing in the filter shrinks the list, which clamps the scroll position (one scroll event, a rendering step later); wheel scrolling to the end. Clicks target rows fully visible in the list, so Playwright's click does not scroll first",
   "fixtures": [
     "examples/virtual-list-svelte",
-    "examples/virtual-list-vue"
+    "examples/virtual-list-vue",
+    "examples/virtual-list-react"
   ],
   "actions": [
     { "kind": "click", "id": "row-3" },

@@ -1,0 +1,21 @@
+{
+  "description": "The plural-names case with the de-DE default locale: currency names for an undefined locale and the plural rules of tlh (no plural data of its own) follow the default locale",
+  "fixtures": ["plural-names-svelte", "plural-names-react", "plural-names-vue"],
+  "locale": "de-DE",
+  "actions": [
+    { "kind": "click", "id": "ordinal" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "ordinal" },
+    { "kind": "click", "id": "ui" }
+  ]
+}

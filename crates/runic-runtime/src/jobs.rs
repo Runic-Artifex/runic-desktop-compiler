@@ -10,6 +10,9 @@ pub enum Job<C> {
     Flush,
     /// Run any pending flush now, then the callback (`flush.tick`).
     FlushThen(C),
+    /// Report the rejections a microtask checkpoint left without a reaction
+    /// (a default-priority task, as Chromium posts it; docs/IR.md, promises).
+    Report(runic_js::Rejections),
 }
 
 pub struct Jobs<C> {
@@ -19,6 +22,9 @@ pub struct Jobs<C> {
     flush_pending: bool,
     /// While an input event is dispatched, including its microtask checkpoint.
     pub in_event: bool,
+    /// While a discrete input event's listeners run (not its checkpoint):
+    /// React gives updates the discrete priority only then.
+    pub dispatching: bool,
     /// Outside events, the flush job is a default task instead of a microtask.
     event_microtask: bool,
     /// Whether heap mutations (any / through proxies) queue the flush.
@@ -59,6 +65,7 @@ impl<C> Jobs<C> {
             defaults: VecDeque::new(),
             flush_pending: false,
             in_event: false,
+            dispatching: false,
             event_microtask,
             tracks: (tracks_deep, tracks_owned),
             epochs: (runic_js::mutation_epoch(), runic_js::owned_epoch()),
@@ -79,6 +86,15 @@ impl<C> Jobs<C> {
             return;
         }
         if self.flush_pending {
+            // A discrete update renders in its microtask, with the updates
+            // that wait for a default-priority task (React's sync render
+            // takes the pending default and continuous lanes).
+            if self.event_microtask && self.dispatching {
+                if let Some(i) = self.defaults.iter().position(|j| matches!(j, Job::Flush)) {
+                    self.defaults.remove(i);
+                    self.microtasks.push_back(Job::Flush);
+                }
+            }
             return;
         }
         self.flush_pending = true;
@@ -138,6 +154,20 @@ impl<C> Jobs<C> {
     pub fn next_microtask(&mut self) -> Option<Job<C>> {
         self.note_mutations();
         self.microtasks.pop_front()
+    }
+
+    /// At the end of a microtask checkpoint: the rejections it left without
+    /// a reaction are reported by a default-priority task queued now.
+    pub fn queue_rejections(&mut self) {
+        let r = runic_js::take_rejections();
+        if !r.is_empty() {
+            self.defaults.push_back(Job::Report(r));
+        }
+    }
+
+    /// The number of default-priority tasks queued.
+    pub fn defaults_len(&self) -> usize {
+        self.defaults.len()
     }
 
     /// The next default-priority task.
@@ -299,5 +329,31 @@ impl<C, X> Default for Fx<C, X> {
             cleanup: None,
             deps: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_discrete_write_renders_a_pending_default_flush_in_its_microtask() {
+        // React's schedule: a flush outside input events is a default task.
+        let mut jobs: Jobs<()> = Jobs::new(true, false, false, false);
+        jobs.queue_flush();
+        assert_eq!(jobs.defaults_len(), 1);
+        // A write while a discrete event is dispatched moves it.
+        jobs.in_event = true;
+        jobs.dispatching = true;
+        jobs.queue_flush();
+        assert_eq!(jobs.defaults_len(), 0);
+        assert!(matches!(jobs.next_microtask(), Some(Job::Flush)));
+        // In the event's checkpoint (after its dispatch) it stays a default task.
+        let mut jobs: Jobs<()> = Jobs::new(true, false, false, false);
+        jobs.queue_flush();
+        jobs.in_event = true;
+        jobs.queue_flush();
+        assert_eq!(jobs.defaults_len(), 1);
+        assert!(jobs.next_microtask().is_none());
     }
 }

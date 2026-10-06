@@ -49,7 +49,10 @@ pub use heap::*;
 pub use keys::{KeySpec, MODIFIER_KEYS, parse_key_spec};
 pub use media::MediaQueryList;
 pub use number::*;
-pub use promise::{JsPromise, Reaction};
+pub use promise::{
+    JsPromise, Reaction, Rejections, clear_rejections, rejection_line, take_late_handled,
+    take_rejections,
+};
 pub use regexp::RegExp;
 pub use selector::{SelElement, Selector, parse_selector};
 pub use string::JsString;
