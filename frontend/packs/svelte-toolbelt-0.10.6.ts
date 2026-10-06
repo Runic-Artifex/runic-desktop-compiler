@@ -29,6 +29,9 @@
 // - `afterTick(fn)` (dist/utils/after-tick.js): `tick().then(fn)`.
 // - `onDestroyEffect(fn)` (dist/utils/on-destroy-effect.svelte.js): an
 //   effect of the instance being created whose cleanup calls `fn`.
+// - `onMountEffect(fn)` (dist/utils/on-mount-effect.svelte.js): an effect of
+//   the instance being created running `fn` untracked, its result (a cleanup
+//   or nothing) the effect's cleanup.
 // - `afterSleep(ms, cb)` (dist/utils/after-sleep.js): `setTimeout(cb, ms)`.
 // - `executeCallbacks(...callbacks)` (dist/utils/execute-callbacks.js): a
 //   function calling each callback that is a function with its arguments.
@@ -444,7 +447,9 @@ function mergeProps(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr
     // An object literal is a bag of its entries (`{ type }`, `{ ...restProps }`).
     const literal = skipParens(a);
     if (ts.isObjectLiteralExpression(literal)) return lower.bagLiteral(literal, b);
-    const v = lower.expr(a, b);
+    // (A plain record, as a spread takes it: bits-ui's tooltip content
+    // merges its `floatingProps`, a derived object literal.)
+    const v = lower.bagValue(a, b);
     if (lower.irType(v, b) !== 'attrs')
       lower.fail(a, 'E_PACK', `${LABEL}: mergeProps takes attribute bags (props objects)`);
     return v;
@@ -753,6 +758,53 @@ function contains(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   };
 }
 
+/** `onMountEffect(fn)`: an effect running `fn` untracked, its result the cleanup. */
+function onMountEffect(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  const [fn] = node.arguments;
+  const f = fn && node.arguments.length === 1 ? lower.expr(fn, b) : undefined;
+  const t = f && lower.irType(f, b);
+  const cleanup = fnType([], 'void');
+  const result =
+    typeof t === 'object' && 'fn' in t && !t.fn.params.length ? t.fn.result : undefined;
+  const same = (x: Type | undefined, y: Type) => JSON.stringify(x) === JSON.stringify(y);
+  if (
+    !f ||
+    !t ||
+    result === undefined ||
+    !(same(result, 'void') || same(result, cleanup) || same(result, { maybe: cleanup }))
+  )
+    return lower.fail(
+      node,
+      'E_PACK',
+      `${LABEL}: onMountEffect takes a function without parameters returning a cleanup or nothing`,
+    );
+  const call: Expr = {
+    op: 'builtin',
+    name: 'reactive.untrack-call',
+    args: [local(0)],
+    type: result,
+  };
+  const run = define(lower, {
+    name: 'onMountEffect$run',
+    captures: [{ name: 'fn', type: t }],
+    params: [],
+    result,
+    body: same(result, 'void') ? [{ op: 'expr', value: call }] : [{ op: 'return', value: call }],
+  });
+  const tmp = b.local('$onMount', t);
+  return {
+    op: 'with',
+    local: tmp,
+    value: f,
+    body: {
+      op: 'builtin',
+      name: 'effect.post',
+      args: [{ op: 'closure', function: run, captures: [tmp] }],
+      type: 'void',
+    },
+  };
+}
+
 /** `onDestroyEffect(fn)`: an effect whose cleanup calls `fn`. */
 function onDestroyEffect(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   const [fn] = node.arguments;
@@ -817,6 +869,8 @@ export const svelteToolbeltPack: Pack = {
         return { kind: 'function', call: afterTick };
       case 'onDestroyEffect':
         return { kind: 'function', call: onDestroyEffect };
+      case 'onMountEffect':
+        return { kind: 'function', call: onMountEffect };
       case 'afterSleep':
         return { kind: 'function', call: afterSleep };
       case 'executeCallbacks':
@@ -867,7 +921,7 @@ export const svelteToolbeltPack: Pack = {
           construct: newDomContext,
         };
     }
-    return `${LABEL} covers box, simpleBox, boxFrom, boxWith, mergeProps, attachRef, afterTick, afterSleep, executeCallbacks, composeHandlers, contains, onDestroyEffect, srOnlyStyles, styleToString, getWindow, getDocument and DOMContext, not ${imported}`;
+    return `${LABEL} covers box, simpleBox, boxFrom, boxWith, mergeProps, attachRef, afterTick, afterSleep, executeCallbacks, composeHandlers, contains, onMountEffect, onDestroyEffect, srOnlyStyles, styleToString, getWindow, getDocument and DOMContext, not ${imported}`;
   },
   type(t, at, lower) {
     // DOMContext (dist/utils/dom-context.svelte.d.ts).

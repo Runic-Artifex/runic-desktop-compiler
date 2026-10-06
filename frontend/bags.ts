@@ -314,6 +314,20 @@ export class BagShapes {
       if (!target) return undefined;
       const known = this.hooks.bindingValues?.(target, key);
       if (known !== null && known !== undefined) return known;
+      // A `const x = $derived(e)` holds the values of `e` (bits-ui's
+      // tooltip content's `floatingProps`, merged into its bag).
+      const own = target.valueDeclaration;
+      if (
+        own &&
+        ts.isVariableDeclaration(own) &&
+        own.parent.flags & ts.NodeFlags.Const &&
+        own.initializer &&
+        ts.isCallExpression(skipParens(own.initializer)) &&
+        /^\$derived(\.by)?$/.test(
+          (skipParens(own.initializer) as ts.CallExpression).expression.getText(),
+        )
+      )
+        return this.values(own.initializer, key);
       if (known === undefined && this.hooks.bindingValues) return undefined;
       // A constant, or a field nothing assigns: its initialiser.
       const decl = target.valueDeclaration;

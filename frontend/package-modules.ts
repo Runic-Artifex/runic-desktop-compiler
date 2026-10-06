@@ -19,7 +19,23 @@
 import ts from 'typescript';
 import path from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { ModuleResolver } from './modules.ts';
+
+/**
+ * The event interface of each event kind, from the host event maps of
+ * frontend/dom.d.ts (`pointerenter: PointerEvent`).
+ */
+const EVENT_INTERFACE: Map<string, string> = (() => {
+  const text = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), 'dom.d.ts'),
+    'utf8',
+  );
+  const map = new Map<string, string>();
+  for (const block of text.matchAll(/interface (?:Host|Runic)EventMap[^{]*\{([^}]*)\}/g))
+    for (const m of block[1].matchAll(/^\s+([a-z]+): (\w+);/gm)) map.set(m[1], m[2]);
+  return map;
+})();
 
 /** The module specifier prefix that names a declaration file directly. */
 export const DTS_PREFIX = 'runic-dts:';
@@ -442,14 +458,12 @@ export function annotate(
           if (dm.type && at !== undefined && !m.type) add(at, `: ${q(dm.type)}`);
         } else if (ts.isGetAccessor(m) && name) {
           const g = member(name, isStatic, ts.SyntaxKind.GetAccessor) as
-            | ts.GetAccessorDeclaration
-            | undefined;
+            ts.GetAccessorDeclaration | undefined;
           const at = afterParams(m);
           if (g?.type && at !== undefined && !m.type) add(at, `: ${q(g.type)}`);
         } else if (ts.isSetAccessor(m) && name) {
           const s = member(name, isStatic, ts.SyntaxKind.SetAccessor) as
-            | ts.SetAccessorDeclaration
-            | undefined;
+            ts.SetAccessorDeclaration | undefined;
           typedParams(m, s);
         }
       }
@@ -1435,6 +1449,47 @@ export function inferFields(
       for (const member of stmt.members)
         if ((ts.isConstructorDeclaration(member) || ts.isMethodDeclaration(member)) && member.body)
           untypedParams(member);
+      // A handler field (`#onpointerenter = (e) => …`, private, so the
+      // declaration file has no type for it) used as an `on<event>` entry of
+      // an object (the attribute bag of `props`): its event parameter is the
+      // event's interface, the same for every such use.
+      for (const member of stmt.members) {
+        if (!ts.isPropertyDeclaration(member) || !member.initializer) continue;
+        const fn = member.initializer;
+        if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) continue;
+        const p = fn.parameters[0];
+        if (!p || p.type || !ts.isIdentifier(p.name)) continue;
+        if (!(checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+          continue;
+        const name = member.name.getText();
+        const interfaces = new Set<string>();
+        let other = false;
+        const uses = (n: ts.Node) => {
+          if (
+            ts.isPropertyAccessExpression(n) &&
+            n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+            n.name.getText() === name
+          ) {
+            const a = n.parent;
+            const event =
+              ts.isPropertyAssignment(a) && a.initializer === n
+                ? /^on([a-z]+)$/.exec(a.name.getText().replace(/^["']|["']$/g, ''))?.[1]
+                : undefined;
+            const iface = event && EVENT_INTERFACE.get(event);
+            if (iface) interfaces.add(iface);
+            else other = true;
+          }
+          ts.forEachChild(n, uses);
+        };
+        uses(stmt);
+        if (other || interfaces.size !== 1) continue;
+        const end = p.name.end;
+        const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+        if (!seg) continue;
+        const key = `param:${seg.orig + (end - seg.synth)}`;
+        const text = [...interfaces][0];
+        if (next.get(key) !== text) next.set(key, text);
+      }
     }
     // (Only functions also used as values: calls of one that is only
     // called are specialised per call site, Lowerer.specialise.)

@@ -553,6 +553,18 @@ impl Host {
             .unwrap_or_default()
     }
 
+    /// `element.matches(":focus-visible")`: the focused element, its focus
+    /// visible by Blink's rule (`Listeners::sync_focus_visible`).
+    pub fn matches_focus_visible(&self, node: u64) -> bool {
+        self.dom().is_some_and(|dom| {
+            let id = NodeId::from_u64(node);
+            crate::events::focused_element(dom.doc) == Some(id)
+                && (crate::controls::has_editor(dom.doc, id)
+                    || dom.listeners.had_keyboard_event
+                    || !dom.listeners.mouse_focus)
+        })
+    }
+
     /// `element instanceof HTMLElement`: an element outside the SVG namespace.
     pub fn is_html(&self, node: u64) -> bool {
         self.dom().is_none_or(|dom| {

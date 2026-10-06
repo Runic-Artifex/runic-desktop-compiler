@@ -173,6 +173,12 @@ interface HTMLHeadingElement extends HTMLElement {}
 interface Element extends HTMLElement {}
 /** M6 (bits-ui's floating layer): `x instanceof Element` of element values. */
 declare var Element: { prototype: Element };
+/**
+ * M6 (bits-ui's tooltip provider): `target instanceof Document` of an event
+ * target, the document for a window `scroll` listener; `instanceof Node`.
+ */
+declare var Document: { prototype: HostDocument };
+declare var Node: { prototype: Element };
 interface EventTarget {}
 /**
  * An attribute bag (docs/IR.md `attrs`): attribute values, listeners and

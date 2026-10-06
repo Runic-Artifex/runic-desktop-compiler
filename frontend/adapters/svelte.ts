@@ -149,6 +149,46 @@ const BOOLEAN_ATTRS = new Set([
   'open',
 ]);
 
+/**
+ * The type parameters of a generic component (`<script lang="ts"
+ * generics="T extends C = D">`) with their defaults, and the module
+ * script's type aliases they shadow (offsets in the original file).
+ */
+function genericDefaults(u: Unit): { params: [string, string][]; shadowed: [number, number][] } {
+  const attr = (u.ast.instance?.attributes ?? []).find((a: SNode) => a.name === 'generics');
+  if (!attr) return { params: [], shadowed: [] };
+  const text: string = Array.isArray(attr.value)
+    ? attr.value.map((v: SNode) => v.data).join('')
+    : '';
+  // (The type parameter list of a type alias parses it.)
+  const parsed = ts.createSourceFile(
+    'generics.ts',
+    `type __R<${text}> = 0;`,
+    ts.ScriptTarget.Latest,
+  );
+  const alias = parsed.statements[0];
+  const params: [string, string][] = [];
+  for (const p of (alias && ts.isTypeAliasDeclaration(alias) ? alias.typeParameters : undefined) ??
+    []) {
+    if (!p.default)
+      throw new Diagnostic(
+        'E_TEMPLATE',
+        `The generic parameter ${p.name.text} needs a default: a generic component has one instantiation, its parameters' defaults`,
+        locate(u.original, attr.start, u.rel),
+      );
+    params.push([p.name.text, p.default!.getText(parsed)]);
+  }
+  const shadowed: [number, number][] = [];
+  if (u.moduleLength) {
+    const code = u.original.slice(u.moduleStart, u.moduleStart + u.moduleLength);
+    const sf = ts.createSourceFile('module.ts', code, ts.ScriptTarget.Latest);
+    for (const st of sf.statements)
+      if (ts.isTypeAliasDeclaration(st) && params.some(([n]) => n === st.name.text))
+        shadowed.push([u.moduleStart + st.getStart(sf), u.moduleStart + st.end]);
+  }
+  return { params, shadowed };
+}
+
 interface Graph {
   root: string;
   /** A SvelteKit app (compiler/adapters/kit-app.mjs). */
@@ -733,8 +773,24 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       u.segments.push({ synth: s.length, orig: start, length: end - start });
       s += u.original.slice(start, end);
     };
-    copy(u.moduleStart, u.moduleStart + u.moduleLength);
+    // A generic component (`<script generics="T = never">`) has one
+    // instantiation in the program, as generic classes do: each type
+    // parameter is its default. A value of another instantiation fails the
+    // IR's type checks where the types differ. (svelte-package declares
+    // `type T = unknown` in the module script for its declaration files;
+    // the instance script's parameter shadows it, so it is left out.)
+    const generics = genericDefaults(u);
+    {
+      let at = u.moduleStart;
+      for (const [start, end] of generics.shadowed) {
+        copy(at, start);
+        s += ' '.repeat(end - start);
+        at = end;
+      }
+      copy(at, u.moduleStart + u.moduleLength);
+    }
     s += '\n';
+    for (const [name, type] of generics.params) s += `type ${name} = ${type};\n`;
     u.instanceSynth = s.length;
     {
       // SvelteKit's beforeNavigate/afterNavigate register their callback
@@ -2479,6 +2535,23 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     /** Parameter types of a `Snippet<[A, B]>` prop, or undefined for other props. */
     const snippetParams = (node: ts.Node, type?: ts.Type): Type[] | undefined => {
       const t = checker.getNonNullableType(type ?? checker.getTypeAtLocation(node));
+      // Snippets of several parameter lists (bits-ui's `Snippet |
+      // Snippet<[Props]>`): the snippet is rendered with the longest list,
+      // and one declaring fewer parameters ignores the rest. The shorter
+      // lists must be its prefixes.
+      if (t.isUnion()) {
+        const lists = t.types.map(m => snippetParams(node, m));
+        if (lists.some(l => l === undefined)) return undefined;
+        const longest = (lists as Type[][]).reduce((a, b) => (b.length > a.length ? b : a));
+        for (const l of lists as Type[][])
+          if (l.some((p, i) => JSON.stringify(p) !== JSON.stringify(longest[i])))
+            return tsFail(
+              node,
+              'E_PROPS',
+              'Snippet types of a prop must agree on their common parameters',
+            );
+        return longest;
+      }
       const sym = t.aliasSymbol ?? t.getSymbol();
       const file = sym?.declarations?.[0]?.getSourceFile().fileName ?? '';
       if (sym?.name !== 'Snippet' || !/[\\/]svelte[\\/]/.test(file)) return undefined;

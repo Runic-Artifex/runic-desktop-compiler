@@ -35,6 +35,15 @@ export class TypeMapper {
    * that reach it (frontend/unions.ts), or a failure through `fail`.
    */
   narrow?: (parts: ts.Type[], at: ts.Node, fail: Fail) => ts.Type;
+  /**
+   * Whether only null and undefined reach the property declared by `decl`,
+   * which TypeScript types `unknown` (frontend/unions.ts).
+   */
+  nothingSlot?: (decl: ts.Declaration) => boolean;
+  /** The same for the `current` of the boxes a property holds. */
+  nothingInBoxes?: (decl: ts.Declaration) => boolean;
+  /** While a box property holding nothing is mapped: its `unknown` content. */
+  private boxNothing = false;
   /** The record of MutationObservers, once a program uses one. */
   mutationObserver?: number;
   /** The record of ResizeObservers (M6), once a program uses one. */
@@ -182,7 +191,12 @@ export class TypeMapper {
     if (t.flags & F.EnumLiteral && t.isUnion()) return this.map(t.types[0], at);
     if (t.isUnion()) {
       // A union containing itself (`ClassValue = … | ClassValue[]`) is outside the value model.
-      if (this.unions.has(t))
+      // (A nullable object type reached again through its own fields, such
+      // as bits-ui's `root: TooltipRootState | null` of the tether its root
+      // refers to, ends at the type's record, registered before its fields.)
+      const objects = t.types.filter(p => !(p.flags & (F.Null | F.Undefined | F.Void)));
+      const nullableObject = objects.length === 1 && !!(objects[0].flags & F.Object);
+      if (this.unions.has(t) && !nullableObject)
         return this.fail(
           at,
           'E_TYPE_UNION',
@@ -195,6 +209,7 @@ export class TypeMapper {
         this.unions.delete(t);
       }
     }
+    if (t.flags & F.Unknown && this.boxNothing) return { maybe: 'void' };
     if (t.flags & (F.Any | F.Unknown))
       this.fail(
         at,
@@ -698,7 +713,31 @@ export class TypeMapper {
         )
           ? decl
           : at;
-      const mapped = this.map(pt, where);
+      // A property typed `unknown` that only null and undefined reach (no
+      // trigger passes bits-ui's tooltip payload) holds nothing else: null
+      // and undefined, kept apart (`maybe` of `void`).
+      // (A property typed only null holds nothing else either: bits-ui's
+      // tooltip snippet's `[T] extends [never] ? null : T | null` payload.)
+      const nothing =
+        pt.flags & ts.TypeFlags.Null ||
+        (pt.flags & ts.TypeFlags.Unknown && decl && this.nothingSlot?.(decl as ts.Declaration));
+      // A property holding boxes of `unknown` that only null and undefined
+      // reach (`current: unknown`): boxes of that.
+      const current = pt.getProperty('current');
+      const boxNothing =
+        !nothing &&
+        !!current &&
+        !!(this.checker.getTypeOfSymbol(current).flags & ts.TypeFlags.Unknown) &&
+        !!decl &&
+        !!this.nothingInBoxes?.(decl as ts.Declaration);
+      const outer = this.boxNothing;
+      this.boxNothing = boxNothing;
+      let mapped: Type;
+      try {
+        mapped = nothing ? { maybe: 'void' } : this.map(pt, where);
+      } finally {
+        this.boxNothing = outer;
+      }
       placeholder.fields.push({
         name: p.name,
         type: accessors ? { fn: { params: [], result: mapped } } : mapped,

@@ -41,6 +41,14 @@
 // also through a bag known to hold it (rest props passed on, a mergeProps
 // result), does not contribute the default (`mayBeAbsent`).
 //
+// A property TypeScript types `unknown` (bits-ui's tooltip trigger record's
+// `payload`) is decided by its origins instead (`nothingSlot`): a value can
+// only get into it where an object is built with the property (an object
+// literal, unless its contextual type is another type) or where the property
+// is written. Where every such value holds nothing (no trigger passes a
+// payload), the property holds nothing but null and undefined. Passing
+// whole objects on (maps of records, copies, getters) adds no values.
+//
 // Values TypeScript types `any` (untyped package JavaScript) that flow into
 // such a slot are classified by what they are built from: the members of
 // the literal arguments of the call producing them (bits-ui's
@@ -81,12 +89,17 @@ export class Unions {
   /** Unions resolved to a member, by key. */
   private readonly resolved = new Map<string, ts.Type>();
 
+  /** Every file of the program, declaration files included. */
+  private readonly allFiles: () => readonly ts.SourceFile[];
+
   constructor(
     checker: ts.TypeChecker,
     files: () => readonly ts.SourceFile[],
     sourceOf: SourceOf,
     propValues: PropValues,
+    allFiles: () => readonly ts.SourceFile[] = files,
   ) {
+    this.allFiles = allFiles;
     this.checker = checker;
     this.files = files;
     this.sourceOf = sourceOf;
@@ -128,6 +141,108 @@ export class Unions {
     );
   }
 
+  private readonly slotCache = new Map<ts.Declaration, ts.Node | null>();
+
+  /**
+   * Whether only null and undefined reach the property declared by `decl`
+   * (TypeScript types it `unknown`): every object literal giving a property
+   * of its name, except literals whose contextual type is a type without it,
+   * and every write of it, give values that hold nothing.
+   */
+  nothingSlot(decl: ts.Declaration): boolean {
+    return this.slotValue(decl) === null;
+  }
+
+  /**
+   * Whether only null and undefined reach the `current` of the boxes held by
+   * the property declared by `decl` (bits-ui's trigger options' `payload:
+   * ReadableBox<unknown>`): every box given to it holds nothing (a getter of
+   * a prop no site passes), and nothing writes its `current`.
+   */
+  nothingInBoxes(decl: ts.Declaration): boolean {
+    const index = this.properties();
+    const given = index.given.get(decl) ?? [];
+    const written = index.writes.get(decl) ?? [];
+    const name = (decl as ts.NamedDeclaration).name;
+    if (!given.length) {
+      const text = name && ts.isIdentifier(name) ? name.text : '';
+      const plain = plainProperty(decl);
+      return (
+        plain &&
+        !(written.length || index.spread.has(decl) || index.named.has(text) || index.named.has('*'))
+      );
+    }
+    return (
+      given.every(g => {
+        const t = this.trace(g, ['current'], 0, true);
+        return !!t && t.length === 0;
+      }) && written.every(w => this.nothing(w))
+    );
+  }
+
+  /** A site giving the property declared by `decl` a value, or null. */
+  private slotValue(decl: ts.Declaration): ts.Node | null {
+    const cached = this.slotCache.get(decl);
+    if (cached !== undefined) return cached;
+    this.slotCache.set(decl, null);
+    const name = (decl as ts.NamedDeclaration).name;
+    if (!name || !ts.isIdentifier(name)) return decl;
+    const isSlot = (p: ts.Symbol) => {
+      const target = (p as unknown as { target?: ts.Symbol }).target ?? p;
+      return (target.valueDeclaration ?? target.declarations?.[0]) === decl;
+    };
+    const holder = (ctx: ts.Type) =>
+      (ctx.isUnion() ? ctx.types : [ctx]).some(t =>
+        this.checker.getPropertiesOfType(t).some(isSlot),
+      );
+    const unrelated = (ctx: ts.Type | undefined) =>
+      !!ctx && !(ctx.flags & (F.Any | F.Unknown)) && !holder(ctx);
+    let found: ts.Node | null = null;
+    const gives = (value: ts.Expression) => {
+      if (!found && !this.nothing(value)) found = value;
+    };
+    for (const sf of this.files()) {
+      const visit = (n: ts.Node) => {
+        if (found) return;
+        const ctx = ts.isObjectLiteralExpression(n) ? this.checker.getContextualType(n) : undefined;
+        if (ts.isObjectLiteralExpression(n) && !unrelated(ctx))
+          for (const p of n.properties) {
+            if (ts.isPropertyAssignment(p) && p.name.getText() === name.text) gives(p.initializer);
+            else if (ts.isShorthandPropertyAssignment(p) && p.name.text === name.text) {
+              // (The variable it names: a constant's initialiser.)
+              const v = this.checker.getShorthandAssignmentValueSymbol(p)?.valueDeclaration;
+              if (
+                v &&
+                ts.isVariableDeclaration(v) &&
+                v.initializer &&
+                ts.getCombinedNodeFlags(v) & ts.NodeFlags.Const
+              )
+                gives(v.initializer);
+              else found ??= p;
+            }
+            // A spread of an object with the property, or of an untyped one
+            // into an object of the property's type.
+            else if (ts.isSpreadAssignment(p)) {
+              const t = this.checker.getTypeAtLocation(p.expression);
+              const untyped = !!(t.flags & (F.Any | F.Unknown));
+              if (t.getProperty(name.text) || (untyped && ctx && holder(ctx))) found = p;
+            }
+          }
+        if (
+          ts.isBinaryExpression(n) &&
+          n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          ts.isPropertyAccessExpression(skip(n.left)) &&
+          (skip(n.left) as ts.PropertyAccessExpression).name.text === name.text
+        )
+          gives(n.right);
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+    this.slotCache.set(decl, found);
+    return found;
+  }
+
   /** The member a narrowed union stands for, if `t` (or its non-nullish part) is one. */
   narrowed(t: ts.Type): ts.Type | undefined {
     const parts = t.isUnion() ? t.types : [t];
@@ -158,7 +273,14 @@ export class Unions {
               : this.checker.isArrayType(t) || this.checker.isTupleType(t)
                 ? 'array'
                 : 'object';
+    const isElement = (t: ts.Type) => !!t.getProperty('__runicElement');
     const memberOf = (t: ts.Type) => {
+      // An element is an opaque handle, never a member of another kind it
+      // is structurally assignable to (an HTMLElement is a floating-ui
+      // `Measurable`): where TypeScript reduced the union's element member
+      // away (`customAnchor ?? triggerNode` is `string | Measurable`), the
+      // element stands for itself.
+      if (isElement(t) && !members.some(isElement)) return t;
       const exact = members.find(m => m === t || this.checker.isTypeAssignableTo(t, m));
       if (exact) return exact;
       // (Objects and arrays are told apart by their shapes only.)
@@ -352,8 +474,25 @@ export class Unions {
       if (!decl) return undefined;
       const index = this.properties();
       const given = index.given.get(decl) ?? [];
-      if (!given.length) return undefined;
       const written = index.writes.get(decl) ?? [];
+      // Given by no object literal of the program and never written (nor
+      // filled by a spread or an untyped literal of the name): nothing
+      // reaches it (bits-ui's `FloatingAnchorState` options where no
+      // anchor renders: its `virtualEl`).
+      // (A plain property: a getter or a method gives what it computes.)
+      if (!given.length) {
+        const name = ts.isIdentifier(e.name) ? e.name.text : '';
+        const plain = plainProperty(decl);
+        if (
+          !plain ||
+          written.length ||
+          index.spread.has(decl) ||
+          index.named.has(name) ||
+          index.named.has('*')
+        )
+          return undefined;
+        return [];
+      }
       if (strict && written.length) return undefined;
       const writes = written.map(w => this.trace(w, rest, depth + 1));
       return all([...given.map(g => this.trace(g, path, depth + 1, strict)), ...writes]);
@@ -378,6 +517,42 @@ export class Unions {
       const sym = this.symbol(e);
       const init = sym && this.constant(sym);
       return init ? this.trace(init, path, depth + 1, strict) : undefined;
+    }
+    // An object literal: the last property of the name (bits-ui's tooltip
+    // content's `floatingProps`, whose `customAnchor ?? triggerNode`
+    // TypeScript types as the reduced `string | Measurable`); a spread
+    // that may hold it after that property makes it open.
+    if (ts.isObjectLiteralExpression(e)) {
+      const [name, ...rest] = path;
+      // (The last entry holding the name; an earlier one where a spread
+      // after it may not hold it, as for mergeProps.)
+      const found: ts.Type[] = [];
+      for (const p of [...e.properties].reverse()) {
+        if (ts.isSpreadAssignment(p)) {
+          const h = this.bagHas(p.expression, name, depth + 1);
+          if (h === 'absent') continue;
+          const t = this.trace(p.expression, path, depth + 1, strict);
+          if (!t) return undefined;
+          found.push(...t);
+          if (h === 'present') return found;
+          continue;
+        }
+        if (!p.name || p.name.getText().replace(/^["']|["']$/g, '') !== name) continue;
+        let v: ts.Type[] | undefined;
+        if (ts.isPropertyAssignment(p)) v = this.trace(p.initializer, rest, depth + 1, strict);
+        else if (ts.isShorthandPropertyAssignment(p)) {
+          const d = this.checker.getShorthandAssignmentValueSymbol(p)?.valueDeclaration;
+          v =
+            d &&
+            ts.isVariableDeclaration(d) &&
+            d.initializer &&
+            ts.getCombinedNodeFlags(d) & ts.NodeFlags.Const
+              ? this.trace(d.initializer, rest, depth + 1, strict)
+              : undefined;
+        }
+        return v && [...found, ...v];
+      }
+      return found;
     }
     if (!ts.isCallExpression(e) || !ts.isIdentifier(e.expression)) return undefined;
     if (e.expression.text === '$derived' && e.arguments.length === 1)
@@ -685,6 +860,15 @@ export class Unions {
   private index?: {
     given: Map<ts.Declaration, ts.Expression[]>;
     writes: Map<ts.Declaration, ts.Expression[]>;
+    /** Properties an object literal's spread may fill (by declaration). */
+    spread: Set<ts.Declaration>;
+    /** Property names object literals without a (typed) context give. */
+    untyped: Set<string>;
+    /**
+     * Every property name the program gives anywhere: object literal entries
+     * (any context), the properties of spread values, assignments.
+     */
+    named: Set<string>;
   };
 
   /**
@@ -696,6 +880,9 @@ export class Unions {
     if (this.index) return this.index;
     const given = new Map<ts.Declaration, ts.Expression[]>();
     const writes = new Map<ts.Declaration, ts.Expression[]>();
+    const spread = new Set<ts.Declaration>();
+    const untyped = new Set<string>();
+    const named = new Set<string>();
     const add = (m: Map<ts.Declaration, ts.Expression[]>, d: ts.Declaration, v: ts.Expression) => {
       const list = m.get(d);
       if (list) list.push(v);
@@ -708,7 +895,24 @@ export class Unions {
     for (const sf of this.files()) {
       const visit = (n: ts.Node) => {
         if (ts.isObjectLiteralExpression(n)) {
+          for (const p of n.properties) {
+            if (ts.isSpreadAssignment(p)) {
+              const t = this.checker.getTypeAtLocation(p.expression);
+              // (An untyped spread may give any name.)
+              if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) named.add('*');
+              for (const q of this.checker.getPropertiesOfType(t)) named.add(q.name);
+            } else if (p.name) named.add(p.name.getText().replace(/^["']|["']$/g, ''));
+          }
           const ctx = this.checker.getContextualType(n);
+          if (!ctx || ctx.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+            for (const p of n.properties) {
+              if (p.name && ts.isIdentifier(p.name)) untyped.add(p.name.text);
+            }
+          else if (n.properties.some(ts.isSpreadAssignment))
+            for (const t of this.checker.getPropertiesOfType(ctx)) {
+              const d = declarationOf(t);
+              if (d) spread.add(d);
+            }
           if (ctx)
             for (const p of n.properties) {
               const name = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
@@ -740,7 +944,19 @@ export class Unions {
       };
       visit(sf);
     }
-    this.index = { given, writes };
+    for (const sf of this.files()) {
+      const assigned = (n: ts.Node) => {
+        if (
+          ts.isBinaryExpression(n) &&
+          n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          ts.isPropertyAccessExpression(n.left)
+        )
+          named.add(n.left.name.text);
+        ts.forEachChild(n, assigned);
+      };
+      assigned(sf);
+    }
+    this.index = { given, writes, spread, untyped, named };
     return this.index;
   }
 
@@ -770,6 +986,16 @@ export class Unions {
     return found;
   }
 }
+
+/**
+ * A property that holds what is given to it: a property signature (an
+ * options type), or a class field of program source. (A declaration file's
+ * class property may be a getter in the implementation: bits-ui declares
+ * `readonly triggerNode`, which its JavaScript computes.)
+ */
+const plainProperty = (decl: ts.Declaration): boolean =>
+  ts.isPropertySignature(decl) ||
+  (ts.isPropertyDeclaration(decl) && !decl.getSourceFile().isDeclarationFile);
 
 /** Parentheses, assertions and `!` removed. */
 const skipAll = (e: ts.Expression): ts.Expression =>

@@ -551,7 +551,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ),
         // Libraries compiled from source (M6).
         ("element", "isConnected") => format!("cx.dom.is_connected({}.0)", t[0]),
-        ("element", "isHTML") => format!("cx.dom.is_html({}.0)", t[0]),
+        ("element", "isHTML") => format!("{{ let e = {}; e.is_element() && cx.dom.is_html(e.0) }}", t[0]),
+        ("element", "isElement") => format!("{}.is_element()", t[0]),
+        ("element", "focus-visible") => format!("cx.dom.matches_focus_visible({}.0)", t[0]),
+        ("element", "isDocument") => format!("({} == js::Element::DOCUMENT)", t[0]),
         ("element", "computed-style") => format!(
             "JsString::from(cx.dom.computed_style({}.0, &{}.to_rust()))",
             t[0], t[1]

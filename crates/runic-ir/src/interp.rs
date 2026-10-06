@@ -2861,19 +2861,36 @@ impl<'p> Machine<'p> {
                     ))
                 }
             }
+            ("element", "focus-visible") => {
+                return Err(Throw::new(
+                    "RunicUnsupportedError",
+                    "the interpreter has no input modality (:focus-visible)",
+                ));
+            }
+            ("element", m @ ("isElement" | "isDocument")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                Val::Bool(if m == "isElement" {
+                    e.is_element()
+                } else {
+                    *e == js::Element::DOCUMENT
+                })
+            }
             ("element", "isHTML") => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
                 };
                 Val::Bool(
-                    chain_nodes(&self.last_tree, e.0)
-                        .and_then(|n| match n.last() {
-                            Some(VNode::Element { tag, .. }) => {
-                                Some(!crate::validate::SVG_TAGS.contains(&tag.as_str()))
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or(true),
+                    e.is_element()
+                        && chain_nodes(&self.last_tree, e.0)
+                            .and_then(|n| match n.last() {
+                                Some(VNode::Element { tag, .. }) => {
+                                    Some(!crate::validate::SVG_TAGS.contains(&tag.as_str()))
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or(true),
                 )
             }
             ("element", "closest") => {

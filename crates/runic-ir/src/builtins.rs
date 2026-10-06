@@ -237,6 +237,9 @@ pub fn needs_layout(name: &str) -> bool {
                         | "style-set"
                         | "getAnimations"
                         | "computed-style"
+                        // The input modality of `:focus-visible`, which the
+                        // interpreter does not model (M6 overlays).
+                        | "focus-visible"
                 )
         }
         // MutationObservers are reported unsupported when they observe
@@ -919,6 +922,17 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 2, 2)?;
             expect(&args[0], &Element, "receiver")?;
             expect(&args[1], &s, "property").map(|_| s)
+        }
+        // `instanceof Element` and `instanceof Document` of an event target,
+        // which may be the document or the window.
+        ("element", "isElement" | "isDocument") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| b)
+        }
+        // `element.matches(":focus-visible")`.
+        ("element", "focus-visible") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| b)
         }
         // `instanceof HTMLElement`: not in the SVG namespace.
         ("element", "isHTML") => {

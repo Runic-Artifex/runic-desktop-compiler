@@ -246,24 +246,48 @@ export class Classes {
    * Whether TypeScript types `e` as an instance of source classes (one, or
    * a union of them), not nullable; decided without mapping the type.
    */
+  /**
+   * Whether TypeScript types `e` as `any` or as instances of classes (also
+   * as declared by a package's declaration files), null and undefined aside.
+   */
+  private untypedInstance(e: ts.Expression): boolean {
+    const t = this.lower.checker.getTypeAtLocation(e);
+    if (t.flags & ts.TypeFlags.Any) return true;
+    const parts = (t.isUnion() ? t.types : [t]).filter(
+      p => !(p.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)),
+    );
+    return (
+      parts.length > 0 &&
+      parts.every(
+        p => !!(p.flags & ts.TypeFlags.Object) && !!(p.symbol?.flags & ts.SymbolFlags.Class),
+      )
+    );
+  }
+
   private tsClass(e: ts.Expression): boolean {
     const checker = this.lower.checker;
     let t = checker.getTypeAtLocation(e);
     if (t.flags & ts.TypeFlags.TypeParameter && (t as { isThisType?: boolean }).isThisType)
       t = checker.getBaseConstraintOfType(t) ?? t;
-    const parts = t.isUnion() ? t.types : [t];
-    return parts.every(p => {
-      const sym = p.symbol;
-      const decl = sym?.valueDeclaration ?? sym?.declarations?.[0];
-      return (
-        !!(p.flags & ts.TypeFlags.Object) &&
-        !!sym &&
-        !!(sym.flags & ts.SymbolFlags.Class) &&
-        !p.getConstructSignatures().length &&
-        !!decl &&
-        !decl.getSourceFile().isDeclarationFile
-      );
-    });
+    // (A nullable instance: its class; null and undefined have none.)
+    const parts = (t.isUnion() ? t.types : [t]).filter(
+      p => !(p.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)),
+    );
+    return (
+      parts.length > 0 &&
+      parts.every(p => {
+        const sym = p.symbol;
+        const decl = sym?.valueDeclaration ?? sym?.declarations?.[0];
+        return (
+          !!(p.flags & ts.TypeFlags.Object) &&
+          !!sym &&
+          !!(sym.flags & ts.SymbolFlags.Class) &&
+          !p.getConstructSignatures().length &&
+          !!decl &&
+          !decl.getSourceFile().isDeclarationFile
+        );
+      })
+    );
   }
 
   /**
@@ -375,8 +399,7 @@ export class Classes {
       );
     params.forEach((p, i) => this.typeArgs.set(checker.getSymbolAtLocation(p.name)!, mapped[0][i]));
     const construct = sites.find(x => ts.isNewExpression(x.node))?.node as
-      | ts.NewExpression
-      | undefined;
+      ts.NewExpression | undefined;
     this.instances.set(decl, { type: sites[0].type, ...(construct ? { construct } : {}) });
   }
 
@@ -883,6 +906,47 @@ export class Classes {
    * that hold no functions (nor `super`), so no method, accessor or function
    * given `this` can observe the field early.
    */
+  /**
+   * A closure passed to a registration that runs it after the code creating
+   * it: `$effect(fn)`, svelte-toolbelt's `onMountEffect(fn)`, and the
+   * callback of its `attachRef(ref, fn)` (run when the attachment runs, at
+   * the element's mount).
+   */
+  private deferredClosure(n: ts.Node): boolean {
+    if (!(ts.isArrowFunction(n) || ts.isFunctionExpression(n))) return false;
+    const call = n.parent;
+    if (!ts.isCallExpression(call)) return false;
+    const at = call.arguments.indexOf(n as ts.Expression);
+    const callee = skipParens(call.expression);
+    if (callee.getText() === '$effect') return at === 0;
+    const position: Record<string, number> = { onMountEffect: 0, attachRef: 1 };
+    if (!ts.isIdentifier(callee) || position[callee.text] !== at) return false;
+    const decl = this.lower.checker.getSymbolAtLocation(callee)?.declarations?.[0];
+    return (
+      !!decl &&
+      ts.isImportSpecifier(decl) &&
+      ts.isStringLiteral(decl.parent.parent.parent.moduleSpecifier) &&
+      decl.parent.parent.parent.moduleSpecifier.text === 'svelte-toolbelt'
+    );
+  }
+
+  /** `this` stored in a plain (not accessor) property: `a.b = this`. */
+  private storedInPlainField(n: ts.Node): boolean {
+    const p = n.parent;
+    if (
+      !ts.isBinaryExpression(p) ||
+      p.right !== n ||
+      p.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+    )
+      return false;
+    const left = skipParens(p.left);
+    if (!ts.isPropertyAccessExpression(left)) return false;
+    const decls = this.lower.checker.getSymbolAtLocation(left.name)?.declarations ?? [];
+    return (
+      decls.length > 0 && decls.every(d => ts.isPropertyDeclaration(d) || ts.isPropertySignature(d))
+    );
+  }
+
   private lateFields(info: ClassInfo) {
     /** Fields set before the record is built (`constructorBody`'s temporaries). */
     const temps = new Map<Field, number>();
@@ -934,13 +998,21 @@ export class Classes {
       });
       if (j < 0) continue;
       const assigned = thisAssignment(statements[j]);
-      // `this` in the window may only reach other fields.
+      // `this` in the window may only reach other fields, be stored in a
+      // plain field of another object (bits-ui's `this.tether.root = this`:
+      // no code runs), or be captured by a closure an effect registration
+      // runs after the constructor (svelte-toolbelt's `onMountEffect`).
       let safe = true;
       const visit = (n: ts.Node) => {
         if (!safe) return;
+        if (this.deferredClosure(n)) return;
         if (n.kind === ts.SyntaxKind.SuperKeyword) safe = false;
         if (n.kind === ts.SyntaxKind.ThisKeyword) {
           const p = n.parent;
+          if (this.storedInPlainField(n)) {
+            ts.forEachChild(n, visit);
+            return;
+          }
           const other =
             ts.isPropertyAccessExpression(p) && p.expression === n
               ? this.fieldNamed(info, p.name)
@@ -1972,6 +2044,19 @@ export class Classes {
         'array' in f.type
       )
         return { op: 'array', type: f.type, items: [] };
+      // `$state(new Map())`, `$state(new Set())`: the empty collection takes
+      // the field's type (untyped JavaScript gives it none: bits-ui's
+      // tooltip trigger registry).
+      if (
+        literal &&
+        ts.isNewExpression(literal) &&
+        !literal.arguments?.length &&
+        ts.isIdentifier(literal.expression) &&
+        typeof f.type === 'object' &&
+        ((literal.expression.text === 'Map' && 'map' in f.type) ||
+          (literal.expression.text === 'Set' && 'set' in f.type))
+      )
+        return { op: 'builtin', name: `${literal.expression.text}.new`, args: [], type: f.type };
       return arg ? this.early(arg, b, info, temps, where) : { op: 'undefined', type: f.type };
     };
     /** The statements of `x`'s constructor after its `super(…)` call. */
@@ -2935,9 +3020,19 @@ export class Classes {
         },
       ];
     }
-    if (!this.tsClass(target.expression)) return undefined;
-    const object = lower.expr(target.expression, b);
-    const t = lower.irType(object, b);
+    // (Also untyped JavaScript, and an instance TypeScript types by a
+    // package's declaration of its class: the lowered value decides.)
+    if (!this.tsClass(target.expression) && !this.untypedInstance(target.expression))
+      return undefined;
+    let object = lower.expr(target.expression, b);
+    let t = lower.irType(object, b);
+    // A nullable instance TypeScript has as present (`lower.tsPresent`):
+    // writing through nullish throws a TypeError.
+    const inner = maybeInner(t);
+    if (inner !== undefined && this.isClass(inner) && lower.tsPresent(target.expression)) {
+      object = { op: 'unwrap', value: object };
+      t = inner;
+    }
     if (!this.isClass(t)) return undefined;
     const { classes, targets, shared } = this.targets(t, name, target.name, target);
     const one = (recv: Expr, c: ClassInfo, x: Target, v: Expr): Stmt[] => {
@@ -3348,13 +3443,11 @@ export class Classes {
     if (!(typeof t === 'object' && 'fn' in t)) return undefined;
     // Function values never read `this` (it is rejected outside class members),
     // so the receiver is ignored; it must be free of effects.
-    if (
-      !(
-        thisArg.kind === ts.SyntaxKind.ThisKeyword ||
-        thisArg.kind === ts.SyntaxKind.NullKeyword ||
-        ts.isIdentifier(thisArg)
-      )
-    )
+    if (!(
+      thisArg.kind === ts.SyntaxKind.ThisKeyword ||
+      thisArg.kind === ts.SyntaxKind.NullKeyword ||
+      ts.isIdentifier(thisArg)
+    ))
       return this.fail(
         thisArg,
         'Binding a function value is supported with this, null, undefined or a variable as the receiver (the function ignores it)',

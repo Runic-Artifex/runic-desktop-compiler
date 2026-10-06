@@ -24,6 +24,15 @@ impl Element {
     /// (M6: `getComputedStyle(document.documentElement)`). The native
     /// runtime uses Blitz's node.
     pub const HTML: Element = Element(u64::MAX - 4);
+
+    /// Whether this is an element: not the document, the window or the
+    /// visual viewport, which are event targets of the same handle type.
+    pub fn is_element(self) -> bool {
+        !matches!(
+            self,
+            Element::DOCUMENT | Element::WINDOW | Element::VISUAL_VIEWPORT
+        )
+    }
 }
 
 /// An opaque host object compared by identity (M6 overlays: imperatively
