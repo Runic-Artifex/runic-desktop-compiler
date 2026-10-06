@@ -23,7 +23,21 @@ fn url_data() -> UrlExtraData {
     URL.with(Clone::clone)
 }
 
+/// Blitz's preferences ([`check::blitz_prefs`]), set once before anything
+/// here parses: a native document has set them already, the reference
+/// interpreter and the validator would parse without them (no grid).
+fn prefs() {
+    static PREFS: std::sync::Once = std::sync::Once::new();
+    PREFS.call_once(check::blitz_prefs);
+}
+
+fn property(name: &str) -> Option<PropertyId> {
+    prefs();
+    PropertyId::parse_enabled_for_all_content(name).ok()
+}
+
 fn block(css: &str) -> PropertyDeclarationBlock {
+    prefs();
     parse_style_attribute(
         css,
         &url_data(),
@@ -50,7 +64,7 @@ pub fn css_text(css: &str) -> String {
 /// changes). An empty value removes the property; a value of whitespace is
 /// parsed like any other, as in Chromium.
 pub fn set_property(css: &str, name: &str, value: &str, important: bool) -> Option<String> {
-    let id = PropertyId::parse_enabled_for_all_content(name).ok()?;
+    let id = property(name)?;
     let mut block = block(css);
     if value.is_empty() {
         if let Some(first) = block.first_declaration_to_remove(&id) {
@@ -87,19 +101,18 @@ pub fn set_property(css: &str, name: &str, value: &str, important: bool) -> Opti
 
 /// Whether `name` is a CSS property (or a custom property).
 pub fn is_property(name: &str) -> bool {
-    PropertyId::parse_enabled_for_all_content(name).is_ok()
+    property(name).is_some()
 }
 
 /// Whether the declarations `css` hold `name` (also with an empty value).
 pub fn has_property(css: &str, name: &str) -> bool {
-    PropertyId::parse_enabled_for_all_content(name)
-        .is_ok_and(|id| block(css).first_declaration_to_remove(&id).is_some())
+    property(name).is_some_and(|id| block(css).first_declaration_to_remove(&id).is_some())
 }
 
 /// `style.removeProperty(name)` on the declarations `css`: the new
 /// serialization (unchanged for unknown properties).
 pub fn remove_property(css: &str, name: &str) -> String {
-    let Ok(id) = PropertyId::parse_enabled_for_all_content(name) else {
+    let Some(id) = property(name) else {
         return css_text(css);
     };
     let mut block = block(css);
@@ -111,7 +124,7 @@ pub fn remove_property(css: &str, name: &str) -> String {
 
 /// `style.getPropertyValue(name)`.
 pub fn get_property(css: &str, name: &str) -> String {
-    let Ok(id) = PropertyId::parse_enabled_for_all_content(name) else {
+    let Some(id) = property(name) else {
         return String::new();
     };
     let mut out = CssStringWriter::new();
@@ -145,6 +158,11 @@ mod tests {
         );
         assert_eq!(remove_property("--a: 1; color: red", "--a"), "color: red;");
         assert_eq!(get_property("margin: 1px 2px", "margin-left"), "2px");
+        // Parsed with Blitz's preferences (grid is behind one in Stylo).
+        assert_eq!(
+            css_text("display: inline-grid; grid-template-columns: 1fr"),
+            "display: inline-grid; grid-template-columns: 1fr;"
+        );
     }
 }
 

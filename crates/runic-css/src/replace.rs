@@ -3,8 +3,7 @@
 //! declarations through `cssText` when it changes, and style properties are
 //! all set again, in order, whenever one of them changes.
 
-use crate::{block, css_text, set_property, text};
-use style::properties::PropertyId;
+use crate::{block, css_text, property, set_property, text};
 
 /// JavaScript's `\s`.
 fn js_space(c: char) -> bool {
@@ -32,7 +31,7 @@ fn important(value: &str) -> (&str, bool) {
 /// `style.removeProperty(name)`: the new declarations, or `None` when
 /// nothing was removed (the attribute is then left as it is).
 fn remove(css: &str, name: &str) -> Option<String> {
-    let id = PropertyId::parse_enabled_for_all_content(name).ok()?;
+    let id = property(name)?;
     let mut block = block(css);
     let first = block.first_declaration_to_remove(&id)?;
     block.remove_property(&id, first);
