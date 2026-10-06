@@ -1,0 +1,6 @@
+{
+  "description": "Inline baselines as Chromium's (BLITZ-GAPS, fixed in the fork: inline baselines). Text inputs exported no baseline, so on a line an input sat with its bottom edge on the baseline and the line grew by the strut's descent (a Label and Input row of shadcn-svelte's dialog demo 7px taller); and when a line was only measured, as a flex item's height is, inline-flex and inline-grid boxes and buttons were measured without their baselines (an inline-flex button alone in a block inside a flex column, 7px taller). The same rows in block flow, in a flex column and in flex rows: an inline-flex box, an inline-grid box, an inline-block and an inline-flex button alone in a block, text inputs (full width, empty, taller than their line, after text) and an inline-flex box and an input after text. Geometry of every row and box",
+  "fixtures": ["blitz-inline-baselines-svelte"],
+  "viewports": [[800, 800], [420, 800]],
+  "actions": []
+}

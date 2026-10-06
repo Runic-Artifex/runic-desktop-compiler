@@ -115,7 +115,7 @@ export function compareTraces(browser, native, { pixels = false, pixelRegions = 
         continue;
       }
       const delta = Object.fromEntries(['x', 'y', 'width', 'height'].map(k => [k, +(rn[k] - rb[k]).toFixed(3)]));
-      if (Object.values(delta).some(d => Math.abs(d) > GEOMETRY_TOLERANCE)) step.geometry.push({ id, delta });
+      if (Object.values(delta).some(d => Math.abs(d) > GEOMETRY_TOLERANCE)) step.geometry.push({ id, delta, browser: rb, native: rn });
     }
     for (const id of Object.keys(nv.geometry ?? {}))
       if (!(id in (b.geometry ?? {}))) step.geometry.push({ id, browser: null, native: nv.geometry[id] });

@@ -1,0 +1,17 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 16px; line-height: 24px; }
+body { padding: 8px 16px; }
+.column { display: flex; flex-direction: column; }
+.row { display: flex; align-items: flex-start; gap: 4px; margin-bottom: 4px; }
+.line { background: #f4f2ec; margin-bottom: 4px; }
+.row .line { margin-bottom: 0; }
+/* A 30px box with a label centred on 20px lines (shadcn-svelte's buttons). */
+.ifx { display: inline-flex; align-items: center; height: 30px; padding: 0 6px; font-size: 14px; line-height: 20px; background: #d4ddd2; }
+.igrid { display: inline-grid; align-items: center; height: 30px; padding: 0 6px; font-size: 14px; line-height: 20px; background: #d4ddd2; }
+.iblock { display: inline-block; height: 30px; padding: 5px 6px; font-size: 14px; line-height: 20px; background: #d4ddd2; }
+button { display: inline-flex; align-items: center; height: 30px; margin: 0; padding: 0 6px; border: 1px solid #52665b; border-radius: 3px; background: #e2e8df; color: #252c28; font-family: RunicFixture; font-size: 14px; line-height: 20px; }
+input { height: 26px; padding: 2px 6px; border: 1px solid #52665b; border-radius: 3px; background: #fbfaf7; color: #252c28; font-family: RunicFixture; font-size: 14px; line-height: 20px; }
+.full { width: 100%; }
+.narrow { width: 90px; }
+.tall { height: 34px; padding: 6px; }
