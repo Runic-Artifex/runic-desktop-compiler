@@ -516,6 +516,26 @@ pub(crate) fn depth(doc: &BaseDocument, node: NodeId) -> usize {
     d
 }
 
+/// `document.elementFromPoint(x, y)` (M6 overlays: bits-ui's submenu
+/// intent): the element Blitz's hit test finds at the viewport point, as
+/// pointer events are targeted (a hit text or anonymous box stands for its
+/// element); none outside the viewport, as in Chromium.
+pub(crate) fn element_from_point(doc: &mut BaseDocument, x: f64, y: f64) -> Option<u64> {
+    resolve(doc);
+    let (vw, vh) = viewport(doc);
+    if !(0.0..vw).contains(&x) || !(0.0..vh).contains(&y) {
+        return None;
+    }
+    let mut node = doc.hit(x as f32, y as f32)?.node_id;
+    loop {
+        let n = doc.get_node(node)?;
+        if n.is_element() {
+            return Some(node.as_u64());
+        }
+        node = n.parent?;
+    }
+}
+
 /// A window metric (`innerWidth`, `innerHeight`, `scrollX`, `scrollY`).
 pub(crate) fn window_metric(doc: &mut BaseDocument, name: &str) -> f64 {
     resolve(doc);

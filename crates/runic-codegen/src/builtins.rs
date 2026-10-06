@@ -375,6 +375,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "(match cx.dom.element_by_id(&{}.to_rust()) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
             t[0]
         ),
+        ("document", "elementFromPoint") => format!(
+            "(match cx.dom.element_from_point({}, {}) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
+            t[0], t[1]
+        ),
         ("focus", "current") => "(match cx.dom.focused() { Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null })".into(),
         ("focus", m @ ("tabbables" | "focusables")) => format!(
             "js::array(cx.dom.{m}({}.0, {}).into_iter().map(js::Element).collect())",
@@ -586,6 +590,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             t[0], t[1]
         ),
         ("element", "localName") => format!("JsString::from(cx.dom.local_name({}.0))", t[0]),
+        ("element", "textContent") => format!("JsString::from(cx.dom.text_content({}.0))", t[0]),
         ("element", "contains") => format!("cx.dom.contains({}.0, {}.0)", t[0], t[1]),
         ("element", "parent") => format!(
             "(match cx.dom.parent_element({}.0) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",

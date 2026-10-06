@@ -373,7 +373,64 @@ export function annotate(
     }
     if (ts.isFunctionDeclaration(stmt) && stmt.name && stmt.body) {
       const d = declared.functions.get(stmt.name.text);
-      if (!d || d.generic) continue;
+      if (!d) continue;
+      // A generic function of one signature with plain type parameters
+      // (bits-ui's `boxAutoReset<T>(…): WritableBox<T>`): its type
+      // parameters, parameter and result types written out from the
+      // declaration file, so that calls are typed and its body sees its
+      // options' types (`getWindow: () => Window`). It is still specialised
+      // per call site (`Lowerer.declare`). (A constrained parameter, such as
+      // createBitsAttrs' `const T extends readonly string[]`, is left out.)
+      if (d.generic) {
+        const dts = declared.sf?.statements.find(
+          (x): x is ts.FunctionDeclaration =>
+            ts.isFunctionDeclaration(x) && x.name?.text === stmt.name!.text,
+        );
+        const plainParams = dts?.typeParameters?.every(
+          t =>
+            !t.constraint &&
+            !t.default &&
+            !ts.getModifiers(t)?.some(m => m.kind === ts.SyntaxKind.ConstKeyword),
+        );
+        // (Each bound by a parameter declared of it, `T`, `T[]` or
+        // `Array<T>`, which specialisation binds, `Lowerer.bindTypeParameters`:
+        // not floating-svelte's `get<T>(v: MaybeGetter<T>)`.)
+        const binds = (n: ts.TypeNode, name: string): boolean =>
+          ts.isTypeOperatorNode(n)
+            ? binds(n.type, name)
+            : ts.isParenthesizedTypeNode(n)
+              ? binds(n.type, name)
+              : ts.isArrayTypeNode(n)
+                ? binds(n.elementType, name)
+                : ts.isTypeReferenceNode(n) &&
+                  ts.isIdentifier(n.typeName) &&
+                  ((n.typeName.text === name && !n.typeArguments) ||
+                    (['Array', 'ReadonlyArray'].includes(n.typeName.text) &&
+                      n.typeArguments?.length === 1 &&
+                      binds(n.typeArguments[0], name)));
+        const bindable = dts?.typeParameters?.every(tp =>
+          dts.parameters.some(dp => !!dp.type && !dp.dotDotDotToken && binds(dp.type, tp.name.text)),
+        );
+        if (
+          d.signatures !== 1 ||
+          !dts?.type ||
+          !plainParams ||
+          !bindable ||
+          stmt.typeParameters
+        )
+          continue;
+        const local = new Set(dts.typeParameters!.map(t => t.name.text));
+        const q = (n: ts.Node) => qualified(n, declared.sf!, declared.top, local);
+        add(stmt.name.end, `<${dts.typeParameters!.map(q).join(', ')}>`);
+        stmt.parameters.forEach((p, i) => {
+          const dp = dts.parameters[i];
+          if (!dp?.type || p.type || !ts.isIdentifier(p.name)) return;
+          const optional = !!dp.questionToken && !p.initializer && !p.dotDotDotToken;
+          add(p.name.end, `${optional ? '?' : ''}: ${q(dp.type)}`);
+        });
+        result(stmt, q(dts.type));
+        continue;
+      }
       if (d.signatures === 1) {
         const f = `typeof __dts.${stmt.name.text}`;
         params(stmt, i => `Parameters<${f}>[${i}]`);
@@ -519,11 +576,13 @@ export function annotate(
     }
   }
   // Type arguments of collections inferred by the second pass (`new:<end>`),
-  // and types of untyped parameters from their calls (`param:<end>`).
+  // types of untyped parameters from their calls (`param:<end>`), and of
+  // constants that start as empty arrays (`var:<end>`).
   for (const [key, text] of inferred) {
     if (key.startsWith('new:')) add(Number(key.slice(4)), `<${text}>`);
     if (key.startsWith('param:')) add(Number(key.slice(6)), `: ${text}`);
     if (key.startsWith('ret:')) add(Number(key.slice(4)), `: ${text}`);
+    if (key.startsWith('var:')) add(Number(key.slice(4)), `: ${text}`);
   }
   inserts.sort((a, b) => a.at - b.at);
   let text = dts ? `import type * as __dts from ${JSON.stringify(DTS_PREFIX + dts)};\n` : '';
@@ -645,6 +704,82 @@ export function inferFields(
     const text =
       ts.isFunctionTypeNode(node) || ts.isConstructorTypeNode(node) ? `(${printed})` : printed;
     return /\bany\b/.test(text) ? undefined : text;
+  };
+  /**
+   * An object literal argument whose function members have parameters not
+   * typed yet (bits-ui's `new MenuSubmenuIntent({ onIntentExit:
+   * (pointerPoint) => … })`, typed from the callee's calls of the option,
+   * which need the callee's parameter typed first): its type with
+   * `unknown` for those parameters, provisionally. Later passes infer the
+   * type again; an `unknown` that remains is rejected where it is used.
+   */
+  const provisional = (a: ts.Expression): string | undefined => {
+    const lit = skipParensOf(a);
+    if (!ts.isObjectLiteralExpression(lit)) return undefined;
+    const members: string[] = [];
+    for (const prop of lit.properties) {
+      if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) return undefined;
+      const v = skipParensOf(prop.initializer);
+      let text: string | undefined;
+      if (ts.isArrowFunction(v) || ts.isFunctionExpression(v)) {
+        const sig = checker.getSignatureFromDeclaration(v);
+        const result = sig && print(sig.getReturnType(), v);
+        const params = v.parameters.map(fp => {
+          if (fp.dotDotDotToken || !ts.isIdentifier(fp.name)) return undefined;
+          const t = checker.getTypeAtLocation(fp);
+          return `${fp.name.text}: ${t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) ? 'unknown' : print(t, fp)}`;
+        });
+        if (result !== undefined && params.every(x => x !== undefined && !x.endsWith('undefined')))
+          text = `(${params.join(', ')}) => ${result}`;
+      } else {
+        const t = checker.getTypeAtLocation(v);
+        text = print(checker.getBaseTypeOfLiteralType(t), v);
+      }
+      if (text === undefined) return undefined;
+      members.push(`${prop.name.text}: ${text}`);
+    }
+    return `{ ${members.join('; ')} }`;
+  };
+  /**
+   * The result type of a call of an untyped package function whose
+   * declaration file declares it generic with plain type parameters
+   * (bits-ui's `boxAutoReset<T>(defaultValue: T, …): WritableBox<T>`,
+   * called `boxAutoReset("", …)`), instantiated with each parameter's type
+   * from the argument declared of exactly that type:
+   * `ReturnType<typeof import("…").boxAutoReset<string>>`.
+   */
+  const genericResult = (e: ts.Expression): string | undefined => {
+    if (!ts.isCallExpression(e) || !ts.isIdentifier(e.expression)) return undefined;
+    let sym = checker.getSymbolAtLocation(e.expression);
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+    const fn = sym?.valueDeclaration;
+    if (!fn || !ts.isFunctionDeclaration(fn) || !fn.name) return undefined;
+    const dts = declarationFile(fn.getSourceFile().fileName.replace(/\.__runic\.ts$/, ''));
+    const declared = dts ? declarations(dts) : undefined;
+    const df = declared?.sf?.statements.filter(
+      (x): x is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(x) && x.name?.text === fn.name!.text,
+    );
+    if (!df || df.length !== 1 || !df[0].typeParameters?.length) return undefined;
+    const d = df[0];
+    const args: string[] = [];
+    for (const tp of d.typeParameters!) {
+      if (tp.constraint || tp.default) return undefined;
+      const k = d.parameters.findIndex(
+        dp =>
+          !!dp.type &&
+          ts.isTypeReferenceNode(dp.type) &&
+          ts.isIdentifier(dp.type.typeName) &&
+          dp.type.typeName.text === tp.name.text &&
+          !dp.dotDotDotToken,
+      );
+      const arg = k >= 0 ? e.arguments[k] : undefined;
+      const t = arg && checker.getTypeAtLocation(arg);
+      const text = t && print(checker.getBaseTypeOfLiteralType(t), arg!);
+      if (!text) return undefined;
+      args.push(text);
+    }
+    return `ReturnType<typeof import(${JSON.stringify(DTS_PREFIX + dts)}).${fn.name.text}<${args.join(', ')}>>`;
   };
   /** Whether `n` is `this.<fieldName>`. */
   const thisField = (n: ts.Node, fieldName: string): n is ts.PropertyAccessExpression =>
@@ -1070,7 +1205,9 @@ export function inferFields(
                 ? (checker.getSymbolAtLocation(rhs)!.valueDeclaration as ts.ParameterDeclaration)
                     .type
                 : undefined;
+            const generic = p === undefined ? genericResult(rhs) : undefined;
             if (param) addType(param.getText());
+            else if (generic) addType(generic);
             else if (p === undefined) open = true;
             else addType(p);
           }
@@ -1405,9 +1542,17 @@ export function inferFields(
     // the one type the program's calls pass, where they agree.
     const untypedParams = (member: ts.FunctionLikeDeclaration) =>
       member.parameters.forEach((p, i) => {
-        if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
-        if (!(checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
-          return;
+        if (p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
+        const pEnd = p.name.end;
+        const pSeg = m.segments.find(g => pEnd >= g.synth && pEnd <= g.synth + g.length);
+        // (A type an earlier pass inferred is inferred again: provisional
+        // types are refined, below.)
+        const ours = !!pSeg && m.inferred.has(`param:${pSeg.orig + (pEnd - pSeg.synth)}`);
+        if (!ours) {
+          if (p.type) return;
+          if (!(checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+            return;
+        }
         const texts = new Set<string>();
         let open = false;
         const sites = calls(member);
@@ -1421,12 +1566,12 @@ export function inferFields(
           const text =
             t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
               ? undefined
-              : print(
+              : (print(
                   t.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)
                     ? t
                     : checker.getBaseTypeOfLiteralType(t),
                   a,
-                );
+                ) ?? provisional(a));
           // (The document or the window: a host parameter, Lowerer.hostParam;
           // nor a type only null or undefined has, which says nothing.)
           if (
@@ -1451,8 +1596,9 @@ export function inferFields(
           untypedParams(member);
       // A handler field (`#onpointerenter = (e) => …`, private, so the
       // declaration file has no type for it) used as an `on<event>` entry of
-      // an object (the attribute bag of `props`): its event parameter is the
-      // event's interface, the same for every such use.
+      // an object (the attribute bag of `props`) or passed as a listener:
+      // its event parameter is the event's interface, the same for every
+      // such use.
       for (const member of stmt.members) {
         if (!ts.isPropertyDeclaration(member) || !member.initializer) continue;
         const fn = member.initializer;
@@ -1476,7 +1622,20 @@ export function inferFields(
                 ? /^on([a-z]+)$/.exec(a.name.getText().replace(/^["']|["']$/g, ''))?.[1]
                 : undefined;
             const iface = event && EVENT_INTERFACE.get(event);
+            // (Or passed as an argument where a function is expected:
+            // `document.addEventListener("pointermove", this.#onDocMove)`,
+            // the parameter type declared there.)
+            const ctx =
+              !iface &&
+              (ts.isCallExpression(a) || ts.isNewExpression(a)) &&
+              a.arguments?.includes(n)
+                ? checker.getContextualType(n)
+                : undefined;
+            const sigs = ctx?.getCallSignatures() ?? [];
+            const param = sigs.length === 1 ? sigs[0].parameters[0] : undefined;
+            const declared = param && print(checker.getTypeOfSymbolAtLocation(param, n), n);
             if (iface) interfaces.add(iface);
+            else if (declared) interfaces.add(declared);
             else other = true;
           }
           ts.forEachChild(n, uses);
@@ -1491,6 +1650,164 @@ export function inferFields(
         if (next.get(key) !== text) next.set(key, text);
       }
     }
+    // A function literal in an options object passed to a constructor or
+    // function of the program (bits-ui's `new MenuSubmenuIntent({
+    // onIntentExit: (pointerPoint) => …, setIsPointerInTransit: (value) =>
+    // … })`): an untyped parameter takes the type of the arguments the
+    // callee passes when it calls that option, through the parameter or a
+    // field it is stored in (`this.#opts.setIsPointerInTransit(true)`), the
+    // same at every such call.
+    const optionParams = (lit: ts.ObjectLiteralExpression) => {
+      let at: ts.Node = lit;
+      while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+      const call = at.parent;
+      if (!(ts.isCallExpression(call) || ts.isNewExpression(call))) return;
+      const index = call.arguments?.indexOf(at as ts.Expression) ?? -1;
+      const callee = checker.getResolvedSignature(call)?.declaration;
+      if (
+        index < 0 ||
+        !callee ||
+        ts.isJSDocSignature(callee) ||
+        !('body' in callee) ||
+        !callee.body
+      )
+        return;
+      const param = callee.parameters[index];
+      if (!param || param.dotDotDotToken || !ts.isIdentifier(param.name)) return;
+      const paramSym = checker.getSymbolAtLocation(param.name);
+      // Where the options are read: the function, or the whole class of a
+      // constructor (with the fields holding them).
+      const scope: ts.Node = ts.isConstructorDeclaration(callee) ? callee.parent : callee;
+      const holders = new Set<ts.Symbol>(paramSym ? [paramSym] : []);
+      const collect = (n: ts.Node) => {
+        if (
+          ts.isBinaryExpression(n) &&
+          n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          ts.isPropertyAccessExpression(n.left) &&
+          n.left.expression.kind === ts.SyntaxKind.ThisKeyword &&
+          ts.isIdentifier(n.right) &&
+          paramSym &&
+          checker.getSymbolAtLocation(n.right) === paramSym
+        ) {
+          const f = checker.getSymbolAtLocation(n.left.name);
+          if (f) holders.add(f);
+        }
+        ts.forEachChild(n, collect);
+      };
+      collect(scope);
+      const holds = (e: ts.Expression) => {
+        const target = ts.isPropertyAccessExpression(e)
+          ? e.expression.kind === ts.SyntaxKind.ThisKeyword
+            ? e.name
+            : undefined
+          : e;
+        const sym = target && checker.getSymbolAtLocation(target);
+        return !!sym && holders.has(sym);
+      };
+      for (const prop of lit.properties) {
+        if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
+        const fn = skipParensOf(prop.initializer);
+        if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) continue;
+        const name = prop.name.text;
+        fn.parameters.forEach((fp, i) => {
+          if (fp.type || fp.dotDotDotToken || !ts.isIdentifier(fp.name)) return;
+          if (!(checker.getTypeAtLocation(fp).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+            return;
+          const texts = new Set<string>();
+          let open = false;
+          const uses = (n: ts.Node) => {
+            if (ts.isPropertyAccessExpression(n) && n.name.text === name && holds(n.expression)) {
+              const c = n.parent;
+              if (!ts.isCallExpression(c) || c.expression !== n) open = true;
+              else {
+                const arg = c.arguments[i];
+                const t =
+                  arg && !ts.isSpreadElement(arg) ? checker.getTypeAtLocation(arg) : undefined;
+                const text = t && print(checker.getBaseTypeOfLiteralType(t), arg);
+                // (A type only null or undefined has says nothing yet: a
+                // field a later pass types.)
+                if (text === undefined || text === 'null' || text === 'undefined') open = true;
+                else texts.add(text);
+              }
+            }
+            ts.forEachChild(n, uses);
+          };
+          uses(scope);
+          if (open || texts.size !== 1) return;
+          const end = fp.name.end;
+          const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+          if (!seg) return;
+          const key = `param:${seg.orig + (end - seg.synth)}`;
+          const text = [...texts][0];
+          if (next.get(key) !== text) next.set(key, text);
+        });
+      }
+    };
+    const literals = (n: ts.Node) => {
+      if (ts.isObjectLiteralExpression(n)) optionParams(n);
+      ts.forEachChild(n, literals);
+    };
+    literals(sf);
+    // A constant holding a function literal (bits-ui's `const onTriggerMove
+    // = (e) => …`, then `triggerNode.addEventListener("pointermove",
+    // onTriggerMove)`): an untyped parameter takes the type its uses give
+    // it, the same for every use: passed as an argument, the parameter type
+    // the callee declares there; called, the argument's type.
+    const constParams = (n: ts.Node) => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.initializer &&
+        ts.isVariableDeclarationList(n.parent) &&
+        n.parent.flags & ts.NodeFlags.Const
+      ) {
+        const fn = skipParensOf(n.initializer);
+        const sym = checker.getSymbolAtLocation(n.name);
+        if (sym && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)))
+          fn.parameters.forEach((fp, i) => {
+            if (fp.type || fp.dotDotDotToken || !ts.isIdentifier(fp.name)) return;
+            if (!(checker.getTypeAtLocation(fp).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+              return;
+            const texts = new Set<string>();
+            let open = false;
+            const add = (t: ts.Type | undefined, at: ts.Node) => {
+              const text = t && print(checker.getBaseTypeOfLiteralType(t), at);
+              if (text === undefined || text === 'null' || text === 'undefined') open = true;
+              else texts.add(text);
+            };
+            const uses = (x: ts.Node) => {
+              if (ts.isIdentifier(x) && x !== n.name && checker.getSymbolAtLocation(x) === sym) {
+                const c = x.parent;
+                if (ts.isCallExpression(c) && c.expression === x) {
+                  const arg = c.arguments[i];
+                  if (arg && !ts.isSpreadElement(arg)) add(checker.getTypeAtLocation(arg), arg);
+                  else open = true;
+                } else if (
+                  (ts.isCallExpression(c) || ts.isNewExpression(c)) &&
+                  c.arguments?.includes(x)
+                ) {
+                  const ctx = checker.getContextualType(x);
+                  const sigs = ctx?.getCallSignatures() ?? [];
+                  const param = sigs.length === 1 ? sigs[0].parameters[i] : undefined;
+                  if (!param) open = true;
+                  else add(checker.getTypeOfSymbolAtLocation(param, x), x);
+                } else open = true;
+              }
+              ts.forEachChild(x, uses);
+            };
+            uses(n.parent.parent.parent ?? sf);
+            if (open || texts.size !== 1) return;
+            const end = fp.name.end;
+            const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+            if (!seg) return;
+            const key = `param:${seg.orig + (end - seg.synth)}`;
+            const text = [...texts][0];
+            if (next.get(key) !== text) next.set(key, text);
+          });
+      }
+      ts.forEachChild(n, constParams);
+    };
+    constParams(sf);
     // (Only functions also used as values: calls of one that is only
     // called are specialised per call site, Lowerer.specialise.)
     const usedAsValue = (fn: ts.FunctionDeclaration): boolean => {
@@ -1520,6 +1837,57 @@ export function inferFields(
       ts.forEachChild(n, functions);
     };
     functions(sf);
+    // A constant that starts as an empty array (bits-ui's IsUsingKeyboard:
+    // `const callbacksToDispose = []`, then `push(on(…), …)`): an array of
+    // the types of the items pushed onto it (`push` and `unshift` with
+    // typed arguments; any other use passing the array on is fine, as its
+    // items are what was pushed).
+    const emptyArrays = (n: ts.Node) => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        !n.type &&
+        ts.isIdentifier(n.name) &&
+        n.initializer &&
+        ts.isArrayLiteralExpression(skipParensOf(n.initializer)) &&
+        !(skipParensOf(n.initializer) as ts.ArrayLiteralExpression).elements.length &&
+        ts.isVariableDeclarationList(n.parent) &&
+        n.parent.flags & ts.NodeFlags.Const
+      ) {
+        const sym = checker.getSymbolAtLocation(n.name);
+        const items: string[] = [];
+        let open = false;
+        const scope = n.parent.parent.parent ?? sf;
+        const uses = (x: ts.Node) => {
+          if (
+            ts.isCallExpression(x) &&
+            ts.isPropertyAccessExpression(x.expression) &&
+            ['push', 'unshift'].includes(x.expression.name.text) &&
+            ts.isIdentifier(x.expression.expression) &&
+            checker.getSymbolAtLocation(x.expression.expression) === sym
+          )
+            for (const a of x.arguments) {
+              const t = ts.isSpreadElement(a) ? undefined : checker.getTypeAtLocation(a);
+              const text =
+                t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+                  ? print(checker.getBaseTypeOfLiteralType(t), a)
+                  : undefined;
+              if (text === undefined || text === '{}' || /\bany\b/.test(text)) open = true;
+              else if (!items.includes(text)) items.push(text);
+            }
+          ts.forEachChild(x, uses);
+        };
+        if (sym) uses(scope);
+        const end = n.name.end;
+        const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+        if (!open && items.length && seg) {
+          const key = `var:${seg.orig + (end - seg.synth)}`;
+          const text = items.length === 1 ? `${items[0]}[]` : `(${items.join(' | ')})[]`;
+          if (next.get(key) !== text) next.set(key, text);
+        }
+      }
+      ts.forEachChild(n, emptyArrays);
+    };
+    emptyArrays(sf);
     if (JSON.stringify([...next]) !== JSON.stringify([...m.inferred])) {
       const code = readFileSync(m.file, 'utf8');
       const again = annotate(m.file, code, next);

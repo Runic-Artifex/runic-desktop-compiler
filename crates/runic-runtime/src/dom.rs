@@ -400,6 +400,12 @@ impl Host {
         })
     }
 
+    /// `document.elementFromPoint(x, y)` (`layout::element_from_point`).
+    pub fn element_from_point(&self, x: f64, y: f64) -> Option<u64> {
+        self.dom()
+            .and_then(|dom| crate::layout::element_from_point(dom.doc, x, y))
+    }
+
     /// `getClientRects()` of `node`: its border box (as `rect`), or none
     /// where it has no box. The line boxes of an inline element are not
     /// covered (reported unsupported; its bounding box stands for them).
@@ -640,6 +646,17 @@ impl Host {
     }
 
     /// `element.localName`.
+    /// `element.textContent`: the text of its descendant text nodes.
+    pub fn text_content(&self, node: u64) -> String {
+        self.dom()
+            .and_then(|dom| {
+                dom.doc
+                    .get_node(NodeId::from_u64(node))
+                    .map(|n| n.text_content())
+            })
+            .unwrap_or_default()
+    }
+
     pub fn local_name(&self, node: u64) -> String {
         self.dom()
             .and_then(|dom| {

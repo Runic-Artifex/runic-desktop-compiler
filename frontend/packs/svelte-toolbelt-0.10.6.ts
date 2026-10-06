@@ -38,7 +38,9 @@
 //   Its parameters are the expected function type's (an `on()` listener
 //   takes the event), else the longest callback's; each callback's
 //   parameters are a prefix of them (JavaScript ignores the extra
-//   arguments). Undefined callbacks are skipped.
+//   arguments). Undefined callbacks are skipped. A spread array of
+//   callbacks (`executeCallbacks(...list)`) is copied when the call is made
+//   and its callbacks run in order.
 // - `composeHandlers(...handlers)` (dist/utils/compose-handlers.js): a
 //   listener calling each handler (skipping undefined ones) with the event
 //   until the event is cancelled. Boxes of handlers are rejected.
@@ -416,9 +418,10 @@ const domContexts = new WeakMap<Lowerer, number>();
 
 /**
  * The record of `DOMContext` (dist/utils/dom-context.svelte.js): its
- * element box. `setTimeout` and `clearTimeout` are the window's timers;
- * its other members (the document, the active element, queries in its root
- * node) are not covered.
+ * element box. `setTimeout` and `clearTimeout` are the window's timers,
+ * `getActiveElement()` the document's active element (its root node is
+ * the document: no shadow roots exist), typed `HTMLElement | null` as
+ * declared; its other members (queries in its root node) are not covered.
  */
 function domContextRecord(lower: Lowerer): number {
   const known = domContexts.get(lower);
@@ -431,7 +434,7 @@ function domContextRecord(lower: Lowerer): number {
     class: true,
     fields: [{ name: 'element', type: element }],
   });
-  const covered = `${LABEL}: DOMContext covers setTimeout and clearTimeout`;
+  const covered = `${LABEL}: DOMContext covers setTimeout, clearTimeout and getActiveElement`;
   lower.recordMembers.set(record, {
     read(name, _object, at) {
       return lower.fail(at, 'E_PACK', `${covered}, not ${name}`);
@@ -440,6 +443,15 @@ function domContextRecord(lower: Lowerer): number {
       return lower.fail(at, 'E_PACK', `${covered}; ${name} cannot be assigned`);
     },
     call(name, _object, node, b) {
+      if (name === 'getActiveElement' && !node.arguments.length)
+        return {
+          op: 'some',
+          value: {
+            op: 'nullish',
+            left: { op: 'builtin', name: 'focus.current', args: [], type: { maybe: 'element' } },
+            right: { op: 'builtin', name: 'document.body', args: [], type: 'element' },
+          },
+        };
       if (name !== 'setTimeout' && name !== 'clearTimeout')
         return lower.fail(node, 'E_PACK', `${covered}, not ${name}()`);
       return lower.hostCall(name, node, b)!;
@@ -654,28 +666,44 @@ function afterSleep(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr
 
 /** `executeCallbacks(...callbacks)` (see the header). */
 function executeCallbacks(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
-  const values = node.arguments.map(a => {
-    if (ts.isSpreadElement(a))
-      return lower.fail(a, 'E_PACK', `${LABEL}: executeCallbacks takes the callbacks one by one`);
-    return lower.functionOf(lower.expr(a, b), b);
-  });
-  const types = values.map(v => lower.irType(v, b));
   const fnOf = (t: Type) => {
     const inner = maybeInner(t) ?? t;
     return typeof inner === 'object' && 'fn' in inner ? inner.fn : undefined;
   };
-  types.forEach((t, i) => {
-    if (!fnOf(t))
-      lower.fail(node.arguments[i], 'E_PACK', `${LABEL}: executeCallbacks takes functions`);
+  // Each argument: a callback, or a spread array of callbacks (copied when
+  // executeCallbacks is called, as its rest parameter is).
+  const args = node.arguments.map(a => {
+    if (ts.isSpreadElement(a)) {
+      const array = lower.expr(a.expression, b);
+      const type = lower.irType(array, b);
+      const item = typeof type === 'object' && 'array' in type ? type.array : undefined;
+      if (item === undefined || !fnOf(item))
+        lower.fail(a, 'E_PACK', `${LABEL}: executeCallbacks takes arrays of functions spread`);
+      return {
+        value: {
+          op: 'builtin',
+          name: 'array.slice',
+          args: [array, { op: 'lit', value: 0 }],
+          type,
+        } as Expr,
+        type,
+        callback: item!,
+        spread: true,
+      };
+    }
+    const value = lower.functionOf(lower.expr(a, b), b);
+    const type = lower.irType(value, b);
+    if (!fnOf(type)) lower.fail(a, 'E_PACK', `${LABEL}: executeCallbacks takes functions`);
+    return { value, type, callback: type, spread: false };
   });
   const expected = lower.expected.get(node);
-  const longest = types
-    .map(t => fnOf(t)!.params)
+  const longest = args
+    .map(a => fnOf(a.callback)!.params)
     .reduce((a, p) => (p.length > a.length ? p : a), [] as Type[]);
   const params = typeof expected === 'object' && 'fn' in expected ? expected.fn.params : longest;
   const same = (a: Type, c: Type) => JSON.stringify(a) === JSON.stringify(c);
-  types.forEach((t, i) => {
-    const p = fnOf(t)!.params;
+  args.forEach((a, i) => {
+    const p = fnOf(a.callback)!.params;
     if (p.length > params.length || !p.every((x, j) => same(x, params[j])))
       lower.fail(
         node.arguments[i],
@@ -683,36 +711,44 @@ function executeCallbacks(node: ts.CallExpression, b: FnBuilder, lower: Lowerer)
         `${LABEL}: executeCallbacks' callbacks take the first of the same parameters`,
       );
   });
-  const n = values.length;
-  const body: Stmt[] = types.map((t, i): Stmt => {
-    const p = fnOf(t)!.params;
-    const args = p.map((_, j) => local(n + j));
-    if (!maybeInner(t)) return { op: 'expr', value: { op: 'call-value', callee: local(i), args } };
+  const n = args.length;
+  const locals: Local[] = [];
+  /** Calls callback `callee` of type `t` (skipped when undefined). */
+  const call = (callee: Expr, t: Type): Stmt => {
+    const callArgs = fnOf(t)!.params.map((_, j) => local(n + j));
+    if (!maybeInner(t)) return { op: 'expr', value: { op: 'call-value', callee, args: callArgs } };
     return {
       op: 'if',
       test: {
         op: 'not',
-        arg: { op: 'builtin', name: 'maybe.is-nullish', args: [local(i)], type: 'boolean' },
+        arg: { op: 'builtin', name: 'maybe.is-nullish', args: [callee], type: 'boolean' },
       },
       then: [
         {
           op: 'expr',
-          value: { op: 'call-value', callee: { op: 'unwrap', value: local(i) }, args },
+          value: { op: 'call-value', callee: { op: 'unwrap', value: callee }, args: callArgs },
         },
       ],
     };
+  };
+  const body: Stmt[] = args.map((a, i): Stmt => {
+    if (!a.spread) return call(local(i), a.type);
+    const item = n + params.length + locals.length;
+    locals.push({ name: 'callback', type: a.callback });
+    return { op: 'for-of', local: item, iterable: local(i), body: [call(local(item), a.callback)] };
   });
   const run = define(lower, {
     name: 'executeCallbacks$run',
-    captures: types.map((type, i) => ({ name: `callback${i}`, type })),
+    captures: args.map((a, i) => ({ name: `callback${i}`, type: a.type })),
     params: params.map((type, j) => ({ name: `arg${j}`, type })),
+    locals,
     result: 'void',
     body,
   });
-  const temps = types.map(t => b.local('$callback', t));
+  const temps = args.map(a => b.local('$callback', a.type));
   let out: Expr = { op: 'closure', function: run, captures: temps };
   for (let i = n - 1; i >= 0; i--)
-    out = { op: 'with', local: temps[i], value: values[i], body: out };
+    out = { op: 'with', local: temps[i], value: args[i].value, body: out };
   return out;
 }
 

@@ -1,6 +1,6 @@
 // TypeScript checker types → IR types (docs/design/M2-VALUES.md, D16).
 import ts from 'typescript';
-import type { RecordType, Type } from './ir.ts';
+import type { RecordField, RecordType, Type } from './ir.ts';
 import { maybeInner } from './irtype.ts';
 
 export type Fail = (node: ts.Node, code: string, message: string) => never;
@@ -24,6 +24,11 @@ export class TypeMapper {
    * instantiation, frontend/classes.ts), if any.
    */
   typeParameter?: (t: ts.Type) => Type | undefined;
+  /**
+   * Types whose records are not cached by TypeScript type: they use type
+   * parameters of a generic function specialisation being lowered.
+   */
+  uncached?: (t: ts.Type) => boolean;
   /** Whether a parameter is the document or the window (no IR parameter, `Lowerer.hostParam`). */
   hostParameter?: (p: ts.ParameterDeclaration) => boolean;
   /** The IR type a mapping pack gives a package type (frontend/packs.ts), if any. */
@@ -42,6 +47,12 @@ export class TypeMapper {
   nothingSlot?: (decl: ts.Declaration) => boolean;
   /** The same for the `current` of the boxes a property holds. */
   nothingInBoxes?: (decl: ts.Declaration) => boolean;
+  /**
+   * The type of the functions given to the property declared by `decl`,
+   * typed as any function (`(...args: any[]) => any`), where they all have
+   * one type (frontend/unions.ts).
+   */
+  anyFnSlot?: (decl: ts.Declaration) => ts.Type | undefined;
   /** While a box property holding nothing is mapped: its `unknown` content. */
   private boxNothing = false;
   /** The record of MutationObservers, once a program uses one. */
@@ -89,7 +100,7 @@ export class TypeMapper {
   of(node: ts.Node): Type {
     const o = this.overridden(node);
     if (o) return o;
-    return this.map(this.checker.getTypeAtLocation(node), node);
+    return this.map(this.givenFunction(node) ?? this.checker.getTypeAtLocation(node), node);
   }
 
   /**
@@ -99,7 +110,7 @@ export class TypeMapper {
   typeOrUndefined(node: ts.Node): Type | undefined {
     const o = this.overridden(node);
     if (o) return o;
-    const t = this.checker.getTypeAtLocation(node);
+    const t = this.givenFunction(node) ?? this.checker.getTypeAtLocation(node);
     // (A value TypeScript types as only null says nothing about its IR type.)
     // (Nor does `never`: a narrowing of such a value, `simpleBox(null).current`.)
     if (
@@ -277,6 +288,68 @@ export class TypeMapper {
    * tuple of required items, or a union of such tuples of the same item
    * types (bits-ui's `...args: Parameters<T> | []` with T = `() => void`).
    */
+  /**
+   * The type of the functions given to the property or field `node` names,
+   * where TypeScript types it as any function (bits-ui's `static _cleanup?:
+   * AnyFn`), with its nullable parts (frontend/unions.ts `anyFnSlot`).
+   */
+  givenFunction(node: ts.Node): ts.Type | undefined {
+    const t = this.checker.getTypeAtLocation(node);
+    if (!this.anyFnSlot || !this.anyFn(t)) return undefined;
+    const name = ts.isPropertyAccessExpression(node) ? node.name : node;
+    const sym = this.checker.getSymbolAtLocation(name);
+    const decl = sym && (sym.valueDeclaration ?? sym.declarations?.[0]);
+    const given = decl && this.anyFnSlot(decl);
+    if (!given) return undefined;
+    const nullable = (t.isUnion() ? t.types : [t]).reduce(
+      (f, p) => f | (p.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null)),
+      0,
+    );
+    return nullable ? this.checker.getNullableType(given, nullable) : given;
+  }
+
+  /**
+   * The host object `t` is, where it is the window or the document type of
+   * the DOM declarations (also intersected: `Window & typeof globalThis`).
+   */
+  hostOf(t: ts.Type): 'window' | 'document' | undefined {
+    const parts = t.isIntersection() ? t.types : [t];
+    for (const p of parts) {
+      const name = p.getSymbol()?.getName();
+      if (name === 'HostWindow') return 'window';
+      if (name === 'HostDocument') return 'document';
+    }
+    return undefined;
+  }
+
+  /**
+   * Whether `t` (possibly optional) is a function type with `any` for its
+   * result or as a rest parameter's items: `(...args: any[]) => any`
+   * (svelte-toolbelt's `AnyFn`), svelte/elements' `MouseEventHandler<T>`
+   * (`(event: …) => any`).
+   */
+  private anyFn(t: ts.Type): boolean {
+    const parts = (t.isUnion() ? t.types : [t]).filter(
+      p => !(p.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null)),
+    );
+    if (parts.length !== 1) return false;
+    const calls = parts[0].getCallSignatures();
+    if (calls.length !== 1 || this.checker.getPropertiesOfType(parts[0]).length) return false;
+    const [sig] = calls;
+    const anyRest = sig.parameters.some(p => {
+      const decl = p.valueDeclaration;
+      const pt = this.checker.getTypeOfSymbol(p);
+      return (
+        !!decl &&
+        ts.isParameter(decl) &&
+        !!decl.dotDotDotToken &&
+        this.checker.isArrayType(pt) &&
+        !!(this.checker.getTypeArguments(pt as ts.TypeReference)[0]?.flags & ts.TypeFlags.Any)
+      );
+    });
+    return anyRest || !!(sig.getReturnType().flags & ts.TypeFlags.Any);
+  }
+
   restParams(t: ts.Type, at: ts.Node): Type[] | undefined {
     const parts = t.isUnion() ? t.types : [t];
     const items = parts.map(p => this.tupleItems(p, at));
@@ -557,6 +630,8 @@ export class TypeMapper {
       const sig = calls[0];
       return {
         fn: {
+          // (A host function, returning the window or the document: calls
+          // of it are that object, `Lowerer.hostName`; it returns nothing.)
           params: sig.parameters.flatMap(p => {
             const pt = this.checker.getTypeOfSymbolAtLocation(p, at);
             // A rest parameter of a tuple type: one parameter per item, as
@@ -569,7 +644,7 @@ export class TypeMapper {
                 : undefined;
             return items ?? [this.map(pt, at)];
           }),
-          result: this.map(sig.getReturnType(), at),
+          result: this.hostOf(sig.getReturnType()) ? 'void' : this.map(sig.getReturnType(), at),
         },
       };
     }
@@ -649,6 +724,21 @@ export class TypeMapper {
   }
 
   private record(t: ts.Type, at: ts.Node): number {
+    // (A type of a specialisation's type parameters: mapped afresh, by shape.)
+    if (this.uncached?.(t)) {
+      const outer = this.byType.get(t);
+      this.byType.delete(t);
+      try {
+        return this.recordOf(t, at);
+      } finally {
+        if (outer === undefined) this.byType.delete(t);
+        else this.byType.set(t, outer);
+      }
+    }
+    return this.recordOf(t, at);
+  }
+
+  private recordOf(t: ts.Type, at: ts.Node): number {
     const known = this.byType.get(t);
     if (known !== undefined) return known;
     // Required<T>, Partial<T> and Readonly<T> of a type implemented with
@@ -730,6 +820,11 @@ export class TypeMapper {
         !!(this.checker.getTypeOfSymbol(current).flags & ts.TypeFlags.Unknown) &&
         !!decl &&
         !!this.nothingInBoxes?.(decl as ts.Declaration);
+      // A property typed as a function with `any` in it (bits-ui's menu
+      // `onClose: AnyFn`): the type of the functions given to it.
+      const given =
+        !nothing && decl && this.anyFn(pt) ? this.anyFnSlot?.(decl as ts.Declaration) : undefined;
+      if (given) pt = given;
       const outer = this.boxNothing;
       this.boxNothing = boxNothing;
       let mapped: Type;
@@ -987,6 +1082,16 @@ export class TypeMapper {
     }
     for (const f of fields) if (!order.includes(f.name)) order.push(f.name);
     return order;
+  }
+
+  /** A plain record of `fields` (shared by shape with another plain record). */
+  shapeRecord(fields: RecordField[]): number {
+    const shape = JSON.stringify(fields);
+    const same = this.byShape.get(shape);
+    if (same !== undefined && !this.records[same].class && !this.accessors.has(same)) return same;
+    this.records.push({ name: 'Object', fields });
+    this.byShape.set(shape, this.records.length - 1);
+    return this.records.length - 1;
   }
 
   /** The record with `record`'s fields in the order of `names` (shared by shape). */

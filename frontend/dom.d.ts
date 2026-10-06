@@ -46,14 +46,23 @@ interface HTMLElement {
   // selector (a subset: tags, #id, .class, [attr], [attr=value], :not(),
   // descendant and child combinators), a static list.
   readonly id: string;
+  /** M6 overlays (bits-ui's typeahead): the text of its descendant text nodes. */
+  readonly textContent: string;
   querySelectorAll(selectors: string): HTMLElement[];
   querySelector(selectors: string): HTMLElement | null;
   /** M6 overlays: whether the node is this element or one of its descendants. */
   contains(other: HTMLElement | null): boolean;
   requestSubmit(): void;
-  // M6 overlays (floating-ui's autoUpdate): listeners added by script.
-  addEventListener(type: 'scroll', listener: (event: Event) => void): void;
-  removeEventListener(type: 'scroll', listener: (event: Event) => void): void;
+  // M6 overlays (floating-ui's autoUpdate): listeners added by script;
+  // pointer movement too (bits-ui's submenu intent).
+  addEventListener<K extends ElementScriptEvent>(
+    type: K,
+    listener: (event: RunicEventMap[K]) => void,
+  ): void;
+  removeEventListener<K extends ElementScriptEvent>(
+    type: K,
+    listener: (event: RunicEventMap[K]) => void,
+  ): void;
 }
 /** M6 (bits-ui's isHTMLElement): `x instanceof HTMLElement` of element values. */
 declare var HTMLElement: { prototype: HTMLElement };
@@ -178,6 +187,8 @@ declare var Element: { prototype: Element };
  * target, the document for a window `scroll` listener; `instanceof Node`.
  */
 declare var Document: { prototype: HostDocument };
+/** The document's type where declaration files name it (svelte-toolbelt's `getDocument(…): Document`). */
+type Document = HostDocument;
 declare var Node: { prototype: Element };
 interface EventTarget {}
 /**
@@ -276,6 +287,8 @@ interface HostEventMap {
   scroll: Event;
   resize: Event;
 }
+/** The events of listeners an element takes from script. */
+type ElementScriptEvent = 'scroll' | 'pointermove' | 'pointerenter' | 'pointerleave';
 // Every event kind (listeners passed through rest props).
 interface RunicEventMap extends HostEventMap {
   pointerenter: PointerEvent;
@@ -289,10 +302,12 @@ interface HostEventTarget {
   addEventListener<K extends keyof HostEventMap>(
     type: K,
     listener: (event: HostEventMap[K]) => void,
+    options?: boolean | { capture?: boolean; once?: boolean },
   ): void;
   removeEventListener<K extends keyof HostEventMap>(
     type: K,
     listener: (event: HostEventMap[K]) => void,
+    options?: boolean | { capture?: boolean; once?: boolean },
   ): void;
 }
 // The window also receives the session history events.
@@ -304,10 +319,12 @@ interface WindowEventTarget {
   addEventListener<K extends keyof WindowEventMap>(
     type: K,
     listener: (event: WindowEventMap[K]) => void,
+    options?: boolean | { capture?: boolean; once?: boolean },
   ): void;
   removeEventListener<K extends keyof WindowEventMap>(
     type: K,
     listener: (event: WindowEventMap[K]) => void,
+    options?: boolean | { capture?: boolean; once?: boolean },
   ): void;
 }
 /** `getComputedStyle(element)` (M6, bits-ui's direction): property reads only. */
@@ -349,6 +366,8 @@ interface HostWindow extends WindowEventTarget {
   scrollBy(x: number, y: number): void;
 }
 declare const window: HostWindow;
+/** The window's type where declaration files name it (bits-ui's `getWindow: () => Window & typeof globalThis`). */
+type Window = HostWindow;
 /**
  * M6 overlays (floating-ui's autoUpdate): the visual viewport. Without
  * pinch zoom it resizes with the window, after it, and never scrolls.
@@ -410,6 +429,8 @@ interface HostDocument extends HostEventTarget {
   readonly activeElement: HTMLElement | null;
   /** M6 overlays: whether the element is in the document. */
   contains(other: HTMLElement | null): boolean;
+  /** M6 overlays: the element at a viewport point (bits-ui's submenu intent). */
+  elementFromPoint(x: number, y: number): HTMLElement | null;
 }
 
 /**

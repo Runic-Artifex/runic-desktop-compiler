@@ -324,7 +324,7 @@ test('classes: unsupported forms are rejected where they are written', async () 
     at(3, 11),
   );
   await rejects(
-    `class A {\n  n: number;\n  m: number;\n  constructor() { this.m = this.helper(); this.n = 1; }\n  helper(): number { return 2; }\n}\n${go}`,
+    `class A {\n  n: number;\n  m: number;\n  constructor() { this.m = this.helper(); this.n = 1; }\n  helper(): number { return 2; }\n}\nlet out = $state(''); function go() { out = String(new A().n); }`,
     'E_CLASS',
     at(3, 3),
   );

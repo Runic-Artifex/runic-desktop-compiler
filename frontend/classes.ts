@@ -382,6 +382,10 @@ export class Classes {
     const mapped = sites.map(site =>
       used.map((u, i) => {
         const a = checker.getTypeArguments(site.type as ts.TypeReference)[u];
+        // `unknown` (a default: bits-ui's `CustomEventDispatcher<T =
+        // unknown>`) where no value of it is ever passed: it holds nothing.
+        if (a.flags & ts.TypeFlags.Unknown && this.neverPassed(decl, params[i]))
+          return { maybe: 'void' } as Type;
         if (a.flags & ts.TypeFlags.TypeParameter)
           this.fail(
             site.node,
@@ -404,6 +408,64 @@ export class Classes {
   }
 
   /**
+   * Whether no call of the program passes a value (other than null or
+   * undefined) for a parameter of `decl`'s methods or constructor declared
+   * of exactly type parameter `tp` (bits-ui's `dispatch(element, detail?:
+   * T)`, always called without `detail`), and no field is declared of it.
+   */
+  private neverPassed(decl: ts.ClassDeclaration, tp: ts.TypeParameterDeclaration): boolean {
+    const checker = this.lower.checker;
+    const exactly = (t: ts.TypeNode | undefined) =>
+      !!t &&
+      ts.isTypeReferenceNode(t) &&
+      ts.isIdentifier(t.typeName) &&
+      t.typeName.text === tp.name.text;
+    const slots = new Map<ts.Node, number[]>();
+    for (const m of decl.members) {
+      if (ts.isPropertyDeclaration(m) && exactly(m.type)) return false;
+      if (!(ts.isMethodDeclaration(m) || ts.isConstructorDeclaration(m))) continue;
+      const at = m.parameters.flatMap((p, k) => (exactly(p.type) ? [k] : []));
+      if (at.length) slots.set(m, at);
+    }
+    if (!slots.size) return false;
+    let passed = false;
+    // (Also one of these parameters passed on: `dispatch` forwards its
+    // `detail` to `createEvent(detail)`.)
+    const slotParams = new Set<ts.Node>(
+      [...slots].flatMap(([m, at]) =>
+        at.map(k => (m as ts.FunctionLikeDeclaration).parameters[k] as ts.Node),
+      ),
+    );
+    const nothing = (e: ts.Expression) => {
+      const x = skipParens(e);
+      const d = ts.isIdentifier(x) ? checker.getSymbolAtLocation(x)?.valueDeclaration : undefined;
+      return (
+        x.kind === ts.SyntaxKind.NullKeyword ||
+        (ts.isIdentifier(x) && x.text === 'undefined') ||
+        ts.isVoidExpression(x) ||
+        (!!d && slotParams.has(d))
+      );
+    };
+    const visit = (n: ts.Node) => {
+      if (passed) return;
+      if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
+        const target = checker.getResolvedSignature(n)?.declaration;
+        const at = target && slots.get(target);
+        if (at)
+          for (const k of at) {
+            const a = n.arguments?.[k];
+            if (a && (ts.isSpreadElement(a) || !nothing(a))) passed = true;
+          }
+        // (A spread passes what it holds.)
+        if (n.arguments?.some(ts.isSpreadElement) && at) passed = true;
+      }
+      ts.forEachChild(n, visit);
+    };
+    for (const sf of this.lower.program.getSourceFiles()) if (!sf.isDeclarationFile) visit(sf);
+    return !passed;
+  }
+
+  /**
    * The parameter types of constructor or method `decl` of a generic class
    * in its instantiation, as TypeScript instantiates the signature (`...args:
    * Parameters<T> | []` resolved): one type per parameter, a tuple rest
@@ -421,9 +483,20 @@ export class Classes {
       sig = prop ? checker.getTypeOfSymbol(prop).getCallSignatures()[0] : undefined;
     }
     if (!sig) return undefined;
-    return sig.parameters.flatMap(p => {
+    return sig.parameters.flatMap((p, i) => {
       const t = checker.getTypeOfSymbol(p);
       const d = p.valueDeclaration;
+      // A parameter declared of a type parameter the instantiation binds
+      // (`detail?: T` with T holding nothing): the binding.
+      const declared = decl.parameters[i]?.type;
+      const bound =
+        declared && ts.isTypeReferenceNode(declared) && ts.isIdentifier(declared.typeName)
+          ? this.typeArgs.get(checker.getSymbolAtLocation(declared.typeName)!)
+          : undefined;
+      if (bound !== undefined && t.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) {
+        const optional = !!decl.parameters[i].questionToken && !maybeInner(bound);
+        return [optional ? { maybe: bound } : bound];
+      }
       const items =
         d && ts.isParameter(d) && d.dotDotDotToken
           ? this.lower.types.restParams(t, decl)
@@ -947,6 +1020,42 @@ export class Classes {
     );
   }
 
+  /**
+   * Whether every read of field `f` in the program (other than the
+   * assignment `assigned`) reads a member of its value or calls it
+   * (`this.f.x`, `this.f.m()`, `this.f()`, not through `?.`): before it
+   * is set, such a read throws a
+   * TypeError in JavaScript, as reading the late field's undefined does
+   * (bits-ui's MenuContentState `rovingFocusGroup`, set after the
+   * constructor has passed closures to other classes).
+   */
+  private onlyDereferenced(f: Field, assigned: ts.PropertyAccessExpression): boolean {
+    const checker = this.lower.checker;
+    const name = f.decl?.name ?? (ts.isPropertyAccessExpression(f.node) ? f.node.name : undefined);
+    const sym = name && checker.getSymbolAtLocation(name);
+    if (!sym) return false;
+    let ok = true;
+    const visit = (n: ts.Node) => {
+      if (!ok) return;
+      if (ts.isPropertyAccessExpression(n) && n !== assigned && n.name.text === f.name) {
+        const s = checker.getSymbolAtLocation(n.name);
+        if (s === sym) {
+          const p = n.parent;
+          const member =
+            (ts.isPropertyAccessExpression(p) ||
+              ts.isElementAccessExpression(p) ||
+              ts.isCallExpression(p)) &&
+            p.expression === n &&
+            !p.questionDotToken;
+          if (!member) ok = false;
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    for (const sf of this.lower.program.getSourceFiles()) if (!sf.isDeclarationFile) visit(sf);
+    return ok;
+  }
+
   private lateFields(info: ClassInfo) {
     /** Fields set before the record is built (`constructorBody`'s temporaries). */
     const temps = new Map<Field, number>();
@@ -1029,7 +1138,7 @@ export class Classes {
         ts.forEachChild(n, visit);
       };
       for (let k = i; k <= j; k++) visit(statements[k]);
-      if (!safe) continue;
+      if (!safe && !this.onlyDereferenced(f, assigned!)) continue;
       f.late = true;
       f.type = { maybe: f.type };
     }
@@ -1269,6 +1378,12 @@ export class Classes {
       const sym = checker.getSymbolAtLocation(name);
       t = sym ? checker.getTypeOfSymbolAtLocation(sym, f.node) : checker.getTypeAtLocation(f.node);
     }
+    // A field typed as a function with `any` in it (svelte/elements'
+    // `MouseEventHandler`, whose result is `any`): the type of the functions
+    // given to it (its initialiser, assignments).
+    const named = f.decl ? f.decl.name : f.param ? undefined : f.node;
+    const given = named && this.lower.types.givenFunction(named);
+    if (given) t = given;
     if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
       this.fail(
         f.node,
@@ -1484,16 +1599,22 @@ export class Classes {
     return [info, ...info.subclasses.flatMap(s => this.subtree(s))];
   }
 
-  /** Whether code assigns static field `name` of `info` (`C.name = …`). */
+  /** Whether code assigns static field `name` of `info` (`C.name = …`, `C.name++`). */
   private assignedStatic(info: ClassInfo, name: string): boolean {
     let found = false;
     const visit = (n: ts.Node) => {
-      if (
+      const K = ts.SyntaxKind;
+      const target =
         ts.isBinaryExpression(n) &&
-        n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-        n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
-      ) {
-        const t = skipParens(n.left);
+        n.operatorToken.kind >= K.FirstAssignment &&
+        n.operatorToken.kind <= K.LastAssignment
+          ? n.left
+          : (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+              (n.operator === K.PlusPlusToken || n.operator === K.MinusMinusToken)
+            ? n.operand
+            : undefined;
+      if (target) {
+        const t = skipParens(target);
         if (
           ts.isPropertyAccessExpression(t) &&
           t.name.text === name &&
@@ -2339,6 +2460,29 @@ export class Classes {
   }
 
   /** Whether every function between `n` and `root` is an arrow function (it sees the class's `this`). */
+  /**
+   * Whether the arrow functions around `n` up to `root` sit in object and
+   * array literals that are `root` (bits-ui's `popperProps = {
+   * onCloseAutoFocus: (e) => this.onCloseAutoFocus(e) }`): building the
+   * literal calls nothing, so the arrow runs once the instance exists.
+   */
+  private inStoredLiteral(n: ts.Node, root: ts.Node): boolean {
+    let arrow: ts.Node | undefined;
+    for (let p: ts.Node | undefined = n.parent; p && p !== root.parent; p = p.parent)
+      if (ts.isArrowFunction(p)) arrow = p;
+    if (!arrow || arrow === root) return false;
+    for (let p: ts.Node = arrow; p !== root; p = p.parent) {
+      const up = p.parent;
+      const ok =
+        ts.isParenthesizedExpression(up) ||
+        ts.isObjectLiteralExpression(up) ||
+        ts.isArrayLiteralExpression(up) ||
+        (ts.isPropertyAssignment(up) && up.initializer === p);
+      if (!ok) return false;
+    }
+    return true;
+  }
+
   private arrowsUpTo(n: ts.Node, root: ts.Node): boolean {
     for (let p = n.parent; p && p !== root.parent; p = p.parent)
       if (ts.isFunctionLike(p) && !ts.isArrowFunction(p)) return false;
@@ -2504,7 +2648,9 @@ export class Classes {
         if (
           nested &&
           this.arrowsUpTo(n, inner) &&
-          (this.toPortConstructor(n, inner) || this.toStoringCall(n, inner))
+          (this.toPortConstructor(n, inner) ||
+            this.toStoringCall(n, inner) ||
+            this.inStoredLiteral(n, inner))
         )
           return;
         const field = this.earlyRead(n, nested, info, temps);
@@ -3235,6 +3381,10 @@ export class Classes {
         callee: { op: 'global', global: s.global },
         args: lower.callArgs(e, b),
       };
+    // A function held in a static field the class assigns (bits-ui's
+    // `IsUsingKeyboard._cleanup?.()`): its value (through `?.`, the present one).
+    if (s?.kind === 'cell')
+      return { op: 'call-value', callee: lower.expr(callee, b), args: lower.callArgs(e, b) };
     return lower.fail(e, 'E_MEMBER', `${info.name} has no static method ${callee.name.text}`);
   }
 

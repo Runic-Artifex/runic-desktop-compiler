@@ -2959,6 +2959,25 @@ impl<'p> Machine<'p> {
                     _ => Val::Str(JsString::new()),
                 }
             }
+            // The text of its descendant text nodes, in tree order.
+            ("element", "textContent") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                fn text(n: &VNode, out: &mut String) {
+                    match n {
+                        VNode::Text(t) => out.push_str(t),
+                        VNode::Element { children, .. } => {
+                            children.iter().for_each(|c| text(c, out))
+                        }
+                    }
+                }
+                let mut out = String::new();
+                if let Some(n) = chain_nodes(&self.last_tree, e.0).and_then(|n| n.last().copied()) {
+                    text(n, &mut out);
+                }
+                Val::Str(JsString::from(out.as_str()))
+            }
             // The parent inside the program's DOM: none at its top level.
             ("element", "contains") => {
                 let (Val::Element(a0), Val::Element(b0)) = (&a[0], &a[1]) else {

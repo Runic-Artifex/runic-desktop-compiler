@@ -256,7 +256,7 @@ pub fn needs_layout(name: &str) -> bool {
         // Animation objects read the native style engine's animations (M6).
         Some(("animation", _)) => true,
         Some(("window", m)) => WINDOW_METRICS.contains(&m) || matches!(m, "scrollTo" | "scrollBy"),
-        Some(("document", "clientWidth" | "clientHeight")) => true,
+        Some(("document", "clientWidth" | "clientHeight" | "elementFromPoint")) => true,
         _ => false,
     }
 }
@@ -652,6 +652,12 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &s, "selector").map(|_| Maybe(Box::new(Element)))
         }
+        // M6 overlays: the element at a viewport point (a layout read).
+        ("document", "elementFromPoint") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &n, "x")?;
+            expect(&args[1], &n, "y").map(|_| Maybe(Box::new(Element)))
+        }
         // M6 overlays: the body element (where portals mount).
         ("document", "body") => arity(args, 0, 0).map(|_| Element),
         // The document element as an element value (M6: getComputedStyle).
@@ -902,7 +908,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &Element, "receiver")?;
             expect(&args[1], &s, "name").map(|_| Maybe(Box::new(s.clone())))
         }
-        ("element", "localName") => {
+        ("element", "localName" | "textContent") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| s.clone())
         }

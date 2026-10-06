@@ -447,3 +447,135 @@ test('a test of a snippet prop is not decided by the props sites pass', async ()
     },
   );
 });
+
+test('a property typed as any function takes the type of the functions given to it', async () => {
+  await withApp(
+    {
+      'menu.svelte.ts': `import { executeCallbacks } from 'svelte-toolbelt';
+type AnyFn = (...args: any[]) => any;
+interface Opts {
+  onClose: AnyFn;
+}
+export class Menu {
+  static opened = 0;
+  static cleanup?: AnyFn;
+  opts: Opts;
+  constructor(opts: Opts) {
+    this.opts = opts;
+  }
+  open(log: string[]) {
+    if (Menu.opened === 0) Menu.cleanup = () => log.push('cleanup');
+    Menu.opened++;
+  }
+  close(log: string[]) {
+    Menu.opened--;
+    if (Menu.opened === 0) Menu.cleanup?.();
+    const fns: (() => void)[] = [() => log.push('a'), () => log.push('b')];
+    const all = executeCallbacks(...fns);
+    all();
+    this.opts.onClose();
+  }
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { Menu } from './menu.svelte';
+  let out = $state('');
+  const log: string[] = [];
+  const menu = new Menu({ onClose: () => log.push('closed') });
+  function run() {
+    menu.open(log);
+    menu.close(log);
+    out = log.join(' ');
+  }
+</script>
+
+<button id="run" onclick={run}>run</button>
+<p id="out">{out}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'run' }]);
+      const out = steps[1].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'out');
+      assert.equal(text(out), 'cleanup a b closed');
+    },
+  );
+});
+
+test('a field set after this escapes is late where every read dereferences it', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  class Group {
+    first(): string {
+      return 'first';
+    }
+  }
+  const queue: (() => string)[] = [];
+  class Content {
+    group: Group;
+    constructor() {
+      queue.push(() => this.group.first());
+      this.group = new Group();
+    }
+  }
+  let out = $state('');
+  new Content();
+  function run() {
+    const first = queue[0];
+    out = first();
+  }
+</script>
+
+<button id="run" onclick={run}>run</button>
+<p id="out">{out}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'run' }]);
+      const out = steps[1].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'out');
+      assert.equal(text(out), 'first');
+    },
+  );
+});
+
+test('host functions, capture listeners on the document, textContent', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  interface Opts {
+    getWindow: () => Window;
+  }
+  const opts: Opts = { getWindow: () => window };
+  let out = $state('');
+  const log: string[] = [];
+  let el = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const capture = () => log.push('capture');
+    document.addEventListener('click', capture, true);
+    return () => document.removeEventListener('click', capture, true);
+  });
+  function run() {
+    log.push('target');
+    opts.getWindow().setTimeout(() => {
+      out = log.join(' ') + ' | ' + (el ? el.textContent : '');
+    }, 10);
+  }
+</script>
+
+<button id="run" onclick={run}>run</button>
+<p id="out" bind:this={el}>{out}<b>!</b></p>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'run' },
+        { kind: 'wait', ms: 20 },
+      ]);
+      const out = steps[2].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'out');
+      assert.equal(text(out), 'capture target | !!');
+    },
+  );
+});

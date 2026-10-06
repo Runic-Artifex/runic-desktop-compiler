@@ -149,7 +149,7 @@ test('rejected: spreads of unsupported values, unsupported listeners', async () 
     await edits('shortcuts-svelte', 'App.svelte', [
       [
         "document.addEventListener('click', close)",
-        "document.addEventListener('click', close, true)",
+        "document.addEventListener('click', close, { passive: true })",
       ],
     ]),
     'E_EVENT',

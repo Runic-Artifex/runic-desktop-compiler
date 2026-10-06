@@ -124,7 +124,7 @@ const EVENT_MEMBER_INTERFACES: Record<string, string> = {
 };
 
 /** Events element listeners added by script receive (`element.listen`). */
-const ELEMENT_SCRIPT_EVENTS = ['scroll'];
+const ELEMENT_SCRIPT_EVENTS = ['scroll', 'pointermove', 'pointerenter', 'pointerleave'];
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }
@@ -397,6 +397,11 @@ export class Lowerer {
     this.fail = fail;
     this.sourceOf = sourceOf;
     this.classes = new Classes(this);
+    // Type parameters of generic functions (one instantiation per program,
+    // `bindTypeParameters`), after those of generic classes.
+    const classTypeArgs = this.types.typeParameter;
+    this.types.typeParameter = t =>
+      classTypeArgs?.(t) ?? (t.symbol ? this.functionTypeArgs.get(t.symbol) : undefined);
     types.classType = (cls, t, at) => this.classes.typeOf(cls, t, at);
     types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
     types.hostParameter = p => this.hostParam(p) !== undefined;
@@ -421,6 +426,7 @@ export class Lowerer {
     types.narrow = (parts, at, fail) => this.unions.member(parts, at, fail);
     types.nothingSlot = decl => this.unions.nothingSlot(decl);
     types.nothingInBoxes = decl => this.unions.nothingInBoxes(decl);
+    types.anyFnSlot = decl => this.unions.anyFnSlot(decl);
     // Object types implemented with getters (frontend/types.ts `accessorTypes`).
     for (const sf of program.getSourceFiles()) {
       if (sf.isDeclarationFile) continue;
@@ -725,6 +731,26 @@ export class Lowerer {
       this.thisBindings.set(decl, { owner: b, local: 0 });
     }
     const tsResult = sig!.getReturnType();
+    // A host function (its result the window or the document, as its type
+    // declares: bits-ui's `getWindow: () => this.domContext.getWindow()`):
+    // it returns nothing, and its calls are the host object (`hostName`).
+    // Its body is only the return of that object read without effects.
+    if (!options?.result && this.types.hostOf(tsResult)) {
+      const body = decl.body;
+      const returned =
+        body && !ts.isBlock(body)
+          ? body
+          : body && body.statements.length === 1 && ts.isReturnStatement(body.statements[0])
+            ? body.statements[0].expression
+            : undefined;
+      if (!returned || this.hostName(returned) !== this.types.hostOf(tsResult))
+        this.fail(
+          decl,
+          'E_FUNCTION',
+          'A function returning the window or the document returns it directly (() => window, () => ctx.getWindow())',
+        );
+      options = { ...options, result: 'void', body: () => [] };
+    }
     // A result TypeScript types as `any`, or wider than the value model
     // where the values returned have one type (a getter of a prop a
     // discriminant narrowed, `() => value`): the returned values' type.
@@ -798,7 +824,9 @@ export class Lowerer {
       }
     };
     visit(body);
-    const placeholder = (v: Expr) => (v.op === 'undefined' || v.op === 'null') && v.type === 'void';
+    // (A bare `null` or `undefined` returned, also one typed already by
+    // a rule for untyped nulls: it takes the other returns' type.)
+    const placeholder = (v: Expr) => v.op === 'undefined' || v.op === 'null';
     // `return []` (above): the array type of the other returns.
     const emptyArray = (v: Expr) =>
       v.op === 'array' &&
@@ -1163,6 +1191,11 @@ export class Lowerer {
     effects: ts.Expression[] = [],
   ): boolean | undefined {
     e = skipParens(e);
+    // The document and the window (also through a constant naming them:
+    // bits-ui's `const doc = getDocument(node); if (!doc) return;`) are
+    // objects: truthy.
+    const host = this.hostName(e);
+    if (host === 'document' || host === 'window') return true;
     // A value known at build time (literals, pack constants: esm-env's DEV).
     const value = this.staticValue(e);
     if (value) return !!value.value;
@@ -2589,9 +2622,14 @@ export class Lowerer {
       ts.isIdentifier(d.name) &&
       ts.isVariableDeclarationList(d.parent) &&
       d.parent.flags & ts.NodeFlags.Const &&
-      ['document', 'window'].includes(this.hostName(d.initializer) ?? '')
-    )
+      ['document', 'window'].includes(this.hostName(d.initializer, 0, true) ?? '')
+    ) {
+      // (A call naming it, `getDocument(node)`: its argument is evaluated.)
+      const init = skipParens(d.initializer);
+      if (ts.isCallExpression(init) && init.arguments.length === 1)
+        return [{ op: 'expr', value: this.expr(init.arguments[0], b) }];
       return [];
+    }
     const rune = this.hooks.localRune?.(d, b, this);
     if (rune) return rune;
     // `const id = ++counter` (and `counter++`, `--`, of a variable): the
@@ -5817,7 +5855,7 @@ export class Lowerer {
     return this.hostName(skipParens(e));
   }
 
-  hostName(e: ts.Expression, depth = 0): string | undefined {
+  hostName(e: ts.Expression, depth = 0, declared = false): string | undefined {
     e = skipParens(e);
     if (depth > 8) return undefined;
     // Other names of the window and the document (M6 overlays: bits-ui's
@@ -5869,11 +5907,13 @@ export class Lowerer {
         (ts.isPropertyAccessExpression(x) && plain(x.expression))
       );
     };
+    // (`declared`: the initialiser of a constant, whose declaration
+    // evaluates the argument: `const doc = getDocument(a() ?? b())`.)
     if (
       ts.isCallExpression(e) &&
       ts.isIdentifier(e.expression) &&
       e.arguments.length === 1 &&
-      plain(e.arguments[0])
+      (declared || plain(e.arguments[0]))
     ) {
       const binding = this.binding(e.expression);
       if (binding?.kind === 'pack' && binding.label.startsWith('getWindow of')) return 'window';
@@ -5882,6 +5922,14 @@ export class Lowerer {
       // `return el?.ownerDocument ?? document`).
       if (binding?.kind === 'host') return binding.name;
       return undefined;
+    }
+    // A call of a host function (a function value whose type returns the
+    // window or the document: bits-ui's `getWindow()` option) through a
+    // plain name: the object. (Host functions only return it, `function`.)
+    if (ts.isCallExpression(e) && !e.arguments.length && plain(e.expression)) {
+      const sig = this.checker.getResolvedSignature(e);
+      const host = sig && this.types.hostOf(sig.getReturnType());
+      if (host) return host;
     }
     // svelte-toolbelt's `domContext.getDocument()` and `getWindow()`, of a
     // DOMContext whose node is the program's (the receiver has no effect).
@@ -5908,7 +5956,7 @@ export class Lowerer {
       ts.isVariableDeclarationList(decl.parent) &&
       decl.parent.flags & ts.NodeFlags.Const
     )
-      return this.hostName(decl.initializer, depth + 1);
+      return this.hostName(decl.initializer, depth + 1, true);
     return undefined;
   }
 
@@ -6221,6 +6269,17 @@ export class Lowerer {
         'E_HOST',
         `location.${method} navigates to another document, which is unsupported (assign location.hash or use history.pushState)`,
       );
+    // M6 overlays: `document.elementFromPoint(x, y)`: the element at a
+    // viewport point, by the native layout's hit test.
+    if (host === 'document' && method === 'elementFromPoint') {
+      if (e.arguments.length !== 2)
+        return this.fail(e, 'E_CALL', 'elementFromPoint takes the coordinates x and y');
+      return builtin(
+        'document.elementFromPoint',
+        e.arguments.map(a => this.coerce(a, b, NUMBER)),
+        { maybe: 'element' },
+      );
+    }
     // M6 overlays: `document.contains(node)`: whether it is in the document.
     if (host === 'document' && method === 'contains') {
       const [other] = e.arguments;
@@ -6580,14 +6639,12 @@ export class Lowerer {
     let t = this.irType(object, b);
     // An untyped nullable value (untyped JavaScript specialised for a
     // nullable argument: bits-ui's `polygon.length` of a polygon a switch
-    // without default may leave undefined): reading a property of nullish
-    // throws a TypeError, as unwrapping does.
+    // without default may leave undefined), or one TypeScript narrowed to a
+    // present one (`if (!geo) return; geo.corridor` of a record typed from
+    // untyped code): reading a property of nullish throws a TypeError, as
+    // unwrapping does.
     const inner = maybeInner(t);
-    if (
-      inner !== undefined &&
-      !e.questionDotToken &&
-      this.checker.getTypeAtLocation(e.expression).flags & ts.TypeFlags.Any
-    ) {
+    if (inner !== undefined && !e.questionDotToken && this.tsPresent(e.expression)) {
       object = { op: 'unwrap', value: object };
       t = inner;
     }
@@ -6614,6 +6671,10 @@ export class Lowerer {
     }
     if (kind === 'element' && name === 'localName')
       return { op: 'builtin', name: 'element.localName', args: [object], type: STRING };
+    // `element.textContent` (M6 overlays: bits-ui's typeahead): the text of
+    // its descendant text nodes in tree order.
+    if (kind === 'element' && name === 'textContent')
+      return { op: 'builtin', name: 'element.textContent', args: [object], type: STRING };
     // `element.id`: the id attribute, or empty.
     if (kind === 'element' && name === 'id')
       return {
@@ -7614,11 +7675,22 @@ export class Lowerer {
           !!listener &&
           (ts.isArrowFunction(skipParens(listener)) ||
             ts.isFunctionExpression(skipParens(listener)));
-        if (options && !once)
+        // `true` or `{ capture: true }`: a capture listener (bits-ui's submenu
+        // intent: `doc.addEventListener("pointermove", f, true)`), removed by
+        // the same flag.
+        const capture =
+          !!options &&
+          (options.kind === ts.SyntaxKind.TrueKeyword ||
+            (ts.isObjectLiteralExpression(options) &&
+              options.properties.length === 1 &&
+              ts.isPropertyAssignment(options.properties[0]) &&
+              options.properties[0].name.getText() === 'capture' &&
+              options.properties[0].initializer.kind === ts.SyntaxKind.TrueKeyword));
+        if (options && !once && !capture)
           this.fail(
             options,
             'E_EVENT',
-            'Listener options (capture, passive) are planned for a later milestone; once is supported with an inline function',
+            'Listener options other than capture (passive, once with a named function) are planned for a later milestone; once is supported with an inline function',
           );
         const supported = (k: string) =>
           EVENT_KINDS.includes(k as EventKind) ||
@@ -7634,7 +7706,7 @@ export class Lowerer {
           );
         return {
           op: 'builtin',
-          name: `${host}.${method === 'addEventListener' ? 'listen' : 'unlisten'}`,
+          name: `${host}.${method === 'addEventListener' ? 'listen' : 'unlisten'}${capture ? '-capture' : ''}`,
           args: [{ op: 'lit', value: (type as ts.StringLiteral).text }, this.expr(listener, b)],
           type: 'void',
         };
@@ -8061,11 +8133,13 @@ export class Lowerer {
             captures: builder.captureSources.map(c => c.local),
           } as Expr;
         });
+        // (filter keeps the receiver's items: its type, whatever narrowing
+        // TypeScript applies through a type predicate, which follows.)
         const out = this.builtinCall(
           `array.${method}`,
           [receiver, ...typed],
           b,
-          this.tsCallType(e),
+          method === 'filter' ? this.irType(receiver, b) : this.tsCallType(e),
           e,
         );
         // filter with a type predicate excluding null (bits-ui's
@@ -8386,6 +8460,8 @@ export class Lowerer {
       g.specs.set(key, index);
       this.inProgress.add(index);
       const all = [...outerTypes, ...types];
+      const restore = this.bindTypeParameters(g.decl, types);
+      try {
       this.function(
         g.decl,
         `${g.name}<${all.map(t => JSON.stringify(t)).join(',')}>`,
@@ -8414,6 +8490,9 @@ export class Lowerer {
             : {}),
         },
       );
+      } finally {
+        restore();
+      }
       this.inProgress.delete(index);
     } else if (this.inProgress.has(index))
       this.fail(e, 'E_TYPE_UNSUPPORTED', `Recursive untyped ${g.name}: add type annotations`);
@@ -8421,6 +8500,63 @@ export class Lowerer {
       op: 'call',
       function: index,
       args: [...outerArgs, ...args.slice(0, g.decl.parameters.length - inline.size)],
+    };
+  }
+
+  /** The type arguments of the generic function specialisations being lowered, by type parameter. */
+  private readonly functionTypeArgs = new Map<ts.Symbol, Type>();
+
+  /**
+   * Bind the type parameters of generic function `decl` (a package function
+   * annotated from its declaration file: bits-ui's `boxAutoReset<T>`) for
+   * one specialisation, from the IR types of its arguments (`types`): each
+   * from a parameter declared of that type (`T`, `T[]`, `Array<T>`).
+   * Returns the function restoring the previous bindings. While bound,
+   * records of types using them are not cached by TypeScript type (another
+   * specialisation binds them otherwise).
+   */
+  private bindTypeParameters(decl: ts.FunctionLikeDeclaration, types: Type[]): () => void {
+    const params = (decl.typeParameters ?? []).map(tp => ({
+      name: tp.name.text,
+      sym: this.checker.getSymbolAtLocation(tp.name),
+      type: this.checker.getTypeAtLocation(tp),
+    }));
+    if (!params.length) return () => {};
+    const saved = params.map(p => (p.sym ? this.functionTypeArgs.get(p.sym) : undefined));
+    const bind = (name: string, t: Type) => {
+      const p = params.find(x => x.name === name);
+      if (p?.sym) this.functionTypeArgs.set(p.sym, t);
+    };
+    const names = new Set(params.map(p => p.name));
+    const match = (node: ts.TypeNode, t: Type) => {
+      if (ts.isTypeOperatorNode(node) && node.operator === ts.SyntaxKind.ReadonlyKeyword)
+        return match(node.type, t);
+      if (ts.isParenthesizedTypeNode(node)) return match(node.type, t);
+      const element = typeof t === 'object' && 'array' in t ? t.array : undefined;
+      if (ts.isArrayTypeNode(node)) {
+        if (element !== undefined) match(node.elementType, element);
+        return;
+      }
+      if (!ts.isTypeReferenceNode(node) || !ts.isIdentifier(node.typeName)) return;
+      const ref = node.typeName.text;
+      if (names.has(ref) && !node.typeArguments) return bind(ref, t);
+      if ((ref === 'Array' || ref === 'ReadonlyArray') && node.typeArguments?.length === 1)
+        if (element !== undefined) match(node.typeArguments[0], element);
+    };
+    for (const p of params) if (p.sym) this.functionTypeArgs.delete(p.sym);
+    decl.parameters.forEach((p, k) => {
+      if (p.type && !p.dotDotDotToken && types[k] !== undefined) match(p.type, types[k]);
+    });
+    const bound = new Set(params.map(p => p.type));
+    const uncached = this.types.uncached;
+    this.types.uncached = t => !!uncached?.(t) || usesTypeParameter(t, bound, this.checker);
+    return () => {
+      this.types.uncached = uncached;
+      params.forEach((p, i) => {
+        if (!p.sym) return;
+        if (saved[i] === undefined) this.functionTypeArgs.delete(p.sym);
+        else this.functionTypeArgs.set(p.sym, saved[i]!);
+      });
     };
   }
 
@@ -8573,8 +8709,15 @@ export class Lowerer {
     // Parameters without a type, or typed `unknown`/`any` (package
     // functions whose declarations take `unknown`: bits-ui's isHTMLElement),
     // are specialised per call site.
+    // (Also parameters whose types use the function's type parameters: a
+    // generic package function annotated from its declaration file.)
+    const generic = new Set(
+      (decl.typeParameters ?? []).map(t => this.checker.getTypeAtLocation(t)),
+    );
     const untyped = decl.parameters.some(
       p =>
+        (generic.size > 0 &&
+          usesTypeParameter(this.checker.getTypeAtLocation(p), generic, this.checker)) ||
         (!p.type && this.types.typeOrUndefined(p) === undefined) ||
         !!(this.checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)),
     );
@@ -9216,7 +9359,13 @@ export class Lowerer {
     // The contextual type, unless it says nothing about the value (unknown: a
     // `satisfies` of a function returning unknown; `T | PromiseLike<T>`: an
     // async function's return); then the literal's own type.
-    const contextual = this.checker.getContextualType(e);
+    // (Not the type a destructuring pattern implies, `const { a, b } = { … }`
+    // without an annotation: its members are `any`.)
+    let holder: ts.Node = e.parent;
+    while (ts.isParenthesizedExpression(holder)) holder = holder.parent;
+    const pattern =
+      ts.isVariableDeclaration(holder) && !holder.type && !ts.isIdentifier(holder.name);
+    const contextual = pattern ? undefined : this.checker.getContextualType(e);
     const usable = (c: ts.Type) =>
       !(c.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any)) &&
       !(c.isUnion() && c.types.some(p => !!p.getProperty('then')));
@@ -9270,6 +9419,35 @@ export class Lowerer {
           maybeInner(f.type) !== undefined ||
           e.properties.some(p => p.name && (p.name as ts.Identifier).text === f.name),
       );
+    // A literal TypeScript types with `any` in it and nothing expects
+    // (untyped JavaScript: bits-ui's submenu intent returns `{ corridor:
+    // getCorridorPolygon(…), … }`, whose helpers are specialised per call):
+    // a record of its properties' lowered types, in the literal's order.
+    if (
+      wantRecord === undefined &&
+      mapped === undefined &&
+      containsAny(t, this.checker) &&
+      e.properties.every(
+        p =>
+          (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)),
+      )
+    ) {
+      const values = e.properties.map(p =>
+        ts.isPropertyAssignment(p)
+          ? this.expr(p.initializer, b)
+          : this.expr((p as ts.ShorthandPropertyAssignment).name, b),
+      );
+      const fields = e.properties.map((p, i) => ({
+        name: (p.name as ts.Identifier | ts.StringLiteral).text,
+        type: this.irType(values[i], b),
+      }));
+      return {
+        op: 'record',
+        record: this.types.shapeRecord(fields),
+        fields: values,
+      };
+    }
     const type =
       (!(contextual && usable(contextual)) || sameKeys) &&
       typeof want === 'object' &&
@@ -11543,6 +11721,30 @@ export function remapLocals<T>(node: T, map: (i: number) => number): T {
 }
 
 const lit = (value: string): Expr => ({ op: 'lit', value });
+
+/** Whether type `t` refers to one of the type parameters `params`. */
+function usesTypeParameter(
+  t: ts.Type,
+  params: Set<ts.Type>,
+  checker: ts.TypeChecker,
+  depth = 0,
+): boolean {
+  if (depth > 6) return false;
+  if (params.has(t)) return true;
+  const more: ts.Type[] = [];
+  if (t.isUnionOrIntersection()) more.push(...t.types);
+  if (t.flags & ts.TypeFlags.Object) {
+    more.push(...checker.getTypeArguments(t as ts.TypeReference));
+    if (t.aliasTypeArguments) more.push(...t.aliasTypeArguments);
+    for (const s of t.getCallSignatures()) {
+      more.push(s.getReturnType());
+      for (const p of s.parameters) more.push(checker.getTypeOfSymbol(p));
+    }
+    for (const p of checker.getPropertiesOfType(t).slice(0, 40))
+      more.push(checker.getTypeOfSymbol(p));
+  }
+  return more.some(m => usesTypeParameter(m, params, checker, depth + 1));
+}
 
 /** Global host functions also called as `window.f(…)`. */
 const WINDOW_FUNCTIONS = new Set([

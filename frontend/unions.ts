@@ -192,6 +192,45 @@ export class Unions {
     );
   }
 
+  /**
+   * The type of the functions given to the property declared by `decl`
+   * (typed as any function), where every value the program gives it is a
+   * function of one type without `any` and nothing else may fill it (a
+   * write, a spread, an untyped literal of its name); undefined otherwise.
+   */
+  anyFnSlot(decl: ts.Declaration): ts.Type | undefined {
+    const index = this.properties();
+    const given = index.given.get(decl) ?? [];
+    const name = (decl as ts.NamedDeclaration).name;
+    const text = name && ts.isIdentifier(name) ? name.text : '';
+    if (
+      !given.length ||
+      index.writes.get(decl)?.length ||
+      index.spread.has(decl) ||
+      index.untyped.has(text)
+    )
+      return undefined;
+    const types: ts.Type[] = [];
+    // (A function value TypeScript types without `any`: a literal, or a
+    // call's typed result such as `$effect.root(…)`'s cleanup.)
+    for (const g of given) {
+      const t = this.checker.getTypeAtLocation(skipAll(g));
+      const [sig, ...more] = t.getCallSignatures();
+      if (!sig || more.length || this.checker.getPropertiesOfType(t).length) return undefined;
+      const anyIn = (x: ts.Type) => !!(x.flags & (F.Any | F.Unknown));
+      if (
+        anyIn(sig.getReturnType()) ||
+        sig.parameters.some(p => anyIn(this.checker.getTypeOfSymbol(p)))
+      )
+        return undefined;
+      types.push(t);
+    }
+    const [first] = types;
+    const same = (a: ts.Type, b: ts.Type) =>
+      this.checker.isTypeAssignableTo(a, b) && this.checker.isTypeAssignableTo(b, a);
+    return types.every(t => same(t, first)) ? first : undefined;
+  }
+
   /** A site giving the property declared by `decl` a value, or null. */
   private slotValue(decl: ts.Declaration): ts.Node | null {
     const cached = this.slotCache.get(decl);
