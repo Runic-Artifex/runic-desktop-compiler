@@ -1,0 +1,9 @@
+{
+  "description": "Container queries as Chromium's (BLITZ-GAPS, fixed in the fork: container queries; the Stylo fork parses @container in servo builds). Width queries against inline-size containers 200, 320 and the full width wide (heights, colours and a percentage width), a named container (the container shorthand), a block-size query on a size container, nested containers (the nearest one answers), and flex items that are inline-size containers (their intrinsic width as if empty: the item with 240px content shrinks to its padding and min-width). Resize toggles a container between 240 and 560px, restyling its descendants in the same frame. Geometry of every container and box, pixels of the page",
+  "fixtures": ["blitz-container-queries-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "click", "id": "resize" },
+    { "kind": "click", "id": "resize" }
+  ]
+}

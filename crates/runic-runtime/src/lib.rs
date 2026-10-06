@@ -176,6 +176,9 @@ pub trait App: 'static {
     const CSS: &'static str;
     /// `(mime, bytes)` of each embedded asset.
     const ASSETS: &'static [(&'static str, &'static [u8])];
+    /// `(selector, message)` of declarations the style engine drops: each is
+    /// reported as unsupported once its selector matches an element.
+    const STYLE_GUARDS: &'static [(&'static str, &'static str)] = &[];
     const IR_HASH: &'static str;
     /// Attributes of `<body>` (from the app's HTML template, M6).
     const BODY_ATTRS: &'static [(&'static str, &'static str)] = &[];

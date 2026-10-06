@@ -497,7 +497,12 @@ export interface Program {
   };
   renderer?: 'cpu' | 'gpu';
   capabilities: string[];
-  styles: { css: string; assets: { path: string; sha256: string; bytes: number; mime: string }[] };
+  styles: {
+    css: string;
+    assets: { path: string; sha256: string; bytes: number; mime: string }[];
+    /** Declarations the style engine drops, reported once their selector matches. */
+    guards?: { selector: string; message: string }[];
+  };
   records?: RecordType[];
   functions?: Fn[];
   globals?: Global[];

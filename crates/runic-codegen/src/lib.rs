@@ -3334,6 +3334,7 @@ pub fn generate(
          impl runic_runtime::App for App {{\n\
          const TITLE: &'static str = {title};\n\
          const CSS: &'static str = {css};\n\
+         const STYLE_GUARDS: &'static [(&'static str, &'static str)] = &[{style_guards}];\n\
          const ASSETS: &'static [(&'static str, &'static [u8])] = &[{assets}];\n\
          const IR_HASH: &'static str = {hash};\n\
          {template_attrs}\
@@ -3410,6 +3411,13 @@ pub fn generate(
          }}",
         title = rust_str(&p.meta.title),
         css = rust_str(css),
+        style_guards = p
+            .styles
+            .guards
+            .iter()
+            .map(|g| format!("({}, {})", rust_str(&g.selector), rust_str(&g.message)))
+            .collect::<Vec<_>>()
+            .join(", "),
         hash = rust_str(ir_hash),
         template_attrs = template_attrs,
         restore = if p.restore_focus {

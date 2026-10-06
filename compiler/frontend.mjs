@@ -11,6 +11,9 @@ export async function lower(graph) {
   if (graph.kit) {
     if (Object.keys(graph.kit.html.bodyAttrs).length) result.ir.body = graph.kit.html.bodyAttrs;
     result.ir.container = graph.kit.html.containerAttrs;
+  } else if (graph.bodyAttrs) {
+    // index.html's <body> attributes.
+    result.ir.body = graph.bodyAttrs;
   }
   check(result.ir);
   return result;

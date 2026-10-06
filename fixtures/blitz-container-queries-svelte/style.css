@@ -1,0 +1,20 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 14px; line-height: 20px; }
+body { padding: 8px 16px; }
+.c { container-type: inline-size; background: #f4f2ec; margin-bottom: 6px; padding: 4px; }
+.box { height: 12px; background: #a0452a; }
+@container (min-width: 300px) { .box { height: 30px; background: #2f4a3a; } }
+@container (min-width: 500px) { .box { width: 50%; } }
+.named { container: panel / inline-size; }
+@container panel (min-width: 200px) { .in-panel { padding-left: 40px; } }
+.size { container-type: size; height: 60px; }
+@container (min-height: 50px) { .tall-only { border-top: 8px solid #52665b; } }
+.outer { width: 360px; }
+.inner { container-type: inline-size; width: 50%; background: #d4ddd2; }
+@container (max-width: 200px) { .deep { height: 24px; background: #52665b; } }
+.flex { display: flex; gap: 4px; margin-bottom: 6px; }
+.flex > .item { container-type: inline-size; min-width: 20px; padding: 0 3px; background: #d4ddd2; }
+.wide { width: 240px; height: 10px; background: #a0452a; }
+.grow { flex: 1; }
+button { font-family: RunicFixture; font-size: 14px; line-height: 20px; border: 1px solid #52665b; border-radius: 3px; background: #e2e8df; color: #252c28; padding: 2px 6px; margin: 0 0 6px; }

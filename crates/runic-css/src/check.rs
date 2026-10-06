@@ -44,6 +44,7 @@ pub fn blitz_prefs() {
     style_config::set_pref!("layout.css.progress-function.enabled", true);
     style_config::set_pref!("layout.variable_fonts.enabled", true);
     style_config::set_pref!("layout.css.has-selector.enabled", true);
+    style_config::set_pref!("layout.container-queries.enabled", true);
 }
 
 /// The rules and declarations Stylo drops while parsing `css` as an author
@@ -80,12 +81,15 @@ mod tests {
 
     #[test]
     fn reports_dropped_rules_and_declarations() {
-        let css = ".a { color: red }\n.b::-webkit-scrollbar { display: none }\n@container (width > 1px) { .c { color: red } }\n.d:has(> svg) { color: red }\n.e { field-sizing: content }\n";
+        let css = ".a { color: red }\n.b::-webkit-scrollbar { display: none }\n@starting-style { .c { color: red } }\n.d:has(> svg) { color: red }\n.e { field-sizing: content }\n@container card (width > 1px) { .f { color: red } }\n";
         let found = dropped(css);
         let lines: Vec<u32> = found.iter().map(|d| d.line).collect();
         assert!(lines.contains(&2), "{found:?}");
         assert!(lines.contains(&3), "{found:?}");
-        assert!(!lines.contains(&1) && !lines.contains(&4), "{found:?}");
+        assert!(
+            !lines.contains(&1) && !lines.contains(&4) && !lines.contains(&6),
+            "{found:?}"
+        );
         assert!(declaration_parses("color", "oklch(0.5 0.1 200)"));
         assert!(!declaration_parses(
             "-webkit-tap-highlight-color",

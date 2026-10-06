@@ -302,6 +302,17 @@ pub struct Styles {
     pub css: String,
     #[serde(default)]
     pub assets: Vec<Asset>,
+    /// Declarations the style engine drops, in rules whose selectors can be
+    /// matched against elements: reported as unsupported once one matches.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guards: Vec<StyleGuard>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StyleGuard {
+    pub selector: String,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

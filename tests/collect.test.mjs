@@ -148,13 +148,31 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       '@supports (color: color-mix(in oklab, red, blue)) { p { color: color-mix(in oklab, red 50%, blue) } }\n' +
       'p:has(> b) { color: red }\np::-webkit-scrollbar { display: none }\n' +
       '@media (prefers-reduced-motion: reduce) { p { color: red } }\n' +
-      'p { -webkit-tap-highlight-color: transparent; resize: none }',
+      'p { -webkit-tap-highlight-color: transparent; resize: none }\n' +
+      '.c { container: card / inline-size }\n.d { container-type: size }\n' +
+      '@container card (width > 10px) { p { color: blue } }\n@container (min-width: 20rem) { p { color: red } }',
     undefined,
   );
   // Reported, with the line of the rule or declaration.
-  await check('p { color: red }\n@container (width > 10px) { p { color: blue } }', 'E_CSS', 2);
-  await check('p { color: red }\np { field-sizing: content }', 'E_CSS_PROPERTY', 2);
-  await check('p { -webkit-line-clamp: 2 }', 'E_CSS_PROPERTY', 1);
+  await check('p { color: red }\n@container style(--x: 1) { p { color: blue } }', 'E_CSS', 2);
+  await check('p { color: red }\n.c { container-type: scroll-state }', 'E_CSS_PROPERTY', 2);
+  await check('p { color: red }\np::before { field-sizing: content }', 'E_CSS_PROPERTY', 2);
+  // A declaration Stylo drops from a rule with matchable selectors is a
+  // guard the app reports once the selector matches an element.
+  const guards = css =>
+    react(
+      'import "./s.css";function App(){return <p>Hi</p>;}',
+      async root => (await collect(root)).styleGuards,
+      { 's.css': css },
+    );
+  assert.deepEqual(
+    (await guards('p { color: red }\n.a, .b > p { field-sizing: content }')).map(g => g.selector),
+    ['.a, .b > p'],
+  );
+  assert.match(
+    (await guards('p { -webkit-line-clamp: 2 }'))[0].message,
+    /-webkit-line-clamp: 2 \(s\.css, line 1\)/,
+  );
 });
 
 test('CSS filter lists are accepted where the renderers draw them', async () => {

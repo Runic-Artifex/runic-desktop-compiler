@@ -51,4 +51,35 @@ pub(crate) fn resolve(doc: &mut BaseDocument) {
     let now = now();
     doc.resolve(now);
     crate::animations::observe(doc, now);
+    check_style_guards(doc);
+}
+
+thread_local! {
+    /// The style guards of the document not yet reported (`App::STYLE_GUARDS`).
+    static STYLE_GUARDS: std::cell::RefCell<Vec<(&'static str, &'static str)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+pub(crate) fn set_style_guards(guards: &'static [(&'static str, &'static str)]) {
+    STYLE_GUARDS.with(|g| *g.borrow_mut() = guards.to_vec());
+}
+
+/// A declaration the style engine drops applies once its rule's selector
+/// matches an element: it is reported as unsupported (once).
+fn check_style_guards(doc: &BaseDocument) {
+    let matched: Vec<&'static str> = STYLE_GUARDS.with(|g| {
+        let mut g = g.borrow_mut();
+        let mut matched = vec![];
+        g.retain(|(selector, message)| {
+            let hit = !matches!(doc.query_selector(selector), Ok(None));
+            if hit {
+                matched.push(*message);
+            }
+            !hit
+        });
+        matched
+    });
+    for message in matched {
+        crate::unsupported(message);
+    }
 }

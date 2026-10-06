@@ -390,6 +390,7 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
             css: field(v, "css")?.as_str().unwrap_or_default().to_owned(),
             assets: serde_json::from_value(field(v, "assets")?.clone())
                 .or_else(|_| bad("assets"))?,
+            guards: vec![],
         },
         globals: vec![],
         restore_focus: false,

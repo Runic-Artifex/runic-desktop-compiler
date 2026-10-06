@@ -363,6 +363,7 @@ interface Graph {
   entry: string;
   hash: string;
   css: string;
+  styleGuards?: { selector: string; message: string }[];
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
   config: { title: string; renderer?: 'cpu' | 'gpu' };
@@ -3911,7 +3912,11 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       // frame (continuous priority), or with an earlier discrete update.
       continuous: ['scroll'],
     },
-    styles: { css: graph.css, assets: graph.assets },
+    styles: {
+      css: graph.css,
+      assets: graph.assets,
+      ...(graph.styleGuards ? { guards: graph.styleGuards } : {}),
+    },
     records: types.records,
     functions: lower.functions,
     globals: lower.globals,

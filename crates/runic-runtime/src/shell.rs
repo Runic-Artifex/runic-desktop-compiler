@@ -81,6 +81,8 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     crate::layout::take_clamped();
     // The animations of this document, if the program reads them (M6).
     crate::animations::reset(A::TRACKS_ANIMATIONS);
+    // Declarations the style engine drops, reported once they apply.
+    crate::timeline::set_style_guards(A::STYLE_GUARDS);
     // Rejections a previous document left unreported go with it.
     runic_js::clear_rejections();
     let mut doc = BaseDocument::new(DocumentConfig {
