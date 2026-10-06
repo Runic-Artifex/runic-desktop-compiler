@@ -85,7 +85,7 @@ Local forks of linebender/vello (`vello_cpu`, `vello_common`, `glifo`, and `vell
 
 ## Fixed in the Stylo fork
 
-A local fork of servo/stylo (`/home/viktor/Development/RunicArtifex/stylo`), branch `runic` on tag `v0.22.0` (`34d25f7`, the commit the published `stylo` 0.22.0 crates were packaged from; their sources are identical), signed commits, not pushed; each commit message explains its patch. The workspace pins it with `[patch.crates-io]` for every crate of the repository in the graph (`stylo`, `stylo_atoms`, `stylo_derive`, `stylo_dom`, `stylo_malloc_size_of`, `stylo_static_prefs`, `stylo_traits`, `selectors`, `servo_arc`, `to_shmem`, `to_shmem_derive`). Both patches are small enough to offer upstream.
+A fork of servo/stylo ([`Runic-Artifex/stylo`](https://github.com/Runic-Artifex/stylo), local clone `/home/viktor/Development/RunicArtifex/stylo`), branch `runic` on tag `v0.22.0` (`34d25f7`, the commit the published `stylo` 0.22.0 crates were packaged from; their sources are identical), signed commits; each commit message explains its patch. The workspace pins it with `[patch.crates-io]` for every crate of the repository in the graph (`stylo`, `stylo_atoms`, `stylo_derive`, `stylo_dom`, `stylo_malloc_size_of`, `stylo_static_prefs`, `stylo_traits`, `selectors`, `servo_arc`, `to_shmem`, `to_shmem_derive`). Both patches are small enough to offer upstream.
 
 | Gap | Was | Commit | Case |
 |---|---|---|---|
