@@ -1173,6 +1173,25 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 )),
             }
         }
+        // An effect root (Svelte's `$effect.root`, M6): its function runs at
+        // once; the result identifies the root for `effect.destroy-root`.
+        ("effect", "root") => {
+            arity(args, 1, 1)?;
+            let cleanup = |r: &Type| match r {
+                Void => true,
+                Fn(f) => f.params.is_empty() && *f.result == Void,
+                Maybe(i) => matches!(&**i, Fn(f) if f.params.is_empty() && *f.result == Void),
+                _ => false,
+            };
+            match &args[0] {
+                Fn(f) if f.params.is_empty() && cleanup(&f.result) => Ok(Number),
+                other => Err(format!(
+                    "the root's function takes no arguments and returns a cleanup or nothing, found {}",
+                    other.name()
+                )),
+            }
+        }
+        ("effect", "destroy-root") => arity(args, 1, 1).and(expect(&args[0], &Number, "root")).map(|_| Void),
         // A call whose reads are not dependencies of the running effect or derived value.
         ("reactive", "untrack-call") => {
             let Some(Fn(f)) = args.first() else {

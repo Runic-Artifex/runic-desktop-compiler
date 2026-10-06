@@ -1,0 +1,13 @@
+{
+  "description": "Effect roots (Svelte's $effect.root, M6 overlays: bits-ui's SharedState behind its body scroll lock, and its keyboard tracking): a root created while the app initialises, its $effect run after the mount and re-run when the value it reads changes (its cleanup first); destroying the root runs its effects' cleanups, then its function's; a root created by a handler; the value changing after a root is destroyed",
+  "fixtures": ["effect-root-svelte"],
+  "actions": [
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "stop" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "start" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "stop" },
+    { "kind": "click", "id": "bump" }
+  ]
+}

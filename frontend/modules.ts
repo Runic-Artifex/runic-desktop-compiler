@@ -241,6 +241,16 @@ function destructureConstant(
   }
 }
 
+/** Whether `e` is `$state(…)` or `$state.raw(…)` (module state where Svelte compiles runes). */
+export function stateRune(e: ts.Expression | undefined): boolean {
+  const x = e && skipParens(e);
+  return (
+    !!x &&
+    ts.isCallExpression(x) &&
+    (x.expression.getText() === '$state' || x.expression.getText() === '$state.raw')
+  );
+}
+
 /** The first reference to `sym` in `statements` other than in an export list. */
 function valueUse(
   statements: readonly ts.Statement[],
@@ -416,6 +426,13 @@ export function lowerModules(
           }
           if (!ts.isIdentifier(d.name) || !d.initializer)
             fail(d, 'E_MODULE', 'Module constants need a name and an initialiser');
+          // A constant holding module state (`export const items = $state([])`).
+          const runes = /\.svelte\.(ts|js)$/.test(file);
+          if (runes && stateRune(d.initializer)) {
+            const sym = checker.getSymbolAtLocation(d.name)!;
+            pending.push(lower.moduleVariable(sym, d, (d.name as ts.Identifier).text, true));
+            continue;
+          }
           // Intl and pack constants have no runtime value (their uses are lowered).
           if (lower.isIntlConstant(d) || lower.isPackConstant(d)) continue;
           const sym = checker.getSymbolAtLocation(d.name)!;

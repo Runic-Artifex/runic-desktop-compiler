@@ -17,6 +17,7 @@ import ts from 'typescript';
 import { createRequire } from 'node:module';
 import { skipParens, type Binding, type Lowerer } from './language.ts';
 import { bindPackImport, bindPackWrapper, type Edge } from './packs.ts';
+import { stateRune } from './modules.ts';
 import type { PackageModule } from './package-modules.ts';
 
 const require = createRequire(import.meta.url);
@@ -107,6 +108,14 @@ export function packageBindings(
       return lower.fail(decl, 'E_MODULE', 'Module constants need a name and an initialiser');
     const name = decl.name.text;
     if (lower.isIntlConstant(decl) || lower.isPackConstant(decl)) return lower.bindings.get(symbol);
+    // A constant holding module state (`const x = $state(v)`).
+    if (
+      /\.svelte\.js\.__runic\.ts$/.test(decl.getSourceFile().fileName) &&
+      stateRune(decl.initializer)
+    ) {
+      lower.moduleVariable(symbol, decl, name, true, true)();
+      return lower.bindings.get(symbol);
+    }
     // A value known at build time (`isBrowser = typeof document !== "undefined"`).
     const known = lower.staticValue(decl.initializer);
     if (known) {

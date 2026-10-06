@@ -2133,6 +2133,84 @@ impl Cx {
 /// effects created at run time) and attachments of spread elements; the
 /// reference interpreter implements the same model (`runic_ir::interp`).
 const INSTANCE_SERVICES: &str = r#"impl Cx {
+    /// `effect.root(f)` (M6): a root, `f` run at once and untracked; effects it creates belong to the root. Its id.
+    fn effect_root(&mut self, f: Dfx) -> JsResult<f64> {
+        let r = self.roots.len();
+        self.roots.push(RootFx { dfx: Vec::new(), fx: Vec::new(), teardown: None, alive: true });
+        self.root_stack.push(r);
+        let outer = self.tracking.take();
+        let result = f(self);
+        self.tracking = outer;
+        self.root_stack.pop();
+        if let Some(t) = result? {
+            self.roots[r].teardown = Some(t);
+        }
+        Ok(r as f64)
+    }
+    /// Run effect `e` of root `r`, tracking what it reads (its cleanup already ran).
+    fn run_root_effect(&mut self, r: usize, e: usize) {
+        let f = Rc::clone(&self.roots[r].dfx[e].1);
+        let outer = std::mem::replace(&mut self.tracking, Some(Vec::new()));
+        let heap_outer = js::begin_heap_reads(Some(OWNED_ONLY));
+        let res = f(self);
+        let heap = js::end_heap_reads(heap_outer);
+        let mut deps = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
+        deps.extend(runic_runtime::Dep::heap(heap));
+        let st = &mut self.roots[r].fx[e];
+        st.deps = deps;
+        st.started = true;
+        match res {
+            Ok(Some(c)) => st.cleanup = Some(c),
+            Ok(None) => {}
+            Err(err) => eprintln!("runic: uncaught exception in an effect: {err}"),
+        }
+    }
+    fn root_cleanup(&mut self, r: usize, e: usize) {
+        if let Some(c) = self.roots[r].fx[e].cleanup.take() {
+            // (Reading the values before the writes that re-run it, as an instance's.)
+            self.reading_previous = CLEANUP_READS_PREVIOUS;
+            let result = c(self);
+            self.reading_previous = false;
+            if let Err(err) = result {
+                eprintln!("runic: uncaught exception in a cleanup: {err}");
+            }
+        }
+    }
+    /// The effects of live roots, in creation order: pre effects, then post effects, each where it never ran or what it read changed.
+    fn run_roots(&mut self) {
+        for r in 0..self.roots.len() {
+            for pre in [true, false] {
+                for e in 0..self.roots[r].dfx.len() {
+                    if !self.roots[r].alive || self.roots[r].dfx[e].0 != pre {
+                        continue;
+                    }
+                    let due = !self.roots[r].fx[e].started || {
+                        let deps = self.roots[r].fx[e].deps.clone();
+                        deps.iter().any(|d| d.changed(self))
+                    };
+                    if due {
+                        self.root_cleanup(r, e);
+                        self.run_root_effect(r, e);
+                    }
+                }
+            }
+        }
+    }
+    /// `effect.destroy-root(r)`: the cleanups of its effects in creation order, then its function's.
+    fn destroy_root(&mut self, r: usize) {
+        if !self.roots.get(r).is_some_and(|x| x.alive) {
+            return;
+        }
+        self.roots[r].alive = false;
+        for e in 0..self.roots[r].dfx.len() {
+            self.root_cleanup(r, e);
+        }
+        if let Some(t) = self.roots[r].teardown.take() {
+            if let Err(err) = t(self) {
+                eprintln!("runic: uncaught exception in a cleanup: {err}");
+            }
+        }
+    }
     /// `context.set`: a context of the instance being created.
     fn context_set(&mut self, key: JsString, v: Rc<dyn std::any::Any>) -> JsResult<()> {
         let Some(i) = self.creating.last() else {
@@ -2156,8 +2234,19 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
         };
         Ok(js::Handle(i.contexts() as Rc<dyn std::any::Any>))
     }
-    /// `effect.pre` / `effect.post`: an effect of the instance being created.
+    /// `effect.pre` / `effect.post`: an effect of the instance being created
+    /// (or of the effect root whose function runs).
     fn create_effect(&mut self, pre: bool, f: Dfx) -> JsResult<()> {
+        if let Some(&r) = self.root_stack.last() {
+            // (A pre effect in a root is not covered.)
+            if pre {
+                runic_runtime::unsupported("a pre effect in an effect root");
+                return Ok(());
+            }
+            self.roots[r].dfx.push((pre, f));
+            self.roots[r].fx.push(runic_runtime::Fx::default());
+            return Ok(());
+        }
         let Some(i) = self.creating.last().cloned() else {
             return Err(js::Throw::new("RunicEffectError", "effects are created while a component instance is created"));
         };
@@ -2715,6 +2804,8 @@ pub fn generate(
          }\n\
          /// An effect function created at run time: its cleanup, if any.\n\
          pub type Dfx = Rc<dyn Fn(&mut Cx) -> JsResult<Option<Lst>>>;\n\
+         /// An effect root (`effect.root`, M6): the effects created while its function ran, run after the instances' effects of each flush pass until it is destroyed.\n\
+         pub struct RootFx { pub dfx: Vec<(bool, Dfx)>, pub fx: Vec<runic_runtime::Fx<Lst, Cx>>, pub teardown: Option<Lst>, pub alive: bool }\n\
          /// An attachment: called with the element, gives its cleanup, if any.\n\
          pub type Att = Rc<dyn Fn(&mut Cx, js::Element) -> JsResult<Option<Lst>>>;\n\
          /// A callback passed through an attribute bag, type-erased (`attrs.get` adapts it).\n\
@@ -2949,6 +3040,8 @@ pub fn generate(
         ),
         None => String::new(),
     };
+    let owned_only_v = owned_only(p);
+    let cleanup_previous_v = p.schedule.cleanup_reads_previous;
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
@@ -2981,10 +3074,12 @@ pub fn generate(
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
+         /// Effects track the heap objects they read only where references are owned (proxied state, signal fields).\nconst OWNED_ONLY: bool = {owned_only_v};\n\
+         /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{live_init}{globals_init}}} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
@@ -3202,6 +3297,8 @@ pub fn generate(
          if {batched} {{ for (r, p) in &after {{ if !keys.contains(p) {{ batched_cleanups(&mut self.cx, r, phase, &due, &after, &destroyed, &tree); }} }} }}\n\
          for (i, e) in &due {{ i.fx_run(&mut self.cx, *e); }}\n\
          }}\n\
+         // Effect roots after the instances (a root queued during the flush runs after those already queued).\n\
+         self.cx.run_roots();\n\
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }}\n\
          }}\n\
          }}\n\

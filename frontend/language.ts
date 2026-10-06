@@ -4238,6 +4238,8 @@ export class Lowerer {
     const init = reactive ? (init0 as ts.CallExpression).arguments[0] : init0;
     const declared = this.types.typeOrUndefined(d.name);
     const type = declared ?? this.untypedVariableType(sym, d, init);
+    // (Literals take the variable's type: `$state([])` of a `string[]`.)
+    if (init && !this.expected.has(init)) this.expected.set(init, maybeInner(type) ?? type);
     const initial = (): Expr =>
       init
         ? this.coerceValue(this.value(init, undefined, `${name}$module`), type, init)
@@ -8924,6 +8926,34 @@ export class Lowerer {
       value: keyValue,
       body: { op: 'with', local, value: v, body: chain },
     };
+  }
+
+  private destroyRoot?: number;
+
+  /** The function a `$effect.root` returns: destroys the root it captures (its id). */
+  destroyRootFunction(): number {
+    if (this.destroyRoot === undefined) {
+      this.destroyRoot = this.reserve();
+      this.functions[this.destroyRoot] = {
+        name: 'effect$destroyRoot',
+        captures: [{ name: 'root', type: NUMBER }],
+        params: [],
+        locals: [],
+        result: 'void',
+        body: [
+          {
+            op: 'expr',
+            value: {
+              op: 'builtin',
+              name: 'effect.destroy-root',
+              args: [{ op: 'local', local: 0 }],
+              type: 'void',
+            },
+          },
+        ],
+      };
+    }
+    return this.destroyRoot;
   }
 
   private readonly throwingHelpers = new Map<string, number>();

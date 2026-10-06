@@ -556,6 +556,20 @@ impl std::fmt::Debug for DerivedSlot {
     }
 }
 
+/// An effect root (`effect.root`, Svelte's `$effect.root`, M6): effects
+/// created while its function ran belong to it, not to an instance; they
+/// run after the instances' effects in each flush pass until it is
+/// destroyed (`effect.destroy-root`), which runs their cleanups in creation
+/// order, then the cleanup its function returned.
+struct RootScope {
+    /// The instance its function ran in (the context its effects run in).
+    current: usize,
+    effects: Vec<(EffectPhase, Val)>,
+    states: Vec<EffectState>,
+    teardown: Option<Val>,
+    alive: bool,
+}
+
 /// The run state of one effect of an instance.
 #[derive(Default)]
 struct EffectState {
@@ -777,6 +791,9 @@ pub struct Machine<'p> {
     version_clock: u64,
     /// The promise `flush.after` handed out for the pending flush.
     flush_promise: Option<Promise>,
+    /// Effect roots (`effect.root`) and those whose functions are running.
+    roots: Vec<RootScope>,
+    root_stack: Vec<usize>,
     /// localStorage items in insertion order.
     storage: Vec<(JsString, JsString)>,
     /// Host services in probe mode (docs/design/M5-PLATFORM.md).
@@ -1045,6 +1062,8 @@ impl<'p> Machine<'p> {
             reading_previous: false,
             version_clock: 0,
             flush_promise: None,
+            roots: Vec::new(),
+            root_stack: Vec::new(),
             storage,
             host: HostState {
                 console: vec![],
@@ -2984,6 +3003,11 @@ impl<'p> Machine<'p> {
                     EffectPhase::Post
                 };
                 self.create_effect(phase, a[0].clone())?;
+                Val::Undefined
+            }
+            ("effect", "root") => Val::Num(self.create_root(&a[0])? as f64),
+            ("effect", "destroy-root") => {
+                self.destroy_root(a[0].num() as usize);
                 Val::Undefined
             }
             ("reactive", "untrack-call") => {
@@ -5051,6 +5075,9 @@ impl<'p> Machine<'p> {
                 }
             }
         }
+        // Effect roots after the instances (Svelte processes a root queued
+        // during the flush after those already queued).
+        self.run_roots();
     }
 
     /// Live instances in tree order (parent first).
@@ -5165,6 +5192,19 @@ impl<'p> Machine<'p> {
     /// instance's post effects. Cleanups run when the instance is destroyed
     /// (after its DOM is removed; pre effects parent first).
     fn create_effect(&mut self, phase: EffectPhase, run: Val) -> Res<()> {
+        // In an effect root's function: an effect of the root.
+        if let Some(&r) = self.root_stack.last() {
+            // (A pre effect in a root is not covered: whether the framework
+            // re-runs it depends on its siblings' cleanups.)
+            if phase == EffectPhase::Pre {
+                self.unsupported
+                    .get_or_insert("a pre effect in an effect root".to_string());
+                return Ok(());
+            }
+            self.roots[r].effects.push((phase, run));
+            self.roots[r].states.push(EffectState::default());
+            return Ok(());
+        }
         let Some(i) = self.creating else {
             return Err(Throw::new(
                 "RunicEffectError",
@@ -5409,6 +5449,104 @@ impl<'p> Machine<'p> {
             Ok(Val::Closure(c)) => state.cleanup = Some(Val::Closure(c)),
             Ok(_) => {}
             Err(t) => self.uncaught.push(t),
+        }
+    }
+
+    /// `effect.root(f)`: a root, `f` run at once and untracked; effects it
+    /// creates belong to the root. Its id.
+    fn create_root(&mut self, f: &Val) -> Res<usize> {
+        let r = self.roots.len();
+        self.roots.push(RootScope {
+            current: self.current,
+            effects: vec![],
+            states: vec![],
+            teardown: None,
+            alive: true,
+        });
+        self.root_stack.push(r);
+        let outer = self.tracking.take();
+        let result = self.call_value(f, vec![]);
+        self.tracking = outer;
+        self.root_stack.pop();
+        if let Val::Closure(c) = result? {
+            self.roots[r].teardown = Some(Val::Closure(c));
+        }
+        Ok(r)
+    }
+
+    /// Run effect `e` of root `r`, tracking what it reads (its cleanup already ran).
+    fn run_root_effect(&mut self, r: usize, e: usize) {
+        let run = self.roots[r].effects[e].1.clone();
+        let outer = self.tracking.replace(vec![]);
+        let heap_outer = js::begin_heap_reads(Some(self.tracks_owned));
+        let saved = std::mem::replace(&mut self.current, self.roots[r].current);
+        let saved_snap = self.snap.take();
+        let result = self.call_value(&run, vec![]);
+        self.current = saved;
+        self.snap = saved_snap;
+        let heap = js::end_heap_reads(heap_outer);
+        let reads = std::mem::replace(&mut self.tracking, outer);
+        let state = &mut self.roots[r].states[e];
+        state.started = true;
+        state.heap = heap;
+        state.reads = reads.unwrap_or_default();
+        match result {
+            Ok(Val::Closure(c)) => state.cleanup = Some(Val::Closure(c)),
+            Ok(_) => {}
+            Err(t) => self.uncaught.push(t),
+        }
+    }
+
+    fn run_root_cleanup(&mut self, r: usize, e: usize) {
+        if let Some(c) = self.roots[r].states[e].cleanup.take() {
+            // (Reading the values before the writes that re-run it, as an instance's.)
+            self.reading_previous = self.program.schedule.cleanup_reads_previous;
+            let result = self.call_value(&c, vec![]);
+            self.reading_previous = false;
+            if let Err(t) = result {
+                self.uncaught.push(t);
+            }
+        }
+    }
+
+    /// The effects of live roots, in creation order: pre effects, then post
+    /// effects, each where it never ran or what it read changed.
+    fn run_roots(&mut self) {
+        for r in 0..self.roots.len() {
+            for phase in [EffectPhase::Pre, EffectPhase::Post] {
+                for e in 0..self.roots[r].effects.len() {
+                    if !self.roots[r].alive || self.roots[r].effects[e].0 != phase {
+                        continue;
+                    }
+                    let state = &self.roots[r].states[e];
+                    let due = !state.started || {
+                        let reads = state.reads.clone();
+                        state.heap.iter().any(js::HeapRead::changed)
+                            || reads.iter().any(|x| self.read_changed(x))
+                    };
+                    if due {
+                        self.run_root_cleanup(r, e);
+                        self.run_root_effect(r, e);
+                    }
+                }
+            }
+        }
+    }
+
+    /// `effect.destroy-root(r)`: the cleanups of its effects in creation
+    /// order, then its function's. Nothing for a root already destroyed.
+    fn destroy_root(&mut self, r: usize) {
+        if !self.roots.get(r).is_some_and(|x| x.alive) {
+            return;
+        }
+        self.roots[r].alive = false;
+        for e in 0..self.roots[r].effects.len() {
+            self.run_root_cleanup(r, e);
+        }
+        if let Some(t) = self.roots[r].teardown.take() {
+            if let Err(t) = self.call_value(&t, vec![]) {
+                self.uncaught.push(t);
+            }
         }
     }
 

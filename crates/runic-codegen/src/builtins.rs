@@ -752,6 +752,25 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 ),
             )
         }
+        // An effect root (M6): `f` runs at once in it; the root's id.
+        ("effect", "root") => {
+            let Type::Fn(f) = &types[0] else {
+                unreachable!("validated root function")
+            };
+            let cleanup = match &*f.result {
+                Type::Void => "{ f(cx)?; Ok(None) }",
+                Type::Maybe(_) => "match f(cx)? { Maybe::Some(c) => Ok(Some(c)), _ => Ok(None) }",
+                _ => "Ok(Some(f(cx)?))",
+            };
+            q(
+                cx,
+                format!(
+                    "{{ let f = {}; let d: Dfx = Rc::new(move |cx: &mut Cx| -> JsResult<Option<Lst>> {{ {cleanup} }}); cx.effect_root(d) }}",
+                    t[0]
+                ),
+            )
+        }
+        ("effect", "destroy-root") => format!("{{ cx.destroy_root({} as usize); }}", t[0]),
         ("reactive", "untrack-call") => {
             let args: String = t[1..].iter().map(|a| format!(", {a}")).collect();
             q(

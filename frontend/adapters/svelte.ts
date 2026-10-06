@@ -1529,6 +1529,25 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           type: 'void',
         };
       }
+      // $effect.root(f) (M6, bits-ui's SharedState and keyboard tracking): f
+      // runs at once in a root its effects belong to; the result destroys
+      // the root (docs/IR.md, `effect.root`).
+      if (rune === '$effect.root' && runeFile(node)) {
+        const [fn] = node.arguments;
+        if (!fn || node.arguments.length !== 1)
+          return tsFail(node, 'E_EFFECT', '$effect.root takes one function');
+        const f = lower.expr(fn, ctx);
+        const t = lower.irType(f, ctx);
+        if (typeof t !== 'object' || !('fn' in t) || t.fn.params.length)
+          return tsFail(node, 'E_EFFECT', '$effect.root takes a function without parameters');
+        const local = ctx.local('$root', 'number');
+        return {
+          op: 'with',
+          local,
+          value: { op: 'builtin', name: 'effect.root', args: [f], type: 'number' },
+          body: { op: 'closure', function: lower.destroyRootFunction(), captures: [local] },
+        };
+      }
       // $props.id(): an id unique in the program (`c1`, `c2`, … in creation order).
       if (rune === '$props.id') {
         if (node.arguments.length) tsFail(node, 'E_RUNE', '$props.id takes no arguments');
