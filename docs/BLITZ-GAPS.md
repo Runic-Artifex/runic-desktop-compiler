@@ -42,6 +42,7 @@ Layers: **UA** is Blitz's user-agent stylesheet (`blitz-dom/assets/default.css`)
 | Text decoration offsets | paint | with identical glyphs, an underline one device pixel higher and a line-through one lower than Chromium's (both snapped to whole pixels since `e8dd36c`): Blitz rounds the font's underline position and a third of the ascent from the unrounded baseline | — (case `text-elements` declares it) | M6 element sweep |
 | Generated content other than strings | layout | `content: open-quote`, `close-quote`, `counter()`, `attr()` and images generate nothing (`pe_content_text` keeps strings), so `<q>` has no quotation marks | the collector rejects such `content` values; `<q>` stays outside the element list | M6 element sweep |
 | Fractional line boxes | layout | Parley rounds line heights (`quantize`); Chromium keeps them in LayoutUnits, so after a line of fractional height (a `sup` and a `sub` with the user agent's line height: 30.53px) everything below is up to half a pixel off | fixtures give `sup` and `sub` `line-height: 0`, as Tailwind's preflight does | M6 element sweep |
+| Tables | layout | tables are grids: captions are ignored (`collect_table_cells`), column widths do not follow CSS 2.1 automatic layout (Chromium gives a column its content's width), `tr` and row groups get no box, cells are not centred vertically | — (tables stay outside the element list) | M6 element sweep |
 
 ## Fixed in the fork
 
