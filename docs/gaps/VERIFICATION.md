@@ -26,7 +26,7 @@ Every M6 bits-ui fixture is incomplete in the differential (13 of them), so libr
 | OS keyboard and IME delivery, Wayland resize, accessibility (AccessKit); OS clipboard and console checked once by hand | Need real compositor sessions | The desktop-input track (computer use); required by M8 |
 | Svelte 5.49.2 and Vue 3.5.24 pins; the site's pins (Svelte 5.54.0, Vite 8.1.5) | Not in the automated campaign | Version environments (M7) |
 | Probes do not model Playwright's scroll-into-view before pointer actions | Not modelled | Cases click visible elements |
-| Paint-only regressions (placeholders, ellipsis, small loaders) | The whole-viewport gate misses them | Region gates or inspection |
+| Paint-only regressions (placeholders, ellipsis, small loaders, one mis-rendered word: synthetic italic leaned left in `style-objects` for months within 3/255) | The whole-viewport gate (mean error 3/255) misses them | Region gates (`pixelRegions`) on the text and controls a case is about, or inspection |
 | GPU pixel runs: representative cases on lavapipe only; hardware drivers and Wayland presentation | — | Hardware runs |
 | Corpus scan of 20–50 apps; shadcn/ui and shadcn-vue not scanned; the editor's scan dates from M1; no island or native-coverage baseline | M6 exit criteria not reached | M6 step 10 |
 | Example coverage of the north star: 34 of 374 previews on the shadcn-svelte component pages, 25 of 59 component wrappers vendored (2026-10-07) | Work in progress | [Clusters](../GAPS.md#clusters) |

@@ -1,0 +1,16 @@
+{
+  "description": "Inert text-level and grouping elements (M6 breadth sweep, P1): sup, sub, kbd, samp, mark, time, data, abbr, dfn, var, del, ins, s, u, blockquote, cite and address with their user-agent styles, inserted, removed and updated by state",
+  "fixtures": ["text-elements-svelte", "text-elements-react", "text-elements-vue"],
+  "viewports": [[800, 600], [420, 600]],
+  "pixelRegions": ["formula", "mark", "abbr", "edit"],
+  "knownGaps": {
+    "pixels": "The line of del, ins, s and u (region edit) differs by 2.6-3.6/255 at 800px and 4.1-5.7/255 at 420px: with identical glyphs, Blitz places the underline one device pixel higher and the line-through one lower than Chromium (both snapped to whole pixels; Blitz rounds its offsets from the unrounded baseline; docs/BLITZ-GAPS.md, text decorations). The rest of the page is within 1.1/255"
+  },
+  "actions": [
+    { "kind": "click", "id": "mark-toggle" },
+    { "kind": "click", "id": "edit-toggle" },
+    { "kind": "click", "id": "more" },
+    { "kind": "click", "id": "mark-toggle" },
+    { "kind": "click", "id": "edit-toggle" }
+  ]
+}

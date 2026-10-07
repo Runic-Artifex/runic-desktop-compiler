@@ -121,6 +121,11 @@ test('CSS transitions and keyframe animations are accepted where the runtime rep
   await check('p { transition: display 1s allow-discrete }', 'E_CSS_PROPERTY', 1);
   await check('p { animation-timeline: scroll() }', 'E_CSS_PROPERTY', 1);
   await check('@starting-style { p { opacity: 0 } }', 'E_CSS', 1);
+  // Blitz generates the strings of `content` only.
+  await check('p::before { content: "\\201C" } p::after { content: "" }', undefined);
+  await check('q::before { content: open-quote }', 'E_CSS_PROPERTY', 1);
+  await check('li::before { content: counter(item) ". " }', 'E_CSS_PROPERTY', 1);
+  await check('a::after { content: " (" attr(href) ")" }', 'E_CSS_PROPERTY', 1);
 });
 
 test('CSS that Stylo drops is reported unless verified equivalent in Chromium', async () => {

@@ -1083,6 +1083,18 @@ function checkRules(css, file) {
         'Unsupported CSS declaration position: sticky: Blitz lays sticky boxes out as relative ones and does not keep them in view while scrolling',
         { file, line: decl.source.start.line, column: decl.source.start.column },
       );
+    // Blitz generates the strings of `content` only (docs/BLITZ-GAPS.md).
+    if (
+      decl.prop === 'content' &&
+      /(^|[\s,])(open-quote|close-quote|no-open-quote|no-close-quote)\b|\b(counters?|attr|url|image-set|linear-gradient)\(/i.test(
+        decl.value,
+      )
+    )
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration content: ${decl.value}: Blitz generates strings only (quotes, counters, attr() and images are not supported)`,
+        { file, line: decl.source.start.line, column: decl.source.start.column },
+      );
     // Blitz transforms text to upper and lower case only (docs/BLITZ-GAPS.md).
     if (decl.prop === 'text-transform' && /capitalize|full-width|full-size-kana/.test(decl.value))
       throw new Diagnostic(

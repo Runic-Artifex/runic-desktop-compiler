@@ -25,6 +25,9 @@ pub const TAGS: &[&str] = &[
     "small", "b", "i", "code", "pre", "br", "hr", "textarea", "label", "select", "option", "dl",
     "dt", "dd", "figure", "figcaption", "svg", "g", "path", "circle", "ellipse", "line",
     "polyline", "polygon", "rect", "form",
+    // Inert text-level and grouping elements (M6; frontend/elements.ts).
+    "sup", "sub", "kbd", "mark", "time", "abbr", "s", "u", "cite", "dfn", "var",
+    "samp", "ins", "del", "data", "blockquote", "address",
 ];
 
 /// Inline SVG (M5): elements in the SVG namespace. Blitz renders an `<svg>`

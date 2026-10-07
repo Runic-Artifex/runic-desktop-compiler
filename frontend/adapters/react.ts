@@ -61,6 +61,7 @@ import { lowerModules } from '../modules.ts';
 import { packMappings, type Edge } from '../packs.ts';
 import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
+import { INERT_TAGS } from '../elements.ts';
 
 const TAGS = new Set([
   'div',
@@ -97,6 +98,7 @@ const TAGS = new Set([
   'label',
   'select',
   'option',
+  ...INERT_TAGS,
 ]);
 /** Inline SVG elements (runic-ir's SVG_TAGS). */
 const SVG_TAGS = new Set([
@@ -149,6 +151,8 @@ const ATTRS: Record<string, string> = {
   readOnly: 'readonly',
   tabIndex: 'tabindex',
   htmlFor: 'for',
+  // (React sets it under its own name, which HTML lowercases.)
+  dateTime: 'datetime',
 };
 /**
  * React event props → IR event kinds (onChange: see `jsx`). React DOM runs
@@ -280,6 +284,7 @@ const CAMEL_ATTRS = new Set([
   'inputMode',
   'enterKeyHint',
   'accessKey',
+  'dateTime',
 ]);
 /**
  * Props with rules of their own (URLs, numeric checks, DOM properties,

@@ -73,6 +73,7 @@ Part of the [gap register](../GAPS.md). Locations as of commit `9add179` (2026-1
 | `v-show`, `v-html`, `v-text`, `v-once`, `v-memo`, custom directives; directive and `v-model` modifiers (`.trim`, `.number`, `.lazy`) | E_TEMPLATE | "planned for a later milestone" | `v-show` is cheap | vue.ts:4371,4614 |
 | `<style>` blocks, plain `<script>`, generic SFCs, `defineOptions` beyond `inheritAttrs` | E_SFC / E_OPTIONS | "component styles are M6" | Scoped styles as for Svelte | vue.ts:489-531 |
 | `Transition`, `Teleport`, `KeepAlive`, `<component :is>`, RouterLink, library components | E_TEMPLATE | — | — | vue.ts:4248 |
+| `<template v-if>` / `v-else` fragments (several nodes or text under one condition) | E_TEMPLATE ("`<template>` is outside the supported elements") | Found in the M6 element sweep; conditions are on elements only | Lower the fragment as Svelte's `{#if}` blocks | vue.ts:4248 |
 | Watchers: `deep`, `once`, `flush: post\|sync`, reactive-object sources, watch handles; `onUpdated`/`onBeforeUpdate` | E_EFFECT | "planned for a later milestone" | — | vue.ts:2407-2677,2802 |
 | Runtime `defineProps`/`defineEmits`; `defineModel` options; rest props; dynamic slot names, `$slots`; `v-bind="obj"` other than `$attrs`; reading fallthrough attributes by name | E_PROPS / E_EMITS / E_MODEL / E_SLOTS / E_ATTRS | — | — | vue.ts:561-739,912,1358,3464-3501 |
 | `v-for` over objects, ranges, maps; destructured items | E_TEMPLATE | "planned for later" | — | vue.ts:3514-3526 |

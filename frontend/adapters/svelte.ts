@@ -77,6 +77,7 @@ import {
   type PackAttr,
   type PackComponent,
 } from '../packs.ts';
+import { INERT_TAGS } from '../elements.ts';
 
 // The svelte/compiler AST is untyped here; nodes are plain objects.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -131,6 +132,7 @@ const TAGS = new Set([
   'figcaption',
   'form',
   ...SVG_TAGS,
+  ...INERT_TAGS,
 ]);
 /** The exports of Svelte's modules that component scripts may import. */
 const SVELTE_EXPORTS = {
