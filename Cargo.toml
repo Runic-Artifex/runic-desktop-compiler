@@ -89,6 +89,15 @@ taffy = { git = "file:///home/viktor/Development/RunicArtifex/taffy", rev = "e7b
 [profile.dev]
 debug = 0
 
+# Same Parley revision, isolated weight-range matching repair.
+[patch."https://github.com/linebender/parley"]
+fontique = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/fontique" }
+parley = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parley" }
+parlance = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parlance" }
+parley_engine = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parley_engine" }
+parley_data = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parley_data" }
+parley_emoji = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parley_emoji" }
+
 [profile.release]
 opt-level = "s"
 strip = true

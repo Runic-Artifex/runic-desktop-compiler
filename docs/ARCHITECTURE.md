@@ -73,6 +73,22 @@ The honesty rules from Phases 1–4 still apply: a missing stage is *incomplete*
 
 ## Design checklist for new capabilities
 
+### Chromium parity: face weight ranges (2026-10-08, isolated)
+
+Blitz carries both endpoints of a CSS `@font-face` weight descriptor to
+registration. Fontique's optional `FontInfoOverride::weight_range` stores the
+advertised interval separately from intrinsic font metadata. Fontique owns
+range-aware CSS matching, subset candidates and synthesis: static faces do not
+synthesize requests covered by their interval; variable `wght` instances clamp
+to the declared interval. Existing single-weight callers retain their behavior
+when the optional range is absent. Parley consumes the resulting query without
+a Runic or framework-specific path. No IR/schema change is needed. This uses
+the existing Parley pin in one isolated worktree, with local overrides pending
+reviewed reproducible pins. The new public fields in `FontInfoOverride` and `FontFaceOverrides` break
+external exhaustive struct literals; owned callers use `..Default::default()`.
+An upstream API/semver decision is required before integration. Width/style
+ranges and CSS face tie ordering remain separate gaps.
+
 ### Chromium parity: shared visual geometry (2026-10-07, isolated)
 
 Blitz keeps normal-flow layout unchanged and exposes `Node::visual_location()`
