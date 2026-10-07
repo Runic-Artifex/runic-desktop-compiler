@@ -12,10 +12,15 @@ fn observe(doc: &HtmlDocument) -> Value {
     let mut text_lines = Map::new();
     let mut scroll = Map::new();
     let mut editors = Map::new();
+    // Device-space layout metrics are diagnostic evidence for native text
+    // rasterization. They are deliberately separate from `textLines`, whose
+    // CSS-space geometry is compared with the browser oracle.
+    let mut layout_metrics = Map::new();
     for id in inner.query_selector_all("[id]").unwrap() {
         let node = inner.get_node(id).unwrap();
         let name = node.attr(local_name!("id")).unwrap();
         let rect = inner.get_transformed_client_bounding_rect(id).unwrap();
+        let mut node_layout_metrics = Map::new();
         if node.attr(LocalName::from("data-scroll")).is_some() {
             scroll.insert(
                 name.into(),
@@ -45,6 +50,24 @@ fn observe(doc: &HtmlDocument) -> Value {
                     node.is_focussed()
                 ]),
             );
+            if let Some(layout) = input.editor.try_layout() {
+                let first = layout.lines().next().map(|line| {
+                    let metrics = line.metrics();
+                    json!({"baseline": metrics.baseline, "height": metrics.line_height})
+                });
+                let last = layout.lines().last().map(|line| {
+                    let metrics = line.metrics();
+                    json!({"baseline": metrics.baseline, "height": metrics.line_height})
+                });
+                node_layout_metrics.insert(
+                    "editor".into(),
+                    json!({
+                        "scale": layout.scale(),
+                        "first": first,
+                        "last": last,
+                    }),
+                );
+            }
         }
         if let Some(inline) = node
             .element_data()
@@ -63,6 +86,25 @@ fn observe(doc: &HtmlDocument) -> Value {
                 })
             }).collect();
             text_lines.insert(name.into(), json!(lines));
+            let first = inline.layout.lines().next().map(|line| {
+                let metrics = line.metrics();
+                json!({"baseline": metrics.baseline, "height": metrics.line_height})
+            });
+            let last = inline.layout.lines().last().map(|line| {
+                let metrics = line.metrics();
+                json!({"baseline": metrics.baseline, "height": metrics.line_height})
+            });
+            node_layout_metrics.insert(
+                "inline".into(),
+                json!({
+                    "scale": inline.layout.scale(),
+                    "first": first,
+                    "last": last,
+                }),
+            );
+        }
+        if !node_layout_metrics.is_empty() {
+            layout_metrics.insert(name.into(), Value::Object(node_layout_metrics));
         }
         let mut targets = Vec::new();
         for (dx, dy) in [
@@ -98,7 +140,7 @@ fn observe(doc: &HtmlDocument) -> Value {
         }
         hits.insert(name.into(), json!(targets));
     }
-    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll,"editors":editors})
+    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics})
 }
 fn render(doc: &mut HtmlDocument, path: &str, width: u32, height: u32) {
     let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);
