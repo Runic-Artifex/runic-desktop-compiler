@@ -64,7 +64,7 @@ Today this needs at least three new inference rules and union support. With dyna
 
 ## Results (2026-10-07)
 
-The spike is implemented behind the opt-in. Adopting it amends D16; that decision is the user's.
+The spike is implemented behind the opt-in. **Adopted as an opt-in on 2026-10-07** (the user's decision): D16 is amended, and dynamic values are a supported fallback a project enables; static types stay preferred.
 
 **Acceptance.**
 

@@ -36,7 +36,7 @@ Clusters (see [GAPS](../GAPS.md#clusters)): **V1** unions, **V2** untyped values
 
 ### Dynamic values (opt-in spike)
 
-With `runic.json` `"dynamicValues": true` ([design](../design/M6-DYNAMIC-VALUES.md), not adopted yet), untyped values compile to the `dyn` type instead of the V2 rejections above. These are the gaps inside that mode, as of the spike (2026-10-07).
+With `runic.json` `"dynamicValues": true` ([design](../design/M6-DYNAMIC-VALUES.md), adopted as an opt-in, D16), untyped values compile to the `dyn` type instead of the V2 rejections above. These are the gaps inside that mode, as of the spike (2026-10-07).
 
 | Not covered | Code | Reason | What it would take | Location |
 |---|---|---|---|---|
