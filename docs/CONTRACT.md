@@ -2,6 +2,14 @@
 
 The input that is implemented and verified as of milestone M5 and the M6 work since (M6 is in progress). What is not covered is in the [gap register](GAPS.md). This is a living document: milestones update it in place, and git history and the `m<N>` tags record earlier versions (v8 is at tag `m4`, v7 at `m3`, v6 at `m2`, v5 at `m1`; v1–v4 are in `history/`). Roadmap items are not part of the contract until a milestone verifies them.
 
+**Isolated parity branch:** this worktree accepts table structure in all three
+adapters to exercise compiled fixtures and uses patched Blitz/Stylo/Vello through
+local paths. The shipping contract below still describes the integrated pins.
+Retained table/control hit and local paint failures, reproducible dependency pins
+and the remaining input/GPU gates prevent promoting experimental acceptance to that
+contract. See the [implementation record](../conformance/results/chromium-parity.md)
+and [targeted plan](research/CHROMIUM-PARITY.md).
+
 The TypeScript frontends (`frontend/`) lower every framework through one shared language layer to [IR schema 4](IR.md). Ordinary JavaScript/TypeScript code follows the JavaScript value model. M3 added component instances, props, lists, slots, element refs, checkboxes and `keydown` ([design](design/M3-COMPONENTS.md)); M4 added the event loop, effects, timers, promises and `async`/`await`, and `localStorage` ([design](design/M4-EFFECTS.md)); M5 added the DOM event model, forms, layout reads and scrolling, media queries, host services ([design](design/M5-PLATFORM.md)) and inline SVG icons. Native applications execute no JavaScript engine.
 
 ## Collection

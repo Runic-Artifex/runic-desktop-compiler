@@ -9,7 +9,10 @@ Everything the compiler, runtime and verification do not cover yet, with the rea
 The [targeted Chromium parity plan](research/CHROMIUM-PARITY.md) turns the renderer
 subset of this register into ordered work with module owners and verification
 gates. The [table worktree experiment](research/BLITZ-TABLES.md) fixes the original
-table-layout gaps locally; compiler tables remain rejected pending integration.
+table-layout gaps locally. The isolated branch accepts table tags for compiled
+integration tests; the integrated compiler still rejects them. The
+[implementation record](../conformance/results/chromium-parity.md) retains the
+new failures and shipping gates.
 
 ## Detail
 

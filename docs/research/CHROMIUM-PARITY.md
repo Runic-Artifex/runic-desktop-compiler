@@ -34,6 +34,53 @@ without a JS engine (D7).
 
 ## Ordered batches
 
+### Isolated implementation checkpoint (2026-10-08)
+
+The experiment now implements the shared scrolling layer in Blitz, responsive
+table integration, native-control sizing/baselines/paint, and the Stylo animation
+fill/cancellation/late-iteration repairs. The shared HTML oracle has been extracted
+from `tables.mjs`; scrolling, controls, borders, glyphs and animation cases use it
+without framework-specific layout logic. React, Vue and Svelte table fixtures
+exercise the same runtime and IR. There is no schema change.
+
+The table UA now distinguishes inherited standards-mode line-height from the
+legacy quirks reset. Compiled tables pass semantics and geometry across 96 CPU
+states in all three frameworks, and 32 selected Svelte GPU states. Local paint
+still fails. The original 69 table states, 12 document-mode states, 148 scrolling
+states and 40 animation states pass their direct geometry/hit/scroll/pixel gates.
+
+One isolated worktree is used per changed repository: compiler `blitz-tables`,
+Blitz `table-layout`, Vello `runic-raster-parity`, and Stylo
+`runic-chromium-parity`. Originals remain unchanged. The compiler worktree accepts
+table tags for integration experiments; its dependency overrides are local paths.
+The normal compiler contract and the sticky/animation-fill compiler restrictions
+are not lifted by this experiment. Before integration, replay the patches on the
+project pins and replace the paths with reviewed, reproducible revisions.
+
+Implementation is narrower than Chromium parity. Sticky covers horizontal writing
+modes; anchoring is layout-time vertical anchoring with live DOM candidates and
+fallbacks, not the complete persistent-anchor/suppression-window model. Scroll
+margins and padding, RTL scroll ranges, transformed targets and all ancestor
+scrollers share Blitz primitives with the runtime. Scaled/rotated scrollports,
+vertical writing, fragmentation and scroll-snap remain separate gates. Animation
+rendering coverage does not certify animation events or the full Web Animations
+API. Internal probes do not certify desktop keyboard/IME delivery.
+
+The next useful closures are driven by retained failures, in this order:
+
+| Gap | Evidence and owner | Next acceptance gate |
+|---|---|---|
+| CP-FONT-RANGE | Compiled table fixture declares a static face as `font-weight: 100 900`; Blitz records only the lower bound in `FontFaceOverrides`, while fontique represents a single weight | Preserve CSS face ranges through font registration/selection in the font layer; compare normal/bold/variable faces without changing fixture CSS |
+| CP-INLINE-BASELINE | `table-controls.mjs` retains a 0.5 px checkable baseline discrepancy in quirks mode; its standards variant passes geometry after fixing UA line-height inheritance | Compare primary-font struts, atomic inline ascent/descent and table middle alignment; fix Parley/Blitz metrics without mode-specific coordinate adjustments |
+| CP-ROUNDED-HIT | Fractional rounded buttons retain an edge hit discrepancy after the inline child-coordinate fix | Use Chromium's rounded-rectangle intersection model and consistent layout coordinates; keep corner hits independent of painting |
+| CP-EDITOR-WRAP | `controls.mjs` textarea after scrolling retains different wrapping and paint; authored input intrinsic widths are covered separately | Compare editor content widths, line advances and break opportunities; repair editor geometry rather than alter its text or font |
+| CP-RASTER | `glyphs.mjs`, `borders.mjs` and checked-radio crop retain local paint failures | Separate outline/hinting, coverage and dotted-stroke phase/count in their renderer owners; retain local MAE 3 across sizes/origins/DPR |
+| CP-TABLE-WPT | Practical table oracle does not cover the complete CSS table model | Add attributed anonymous-box, `empty-cells`, collapse, height distribution and border-order reductions from WPT as the app corpus needs them |
+
+The checked-in [verification record](../../conformance/results/chromium-parity.md)
+separates fixed worktree behavior, residual failures and shipping gates. None of
+the broader P1/P4/P7 clusters is closed merely by these patches.
+
 | Batch | Gaps and app relevance | Owning modules | Completion evidence |
 |---|---|---|---|
 | 1. Practical tables | P1: documentation API tables, shadcn Table/data-table, editor rows | Blitz table layout/paint; runtime events; compiler validation | Responsive and interactive cases below, framework conformance, selected CPU/GPU checks, measured layout cost |

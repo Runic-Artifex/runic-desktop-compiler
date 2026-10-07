@@ -1,0 +1,284 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "baselineBlitz": "166f3a611a17c36c20623e60a95fb95d6e5de453",
+  "currentBlitz": "5464bd0921a8c1e1b24c180601ef6142b4adb7ab",
+  "stylo": "715f4d98b08277e74cc9d71691e19ce5d4763824",
+  "vello": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+  "compiler": "428b31c594d337d3f8bb66eedeba872766357622",
+  "method": "Release opt-level=s, 3 warmups and 15 samples; parse/font ingestion and four resolves in initial, one resolve per mutation. No rasterization or framework work. Sequential single-host runs; not a controlled performance certification.",
+  "baseline": {
+    "memory": [
+      "VmHWM:\t   34088 kB",
+      "VmRSS:\t   34088 kB"
+    ],
+    "results": [
+      {
+        "cellUpdate": {
+          "medianMs": 2.689866,
+          "p95Ms": 3.21417
+        },
+        "initial": {
+          "medianMs": 17.775815,
+          "p95Ms": 20.335124999999998
+        },
+        "parentResize": {
+          "medianMs": 3.156252,
+          "p95Ms": 3.289044
+        },
+        "rowInsertion": {
+          "medianMs": 3.140777,
+          "p95Ms": 3.576383
+        },
+        "rows": 100
+      },
+      {
+        "cellUpdate": {
+          "medianMs": 38.037181000000004,
+          "p95Ms": 41.013775
+        },
+        "initial": {
+          "medianMs": 71.181983,
+          "p95Ms": 75.64432000000001
+        },
+        "parentResize": {
+          "medianMs": 38.761998,
+          "p95Ms": 41.686848999999995
+        },
+        "rowInsertion": {
+          "medianMs": 42.55076,
+          "p95Ms": 44.529872
+        },
+        "rows": 1000
+      }
+    ],
+    "samples": 15,
+    "viewport": [
+      800,
+      600
+    ],
+    "warmup": 3
+  },
+  "current": {
+    "memory": [
+      "VmHWM:\t   35636 kB",
+      "VmRSS:\t   34304 kB"
+    ],
+    "results": [
+      {
+        "cellUpdate": {
+          "medianMs": 2.69381,
+          "p95Ms": 2.809964
+        },
+        "initial": {
+          "medianMs": 17.626260000000002,
+          "p95Ms": 17.718292
+        },
+        "parentResize": {
+          "medianMs": 3.18723,
+          "p95Ms": 3.290022
+        },
+        "rowInsertion": {
+          "medianMs": 3.166583,
+          "p95Ms": 3.334049
+        },
+        "rows": 100
+      },
+      {
+        "cellUpdate": {
+          "medianMs": 37.378651999999995,
+          "p95Ms": 46.035164
+        },
+        "initial": {
+          "medianMs": 70.379154,
+          "p95Ms": 76.135166
+        },
+        "parentResize": {
+          "medianMs": 37.971657,
+          "p95Ms": 40.597552
+        },
+        "rowInsertion": {
+          "medianMs": 40.439034,
+          "p95Ms": 46.697113
+        },
+        "rows": 1000
+      }
+    ],
+    "samples": 15,
+    "viewport": [
+      800,
+      600
+    ],
+    "warmup": 3
+  },
+  "intermediate": [
+    {
+      "blitz": "e1e4786c657e80a3e0e7efbe15783de9ec1516ed",
+      "observation": {
+        "memory": [
+          "VmHWM:\t   34392 kB",
+          "VmRSS:\t   34392 kB"
+        ],
+        "results": [
+          {
+            "cellUpdate": {
+              "medianMs": 2.736488,
+              "p95Ms": 3.4365379999999996
+            },
+            "initial": {
+              "medianMs": 18.005024000000002,
+              "p95Ms": 25.710673
+            },
+            "parentResize": {
+              "medianMs": 3.189676,
+              "p95Ms": 5.5851429999999995
+            },
+            "rowInsertion": {
+              "medianMs": 3.170032,
+              "p95Ms": 3.468002
+            },
+            "rows": 100
+          },
+          {
+            "cellUpdate": {
+              "medianMs": 38.5318,
+              "p95Ms": 40.411043
+            },
+            "initial": {
+              "medianMs": 72.752037,
+              "p95Ms": 73.871203
+            },
+            "parentResize": {
+              "medianMs": 39.485847,
+              "p95Ms": 43.728824
+            },
+            "rowInsertion": {
+              "medianMs": 42.279951000000004,
+              "p95Ms": 46.483769
+            },
+            "rows": 1000
+          }
+        ],
+        "samples": 15,
+        "viewport": [
+          800,
+          600
+        ],
+        "warmup": 3
+      }
+    },
+    {
+      "blitz": "a055af91",
+      "observation": {
+        "memory": [
+          "VmHWM:\t   34180 kB",
+          "VmRSS:\t   34180 kB"
+        ],
+        "results": [
+          {
+            "cellUpdate": {
+              "medianMs": 2.728251,
+              "p95Ms": 2.882348
+            },
+            "initial": {
+              "medianMs": 17.646185000000003,
+              "p95Ms": 18.19156
+            },
+            "parentResize": {
+              "medianMs": 3.191893,
+              "p95Ms": 3.228288
+            },
+            "rowInsertion": {
+              "medianMs": 3.155667,
+              "p95Ms": 3.4564690000000002
+            },
+            "rows": 100
+          },
+          {
+            "cellUpdate": {
+              "medianMs": 37.69182,
+              "p95Ms": 41.177566999999996
+            },
+            "initial": {
+              "medianMs": 70.786693,
+              "p95Ms": 80.20235100000001
+            },
+            "parentResize": {
+              "medianMs": 38.348553,
+              "p95Ms": 41.220039
+            },
+            "rowInsertion": {
+              "medianMs": 41.966139999999996,
+              "p95Ms": 43.097671
+            },
+            "rows": 1000
+          }
+        ],
+        "samples": 15,
+        "viewport": [
+          800,
+          600
+        ],
+        "warmup": 3
+      }
+    }
+  ],
+  "currentFirstRun": {
+    "memory": [
+      "VmHWM:\t   34448 kB",
+      "VmRSS:\t   34448 kB"
+    ],
+    "results": [
+      {
+        "cellUpdate": {
+          "medianMs": 3.193008,
+          "p95Ms": 9.731052
+        },
+        "initial": {
+          "medianMs": 22.431935,
+          "p95Ms": 31.137351
+        },
+        "parentResize": {
+          "medianMs": 3.890193,
+          "p95Ms": 7.746168
+        },
+        "rowInsertion": {
+          "medianMs": 3.9673260000000004,
+          "p95Ms": 10.896844
+        },
+        "rows": 100
+      },
+      {
+        "cellUpdate": {
+          "medianMs": 40.517236999999994,
+          "p95Ms": 74.67262
+        },
+        "initial": {
+          "medianMs": 74.099325,
+          "p95Ms": 209.41412300000002
+        },
+        "parentResize": {
+          "medianMs": 41.483384,
+          "p95Ms": 98.03692699999999
+        },
+        "rowInsertion": {
+          "medianMs": 44.962991,
+          "p95Ms": 68.949997
+        },
+        "rows": 1000
+      }
+    ],
+    "samples": 15,
+    "viewport": [
+      800,
+      600
+    ],
+    "warmup": 3
+  },
+  "currentSelection": "One serial repeat after a noisy first final-source observation; both retained. Active desktop host, not a controlled performance certification.",
+  "repeatLoadAverage": [
+    "6.54 4.88 5.55 3/2988 2417820",
+    "6.54 4.88 5.55 1/3029 2418037"
+  ],
+  "benchmarkSourceSHA256": "fd7af15b822ef18fe5f7dc37c576922ddc01abfe380f4dac2afceee0c7ad7961"
+}

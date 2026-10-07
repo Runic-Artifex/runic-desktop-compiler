@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "implementation": {
+    "compiler": "428b31c594d337d3f8bb66eedeba872766357622",
+    "blitz": "5464bd0921a8c1e1b24c180601ef6142b4adb7ab",
+    "stylo": "715f4d98b08277e74cc9d71691e19ce5d4763824",
+    "vello": "a8efce54ab03eb9d366ff0fe0d799758597b204f"
+  },
+  "geometryToleranceCssPx": 0.125,
+  "localPixelMAEThreshold": 3,
+  "direct": {
+    "originalTables": {
+      "states": 69,
+      "geometry": 69,
+      "hits": 69,
+      "scroll": 69,
+      "localPixels": 69
+    },
+    "legacyExtra": {
+      "states": 8,
+      "geometry": 8,
+      "hits": 8,
+      "scroll": 8,
+      "localPixels": 5
+    },
+    "table-document-mode": {
+      "states": 12,
+      "geometry": 12,
+      "hits": 12,
+      "scroll": 12,
+      "localPixels": 12
+    },
+    "table-controls": {
+      "states": 4,
+      "geometry": 2,
+      "hits": 2,
+      "scroll": 4,
+      "localPixels": 0
+    },
+    "scrolling": {
+      "states": 148,
+      "geometry": 148,
+      "hits": 148,
+      "scroll": 148,
+      "localPixels": 148
+    },
+    "css-animations": {
+      "states": 40,
+      "geometry": 40,
+      "hits": 40,
+      "scroll": 40,
+      "localPixels": 40
+    },
+    "controls": {
+      "states": 9,
+      "geometry": 8,
+      "hits": 8,
+      "scroll": 9,
+      "localPixels": 6
+    },
+    "table-integration": {
+      "states": 30,
+      "geometry": 22,
+      "hits": 24,
+      "scroll": 30,
+      "localPixels": 23
+    },
+    "glyphs": {
+      "states": 38,
+      "geometry": 38,
+      "hits": 38,
+      "scroll": 38,
+      "localPixels": 3
+    },
+    "borders": {
+      "states": 7,
+      "geometry": 7,
+      "hits": 7,
+      "scroll": 7,
+      "localPixels": 0
+    }
+  },
+  "compiledCPU": {
+    "runs": 34,
+    "states": 436,
+    "semanticsPassedRuns": 34,
+    "geometryPassedRuns": 34,
+    "pixelsPassedRuns": 28
+  },
+  "compiledCPUTables": {
+    "runs": 6,
+    "states": 96,
+    "semanticsPassedRuns": 6,
+    "geometryPassedRuns": 6,
+    "pixelsPassedRuns": 0
+  },
+  "compiledCPUNonTables": {
+    "runs": 28,
+    "states": 340,
+    "semanticsPassedRuns": 28,
+    "geometryPassedRuns": 28,
+    "pixelsPassedRuns": 28
+  },
+  "compiledGPU": {
+    "runs": 2,
+    "states": 32,
+    "semanticsPassedRuns": 2,
+    "geometryPassedRuns": 2,
+    "pixelsPassedRuns": 0,
+    "renderer": "gpu",
+    "adapters": [
+      "llvmpipe (LLVM 21.1.8, 256 bits)"
+    ]
+  },
+  "method": "CPU summary combines latest affected-case replays with unchanged earlier runs; no source reports or references rewritten. Null local regions have zero visible viewport area; viewport crop is still observed.",
+  "reports": [
+    {
+      "file": "artifacts/tables/results.json",
+      "sha256": "dee92e0af972deda8348313a980d79c2be40fe8dbb67aef8ea1735d5022d76c2"
+    },
+    {
+      "file": "artifacts/table-document-mode/results.json",
+      "sha256": "3b9371da9faaf6bb963dc6470a40cf4f459e1a9eba433af393e66cba26928fc7"
+    },
+    {
+      "file": "artifacts/table-controls/results.json",
+      "sha256": "4d69e328ccebec04f38b8377aa30f6a994d94cf1fe735dac56a0de0bceb4bb2b"
+    },
+    {
+      "file": "artifacts/scrolling/results.json",
+      "sha256": "3fe5f2b764d2c895da20d1dbef30471963552bfaeadf8a11bf620b2e846e7d91"
+    },
+    {
+      "file": "artifacts/css-animations/results.json",
+      "sha256": "e930b3359f27f81edc0ff8b2d20e083adb3d9aa4c070d9f3fe63fcec24fc8454"
+    },
+    {
+      "file": "artifacts/controls/results.json",
+      "sha256": "2e775107e77b5ed2fe4f2e46d09b62ff73ad4f03a6cfa2f5a6e8840596ff1cc5"
+    },
+    {
+      "file": "artifacts/table-integration/results.json",
+      "sha256": "552aacb028c48fe2182c1c50c8f1e6f749af07ea37680825bf2423d07b94c811"
+    },
+    {
+      "file": "artifacts/glyphs/results.json",
+      "sha256": "f0503b66058bb2797c0c325d03e127fce94df73b6d610b96cdfd423a9930798d"
+    },
+    {
+      "file": "artifacts/borders/results.json",
+      "sha256": "6fe9b74202285af6f4abb97eae26030bc80890cafa0773206b36af6e9e696b67"
+    },
+    {
+      "file": "artifacts/parity-framework-cpu/report.json",
+      "sha256": "be0a8db29e83e87ffcf99e2028a6e9e298abe3fc817d32da9bf788a0fb3f41a4"
+    },
+    {
+      "file": "artifacts/parity-scroll-regressions/report.json",
+      "sha256": "bb73d23ed6c91b291c091fbe1e7d545f08d131e47d6fe9918adb6b4ffbe46c6f"
+    },
+    {
+      "file": "artifacts/parity-tables-scroll-cpu/report.json",
+      "sha256": "8676f60e9b3f259fd461f133b158049cd64e87245d5c9a6c72a8483b967925c6"
+    },
+    {
+      "file": "artifacts/parity-tables-final-cpu/report.json",
+      "sha256": "825e95a3cfb15cac25836ea08c595e93055d1d07e1e3f79a7367dac127d1f695"
+    },
+    {
+      "file": "artifacts/parity-tables-final-gpu/report.json",
+      "sha256": "cf6b1072b5373e9ef88c4d375451f72f8db1efcea76b6ca5259654ae965e538f"
+    },
+    {
+      "file": "artifacts/tables/metadata.json",
+      "sha256": "468c8b3dbbf70787ce7fd43ee7eec0b04f8b909cf1d8df0de256b221f48760f3"
+    },
+    {
+      "file": "artifacts/table-document-mode/metadata.json",
+      "sha256": "468c8b3dbbf70787ce7fd43ee7eec0b04f8b909cf1d8df0de256b221f48760f3"
+    },
+    {
+      "file": "artifacts/table-controls/metadata.json",
+      "sha256": "05f4df3b12055bed2dce1a34b89fdb350c70ef27e86f73ac29e8a26aa9a9d133"
+    },
+    {
+      "file": "artifacts/scrolling/metadata.json",
+      "sha256": "6366dda8a083a545ea64ab5d93d1b558ce0fe7b9ceed97e09f193210739e828e"
+    },
+    {
+      "file": "artifacts/css-animations/metadata.json",
+      "sha256": "fa476b0ec9ceb900e4de5bde3c065121735f80a45284b0a673c71c8c355cfaa3"
+    },
+    {
+      "file": "artifacts/controls/metadata.json",
+      "sha256": "fa476b0ec9ceb900e4de5bde3c065121735f80a45284b0a673c71c8c355cfaa3"
+    },
+    {
+      "file": "artifacts/table-integration/metadata.json",
+      "sha256": "6366dda8a083a545ea64ab5d93d1b558ce0fe7b9ceed97e09f193210739e828e"
+    },
+    {
+      "file": "artifacts/glyphs/metadata.json",
+      "sha256": "f602512ccab6b8205e7fe3498eef631e3b66a6d7091ade63439cdc4f365be082"
+    },
+    {
+      "file": "artifacts/borders/metadata.json",
+      "sha256": "f602512ccab6b8205e7fe3498eef631e3b66a6d7091ade63439cdc4f365be082"
+    }
+  ]
+}

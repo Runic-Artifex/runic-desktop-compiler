@@ -5,11 +5,15 @@ Based on compiler commit `485fc86` and Blitz fork `e8dd36c6`, in isolated branch
 - Blitz: `table-layout`, `/home/viktor/Development/RunicArtifex/blitz-tables`.
 - Compiler verification: `blitz-tables`, `/home/viktor/Development/RunicDesktopCompiler-tables`.
 - Shared renderer: `runic-raster-parity`, `/home/viktor/Development/RunicArtifex/vello-raster-parity`, based on the existing Vello pin `2a06f3e9`.
+- Style engine: `runic-chromium-parity`, `/home/viktor/Development/RunicArtifex/stylo-chromium-parity`, based on the existing Stylo pin `260e70fa2`.
 
 The compiler worktree patches the existing local Blitz URL to the Blitz worktree's
 packages and the existing Vello packages to the renderer worktree. Dependency
 versions and other pins are unchanged. These branches are not integrated into
-`main` or `m6`. Tables remain rejected by the compiler.
+`main` or `m6`. The isolated compiler now accepts tables for compiled integration
+testing; the integrated compiler still rejects them. The later targeted effort
+is recorded in [Chromium parity](CHROMIUM-PARITY.md) and its
+[verification record](../../conformance/results/chromium-parity.md).
 
 Blitz implementation: signed commits `3971a7ba`, `f85b2539` and `166f3a61`.
 The follow-ups improve cell heights, collapsed-border painting and round-dot
