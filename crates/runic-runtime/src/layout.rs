@@ -15,6 +15,12 @@ thread_local! {
 /// frame's scroll events. Blitz owns clamping and anchoring; capture before
 /// resolving so those operations cannot hide a changed offset from Runic.
 pub(crate) fn resolve(doc: &mut BaseDocument) {
+    crate::timeline::resolve(doc);
+}
+
+/// Every timeline resolution can clamp or anchor a scroller, including the
+/// animation and focus lifecycle steps that precede `layout_frame`.
+pub(crate) fn capture_scroll_offsets(doc: &BaseDocument) -> Vec<(NodeId, (f64, f64))> {
     let root = doc.try_root_element().map(|r| r.id);
     let mut before: Vec<_> = doc
         .tree()
@@ -29,7 +35,13 @@ pub(crate) fn resolve(doc: &mut BaseDocument) {
     if let Some(root) = root.filter(|_| doc.viewport_scroll() != blitz_dom::Point::ZERO) {
         before.push((root, scroll_offset(doc, root)));
     }
-    crate::timeline::resolve(doc);
+    before
+}
+
+pub(crate) fn record_layout_scroll_changes(
+    doc: &BaseDocument,
+    mut before: Vec<(NodeId, (f64, f64))>,
+) {
     if before.is_empty() {
         return;
     }
@@ -535,9 +547,7 @@ pub(crate) fn scroll(
     } else {
         (left.map_or(cx, finite), top.map_or(cy, finite))
     };
-    // Scroll offsets are whole device pixels (scale 1), rounded as Chromium
-    // rounds them.
-    let (x, y) = (x.round(), y.round());
+    // Blitz owns the used scroll-offset rounding and range policy.
     doc.scroll_to(target, x, y, ScrollBehavior::Instant);
     (scroll_offset(doc, target) != (cx, cy)).then_some(target)
 }

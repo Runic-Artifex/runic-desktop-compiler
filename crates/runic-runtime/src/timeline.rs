@@ -50,7 +50,9 @@ pub(crate) fn now() -> f64 {
 /// the document's animations to the app's animation objects.
 pub(crate) fn resolve(doc: &mut BaseDocument) {
     let now = now();
+    let scroll_offsets = crate::layout::capture_scroll_offsets(doc);
     doc.resolve(now);
+    crate::layout::record_layout_scroll_changes(doc, scroll_offsets);
     crate::animations::observe(doc, now);
     check_style_guards(doc);
 }

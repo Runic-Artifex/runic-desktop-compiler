@@ -8,6 +8,17 @@ const pane = 'width:300px;height:120px;overflow:auto;scrollbar-width:none;border
 const scroll = (y, x = 0, selector = '#table') => ({ kind: 'scroll', selector, x, y });
 const sticky = 'position:sticky;background:#dde8ff;height:24px';
 const cases = {
+  scroll_fractional_into_view: {
+    html: `<div id="table" data-scroll style="width:300px;height:121.5px;box-sizing:border-box;overflow:auto;scrollbar-width:none;border:2px solid #333">${Array.from({ length: 32 }, (_, i) => `<div ${i === 15 ? 'id="target"' : i === 31 ? 'id="end"' : ''} style="height:23.25px;box-sizing:border-box;border-bottom:1px solid #ddd">Item ${i}</div>`).join('')}</div>`,
+    viewports: [[420, 300, 1], [420, 300, 2], [800, 300, 1], [800, 300, 2]],
+    actions: [
+      scroll(0.5),
+      { kind: 'scrollIntoView', selector: '#target', block: 'nearest' },
+      { kind: 'scrollIntoView', selector: '#target', block: 'start' },
+      { kind: 'scrollIntoView', selector: '#end', block: 'center' },
+      { kind: 'scrollIntoView', selector: '#end', block: 'end' },
+    ],
+  },
   scroll_transformed_target: {
     html: `<div id="table" data-scroll style="${pane}"><div style="height:100px">Before</div><div id="target" style="height:20px;transform:translateY(50px);background:#dde8ff">Target</div><div style="height:300px">After</div></div>`,
     viewports,
