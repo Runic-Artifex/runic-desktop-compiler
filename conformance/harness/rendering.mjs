@@ -73,6 +73,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
           viewport: [640, 300],
           deviceScaleFactor: 1,
           renderer: 'cpu',
+          screenshotCaret: 'initial',
           fontSHA256: sha256(Buffer.from(font, 'base64')),
           cargoLockSHA256: sha256(await readFile(path.join(root, 'Cargo.lock'))),
           nativeBinarySHA256: sha256(await readFile(path.join(targetDir, 'debug/table-probe'))),
@@ -89,6 +90,18 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
       return page.evaluate(() => {
         const elements = [...document.querySelectorAll('[id]')];
         return {
+          editors: Object.fromEntries(
+            elements
+              .filter(
+                el =>
+                  (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) &&
+                  el.selectionStart !== null,
+              )
+              .map(el => [
+                el.id,
+                [el.value, el.selectionStart, el.selectionEnd, document.activeElement === el],
+              ]),
+          ),
           scroll: Object.fromEntries(
             elements
               .filter(el => el.hasAttribute('data-scroll'))
@@ -167,6 +180,15 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
           );
           await page.setContent(html);
           await page.evaluate(() => document.fonts.ready);
+          for (const requirement of config.browserStyleRequirements ?? []) {
+            const value = await page.evaluate(
+              ({ selector, property }) =>
+                getComputedStyle(document.querySelector(selector))[property],
+              requirement,
+            );
+            if (value !== requirement.value)
+              throw new Error(`${name}: browser prerequisite ${requirement.property} was ${value}`);
+          }
           if (config.timeline)
             await page.evaluate(() => {
               window.__oracleTime = 0;
@@ -189,6 +211,8 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
                   else if (action.kind === 'attribute') el.setAttribute(action.name, action.value);
                   else if (action.kind === 'scroll') el.scrollTo(action.x ?? 0, action.y ?? 0);
                   else if (action.kind === 'focus') el.focus({ preventScroll: true });
+                  else if (action.kind === 'selection')
+                    el.setSelectionRange(action.start, action.end);
                   else if (action.kind === 'scrollIntoView')
                     el.scrollIntoView({
                       block: action.block ?? 'nearest',
@@ -213,7 +237,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
               );
             const browserPng = path.join(out, `${fileName}-chrome${step ? `-${step}` : ''}.png`);
             const nativeScreenshot = step ? nativePng.replace('.png', `-${step}.png`) : nativePng;
-            await page.screenshot({ path: browserPng });
+            await page.screenshot({ path: browserPng, caret: 'initial' });
             const expected = await reference(),
               observation = observations[step];
             await writeFile(
@@ -242,6 +266,18 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
                   values.some((v, i) => Math.abs(v - observation.scroll[id][i]) > 0.125),
               )
               .map(([id, reference]) => ({ id, reference, native: observation.scroll[id] }));
+            const editorDifferences = [
+              ...new Set([...Object.keys(expected.editors), ...Object.keys(observation.editors)]),
+            ]
+              .filter(
+                id =>
+                  JSON.stringify(expected.editors[id]) !== JSON.stringify(observation.editors[id]),
+              )
+              .map(id => ({
+                id,
+                reference: expected.editors[id],
+                native: observation.editors[id],
+              }));
             // Include a local metric so white page area cannot conceal table paint errors.
             const tableRect = expected.rects[config.region ?? 'table'],
               nativeRect = observation.rects[config.region ?? 'table'];
@@ -322,6 +358,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
               localPixelMAEs,
               differences,
               hitDifferences,
+              editorDifferences,
               scrollDifferences,
             };
             results.push(result);
@@ -340,6 +377,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
           r.tablePixelMAE > 3 ||
           Object.values(r.localPixelMAEs).some(v => v > 3) ||
           r.hitDifferences.length ||
+          r.editorDifferences.length ||
           r.scrollDifferences.length,
       )
     )

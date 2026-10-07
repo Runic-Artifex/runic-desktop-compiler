@@ -11,6 +11,7 @@ fn observe(doc: &HtmlDocument) -> Value {
     let mut hits = Map::new();
     let mut text_lines = Map::new();
     let mut scroll = Map::new();
+    let mut editors = Map::new();
     for id in inner.query_selector_all("[id]").unwrap() {
         let node = inner.get_node(id).unwrap();
         let name = node.attr(local_name!("id")).unwrap();
@@ -32,6 +33,19 @@ fn observe(doc: &HtmlDocument) -> Value {
             name.into(),
             json!([rect.x, rect.y, rect.width, rect.height]),
         );
+        if let Some(input) = node.element_data().and_then(|e| e.text_input_data()) {
+            let text = input.editor.raw_text();
+            let range = input.editor.raw_selection().text_range();
+            editors.insert(
+                name.into(),
+                json!([
+                    text,
+                    text[..range.start].encode_utf16().count(),
+                    text[..range.end].encode_utf16().count(),
+                    node.is_focussed()
+                ]),
+            );
+        }
         if let Some(inline) = node
             .element_data()
             .and_then(|el| el.inline_layout_data.as_ref())
@@ -84,7 +98,7 @@ fn observe(doc: &HtmlDocument) -> Value {
         }
         hits.insert(name.into(), json!(targets));
     }
-    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll})
+    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll,"editors":editors})
 }
 fn render(doc: &mut HtmlDocument, path: &str, width: u32, height: u32) {
     let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);
@@ -166,6 +180,35 @@ fn main() {
                 ),
                 "focus" => {
                     inner.set_focus_to(id);
+                }
+                "selection" => {
+                    let text = inner
+                        .get_node(id)
+                        .unwrap()
+                        .element_data()
+                        .unwrap()
+                        .text_input_data()
+                        .unwrap()
+                        .editor
+                        .raw_text();
+                    let byte_at = |units: usize| {
+                        let mut offset = 0;
+                        for (byte, ch) in text.char_indices() {
+                            if offset == units {
+                                return byte;
+                            }
+                            offset += ch.len_utf16();
+                            assert!(
+                                offset <= units,
+                                "oracle selections must use UTF-16 character boundaries"
+                            );
+                        }
+                        text.len()
+                    };
+                    let end = action["end"].as_u64().unwrap() as usize;
+                    let start = (action["start"].as_u64().unwrap() as usize).min(end);
+                    let (start, end) = (byte_at(start), byte_at(end));
+                    inner.with_text_input(id, |mut driver| driver.select_byte_range(start, end));
                 }
                 "scrollIntoView" => inner.scroll_into_view(
                     id,
