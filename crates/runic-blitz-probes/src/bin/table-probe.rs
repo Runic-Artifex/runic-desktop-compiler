@@ -9,6 +9,7 @@ fn observe(doc: &HtmlDocument) -> Value {
     let inner = doc.inner();
     let mut rects = Map::new();
     let mut hits = Map::new();
+    let mut text_lines = Map::new();
     for id in inner.query_selector_all("[id]").unwrap() {
         let node = inner.get_node(id).unwrap();
         let name = node.attr(local_name!("id")).unwrap();
@@ -17,6 +18,23 @@ fn observe(doc: &HtmlDocument) -> Value {
             name.into(),
             json!([rect.x, rect.y, rect.width, rect.height]),
         );
+        if let Some(inline) = node
+            .element_data()
+            .and_then(|el| el.inline_layout_data.as_ref())
+        {
+            let layout = node.final_layout();
+            let lines: Vec<_> = inline.layout.lines().map(|line| {
+                let metrics = line.metrics();
+                json!({
+                    "x": rect.x + (layout.border.left + layout.padding.left + metrics.offset) as f64,
+                    "baseline": rect.y + (layout.border.top + layout.padding.top + metrics.baseline) as f64,
+                    "advance": metrics.advance,
+                    "hangingAdvance": metrics.hanging_advance,
+                    "height": metrics.line_height,
+                })
+            }).collect();
+            text_lines.insert(name.into(), json!(lines));
+        }
         let mut targets = Vec::new();
         for (dx, dy) in [
             (rect.width / 2.0, rect.height / 2.0),
@@ -39,7 +57,7 @@ fn observe(doc: &HtmlDocument) -> Value {
         }
         hits.insert(name.into(), json!(targets));
     }
-    json!({"rects":rects,"hits":hits})
+    json!({"rects":rects,"hits":hits,"textLines":text_lines})
 }
 fn render(doc: &mut HtmlDocument, path: &str, width: u32, height: u32) {
     let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);
@@ -201,5 +219,55 @@ mod tests {
         assert_eq!(rect(&doc, "#row"), [2.0, 2.0, 122.0, 40.0]);
         assert_eq!(rect(&doc, "#a"), [94.0, 2.0, 30.0, 40.0]);
         assert_eq!(rect(&doc, "#b"), [2.0, 2.0, 90.0, 40.0]);
+    }
+    #[test]
+    fn cell_height_is_a_border_box_minimum_and_content_can_grow_it() {
+        let mut doc = document(&format!(
+            "<style>#a{{height:60px;padding:5px;border:2px solid}}</style><table>{ROW}</table>"
+        ));
+        assert_eq!(rect(&doc, "#row")[3], 60.0);
+        assert_eq!(rect(&doc, "#inside")[1], 22.0);
+        let mut inner = doc.inner_mut();
+        let id = inner.query_selector("#a").unwrap().unwrap();
+        inner.mutate().set_attribute(
+            id,
+            QualName::new(None, ns!(), local_name!("style")),
+            "height:10px",
+        );
+        drop(inner);
+        doc.resolve(0.0);
+        assert_eq!(rect(&doc, "#row")[3], 40.0);
+        assert_eq!(rect(&doc, "#inside")[1], 12.0);
+    }
+    #[test]
+    fn percentage_cell_height_reserves_space_but_content_can_grow_it() {
+        let mut doc = document(
+            "<table id='table' style='height:160px'><tr id='row'><td id='a' style='height:50%;padding:4px;border:2px solid'><div id='inside' style='width:30px;height:10px'></div></td></tr><tr id='row2'><td style='padding:4px'><div style='width:30px;height:10px'></div></td></tr></table>",
+        );
+        assert_eq!(rect(&doc, "#row")[3], 78.0);
+        assert_eq!(rect(&doc, "#row2")[3], 76.0);
+        let mut inner = doc.inner_mut();
+        let id = inner.query_selector("#inside").unwrap().unwrap();
+        inner.mutate().set_attribute(
+            id,
+            QualName::new(None, ns!(), local_name!("style")),
+            "width:30px;height:120px",
+        );
+        drop(inner);
+        doc.resolve(0.0);
+        assert_eq!(rect(&doc, "#row")[3], 132.0);
+        assert_eq!(rect(&doc, "#row2")[3], 22.0);
+        let mut inner = doc.inner_mut();
+        let id = inner.query_selector("#table").unwrap().unwrap();
+        inner.mutate().set_attribute(
+            id,
+            QualName::new(None, ns!(), local_name!("style")),
+            "height:auto",
+        );
+        drop(inner);
+        doc.resolve(0.0);
+        assert_eq!(rect(&doc, "#row")[3], 132.0);
+        assert_eq!(rect(&doc, "#row2")[3], 18.0);
+        assert_eq!(rect(&doc, "#table")[3], 156.0);
     }
 }

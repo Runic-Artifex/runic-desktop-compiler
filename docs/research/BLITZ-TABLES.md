@@ -9,7 +9,8 @@ The compiler worktree patches the existing local Blitz URL to the Blitz worktree
 packages. All other dependency pins are unchanged. Neither branch is integrated
 into `main` or `m6`. Tables remain rejected by the compiler.
 
-Blitz implementation: signed commit `3971a7ba`. [Verification summary](../../conformance/results/blitz-tables.md).
+Blitz implementation: signed commits `3971a7ba` and `f85b2539`. The follow-up
+improves cell heights and collapsed-border painting. [Verification summary](../../conformance/results/blitz-tables.md).
 
 The width and baseline rules follow [CSS 2 table layout](https://www.w3.org/TR/CSS2/tables.html); Chromium is the comparison oracle.
 
@@ -37,6 +38,26 @@ and the table (hidden, width, style, origin priority). Their used half-widths re
 both sizing and painting. Spanning cells suppress internal boundaries. RTL uses
 logical column placement and physical border sides.
 
+Cell heights are border-box minima. The cell's natural content layout remains
+unconstrained, so oversized content grows the row. Non-spanning percentage cells
+in a definite-height table reserve their row's share before automatic tracks
+absorb remaining space; subsequent content and height mutations recompute it.
+
+Shared border decorations snap in device space without rounding the layout.
+Dashed borders fit complete endpoint dashes, thin dotted borders use square dots,
+and thick dotted borders use explicit circles (the path stroker drops zero-length
+dashes). Junction ownership includes width, normalized style, origin and source
+order. Groove/ridge and inset/outset share the collapsed-style normalization in
+both conflict resolution and painting, with canonical top/left edge shading.
+
+Ordinary cell backgrounds, including gradients, paint before shared borders.
+Independent cell paint layers retain their normal opacity and foreground phase;
+their backgrounds are clipped inside the shared borders. Hidden cell backgrounds
+are omitted. These rules follow the
+[Chromium table painter](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/paint/table_painters.cc),
+[border painter](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/paint/box_border_painter.cc)
+and [stroke fitting](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/platform/graphics/styled_stroke_data.cc).
+
 Table boxes retain fractional layout coordinates in the final layout. Whole-pixel
 rounding had changed text positions and boundary hits despite correct CSSOM rects.
 Internal group/gap boxes do not intercept hits, and row clicks reach descendants
@@ -48,18 +69,18 @@ certification.
 Use this worktree's locked flake environment and the shared target. The worktree reuses M6's existing `node_modules` through a symlink; it does not install another toolchain. From its root:
 
 ```sh
-nix develop . -c bash -c 'export RUNIC_TARGET_DIR=/home/viktor/Development/RunicDesktopCompiler/target; node compiler/cargo.mjs build --offline -p runic-blitz-probes --bin table-probe'
 nix develop . -c node conformance/tables.mjs
 ```
 
-The Node oracle uses the locked full Chromium, an embedded DejaVu Sans font, a
-640x300 viewport and unchanged DOM operations in both renderers. It compares every
+The oracle builds the probe and holds the project PID lock through observation,
+so another worktree cannot remove the probe during a run. It uses the locked full
+Chromium, an embedded DejaVu Sans font, a 640x300 viewport and unchanged DOM operations in both renderers. It compares every
 id's rect at 1/8px tolerance, three hit targets per id, full-page pixels, and pixels
 cropped to the table region at 3/255 MAE. It retains failures; it exits nonzero if
 any geometry, hit or cropped pixel check fails. Selected case names can be passed
 as arguments. Dynamic cases change contents, widths, spans, caption side and cell
-alignment. Four font-independent native regression tests are also provided in the
-Blitz worktree and the compiler's `table-probe` test module.
+alignment and absolute/percentage heights. Six font-independent native regression
+tests are also provided in the Blitz worktree and the compiler's `table-probe` test module.
 
 Results and screenshots are generated in `artifacts/tables/`; only short summaries
 are committed. Build, npm and Cargo logs are retained there.
@@ -69,11 +90,13 @@ are committed. Build, npm and Cargo logs are retained there.
 This is an implementation attempt, not a claim of general Chromium parity.
 The direct oracle does not certify OS input, accessibility, pagination, anonymous
 boxes for misparented CSS table parts, positioned internal table containing blocks,
-caption/table effects and clipping, arbitrary percentage spanning constraints,
-empty-cells/visibility-collapse semantics, or image backgrounds on internal table
-boxes. Three-dimensional border styles still need proper painting; dashed/dotted
-collapsed border patterns and junctions need pixel-level follow-up. The layout
-currently performs extra cell layout passes for baselines and alignment; no
+arbitrary caption/table effects and clipping, overconstrained percentage rows,
+percentage spanning/calc constraints, empty-cells/visibility-collapse semantics,
+or row/group effects and image backgrounds on internal table boxes. Three localized pixel cases remain above the unchanged threshold: baseline
+text, the empty-table caption text and thick round dotted borders. Text line
+positions and advances were inspected separately and agree in the sampled cases;
+that does not certify every glyph or layout. No generic text-renderer change or
+tolerance relaxation is included. The layout currently performs extra cell layout passes for baselines and alignment; no
 performance improvement is claimed. Compiler table acceptance waits for the
 remaining renderer cases and framework conformance. Nothing has been offered
 upstream yet.

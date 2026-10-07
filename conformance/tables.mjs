@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { pixelMAE } from './harness/compare.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Hold the same PID lock as native compiler builds while building and observing
+// the probe: another worktree's claim can otherwise remove this binary mid-run.
+process.env.RUNIC_TARGET_DIR ??= '/home/viktor/Development/RunicDesktopCompiler/target';
+const { targetDir } = await import('../compiler/codegen.mjs');
+const { withSharedTarget } = await import('../compiler/target.mjs');
 const out = path.join(root, 'artifacts/tables');
 await mkdir(out, { recursive: true });
 const font = (
@@ -76,9 +81,68 @@ const cases = {
     '<table id="table" style="border-collapse:collapse;border:4px solid black"><tr id="row" style="border-bottom:6px solid blue"><td id="a" style="border:1px solid red">one</td><td id="b">two</td></tr><tr id="row2"><td id="c">three</td><td id="d">four</td></tr></table>',
   collapse_styles:
     '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="border:3px double red">one</td><td id="b" style="border:3px dashed blue">two</td></tr><tr id="row2"><td id="c" style="border:3px dotted green">three</td><td id="d" style="border:3px solid black">four</td></tr></table>',
+  collapse_fractional:
+    '<table id="table" style="border-collapse:collapse;margin-left:.375px;margin-top:.625px"><tr id="row"><td id="a" style="width:35px;height:20px;border:3px solid red"></td><td id="b" style="width:53px;height:20px;border:5px solid blue"></td></tr></table>',
+  collapse_dots1:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:1px dotted green"></td><td id="b" style="width:29px;border:1px dotted blue"></td></tr></table>',
+  collapse_dots2:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:2px dotted green"></td><td id="b" style="width:29px;border:2px dotted blue"></td></tr></table>',
+  collapse_dots5:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:5px dotted green"></td><td id="b" style="width:29px;border:5px dotted blue"></td></tr></table>',
+  collapse_bevel:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:6px groove #369"></td><td id="b" style="width:29px;border:6px ridge #369"></td></tr></table>',
+  collapse_inset_outset:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:6px inset #369"></td><td id="b" style="width:29px;border:6px outset #369"></td></tr></table>',
+  collapse_double_background:
+    '<table id="table" style="border-collapse:collapse;background:#eef"><tr id="row"><td id="a" style="width:47px;height:20px;border:3px double red;background:#ffc"></td><td id="b" style="width:29px;border:3px dashed blue;background:#cfc"></td></tr></table>',
+  collapse_sparse:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border-top:3px dashed green"></td><td id="b" style="width:29px;border-bottom:2px dotted blue"></td></tr></table>',
+  collapse_span_junctions:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" rowspan="2" style="width:47px;border:3px double red"></td><td id="b" style="width:29px;height:20px;border:3px dashed blue"></td></tr><tr id="row2"><td id="c" style="height:20px;border:5px dotted green"></td></tr></table>',
+  cellheight:
+    '<table id="table"><tr id="row"><td id="a" style="height:60px;padding:8px;border:2px solid red"><div id="inside" style="width:30px;height:10px;background:blue"></div></td><td id="b" style="padding:8px;border:2px solid green"><div style="width:40px;height:20px;background:orange"></div></td></tr></table>',
+  cellheight_content:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="height:10px;border:2px solid red"><div id="inside" style="width:30px;height:60px;background:blue"></div></td><td id="b">one<br>two<br>three</td></tr></table>',
+  span_height:
+    '<table id="table"><tr id="row"><td id="a" rowspan="2" style="height:90px;border:2px solid red"><div id="inside" style="width:30px;height:10px;background:blue"></div></td><td id="b" style="height:20px;width:40px"></td></tr><tr id="row2"><td id="c" style="height:20px"></td></tr></table>',
+  percentage_height:
+    '<table id="table" style="height:160px"><tr id="row"><td id="a" style="height:50%;border:2px solid red"><div id="inside" style="width:30px;height:10px;background:blue"></div></td></tr><tr id="row2"><td id="b"><div id="inside2" style="width:30px;height:10px;background:green"></div></td></tr></table>',
+  collapse_cell_opacity:
+    '<table id="table" style="border-collapse:collapse;background:#eef"><tr id="row"><td id="a" style="width:47px;height:20px;border:3px double red;background:#ffc;opacity:.5"></td><td id="b" style="width:29px;border:3px dashed blue;background:#cfc"></td></tr></table>',
+  collapse_hidden_cell_background:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;background:red;visibility:hidden"></td><td id="b" style="width:29px;background:green"></td></tr></table>',
+  collapse_cell_opacity_content:
+    '<table id="table" style="border-collapse:collapse;background:#eef"><tr id="row"><td id="a" style="border:3px double red;background:#ffc;opacity:.5"><div id="inside" style="background:#cfc">Opacity</div></td><td id="b" style="border:3px dashed blue;background:#cfc">Other</td></tr></table>',
+  collapse_table_opacity:
+    '<table id="table" style="border-collapse:collapse;background:#eef;opacity:.5"><tr id="row"><td id="a" style="width:47px;height:20px;border:3px double red;background:#ffc"></td><td id="b" style="width:29px;border:3px dashed blue;background:#cfc"></td></tr></table>',
+  collapse_gradient:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:3px double red;background:linear-gradient(to right,#ffc,#cfc)"></td><td id="b" style="width:29px;border:3px dashed blue;background:linear-gradient(to bottom,#def,#cef)"></td></tr></table>',
 };
 
 const actions = {
+  percentage_height: [
+    {
+      kind: 'attribute',
+      selector: '#inside',
+      name: 'style',
+      value: 'width:30px;height:120px;background:blue',
+    },
+    { kind: 'attribute', selector: '#table', name: 'style', value: 'height:auto' },
+  ],
+  cellheight: [
+    {
+      kind: 'attribute',
+      selector: '#a',
+      name: 'style',
+      value: 'height:20px;padding:8px;border:2px solid red',
+    },
+    {
+      kind: 'attribute',
+      selector: '#a',
+      name: 'style',
+      value: 'height:0px;padding:8px;border:2px solid red',
+    },
+  ],
   auto: [
     { kind: 'html', selector: '#a', value: 'A changed column with much wider text' },
     {
@@ -102,125 +166,144 @@ const actions = {
     { kind: 'attribute', selector: '#a', name: 'style', value: 'vertical-align:middle' },
   ],
 };
-const browser = await chromium.launch({ headless: true, channel: 'chromium' });
-const page = await browser.newPage({ viewport: { width: 640, height: 300 }, deviceScaleFactor: 1 });
-const results = [];
-async function reference() {
-  return page.evaluate(() => {
-    const elements = [...document.querySelectorAll('[id]')];
-    return {
-      rects: Object.fromEntries(
-        elements.map(el => {
-          const r = el.getBoundingClientRect();
-          return [el.id, [r.x, r.y, r.width, r.height]];
-        }),
-      ),
-      hits: Object.fromEntries(
-        elements.map(el => {
-          const r = el.getBoundingClientRect();
-          return [
-            el.id,
-            [
-              [r.width / 2, r.height / 2],
-              [1, 1],
-              [r.width - 1, r.height - 1],
-            ].map(
-              ([x, y]) => document.elementFromPoint(r.x + x, r.y + y)?.closest('[id]')?.id ?? null,
-            ),
-          ];
-        }),
-      ),
-    };
+await withSharedTarget(async () => {
+  const build = spawnSync(
+    'cargo',
+    ['build', '--offline', '-p', 'runic-blitz-probes', '--bin', 'table-probe'],
+    {
+      cwd: root,
+      env: { ...process.env, CARGO_TARGET_DIR: targetDir },
+      encoding: 'utf8',
+    },
+  );
+  await writeFile(path.join(out, 'oracle-build.log'), build.stdout + build.stderr);
+  if (build.status !== 0) throw new Error(`table probe build failed: ${build.stderr}`);
+  const browser = await chromium.launch({ headless: true, channel: 'chromium' });
+  const page = await browser.newPage({
+    viewport: { width: 640, height: 300 },
+    deviceScaleFactor: 1,
   });
-}
-try {
-  for (const [name, body] of Object.entries(cases)) {
-    if (process.argv.slice(2).length && !process.argv.slice(2).includes(name)) continue;
-    const html = base + body;
-    const input = path.join(out, `${name}.html`),
-      nativePng = path.join(out, `${name}-native.png`);
-    await writeFile(input, html);
-    const mutations = actions[name] ?? [];
-    const proc = spawnSync(
-      path.join(
-        process.env.RUNIC_TARGET_DIR ?? '/home/viktor/Development/RunicDesktopCompiler/target',
-        'debug/table-probe',
-      ),
-      [input, nativePng, '640', '300', JSON.stringify(mutations)],
-      { encoding: 'utf8' },
-    );
-    if (proc.status !== 0) throw new Error(`${name}: ${proc.stderr}`);
-    const observations = JSON.parse(proc.stdout.trim().split('\n').at(-1));
-    await page.setContent(html);
-    await page.evaluate(() => document.fonts.ready);
-    for (let step = 0; step <= mutations.length; step++) {
-      if (step)
-        await page.evaluate(
-          action => {
-            const el = document.querySelector(action.selector);
-            if (action.kind === 'html') el.innerHTML = action.value;
-            else el.setAttribute(action.name, action.value);
-          },
-          mutations[step - 1],
-        );
-      const browserPng = path.join(out, `${name}-chrome${step ? `-${step}` : ''}.png`);
-      const nativeScreenshot = step ? nativePng.replace('.png', `-${step}.png`) : nativePng;
-      await page.screenshot({ path: browserPng });
-      const expected = await reference(),
-        observation = observations[step];
-      const differences = [];
-      for (const [id, rect] of Object.entries(expected.rects)) {
-        if (!observation.rects[id]) {
-          differences.push({ id, missing: true });
-          continue;
-        }
-        const error = Math.max(...rect.map((v, i) => Math.abs(v - observation.rects[id][i])));
-        if (error > 0.125)
-          differences.push({ id, reference: rect, native: observation.rects[id], error });
-      }
-      const hitDifferences = Object.entries(expected.hits)
-        .filter(([id, value]) => JSON.stringify(value) !== JSON.stringify(observation.hits[id]))
-        .map(([id, reference]) => ({ id, reference, native: observation.hits[id] }));
-      // Include a local metric so white page area cannot conceal table paint errors.
-      const tableRect = expected.rects.table,
-        nativeRect = observation.rects.table;
-      const cropWidth = Math.min(
-        640,
-        Math.ceil(Math.max(tableRect[0] + tableRect[2], nativeRect[0] + nativeRect[2])) + 2,
-      );
-      const cropHeight = Math.min(
-        300,
-        Math.ceil(Math.max(tableRect[1] + tableRect[3], nativeRect[1] + nativeRect[3])) + 2,
-      );
-      const cropped = [];
-      for (const file of [browserPng, nativeScreenshot]) {
-        const crop = file.replace('.png', '-crop.png');
-        const result = spawnSync(
-          'magick',
-          [file, '-crop', `${cropWidth}x${cropHeight}+0+0`, '+repage', crop],
-          { encoding: 'utf8' },
-        );
-        if (result.status) throw new Error(result.stderr);
-        cropped.push(crop);
-      }
-      const mae = pixelMAE(browserPng, nativeScreenshot),
-        tablePixelMAE = pixelMAE(...cropped);
-      const result = {
-        name,
-        step,
-        geometry: differences.length === 0,
-        pixelMAE: mae,
-        tablePixelMAE,
-        differences,
-        hitDifferences,
+  const results = [];
+  async function reference() {
+    return page.evaluate(() => {
+      const elements = [...document.querySelectorAll('[id]')];
+      return {
+        rects: Object.fromEntries(
+          elements.map(el => {
+            const r = el.getBoundingClientRect();
+            return [el.id, [r.x, r.y, r.width, r.height]];
+          }),
+        ),
+        hits: Object.fromEntries(
+          elements.map(el => {
+            const r = el.getBoundingClientRect();
+            return [
+              el.id,
+              [
+                [r.width / 2, r.height / 2],
+                [1, 1],
+                [r.width - 1, r.height - 1],
+              ].map(
+                ([x, y]) =>
+                  document.elementFromPoint(r.x + x, r.y + y)?.closest('[id]')?.id ?? null,
+              ),
+            ];
+          }),
+        ),
       };
-      results.push(result);
-      console.log(JSON.stringify(result));
-    }
+    });
   }
-} finally {
-  await browser.close();
-}
-await writeFile(path.join(out, 'results.json'), JSON.stringify(results, null, 2));
-if (results.some(r => !r.geometry || r.tablePixelMAE > 3 || r.hitDifferences.length))
-  process.exitCode = 1;
+  try {
+    for (const [name, body] of Object.entries(cases)) {
+      if (process.argv.slice(2).length && !process.argv.slice(2).includes(name)) continue;
+      const html = base + body;
+      const input = path.join(out, `${name}.html`),
+        nativePng = path.join(out, `${name}-native.png`);
+      await writeFile(input, html);
+      const mutations = actions[name] ?? [];
+      const proc = spawnSync(
+        path.join(targetDir, 'debug/table-probe'),
+        [input, nativePng, '640', '300', JSON.stringify(mutations)],
+        { encoding: 'utf8' },
+      );
+      if (proc.status !== 0) throw new Error(`${name}: ${proc.stderr}`);
+      const observations = JSON.parse(proc.stdout.trim().split('\n').at(-1));
+      await writeFile(path.join(out, `${name}-native.json`), JSON.stringify(observations, null, 2));
+      await page.setContent(html);
+      await page.evaluate(() => document.fonts.ready);
+      for (let step = 0; step <= mutations.length; step++) {
+        if (step)
+          await page.evaluate(
+            action => {
+              const el = document.querySelector(action.selector);
+              if (action.kind === 'html') el.innerHTML = action.value;
+              else el.setAttribute(action.name, action.value);
+            },
+            mutations[step - 1],
+          );
+        const browserPng = path.join(out, `${name}-chrome${step ? `-${step}` : ''}.png`);
+        const nativeScreenshot = step ? nativePng.replace('.png', `-${step}.png`) : nativePng;
+        await page.screenshot({ path: browserPng });
+        const expected = await reference(),
+          observation = observations[step];
+        await writeFile(
+          path.join(out, `${name}-chrome${step ? `-${step}` : ''}.json`),
+          JSON.stringify(expected, null, 2),
+        );
+        const differences = [];
+        for (const [id, rect] of Object.entries(expected.rects)) {
+          if (!observation.rects[id]) {
+            differences.push({ id, missing: true });
+            continue;
+          }
+          const error = Math.max(...rect.map((v, i) => Math.abs(v - observation.rects[id][i])));
+          if (error > 0.125)
+            differences.push({ id, reference: rect, native: observation.rects[id], error });
+        }
+        const hitDifferences = Object.entries(expected.hits)
+          .filter(([id, value]) => JSON.stringify(value) !== JSON.stringify(observation.hits[id]))
+          .map(([id, reference]) => ({ id, reference, native: observation.hits[id] }));
+        // Include a local metric so white page area cannot conceal table paint errors.
+        const tableRect = expected.rects.table,
+          nativeRect = observation.rects.table;
+        const cropWidth = Math.min(
+          640,
+          Math.ceil(Math.max(tableRect[0] + tableRect[2], nativeRect[0] + nativeRect[2])) + 2,
+        );
+        const cropHeight = Math.min(
+          300,
+          Math.ceil(Math.max(tableRect[1] + tableRect[3], nativeRect[1] + nativeRect[3])) + 2,
+        );
+        const cropped = [];
+        for (const file of [browserPng, nativeScreenshot]) {
+          const crop = file.replace('.png', '-crop.png');
+          const result = spawnSync(
+            'magick',
+            [file, '-crop', `${cropWidth}x${cropHeight}+0+0`, '+repage', crop],
+            { encoding: 'utf8' },
+          );
+          if (result.status) throw new Error(result.stderr);
+          cropped.push(crop);
+        }
+        const mae = pixelMAE(browserPng, nativeScreenshot),
+          tablePixelMAE = pixelMAE(...cropped);
+        const result = {
+          name,
+          step,
+          geometry: differences.length === 0,
+          pixelMAE: mae,
+          tablePixelMAE,
+          differences,
+          hitDifferences,
+        };
+        results.push(result);
+        console.log(JSON.stringify(result));
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  await writeFile(path.join(out, 'results.json'), JSON.stringify(results, null, 2));
+  if (results.some(r => !r.geometry || r.tablePixelMAE > 3 || r.hitDifferences.length))
+    process.exitCode = 1;
+});
