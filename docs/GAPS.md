@@ -14,7 +14,9 @@ integration tests; the integrated compiler still rejects them. The
 [implementation record](../conformance/results/chromium-parity.md) retains the
 new failures and shipping gates. The [font/inline continuation](../conformance/results/chromium-font-inline.md)
 records the settled-text repair, remaining focus/nested-inline paint, and font
-instance coverage.
+instance coverage. The [focus continuation](../conformance/results/chromium-control-focus.md)
+closes compiled table focus/selection paint and disabled traversal while retaining
+UA control geometry, DPR 2 text and other renderer gaps.
 
 ## Detail
 

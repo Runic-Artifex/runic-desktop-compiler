@@ -45,13 +45,15 @@ exercise the same runtime and IR. There is no schema change.
 
 The table UA now distinguishes inherited standards-mode line-height from the
 legacy quirks reset. Compiled tables pass semantics and geometry across 96 CPU
-states in all three frameworks, and 32 selected Svelte GPU states. Local paint
-still fails. The original 69 table states, 12 document-mode states, 148 scrolling
-states and 40 animation states pass their direct geometry/hit/scroll/pixel gates.
+states in all three frameworks, and 32 selected Svelte GPU states. Their local
+paint gate now passes after the focus and selection repair. The original 69 table
+states, 12 document-mode states, 148 scrolling states and 40 animation states pass
+their direct geometry/hit/scroll/pixel gates.
 
 One isolated worktree is used per changed repository: compiler `blitz-tables`,
-Blitz `table-layout`, Vello `runic-raster-parity`, and Stylo
-`runic-chromium-parity`. Originals remain unchanged. The compiler worktree accepts
+Blitz `table-layout`, Vello `runic-raster-parity`, Stylo
+`runic-chromium-parity`, and Parley/Fontique `runic-chromium-parity`. Originals
+remain unchanged. The compiler worktree accepts
 table tags for integration experiments; its dependency overrides are local paths.
 The normal compiler contract and the sticky/animation-fill compiler restrictions
 are not lifted by this experiment. Before integration, replay the patches on the
@@ -66,14 +68,28 @@ vertical writing, fragmentation and scroll-snap remain separate gates. Animation
 rendering coverage does not certify animation events or the full Web Animations
 API. Internal probes do not certify desktop keyboard/IME delivery.
 
-The next useful closures are driven by retained failures, in this order:
+The focus continuation paints selected control text, visible collapsed carets,
+Chromium-style automatic outlines and default placeholders in Blitz. Disabled
+requests preserve focus, and Tab traversal uses HTML boolean-attribute presence.
+All 252 direct editor states match; local pixels improve from 8 to 66 with
+identical inputs. Standards UA box geometry, textarea baselines, Unicode fallback
+and all DPR 2 states retain failures. Compiled table carets remain transparent;
+the direct reductions use visible manual carets with a computed-style assertion.
+[Results](../../conformance/results/chromium-control-focus.md).
+
+The next useful implementation order is control box models/baselines, font
+instances and DPR 2 paint, then nested measurement isolation and its copy cost.
+Keep the already repaired focus/table cases as regressions. The gaps retain
+separate owners and acceptance gates:
 
 | Gap | Evidence and owner | Next acceptance gate |
 |---|---|---|
 | CP-FONT-RANGE | Registration, range-aware matching/subset fallback and weight clamping are repaired in isolated Blitz/Fontique commits; 13 Fontique tests pass. This was not the table label paint cause | Keep the direct static/variable range matrix, decide the public struct-field API/semver change, then integrate reviewed pins; broader font paint remains open |
 | CP-INTRINSIC-TEXT | Fixed: sizing queries overwrote settled Parley line positions, moving table button labels outside their boxes despite correct DOM geometry | Preserve the compiled table and reduced table/flex/grid mutation/resize pixel cases; measure the retained-layout copy cost |
 | CP-TEXT-MEASURE-COST | Retaining text during intrinsic queries adds a measured mutation cost to the 100/1,000-row release benchmark | Reuse a separate scratch measurement layout or narrower retained state in the text/layout owner; require the same cache/mutation pixel regressions and before/after median/p95 measurements |
-| CP-EDITOR-FOCUS | After the label fix, compiled table failures concentrate in focused/selected text inputs; Chrome and Blitz use different outline and selection paint | Isolate focus, select-all, caret and disabled/read-only states using pinned fonts; fix UA/native-control painting with no forced blur |
+| CP-EDITOR-FOCUS | Fixed for compiled table CPU/GPU fixtures: selected foreground/background, auto outlines and placeholder paint; disabled focus/traversal also repaired. The 252-state direct suite retains 186 pixel failures | Preserve visible/manual caret and independent editor-state checks; extend authored selection, dark/platform themes, bidi/IME and multibox outline cases when required |
+| CP-EDITOR-INITIAL | New editor observations expose initial selection (9,9) where Chrome has (0,0) in existing UA-font/table-control reductions; values and focus match | Trace editor creation/value initialization and fallback-font layout; preserve initial/focused/blurred selection across resource completion without changing the text |
+| CP-CONTROL-UA-BOX | The retained standards UA input/textarea/button reductions fail box sizing, default button borders and textarea atomic-inline alignment; explicit boxes isolate paint without replacing these cases | Repair UA defaults and primary-font/atomic-inline baselines in Blitz layout and Parley. Compare standards/quirks, default/authored styles and table/flex/grid parents across resize/mutation; require 0.125 px geometry, hits and local MAE 3 |
 | CP-NESTED-INLINE | Nested atomic inline/button reductions retain local paint failures while geometry passes; baseline measurement can promote child sizing to PerformLayout | Compare retained child line positions and baselines across table/flex/grid intrinsic passes; keep nested failures in the oracle |
 | CP-FONT-INSTANCES | Variable-font auto optical sizing/normal-line-height states retain geometry and paint failures; static single-face synthetic bold and DPR 2 paint also fail | Resolve CSS variation precedence and optical sizing in the Blitz font bridge and metrics provider, consume synthesis in paint, then compare pinned glyph regions across DPR |
 | CP-FONT-ORDER | Both source orders of overlapping static/variable CSS face declarations retain geometry/pixel failures in `font-weights.mjs` | Preserve CSS face priority at the registration/query boundary independently of generic/system Fontique family ordering; cover overlapping ranges and resource completion order without dropping subset fallback |
@@ -83,9 +99,10 @@ The next useful closures are driven by retained failures, in this order:
 | CP-RASTER | `glyphs.mjs`, `borders.mjs` and checked-radio crop retain local paint failures | Separate outline/hinting, coverage and dotted-stroke phase/count in their renderer owners; retain local MAE 3 across sizes/origins/DPR |
 | CP-TABLE-WPT | Practical table oracle does not cover the complete CSS table model | Add attributed anonymous-box, `empty-cells`, collapse, height distribution and border-order reductions from WPT as the app corpus needs them |
 
-The checked-in [initial verification record](../../conformance/results/chromium-parity.md)
-and [font/inline continuation](../../conformance/results/chromium-font-inline.md)
-separate fixed worktree behavior, residual failures and shipping gates. None of
+The checked-in [initial verification record](../../conformance/results/chromium-parity.md),
+[font/inline continuation](../../conformance/results/chromium-font-inline.md) and
+[focus continuation](../../conformance/results/chromium-control-focus.md) separate
+fixed worktree behavior, residual failures and shipping gates. None of
 the broader P1/P4/P7 clusters is closed merely by these patches.
 
 | Batch | Gaps and app relevance | Owning modules | Completion evidence |
@@ -187,8 +204,9 @@ table-specific driver for every feature.
 Record Chromium version, viewport/DPR, font hash, renderer/adapter, source/pin and
 native binary hashes. The table oracle now records environment hashes and each
 input hash. Compare geometry, local pixels and event traces independently; keep
-the existing 1/8px and 3/255 gates. No stage is passed by a missing tool, a known
-gap annotation or a largely white whole-page screenshot. Failures stay runnable.
+the existing direct 1/8px and 3/255 gates. The compiled framework harness retains
+its separate 2px geometry gate; report these tolerances separately. No stage is
+passed by a missing tool, a known gap annotation or a largely white whole-page screenshot. Failures stay runnable.
 
 Use distinct status: **reproduced**, **fixed in isolated worktree**, **integrated
 and verified**, **upstreamed**. Remove a compiler gap only after integration and

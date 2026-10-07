@@ -5,10 +5,12 @@ The input that is implemented and verified as of milestone M5 and the M6 work si
 **Isolated parity branch:** this worktree accepts table structure in all three
 adapters to exercise compiled fixtures and uses patched Blitz/Stylo/Vello/Parley through
 local paths. The shipping contract below still describes the integrated pins.
-Retained table/control hit and local paint failures, reproducible dependency pins
-and the remaining input/GPU gates prevent promoting experimental acceptance to that
-contract. See the [implementation record](../conformance/results/chromium-parity.md),
+Compiled table semantics, geometry and local pixels pass 96 CPU and 32 selected
+GPU states. Broader control hit/layout/paint failures, reproducible dependency pins
+and remaining input/platform gates prevent promoting experimental acceptance to
+that contract. See the [implementation record](../conformance/results/chromium-parity.md),
 the [font/inline continuation](../conformance/results/chromium-font-inline.md),
+the [focus continuation](../conformance/results/chromium-control-focus.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
 The TypeScript frontends (`frontend/`) lower every framework through one shared language layer to [IR schema 4](IR.md). Ordinary JavaScript/TypeScript code follows the JavaScript value model. M3 added component instances, props, lists, slots, element refs, checkboxes and `keydown` ([design](design/M3-COMPONENTS.md)); M4 added the event loop, effects, timers, promises and `async`/`await`, and `localStorage` ([design](design/M4-EFFECTS.md)); M5 added the DOM event model, forms, layout reads and scrolling, media queries, host services ([design](design/M5-PLATFORM.md)) and inline SVG icons. Native applications execute no JavaScript engine.

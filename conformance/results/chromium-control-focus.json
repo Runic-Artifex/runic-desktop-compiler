@@ -1,0 +1,835 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": {
+    "blitz-tables": "e6b045f9dea05cc3ca183888b8098feb0d9f31c5",
+    "parley-chromium-parity": "2edeab70c4985ec59443462f8e15579594b8f1c1",
+    "stylo-chromium-parity": "715f4d98b08277e74cc9d71691e19ce5d4763824",
+    "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+    "RunicDesktopCompiler-tables": "c5574fd79691247a01c85d173709bca02beaa011"
+  },
+  "changes": {
+    "blitz": [
+      "f916cbeb",
+      "f74a4f05",
+      "e6b045f9"
+    ],
+    "compiler": [
+      "c5574fd"
+    ]
+  },
+  "gates": {
+    "directGeometryToleranceCSSPx": 0.125,
+    "compiledGeometryToleranceCSSPx": 2,
+    "localPixelMAE": 3
+  },
+  "focus": {
+    "baselineBlitz": "f0843274",
+    "baseline": {
+      "states": 252,
+      "geometryPassed": 144,
+      "hitsPassed": 252,
+      "editorStatesPassed": 236,
+      "scrollPassed": 252,
+      "localPixelsPassed": 8,
+      "offscreenNamedCrops": 0
+    },
+    "final": {
+      "states": 252,
+      "geometryPassed": 144,
+      "hitsPassed": 252,
+      "editorStatesPassed": 252,
+      "scrollPassed": 252,
+      "localPixelsPassed": 66,
+      "offscreenNamedCrops": 0
+    },
+    "identicalInputHashes": true,
+    "cases": {
+      "input": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "textarea": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "readonly": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "disabled": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "placeholder": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "author_outline": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "auto_outline": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "unicode": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "input_boxed": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "textarea_boxed": {
+        "states": 12,
+        "geometryPassed": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "readonly_boxed": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "disabled_boxed": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "placeholder_boxed": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "author_outline_boxed": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "auto_outline_boxed": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "unicode_boxed": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "overflow_hidden": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "opacity_filter": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "clip_path": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "mask": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "negative_outline": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      }
+    },
+    "byDPR": {
+      "1": {
+        "states": 126,
+        "geometryPassed": 72,
+        "hitsPassed": 126,
+        "editorStatesPassed": 126,
+        "scrollPassed": 126,
+        "localPixelsPassed": 66,
+        "offscreenNamedCrops": 0
+      },
+      "2": {
+        "states": 126,
+        "geometryPassed": 72,
+        "hitsPassed": 126,
+        "editorStatesPassed": 126,
+        "scrollPassed": 126,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      }
+    },
+    "caret": "visible; caret-animation:manual; computed style asserted",
+    "selectionDomain": "UTF-16 scalar boundaries; mid-surrogate offsets rejected; Rust strings cannot model lone surrogates"
+  },
+  "direct": {
+    "originalTables": {
+      "states": 69,
+      "geometryPassed": 69,
+      "hitsPassed": 69,
+      "editorStatesPassed": 69,
+      "scrollPassed": 69,
+      "localPixelsPassed": 69,
+      "offscreenNamedCrops": 0
+    },
+    "legacyPaintControls": {
+      "states": 8,
+      "geometryPassed": 8,
+      "hitsPassed": 8,
+      "editorStatesPassed": 8,
+      "scrollPassed": 8,
+      "localPixelsPassed": 5,
+      "offscreenNamedCrops": 0
+    },
+    "table-document-mode": {
+      "states": 12,
+      "geometryPassed": 12,
+      "hitsPassed": 12,
+      "editorStatesPassed": 12,
+      "scrollPassed": 12,
+      "localPixelsPassed": 12,
+      "offscreenNamedCrops": 0
+    },
+    "table-controls": {
+      "states": 4,
+      "geometryPassed": 2,
+      "hitsPassed": 2,
+      "editorStatesPassed": 4,
+      "scrollPassed": 4,
+      "localPixelsPassed": 4,
+      "offscreenNamedCrops": 0
+    },
+    "table-integration": {
+      "states": 30,
+      "geometryPassed": 22,
+      "hitsPassed": 24,
+      "editorStatesPassed": 22,
+      "scrollPassed": 30,
+      "localPixelsPassed": 23,
+      "offscreenNamedCrops": 0
+    },
+    "controls": {
+      "states": 9,
+      "geometryPassed": 8,
+      "hitsPassed": 8,
+      "editorStatesPassed": 8,
+      "scrollPassed": 9,
+      "localPixelsPassed": 6,
+      "offscreenNamedCrops": 0
+    },
+    "scrolling": {
+      "states": 148,
+      "geometryPassed": 148,
+      "hitsPassed": 148,
+      "editorStatesPassed": 148,
+      "scrollPassed": 148,
+      "localPixelsPassed": 148,
+      "offscreenNamedCrops": 2
+    },
+    "css-animations": {
+      "states": 40,
+      "geometryPassed": 40,
+      "hitsPassed": 40,
+      "editorStatesPassed": 40,
+      "scrollPassed": 40,
+      "localPixelsPassed": 40,
+      "offscreenNamedCrops": 0
+    },
+    "borders": {
+      "states": 7,
+      "geometryPassed": 7,
+      "hitsPassed": 7,
+      "editorStatesPassed": 7,
+      "scrollPassed": 7,
+      "localPixelsPassed": 0,
+      "offscreenNamedCrops": 0
+    },
+    "glyphs": {
+      "states": 38,
+      "geometryPassed": 38,
+      "hitsPassed": 38,
+      "editorStatesPassed": 38,
+      "scrollPassed": 38,
+      "localPixelsPassed": 3,
+      "offscreenNamedCrops": 0
+    },
+    "intrinsic-text": {
+      "states": 30,
+      "geometryPassed": 30,
+      "hitsPassed": 30,
+      "editorStatesPassed": 30,
+      "scrollPassed": 30,
+      "localPixelsPassed": 20,
+      "offscreenNamedCrops": 0
+    },
+    "font-weights": {
+      "states": 36,
+      "geometryPassed": 12,
+      "hitsPassed": 28,
+      "editorStatesPassed": 36,
+      "scrollPassed": 36,
+      "localPixelsPassed": 12,
+      "offscreenNamedCrops": 0
+    }
+  },
+  "compiled": {
+    "tables-cpu": {
+      "runs": 6,
+      "states": 96,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "maxLocalPixelMAE": 1.27,
+      "browserVersion": "153.0.8010.12"
+    },
+    "tables-gpu": {
+      "runs": 2,
+      "states": 32,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "maxLocalPixelMAE": 2.396,
+      "browserVersion": "153.0.8010.12"
+    },
+    "compiled": {
+      "runs": 22,
+      "states": 242,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "maxLocalPixelMAE": null,
+      "browserVersion": "153.0.8010.12"
+    }
+  },
+  "verification": [
+    {
+      "name": "focus-final",
+      "command": [
+        "node",
+        "conformance/control-focus.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 110.966
+    },
+    {
+      "name": "tables-cpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--out",
+        "artifacts/control-focus-tables-cpu"
+      ],
+      "exitCode": 0,
+      "seconds": 68.901
+    },
+    {
+      "name": "tables-gpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--fixture",
+        "table-svelte",
+        "--renderer",
+        "gpu",
+        "--out",
+        "artifacts/control-focus-tables-gpu"
+      ],
+      "exitCode": 0,
+      "seconds": 19.653
+    },
+    {
+      "name": "compiled-regressions",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "forms",
+        "forms-react",
+        "forms-vue",
+        "measure",
+        "scroll-events",
+        "focus",
+        "focus-fixup",
+        "--pixels",
+        "--out",
+        "artifacts/control-focus-compiled"
+      ],
+      "exitCode": 0,
+      "seconds": 124.876
+    },
+    {
+      "name": "tables",
+      "command": [
+        "node",
+        "conformance/tables.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 18.405
+    },
+    {
+      "name": "table-document-mode",
+      "command": [
+        "node",
+        "conformance/table-document-mode.mjs"
+      ],
+      "exitCode": 0,
+      "seconds": 3.818
+    },
+    {
+      "name": "table-controls",
+      "command": [
+        "node",
+        "conformance/table-controls.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 3.772
+    },
+    {
+      "name": "table-integration",
+      "command": [
+        "node",
+        "conformance/table-integration.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 8.75
+    },
+    {
+      "name": "controls",
+      "command": [
+        "node",
+        "conformance/controls.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 4.91
+    },
+    {
+      "name": "scrolling",
+      "command": [
+        "node",
+        "conformance/scrolling.mjs"
+      ],
+      "exitCode": 0,
+      "seconds": 35.215
+    },
+    {
+      "name": "css-animations",
+      "command": [
+        "node",
+        "conformance/css-animations.mjs"
+      ],
+      "exitCode": 0,
+      "seconds": 7.786
+    },
+    {
+      "name": "borders",
+      "command": [
+        "node",
+        "conformance/borders.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 3.308
+    },
+    {
+      "name": "glyphs",
+      "command": [
+        "node",
+        "conformance/glyphs.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 18.329
+    },
+    {
+      "name": "intrinsic-text",
+      "command": [
+        "node",
+        "conformance/intrinsic-text.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 11.842
+    },
+    {
+      "name": "font-weights",
+      "command": [
+        "node",
+        "conformance/font-weights.mjs"
+      ],
+      "exitCode": 1,
+      "seconds": 83.302
+    },
+    {
+      "name": "workspace",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--workspace"
+      ],
+      "exitCode": 0,
+      "seconds": 25.827
+    },
+    {
+      "name": "blitz-paint",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "blitz-paint",
+        "--lib"
+      ],
+      "exitCode": 0,
+      "seconds": 2.635
+    },
+    {
+      "name": "blitz-dom",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "blitz-dom",
+        "--lib"
+      ],
+      "exitCode": 101,
+      "seconds": 0.567
+    }
+  ],
+  "review": {
+    "manual": "completed",
+    "boundedReadOnly": "completed",
+    "codeReviewTool": "unavailable; incomplete"
+  },
+  "tests": {
+    "compilerPassed": 297,
+    "workspacePassed": 117,
+    "blitzPaintPassed": 8,
+    "blitzDOMPassed": 49,
+    "blitzDOMFailed": 2,
+    "baselineDOMFailures": [
+      "hover_styles_apply_and_clear",
+      "scroll_by_clamps_and_bubbles"
+    ]
+  },
+  "evidence": [
+    {
+      "path": "artifacts/tables/results.json",
+      "sha256": "d814b32310a728797ef5590f9746da19fae059737a433bf121a16a926be537a5"
+    },
+    {
+      "path": "artifacts/tables/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/table-document-mode/results.json",
+      "sha256": "116859f74d93628da728de1b0d0a75520ac654a5712d52c70ad5a4d4ae91a34c"
+    },
+    {
+      "path": "artifacts/table-document-mode/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/table-controls/results.json",
+      "sha256": "2063b72aee2163737303a81c038860864834e2456ce2d7dcc664a8b41155e632"
+    },
+    {
+      "path": "artifacts/table-controls/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/table-integration/results.json",
+      "sha256": "d224b81f2ef254762174fd3a45f65494f9cfd94bfe1d8b9b2e627326f30c7e8f"
+    },
+    {
+      "path": "artifacts/table-integration/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/controls/results.json",
+      "sha256": "2a5fb6137a137f9d232536e914a86516995b4947ea46253dc9b0e2a87183bdb6"
+    },
+    {
+      "path": "artifacts/controls/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/scrolling/results.json",
+      "sha256": "267a7031628b8eab560fa33e5241014b8edbdd99fa84802fd5389eb88a0f34fe"
+    },
+    {
+      "path": "artifacts/scrolling/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/css-animations/results.json",
+      "sha256": "dc690b9891527a636e3adc911dc63eff156cb4e743086a7f1bea0a9f1ea38726"
+    },
+    {
+      "path": "artifacts/css-animations/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/borders/results.json",
+      "sha256": "68aad8e23f241fb55b85a29317ac94373408fbdfdf9ecab7fc1419a9563a40d3"
+    },
+    {
+      "path": "artifacts/borders/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/glyphs/results.json",
+      "sha256": "d302ee201be08d5b05900bce8378a6bd67d8e200d3a3d49e7e89f1cf7e40b888"
+    },
+    {
+      "path": "artifacts/glyphs/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/intrinsic-text/results.json",
+      "sha256": "70bde9a1aced507aebe11eb6ee10b1f67ef6a376b24729ded71a9f2f1bc630f5"
+    },
+    {
+      "path": "artifacts/intrinsic-text/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/font-weights/results.json",
+      "sha256": "39ef5ab2fe6f30e4d01eb75b3fb371a09d67648e2a4bb8cba0716961c8883996"
+    },
+    {
+      "path": "artifacts/font-weights/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/control-focus-tables-cpu/report.json",
+      "sha256": "5366fe410e3ab9ccaab896d17a8a0b6362a9c54a72f8bdf4243a5903872257fa"
+    },
+    {
+      "path": "artifacts/control-focus-tables-gpu/report.json",
+      "sha256": "104bf5cd97a9389f082c6cbaf7129148c867247fdc245fb5afc2da32d774ee38"
+    },
+    {
+      "path": "artifacts/control-focus-compiled/report.json",
+      "sha256": "ddb5610730f43d383ae4aa73d0bc4e42930c1bcf3b8d584cfeec50e93bd9c404"
+    },
+    {
+      "path": "artifacts/control-focus/results.json",
+      "sha256": "1d19541bcfbee79bfb988e17628b17eb91a7b74c88a380ce27630657876bc2ad"
+    },
+    {
+      "path": "artifacts/control-focus/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/control-focus-visible-baseline/results.json",
+      "sha256": "8b6c52ecc23e794edb12e04e27f673a5aa809e9107b0e7b8d4852f3c30ce169b"
+    },
+    {
+      "path": "artifacts/control-focus-visible-baseline/metadata.json",
+      "sha256": "6b4fd3409a6ad15d78d732c79bf5698119ebd10b54d5479b537ebb845ea24e4d"
+    },
+    {
+      "path": "artifacts/control-focus-effects-baseline/results.json",
+      "sha256": "c051917b5c5ceebe4ef8bc535b6b045e4703ff7ba57f430f2244a19aa7c4cc01"
+    },
+    {
+      "path": "artifacts/control-focus-effects-baseline/metadata.json",
+      "sha256": "40fbcb17307d8fcc45b85a64cee23113495b416896791ddebe81d3e03c1d02a4"
+    },
+    {
+      "path": "artifacts/control-focus-focus-final.log",
+      "sha256": "c06e5c892637deb9de6c73797594f5f1251c0b72a6644e661c809adb3fe20787"
+    },
+    {
+      "path": "artifacts/control-focus-tables-cpu.log",
+      "sha256": "0e0e5807b752abbbf00dd2ab4b20b39685efbd786309e3513b39b4a0ae450e24"
+    },
+    {
+      "path": "artifacts/control-focus-tables-gpu.log",
+      "sha256": "d8dda079ec68d37055c16d608afeff3eb9c9869eb75b43bef5ccb661d269e858"
+    },
+    {
+      "path": "artifacts/control-focus-compiled-regressions.log",
+      "sha256": "7c92a511ea28b64a5df0574e5004c0f609883f07545c39f6fe513d3f46bc04d5"
+    },
+    {
+      "path": "artifacts/control-focus-tables.log",
+      "sha256": "9be53ef4685ccb865a772bb958383aaecc29302b616d2d29358067373f731d32"
+    },
+    {
+      "path": "artifacts/control-focus-table-document-mode.log",
+      "sha256": "d5b5ae398382df020234e28d8c15fc7639b3c59c87f01b8adb73e4333bdd7782"
+    },
+    {
+      "path": "artifacts/control-focus-table-controls.log",
+      "sha256": "34359a0e1053a9e5d235dbfa547fd0e68cea5edaca346805bce3e397a6dc0c6d"
+    },
+    {
+      "path": "artifacts/control-focus-table-integration.log",
+      "sha256": "62dfffa2e8da78b87fecd286b3dca0a9eefad8b910ee5e7c777047b6bb08c3a6"
+    },
+    {
+      "path": "artifacts/control-focus-controls.log",
+      "sha256": "42ee9e78888ca1aa42b746f28acae7802a23a569022de5aa7ee44a1538bbdf80"
+    },
+    {
+      "path": "artifacts/control-focus-scrolling.log",
+      "sha256": "fb14f489332b03dc6f5c8e21e4930022fc6b051beaa8c0c18f3fe2b9b0ef837d"
+    },
+    {
+      "path": "artifacts/control-focus-css-animations.log",
+      "sha256": "ba499622108956ce8cc53d2e1a7711b2693283cc34c55778d54d5264b1ff691a"
+    },
+    {
+      "path": "artifacts/control-focus-borders.log",
+      "sha256": "6390da8549ae25e666a59019d548d749717100159c1ad94b23192a2079f2c51a"
+    },
+    {
+      "path": "artifacts/control-focus-glyphs.log",
+      "sha256": "16756b7fe524f20c3f51cfdf639b5c7ceaa3f9338edea2441db714ff050f841b"
+    },
+    {
+      "path": "artifacts/control-focus-intrinsic-text.log",
+      "sha256": "99f710ddfa98717b44997b46957e5c37a24c12093df63d79e2559ab6fdd205b5"
+    },
+    {
+      "path": "artifacts/control-focus-font-weights.log",
+      "sha256": "d4c098de90da9f9f4aa131ee6eb717c4a9e97dcdde4c30566f4db96a3b4ac414"
+    },
+    {
+      "path": "artifacts/control-focus-workspace.log",
+      "sha256": "9cb62e3e87434a7d0dfaa3a9569418674e0d80378b08a7b7ae69d35fbe6576f0"
+    },
+    {
+      "path": "artifacts/control-focus-blitz-paint.log",
+      "sha256": "c9f09f38a816db41f6e24f8a294452eb118e6e57b8687ece60fc4e838f72c1dc"
+    },
+    {
+      "path": "artifacts/control-focus-blitz-dom.log",
+      "sha256": "f6f0e23d021da5995ea032e70cf485dd932ce54a56a689321538f8b0c772eb0c"
+    },
+    {
+      "path": "artifacts/control-focus-npm.log",
+      "sha256": "5a57aa173119df030af7087b3e3f289bd9f957074a47aebc1d2b436576af02b3"
+    },
+    {
+      "path": "artifacts/control-focus-disabled-navigation-test.log",
+      "sha256": "718d51e580919bfa613d4048ef4f81b8c25a7d56f997c53020aaf2834b06d8c8"
+    },
+    {
+      "path": "artifacts/control-focus-verification.json",
+      "sha256": "0fb527d2efa18891250f4a43b5d974df69a82f510ff8ec9f728792bbf64fe7c0"
+    },
+    {
+      "path": "artifacts/font-weights/fonts.json",
+      "sha256": "12d6d3c5129591b06265ecbc3dd27fa8f2335733a7ce157c71e521e30dd81fad"
+    }
+  ]
+}
