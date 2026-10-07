@@ -93,3 +93,12 @@ strip = true
 debug = 0
 codegen-units = 1
 panic = "abort"
+
+[patch."file:///home/viktor/Development/RunicArtifex/blitz"]
+blitz-dom = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-dom" }
+blitz-html = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-html" }
+blitz-shell = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-shell" }
+blitz-traits = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-traits" }
+blitz-paint = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-paint" }
+stylo_taffy = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/stylo_taffy" }
+debug_timer = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/debug_timer" }
