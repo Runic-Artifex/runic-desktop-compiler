@@ -21,6 +21,7 @@ pub fn rust_type(t: &Type) -> String {
         Type::Date => "js::Date".into(),
         // Opaque host objects (M6): the generated app keeps their state.
         Type::Mounted | Type::Contexts | Type::Animation => "js::Handle".into(),
+        Type::Dyn => "js::Dyn".into(),
         // Every class reference is the program's enum of instances by class.
         Type::Class(_) | Type::Classes(_) => "Obj".into(),
         // Reactions are microtask jobs of the generated app.
@@ -62,6 +63,7 @@ pub fn default_value(t: &Type, p: &Program) -> String {
         Type::MediaQuery => "js::MediaQueryList::new(\"\", false)".into(),
         Type::Date => "js::Date::default()".into(),
         Type::Mounted | Type::Contexts | Type::Animation => "js::Handle::new(())".into(),
+        Type::Dyn => "js::Dyn::Undefined".into(),
         Type::Promise(_) => "js::JsPromise::pending()".into(),
         Type::Fn(f) => format!(
             "{{ let f: {} = Rc::new(|_: &mut Cx{}| -> JsResult<{}> {{ unreachable!(\"uninitialised function\") }}); f }}",

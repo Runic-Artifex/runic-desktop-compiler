@@ -9,6 +9,7 @@ Clusters (see [GAPS](../GAPS.md#clusters)): **V1** unions, **V2** untyped values
 | Not covered | Code | Reason | What it would take | Location |
 |---|---|---|---|---|
 | A union reached by values of several members (Accordion/ToggleGroup mixing `single` and `multiple`, a multiple Select, Slider's `number \| number[]`) | E_TYPE_UNION | The IR has no sum type; the census picks one member per program | Compile a component per member (decided 2026-10-05, "layer 2", not started), or an IR union type | unions.ts:157; svelte.ts:3155,3162,3221; CONTRACT (ToggleGroup, Accordion, Select) |
+| The union census on bits-ui's Pagination without dynamic values (`Page \| Ellipsis` and the unions behind it): no diagnostic, the compiler runs for over 30 minutes | — (hangs) | `trace` follows sites and branches without memoising, so its work grows exponentially (depth limit 40) | Memoise `trace` per node, path and strictness, with the depth cut-off kept sound; until then, dynamic values | unions.ts:557 (`trace`) |
 | Unions other than nullable, literal, widest-member or narrowable (`string \| number`, node-or-function props) | E_TYPE_UNION | "M2 supports nullable types and literal unions" | As above | types.ts:499 |
 | Recursive unions (`ClassValue = … \| ClassValue[]`) | E_TYPE_UNION | No recursive types | IR recursive types or a dynamic tier | types.ts:211 |
 | `any`/`unknown` values that no rule types | E_TYPE_UNSUPPORTED | "need a static type (or a JS island, M6)" | Inference rules per pattern (current practice), a dynamic value tier, or islands | types.ts:225 |
@@ -32,6 +33,20 @@ Clusters (see [GAPS](../GAPS.md#clusters)): **V1** unions, **V2** untyped values
 | Throwing non-Error values; non-Error catch bindings | E_IR | Errors are records | A dynamic tier | validate.rs:1594-1617 |
 | `JSON.stringify` with a replacer, of Map/Set/Date/class instances; `JSON.parse` without a declared type | E_BUILTIN | Typed JSON | Replacers; dynamic parse | builtins.rs:345-362,1571-1595 |
 | `Object.keys/values` of class instances or mixed records; `structuredClone` of Dates and class instances; `Array.from` over Maps, iterables, `{length}`; `flat(depth)`; number methods beyond toFixed/toString/toPrecision/toExponential | E_BUILTIN | Not in the catalogue | Catalogue entries with vectors | builtins.rs:367-386,1423-1468,1596-1614,1975 |
+
+### Dynamic values (opt-in spike)
+
+With `runic.json` `"dynamicValues": true` ([design](../design/M6-DYNAMIC-VALUES.md), not adopted yet), untyped values compile to the `dyn` type instead of the V2 rejections above. These are the gaps inside that mode, as of the spike (2026-10-07).
+
+| Not covered | Code | Reason | What it would take | Location |
+|---|---|---|---|---|
+| The opt-in in React and Vue programs | — | Only the Svelte adapter sets it; the spike's target is Svelte | Set `types.dynamic` in the other adapters, with cases | svelte.ts (`graph.config.dynamicValues`) |
+| A dynamic value in state changed in place (`o.k = 2`, `arr.push(x)` on a `dyn` in `$state`) | E_REACTIVITY | Dynamic values are held by identity; no proxy notifies their changes | Dynamic objects and arrays that notify their cell (deep proxies) | validate.rs (`dyn_roots`) |
+| Copying a dynamic object into a record where the copy is observable: the record is mutated, compared or kept by identity, boxed again where the program compares dynamic values by identity, or the program sets properties of any dynamic object | E_DYN_COPY | A copy is a different object; the proof is program-wide and coarse | Origins per copy (as for in-place mutation), or records backed by the dynamic object | validate.rs:1930 (`dyn_copies`) |
+| `class={x}` of a dynamic value that is not a string (clsx objects and arrays) | RunicUnsupportedError at run time | The checked unboxing to a string; clsx values are not supported statically either (F1) | clsx over dynamic values | svelte.ts:4865 |
+| Methods of dynamic receivers: no case calls one (arrays of dynamic items use the static array methods). `runic-js` implements arrays' push, pop, shift, join, slice, indexOf, includes, lastIndexOf, forEach, map, filter, find, findIndex, some, every, reduce, sort, reverse, concat and strings' case, trim, slice, includes, startsWith, endsWith, indexOf (unit tests cover push and sort); others throw RunicUnsupportedError at run time | — | Implemented as the spike needed them | A case, then further methods with vectors from Node | runic-js dynamic.rs (`array_method`, `string_method`) |
+| Calling a function an untyped call returns (`twice(f)(x)`) | E_CALL | The callee is neither a binding nor a member | `dyn.call` of any dynamic callee | language.ts:9851 |
+| Bitwise and shift operators on dynamic values (arithmetic, `+`, comparisons, equality and `==` are covered) | E_OPERATOR | Not needed yet | The remaining operators in runic-js | language.ts (`dynBinary`) |
 
 ## Language constructs (V4)
 

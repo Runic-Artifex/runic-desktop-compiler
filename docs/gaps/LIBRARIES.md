@@ -33,7 +33,7 @@ bits-ui compiles from source; parts with a conformance case are in [CONTRACT](..
 | ScrollArea | scoped component style | design/M6-LIBRARIES |
 | AspectRatio | `E_ATTRS` | design/M6-LIBRARIES |
 | PinInput (input-otp) | `any` callback (V2) | design/M6-LIBRARIES |
-| Pagination | `E_TYPE_UNSUPPORTED` | design/M6-LIBRARIES |
+| Pagination | `E_TYPE_UNSUPPORTED` without dynamic values; with the opt-in it passes case `bits-pagination` | design/M6-DYNAMIC-VALUES |
 | Avatar.Image | images (P7) | CONTRACT |
 | Meter, RadioGroup | lower; no case yet | design/M6-LIBRARIES |
 | AlertDialog, HoverCard, ContextMenu, Menubar, NavigationMenu, Calendar, RangeCalendar, DateField, Combobox, Toolbar, LinkPreview | not attempted | — |

@@ -617,6 +617,10 @@ impl<'a> Scope<'a> {
             }
             ToString { arg } => {
                 let t = self.infer(arg, d, src)?;
+                // (A dynamic value converts with a check: M6 dynamic values.)
+                if t == Type::Dyn || t == Type::Array(Box::new(Type::Dyn)) {
+                    return Ok(Type::String);
+                }
                 if matches!(t, Type::Map(..) | Type::Set(_) | Type::Fn(_) | Type::Void) {
                     return err(
                         "E_IR",
@@ -1174,6 +1178,23 @@ impl<'a> Scope<'a> {
                 {
                     if name.starts_with("string.regexp-replace") {
                         check_replacer(f, *n as usize, src)?;
+                    }
+                }
+                // `dyn.from(v, type)`: the literal names v's static type (the
+                // interpreter boxes by it).
+                if name == "dyn.from" {
+                    let named = match args.get(1) {
+                        Some(Lit {
+                            value: Value::String(s),
+                        }) => serde_json::from_str::<Type>(s).ok(),
+                        _ => None,
+                    };
+                    if named.as_ref() != types.first() {
+                        return err(
+                            "E_IR",
+                            "dyn.from names its argument's static type as its second argument",
+                            src,
+                        );
                     }
                 }
                 match builtins::result_type(name, &types, ty, &self.program.records) {
@@ -1895,7 +1916,337 @@ pub fn validate(p: &Program) -> Result<()> {
         validate_component(p, ci, &mut nodes)?;
     }
     derived_host_services(p)?;
+    dyn_copies(p)?;
     untracked_template_reads(p)
+}
+
+/// Dynamic objects unboxed into plain records (M6 dynamic values,
+/// `dyn.to` of a record type) are copies: a copy is indistinguishable from
+/// the object only where no code can tell them apart. Every such record type
+/// (and the record types its fields hold) must be one that no code mutates
+/// (a field assignment) or compares by identity (`===`, `indexOf`, map and
+/// set keys, boxing it back), and the program must set no property of a
+/// dynamic object (`dyn.set`), which the copy would not see.
+fn dyn_copies(p: &Program) -> Result<()> {
+    fn holds(t: &Type, records: &HashSet<usize>) -> bool {
+        match t {
+            Type::Record(r) => records.contains(r),
+            Type::Maybe(i) => holds(i, records),
+            _ => false,
+        }
+    }
+    // The record types dyn.to copies into, with the records their fields hold.
+    let mut copied = HashSet::new();
+    let mut all_exprs: Vec<(Option<usize>, Vec<Local>, Vec<&Expr>)> = vec![];
+    for f in &p.functions {
+        let mut exprs = vec![];
+        collect_exprs(&f.body, &mut exprs);
+        let locals = f
+            .captures
+            .iter()
+            .chain(&f.params)
+            .chain(&f.locals)
+            .cloned()
+            .collect();
+        all_exprs.push((f.component, locals, exprs));
+    }
+    let templates: Vec<_> = p
+        .components
+        .iter()
+        .map(|c| c.template_and_mounts())
+        .collect();
+    for (k, c) in p.components.iter().enumerate() {
+        let mut exprs = vec![];
+        template_exprs(&templates[k], &mut exprs);
+        all_exprs.push((Some(k), c.template_locals.clone(), exprs));
+        for h in &c.handlers {
+            let mut hx = vec![];
+            collect_exprs(&h.body, &mut hx);
+            let locals = h.params.iter().chain(&h.locals).cloned().collect();
+            all_exprs.push((Some(k), locals, hx));
+        }
+    }
+    let mut stack: Vec<&Expr> = all_exprs
+        .iter()
+        .flat_map(|(_, _, e)| e.iter().copied())
+        .collect();
+    let mut sets = false;
+    let mut sources = HashSet::new();
+    while let Some(e) = stack.pop() {
+        if let Expr::Builtin { name, ty, .. } = e {
+            if name == "dyn.to" {
+                let mut todo = vec![ty.clone()];
+                while let Some(t) = todo.pop() {
+                    match t {
+                        Type::Maybe(i) | Type::Array(i) => todo.push(*i),
+                        Type::Record(r) if !p.records[r].class && copied.insert(r) => {
+                            todo.extend(p.records[r].fields.iter().map(|f| f.ty.clone()))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if name == "dyn.set" {
+                sets = true;
+            }
+            // (Records boxed as dynamic objects are copy sources: their
+            // fields must not change either.)
+            if name == "dyn.from" {
+                if let Some(Expr::Lit {
+                    value: Value::String(s),
+                }) = e.children().get(1)
+                {
+                    if let Ok(Type::Record(r)) = serde_json::from_str::<Type>(s) {
+                        if !p.records[r].class {
+                            sources.insert(r);
+                        }
+                    }
+                }
+            }
+        }
+        stack.extend(e.children());
+    }
+    if copied.is_empty() {
+        return Ok(());
+    }
+    let name = |r: &usize| p.records[*r].name.clone();
+    let reject = |r: usize, why: &str| -> Result<()> {
+        err(
+            "E_DYN_COPY",
+            format!(
+                "A dynamic object is copied into a {} record, and {why}: the copy would differ from the object (M6 dynamic values)",
+                name(&r)
+            ),
+            None,
+        )
+    };
+    if sets {
+        let r = *copied.iter().min().unwrap();
+        return reject(r, "the program sets properties of dynamic objects");
+    }
+    // Field assignments to copied record types.
+    fn assigned(body: &[Stmt], out: &mut Vec<Expr>) {
+        for s in body {
+            match s {
+                Stmt::Assign {
+                    target: Place::Field { object, .. },
+                    ..
+                } => out.push(object.clone()),
+                Stmt::If {
+                    then, otherwise, ..
+                } => {
+                    assigned(then, out);
+                    assigned(otherwise, out);
+                }
+                Stmt::While { body, update, .. } => {
+                    assigned(body, out);
+                    assigned(update, out);
+                }
+                Stmt::ForOf { body, .. } => assigned(body, out),
+                Stmt::Try {
+                    body,
+                    catch,
+                    finally,
+                } => {
+                    assigned(body, out);
+                    if let Some(c) = catch {
+                        assigned(&c.body, out);
+                    }
+                    if let Some(f) = finally {
+                        assigned(f, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let bodies: Vec<(Option<usize>, Vec<Local>, &[Stmt])> = p
+        .functions
+        .iter()
+        .map(|f| {
+            (
+                f.component,
+                f.captures
+                    .iter()
+                    .chain(&f.params)
+                    .chain(&f.locals)
+                    .cloned()
+                    .collect(),
+                f.body.as_slice(),
+            )
+        })
+        .chain(p.components.iter().enumerate().flat_map(|(k, c)| {
+            c.handlers.iter().map(move |h| {
+                (
+                    Some(k),
+                    h.params.iter().chain(&h.locals).cloned().collect(),
+                    h.body.as_slice(),
+                )
+            })
+        }))
+        .collect();
+    for (component, locals, body) in &bodies {
+        let mut scope = Scope::new(p, *component);
+        scope.locals = locals.clone();
+        let mut objects = vec![];
+        assigned(body, &mut objects);
+        for o in &objects {
+            if let Ok(Type::Record(r)) = scope.infer(o, 0, None) {
+                if copied.contains(&r) {
+                    return reject(r, "a field of such a record is assigned");
+                }
+                if sources.contains(&r) {
+                    let target = *copied.iter().min().unwrap();
+                    return reject(
+                        target,
+                        &format!(
+                            "a field of a {} record boxed as a dynamic object is assigned (the copy would not see it)",
+                            name(&r)
+                        ),
+                    );
+                }
+            }
+        }
+    }
+    // Identity comparisons and identity-keeping uses of copied record types.
+    // (A copied record boxed again is a different dynamic value from the
+    // object it was copied from: only observable where the program tells
+    // dynamic values apart by identity.)
+    let mut keys = vec![];
+    for t in &templates {
+        each_keys(t, &mut keys);
+    }
+    let keys: HashSet<*const Expr> = keys.into_iter().map(|e| e as *const Expr).collect();
+    let mut dyn_identity = false;
+    let mut boxed_copy = None;
+    // (Tests against null or undefined, `x == null`, tell no identity.)
+    let nothing = |a: &Expr| {
+        matches!(a, Expr::Builtin { name, args, .. } if name == "dyn.from"
+            && matches!(args.first(), Some(Expr::Null { .. } | Expr::Undefined { .. })))
+    };
+    for (component, locals, exprs) in &all_exprs {
+        let mut scope = Scope::new(p, *component);
+        scope.locals = locals.clone();
+        let mut stack: Vec<&Expr> = exprs.clone();
+        while let Some(e) = stack.pop() {
+            if keys.contains(&(e as *const Expr))
+                && matches!(scope.infer(e, 0, None), Ok(Type::Dyn))
+            {
+                dyn_identity = true;
+            }
+            match e {
+                Expr::Eq { left, right } | Expr::Ne { left, right } => {
+                    if (matches!(scope.infer(left, 0, None), Ok(Type::Dyn))
+                        || matches!(scope.infer(right, 0, None), Ok(Type::Dyn)))
+                        && !nothing(left)
+                        && !nothing(right)
+                    {
+                        dyn_identity = true;
+                    }
+                    if let Ok(t) = scope.infer(left, 0, None) {
+                        if holds(&t, &copied) {
+                            let Type::Record(r) = (match &t {
+                                Type::Maybe(i) => (**i).clone(),
+                                other => other.clone(),
+                            }) else {
+                                unreachable!()
+                            };
+                            return reject(r, "such records are compared by identity");
+                        }
+                    }
+                }
+                Expr::Builtin { name, args, .. } => {
+                    if (name == "dyn.loose-eq" && !args.iter().any(nothing))
+                        || (name == "dyn.method"
+                            && matches!(args.get(1), Some(Expr::Lit { value: Value::String(m) })
+                                if matches!(m.as_str(), "indexOf" | "includes" | "lastIndexOf")))
+                    {
+                        dyn_identity = true;
+                    }
+                    let identity = matches!(
+                        name.as_str(),
+                        "array.indexOf" | "array.includes" | "array.lastIndexOf" | "dyn.from"
+                    ) || name.starts_with("map.")
+                        || name.starts_with("set.");
+                    if identity {
+                        for a in args {
+                            if let Ok(t) = scope.infer(a, 0, None) {
+                                let inner = match &t {
+                                    Type::Array(i) | Type::Set(i) => (**i).clone(),
+                                    Type::Map(k, _) => (**k).clone(),
+                                    other => other.clone(),
+                                };
+                                if inner == Type::Dyn && name != "dyn.from" {
+                                    dyn_identity = true;
+                                }
+                                if holds(&inner, &copied) && name == "dyn.from" {
+                                    let Type::Record(r) = (match &inner {
+                                        Type::Maybe(i) => (**i).clone(),
+                                        other => other.clone(),
+                                    }) else {
+                                        unreachable!()
+                                    };
+                                    boxed_copy = Some(r);
+                                } else if holds(&inner, &copied) {
+                                    let Type::Record(r) = (match &inner {
+                                        Type::Maybe(i) => (**i).clone(),
+                                        other => other.clone(),
+                                    }) else {
+                                        unreachable!()
+                                    };
+                                    return reject(
+                                        r,
+                                        "such records are compared or kept by identity",
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            stack.extend(e.children());
+        }
+    }
+    if let (true, Some(r)) = (dyn_identity, boxed_copy) {
+        return reject(
+            r,
+            "such records are boxed as dynamic values, which the program compares by identity",
+        );
+    }
+    Ok(())
+}
+
+/// The keys of the keyed each blocks in `nodes`.
+fn each_keys<'a>(nodes: &'a [Node], out: &mut Vec<&'a Expr>) {
+    for n in nodes {
+        match n {
+            Node::Element { children, .. } => each_keys(children, out),
+            Node::If {
+                then, otherwise, ..
+            } => {
+                each_keys(then, out);
+                each_keys(otherwise, out);
+            }
+            Node::Component { slots, .. } => {
+                for s in slots {
+                    each_keys(&s.body, out);
+                }
+            }
+            Node::Slot { fallback, .. } => each_keys(fallback, out),
+            Node::Each {
+                key,
+                body,
+                otherwise,
+                ..
+            } => {
+                out.extend(key.as_ref());
+                each_keys(body, out);
+                each_keys(otherwise, out);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The markers of a reactive class field (docs/IR.md, "Reactive class fields").
@@ -2867,6 +3218,10 @@ struct Mutations {
     /// unknown root does.
     dates: HashSet<Root>,
     date_unknown: bool,
+    /// Dynamic values changed in place, by root, and whether one of unknown
+    /// root is.
+    dyn_roots: HashSet<Root>,
+    dyn_unknown: bool,
 }
 
 /// The RegExp whose `lastIndex` a built-in may change (global and sticky
@@ -2985,8 +3340,22 @@ const MUTATORS: &[&str] = &[
     "set.delete",
     "set.clear",
 ];
+/// Methods of dynamic arrays that change them (`dyn.method`).
+const DYN_MUTATORS: &[&str] = &[
+    "push",
+    "pop",
+    "shift",
+    "unshift",
+    "splice",
+    "sort",
+    "reverse",
+    "fill",
+    "copyWithin",
+];
 /// Built-ins returning a new top-level value.
 const FRESH: &[&str] = &[
+    "dyn.object",
+    "dyn.array",
     "array.map",
     "array.filter",
     "array.slice",
@@ -3131,6 +3500,15 @@ impl Origins<'_> {
                 .map_or(Origin::Unknown, |a| self.origin_in(a, bound)),
             Expr::Get { object, .. } => element(self.origin_in(object, bound)),
             Expr::Index { array, .. } => element(self.origin_in(array, bound)),
+            // (Boxing and unboxing keep a value's identity; a property of a
+            // dynamic value is reached from it.)
+            Expr::Builtin { name, args, .. } if name == "dyn.from" || name == "dyn.to" => args
+                .first()
+                .map_or(Origin::Unknown, |a| self.origin_in(a, bound)),
+            Expr::Builtin { name, args, .. } if name == "dyn.get" => element(
+                args.first()
+                    .map_or(Origin::Unknown, |a| self.origin_in(a, bound)),
+            ),
             Expr::Unwrap { value }
             | Expr::Some { value }
             | Expr::Upcast { value, .. }
@@ -3208,6 +3586,22 @@ impl Origins<'_> {
                 let o = self.origin(d);
                 self.change(o);
                 note_date_write(self.out, o);
+            }
+            // A dynamic object or array changed in place (M6 dynamic values).
+            let dyn_mutator = name == "dyn.set"
+                || (name == "dyn.method"
+                    && matches!(args.get(1), Some(Expr::Lit { value: Value::String(m) })
+                        if DYN_MUTATORS.contains(&m.as_str())));
+            if let (true, Some(receiver)) = (dyn_mutator, args.first()) {
+                let o = self.origin(receiver);
+                self.change(o);
+                match o {
+                    Origin::Root(r) => {
+                        self.out.dyn_roots.insert(r);
+                    }
+                    Origin::Fresh => {}
+                    Origin::Unknown | Origin::Reactive => self.out.dyn_unknown = true,
+                }
             }
             if MUTATORS.contains(&name.as_str()) {
                 if let Some(receiver) = args.first() {
@@ -3877,6 +4271,15 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
         {
             return Some(format!(
                 "{name} holds a RegExp whose lastIndex changes (exec, test, replace or match with a global or sticky RegExp, or setting lastIndex) and is read while rendering; no framework tracks lastIndex, so the view would depend on how often it renders"
+            ));
+        }
+        // Dynamic values in state are held by identity: no framework's
+        // tracking sees a change inside one (M6 dynamic values).
+        if (m.dyn_unknown || m.dyn_roots.contains(&root))
+            && holds(p, ty, &Type::Dyn, &mut HashSet::new())
+        {
+            return Some(format!(
+                "{name} holds a dynamic value that is changed in place and read while rendering; dynamic values are held by identity, so the change would not update the view (assign a new value; M6 dynamic values)"
             ));
         }
         let mutated_type = |collections: bool| {

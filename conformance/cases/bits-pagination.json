@@ -1,0 +1,26 @@
+{
+  "description": "bits-ui's Pagination compiled from its published source with dynamic values (runic.json \"dynamicValues\": true, docs/design/M6-DYNAMIC-VALUES.md): its untyped page-item builder (an untyped array of page and ellipsis objects, a nested function, a set of page numbers) and its keyboard handler (an object keyed by the directional keys) compile without inference rules, the page items reach the shadcn-svelte wrappers' typed `page` props as copies the validator proves unobservable. pagination-demo through the unmodified pagination and button wrappers: three pages of ten, the second current. Presses on page links and on Previous and Next (disabled at the ends), arrow keys and Home and End moving focus between the triggers, Enter and Space activating them; aria-current, data-selected and the outline and ghost button variants",
+  "fixtures": ["bits-pagination-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "bits-c5" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "bits-c2" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "bits-c2" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "ArrowRight" },
+    { "kind": "press", "key": "ArrowRight" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "End" },
+    { "kind": "press", "key": "Home" },
+    { "kind": "press", "key": "ArrowLeft" },
+    { "kind": "press", "key": "ArrowRight" },
+    { "kind": "press", "key": " " },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "bits-c6" },
+    { "kind": "wait", "ms": 100 }
+  ]
+}

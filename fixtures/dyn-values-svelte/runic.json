@@ -1,0 +1,6 @@
+{
+  "framework": "svelte",
+  "entry": "main.js",
+  "title": "Runic dyn-values-svelte",
+  "dynamicValues": true
+}

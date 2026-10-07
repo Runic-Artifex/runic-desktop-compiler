@@ -1375,6 +1375,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             Ok(n)
         }
         // `CSS.escape(s)` (M6, bits-ui's Command selectors).
+        ("dyn", m) => dyn_type(m, args, declared),
         ("css", "escape") => {
             arity(args, 1, 1)?;
             expect(&args[0], &s, "argument").map(|_| s)
@@ -1619,6 +1620,121 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
 /// A match array: captures are `maybe<string>`, or `string` where the
 /// frontend proved that every capture participates in every match (a
 /// capture that does not throws `TypeError`).
+/// Whether a static value of type `t` can be boxed into a dynamic value
+/// (and unboxed again): every type but `void` and `dyn` itself.
+pub fn boxable(t: &Type) -> bool {
+    !matches!(t, Type::Void | Type::Dyn)
+}
+
+/// The dynamic-value built-ins (M6 spike, docs/design/M6-DYNAMIC-VALUES.md).
+fn dyn_type(m: &str, args: &[Type], declared: &Type) -> R {
+    use Type::*;
+    let d = Dyn;
+    let key = |t: &Type| -> std::result::Result<(), std::string::String> {
+        if matches!(t, Dyn | String | Number) {
+            Ok(())
+        } else {
+            Err(format!(
+                "a property key must be dyn, string or number, found {}",
+                t.name()
+            ))
+        }
+    };
+    match m {
+        // `dyn.from(v)`: box a static value.
+        "from" => {
+            arity(args, 2, 2)?;
+            expect(&args[1], &String, "the static type")?;
+            if boxable(&args[0]) {
+                Ok(d)
+            } else {
+                Err(format!("{} values are not boxed", args[0].name()))
+            }
+        }
+        // `dyn.to(v)` with the declared type: the static value, checked.
+        "to" => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &d, "value")?;
+            if boxable(declared) {
+                Ok(declared.clone())
+            } else {
+                Err(format!("dyn.to cannot give {}", declared.name()))
+            }
+        }
+        "get" => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &d, "receiver")?;
+            key(&args[1]).map(|_| d)
+        }
+        "set" => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &d, "receiver")?;
+            key(&args[1])?;
+            expect(&args[2], &d, "value").map(|_| Void)
+        }
+        // `dyn.call(f, args…)` (`this` undefined).
+        "call" => {
+            if args.is_empty() {
+                return Err("dyn.call needs the function".into());
+            }
+            all(args, &d).map(|_| d)
+        }
+        // `dyn.method(o, name, args…)`.
+        "method" => {
+            if args.len() < 2 {
+                return Err("dyn.method needs the receiver and the name".into());
+            }
+            expect(&args[0], &d, "receiver")?;
+            expect(&args[1], &String, "method name")?;
+            all(&args[2..], &d).map(|_| d)
+        }
+        // `dyn.object(key, value, …)`: an object literal.
+        "object" => {
+            if args.len() % 2 != 0 {
+                return Err("dyn.object takes keys and values in pairs".into());
+            }
+            for pair in args.chunks(2) {
+                expect(&pair[0], &String, "key")?;
+                expect(&pair[1], &d, "value")?;
+            }
+            Ok(d)
+        }
+        "array" => all(args, &d).map(|_| d),
+        "binary" => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &String, "operator")?;
+            all(&args[1..], &d).map(|_| d)
+        }
+        "unary" => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &String, "operator")?;
+            expect(&args[1], &d, "operand").map(|_| d)
+        }
+        "compare" => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &String, "operator")?;
+            all(&args[1..], &d).map(|_| Boolean)
+        }
+        "loose-eq" => {
+            arity(args, 2, 2)?;
+            all(args, &d).map(|_| Boolean)
+        }
+        "to-string" => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &d, "value").map(|_| String)
+        }
+        "to-number" => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &d, "value").map(|_| Number)
+        }
+        "keys" => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &d, "value").map(|_| Type::Array(Box::new(String)))
+        }
+        _ => Err(format!("unknown builtin dyn.{m}")),
+    }
+}
+
 pub fn match_array(t: &Type) -> bool {
     matches!(t, Type::Array(e) if **e == Type::String || **e == Type::maybe(Type::String))
 }

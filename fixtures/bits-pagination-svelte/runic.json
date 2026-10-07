@@ -1,0 +1,10 @@
+{
+  "framework": "svelte",
+  "entry": "main.js",
+  "title": "Runic bits-pagination-svelte",
+  "tailwind": true,
+  "alias": {
+    "$lib": "src/lib"
+  },
+  "dynamicValues": true
+}

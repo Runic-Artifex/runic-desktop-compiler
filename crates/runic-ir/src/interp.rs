@@ -81,7 +81,17 @@ pub enum Val {
     Mounted(Rc<std::cell::Cell<Option<usize>>>),
     /// The contexts instance `i` sees (`context.all`).
     Contexts(usize),
+    /// A dynamic object (M6 spike): properties in insertion order.
+    DynObject(JsRef<Vec<(JsString, Val)>>),
+    /// A static value boxed into a dynamic one (M6 spike).
+    Boxed(Rc<dynamic::Boxed>),
+    /// A static function made from a dynamic one: its static type and the
+    /// dynamic function (M6 spike).
+    DynFn(Rc<(crate::FnType, Val)>),
 }
+
+#[path = "interp_dyn.rs"]
+mod dynamic;
 
 /// Promises of the interpreter: reactions become [`PJob`]s on the microtask queue.
 pub type Promise = js::JsPromise<Val, PJob>;
@@ -217,6 +227,9 @@ impl js::StrictEq for Val {
             (Val::Date(a), Val::Date(b)) => a == b,
             (Val::Mounted(a), Val::Mounted(b)) => Rc::ptr_eq(a, b),
             (Val::Contexts(a), Val::Contexts(b)) => a == b,
+            (Val::DynObject(a), Val::DynObject(b)) => JsRef::ptr_eq(a, b),
+            (Val::DynFn(a), Val::DynFn(b)) => Rc::ptr_eq(a, b),
+            (Val::Boxed(a), Val::Boxed(b)) => a.value.strict_eq(&b.value),
             (Val::Attrs(a), Val::Attrs(b)) => {
                 a.len() == b.len()
                     && a.iter()
@@ -267,6 +280,10 @@ impl js::ToJsString for Val {
             Val::Attrs(_) | Val::Mounted(_) => JsString::from("[object Object]"),
             Val::Contexts(_) => JsString::from("[object Map]"),
             Val::Promise(_) => JsString::from("[object Promise]"),
+            // (Dynamic values convert with dyn.to-string, which can throw.)
+            Val::DynObject(_) | Val::Boxed(_) | Val::DynFn(_) => {
+                unreachable!("validated: dynamic values convert with dyn.to-string")
+            }
         }
     }
 }
@@ -371,6 +388,9 @@ impl ToMapKey for Val {
             // Instance ids never collide with heap addresses in one map (a
             // map's key type is static).
             Val::Contexts(i) => MapKey::Ref(*i),
+            Val::DynObject(o) => MapKey::Ref(o.addr()),
+            Val::DynFn(f) => MapKey::Ref(Rc::as_ptr(f) as *const u8 as usize),
+            Val::Boxed(b) => b.value.map_key(),
         }
     }
 }
@@ -790,6 +810,8 @@ pub struct Machine<'p> {
     /// Exceptions thrown by microtasks and default tasks (reported, as a
     /// browser reports uncaught errors, after the task).
     uncaught: Vec<Throw>,
+    /// The record table for boxed values (M6 spike), made once.
+    dyn_records: Option<Rc<Vec<crate::RecordType>>>,
     /// A runtime shape the model does not cover (`host.unsupported`): the
     /// step fails, as probes stop on it.
     unsupported: Option<String>,
@@ -1082,6 +1104,7 @@ impl<'p> Machine<'p> {
             tracks_owned: cells_tracked(program, Tracking::Proxied)
                 || program.has_reactive_fields(),
             uncaught: vec![],
+            dyn_records: None,
             unsupported: None,
             tracking: None,
             phase: None,
@@ -1330,7 +1353,25 @@ impl<'p> Machine<'p> {
             Not { arg } => Val::Bool(!self.eval(arg, f)?.boolean()),
             Neg { arg } => Val::Num(-self.eval(arg, f)?.num()),
             BitNot { arg } => Val::Num(js::bit_not(self.eval(arg, f)?.num())),
-            ToString { arg } => Val::Str(js::ToJsString::to_js_string(&self.eval(arg, f)?)),
+            ToString { arg } => {
+                let v = self.eval(arg, f)?;
+                // (Dynamic values convert with the shared semantics, which can
+                // throw; a static array never holds them.)
+                fn holds_dyn(v: &Val, depth: usize) -> bool {
+                    match v {
+                        Val::DynObject(_) | Val::Boxed(_) | Val::DynFn(_) => true,
+                        Val::Array(a) if depth < 32 => {
+                            a.borrow().iter().any(|x| holds_dyn(x, depth + 1))
+                        }
+                        _ => false,
+                    }
+                }
+                if holds_dyn(&v, 0) {
+                    Val::Str(runic_js::dynamic::to_string(&v)?)
+                } else {
+                    Val::Str(js::ToJsString::to_js_string(&v))
+                }
+            }
             ToNumber { arg } => Val::Num(js::ToNumber::to_number(&self.eval(arg, f)?)),
             ToBoolean { arg } => Val::Bool(js::Truthy::truthy(&self.eval(arg, f)?)),
             Typeof { arg } => Val::Str(JsString::from(js::TypeOf::type_of(&self.eval(arg, f)?))),
@@ -1635,6 +1676,9 @@ impl<'p> Machine<'p> {
                 self.call_value(h, args.clone())?;
             }
             return Ok(Val::Undefined);
+        }
+        if let Val::DynFn(adapter) = callee {
+            return self.call_adapter(adapter, args);
         }
         let Val::Closure(c) = callee else {
             panic!("validated closure")
@@ -2103,6 +2147,9 @@ impl<'p> Machine<'p> {
     }
 
     fn builtin(&mut self, name: &str, a: Vec<Val>, types: &[Type], ty: &Type) -> Res<Val> {
+        if let Some(m) = name.strip_prefix("dyn.") {
+            return self.dyn_builtin(m, a, types, ty);
+        }
         // Items inserted into a proxied array become proxies.
         let inserted = match name {
             "array.push" | "array.unshift" => 1..usize::MAX,
@@ -3798,6 +3845,9 @@ impl<'p> Machine<'p> {
             | Val::Date(_)
             | Val::Mounted(_)
             | Val::Contexts(_)
+            | Val::DynObject(_)
+            | Val::Boxed(_)
+            | Val::DynFn(_)
             | Val::Attrs(_) => return None,
             // A promise has no own enumerable properties.
             Val::Promise(_) => J::Object(Default::default()),
@@ -8223,6 +8273,9 @@ fn path_nodes<'t>(tree: &'t [VNode], path: &[usize]) -> Vec<&'t VNode> {
 /// JSON view of a cell value (non-finite numbers as strings), matching the
 /// native probe's `cells` output.
 pub fn cell_json(v: &Val) -> Json {
+    if let Some(j) = dynamic::cell_json(v) {
+        return j;
+    }
     match v {
         Val::Undefined => Json::Null,
         Val::Null => Json::Null,
@@ -8267,6 +8320,7 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Attrs(_) => json!("attrs"),
         Val::Mounted(_) => json!("mounted"),
         Val::Contexts(_) => json!("contexts"),
+        Val::DynObject(_) | Val::Boxed(_) | Val::DynFn(_) => unreachable!("dynamic::cell_json"),
     }
 }
 

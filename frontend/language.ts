@@ -23,6 +23,7 @@ import { containsAny, sameType, TypeMapper, type Fail } from './types.ts';
 import {
   arrayElement,
   builtinType,
+  containsDyn,
   ELEMENT_METRICS,
   ANIMATION_MEMBERS,
   EVENT_MEMBERS,
@@ -424,7 +425,7 @@ export class Lowerer {
       sym => this.domains?.written(sym),
       test => this.buildTimeTruth(test),
     );
-    types.narrow = (parts, at, fail) => this.unions.member(parts, at, fail);
+    types.narrow = (parts, at, fail) => this.unions.member(parts, at, fail, types.dynamic);
     types.nothingSlot = decl => this.unions.nothingSlot(decl);
     types.nothingInBoxes = decl => this.unions.nothingInBoxes(decl);
     types.anyFnSlot = (decl, box) => this.unions.anyFnSlot(decl, box);
@@ -989,10 +990,12 @@ export class Lowerer {
     if (b.result !== undefined && b.result !== 'void') this.expected.set(skipParens(e), b.result);
     // (A cast of a prop no site passes: see `coerce`.)
     const cast = skipParens(e);
-    const value =
+    let value =
       b.result !== undefined && b.result !== 'void' && cast !== e && ts.isIdentifier(cast)
         ? this.coerce(e, b, b.result)
         : this.expr(e, b);
+    // (Static and dynamic values meet: see `dynMeet`.)
+    if (b.result !== undefined && b.result !== 'void') value = this.dynMeet(value, b.result, b);
     if (b.result === 'void' && this.irType(value, b) !== 'void') return [{ op: 'expr', value }];
     return [{ op: 'return', value }];
   }
@@ -2082,6 +2085,12 @@ export class Lowerer {
     const exhaustive = literals.every(l => l !== undefined && names.includes(l));
     const read = exhaustive ? r.fields.filter(f => literals.includes(f.name)) : r.fields;
     const types = new Set(read.map(f => JSON.stringify(f.type)));
+    // (With dynamic values: a read of the record boxed, M6 spike.)
+    if (types.size !== 1 && this.types.dynamic)
+      return this.dynBuiltin('get', [
+        this.dynFrom(object, t),
+        this.dynKey(e.argumentExpression, b),
+      ]);
     if (types.size !== 1)
       return this.fail(e, 'E_MEMBER', 'A record read with a computed key needs fields of one type');
     const field = read[0].type;
@@ -2601,6 +2610,11 @@ export class Lowerer {
         sameType(maybeInner(this.irType(value, b))!, b.result)
       )
         value = { op: 'unwrap', value };
+      // Static and dynamic values meet: boxed, or unboxed with a check.
+      else if (value && b.result && b.result !== 'dyn' && this.irType(value, b) === 'dyn')
+        value = this.dynTo(value, b.result);
+      else if (value && b.result === 'dyn' && this.irType(value, b) !== 'dyn')
+        value = this.dynFrom(value, this.irType(value, b));
       // A class instance returned as a class reference.
       else if (value && b.result)
         value = this.classes.fitAt(value, this.irType(value, b), b.result, s);
@@ -3383,6 +3397,9 @@ export class Lowerer {
       const earlyType = early && this.irType(early, b);
       if (earlyType && !maybeInner(type) && sameType(maybeInner(earlyType) ?? 'void', type))
         type = earlyType;
+      // (An unannotated variable whose initialiser is a dynamic value holds
+      // it as one: M6 dynamic values.)
+      if (earlyType && !d.type && containsDyn(earlyType)) type = earlyType;
       const local = b.local(d.name.text, type, b.boxed.has(sym));
       this.bindings.set(sym, { kind: 'local', owner: b, local });
       if (fn) {
@@ -3395,7 +3412,7 @@ export class Lowerer {
           ];
         return [{ op: 'let', local, value }];
       }
-      const init = early ?? (d.initializer && this.expr(d.initializer, b));
+      const init = this.dynMeet(early ?? (d.initializer && this.expr(d.initializer, b)), type, b);
       if (init && this.selfCaptured.has(sym))
         return [
           { op: 'let', local, ...this.src(d) },
@@ -3985,7 +4002,43 @@ export class Lowerer {
   private destructure(pattern: ts.BindingName, source: Expr, type: Type, b: FnBuilder): Stmt[] {
     const out: Stmt[] = [];
     const bind = (name: ts.BindingName, value: Expr, t: Type, init?: ts.Expression) => {
-      if (init) value = { op: 'nullish', left: value, right: this.expr(init, b) };
+      // A default applies where the value is undefined (not null, as `??`
+      // would): never for a static type without undefined.
+      if (init && t === 'dyn') {
+        const tmp = b.local('$default', 'dyn');
+        const read: Expr = { op: 'local', local: tmp };
+        const undef = this.dynFrom({ op: 'undefined', type: { maybe: 'void' } }, { maybe: 'void' });
+        value = {
+          op: 'with',
+          local: tmp,
+          value,
+          body: {
+            op: 'cond',
+            test: { op: 'eq', left: read, right: undef },
+            then: this.dynValue(init, b),
+            else: read,
+          },
+        };
+      } else if (init && maybeInner(t) !== undefined) {
+        const declared = ts.isIdentifier(name) ? this.types.typeOrUndefined(name) : undefined;
+        const result = declared ?? maybeInner(t)!;
+        const tmp = b.local('$default', t);
+        const read: Expr = { op: 'local', local: tmp };
+        value = {
+          op: 'with',
+          local: tmp,
+          value,
+          body: {
+            op: 'cond',
+            test: { op: 'builtin', name: 'maybe.is-undefined', args: [read], type: BOOLEAN },
+            then: this.coerce(init, b, result),
+            // (Null stays where the type allows it; where it does not, the
+            // types are broken and reading it throws, as `unwrap` does.)
+            else: maybeInner(result) !== undefined ? read : { op: 'unwrap', value: read },
+          },
+        };
+        t = result;
+      }
       if (ts.isIdentifier(name)) {
         const sym = this.checker.getSymbolAtLocation(name)!;
         const local = b.local(name.text, this.types.typeOrUndefined(name) ?? t, b.boxed.has(sym));
@@ -4117,7 +4170,7 @@ export class Lowerer {
                 type: { maybe: element },
               }
             : { op: 'index', array: source, index: { op: 'lit', value: i } };
-        bind(el.name, read, element, el.initializer);
+        bind(el.name, read, read.op === 'builtin' ? { maybe: element } : element, el.initializer);
       });
     }
     return out;
@@ -4399,6 +4452,38 @@ export class Lowerer {
   }
 
   writeTo(target: ts.Expression, value: Expr, b: FnBuilder): Stmt[] {
+    // A member of a dynamic value (M6 dynamic values): `dyn.set`.
+    if (
+      (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) &&
+      this.mayBeDyn(target.expression) &&
+      !this.overrides.has(target.expression)
+    ) {
+      const holder = target.expression;
+      const r = this.expr(holder, b);
+      const rt = this.irType(r, b);
+      if (rt === 'dyn') {
+        const key: Expr = ts.isPropertyAccessExpression(target)
+          ? { op: 'lit', value: target.name.text }
+          : this.dynKey(target.argumentExpression, b);
+        return [
+          {
+            op: 'expr',
+            value: this.dynBuiltin(
+              'set',
+              [r, key, this.dynFrom(value, this.irType(value, b))],
+              'void',
+            ),
+            ...this.src(target),
+          },
+        ];
+      }
+      this.overrides.set(holder, { expr: r, type: rt });
+      try {
+        return this.writeTo(target, value, b);
+      } finally {
+        this.overrides.delete(holder);
+      }
+    }
     // location.hash = value: a fragment navigation.
     if (
       ts.isPropertyAccessExpression(target) &&
@@ -4609,7 +4694,11 @@ export class Lowerer {
     // T is widened into a nullable target (Maybe<T>), a class instance into a class reference.
     const want = this.targetType(target, b);
     const have = this.irType(value, b);
-    value = this.classes.fitAt(value, have, want, target);
+    // (Static and dynamic values meet: boxed, or unboxed with a check.)
+    if (want === 'dyn' && have !== 'dyn') value = this.dynFrom(value, have);
+    else if (have === 'dyn' && want !== undefined && want !== 'dyn')
+      value = this.dynTo(value, want);
+    else value = this.classes.fitAt(value, have, want, target);
     if (ts.isIdentifier(target)) {
       const binding = this.binding(target);
       if (binding?.kind === 'local')
@@ -5135,8 +5224,13 @@ export class Lowerer {
         return { op: 'lit', value: true };
       case K.FalseKeyword:
         return { op: 'lit', value: false };
-      case K.NullKeyword:
-        return { op: 'null', type: this.contextual(e) };
+      case K.NullKeyword: {
+        const t = this.contextual(e);
+        // (A null where a dynamic value is expected: boxed.)
+        return t === 'dyn'
+          ? this.dynFrom({ op: 'null', type: { maybe: 'void' } }, { maybe: 'void' })
+          : { op: 'null', type: t };
+      }
       case K.TemplateExpression: {
         const t = e as ts.TemplateExpression;
         let out: Expr = this.stringLiteral(t.head, t.head.text);
@@ -5205,6 +5299,14 @@ export class Lowerer {
             then = { op: 'some', value: then };
             tt = ot;
           }
+          // (Branches of different types are dynamic values: M6 dynamic values.)
+          if (this.types.dynamic && !sameType(tt, this.irType(other, b)))
+            return {
+              op: 'cond',
+              test,
+              then: this.dynFrom(then, tt),
+              else: this.dynFrom(other, this.irType(other, b)),
+            };
           if (!sameType(tt, this.irType(other, b)))
             return this.fail(
               e,
@@ -5254,12 +5356,47 @@ export class Lowerer {
             : { op: 'lit', value: 'function' };
         return { op: 'typeof', arg };
       }
-      case K.PropertyAccessExpression:
-        return this.property(e as ts.PropertyAccessExpression, b);
-      case K.ElementAccessExpression:
-        return this.element(e as ts.ElementAccessExpression, b);
-      case K.CallExpression:
-        return this.call(e as ts.CallExpression, b);
+      case K.PropertyAccessExpression: {
+        const pe = e as ts.PropertyAccessExpression;
+        return this.viaDyn(
+          pe.expression,
+          b,
+          r => this.dynBuiltin('get', [r, { op: 'lit', value: pe.name.text }]),
+          () => this.property(pe, b),
+        );
+      }
+      case K.ElementAccessExpression: {
+        const ee = e as ts.ElementAccessExpression;
+        return this.viaDyn(
+          ee.expression,
+          b,
+          r => this.dynBuiltin('get', [r, this.dynKey(ee.argumentExpression, b)]),
+          () => this.element(ee, b),
+        );
+      }
+      case K.CallExpression: {
+        const ce = e as ts.CallExpression;
+        const callee = skipParens(ce.expression);
+        const dynArgs = () => ce.arguments.map(a => this.dynValue(a, b));
+        if (ts.isPropertyAccessExpression(callee))
+          return this.viaDyn(
+            callee.expression,
+            b,
+            r =>
+              this.dynBuiltin('method', [r, { op: 'lit', value: callee.name.text }, ...dynArgs()]),
+            () => this.call(ce, b),
+          );
+        // (`o[k](x)` of a dynamic function: its `this` is unobservable, as
+        // functions reading `this` are never dynamic values.)
+        if (ts.isIdentifier(callee) || ts.isElementAccessExpression(callee))
+          return this.viaDyn(
+            callee,
+            b,
+            r => this.dynBuiltin('call', [r, ...dynArgs()]),
+            () => this.call(ce, b),
+          );
+        return this.call(ce, b);
+      }
       case K.NewExpression:
         return this.newExpression(e as ts.NewExpression, b);
       case K.ArrowFunction:
@@ -5270,8 +5407,10 @@ export class Lowerer {
           ? this.closure(e as ts.ArrowFunction, b, 'closure', want.params, want.result)
           : this.closure(e as ts.ArrowFunction, b);
       }
-      case K.ObjectLiteralExpression:
-        return this.object(e as ts.ObjectLiteralExpression, b);
+      case K.ObjectLiteralExpression: {
+        const o = e as ts.ObjectLiteralExpression;
+        return this.dynObject(o, b) ?? this.object(o, b);
+      }
       case K.ArrayLiteralExpression:
         return this.array(e as ts.ArrayLiteralExpression, b);
       case K.VoidExpression:
@@ -5762,6 +5901,37 @@ export class Lowerer {
       const adapted = this.adaptFunction(v, t, maybeInner(target) ?? target);
       if (adapted) return maybeInner(target) ? { op: 'some', value: adapted } : adapted;
     }
+    // A nullable value of untyped package JavaScript where its callee
+    // declares a present one (bits-ui's Pagination:
+    // `getElemDirection(root.opts.ref.current)` after a guard TypeScript
+    // cannot see in untyped code): the value, a nullish one reported.
+    const nullableIn = maybeInner(t);
+    if (
+      nullableIn !== undefined &&
+      sameType(nullableIn, target) &&
+      /\.[cm]?js(\.__runic\.ts)?$/.test(e.getSourceFile().fileName)
+    ) {
+      const tmp = b.local('$present', t);
+      const read: Expr = { op: 'local', local: tmp };
+      return {
+        op: 'with',
+        local: tmp,
+        value: v,
+        body: {
+          op: 'cond',
+          test: { op: 'builtin', name: 'maybe.is-nullish', args: [read], type: BOOLEAN },
+          then: this.unsupportedValue(
+            'present',
+            target,
+            'a null or undefined value passed where the callee declares a present one (untyped package code)',
+          ),
+          else: { op: 'unwrap', value: read },
+        },
+      };
+    }
+    // Static and dynamic values meet: boxed, or unboxed with a check.
+    if (t === 'dyn' && target !== 'dyn') return this.dynTo(v, target);
+    if (target === 'dyn' && t !== 'dyn') return this.dynFrom(v, t);
     const merged = this.toMerged(e, v, t, target, b);
     if (merged) return merged;
     return this.classes.fitAt(v, t, target, e);
@@ -5887,7 +6057,183 @@ export class Lowerer {
   }
 
   stringify(v: Expr, t: Type): Expr {
+    if (t === 'dyn') return this.dynBuiltin('to-string', [v], STRING);
     return t === 'string' ? v : { op: 'to-string', arg: v };
+  }
+
+  // Dynamic values (M6 spike, docs/design/M6-DYNAMIC-VALUES.md) ---------------
+
+  /** A `dyn.*` built-in. */
+  dynBuiltin(name: string, args: Expr[], type: Type = 'dyn'): Expr {
+    return { op: 'builtin', name: `dyn.${name}`, args, type };
+  }
+
+  /** Static value `v` of type `t`, boxed. */
+  dynFrom(v: Expr, t: Type): Expr {
+    // (The static type, named: the interpreter boxes by it.)
+    return t === 'dyn' ? v : this.dynBuiltin('from', [v, { op: 'lit', value: JSON.stringify(t) }]);
+  }
+
+  /** `v` where a value of type `t` is expected: boxed, or unboxed with a check, where static and dynamic values meet. */
+  dynMeet<V extends Expr | undefined>(v: V, t: Type, b: FnBuilder): V | Expr {
+    if (!v) return v;
+    const have = this.irType(v, b);
+    if (have === 'dyn' && t !== 'dyn') return this.dynTo(v, t);
+    if (t === 'dyn' && have !== 'dyn') return this.dynFrom(v, have);
+    return v;
+  }
+
+  /** Dynamic value `v` unboxed to `t`, checked at run time. */
+  dynTo(v: Expr, t: Type): Expr {
+    return t === 'dyn' ? v : this.dynBuiltin('to', [v], t);
+  }
+
+  /** `x` lowered and boxed. */
+  dynValue(x: ts.Expression, b: FnBuilder): Expr {
+    const bare = skipParens(x);
+    if (bare.kind === ts.SyntaxKind.NullKeyword)
+      return this.dynFrom({ op: 'null', type: { maybe: 'void' } }, { maybe: 'void' });
+    if (ts.isIdentifier(bare) && bare.text === 'undefined' && !this.binding(bare))
+      return this.dynFrom({ op: 'undefined', type: { maybe: 'void' } }, { maybe: 'void' });
+    const v = this.expr(x, b);
+    return this.dynFrom(v, this.irType(v, b));
+  }
+
+  /** A property key: a string, number or dynamic value as it is, others boxed. */
+  private dynKey(x: ts.Expression, b: FnBuilder): Expr {
+    const v = this.expr(x, b);
+    const t = this.irType(v, b);
+    return t === 'string' || t === 'number' || t === 'dyn' ? v : this.dynFrom(v, t);
+  }
+
+  /** Whether `x` may lower to a dynamic value (its TypeScript type is outside the static model). */
+  private mayBeDyn(x: ts.Expression): boolean {
+    if (!this.types.dynamic) return false;
+    // (A variable may hold a dynamic value TypeScript has narrowed to a
+    // static type: its lowered type decides, and reading it twice is free.)
+    const bare = skipParens(x);
+    if (ts.isIdentifier(bare)) {
+      const kind = this.binding(bare)?.kind;
+      if (kind === 'local' || kind === 'cell' || kind === 'derived' || kind === 'member')
+        return true;
+      // (Other bindings, functions and components, are never dynamic.)
+      if (kind) return false;
+    }
+    const t = this.checker.getTypeAtLocation(x);
+    if (t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return true;
+    return t.isUnion() && this.types.mapsToDyn(t, x);
+  }
+
+  /**
+   * An operation on receiver `x`: `dynamic(r)` where `x` lowers to a
+   * dynamic value `r`, `otherwise()` where it does not (with `x`
+   * lowered once: its value is given to the static path).
+   */
+  private viaDyn(
+    x: ts.Expression,
+    b: FnBuilder,
+    dynamic: (r: Expr) => Expr,
+    otherwise: () => Expr,
+  ): Expr {
+    if (!this.mayBeDyn(x) || this.overrides.has(x)) return otherwise();
+    const r = this.expr(x, b);
+    const t = this.irType(r, b);
+    if (t === 'dyn') return dynamic(r);
+    this.overrides.set(x, { expr: r, type: t });
+    try {
+      return otherwise();
+    } finally {
+      this.overrides.delete(x);
+    }
+  }
+
+  /**
+   * An object literal with a computed key known only at run time (bits-ui's
+   * Pagination: `{ [nextKey]: currentIndex + 1, [prevKey]: … }`), with
+   * dynamic values: a dynamic object. Undefined for other literals.
+   */
+  private dynObject(o: ts.ObjectLiteralExpression, b: FnBuilder): Expr | undefined {
+    if (!this.types.dynamic || o.properties.some(ts.isSpreadAssignment)) return undefined;
+    const runtimeKey = o.properties.some(
+      p =>
+        p.name &&
+        ts.isComputedPropertyName(p.name) &&
+        this.buildTimeValue(p.name.expression) === undefined,
+    );
+    // (Or an empty literal of a dynamic type: frontend/types.ts.)
+    const empty = !o.properties.length && this.types.typeOrUndefined(o) === 'dyn';
+    if (!runtimeKey && !empty) return undefined;
+    const args: Expr[] = [];
+    for (const p of o.properties) {
+      if (!ts.isPropertyAssignment(p) && !ts.isShorthandPropertyAssignment(p))
+        return this.fail(p, 'E_OBJECT', 'A dynamic object literal takes key: value members');
+      const key: Expr = ts.isComputedPropertyName(p.name)
+        ? (() => {
+            const k = this.expr(p.name.expression, b);
+            const t = this.irType(k, b);
+            return t === 'string' ? k : this.dynBuiltin('to-string', [this.dynFrom(k, t)], STRING);
+          })()
+        : {
+            op: 'lit',
+            value:
+              ts.isIdentifier(p.name) ||
+              ts.isStringLiteralLike(p.name) ||
+              ts.isNumericLiteral(p.name)
+                ? p.name.text
+                : p.name.getText(),
+          };
+      const value = ts.isPropertyAssignment(p)
+        ? this.dynValue(p.initializer, b)
+        : this.dynValue(p.name, b);
+      args.push(key, value);
+    }
+    return this.dynBuiltin('object', args);
+  }
+
+  /** Operator `op` where an operand is dynamic. */
+  private dynBinary(
+    op: ts.SyntaxKind,
+    left: Expr,
+    lt: Type,
+    right: Expr,
+    rt: Type,
+    at: ts.Node,
+  ): Expr {
+    const K = ts.SyntaxKind;
+    const box = (v: Expr, t: Type): Expr =>
+      v.op === 'null' || v.op === 'undefined'
+        ? this.dynFrom({ op: v.op, type: { maybe: 'void' } }, { maybe: 'void' })
+        : this.dynFrom(v, t);
+    const [a, c] = [box(left, lt), box(right, rt)];
+    const lit = (value: string): Expr => ({ op: 'lit', value });
+    switch (op) {
+      case K.PlusToken:
+      case K.MinusToken:
+      case K.AsteriskToken:
+      case K.SlashToken:
+      case K.PercentToken:
+      case K.AsteriskAsteriskToken:
+        return this.dynBuiltin('binary', [lit(ts.tokenToString(op)!), a, c]);
+      case K.LessThanToken:
+      case K.LessThanEqualsToken:
+      case K.GreaterThanToken:
+      case K.GreaterThanEqualsToken:
+        return this.dynBuiltin('compare', [lit(ts.tokenToString(op)!), a, c], BOOLEAN);
+      case K.EqualsEqualsEqualsToken:
+        return { op: 'eq', left: a, right: c };
+      case K.ExclamationEqualsEqualsToken:
+        return { op: 'not', arg: { op: 'eq', left: a, right: c } };
+      case K.EqualsEqualsToken:
+        return this.dynBuiltin('loose-eq', [a, c], BOOLEAN);
+      case K.ExclamationEqualsToken:
+        return { op: 'not', arg: this.dynBuiltin('loose-eq', [a, c], BOOLEAN) };
+      default:
+        return this.fail(
+          at,
+          'E_OPERATOR',
+          `The ${K[op]} operator on dynamic values is not covered`,
+        );
+    }
   }
 
   private identifier(id: ts.Identifier, b: FnBuilder): Expr {
@@ -6344,6 +6690,22 @@ export class Lowerer {
       }
       let right = this.expr(e.right, b);
       const rt = this.irType(right, b);
+      // A dynamic operand: a dynamic value, of the operand JavaScript keeps.
+      if (lt === 'dyn' || rt === 'dyn') {
+        const tmp = b.local('$logical', lt);
+        const read: Expr = { op: 'local', local: tmp };
+        const [keep, other] = [this.dynFrom(read, lt), this.dynFrom(right, rt)];
+        const test = this.truthy(read, lt);
+        return {
+          op: 'with',
+          local: tmp,
+          value: left,
+          body:
+            op === K.AmpersandAmpersandToken
+              ? { op: 'cond', test, then: other, else: keep }
+              : { op: 'cond', test, then: keep, else: other },
+        };
+      }
       // The result type: TypeScript's (narrowed) type, or the operands' common type.
       const ts0 = this.types.typeOrUndefined(e);
       let result: Type =
@@ -6388,6 +6750,25 @@ export class Lowerer {
       }
       const left = this.expr(e.left, b);
       const lt = this.irType(left, b);
+      // A dynamic value: the right one, boxed, where it is null or undefined
+      // (`x == null`).
+      if (lt === 'dyn') {
+        const tmp = b.local('$dyn', 'dyn');
+        const read: Expr = { op: 'local', local: tmp };
+        const right = this.dynValue(e.right, b);
+        const nothing = this.dynFrom({ op: 'null', type: { maybe: 'void' } }, { maybe: 'void' });
+        return {
+          op: 'with',
+          local: tmp,
+          value: left,
+          body: {
+            op: 'cond',
+            test: this.dynBuiltin('loose-eq', [read, nothing], BOOLEAN),
+            then: right,
+            else: read,
+          },
+        };
+      }
       // A left operand that is never nullish (a prop with a default) is the
       // value; the right one is not evaluated.
       if (!maybeInner(lt) && lt !== 'void') return left;
@@ -6583,6 +6964,7 @@ export class Lowerer {
 
   binary(op: ts.SyntaxKind, left: Expr, lt: Type, right: Expr, rt: Type, at: ts.Node): Expr {
     const K = ts.SyntaxKind;
+    if (lt === 'dyn' || rt === 'dyn') return this.dynBinary(op, left, lt, right, rt, at);
     const num = (v: Expr, t: Type): Expr => (t === 'number' ? v : { op: 'to-number', arg: v });
     switch (op) {
       case K.PlusToken:
@@ -8345,6 +8727,8 @@ export class Lowerer {
   }
 
   private element(e: ts.ElementAccessExpression, b: FnBuilder): Expr {
+    const chosen = this.constantChoice(e, b);
+    if (chosen) return chosen;
     let object = this.expr(e.expression, b);
     let t = this.irType(object, b);
     // An untyped nullable value, or one TypeScript narrowed to a present one
@@ -8357,7 +8741,9 @@ export class Lowerer {
     }
     const kind = this.receiverKind(t);
     if (kind === 'array') {
-      const index = this.expr(e.argumentExpression, b);
+      const raw = this.expr(e.argumentExpression, b);
+      // (A dynamic index: a number, checked; M6 dynamic values.)
+      const index = this.irType(raw, b) === 'dyn' ? this.dynTo(raw, NUMBER) : raw;
       const el = (t as { array: Type }).array;
       const here = this.types.typeOrUndefined(e);
       // The left operand of `||` or `??` (bits-ui's `tabbables[0] || null`):
@@ -8497,6 +8883,72 @@ export class Lowerer {
           );
       }
     }
+    // A nullable item looked up in an array whose items are never nullish
+    // (bits-ui's Pagination: `items.indexOf(node)` of an untyped nullable
+    // node): not found when nullish.
+    if (
+      ['array.indexOf', 'array.lastIndexOf', 'array.includes'].includes(name) &&
+      args.length >= 2
+    ) {
+      const element = arrayElement(this.irType(args[0], b));
+      const itemType = this.irType(args[1], b);
+      const inner = maybeInner(itemType);
+      if (
+        element &&
+        inner !== undefined &&
+        maybeInner(element) === undefined &&
+        sameType(inner, element)
+      ) {
+        const r = b.local('$array', this.irType(args[0], b));
+        const k = b.local('$item', itemType);
+        const result: Type = name === 'array.includes' ? BOOLEAN : NUMBER;
+        return {
+          op: 'with',
+          local: r,
+          value: args[0],
+          body: {
+            op: 'with',
+            local: k,
+            value: args[1],
+            body: {
+              op: 'cond',
+              test: {
+                op: 'builtin',
+                name: 'maybe.is-nullish',
+                args: [{ op: 'local', local: k }],
+                type: BOOLEAN,
+              },
+              then:
+                name === 'array.includes' ? { op: 'lit', value: false } : { op: 'lit', value: -1 },
+              else: {
+                op: 'builtin',
+                name,
+                args: [
+                  { op: 'local', local: r },
+                  { op: 'unwrap', value: { op: 'local', local: k } },
+                  ...args.slice(2),
+                ],
+                type: result,
+              },
+            },
+          },
+        } as Expr;
+      }
+    }
+    // Items of an array of dynamic values (M6 spike): boxed.
+    if (
+      [
+        'array.push',
+        'array.unshift',
+        'array.includes',
+        'array.indexOf',
+        'array.lastIndexOf',
+      ].includes(name) &&
+      arrayElement(this.irType(args[0], b)) === 'dyn'
+    ) {
+      const items = name === 'array.push' || name === 'array.unshift' ? args.length : 2;
+      args = args.map((a, i) => (i > 0 && i < items ? this.dynFrom(a, this.irType(a, b)) : a));
+    }
     // Items added to an array of nullable elements (TypeScript narrowed the
     // value): wrapped into the element type.
     if ((name === 'array.push' || name === 'array.unshift') && args.length > 1) {
@@ -8509,12 +8961,14 @@ export class Lowerer {
             : a,
         );
     }
-    const type =
-      ts0 ??
+    // (A type TypeScript gives with `any` in it, dynamic where the lowered
+    // arguments say more: the type they give, M6 dynamic values.)
+    const own = () =>
       builtinType(
         name,
         args.map(a => this.irType(a, b)),
       );
+    const type = ts0 !== undefined && containsDyn(ts0) ? (own() ?? ts0) : (ts0 ?? own());
     if (type === undefined)
       return this.fail(
         at,
@@ -8916,6 +9370,18 @@ export class Lowerer {
             };
           }),
         };
+      }
+      // `Object.keys` of a dynamic value.
+      if (
+        global === 'Object' &&
+        method === 'keys' &&
+        e.arguments.length === 1 &&
+        this.mayBeDyn(e.arguments[0])
+      ) {
+        const x = this.expr(e.arguments[0], b);
+        return this.irType(x, b) === 'dyn'
+          ? this.dynBuiltin('keys', [x], { array: STRING })
+          : this.builtinCall('Object.keys', [x], b, this.tsCallType(e), e);
       }
       if (global && STATIC_NAMESPACES.has(global))
         return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
@@ -10946,6 +11412,29 @@ export class Lowerer {
       )
         .map(t => (t !== undefined ? (maybeInner(t) ?? t) : undefined))
         .find(t => typeof t === 'object' && key in t);
+      // An untyped set of a literal whose items lower to one type
+      // (bits-ui's Pagination: `new Set([1, totalPages])`): a set of it.
+      const [items0] = e.arguments ?? [];
+      const literal = items0 && skipParens(items0);
+      if (
+        !known &&
+        global === 'Set' &&
+        containsAny(own, this.checker) &&
+        literal &&
+        ts.isArrayLiteralExpression(literal) &&
+        literal.elements.length &&
+        !literal.elements.some(ts.isSpreadElement)
+      ) {
+        const items = literal.elements.map(el => this.expr(el, b));
+        const types = items.map(v => this.irType(v, b));
+        if (types.every(t => sameType(t, types[0])) && types[0] !== 'dyn')
+          return {
+            op: 'builtin',
+            name: 'Set.new',
+            args: [{ op: 'array', type: { array: types[0] }, items }],
+            type: { set: types[0] },
+          };
+      }
       if (known && typeof known === 'object') {
         const [entries] = e.arguments ?? [];
         if (entries && ts.isArrayLiteralExpression(skipParens(entries)) && 'set' in known)
@@ -11510,6 +11999,44 @@ export class Lowerer {
   private readonly throwingHelpers = new Map<string, number>();
 
   /** A call that throws `name: message`, typed `type` (for branches that cannot be reached). */
+  /**
+   * A build-time constant indexed by a key of a finite set (bits-ui's
+   * Pagination: `paginationAttrs[this.opts.type]`, the type "prev" or
+   * "next"): the member of the key it evaluates to, chosen at run time; a
+   * key outside the set is reported (the set comes from the types).
+   */
+  private constantChoice(e: ts.ElementAccessExpression, b: FnBuilder): Expr | undefined {
+    const holder = skipParens(e.expression);
+    const bound = ts.isIdentifier(holder) ? this.binding(holder) : undefined;
+    if (bound?.kind !== 'constant' || bound.value === null || typeof bound.value !== 'object')
+      return undefined;
+    const object = bound.value as Record<string, unknown>;
+    const keys = valueSet({ lower: this, label: 'keys' }, e.argumentExpression);
+    if (
+      !keys?.length ||
+      !keys.every(k => typeof k === 'string' && Object.hasOwn(object, k)) ||
+      !keys.every(k => ['string', 'number', 'boolean'].includes(typeof object[k as string])) ||
+      !keys.every(k => typeof object[k as string] === typeof object[keys[0] as string])
+    )
+      return undefined;
+    const type: Type = typeof object[keys[0] as string] as 'string';
+    const key = this.coerce(e.argumentExpression, b, STRING);
+    const k = b.local('$key', STRING);
+    let chain: Expr = this.unsupportedValue(
+      'key',
+      type,
+      'a key outside the ones its type allows (the build-time constant has no other member)',
+    );
+    for (const name of [...(keys as string[])].reverse())
+      chain = {
+        op: 'cond',
+        test: { op: 'eq', left: { op: 'local', local: k }, right: { op: 'lit', value: name } },
+        then: { op: 'lit', value: object[name] as string },
+        else: chain,
+      };
+    return { op: 'with', local: k, value: key, body: chain };
+  }
+
   throwing(type: Type, name: string, message: string): Expr {
     const key = JSON.stringify([type, name, message]);
     let index = this.throwingHelpers.get(key);

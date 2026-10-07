@@ -19,6 +19,7 @@ mod value;
 
 pub mod array_ops;
 pub mod date;
+pub mod dynamic;
 pub mod env;
 pub mod floating;
 pub mod history;
@@ -42,6 +43,7 @@ pub use attrs::{
 pub use classes::{class_compose, class_toggle};
 pub use collections::*;
 pub use date::Date;
+pub use dynamic::{Dyn, DynView};
 pub use element::{Element, Handle, user_agent};
 pub use error::*;
 pub use event::{Event, EventData};

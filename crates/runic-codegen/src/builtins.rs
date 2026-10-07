@@ -173,6 +173,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             None => "false".into(),
         },
         ("", "structuredClone") => deep_clone(&types[0], &t[0], cx.p),
+        ("dyn", m) => {
+            let qq = |s: String| cx.q(&s);
+            crate::dynamic::emit(m, &t, &types, ty, cx.p, &qq)
+        }
         ("number", "toFixed") => q(
             cx,
             format!(

@@ -1,0 +1,67 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/pagination-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/pagination-demo.svelte",
+      "sha256": "5f6bf69ab175adbef9d1616145fdf33e8c297b058e44dcffd7c92356c14e717d"
+    },
+    "src/lib/registry/ui/button/button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/button/button.svelte",
+      "sha256": "836d6b14108ce6f20ed88c6500d981c412e1d9cc8bbde02c2f64552b1c0b195c"
+    },
+    "src/lib/registry/ui/button/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/button/index.ts",
+      "sha256": "0f6b6f040d92b4153821d3f9b4d6b9cbc567247e4fda913e64c1d0fcc4a2f386"
+    },
+    "src/lib/registry/ui/pagination/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/pagination/index.ts",
+      "sha256": "f44e6beed47819f055bb611fef35e554b9ac4cd0678d5234e1cf7a88adc7fe4e"
+    },
+    "src/lib/registry/ui/pagination/pagination-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination-content.svelte",
+      "sha256": "db2c715f8960de7dddd33a9824ec7eaa076da3205b86ff3aec197db8485ecabd"
+    },
+    "src/lib/registry/ui/pagination/pagination-ellipsis.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination-ellipsis.svelte",
+      "sha256": "01474485a471af58a5e4d86ef45ba60af0f116f7d2307a55f5576c9f0de67f4f"
+    },
+    "src/lib/registry/ui/pagination/pagination-item.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination-item.svelte",
+      "sha256": "933fc22ef09c1c74cb9685ee26fa90480a80d73a057b778e75bf2a2571a7d195"
+    },
+    "src/lib/registry/ui/pagination/pagination-link.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination-link.svelte",
+      "sha256": "6cf421738c7a304ab23338626e19b9bfe2900f374d224e69754d5cbc0424e93a"
+    },
+    "src/lib/registry/ui/pagination/pagination-next-button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination-next-button.svelte",
+      "sha256": "9599c51cde636f4545361e9993404de9a7c274b35da749f9293755c1aa5c3350"
+    },
+    "src/lib/registry/ui/pagination/pagination-next.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination-next.svelte",
+      "sha256": "7892e3eb8f81956cce47c2e13b756bc83c8afa68b1d18bbc5f3ba15792b6d24e"
+    },
+    "src/lib/registry/ui/pagination/pagination-prev-button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination-prev-button.svelte",
+      "sha256": "abddb0e9aeeb4985ceb6d5f7da287ab55926892c60cab58523d1136d7cde3853"
+    },
+    "src/lib/registry/ui/pagination/pagination-previous.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination-previous.svelte",
+      "sha256": "43d84420d406553cce09add33ac8746f036f97388642312911c6ef690d6bfa1b"
+    },
+    "src/lib/registry/ui/pagination/pagination.svelte": {
+      "upstream": "docs/src/lib/registry/ui/pagination/pagination.svelte",
+      "sha256": "60419786d14dcee971e65a4b7c8c8e4f61bbfdb1980c742c5ee52fab2187f76a"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

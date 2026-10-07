@@ -84,6 +84,40 @@ export class TypeMapper {
   /** The record of image objects (frontend/dom.d.ts), once used. */
   image: number | undefined;
 
+  /**
+   * Dynamic values (M6 spike, runic.json `"dynamicValues": true`): a value
+   * whose type is outside the static model (`any`, `unknown`, a union the
+   * model has no member for) is `dyn` instead of a diagnostic. Only as the
+   * last resort: `tryMap` (which every inference uses to look for a static
+   * type) still gives undefined for them.
+   */
+  dynamic = false;
+  /** Nesting of `tryMap` calls (dynamic values are not given inside them). */
+  private trying = 0;
+
+  /** Whether `t` maps to a dynamic value (the last-resort mapping, not `tryMap`'s). */
+  mapsToDyn(t: ts.Type, at: ts.Node): boolean {
+    if (!this.dynamic) return false;
+    const fail = this.fail;
+    const sentinel = new Error('no type');
+    this.fail = () => {
+      throw sentinel;
+    };
+    try {
+      return this.map(t, at) === 'dyn';
+    } catch (e) {
+      if (e !== sentinel) throw e;
+      return false;
+    } finally {
+      this.fail = fail;
+    }
+  }
+
+  /** Whether an unmappable type becomes `dyn` here. */
+  private dynHere(): boolean {
+    return this.dynamic && this.trying === 0;
+  }
+
   constructor(checker: ts.TypeChecker, fail: Fail) {
     this.checker = checker;
     this.fail = fail;
@@ -154,6 +188,7 @@ export class TypeMapper {
     this.fail = () => {
       throw sentinel;
     };
+    this.trying++;
     try {
       return this.map(t, at);
     } catch (e) {
@@ -163,6 +198,7 @@ export class TypeMapper {
       this.byShape = byShape;
       return undefined;
     } finally {
+      this.trying--;
       this.fail = fail;
     }
   }
@@ -215,12 +251,30 @@ export class TypeMapper {
         );
       this.unions.add(t);
       try {
+        // (A union outside the static model, with dynamic values: `dyn`,
+        // which holds null and undefined too.)
+        if (this.dynHere()) {
+          const fail = this.fail;
+          const sentinel = new Error('union');
+          this.fail = () => {
+            throw sentinel;
+          };
+          try {
+            return this.union(t.types, at);
+          } catch (e) {
+            if (e !== sentinel) throw e;
+            return 'dyn';
+          } finally {
+            this.fail = fail;
+          }
+        }
         return this.union(t.types, at);
       } finally {
         this.unions.delete(t);
       }
     }
     if (t.flags & F.Unknown && this.boxNothing) return { maybe: 'void' };
+    if (t.flags & (F.Any | F.Unknown) && this.dynHere()) return 'dyn';
     if (t.flags & (F.Any | F.Unknown))
       this.fail(
         at,
@@ -229,6 +283,8 @@ export class TypeMapper {
       );
     if (t.flags & F.Null)
       this.fail(at, 'E_TYPE_UNSUPPORTED', 'A value that is always null has no useful type');
+    // (An empty array's items, with dynamic values: dynamic.)
+    if (t.flags & F.Never && this.dynHere()) return 'dyn';
     if (t.flags & F.Never)
       this.fail(
         at,
@@ -474,6 +530,13 @@ export class TypeMapper {
     else if (this.classUnion && rest.every(p => this.sourceClass(p)))
       base = this.classUnion(rest, at);
     else if (this.classRecords(rest, at)) base = this.classRecords(rest, at)!;
+    // (With dynamic values, M6 spike: a union of object types is dynamic,
+    // as code building its values builds dynamic objects; a merged record
+    // would need copies.)
+    else if (rest.every(p => this.plainObject(p)) && this.dynHere()) return 'dyn';
+    // (Nor is it a merged record where an inference looks for a static type.)
+    else if (rest.every(p => this.plainObject(p)) && this.dynamic)
+      return this.fail(at, 'E_TYPE_UNION', 'A union of object types is dynamic');
     else if (rest.every(p => this.plainObject(p)) && this.mergeable(rest, at))
       base = { record: this.unionRecord(rest, at) };
     else {
@@ -493,6 +556,9 @@ export class TypeMapper {
       if (mapped[0] !== undefined && mapped.every(m => JSON.stringify(m) === first))
         base = mapped[0]!;
       else if (widest >= 0) base = mapped[widest]!;
+      // With dynamic values (M6 spike): dynamic, rather than one member a
+      // census that cannot see every value narrows it to.
+      else if (this.dynHere()) return 'dyn';
       // Narrowed by the values that reach it (frontend/unions.ts).
       else if (this.narrow) base = this.map(this.narrow(rest, at, this.fail), at);
       else
@@ -502,8 +568,9 @@ export class TypeMapper {
           `Union ${rest.map(p => this.checker.typeToString(p)).join(' | ')} is outside the value model (M2 supports nullable types and literal unions)`,
         );
     }
-    // (A member already nullable, a type parameter bound to `maybe<X>`: one layer.)
-    return nullish.length && !maybeInner(base) ? { maybe: base } : base;
+    // (A member already nullable, a type parameter bound to `maybe<X>`: one
+    // layer; a dynamic value holds null and undefined itself.)
+    return nullish.length && !maybeInner(base) && base !== 'dyn' ? { maybe: base } : base;
   }
 
   private object(t: ts.ObjectType, at: ts.Node): Type {
@@ -621,6 +688,22 @@ export class TypeMapper {
           return { map: ['string', value] };
       }
     }
+    // (With dynamic values, M6 spike: an object literal's type with another
+    // index signature, `{ [a]: 1 }` of an untyped key, is dynamic; so is an
+    // empty one in JavaScript, `const counts = {}`, which code may add any
+    // property to.)
+    const literal = (t as ts.ObjectType).objectFlags;
+    if (
+      this.dynamic &&
+      ((literal & (ts.ObjectFlags.ObjectLiteral | ts.ObjectFlags.JSLiteral) &&
+        this.checker.getIndexInfosOfType(t).length) ||
+        (literal & ts.ObjectFlags.JSLiteral &&
+          !this.checker.getPropertiesOfType(t).length &&
+          !t.getCallSignatures().length))
+    )
+      return this.dynHere()
+        ? 'dyn'
+        : this.fail(at, 'E_TYPE_UNSUPPORTED', 'An object of runtime keys is dynamic');
     const name = t.symbol?.name ?? t.aliasSymbol?.name;
     const args = (t as ts.TypeReference).target
       ? this.checker.getTypeArguments(t as ts.TypeReference)

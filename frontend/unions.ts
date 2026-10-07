@@ -132,7 +132,7 @@ export class Unions {
    * when the values reaching it belong to different members or none is
    * found.
    */
-  member(parts: readonly ts.Type[], at: ts.Node, fail: Fail): ts.Type {
+  member(parts: readonly ts.Type[], at: ts.Node, fail: Fail, dynamic = false): ts.Type {
     const key = unionKey(parts);
     const known = this.resolved.get(key);
     if (known) return known;
@@ -146,6 +146,11 @@ export class Unions {
       return m;
     }
     // Nothing but null and undefined reaches it: any member types it.
+    // (With dynamic values, M6 spike: no value found may mean values the
+    // census does not see, an untyped function's inferred result: the
+    // union is dynamic.)
+    if (!found.size && dynamic)
+      return fail(at, 'E_TYPE_UNION', `Union ${union} is dynamic: no value reaching it was found`);
     if (!found.size) {
       this.resolved.set(key, members[0]);
       return members[0];

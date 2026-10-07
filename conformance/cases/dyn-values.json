@@ -1,0 +1,17 @@
+{
+  "description": "Dynamic values (runic.json \"dynamicValues\": true, docs/design/M6-DYNAMIC-VALUES.md): untyped JavaScript compiles without types: an array of objects of two shapes, an object of runtime keys, an empty object counting by kind (`counts[k] = (counts[k] || 0) + 1`), a value that is a number or a string, `??` and `||` on dynamic values, Object.keys, filter and map on a dynamic array, a dynamic class value unboxed to a string and a keyed each over dynamic items. Adding and removing items, switching the runtime key and the value's type",
+  "fixtures": ["dyn-values-svelte"],
+  "actions": [
+    { "kind": "click", "id": "more" },
+    { "kind": "click", "id": "key" },
+    { "kind": "click", "id": "flip" },
+    { "kind": "click", "id": "more" },
+    { "kind": "click", "id": "fewer" },
+    { "kind": "click", "id": "fewer" },
+    { "kind": "click", "id": "fewer" },
+    { "kind": "click", "id": "key" },
+    { "kind": "click", "id": "flip" },
+    { "kind": "click", "id": "fewer" },
+    { "kind": "click", "id": "fewer" }
+  ]
+}

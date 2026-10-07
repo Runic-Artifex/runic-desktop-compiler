@@ -63,7 +63,7 @@ import {
   rewriteGlobs,
   type GlobCall,
 } from './svelte-dynamic.ts';
-import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
+import { arrayElement, containsDyn, maybeInner, upcastTo } from '../irtype.ts';
 import {
   bindPackImport,
   packExport,
@@ -200,7 +200,7 @@ interface Graph {
   styleGuards?: StyleGuard[];
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
-  config: { title: string; renderer?: 'cpu' | 'gpu' };
+  config: { title: string; renderer?: 'cpu' | 'gpu'; dynamicValues?: boolean };
   modules: Map<
     string,
     {
@@ -1433,6 +1433,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     }
   }
   const types = new TypeMapper(checker, tsFail);
+  // Dynamic values (M6 spike, opt-in): docs/design/M6-DYNAMIC-VALUES.md.
+  types.dynamic = graph.config.dynamicValues === true;
 
   // --- Lowering state (one component at a time) ---
   let cells: Cell[] = [];
@@ -3449,12 +3451,16 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                 const v = lower.value(call.arguments[0], COMPONENT, `${name}$derived`);
                 // An attribute bag (`mergeProps(…)`) whatever its TypeScript type.
                 const bag = lower.valueType(v) === 'attrs';
+                // (A value with dynamic values in it keeps its own type where
+                // the type is TypeScript's inference: M6 dynamic values.)
+                const own = lower.valueType(v);
+                const dynamic = !d.type && containsDyn(own);
                 lower.functions[index] = {
                   name,
                   component: COMPONENT,
                   params: [],
                   locals: [],
-                  result: bag ? 'attrs' : types.of(d.name),
+                  result: bag ? 'attrs' : dynamic ? own : types.of(d.name),
                   body: [{ op: 'return', value: v }],
                   derived: true,
                   derivedStrict: true,
@@ -3513,7 +3519,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
               lower.expected.set(call, type);
             // The IR type of the lowered value (a bare `null` takes its contextual type).
             const v = lower.value(value, COMPONENT, `${name}$init`);
-            cells[cell].init = coerceInit(v, lower.valueType(v), type, lower.types.records);
+            // (An unannotated variable whose value has dynamic values in it
+            // holds it with that type: M6 dynamic values.)
+            const own = lower.valueType(v);
+            if (!d.type && containsDyn(own) && JSON.stringify(own) !== JSON.stringify(type)) {
+              cells[cell].type = own;
+              type = own;
+            }
+            cells[cell].init = coerceInit(v, own, type, lower.types.records);
           });
         }
         continue;
@@ -3545,8 +3558,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const nodeAt = (n: SNode, length?: number): ts.Node => nodeIn(u, n, length);
     const exprNode = (e: SNode) => nodeAt(e) as ts.Expression;
     const value = (e: ts.Expression): Expr => lower.expr(e, tb);
-    const typeOf = (e: ts.Expression, v: Expr): Type =>
-      types.typeOrUndefined(e) ?? lower.irType(v, tb);
+    // (A value lowered as dynamic is dynamic whatever TypeScript narrowed
+    // it to: M6 dynamic values.)
+    const typeOf = (e: ts.Expression, v: Expr): Type => {
+      const lowered = lower.irType(v, tb);
+      return lowered === 'dyn' ? lowered : (types.typeOrUndefined(e) ?? lowered);
+    };
     const display = (e: ts.Expression): Expr => {
       // Svelte renders `value ?? ''` stringified (by the value's type: a
       // getter of an optional property may be undefined where TypeScript's
@@ -4843,8 +4860,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             const t = typeOf(e, v);
             if (name === 'value' && ['input', 'textarea', 'select'].includes(n.name) && !checkbox) {
               props.push({ name, value: t === 'string' ? v : { op: 'to-string', arg: v } });
-            } else if (name === 'class' && t === 'string') {
+            } else if (name === 'class' && (t === 'string' || t === 'dyn')) {
               // Svelte 5 resolves class values with clsx and omits an empty class.
+              // (A dynamic value is unboxed to a string with a check: clsx's
+              // objects and arrays are not supported, docs/GAPS.md.)
               const temp = tb.local('$class', 'string');
               const read: Expr = { op: 'local', local: temp };
               attrs.push({
@@ -4852,7 +4871,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                 value: {
                   op: 'with',
                   local: temp,
-                  value: v,
+                  value:
+                    t === 'dyn' ? { op: 'builtin', name: 'dyn.to', args: [v], type: 'string' } : v,
                   body: {
                     op: 'cond',
                     test: { op: 'eq', left: read, right: { op: 'lit', value: '' } },
@@ -5293,6 +5313,16 @@ function assigned(checker: ts.TypeChecker, sf: ts.SourceFile, sym: ts.Symbol): b
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */
 function coerceInit(v: Expr, from: Type, to: Type, records: RecordType[]): Expr {
+  // Static and dynamic values meet (M6 dynamic values): boxed, or unboxed
+  // with a check.
+  if (from === 'dyn' && to !== 'dyn') return { op: 'builtin', name: 'dyn.to', args: [v], type: to };
+  if (to === 'dyn' && from !== 'dyn' && from !== 'void')
+    return {
+      op: 'builtin',
+      name: 'dyn.from',
+      args: [v, { op: 'lit', value: JSON.stringify(from) }],
+      type: 'dyn',
+    };
   // A null or undefined default takes the prop's type.
   if ((v.op === 'null' || v.op === 'undefined') && typeof to === 'object' && 'maybe' in to)
     return { op: v.op, type: to };

@@ -61,3 +61,56 @@ Today this needs at least three new inference rules and union support. With dyna
 - How much of `runic-js`'s typed semantics has to be duplicated for dynamic receivers?
 - What does it cost in binary size and speed?
 - Can the inference rules in `frontend/package-modules.ts` be retired, or do they remain as an optimisation?
+
+## Results (2026-10-07)
+
+The spike is implemented behind the opt-in. Adopting it amends D16; that decision is the user's.
+
+**Acceptance.**
+
+1. **The target passes.** `pagination-demo` compiles from bits-ui's published source and shadcn-svelte's unmodified wrappers with no new inference rule. Case `bits-pagination` passes all gates at both viewports. One general lowering was added on the way: a dictionary read with a constant key in `frontend/packs/choice.ts` (`paginationAttrs[this.opts.type]`), which static programs use too.
+2. **The test suites pass.** `tests/dynamic-values.test.mjs` (four tests: objects, arrays, runtime keys and operators; a checked mismatch; record copies; state changed in place). Case `dyn-values` (fixture `dyn-values-svelte`) passes all gates at both viewports. In the differential, both new fixtures pass, `dyn-values-svelte` and `dyn-mismatch-svelte` (the latter differential only, as the browser carries on with the mistyped value), 20 traces each. `bits-pagination-svelte` is incomplete there, as every bits-ui fixture is (T1).
+3. **Nothing changes without the opt-in.**
+   - `cargo test` and `npm test` pass.
+   - The differential passes 172 fixtures (169 before, plus the 3 new) with 0 failures.
+   - Full conformance with pixels passes 469 runs (465 before, plus the 4 new) with the same 7 known gaps.
+   - One static regression found on the way was fixed before these runs: array destructuring defaults, which `bits-dropdown-menu` uses.
+4. **Cost.**
+   - **The hand-typed comparison could not be built.** Without dynamic values, bits-ui's Pagination does not fail with a diagnostic: the union census (`frontend/unions.ts` `trace`) runs for over 30 minutes. That is so even with `getPageItems` hand-typed and `PageItem` declared as one record, as there are more unions behind it. That is now a [gap register](../gaps/LANGUAGE.md#value-model-and-types-v1-v2) row. So the size is compared with other bits-ui apps instead (release, stripped, CPU renderer on Xvfb, median of 7 runs):
+
+     | App | Size | First frame |
+     |---|---|---|
+     | bits-pagination-svelte (dynamic) | 15.99 MiB | 33.7 ms |
+     | bits-collapsible-svelte | 15.90 MiB | 33.8 ms |
+     | bits-tabs-svelte | 14.54 MiB | 36.2 ms |
+     | bits-toggle-group-single-svelte | 14.37 MiB | 30.0 ms |
+     | dyn-values-svelte (dynamic) | 13.79 MiB | 24.1 ms |
+     | closures-svelte (baseline) | 13.60 MiB | 23.3 ms |
+
+     Dynamic values cost about 0.2 MiB where a program uses them (`dyn-values` against a static app of similar size). Pagination is within the range of the static bits-ui apps, and first frames are within the noise.
+   - **Lines of compiler change:** about 3,300, all shared rather than per component.
+     - `runic-js` `dynamic.rs`: 1,170, of which about 115 are tests.
+     - The interpreter's `interp_dyn.rs`: 490.
+     - Codegen: 330 in `dynamic.rs` and 20 elsewhere; the runtime 30.
+     - The IR: 580, of which 403 are the validator.
+     - Frontend: 720, of which 546 are in `language.ts`.
+
+     The review's estimate for one hard component under the static model is 1,200–1,800 lines. The tier's lines are spent once.
+
+**Answers.**
+
+- **Library code without new rules.** Mostly yes. Pagination needed none. Every fix during the spike was a general lowering of `dyn` (boundaries at returns, initialisers and arrow bodies; `??`, `||` and conditionals of mixed types; `Object.keys`; calls through `o[k]`), not a rule for a pattern. The boundary moves some work: where dynamic values meet static records, the validator must prove copies unobservable (`E_DYN_COPY`), and its proof is coarse (program-wide).
+- **Duplicated semantics.** `runic-js` gained one generic implementation of the abstract operations (ToPrimitive, ToString, ToNumber, `+`, comparisons, `==`) and of array and string methods over a `DynValue` trait. The interpreter and generated code share it. The typed operations were not duplicated, but methods on dynamic receivers are a second catalogue that only partly matches the static one.
+- **Binary size and speed.** Above: about 0.2 MiB, with no measurable start-up cost.
+- **The inference rules in `package-modules.ts`.** They remain. The dynamic mode only applies where no static type is found (`tryMap` still prefers static types), so the rules keep static code static, faster and checked at build time. Retiring them would only be safe where a dynamic fallback exists, that is in every program with the opt-in.
+
+**What remains** (all in the [gap register](../gaps/LANGUAGE.md#dynamic-values-opt-in-spike)):
+
+- React and Vue adapters.
+- Dynamic values in state that change in place (rejected; deep dynamic proxies would cover them).
+- Finer copy proofs.
+- clsx values.
+- Methods on dynamic receivers verified by a case.
+- Curried untyped calls.
+- Bitwise operators.
+- Separately, the static union census does not terminate in practical time on Pagination.

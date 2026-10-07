@@ -19,6 +19,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 pub mod builtins;
+pub mod dynamic;
 pub mod emit;
 pub mod expr;
 pub mod floating;
@@ -1853,6 +1854,7 @@ fn probe_json(t: &Type, v: &str) -> String {
             probe_json(i, "(*x)")
         ),
         Type::Record(r) => format!("probe_r{r}(&{v})"),
+        Type::Dyn => format!("runic_runtime::probe_dyn(&{v})"),
         Type::Class(_) | Type::Classes(_) => format!("probe_obj(&{v})"),
         Type::Map(k, x) => format!(
             "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().entries.values().map(|(k, x)| runic_runtime::Json::Array(vec![{}, {}])).collect()) }})",
@@ -2703,6 +2705,7 @@ pub fn generate(
     asset_mimes: &[String],
     options: &Options,
 ) -> Result<String> {
+    crate::dynamic::reset();
     let reads = function_reads(p);
     let dynamic_fx = uses_builtin(p, &["effect.pre", "effect.post"]);
     // Animation objects (M6): the runtime tracks the document's animations.
@@ -3444,5 +3447,7 @@ pub fn generate(
             ""
         },
     );
+    // Views of the static values boxed into dynamic ones (M6 spike).
+    out.push_str(&crate::dynamic::views(p));
     Ok(out)
 }

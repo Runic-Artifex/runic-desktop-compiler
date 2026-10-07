@@ -770,6 +770,24 @@ export function valueSet(ctx: SetCtx, e: ts.Expression): unknown[] | undefined {
   }
   if (ts.isIdentifier(node))
     return identifierSet(ctx, node, lower.checker.getSymbolAtLocation(node));
+  // A build-time constant indexed by a key of a known set (bits-ui's
+  // Pagination: `paginationAttrs[this.opts.type]`, the type "prev" or
+  // "next"): its member for each key.
+  if (ts.isElementAccessExpression(node)) {
+    const holder = skip(node.expression);
+    const bound = ts.isIdentifier(holder) ? lower.binding(holder) : undefined;
+    const object =
+      bound?.kind === 'constant' ? { value: bound.value } : lower.buildTimeValue(node.expression);
+    const keys = object && valueSet(ctx, node.argumentExpression);
+    if (
+      object &&
+      keys &&
+      object.value !== null &&
+      typeof object.value === 'object' &&
+      keys.every(k => typeof k === 'string' && Object.hasOwn(object.value as object, k))
+    )
+      return distinct(keys.map(k => (object.value as Record<string, unknown>)[k as string]));
+  }
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
     const binding = lower.binding(node.expression);
     if (binding?.kind === 'pack') return binding.values?.(node, lower);

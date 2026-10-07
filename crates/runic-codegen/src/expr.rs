@@ -296,6 +296,11 @@ impl<'a> FnCtx<'a> {
                 let v = self.expr(arg);
                 match t {
                     Type::String => v,
+                    // (Dynamic values convert with a check: M6 dynamic values.)
+                    Type::Dyn => self.q(&format!("js::dynamic::to_string(&{v})")),
+                    Type::Array(ref i) if **i == Type::Dyn => self.q(&format!(
+                        "js::dynamic::to_string(&js::Dyn::Array({v}.clone()))"
+                    )),
                     _ => format!("js::ToJsString::to_js_string(&{v})"),
                 }
             }

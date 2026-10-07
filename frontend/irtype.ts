@@ -255,6 +255,19 @@ export const ANIMATION_MEMBERS: Record<string, Type> = {
   pending: B,
 };
 
+/** Whether `t` contains a dynamic value (M6 spike). */
+export function containsDyn(t: Type): boolean {
+  if (t === 'dyn') return true;
+  if (typeof t !== 'object') return false;
+  if ('maybe' in t) return containsDyn(t.maybe);
+  if ('array' in t) return containsDyn(t.array);
+  if ('set' in t) return containsDyn(t.set);
+  if ('promise' in t) return containsDyn(t.promise);
+  if ('map' in t) return containsDyn(t.map[0]) || containsDyn(t.map[1]);
+  if ('fn' in t) return t.fn.params.some(containsDyn) || containsDyn(t.fn.result);
+  return false;
+}
+
 export function builtinType(name: string, args: Type[]): Type | undefined {
   const [ns, method] = name.includes('.') ? (name.split('.', 2) as [string, string]) : ['', name];
   const recv = args[0];
@@ -268,6 +281,12 @@ export function builtinType(name: string, args: Type[]): Type | undefined {
       ] ?? (name === 'structuredClone' ? recv : undefined)
     );
   if (ns === 'number') return S;
+  // Array.from of an array, a set or a string: a new array of its items.
+  if (ns === 'Array' && method === 'from' && recv !== undefined && args.length === 1) {
+    if (recv === S) return { array: S };
+    if (typeof recv === 'object' && 'array' in recv) return recv;
+    if (typeof recv === 'object' && 'set' in recv) return { array: recv.set };
+  }
   if (ns === 'event') return EVENT_MEMBERS[method];
   // RegExp members (match results depend on the pattern: the frontend
   // declares them where it lowers the call).

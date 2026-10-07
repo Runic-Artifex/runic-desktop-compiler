@@ -42,6 +42,12 @@ export type Type =
   | 'contexts'
   /** A CSS animation or transition of an element (`element.getAnimations()`; identity, M6). */
   | 'animation'
+  /**
+   * A dynamic value (M6 spike, docs/design/M6-DYNAMIC-VALUES.md): any
+   * JavaScript value, operated on through `dyn.*` built-ins; static values
+   * are boxed (`dyn.from`) and unboxed with a check (`dyn.to`).
+   */
+  | 'dyn'
   | 'void';
 
 export type Literal = boolean | number | string;

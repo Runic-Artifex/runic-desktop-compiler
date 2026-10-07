@@ -161,6 +161,35 @@ pub mod js {
     }
 }
 
+/// Probe JSON of a dynamic value (M6 spike; matches the interpreter's
+/// `cell_json`): primitives as themselves, objects as `{"object": [[key,
+/// value], ...]}` in property order, arrays as arrays, functions and boxed
+/// static values by kind.
+pub fn probe_dyn(v: &js::Dyn) -> Json {
+    use js::Dyn;
+    // (A value that contains itself shows as "[Circular]", as cell probes do.)
+    match v {
+        Dyn::Undefined | Dyn::Null => Json::Null,
+        Dyn::Bool(b) => Json::Bool(*b),
+        Dyn::Num(n) => js::json(n),
+        Dyn::Str(s) => Json::String(s.to_rust()),
+        Dyn::Object(o) => match o.visit() {
+            None => Json::String("[Circular]".into()),
+            Some(_v) => serde_json::json!({ "object": o
+                .borrow()
+                .iter()
+                .map(|(k, x)| serde_json::json!([k.to_rust(), probe_dyn(x)]))
+                .collect::<Vec<_>>() }),
+        },
+        Dyn::Array(a) => match a.visit() {
+            None => Json::String("[Circular]".into()),
+            Some(_v) => Json::Array(a.borrow().iter().map(probe_dyn).collect()),
+        },
+        Dyn::Fn(..) => Json::String("function".into()),
+        Dyn::Boxed(b) => Json::String(format!("boxed {}", b.kind_name())),
+    }
+}
+
 /// One listener call of an event dispatch: the listener key, the event and
 /// the element whose listener it is (`currentTarget`, a node id).
 pub struct Delivery {
