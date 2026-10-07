@@ -26,6 +26,10 @@ const styles = [
   face('VariableRestricted', 'variable', '300 600'),
   face('RangeSelection', 'static', '100 900'),
   face('RangeSelection', 'variable', '400 600'),
+  face('RangeOverlapLastVariable', 'static', '100 900'),
+  face('RangeOverlapLastVariable', 'variable', '400 600'),
+  face('RangeOverlapLastStatic', 'variable', '400 600'),
+  face('RangeOverlapLastStatic', 'static', '100 900'),
 ].join('');
 const cases = {};
 for (const family of [
@@ -34,6 +38,8 @@ for (const family of [
   'VariableRange',
   'VariableRestricted',
   'RangeSelection',
+  'RangeOverlapLastVariable',
+  'RangeOverlapLastStatic',
 ]) {
   const weights =
     family === 'RangeSelection' ? [100, 700, 900] : [100, 300, 400, 450.5, 600, 700, 900];
@@ -81,7 +87,10 @@ await writeFile(
   JSON.stringify(
     {
       hashes,
-      variableSourceRevision: '718dcb721941fd8e72128833122d31f5a4e80504',
+      variableAssetBaseRevision: '718dcb721941fd8e72128833122d31f5a4e80504',
+      fontiquePatchRevision: '2edeab70c4985ec59443462f8e15579594b8f1c1',
+      variableAssetRepository: 'https://github.com/linebender/parley',
+      variableAssetPath: 'parley_dev/assets/fonts/roboto_fonts/RobotoFlex-VariableFont.ttf',
       spec: 'https://drafts.csswg.org/css-fonts-4/#font-prop-desc',
     },
     null,
