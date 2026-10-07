@@ -8,6 +8,7 @@ Start here:
 - [docs/ROADMAP.md](docs/ROADMAP.md): the current milestone and its work mode.
 - [docs/WORKING.md](docs/WORKING.md): when to work standalone, delegate to a subagent or propose a workflow, and the resource rules for parallel work.
 - [docs/CONTRACT.md](docs/CONTRACT.md): what is actually implemented. Roadmap items are not supported until a milestone has verified them.
+- [docs/GAPS.md](docs/GAPS.md): what is not covered yet, why, and what it would take. A change that adds a rejection or an unsupported report adds a row; one that covers it removes the row.
 
 ## Layout
 

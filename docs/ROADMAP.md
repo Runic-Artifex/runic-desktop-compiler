@@ -135,7 +135,7 @@ Replace the parts that cannot scale before adding any capability.
 - **Storage:** `localStorage` as the first host service.
 - **Reactivity model** (carried from M3 and [the React regions report](research/REACT-REGIONS.md)), needed before effects can depend on it:
   - dependency analysis shared by the interpreter and codegen, with each framework's update granularity (Svelte block template effects, Vue component re-render, React component re-render that cascades to children), so values read without reactivity refresh as in the framework;
-  - derived values computed once per update in per-instance slots (`$derived`, `computed`, React render constants) instead of once per read, which fixes their identity within a render; `useMemo`/`useCallback` as cached slots;
+  - derived values computed once per update in per-instance slots (`$derived`, `computed`, React render constants) instead of once per read, which fixes their identity within a render; `useMemo`/`useCallback` as cached slots (not done in M4; [gap register](GAPS.md), F3);
   - an "instance rendered" notion for React effects, and closures that keep their own render's state (stale-closure semantics for timers and `await`);
   - the Rules of React as compile errors (mutating props or state during render, render-time `setState`), which also lets React reference props use identity tracking;
   - refining deep tracking (by reachability or property path) before effects depend on dirtiness.

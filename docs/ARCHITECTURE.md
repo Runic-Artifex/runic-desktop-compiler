@@ -28,7 +28,7 @@ flowchart TD
     RT --> B["Blitz + winit"]
 ```
 
-**Today:** everything up to and including code generation is JavaScript in `compiler/`. The runtime is a single `native/runtime.rs` file that is copied into each generated crate. Milestone 1 moves the IR, validation and code generation into Rust crates and turns the runtime into a library.
+**Today:** as in the diagram since Milestone 1: the IR, validation, the interpreter and code generation are Rust crates, and the runtime is a library. `runic-bridge` (M8) and `runic-quickjs` (islands, M6 step 10) do not exist yet; host services live in `runic-runtime` and `runic-js`.
 
 ## Decisions
 

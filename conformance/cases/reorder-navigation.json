@@ -1,5 +1,5 @@
 {
-  "description": "Sequential navigation right after a list move blurred the focused element: Chromium continues from where the element was detached (a live range), which depends on each framework's exact sequence of DOM moves. Planned with the M5 focus model.",
+  "description": "Sequential navigation right after a list move blurred the focused element: Chromium continues from where the element was detached (a live range), which depends on each framework's exact sequence of DOM moves. Moved to M8 (docs/ROADMAP.md).",
   "fixtures": [
     "reorder-svelte",
     "reorder-vue"

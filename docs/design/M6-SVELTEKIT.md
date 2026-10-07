@@ -1,5 +1,7 @@
 # M6–M7: SvelteKit
 
+> **Status note (2026-10-07).** The blocker inventory below predates the overlay cases: the overlays (Popover, Tooltip, DropdownMenu, Dialog, Sheet, Select, Command) and IntersectionObserver are now in the [contract](../CONTRACT.md). Open blockers are in the [gap register](../GAPS.md) (F2, L1, P4, P7).
+
 Decisions for compiling SvelteKit apps: the Translations Editor (Kit 3.0.0, hash router, one layout and one page) and the shadcn-svelte documentation site (Kit 2.70, path router, 18 page routes, 13 layouts, about 275 prerendered pages). The evidence and the full feature inventory are in the [research](../research/M6-SVELTEKIT.md).
 
 ## Decisions

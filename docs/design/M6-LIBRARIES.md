@@ -1,5 +1,7 @@
 # M6: libraries, CSS pipeline, SvelteKit
 
+> **Status note (2026-10-07).** Statuses below date from when each section was written, and later work superseded several: filters and backdrop filters are drawn by the renderer forks; Stylo is forked and size container queries are supported; the Switch geometry gap and lucide icons under oklch were fixed in the Blitz fork; the Popover, Tooltip, DropdownMenu, Select and Command have cases; `$effect.root` is implemented. The current state is in [CONTRACT](../CONTRACT.md); what is open is in the [gap register](../GAPS.md).
+
 **Exit** (roadmap): the shadcn-svelte site's component examples render from source, the corpus coverage report (including the three shadcn sources) is committed, and island counts are recorded as the baseline to reduce from. The north star changed on 2026-10-04 (roadmap decision log); the research below was done on the Translations Editor, whose stack (SvelteKit, Svelte 5, bits-ui, Tailwind 4, lucide, tailwind-variants) is the shadcn-svelte site's, so its findings carry over.
 
 Research behind this plan:

@@ -125,6 +125,8 @@ These work today and are covered by conformance. The cost is code in `runic-runt
 
 ## Fork assessment
 
+> **Status note (2026-10-07).** This assessment is from 2026-10-04, before the fork. Several gaps it lists as needing a patch have been fixed since (shrink-to-fit widths, placeholders, hyphen line breaks, inline baselines, hit testing a scrolled container: see [Fixed in the fork](#fixed-in-the-fork)). Open rendering gaps are summarised in the [gap register](GAPS.md) (P4).
+
 D11 already allows local patches in a documented patch set. The question is whether the gaps justify carrying one now rather than waiting for upstream.
 
 **Upstream status (checked 2026-10-04).** Upstream Blitz main is 8 commits ahead of the pin: Taffy revision bumps, `align-items: normal` left unset, and AnyRender 0.14 (vello 0.11, vello_cpu 0.3, wgpu 30). None of them touch blitz-dom, blitz-traits, blitz-shell or blitz-html, and none fixes a gap listed here. Per gap:
