@@ -180,9 +180,9 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   );
   // Not where a later rule of at least its specificity sets the property
   // (`unless`); the legacy box's clamping and orientation not where its
-  // `display: -webkit-box` is overridden; scroll margins only for an
-  // element scrolled into view.
-  const fields = gs => gs.map(g => [g.selector, g.unless, g.when]);
+  // `display: -webkit-box` is overridden. Scroll margins are recognized
+  // by the patched Stylo and applied by Blitz's scrollIntoView primitive.
+  const fields = gs => (gs ?? []).map(g => [g.selector, g.unless, g.when]);
   assert.deepEqual(
     fields(
       await guards(
@@ -194,7 +194,6 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       ['.a', '.a', undefined],
       ['.a', '.a', undefined],
       ['.a', '.a', undefined],
-      ['.b', undefined, 'scroll-target'],
     ],
   );
   // (A later rule of lower specificity overrides nothing.)
@@ -207,9 +206,7 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       ['.x .a', undefined, undefined],
     ],
   );
-  // Scroll paddings only for a target scrolled into view inside their
-  // container, with the padding in pixels where the stylesheet gives a
-  // length (through a custom property declared once, rem as 16px).
+  // Scroll padding is recognized, including logical properties and calc.
   assert.deepEqual(
     fields(
       await guards(
@@ -217,11 +214,7 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
           '.m { scroll-padding: 3px }\n.n { scroll-padding-inline: 1em }',
       ),
     ),
-    [
-      ['.l', undefined, 'scroll-container:block:8'],
-      ['.m', undefined, 'scroll-container:both:3'],
-      ['.n', undefined, 'scroll-container:inline:'],
-    ],
+    [],
   );
 });
 

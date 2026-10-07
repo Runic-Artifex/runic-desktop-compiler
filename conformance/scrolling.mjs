@@ -1,0 +1,162 @@
+import { runRenderingCases } from './harness/rendering.mjs';
+
+const viewports = [
+  [420, 300],
+  [800, 300],
+];
+const pane = 'width:300px;height:120px;overflow:auto;scrollbar-width:none;border:2px solid #333';
+const scroll = (y, x = 0, selector = '#table') => ({ kind: 'scroll', selector, x, y });
+const sticky = 'position:sticky;background:#dde8ff;height:24px';
+const cases = {
+  scroll_transformed_target: {
+    html: `<div id="table" data-scroll style="${pane}"><div style="height:100px">Before</div><div id="target" style="height:20px;transform:translateY(50px);background:#dde8ff">Target</div><div style="height:300px">After</div></div>`,
+    viewports,
+    regions: ['target'],
+    actions: [
+      { kind: 'scrollIntoView', selector: '#target', block: 'start' },
+      {
+        kind: 'attribute',
+        selector: '#target',
+        name: 'style',
+        value: 'height:20px;transform:scaleY(2);background:#dde8ff',
+      },
+      { kind: 'scrollIntoView', selector: '#target', block: 'end' },
+    ],
+  },
+  scroll_anchor_removed: {
+    html: `<div id="table" data-scroll style="${pane}"><div style="height:100px">Before</div><div id="target" style="height:40px">Anchor</div><div style="height:300px">After</div></div>`,
+    viewports,
+    actions: [
+      scroll(100),
+      { kind: 'attribute', selector: '#target', name: 'style', value: 'display:none' },
+    ],
+  },
+  scroll_anchor_hidden: {
+    html: `<div id="table" data-scroll style="${pane};overflow:hidden"><div id="before" style="height:80px">Before</div><div id="target" style="height:300px">Content</div></div>`,
+    viewports,
+    actions: [
+      scroll(100),
+      { kind: 'attribute', selector: '#before', name: 'style', value: 'height:120px' },
+    ],
+  },
+  scroll_anchor_dom_removal: {
+    html: `<div id="table" data-scroll style="${pane}"><div style="height:100px">Before</div><div id="target" style="height:40px">Anchor</div><div style="height:300px">After</div></div>`,
+    viewports,
+    actions: [
+      scroll(100),
+      {
+        kind: 'html',
+        selector: '#table',
+        value: '<div style="height:100px">Before</div><div style="height:300px">After</div>',
+      },
+    ],
+  },
+  sticky_root: {
+    standards: true,
+    html: `<div id="table" style="height:800px"><div style="height:80px">Before</div><div id="sticky" style="${sticky};top:12px">Root header</div></div>`,
+    viewports,
+    regions: ['sticky'],
+    actions: [scroll(150, 0, 'html'), scroll(600, 0, 'html'), scroll(0, 0, 'html')],
+  },
+  sticky_oversize: {
+    html: `<div id="table" data-scroll style="${pane}"><section id="section" style="height:400px"><div style="height:40px">Before</div><div id="sticky" style="${sticky};height:160px;top:10px;bottom:8px;margin:5px 0">Oversized header</div></section><div style="height:100px">After</div></div>`,
+    viewports,
+    regions: ['sticky'],
+    actions: [scroll(100), scroll(350)],
+  },
+  sticky_rounded_clip: {
+    html: `<div id="table" data-scroll style="${pane};border-radius:18px"><section id="section" style="height:400px"><div id="sticky" style="${sticky};top:0;z-index:2;height:50px">Clipped header</div></section></div>`,
+    viewports,
+    regions: ['sticky'],
+    actions: [
+      scroll(90),
+      {
+        kind: 'attribute',
+        selector: '#table',
+        name: 'style',
+        value: `${pane};border-radius:28px;transform:translate(15px,12px)`,
+      },
+    ],
+  },
+  scroll_margin_padding: {
+    html: `<div id="table" data-scroll style="${pane};scroll-padding:10% 18px"><div style="height:200px">Before</div><div id="target" style="height:30px;background:#dde8ff;scroll-margin:9px 0 15px">Target</div><div style="height:200px">After</div></div>`,
+    viewports,
+    regions: ['target'],
+    actions: [
+      { kind: 'scrollIntoView', selector: '#target', block: 'start' },
+      { kind: 'scrollIntoView', selector: '#target', block: 'end' },
+      { kind: 'scrollIntoView', selector: '#target', block: 'nearest' },
+    ],
+  },
+  scroll_anchor_opt_out: {
+    html: `<div id="table" data-scroll style="${pane};overflow-anchor:none"><div id="before" style="height:80px">Before</div><div id="target" style="height:300px">Content</div></div>`,
+    viewports,
+    actions: [
+      scroll(100),
+      { kind: 'attribute', selector: '#before', name: 'style', value: 'height:120px' },
+    ],
+  },
+  scroll_anchor_sibling: {
+    html: `<div id="table" data-scroll style="${pane}"><div id="before" style="height:80px">Before</div><div id="target" style="height:300px">Content</div></div>`,
+    viewports,
+    actions: [
+      scroll(100),
+      { kind: 'attribute', selector: '#before', name: 'style', value: 'height:120px' },
+    ],
+  },
+  sticky_top: {
+    html: `<div id="table" data-scroll style="${pane}"><section id="section" style="height:300px"><div style="height:40px">Before</div><div id="sticky" style="${sticky};top:8px">Header</div></section><div style="height:100px">After</div></div>`,
+    viewports,
+    actions: [
+      scroll(60),
+      scroll(280),
+      { kind: 'attribute', selector: '#section', name: 'style', value: 'height:240px' },
+      scroll(0),
+    ],
+  },
+  sticky_bottom: {
+    html: `<div id="table" data-scroll style="${pane}"><section id="section" style="height:300px"><div style="height:200px">Before</div><div id="sticky" style="${sticky};bottom:6px">Footer</div></section><div style="height:100px">After</div></div>`,
+    viewports,
+    actions: [scroll(100), scroll(280), scroll(0)],
+  },
+  sticky_axes: {
+    html: `<div id="table" data-scroll style="${pane}"><section id="section" style="width:600px;height:300px"><div style="height:60px">Before</div><div id="sticky" style="${sticky};width:80px;margin-left:100px;left:10px;top:10px">Both</div></section></div>`,
+    viewports,
+    actions: [scroll(80, 150), scroll(180, 300)],
+  },
+  sticky_rtl: {
+    html: `<div id="table" data-scroll dir="rtl" style="${pane}"><section id="section" style="width:600px;height:300px"><div style="height:60px">Before</div><div id="sticky" style="${sticky};width:80px;margin-right:100px;right:10px;top:10px">Right</div></section></div>`,
+    viewports,
+    actions: [scroll(80, -150), scroll(180, -300)],
+  },
+  sticky_nested: {
+    html: `<div id="outer" data-scroll style="width:340px;height:180px;overflow:auto;scrollbar-width:none"><div style="height:80px">Before</div><div id="table" data-scroll style="${pane}"><section id="section" style="height:400px"><div id="sticky" style="${sticky};top:0">Nested header</div></section></div><div style="height:200px">After</div></div>`,
+    viewports,
+    actions: [scroll(50, 0, '#outer'), scroll(80), scroll(300)],
+  },
+  sticky_table: {
+    html: `<div id="pane" data-scroll style="${pane}"><table id="table" style="border-spacing:0;width:100%"><caption id="caption">Data</caption><thead id="head"><tr id="header"><th id="sticky" style="position:sticky;top:0;background:#dde8ff">Key</th><th>Value</th></tr></thead><tbody id="body">${Array.from({ length: 12 }, (_, i) => `<tr id="row${i}"><td>${i}</td><td>Entry</td></tr>`).join('')}</tbody></table></div>`,
+    viewports,
+    actions: [
+      scroll(60, 0, '#pane'),
+      scroll(250, 0, '#pane'),
+      { kind: 'html', selector: '#caption', value: 'Longer caption<br>with two lines' },
+    ],
+  },
+  scroll_into_view: {
+    html: `<div id="outer" data-scroll style="width:340px;height:180px;overflow:auto;scrollbar-width:none"><div style="height:100px">Before</div><div id="table" data-scroll style="${pane}"><div style="height:220px">Before</div><div id="target" style="height:30px;background:#dde8ff">Target</div><div style="height:120px">After</div></div><div style="height:200px">After</div></div>`,
+    viewports,
+    actions: [
+      { kind: 'scrollIntoView', selector: '#target', block: 'nearest' },
+      { kind: 'scrollIntoView', selector: '#target', block: 'start' },
+      { kind: 'scrollIntoView', selector: '#target', block: 'end' },
+    ],
+  },
+  scroll_absolute: {
+    html: `<div id="table" data-scroll style="${pane};position:relative"><div id="target" style="position:absolute;left:420px;top:250px;width:50px;height:30px;background:#dde8ff">Far</div><div id="negative" style="position:absolute;left:-50px;top:-40px;width:20px;height:20px"></div></div>`,
+    viewports,
+    actions: [scroll(10000, 10000)],
+  },
+};
+for (const value of Object.values(cases)) value.suite = 'scrolling';
+await runRenderingCases(cases, {}, 'scrolling', 'td,th{padding:4px}th{font-weight:normal}');

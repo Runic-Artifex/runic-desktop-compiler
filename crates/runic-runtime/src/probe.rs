@@ -619,6 +619,17 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
                 native.focus_to(Some(id));
             }
         }
+        "scrollIntoView" => {
+            let id = target.expect("scroll target");
+            for moved in crate::layout::scroll_into_view(
+                &mut native.doc,
+                id,
+                action["block"].as_str().unwrap_or("nearest"),
+                action["inline"].as_str().unwrap_or("nearest"),
+            ) {
+                native.listeners.scrolled(Some(moved));
+            }
+        }
         "blur" => native.focus_to(None),
         // The user traverses the session history (browser back and forward).
         "back" => native.traverse(-1),

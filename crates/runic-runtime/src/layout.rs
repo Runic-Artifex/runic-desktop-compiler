@@ -11,39 +11,33 @@ thread_local! {
     static CLAMPED: std::cell::RefCell<Vec<NodeId>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// Resolve layout, then clamp the scroll offsets a layout change left past
-/// the end of their scroll range (content shrank). Chromium clamps them in
-/// layout, forced or not, so script reads the clamped offset at once; its
-/// `scroll` event follows in the rendering step after the next frame's
-/// (`take_clamped`). Blitz keeps the old offset until the next scroll.
+/// Resolve layout and retain layout-induced scroll changes for the next
+/// frame's scroll events. Blitz owns clamping and anchoring; capture before
+/// resolving so those operations cannot hide a changed offset from Runic.
 pub(crate) fn resolve(doc: &mut BaseDocument) {
-    crate::timeline::resolve(doc);
     let root = doc.try_root_element().map(|r| r.id);
-    let mut scrolled: Vec<NodeId> = doc
+    let mut before: Vec<_> = doc
         .tree()
         .iter()
         .filter(|(id, n)| {
             Some(*id) != root
                 && n.element_data().is_some()
-                && *n.scroll_offset() != blitz_dom::Point::ZERO
+                && n.scroll_position() != blitz_dom::Point::ZERO
         })
-        .map(|(id, _)| id)
+        .map(|(id, n)| (id, (n.scroll_position().x, n.scroll_position().y)))
         .collect();
-    if doc.viewport_scroll() != blitz_dom::Point::ZERO {
-        scrolled.extend(root);
+    if let Some(root) = root.filter(|_| doc.viewport_scroll() != blitz_dom::Point::ZERO) {
+        before.push((root, scroll_offset(doc, root)));
     }
-    if scrolled.is_empty() {
+    crate::timeline::resolve(doc);
+    if before.is_empty() {
         return;
     }
-    // In tree order, among the elements in the document.
     let order = crate::events::tree_order(doc);
-    scrolled.retain(|n| order.contains(n));
-    scrolled.sort_by_key(|n| order.iter().position(|x| x == n));
-    for node in scrolled {
-        let before = scroll_offset(doc, node);
-        // A programmatic scroll to the same offset clamps it to the range.
-        doc.scroll_to(node, before.0, before.1, ScrollBehavior::Instant);
-        if scroll_offset(doc, node) != before {
+    before.retain(|(id, _)| order.contains(id));
+    before.sort_by_key(|(id, _)| order.iter().position(|x| x == id));
+    for (node, offset) in before {
+        if scroll_offset(doc, node) != offset {
             CLAMPED.with(|c| {
                 let mut c = c.borrow_mut();
                 if !c.contains(&node) {
@@ -70,7 +64,7 @@ pub(crate) fn any_clamped() -> bool {
 pub(crate) fn any_scrolled(doc: &BaseDocument) -> bool {
     doc.viewport_scroll() != blitz_dom::Point::ZERO
         || doc.tree().iter().any(|(_, n)| {
-            n.element_data().is_some() && *n.scroll_offset() != blitz_dom::Point::ZERO
+            n.element_data().is_some() && n.scroll_position() != blitz_dom::Point::ZERO
         })
 }
 
@@ -175,69 +169,10 @@ fn offset_rect(doc: &BaseDocument, node: NodeId) -> Option<(f64, f64, f64, f64)>
     Some((x, y, size.width as f64, size.height as f64))
 }
 
-/// The border box relative to the viewport. Blitz offsets a scroller by its
-/// own scroll offset, which only moves its content: that is added back.
+/// The visual border box relative to the viewport, using Blitz's shared
+/// sticky, scrolling and transform geometry.
 pub(crate) fn client_rect(doc: &BaseDocument, node: NodeId) -> Option<blitz_dom::BoundingRect> {
-    let mut r = untransformed_rect(doc, node)?;
-    // CSS transforms of the node and its ancestors: the bounding box of the
-    // transformed border box, as getBoundingClientRect reports it. Each
-    // transform applies about its own element's untransformed box
-    // (`Node::transform` is relative to the border box, its translation in
-    // device pixels), innermost first.
-    let scale = doc.viewport().scale_f64();
-    let mut corners = [
-        (r.x, r.y),
-        (r.x + r.width, r.y),
-        (r.x, r.y + r.height),
-        (r.x + r.width, r.y + r.height),
-    ];
-    let mut transformed = false;
-    let mut next = Some(node);
-    while let Some(id) = next {
-        let Some(n) = doc.get_node(id) else { break };
-        if let Some(t) = n.transform().as_deref() {
-            if let Some(origin) = untransformed_rect(doc, id) {
-                for (x, y) in corners.iter_mut() {
-                    let p =
-                        *t * kurbo::Point::new((*x - origin.x) * scale, (*y - origin.y) * scale);
-                    *x = p.x / scale + origin.x;
-                    *y = p.y / scale + origin.y;
-                }
-                transformed = true;
-            }
-        }
-        next = n.parent;
-    }
-    if transformed {
-        let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
-        let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
-        for (x, y) in corners {
-            x0 = x0.min(x);
-            y0 = y0.min(y);
-            x1 = x1.max(x);
-            y1 = y1.max(y);
-        }
-        r.x = x0;
-        r.y = y0;
-        r.width = x1 - x0;
-        r.height = y1 - y0;
-    }
-    Some(r)
-}
-
-/// The border box relative to the viewport without CSS transforms (Blitz's
-/// bounding rect, corrected for the node's own scroll offset, which only
-/// moves its content).
-fn untransformed_rect(doc: &BaseDocument, node: NodeId) -> Option<blitz_dom::BoundingRect> {
-    let mut r = doc.get_client_bounding_rect(node)?;
-    if !is_root(doc, node) {
-        if let Some(n) = doc.get_node(node) {
-            let s = n.scroll_offset();
-            r.x += s.x;
-            r.y += s.y;
-        }
-    }
-    Some(r)
+    doc.get_transformed_client_bounding_rect(node)
 }
 
 /// `getBoundingClientRect()`: x, y, width, height, top, right, bottom, left
@@ -415,7 +350,7 @@ fn scroll_offset(doc: &BaseDocument, node: NodeId) -> (f64, f64) {
         return (s.x, s.y);
     }
     element(doc, node).map_or((0.0, 0.0), |n| {
-        let s = n.scroll_offset();
+        let s = n.scroll_position();
         (s.x, s.y)
     })
 }
@@ -468,10 +403,24 @@ pub(crate) fn metric(doc: &mut BaseDocument, node: NodeId, name: &str) -> f64 {
         "scrollWidth" | "scrollHeight" => {
             let overflow = layout.scrollable_overflow_rect;
             if name == "scrollWidth" {
-                let w = client_w.max(overflow.right as f64);
+                let w = if n
+                    .element_data()
+                    .is_some_and(|e| e.text_input_data().is_some())
+                {
+                    n.scroll_width() as f64
+                } else {
+                    client_w.max(overflow.right as f64)
+                };
                 if root { vw.max(w) } else { snap_size(w, left) }
             } else {
-                let h = client_h.max(overflow.bottom as f64);
+                let h = if n
+                    .element_data()
+                    .is_some_and(|e| e.text_input_data().is_some())
+                {
+                    n.scroll_height() as f64
+                } else {
+                    client_h.max(overflow.bottom as f64)
+                };
                 if root { vh.max(h) } else { snap_size(h, top) }
             }
         }
@@ -534,7 +483,10 @@ pub(crate) fn element_from_point(doc: &mut BaseDocument, x: f64, y: f64) -> Opti
     if !(0.0..vw).contains(&x) || !(0.0..vh).contains(&y) {
         return None;
     }
-    let mut node = doc.hit(x as f32, y as f32)?.node_id;
+    let scroll = doc.viewport_scroll();
+    let mut node = doc
+        .hit((x + scroll.x) as f32, (y + scroll.y) as f32)?
+        .node_id;
     loop {
         let n = doc.get_node(node)?;
         if n.is_element() {
@@ -611,77 +563,22 @@ fn is_scroller(doc: &BaseDocument, node: NodeId) -> bool {
         .any(|p| matches!(style(doc, node, p).as_str(), "auto" | "scroll" | "hidden"))
 }
 
-/// The aligned scroll offset for a target edge range in a scrollport
-/// (CSSOM View "determine the scroll-into-view position").
-fn aligned(current: f64, port: f64, start: f64, size: f64, how: &str) -> f64 {
-    let end = start + size;
-    match how {
-        "start" => start,
-        "end" => end - port,
-        "center" => start + size / 2.0 - port / 2.0,
-        _ => {
-            // nearest, as Blink aligns to the closest edge: no scroll when
-            // fully visible, else the end edge when the box lies past the end
-            // and is smaller, or before it and larger; else the start edge.
-            let port_end = current + port;
-            if start >= current && end <= port_end {
-                current
-            } else if (end > port_end && size < port) || (end < port_end && size > port) {
-                end - port
-            } else {
-                start
-            }
-        }
-    }
-}
-
-/// Whether a scroll padding (`axis` `block`, `inline` or `both`; in
-/// pixels, if known) leaves scrolling the box `r` (x, y, width, height)
-/// into view in the scrollport `port` (x, y, width, height) as it is: each
-/// padded axis aligns to the nearest edge and the box is inside the
-/// scrollport less the padding there, so nothing scrolls either way.
-fn padding_changes_nothing(
-    axis: &str,
-    padding: Option<f64>,
-    (block, inline): (&str, &str),
-    r: [f64; 4],
-    (px, py, pw, ph): (f64, f64, f64, f64),
-) -> bool {
-    let Some(p) = padding else { return false };
-    let inside = |how: &str, start: f64, size: f64, port: f64, port_size: f64| {
-        how == "nearest" && start >= port + p && start + size <= port + port_size - p
-    };
-    let block_ok = inside(block, r[1], r[3], py, ph);
-    let inline_ok = inside(inline, r[0], r[2], px, pw);
-    match axis {
-        "block" => block_ok,
-        "inline" => inline_ok,
-        _ => block_ok && inline_ok,
-    }
-}
-
-/// The scroll containers around `node`, innermost first (the root
-/// element's scrolling is the viewport's).
+/// Scroll containers on the containing-block chain, innermost first.
 fn scrollers(doc: &BaseDocument, node: NodeId) -> Vec<NodeId> {
-    // Along the containing blocks: a fixed or absolutely positioned element
-    // escapes the scroll containers that do not contain it (a portalled
-    // menu under a body whose scroll is locked).
-    let mut scrollers = vec![];
+    let mut result = Vec::new();
     let mut current = doc.get_node(node).and_then(|n| n.containing_block());
-    while let Some(p) = current {
-        if is_root(doc, p) {
+    while let Some(id) = current {
+        if is_root(doc, id) {
             break;
         }
-        if element(doc, p).is_some() && is_scroller(doc, p) && !propagated_to_viewport(doc, p) {
-            scrollers.push(p);
+        if element(doc, id).is_some() && is_scroller(doc, id) && !propagated_to_viewport(doc, id) {
+            result.push(id);
         }
-        current = doc.get_node(p).and_then(|n| n.containing_block());
+        current = doc.get_node(id).and_then(|n| n.containing_block());
     }
-    scrollers
+    result
 }
 
-/// Whether `node` is the body whose `overflow` applies to the viewport (the
-/// root element's is `visible`): it is then no scroll container itself.
 fn propagated_to_viewport(doc: &BaseDocument, node: NodeId) -> bool {
     let Some(root) = doc.try_root_element().map(|r| r.id) else {
         return false;
@@ -694,7 +591,7 @@ fn propagated_to_viewport(doc: &BaseDocument, node: NodeId) -> bool {
         .all(|p| style(doc, root, p) == "visible")
 }
 
-/// The scrollport (padding box less scrollbars) of `scroller`, or the
+/// The scrollport padding box less scrollbars, or the
 /// viewport, in viewport coordinates: x, y, width, height.
 fn scrollport(doc: &mut BaseDocument, scroller: Option<NodeId>) -> (f64, f64, f64, f64) {
     match scroller {
@@ -726,41 +623,31 @@ pub(crate) fn scroll_into_view(
 ) -> Vec<NodeId> {
     resolve(doc);
     crate::timeline::check_scroll_target(doc, node);
-    let mut changed = vec![];
     if element(doc, node).is_none_or(|n| !n.has_boxes()) {
-        return changed;
+        return vec![];
     }
-    let root = doc.try_root_element().map(|r| r.id);
-    for scroller in scrollers(doc, node).into_iter().map(Some).chain([None]) {
-        let Some(target) = scroller.or(root) else {
-            continue;
-        };
-        let r = rect(doc, node);
-        let (cx, cy) = scroll_offset(doc, target);
-        let (px, py, pw, ph) = scrollport(doc, scroller);
-        // A scroll padding the style engine drops changes nothing where the
-        // target is aligned to the nearest edge and already inside the
-        // padded scrollport (bits-ui's Command list, `scroll-py-1`).
-        if let Some(s) = scroller {
-            crate::timeline::check_scroll_padding(doc, s, |axis, padding| {
-                padding_changes_nothing(
-                    axis,
-                    padding,
-                    (block, inline),
-                    [r[0], r[1], r[2], r[3]],
-                    (px, py, pw, ph),
-                )
-            });
-        }
-        // The element's position in the scroller's content coordinates.
-        let (sx, sy) = (r[0] - px + cx, r[1] - py + cy);
-        let x = aligned(cx, pw, sx, r[2], inline);
-        let y = aligned(cy, ph, sy, r[3], block);
-        if let Some(t) = scroll(doc, Some(target), false, Some(x), Some(y)) {
-            changed.push(t);
-        }
-    }
-    changed
+    let targets: Vec<_> = scrollers(doc, node)
+        .into_iter()
+        .chain(doc.try_root_element().map(|r| r.id))
+        .collect();
+    let before: Vec<_> = targets.iter().map(|id| scroll_offset(doc, *id)).collect();
+    let logical = |value: &str| match value {
+        "start" => blitz_dom::ScrollLogicalPosition::Start,
+        "center" => blitz_dom::ScrollLogicalPosition::Center,
+        "end" => blitz_dom::ScrollLogicalPosition::End,
+        _ => blitz_dom::ScrollLogicalPosition::Nearest,
+    };
+    doc.scroll_into_view(
+        node,
+        ScrollBehavior::Instant,
+        logical(block),
+        logical(inline),
+    );
+    targets
+        .into_iter()
+        .zip(before)
+        .filter_map(|(id, old)| (scroll_offset(doc, id) != old).then_some(id))
+        .collect()
 }
 
 /// Whether `node`'s border box, expanded to whole pixels, lies inside the
@@ -834,70 +721,5 @@ pub(crate) fn report_once(message: String) {
     }
     if SEEN.with(|s| s.borrow_mut().insert(message.clone())) {
         eprintln!("{message}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::padding_changes_nothing;
-
-    #[test]
-    fn scroll_padding_matters_only_where_it_would_move_the_target() {
-        let port = (0.0, 100.0, 400.0, 200.0);
-        let nearest = ("nearest", "nearest");
-        // Inside the port less 4px each side: nothing scrolls either way.
-        assert!(padding_changes_nothing(
-            "block",
-            Some(4.0),
-            nearest,
-            [0.0, 110.0, 400.0, 30.0],
-            port
-        ));
-        // Within 4px of the top: Chromium scrolls to the padded edge.
-        assert!(!padding_changes_nothing(
-            "block",
-            Some(4.0),
-            nearest,
-            [0.0, 102.0, 400.0, 30.0],
-            port
-        ));
-        // Outside the port: the padded and unpadded edges differ.
-        assert!(!padding_changes_nothing(
-            "block",
-            Some(4.0),
-            nearest,
-            [0.0, 290.0, 400.0, 30.0],
-            port
-        ));
-        // Another alignment always aligns to the padded edge.
-        assert!(!padding_changes_nothing(
-            "block",
-            Some(4.0),
-            ("start", "nearest"),
-            [0.0, 110.0, 400.0, 30.0],
-            port
-        ));
-        // An unknown padding, and both axes.
-        assert!(!padding_changes_nothing(
-            "block",
-            None,
-            nearest,
-            [0.0, 110.0, 400.0, 30.0],
-            port
-        ));
-        assert!(!padding_changes_nothing(
-            "both",
-            Some(4.0),
-            nearest,
-            [0.0, 110.0, 400.0, 30.0],
-            port
-        ));
-        assert!(padding_changes_nothing(
-            "both",
-            Some(4.0),
-            nearest,
-            [10.0, 110.0, 380.0, 30.0],
-            port
-        ));
     }
 }

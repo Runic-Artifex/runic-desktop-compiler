@@ -10,10 +10,24 @@ fn observe(doc: &HtmlDocument) -> Value {
     let mut rects = Map::new();
     let mut hits = Map::new();
     let mut text_lines = Map::new();
+    let mut scroll = Map::new();
     for id in inner.query_selector_all("[id]").unwrap() {
         let node = inner.get_node(id).unwrap();
         let name = node.attr(local_name!("id")).unwrap();
-        let rect = inner.get_client_bounding_rect(id).unwrap();
+        let rect = inner.get_transformed_client_bounding_rect(id).unwrap();
+        if node.attr(LocalName::from("data-scroll")).is_some() {
+            scroll.insert(
+                name.into(),
+                json!([
+                    node.scroll_position().x,
+                    node.scroll_position().y,
+                    node.scroll_width().round(),
+                    node.scroll_height().round(),
+                    node.client_width().round(),
+                    node.client_height().round(),
+                ]),
+            );
+        }
         rects.insert(
             name.into(),
             json!([rect.x, rect.y, rect.width, rect.height]),
@@ -23,14 +37,15 @@ fn observe(doc: &HtmlDocument) -> Value {
             .and_then(|el| el.inline_layout_data.as_ref())
         {
             let layout = node.final_layout();
+            let scale = inner.viewport().scale();
             let lines: Vec<_> = inline.layout.lines().map(|line| {
                 let metrics = line.metrics();
                 json!({
-                    "x": rect.x + (layout.border.left + layout.padding.left + metrics.offset) as f64,
-                    "baseline": rect.y + (layout.border.top + layout.padding.top + metrics.baseline) as f64,
-                    "advance": metrics.advance,
-                    "hangingAdvance": metrics.hanging_advance,
-                    "height": metrics.line_height,
+                    "x": rect.x + (layout.border.left + layout.padding.left + metrics.offset / scale) as f64,
+                    "baseline": rect.y + (layout.border.top + layout.padding.top + metrics.baseline / scale) as f64,
+                    "advance": metrics.advance / scale,
+                    "hangingAdvance": metrics.hanging_advance / scale,
+                    "height": metrics.line_height / scale,
                 })
             }).collect();
             text_lines.insert(name.into(), json!(lines));
@@ -41,8 +56,20 @@ fn observe(doc: &HtmlDocument) -> Value {
             (1.0, 1.0),
             (rect.width - 1.0, rect.height - 1.0),
         ] {
-            let mut id = inner
-                .hit((rect.x + dx) as f32, (rect.y + dy) as f32)
+            let point = (rect.x + dx, rect.y + dy);
+            let viewport = inner.viewport();
+            let in_view = point.0 >= 0.0
+                && point.1 >= 0.0
+                && point.0 < f64::from(viewport.window_size.0) / viewport.scale_f64()
+                && point.1 < f64::from(viewport.window_size.1) / viewport.scale_f64();
+            let mut id = in_view
+                .then(|| {
+                    inner.hit(
+                        (point.0 + inner.viewport_scroll().x) as f32,
+                        (point.1 + inner.viewport_scroll().y) as f32,
+                    )
+                })
+                .flatten()
                 .map(|hit| hit.node_id);
             let mut target = None;
             while let Some(current) = id {
@@ -57,14 +84,15 @@ fn observe(doc: &HtmlDocument) -> Value {
         }
         hits.insert(name.into(), json!(targets));
     }
-    json!({"rects":rects,"hits":hits,"textLines":text_lines})
+    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll})
 }
 fn render(doc: &mut HtmlDocument, path: &str, width: u32, height: u32) {
     let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);
     let mut buffer = Vec::new();
     let mut inner = doc.inner_mut();
+    let scale = inner.viewport().scale_f64();
     renderer.render_to_vec(
-        |scene| blitz_paint::paint_scene(scene, &mut inner, 1.0, width, height, 0, 0),
+        |scene| blitz_paint::paint_scene(scene, &mut inner, scale, width, height, 0, 0),
         &mut buffer,
     );
     let mut encoder = png::Encoder::new(std::fs::File::create(path).unwrap(), width, height);
@@ -81,6 +109,9 @@ fn main() {
     let html = std::fs::read_to_string(&args[1]).expect("input html");
     let width: u32 = args.get(3).and_then(|w| w.parse().ok()).unwrap_or(640);
     let height: u32 = args.get(4).and_then(|h| h.parse().ok()).unwrap_or(300);
+    let dpr: f32 = args.get(6).and_then(|v| v.parse().ok()).unwrap_or(1.0);
+    let width = (width as f32 * dpr).round() as u32;
+    let height = (height as f32 * dpr).round() as u32;
     let actions: Vec<Value> = args
         .get(5)
         .map(|s| serde_json::from_str(s).unwrap())
@@ -93,20 +124,28 @@ fn main() {
             viewport: Some(blitz_traits::shell::Viewport::new(
                 width,
                 height,
-                1.0,
+                dpr,
                 blitz_traits::shell::ColorScheme::Light,
             )),
             ..Default::default()
         },
     );
     let mut observations = Vec::new();
+    let mut clock = 0.0;
     for step in 0..=actions.len() {
         if step > 0 {
             let action = &actions[step - 1];
-            let selector = action["selector"].as_str().unwrap();
+            clock = action["at"].as_f64().map_or(clock, |ms| ms / 1000.0);
+            let selector = action["selector"].as_str().unwrap_or("html");
             let mut inner = doc.inner_mut();
             let id = inner.query_selector(selector).unwrap().unwrap();
             match action["kind"].as_str().unwrap() {
+                "time" | "observe" => {}
+                "style" => inner.mutate().set_attribute(
+                    id,
+                    QualName::new(None, ns!(), local_name!("style")),
+                    action["value"].as_str().unwrap(),
+                ),
                 "html" => inner
                     .mutate()
                     .set_inner_html(id, action["value"].as_str().unwrap()),
@@ -119,11 +158,36 @@ fn main() {
                     ),
                     action["value"].as_str().unwrap(),
                 ),
+                "scroll" => inner.scroll_to(
+                    id,
+                    action["x"].as_f64().unwrap_or(0.0),
+                    action["y"].as_f64().unwrap_or(0.0),
+                    blitz_dom::ScrollBehavior::Instant,
+                ),
+                "focus" => {
+                    inner.set_focus_to(id);
+                }
+                "scrollIntoView" => inner.scroll_into_view(
+                    id,
+                    blitz_dom::ScrollBehavior::Instant,
+                    match action["block"].as_str() {
+                        Some("start") => blitz_dom::ScrollLogicalPosition::Start,
+                        Some("end") => blitz_dom::ScrollLogicalPosition::End,
+                        Some("center") => blitz_dom::ScrollLogicalPosition::Center,
+                        _ => blitz_dom::ScrollLogicalPosition::Nearest,
+                    },
+                    match action["inline"].as_str() {
+                        Some("start") => blitz_dom::ScrollLogicalPosition::Start,
+                        Some("end") => blitz_dom::ScrollLogicalPosition::End,
+                        Some("center") => blitz_dom::ScrollLogicalPosition::Center,
+                        _ => blitz_dom::ScrollLogicalPosition::Nearest,
+                    },
+                ),
                 _ => panic!("unknown table oracle action"),
             }
         }
         for _ in 0..4 {
-            doc.inner_mut().resolve(0.0);
+            doc.inner_mut().resolve(clock);
         }
         let filename = if step == 0 {
             args[2].clone()
@@ -165,6 +229,52 @@ mod tests {
         [r.x, r.y, r.width, r.height]
     }
     const ROW: &str = "<tbody id='group'><tr id='row'><td id='a'><div id='inside' style='width:30px;height:20px'></div></td><td id='b'><div style='width:90px;height:40px'></div></td></tr></tbody>";
+    #[test]
+    fn sticky_scroll_geometry_hits_and_layout_clamping() {
+        let mut doc = document(
+            "<div id='pane' style='width:200px;height:80px;overflow:auto;scrollbar-width:none'><section id='section' style='height:240px'><div style='height:30px'></div><div id='sticky' style='position:sticky;top:6px;height:20px;background:blue'></div></section></div>",
+        );
+        let mut inner = doc.inner_mut();
+        let pane = inner.query_selector("#pane").unwrap().unwrap();
+        let sticky = inner.query_selector("#sticky").unwrap().unwrap();
+        inner.scroll_to(pane, 0.0, 60.0, blitz_dom::ScrollBehavior::Instant);
+        inner.resolve(0.0);
+        assert_eq!(inner.get_client_bounding_rect(pane).unwrap().y, 0.0);
+        assert_eq!(inner.get_client_bounding_rect(sticky).unwrap().y, 6.0);
+        assert_eq!(inner.hit(5.0, 10.0).unwrap().node_id, sticky);
+        let section = inner.query_selector("#section").unwrap().unwrap();
+        inner.mutate().set_attribute(
+            section,
+            QualName::new(None, ns!(), local_name!("style")),
+            "height:40px",
+        );
+        inner.resolve(0.0);
+        assert_eq!(inner.get_node(pane).unwrap().scroll_position().y, 0.0);
+    }
+
+    #[test]
+    fn sibling_growth_anchors_visible_content_and_respects_opt_out() {
+        for opt_out in [false, true] {
+            let mut doc = document(&format!(
+                "<div id='pane' style='width:200px;height:80px;overflow:auto;scrollbar-width:none;{}'><div id='before' style='height:60px'></div><div style='height:300px'></div></div>",
+                if opt_out { "overflow-anchor:none" } else { "" }
+            ));
+            let mut inner = doc.inner_mut();
+            let pane = inner.query_selector("#pane").unwrap().unwrap();
+            let before = inner.query_selector("#before").unwrap().unwrap();
+            inner.scroll_to(pane, 0.0, 100.0, blitz_dom::ScrollBehavior::Instant);
+            inner.mutate().set_attribute(
+                before,
+                QualName::new(None, ns!(), local_name!("style")),
+                "height:100px",
+            );
+            inner.resolve(0.0);
+            assert_eq!(
+                inner.get_node(pane).unwrap().scroll_position().y,
+                if opt_out { 100.0 } else { 140.0 }
+            );
+        }
+    }
     #[test]
     fn auto_columns_and_internal_boxes() {
         let doc = document(&format!("<table id='table'>{ROW}</table>"));

@@ -1,0 +1,75 @@
+{
+  "description": "Interactive native table parity: captions follow keyed-row mutations; row clicks bubble from Save and controls, Stop cancels that bubble, text and checkbox edits update the keyed row, and a footer cell changes colspan.",
+  "fixtures": [
+    "table-svelte",
+    "table-react",
+    "table-vue"
+  ],
+  "pixelRegions": [
+    "pane",
+    "caption",
+    "span"
+  ],
+  "actions": [
+    {
+      "kind": "focus",
+      "id": "name-1"
+    },
+    {
+      "kind": "press",
+      "key": "Tab"
+    },
+    {
+      "kind": "press",
+      "key": "Shift+Tab"
+    },
+    {
+      "kind": "type",
+      "text": "!"
+    },
+    {
+      "kind": "scrollIntoView",
+      "id": "selected-1"
+    },
+    {
+      "kind": "click",
+      "id": "selected-1"
+    },
+    {
+      "kind": "scrollIntoView",
+      "id": "save-1"
+    },
+    {
+      "kind": "click",
+      "id": "save-1"
+    },
+    {
+      "kind": "scrollIntoView",
+      "id": "stop-1"
+    },
+    {
+      "kind": "click",
+      "id": "stop-1"
+    },
+    {
+      "kind": "click",
+      "id": "add"
+    },
+    {
+      "kind": "click",
+      "id": "reverse"
+    },
+    {
+      "kind": "click",
+      "id": "toggle-span"
+    },
+    {
+      "kind": "scrollIntoView",
+      "id": "remove-4"
+    },
+    {
+      "kind": "click",
+      "id": "remove-4"
+    }
+  ]
+}

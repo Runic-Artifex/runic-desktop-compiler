@@ -73,4 +73,44 @@ The honesty rules from Phases 1–4 still apply: a missing stage is *incomplete*
 
 ## Design checklist for new capabilities
 
+### Chromium parity: shared visual geometry (2026-10-07, isolated)
+
+Blitz keeps normal-flow layout unchanged and exposes `Node::visual_location()`
+to its painter. Sticky constraints belong to Blitz DOM geometry; the same used
+offset participates in pointer hits, CSSOM rectangles and hoisted paint children.
+Hoisted children expose their intervening overflow-clip ancestors to both
+traversals, so changing paint order preserves scrollport clips.
+The node tree retains the CSS viewport size beside its existing viewport scroll
+and geometry generation. Offsets are derived from layout and current scrolling,
+so a scroll does not rebuild the box tree. Runic consumes these primitives rather
+than adding another sticky implementation. No IR or adapter interface changes.
+`BaseDocument::get_transformed_client_bounding_rect()` centralizes the existing
+Runic transform arithmetic for the runtime and direct probes; the untransformed
+rectangle remains the input to layout constraints.
+The input domain is horizontal writing, including RTL, ordinary block/flex/grid
+ancestors and table headers. Chromium cases must certify containing-block limits,
+nested scrollports, resize/mutation, all four insets and root scrolling before
+removing the sticky rejection; transformed scrollports remain a separate gate.
+
+Stylo's existing physical/logical scroll-margin, scroll-padding and
+overflow-anchor definitions are enabled for Servo mode in a separate isolated
+patch. Stylo owns parsing, cascade and computed values; Blitz consumes the
+generated margin/padding/box getters for scrolling. Computed author values stay
+intact when native controls use a different box model: the existing
+`TaffyStyloStyle::flags` boundary gains a native-checkable flag applied uniformly
+to parent sizing and leaf layout. No CSS parser is added to Runic or Blitz.
+
+Text controls keep their editor scroll separate from box-tree scrolling.
+`Node::scroll_position()` exposes the CSSOM value by copy; `scroll_offset()`
+continues to describe scrolling of descendant boxes. Scroll metrics include the
+editor's laid-out text. Runic's geometry facade consumes these primitives and
+records layout-induced scroll changes before resolving, preserving event traces.
+
+Scroll anchoring belongs to Blitz's layout lifecycle. It selects a visible DOM
+candidate before restyle and adjusts the block-axis scroll after layout, with
+computed-style suppression and `overflow-anchor:none`. Focused descendants get
+priority. The initial domain is horizontal block flow; persistent anchor identity
+across candidate removal, vertical writing and the full event-loop suppression
+window remain explicit verification gates. Table layout has no anchoring hooks.
+
 Before adding a capability, identify the layer that owns it (adapter, language layer, IR, runtime, host), the observable behaviour to preserve, its input domain, and the conformance cases that prove it, run against each framework's own runtime. A new IR construct needs a framework-independent definition, validator rules, interpreter semantics and a runtime implementation. Bump the schema version whenever the serialised form changes.

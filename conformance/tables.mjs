@@ -1,23 +1,5 @@
-// Direct renderer oracle; tables remain rejected by the compiler until this passes.
-import { chromium } from 'playwright-core';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-import { pixelMAE } from './harness/compare.mjs';
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Hold the same PID lock as native compiler builds while building and observing
-// the probe: another worktree's claim can otherwise remove this binary mid-run.
-process.env.RUNIC_TARGET_DIR ??= '/home/viktor/Development/RunicDesktopCompiler/target';
-const { targetDir } = await import('../compiler/codegen.mjs');
-const { withSharedTarget } = await import('../compiler/target.mjs');
-const out = path.join(root, 'artifacts/tables');
-await mkdir(out, { recursive: true });
-const font = (
-  await readFile(path.join(root, 'fixtures/counter-svelte/assets/DejaVuSans.woff2'))
-).toString('base64');
-const base = `<style>@font-face{font-family:Test;src:url(data:font/woff2;base64,${font})}body{margin:0;background:white;font:16px/20px Test}table{border-spacing:2px}td,th{padding:4px}th{font-weight:normal}caption{padding:6px}</style>`;
+// Direct table and shared-paint oracle. Cases stay independent of framework syntax.
+import { runRenderingCases } from './harness/rendering.mjs';
 const cases = {
   auto: '<table id="table"><tbody id="body"><tr id="row"><td id="a">Hi</td><td id="b">A much longer column</td></tr><tr id="row2"><td>three words here</td><td>Short</td></tr></tbody></table>',
   wide: '<table id="table" style="width:500px"><tr id="row"><td id="a">Hi</td><td id="b">A much longer column</td></tr></table>',
@@ -131,8 +113,7 @@ const cases = {
 // These primitive controls isolate shared painting from the table formatting
 // context. "table" is only the region id used by this oracle's crop metric.
 Object.assign(cases, {
-  border_dots5:
-    '<div id="table" style="width:90px;height:30px;border:5px dotted green"></div>',
+  border_dots5: '<div id="table" style="width:90px;height:30px;border:5px dotted green"></div>',
   border_dots5_rounded:
     '<div id="table" style="width:90px;height:30px;border:5px dotted green;border-radius:12px;margin-left:.375px;margin-top:.625px"></div>',
   glyph_positive_origin:
@@ -194,169 +175,9 @@ const actions = {
     { kind: 'attribute', selector: '#a', name: 'style', value: 'vertical-align:middle' },
   ],
 };
-await withSharedTarget(async () => {
-  const build = spawnSync(
-    'cargo',
-    ['build', '--offline', '-p', 'runic-blitz-probes', '--bin', 'table-probe'],
-    {
-      cwd: root,
-      env: { ...process.env, CARGO_TARGET_DIR: targetDir },
-      encoding: 'utf8',
-    },
-  );
-  await writeFile(path.join(out, 'oracle-build.log'), build.stdout + build.stderr);
-  if (build.status !== 0) throw new Error(`table probe build failed: ${build.stderr}`);
-  const browser = await chromium.launch({ headless: true, channel: 'chromium' });
-  const page = await browser.newPage({
-    viewport: { width: 640, height: 300 },
-    deviceScaleFactor: 1,
-  });
-  const sha256 = data => createHash('sha256').update(data).digest('hex');
-  await writeFile(
-    path.join(out, 'metadata.json'),
-    JSON.stringify(
-      {
-        chromium: browser.version(),
-        viewport: [640, 300],
-        deviceScaleFactor: 1,
-        renderer: 'cpu',
-        fontSHA256: sha256(Buffer.from(font, 'base64')),
-        cargoLockSHA256: sha256(await readFile(path.join(root, 'Cargo.lock'))),
-        nativeBinarySHA256: sha256(await readFile(path.join(targetDir, 'debug/table-probe'))),
-        geometryTolerance: 0.125,
-        pixelMAEThreshold: 3,
-      },
-      null,
-      2,
-    ),
-  );
-  const results = [];
-  async function reference() {
-    return page.evaluate(() => {
-      const elements = [...document.querySelectorAll('[id]')];
-      return {
-        rects: Object.fromEntries(
-          elements.map(el => {
-            const r = el.getBoundingClientRect();
-            return [el.id, [r.x, r.y, r.width, r.height]];
-          }),
-        ),
-        hits: Object.fromEntries(
-          elements.map(el => {
-            const r = el.getBoundingClientRect();
-            return [
-              el.id,
-              [
-                [r.width / 2, r.height / 2],
-                [1, 1],
-                [r.width - 1, r.height - 1],
-              ].map(
-                ([x, y]) =>
-                  document.elementFromPoint(r.x + x, r.y + y)?.closest('[id]')?.id ?? null,
-              ),
-            ];
-          }),
-        ),
-      };
-    });
-  }
-  try {
-    for (const [name, body] of Object.entries(cases)) {
-      if (process.argv.slice(2).length && !process.argv.slice(2).includes(name)) continue;
-      const html = base + body;
-      const input = path.join(out, `${name}.html`),
-        nativePng = path.join(out, `${name}-native.png`);
-      await writeFile(input, html);
-      const mutations = actions[name] ?? [];
-      const proc = spawnSync(
-        path.join(targetDir, 'debug/table-probe'),
-        [input, nativePng, '640', '300', JSON.stringify(mutations)],
-        { encoding: 'utf8' },
-      );
-      if (proc.status !== 0) throw new Error(`${name}: ${proc.stderr}`);
-      const observations = JSON.parse(proc.stdout.trim().split('\n').at(-1));
-      await writeFile(path.join(out, `${name}-native.json`), JSON.stringify(observations, null, 2));
-      await page.setContent(html);
-      await page.evaluate(() => document.fonts.ready);
-      for (let step = 0; step <= mutations.length; step++) {
-        if (step)
-          await page.evaluate(
-            action => {
-              const el = document.querySelector(action.selector);
-              if (action.kind === 'html') el.innerHTML = action.value;
-              else el.setAttribute(action.name, action.value);
-            },
-            mutations[step - 1],
-          );
-        const browserPng = path.join(out, `${name}-chrome${step ? `-${step}` : ''}.png`);
-        const nativeScreenshot = step ? nativePng.replace('.png', `-${step}.png`) : nativePng;
-        await page.screenshot({ path: browserPng });
-        const expected = await reference(),
-          observation = observations[step];
-        await writeFile(
-          path.join(out, `${name}-chrome${step ? `-${step}` : ''}.json`),
-          JSON.stringify(expected, null, 2),
-        );
-        const differences = [];
-        for (const [id, rect] of Object.entries(expected.rects)) {
-          if (!observation.rects[id]) {
-            differences.push({ id, missing: true });
-            continue;
-          }
-          const error = Math.max(...rect.map((v, i) => Math.abs(v - observation.rects[id][i])));
-          if (error > 0.125)
-            differences.push({ id, reference: rect, native: observation.rects[id], error });
-        }
-        const hitDifferences = Object.entries(expected.hits)
-          .filter(([id, value]) => JSON.stringify(value) !== JSON.stringify(observation.hits[id]))
-          .map(([id, reference]) => ({ id, reference, native: observation.hits[id] }));
-        // Include a local metric so white page area cannot conceal table paint errors.
-        const tableRect = expected.rects.table,
-          nativeRect = observation.rects.table;
-        const cropWidth = Math.min(
-          640,
-          Math.ceil(Math.max(tableRect[0] + tableRect[2], nativeRect[0] + nativeRect[2])) + 2,
-        );
-        const cropHeight = Math.min(
-          300,
-          Math.ceil(Math.max(tableRect[1] + tableRect[3], nativeRect[1] + nativeRect[3])) + 2,
-        );
-        const cropped = [];
-        for (const file of [browserPng, nativeScreenshot]) {
-          const crop = file.replace('.png', '-crop.png');
-          const result = spawnSync(
-            'magick',
-            [file, '-crop', `${cropWidth}x${cropHeight}+0+0`, '+repage', crop],
-            { encoding: 'utf8' },
-          );
-          if (result.status) throw new Error(result.stderr);
-          cropped.push(crop);
-        }
-        const mae = pixelMAE(browserPng, nativeScreenshot),
-          tablePixelMAE = pixelMAE(...cropped);
-        const result = {
-          name,
-          suite: name.startsWith('glyph_')
-            ? 'glyphs'
-            : name.startsWith('border_')
-              ? 'borders'
-              : 'tables',
-          inputSHA256: sha256(html),
-          step,
-          geometry: differences.length === 0,
-          pixelMAE: mae,
-          tablePixelMAE,
-          differences,
-          hitDifferences,
-        };
-        results.push(result);
-        console.log(JSON.stringify(result));
-      }
-    }
-  } finally {
-    await browser.close();
-  }
-  await writeFile(path.join(out, 'results.json'), JSON.stringify(results, null, 2));
-  if (results.some(r => !r.geometry || r.tablePixelMAE > 3 || r.hitDifferences.length))
-    process.exitCode = 1;
-});
+await runRenderingCases(
+  cases,
+  actions,
+  'tables',
+  'table{border-spacing:2px}td,th{padding:4px}th{font-weight:normal}caption{padding:6px}',
+);

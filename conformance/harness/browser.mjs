@@ -502,6 +502,9 @@ async function perform(page, action, timeout, time) {
     case 'focus':
       await target.evaluate(e => e.focus());
       break;
+    case 'scrollIntoView':
+      await target.evaluate((e, a) => e.scrollIntoView({ block: a.block ?? 'nearest', inline: a.inline ?? 'nearest', behavior: 'instant' }), action);
+      break;
     case 'back': // The user traverses the session history.
       await page.goBack();
       break;

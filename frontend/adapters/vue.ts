@@ -77,12 +77,13 @@ import { lowerModules } from '../modules.ts';
 import { bindPackImport, packMappings, type Edge } from '../packs.ts';
 import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
-import { INERT_TAGS } from '../elements.ts';
+import { INERT_TAGS, TABLE_TAGS } from '../elements.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type VNode = any;
 
 const TAGS = new Set([
+  ...TABLE_TAGS,
   'div',
   'span',
   'p',

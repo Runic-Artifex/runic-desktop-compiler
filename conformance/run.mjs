@@ -4,6 +4,7 @@
 //
 //   node conformance/run.mjs [case-name ...] [--pixels] [--release] [--no-opt] [--out DIR]
 //                            [--renderer cpu|gpu] [--gpu-adapter lavapipe|system]
+//                            [--fixture NAME ...]
 //
 // `--renderer gpu` builds the fixtures with the GPU renderer (D12) whatever
 // runic.json selects, and the probe draws its screenshots with it: by default
@@ -35,6 +36,7 @@ const { values, positionals } = parseArgs({
     quiet: { type: 'boolean' },
     renderer: { type: 'string' },
     'gpu-adapter': { type: 'string' },
+    fixture: { type: 'string', multiple: true },
   },
 });
 const renderer = values.renderer;
@@ -63,6 +65,12 @@ async function loadCases(names) {
 const out = path.resolve(values.out ?? path.join(repo, 'artifacts/conformance', new Date().toISOString().replace(/[:.]/g, '-')));
 await mkdir(out, { recursive: true });
 const cases = await loadCases(positionals);
+if (values.fixture) {
+  const available = new Set(cases.flatMap(c => c.fixtures));
+  for (const name of values.fixture) {
+    if (!available.has(name)) throw new Error(`Unknown fixture in selected cases: ${name}`);
+  }
+}
 const browser = await createBrowserHarness();
 const binaries = new Map();
 /** Fixtures whose generated inputs this run made. */
@@ -86,6 +94,7 @@ try {
     const viewports = (c.viewports ?? [[800, 600], [420, 600]]).map(([width, height]) => ({ width, height }));
     const actions = expand(c.actions);
     for (const fixture of c.fixtures) {
+      if (values.fixture && !values.fixture.includes(fixture)) continue;
       const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
       await prepare(dir);
       if (!binaries.has(fixture)) binaries.set(fixture, await buildProbe(dir, { release: values.release, noOpt: values['no-opt'], renderer }));

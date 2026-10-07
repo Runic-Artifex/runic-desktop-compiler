@@ -22,3 +22,17 @@ export const INERT_TAGS = [
   'blockquote',
   'address',
 ];
+
+/** Table formatting is owned by Blitz; adapters only lower HTML structure. */
+export const TABLE_TAGS = [
+  'table',
+  'caption',
+  'thead',
+  'tbody',
+  'tfoot',
+  'tr',
+  'th',
+  'td',
+  'colgroup',
+  'col',
+];

@@ -77,7 +77,7 @@ import {
   type PackAttr,
   type PackComponent,
 } from '../packs.ts';
-import { INERT_TAGS } from '../elements.ts';
+import { INERT_TAGS, TABLE_TAGS } from '../elements.ts';
 
 // The svelte/compiler AST is untyped here; nodes are plain objects.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,6 +90,7 @@ const MODULE_SVELTE = ['tick', 'untrack', 'settled', 'setContext', 'getContext']
 const SVG_TAGS = ['svg', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'rect'];
 
 const TAGS = new Set([
+  ...TABLE_TAGS,
   'a',
   'select',
   'option',
