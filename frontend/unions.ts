@@ -499,6 +499,44 @@ export class Unions {
     return !!t && t.length === 0;
   }
 
+  /**
+   * Whether `e` is never null or undefined: every value it is built from is
+   * of a type without them (shadcn-svelte's Command group `value ?? heading
+   * ?? \`----${useId()}\`` where every site passes a heading).
+   */
+  present(e: ts.Expression): boolean {
+    e = skipAll(e);
+    if (ts.isStringLiteralLike(e) || ts.isNumericLiteral(e) || ts.isTemplateExpression(e))
+      return true;
+    if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+      return this.present(e.left) || this.present(e.right);
+    // A prop: every site passes it (or it has a default), and the values it
+    // takes are never null or undefined. (The trace leaves a site out where
+    // the prop is absent: `mayBeAbsent`.)
+    if (!ts.isIdentifier(e)) return false;
+    const decl = this.symbol(e)?.valueDeclaration;
+    if (!decl || !ts.isBindingElement(decl) || decl.dotDotDotToken) return false;
+    const key =
+      decl.propertyName && ts.isIdentifier(decl.propertyName)
+        ? decl.propertyName.text
+        : ts.isIdentifier(decl.name)
+          ? decl.name.text
+          : undefined;
+    const sf = decl.getSourceFile();
+    if (!key || this.propsPattern(sf)?.byKey.get(key) !== decl) return false;
+    if (!decl.initializer && this.mayBeAbsent(sf, key, 0)) return false;
+    const t = this.trace(e, [], 0, true);
+    return (
+      !!t &&
+      t.length > 0 &&
+      t.every(
+        x =>
+          !(x.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Void)) &&
+          this.checker.getNonNullableType(x) === x,
+      )
+    );
+  }
+
   /** Unions whose census is being taken. */
   private readonly counting = new Set<string>();
 

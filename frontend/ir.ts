@@ -49,12 +49,15 @@ export type Literal = boolean | number | string;
 /**
  * A declaration the style engine drops (docs/IR.md, styles): reported once
  * an element matches `selector` and not `unless` (the rules overriding it);
- * with `when` `"scroll-target"`, once such an element is scrolled into view.
+ * with `when` `"scroll-target"`, once such an element is scrolled into view;
+ * with `"scroll-container:<axis>:<px>"` (a scroll padding of `block`,
+ * `inline` or `both` axes, in pixels where known), once a target inside
+ * such an element is scrolled into view where the padding would move it.
  */
 export interface StyleGuard {
   selector: string;
   unless?: string;
-  when?: 'scroll-target';
+  when?: 'scroll-target' | `scroll-container:${'block' | 'inline' | 'both'}:${string}`;
   message: string;
 }
 

@@ -99,6 +99,28 @@ pub(crate) fn check_scroll_target(doc: &BaseDocument, target: NodeId) {
     );
 }
 
+/// A scroll padding of `scroller` (a guard `scroll-container:<axis>:<px>`),
+/// checked as a target is scrolled into view inside it: reported unless
+/// `fits` says the padding changes nothing (given the axis and the padding
+/// in pixels, if known).
+pub(crate) fn check_scroll_padding(
+    doc: &BaseDocument,
+    scroller: NodeId,
+    fits: impl Fn(&str, Option<f64>) -> bool,
+) {
+    report(
+        doc,
+        |g| {
+            let Some(rest) = g.2.strip_prefix("scroll-container:") else {
+                return false;
+            };
+            let (axis, px) = rest.split_once(':').unwrap_or((rest, ""));
+            !fits(axis, px.parse().ok())
+        },
+        |nodes| nodes.contains(&scroller),
+    );
+}
+
 fn report(doc: &BaseDocument, kind: impl Fn(&Guard) -> bool, hit: impl Fn(&[NodeId]) -> bool) {
     let matched: Vec<&'static str> = STYLE_GUARDS.with(|g| {
         let mut g = g.borrow_mut();

@@ -227,8 +227,11 @@ function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
   // A readable box where one of the nullable type is expected (bits-ui's
   // `value: boxWith(() => value)` for an option `ReadableBox<string |
   // undefined>`): the box of the nullable type, its getter wrapping the value.
+  // (Also for an optional option, bits-ui's Command `onStateChange?:
+  // ReadableBox<((state) => void) | undefined>`.)
   const context = lower.checker.getContextualType(node);
-  const wanted = context && lower.types.tryMap(context, node);
+  const mapped = context && lower.types.tryMap(context, node);
+  const wanted = mapped && (maybeInner(mapped) ?? mapped);
   const wt = wanted && boxValue(lower, wanted);
   if (!setter && wt && maybeInner(wt) && JSON.stringify(maybeInner(wt)) === JSON.stringify(t)) {
     const getType = fnType([], t);

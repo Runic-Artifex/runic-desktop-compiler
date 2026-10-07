@@ -15,6 +15,16 @@ interface HTMLElement {
    * implicitly), so this is false and releasing is reported unsupported.
    */
   hasPointerCapture(pointerId: number): boolean;
+  /**
+   * M6 (bits-ui's Command): the parent element (null when detached; the
+   * container of the program's top-level elements is reported unsupported),
+   * and moving one of the children to the end (other uses are reported
+   * unsupported, as is the framework inserting into the element afterwards).
+   */
+  readonly parentElement: HTMLElement | null;
+  readonly nextElementSibling: HTMLElement | null;
+  readonly previousElementSibling: HTMLElement | null;
+  appendChild(child: HTMLElement): HTMLElement;
   releasePointerCapture(pointerId: number): void;
   // Layout reads and scrolling (CSSOM View), from the native layout.
   getBoundingClientRect(): DOMRect;
@@ -45,6 +55,8 @@ interface HTMLElement {
   readonly isConnected: boolean;
   // M6 (the SvelteKit router): attribute values and the tag name.
   getAttribute(name: string): string | null;
+  /** M6 (bits-ui's Command): checked against the framework's writes at run time. */
+  setAttribute(name: string, value: string): void;
   readonly localName: string;
   readonly style: ElementInlineStyle;
   getAnimations(): Animation[];
@@ -288,6 +300,8 @@ interface KeyboardEvent extends UIEvent {
   readonly metaKey: boolean;
   readonly repeat: boolean;
   readonly isComposing: boolean;
+  /** Only compared with 229 (the IME's "Process" key, M6). */
+  readonly keyCode: number;
 }
 interface MouseEvent extends UIEvent {
   readonly clientX: number;
@@ -579,3 +593,6 @@ type ReferrerPolicy =
   | 'unsafe-url';
 /** `getComputedStyle(element)` as a global (M6 overlays: bits-ui's scroll lock). */
 declare function getComputedStyle(element: HTMLElement | HostRootElement): ComputedStyle;
+
+/** M6 (bits-ui's Command): CSSOM's `CSS.escape`. */
+declare var CSS: { escape(ident: string): string };

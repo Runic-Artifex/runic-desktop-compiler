@@ -1,0 +1,163 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/command-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/command-demo.svelte",
+      "sha256": "4981fc7d16d9710fa5580809a22c94f6e5c6f5b2354fe655c8de5dd898a84edc"
+    },
+    "src/lib/registry/ui/button/button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/button/button.svelte",
+      "sha256": "836d6b14108ce6f20ed88c6500d981c412e1d9cc8bbde02c2f64552b1c0b195c"
+    },
+    "src/lib/registry/ui/button/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/button/index.ts",
+      "sha256": "0f6b6f040d92b4153821d3f9b4d6b9cbc567247e4fda913e64c1d0fcc4a2f386"
+    },
+    "src/lib/registry/ui/command/command-dialog.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-dialog.svelte",
+      "sha256": "a43f2eea98398ede5d2e49fc703686312f9ad65286eaeca7f03ef189bd3403fe"
+    },
+    "src/lib/registry/ui/command/command-empty.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-empty.svelte",
+      "sha256": "2ecd09ff0c5067f2827def87793484763d9c7a4ec97fdbd43346ba778239a3ec"
+    },
+    "src/lib/registry/ui/command/command-group.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-group.svelte",
+      "sha256": "3854d2be3460c965708b138b6fc33eb2fef8182b525e30abc1af3e555d2b87de"
+    },
+    "src/lib/registry/ui/command/command-input.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-input.svelte",
+      "sha256": "aacaa18ad8f603744155f188294a0ed6508187f501db05222720d3730a30a12e"
+    },
+    "src/lib/registry/ui/command/command-item.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-item.svelte",
+      "sha256": "40dddbcb111b496d207ad329ef05a198741b6242ba4084367291cb2f8762b678"
+    },
+    "src/lib/registry/ui/command/command-link-item.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-link-item.svelte",
+      "sha256": "e6c72cc6f1ce3deef0cc630baa030e3c896be737e5f975bcb6a34b23c99f5278"
+    },
+    "src/lib/registry/ui/command/command-list.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-list.svelte",
+      "sha256": "234bd9280708ebd8fb2dd26cdef65f20f208174738abd177dc53fbdf71cd0080"
+    },
+    "src/lib/registry/ui/command/command-loading.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-loading.svelte",
+      "sha256": "f3512497277a540ed8e365cd2d85084394172896131f555b631a1d57f7487fbf"
+    },
+    "src/lib/registry/ui/command/command-separator.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-separator.svelte",
+      "sha256": "c2f9876059921ad771680b6577e91abf734eb3111c850d49993dbb79dfd8dd3b"
+    },
+    "src/lib/registry/ui/command/command-shortcut.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command-shortcut.svelte",
+      "sha256": "8d0fc694992d855f90b11e6e5b25c8f946bf4b6fcfd6a798e9d99d93175fd547"
+    },
+    "src/lib/registry/ui/command/command.svelte": {
+      "upstream": "docs/src/lib/registry/ui/command/command.svelte",
+      "sha256": "c3f8934ae1d5fb89ecbea0ce696a4e3cc953b52b61a489047ce19778573e6499"
+    },
+    "src/lib/registry/ui/command/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/command/index.ts",
+      "sha256": "0e427102f2ca74f024f104aba811fc9c8852deac397bf09ed2a1d65dad36b1d7"
+    },
+    "src/lib/registry/ui/dialog/dialog-close.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-close.svelte",
+      "sha256": "4a9a1a6327d4e68fd87e8292dcb176eab244ba8da455f15997d2308b1fa03d46"
+    },
+    "src/lib/registry/ui/dialog/dialog-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-content.svelte",
+      "sha256": "06fd2e2bd031b9e5bbe8939fb7818a406fd656934243ebf0ae4824b64827b3b8"
+    },
+    "src/lib/registry/ui/dialog/dialog-description.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-description.svelte",
+      "sha256": "be1e2f4cd8cf5624a0c5443c4738a10f92f74e1c047e9d91ffa1ad062034deee"
+    },
+    "src/lib/registry/ui/dialog/dialog-footer.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-footer.svelte",
+      "sha256": "516af5b534e3413739ecdfa38cc1eb8e237ecf0c761c6615b411db5eb53a95d4"
+    },
+    "src/lib/registry/ui/dialog/dialog-header.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-header.svelte",
+      "sha256": "16e80b306ac4a81e84f758ffb4d95bee0a19c22444215f55d998c2e9f4307416"
+    },
+    "src/lib/registry/ui/dialog/dialog-overlay.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-overlay.svelte",
+      "sha256": "ed91a9b8412706639514e6cd58d42764e96858b0af12a93a78b64d59c5c0da30"
+    },
+    "src/lib/registry/ui/dialog/dialog-portal.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-portal.svelte",
+      "sha256": "718c0b6672a2911d7f9398e4ef14813cceabcf0be02b7920f10028d213a674b6"
+    },
+    "src/lib/registry/ui/dialog/dialog.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog.svelte",
+      "sha256": "cc60100e895410b9b5f17b6071c933dfc950e5dbf4d00b261edec1e443008a27"
+    },
+    "src/lib/registry/ui/dialog/dialog-title.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-title.svelte",
+      "sha256": "5cfe4ecf0bf1d1b17aa00eb02f5b4c976482640cacbbe6ab6e3fed28643934d3"
+    },
+    "src/lib/registry/ui/dialog/dialog-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dialog/dialog-trigger.svelte",
+      "sha256": "7b72b3d7fc35bf00f331716f723ee711125263ab09329952728483bb3237dd09"
+    },
+    "src/lib/registry/ui/dialog/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/dialog/index.ts",
+      "sha256": "8357364bc114cc306188b2ed974986fa47d1c2018ae9b730b66e75ea7ae77753"
+    },
+    "src/lib/registry/ui/input-group/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/input-group/index.ts",
+      "sha256": "1dd120de081b76517fb92d58822cf8966457dd283ab34454e14225cfd66d8907"
+    },
+    "src/lib/registry/ui/input-group/input-group-addon.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input-group/input-group-addon.svelte",
+      "sha256": "fd342665d0e7f27171dabe4d5ef5c6675229976f678948cdfee333172d6d65bf"
+    },
+    "src/lib/registry/ui/input-group/input-group-button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input-group/input-group-button.svelte",
+      "sha256": "833351b45236455da2a788182b430ca0690a9524520107f065ae34e5edf282ef"
+    },
+    "src/lib/registry/ui/input-group/input-group-input.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input-group/input-group-input.svelte",
+      "sha256": "50367d8cf5e3617c3d2c95cc82a90ff21a63fb6a54cf49b9c51d1d92904bb81b"
+    },
+    "src/lib/registry/ui/input-group/input-group.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input-group/input-group.svelte",
+      "sha256": "5e5a58f87755feddbe8539a1e13617f5115d895b1767bd5913dd9290cc5099e1"
+    },
+    "src/lib/registry/ui/input-group/input-group-textarea.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input-group/input-group-textarea.svelte",
+      "sha256": "fa79dbf7d1f0fbc607da82240c0a6bd943fe620ccd4661ea51bb47bb7d51b8e0"
+    },
+    "src/lib/registry/ui/input-group/input-group-text.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input-group/input-group-text.svelte",
+      "sha256": "fe1333405e3265fd5454a060f230f0bffc51982e302528cd0f74e18e383c1361"
+    },
+    "src/lib/registry/ui/input/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/input/index.ts",
+      "sha256": "4e0ad69d49a27194c7f3dfd0cdd5933ee13fc40cc13a77138b547d300701d390"
+    },
+    "src/lib/registry/ui/input/input.svelte": {
+      "upstream": "docs/src/lib/registry/ui/input/input.svelte",
+      "sha256": "831f7af76b1ce768e0fe495ca47c4dc461f98d2ded3825f28fcb521f9fb22009"
+    },
+    "src/lib/registry/ui/textarea/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/textarea/index.ts",
+      "sha256": "3b5f25dfd5d1d9b5305f613f7544a7e39362cd4b0a9c3250414cd5ff02e45398"
+    },
+    "src/lib/registry/ui/textarea/textarea.svelte": {
+      "upstream": "docs/src/lib/registry/ui/textarea/textarea.svelte",
+      "sha256": "d705ada7f302b7c5188768058596bc4f9cbaaa5103c21e9485897fb3bd4e13d5"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

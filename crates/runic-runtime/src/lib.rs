@@ -180,7 +180,8 @@ pub trait App: 'static {
     /// drops: each is reported as unsupported once its selector matches an
     /// element that `unless` (where not empty: the rules overriding the
     /// declaration) does not match; with `when` `"scroll-target"`, once such
-    /// an element is scrolled into view.
+    /// an element is scrolled into view; with `"scroll-container:…"`, once a
+    /// target inside one is scrolled where the padding would move it.
     const STYLE_GUARDS: &'static [(&'static str, &'static str, &'static str, &'static str)] = &[];
     const IR_HASH: &'static str;
     /// Attributes of `<body>` (from the app's HTML template, M6).

@@ -644,3 +644,33 @@ test('Accordion: single and multiple compile; watch effects are functions of the
     },
   );
 });
+
+test("bits-ui's Command compiles: its untyped score function, contexts typed by what is set, script reordering", async () => {
+  const { ir } = await lowered('fixtures/bits-command-svelte');
+  const builtins = new Set();
+  const walk = v => {
+    if (!v || typeof v !== 'object') return;
+    if (v.op === 'builtin') builtins.add(v.name);
+    for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x);
+  };
+  walk(ir);
+  // Sorting moves items (appendChild), script writes data-value, the first
+  // item of a group is found past whitespace, selectors escape values, and
+  // the state is published as a snapshot holding a map and a set.
+  for (const b of [
+    'element.appendChild',
+    'element.setAttribute',
+    'element.firstNonCommentNode',
+    'css.escape',
+    'structuredClone',
+  ])
+    assert.ok(builtins.has(b), b);
+  // The recursive score function, typed from its calls outside itself.
+  assert.ok(ir.functions.some(f => f.name === 'computeCommandScoreInner'));
+  // setState(key, …) takes the keys of every call, through the declaration
+  // file's class too (the input's `this.root.setState("search", …)`).
+  const setState = JSON.stringify(ir.functions.find(f => f.name === 'CommandRootState.setState'));
+  for (const key of ['search', 'value']) assert.ok(setState.includes(`"value":"${key}"`), key);
+  // Script writing attributes and moving nodes needs the native DOM.
+  assert.throws(() => interpret(ir, []), /RunicLayoutError|needs the native DOM/);
+});

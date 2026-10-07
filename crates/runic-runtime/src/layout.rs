@@ -635,6 +635,31 @@ fn aligned(current: f64, port: f64, start: f64, size: f64, how: &str) -> f64 {
     }
 }
 
+/// Whether a scroll padding (`axis` `block`, `inline` or `both`; in
+/// pixels, if known) leaves scrolling the box `r` (x, y, width, height)
+/// into view in the scrollport `port` (x, y, width, height) as it is: each
+/// padded axis aligns to the nearest edge and the box is inside the
+/// scrollport less the padding there, so nothing scrolls either way.
+fn padding_changes_nothing(
+    axis: &str,
+    padding: Option<f64>,
+    (block, inline): (&str, &str),
+    r: [f64; 4],
+    (px, py, pw, ph): (f64, f64, f64, f64),
+) -> bool {
+    let Some(p) = padding else { return false };
+    let inside = |how: &str, start: f64, size: f64, port: f64, port_size: f64| {
+        how == "nearest" && start >= port + p && start + size <= port + port_size - p
+    };
+    let block_ok = inside(block, r[1], r[3], py, ph);
+    let inline_ok = inside(inline, r[0], r[2], px, pw);
+    match axis {
+        "block" => block_ok,
+        "inline" => inline_ok,
+        _ => block_ok && inline_ok,
+    }
+}
+
 /// The scroll containers around `node`, innermost first (the root
 /// element's scrolling is the viewport's).
 fn scrollers(doc: &BaseDocument, node: NodeId) -> Vec<NodeId> {
@@ -713,6 +738,20 @@ pub(crate) fn scroll_into_view(
         let r = rect(doc, node);
         let (cx, cy) = scroll_offset(doc, target);
         let (px, py, pw, ph) = scrollport(doc, scroller);
+        // A scroll padding the style engine drops changes nothing where the
+        // target is aligned to the nearest edge and already inside the
+        // padded scrollport (bits-ui's Command list, `scroll-py-1`).
+        if let Some(s) = scroller {
+            crate::timeline::check_scroll_padding(doc, s, |axis, padding| {
+                padding_changes_nothing(
+                    axis,
+                    padding,
+                    (block, inline),
+                    [r[0], r[1], r[2], r[3]],
+                    (px, py, pw, ph),
+                )
+            });
+        }
         // The element's position in the scroller's content coordinates.
         let (sx, sy) = (r[0] - px + cx, r[1] - py + cy);
         let x = aligned(cx, pw, sx, r[2], inline);
@@ -795,5 +834,70 @@ pub(crate) fn report_once(message: String) {
     }
     if SEEN.with(|s| s.borrow_mut().insert(message.clone())) {
         eprintln!("{message}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::padding_changes_nothing;
+
+    #[test]
+    fn scroll_padding_matters_only_where_it_would_move_the_target() {
+        let port = (0.0, 100.0, 400.0, 200.0);
+        let nearest = ("nearest", "nearest");
+        // Inside the port less 4px each side: nothing scrolls either way.
+        assert!(padding_changes_nothing(
+            "block",
+            Some(4.0),
+            nearest,
+            [0.0, 110.0, 400.0, 30.0],
+            port
+        ));
+        // Within 4px of the top: Chromium scrolls to the padded edge.
+        assert!(!padding_changes_nothing(
+            "block",
+            Some(4.0),
+            nearest,
+            [0.0, 102.0, 400.0, 30.0],
+            port
+        ));
+        // Outside the port: the padded and unpadded edges differ.
+        assert!(!padding_changes_nothing(
+            "block",
+            Some(4.0),
+            nearest,
+            [0.0, 290.0, 400.0, 30.0],
+            port
+        ));
+        // Another alignment always aligns to the padded edge.
+        assert!(!padding_changes_nothing(
+            "block",
+            Some(4.0),
+            ("start", "nearest"),
+            [0.0, 110.0, 400.0, 30.0],
+            port
+        ));
+        // An unknown padding, and both axes.
+        assert!(!padding_changes_nothing(
+            "block",
+            None,
+            nearest,
+            [0.0, 110.0, 400.0, 30.0],
+            port
+        ));
+        assert!(!padding_changes_nothing(
+            "both",
+            Some(4.0),
+            nearest,
+            [0.0, 110.0, 400.0, 30.0],
+            port
+        ));
+        assert!(padding_changes_nothing(
+            "both",
+            Some(4.0),
+            nearest,
+            [10.0, 110.0, 380.0, 30.0],
+            port
+        ));
     }
 }

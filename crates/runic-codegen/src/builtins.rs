@@ -405,6 +405,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             ),
         ),
         ("", "encodeURIComponent") => q(cx, format!("js::uri::encode_uri_component(&{})", t[0])),
+        ("css", "escape") => format!("js::string_ops::css_escape(&{})", t[0]),
         ("", "decodeURIComponent") => q(cx, format!("js::uri::decode_uri_component(&{})", t[0])),
         ("", "decodeURI") => q(cx, format!("js::uri::decode_uri(&{})", t[0])),
         ("history", "length") => "runic_runtime::history::length()".into(),
@@ -597,6 +598,24 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ),
         ("element", "textContent") => format!("JsString::from(cx.dom.text_content({}.0))", t[0]),
         ("element", "contains") => format!("cx.dom.contains({}.0, {}.0)", t[0], t[1]),
+        ("element", m @ ("nextElementSibling" | "previousElementSibling")) => format!(
+            "(match cx.dom.sibling_element({}.0, {}) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
+            t[0],
+            m == "nextElementSibling"
+        ),
+        ("element", m @ ("firstNonCommentChild" | "firstNonCommentNode")) => format!(
+            "(match cx.dom.first_non_comment_child({}.0, {}) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
+            t[0],
+            m == "firstNonCommentNode"
+        ),
+        ("element", "setAttribute") => format!(
+            "{{ cx.dom.set_attribute({}.0, &{}.to_rust(), &{}.to_rust()); }}",
+            t[0], t[1], t[2]
+        ),
+        ("element", "appendChild") => format!(
+            "{{ let c = {}; cx.dom.append_child({}.0, c.0); c }}",
+            t[1], t[0]
+        ),
         ("element", "parent") => format!(
             "(match cx.dom.parent_element({}.0) {{ Some(e) => Maybe::Some(js::Element(e)), None => Maybe::Null }})",
             t[0]

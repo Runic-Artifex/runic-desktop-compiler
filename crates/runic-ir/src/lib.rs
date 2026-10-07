@@ -318,6 +318,9 @@ pub struct StyleGuard {
     pub unless: Option<String>,
     /// `"scroll-target"`: reported once a guarded element is scrolled into
     /// view, the only thing the declaration affects (M6).
+    /// `"scroll-container:<axis>:<px>"` (a scroll padding): once a target
+    /// inside a guarded element is scrolled into view, unless it is aligned
+    /// to the nearest edge inside the padded scrollport (M6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub when: Option<String>,
     pub message: String,

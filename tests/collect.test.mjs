@@ -202,6 +202,22 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       ['.x .a', undefined, undefined],
     ],
   );
+  // Scroll paddings only for a target scrolled into view inside their
+  // container, with the padding in pixels where the stylesheet gives a
+  // length (through a custom property declared once, rem as 16px).
+  assert.deepEqual(
+    fields(
+      await guards(
+        ':root { --s: 0.25rem }\n.l { scroll-padding-block: calc(var(--s) * 2) }\n' +
+          '.m { scroll-padding: 3px }\n.n { scroll-padding-inline: 1em }',
+      ),
+    ),
+    [
+      ['.l', undefined, 'scroll-container:block:8'],
+      ['.m', undefined, 'scroll-container:both:3'],
+      ['.n', undefined, 'scroll-container:inline:'],
+    ],
+  );
 });
 
 test('CSS filter lists are accepted where the renderers draw them', async () => {

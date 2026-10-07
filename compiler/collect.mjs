@@ -662,7 +662,11 @@ export async function collect(app) {
  * property (`overriding`), so the declaration never applies there. Scroll
  * margins only affect an element scrolled into view (the runtime's focus
  * never scrolls; Blitz has no scroll snapping): their guards wait for that
- * (`when: "scroll-target"`). Returns the guards.
+ * (`when: "scroll-target"`). Scroll paddings only affect scrolling a target
+ * into view inside their scroll container: their guards wait for that
+ * (`when: "scroll-container:<axis>:<px>"`, the padding in pixels where the
+ * stylesheet gives a length, which the runtime compares with the target's
+ * position). Returns the guards.
  */
 function checkWithStylo(code, file) {
   const guards = [];
@@ -684,6 +688,13 @@ function checkWithStylo(code, file) {
     rules.map(r => fullSelectors(r).join(', ')),
   );
   const invalid = new Set(result.invalid.map(i => decls[i]));
+  const customValues = customPropertyValues(css);
+  // (A rem is 16px unless the stylesheet sizes the root's font.)
+  let rootFont = false;
+  css.walkDecls('font-size', d => {
+    if (d.parent?.type === 'rule' && /(^|,)\s*(html|:root)\s*(,|$)/.test(d.parent.selector))
+      rootFont = true;
+  });
   const specificity = new Map(rules.map((r, i) => [r, result.specificity?.[i] ?? null]));
   /** The selectors of the rules overriding `d` (see above), joined; undefined without any. */
   const overriding = d => {
@@ -732,6 +743,11 @@ function checkWithStylo(code, file) {
         selector: selectors.join(', '),
         ...(unless ? { unless } : {}),
         ...(/^scroll-margin(-|$)/.test(d.prop) ? { when: 'scroll-target' } : {}),
+        ...(/^scroll-padding(-|$)/.test(d.prop)
+          ? {
+              when: `scroll-container:${scrollPaddingAxis(d.prop)}:${rootFont ? '' : (lengthPx(d.value, customValues) ?? '')}`,
+            }
+          : {}),
         message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}), which Blitz's style engine (Stylo) does not support, applies to an element matching ${rule}`,
       });
       continue;
@@ -754,6 +770,37 @@ function checkWithStylo(code, file) {
     );
   }
   return guards;
+}
+
+/** The axis a scroll padding property pads: `block`, `inline` or `both`. */
+function scrollPaddingAxis(prop) {
+  if (/-(block|top|bottom)(-|$)/.test(prop)) return 'block';
+  if (/-(inline|left|right)(-|$)/.test(prop)) return 'inline';
+  return 'both';
+}
+
+/**
+ * A length value in pixels (rem as 16px): a number of px or rem, a custom
+ * property the stylesheet declares once with one, or `calc()` of one times
+ * a number (Tailwind's `calc(var(--spacing) * 2)`). Undefined otherwise.
+ */
+function lengthPx(value, values, depth = 0) {
+  if (depth > 8) return undefined;
+  const v = value.trim();
+  let m = /^(-?[\d.]+)(px|rem)$/.exec(v);
+  if (m) return Number(m[1]) * (m[2] === 'rem' ? 16 : 1);
+  if (v === '0') return 0;
+  m = /^var\(\s*(--[\w-]+)\s*\)$/.exec(v);
+  if (m) {
+    const declared = values.get(m[1]) ?? [];
+    return declared.length === 1 ? lengthPx(declared[0], values, depth + 1) : undefined;
+  }
+  m = /^calc\(\s*(.+?)\s*\*\s*(-?[\d.]+)\s*\)$/.exec(v);
+  if (m) {
+    const inner = lengthPx(m[1], values, depth + 1);
+    return inner === undefined ? undefined : inner * Number(m[2]);
+  }
+  return undefined;
 }
 
 /** The values each custom property is declared with in a stylesheet, and its `@property` initial value. */

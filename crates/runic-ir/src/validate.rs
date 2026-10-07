@@ -3614,6 +3614,31 @@ fn class_records(p: &Program, t: &Type, seen: &mut HashSet<usize>, out: &mut Vec
     }
 }
 
+/// The records values of type `t` can hold, at any depth (plain and class).
+fn records_in(p: &Program, t: &Type, seen: &mut HashSet<usize>, out: &mut Vec<usize>) {
+    match t {
+        Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
+            records_in(p, t, seen, out)
+        }
+        Type::Map(k, v) => {
+            records_in(p, k, seen, out);
+            records_in(p, v, seen, out);
+        }
+        Type::Class(_) | Type::Classes(_) => {
+            for r in p.class_members(t).unwrap_or_default() {
+                records_in(p, &Type::Record(r), seen, out);
+            }
+        }
+        Type::Record(r) if seen.insert(*r) => {
+            out.push(*r);
+            for f in &p.records[*r].fields {
+                records_in(p, &f.ty, seen, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Whether a value of type `outer` can hold a value of type `inner` whose
 /// in-place mutation goes unnoticed (`proxied`: `outer` is deep state held
 /// through proxies, where only class instances, maps and sets stay raw).
@@ -3688,7 +3713,10 @@ fn exposes_read(
             let rec = &p.records[*r];
             seen.insert(*r)
                 && rec.fields.iter().enumerate().any(|(i, f)| {
-                    (!rec.class || read.contains(&(*r, i)))
+                    // (Fields templates read, of plain records too: bits-ui's
+                    // Command list reads its state's `search`, not the map
+                    // beside it.)
+                    read.contains(&(*r, i))
                         && f.reactive != Some(Reactive::Derived)
                         && exposes_read(p, &f.ty, inner, read, seen)
                 })
@@ -3942,12 +3970,18 @@ fn template_field_reads(p: &Program) -> HashSet<(usize, usize)> {
     ) {
         match e {
             Expr::Get { object, field } => {
-                // (A class reference: the field of each of its classes.)
-                let classes = scope
-                    .infer(object, 0, None)
-                    .ok()
-                    .and_then(|t| p.class_members(&t))
+                // (A class reference: the field of each of its classes; a
+                // plain record's field too, M6.)
+                let t = scope.infer(object, 0, None).ok();
+                let mut classes = t
+                    .as_ref()
+                    .and_then(|t| p.class_members(t))
                     .unwrap_or_default();
+                if let Some(Type::Record(r)) = t {
+                    if !p.records[r].class {
+                        classes.push(r);
+                    }
+                }
                 for r in classes {
                     let rec = &p.records[r];
                     if rec.fields.get(*field).is_some_and(|f| !f.is_derived()) {
@@ -3963,8 +3997,10 @@ fn template_field_reads(p: &Program) -> HashSet<(usize, usize)> {
             Expr::Builtin { args, .. } => {
                 for a in args {
                     if let Ok(t) = scope.infer(a, 0, None) {
+                        // (Every record a built-in is given whole: it may
+                        // read any field, JSON.stringify.)
                         let mut classes = vec![];
-                        class_records(p, &t, &mut HashSet::new(), &mut classes);
+                        records_in(p, &t, &mut HashSet::new(), &mut classes);
                         for r in classes {
                             for f in 0..p.records[r].fields.len() {
                                 out.insert((r, f));

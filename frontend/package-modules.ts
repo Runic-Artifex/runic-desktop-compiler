@@ -1429,6 +1429,70 @@ export function inferFields(
       ts.forEachChild(n, collections);
     };
     collections(sf);
+    // A module's own runed context without a type argument (bits-ui's
+    // Command: `const CommandGroupContainerContext = new Context("Command.Group")`):
+    // the type of the values the module sets on it, where they agree. (Not
+    // exported: no other module sets it.)
+    for (const stmt of sf.statements) {
+      if (
+        !ts.isVariableStatement(stmt) ||
+        !(stmt.declarationList.flags & ts.NodeFlags.Const) ||
+        ts.getModifiers(stmt)?.some(x => x.kind === ts.SyntaxKind.ExportKeyword)
+      )
+        continue;
+      for (const d of stmt.declarationList.declarations) {
+        const created = d.initializer && skipParensOf(d.initializer);
+        if (
+          !ts.isIdentifier(d.name) ||
+          !created ||
+          !ts.isNewExpression(created) ||
+          created.typeArguments ||
+          !ts.isIdentifier(created.expression) ||
+          created.arguments?.length !== 1
+        )
+          continue;
+        const ctor = checker.getSymbolAtLocation(created.expression);
+        const imported = ctor?.declarations?.[0];
+        if (
+          !imported ||
+          !ts.isImportSpecifier(imported) ||
+          (imported.propertyName ?? imported.name).text !== 'Context' ||
+          (imported.parent.parent.parent.moduleSpecifier as ts.StringLiteral).text !== 'runed'
+        )
+          continue;
+        const sym = checker.getSymbolAtLocation(d.name);
+        const texts = new Set<string>();
+        let open = false;
+        const visit = (x: ts.Node) => {
+          if (
+            ts.isIdentifier(x) &&
+            x !== d.name &&
+            checker.getSymbolAtLocation(x) === sym &&
+            ts.isPropertyAccessExpression(x.parent) &&
+            x.parent.name.text === 'set' &&
+            ts.isCallExpression(x.parent.parent) &&
+            x.parent.parent.expression === x.parent
+          ) {
+            const [arg] = x.parent.parent.arguments;
+            const t = arg && checker.getTypeAtLocation(arg);
+            const text =
+              t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+                ? print(t, arg)
+                : undefined;
+            if (text === undefined || text === '{}') open = true;
+            else texts.add(text);
+          }
+          ts.forEachChild(x, visit);
+        };
+        visit(sf);
+        const end = created.expression.end;
+        const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+        if (open || texts.size !== 1 || !seg) continue;
+        const key = `new:${seg.orig + (end - seg.synth)}`;
+        const text = [...texts][0];
+        if (next.get(key) !== text) next.set(key, text);
+      }
+    }
     // runed's `watch(() => [a, b, c], ([x, y, z]) => …)` (bits-ui's text
     // selection layer): TypeScript types the getter's array literal as an
     // array of the union of its elements' types; the effect destructures it
@@ -1564,9 +1628,12 @@ export function inferFields(
     // function declarations at any depth (bits-ui's scroll lock returns its
     // `resetBodyStyle(documentObj)` in an object its callers call through):
     // the one type the program's calls pass, where they agree.
-    const untypedParams = (member: ts.FunctionLikeDeclaration) =>
+    const untypedParams = (member: ts.FunctionLikeDeclaration, outside = false) =>
       member.parameters.forEach((p, i) => {
-        if (p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
+        // (Also an object pattern, `#findNextNonDisabledItem({ start, grid })`
+        // of bits-ui's Command: the pattern is annotated.)
+        if (p.dotDotDotToken || !(ts.isIdentifier(p.name) || ts.isObjectBindingPattern(p.name)))
+          return;
         const pEnd = p.name.end;
         const pSeg = m.segments.find(g => pEnd >= g.synth && pEnd <= g.synth + g.length);
         // (A type an earlier pass inferred is inferred again: provisional
@@ -1574,12 +1641,25 @@ export function inferFields(
         const ours = !!pSeg && m.inferred.has(`param:${pSeg.orig + (pEnd - pSeg.synth)}`);
         if (!ours) {
           if (p.type) return;
-          if (!(checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
-            return;
+          const pt = checker.getTypeAtLocation(p);
+          // (A pattern: the object of its names, typed `any` each.)
+          const untyped = ts.isObjectBindingPattern(p.name)
+            ? checker
+                .getPropertiesOfType(pt)
+                .some(
+                  q => checker.getTypeOfSymbol(q).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown),
+                )
+            : !!(pt.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown));
+          if (!untyped) return;
         }
         const texts = new Set<string>();
         let open = false;
-        const sites = calls(member);
+        // (`outside`: only the calls outside its body, of a recursive
+        // function; the lowerer checks the arguments of the others.)
+        const sites = calls(member).filter(
+          c => !outside || c.pos < member.pos || c.end > member.end,
+        );
+        if (!sites.length) return;
         for (const c of sites) {
           const a = c.arguments?.[i];
           if (!a || ts.isSpreadElement(a)) {
@@ -1597,10 +1677,11 @@ export function inferFields(
                   a,
                 ) ?? provisional(a));
           // (The document or the window: a host parameter, Lowerer.hostParam;
-          // nor a type only null or undefined has, which says nothing.)
+          // nor a type only null or undefined has, or the empty object's,
+          // which say nothing.)
           if (
             text === undefined ||
-            ['HostDocument', 'HostWindow', 'null', 'undefined'].includes(text)
+            ['HostDocument', 'HostWindow', 'null', 'undefined', '{}'].includes(text)
           )
             open = true;
           else texts.add(text);
@@ -1868,11 +1949,99 @@ export function inferFields(
         !!ts.forEachChild(x, shorthand);
       return found || (!!sym && shorthand(sf));
     };
+    // (And recursive functions, which specialisation cannot type: bits-ui's
+    // Command score `computeCommandScoreInner`, typed from its calls
+    // outside itself, with a called function giving one of its arguments,
+    // `formatInput(command)`, typed from its calls first.)
+    const within = (c: ts.Node, fn: ts.Node) => c.pos >= fn.pos && c.end <= fn.end;
     const functions = (n: ts.Node) => {
-      if (ts.isFunctionDeclaration(n) && n.body && usedAsValue(n)) untypedParams(n);
+      if (ts.isFunctionDeclaration(n) && n.body) {
+        const own = calls(n);
+        if (own.some(c => within(c, n))) {
+          untypedParams(n, true);
+          for (const c of own)
+            if (!within(c, n))
+              for (const a of c.arguments ?? []) {
+                const inner = skipParensOf(a);
+                const callee = ts.isCallExpression(inner)
+                  ? checker.getResolvedSignature(inner)?.declaration
+                  : undefined;
+                if (
+                  callee &&
+                  ts.isFunctionDeclaration(callee) &&
+                  callee.body &&
+                  callee.getSourceFile() === sf
+                )
+                  untypedParams(callee);
+              }
+        } else if (usedAsValue(n)) untypedParams(n);
+      }
       ts.forEachChild(n, functions);
     };
     functions(sf);
+    // A parameter used as a dictionary (bits-ui's Command score
+    // `memoizedResults`: `memoizedResults[key] = highScore`, passed `{}`):
+    // `Record<string, T>` of the one type its entries are assigned, where it
+    // is otherwise only read by key or passed on in the same position of its
+    // own function's calls.
+    const dictionaryParams = (n: ts.Node) => {
+      if (ts.isFunctionDeclaration(n) && n.body && n.name)
+        n.parameters.forEach((p, i) => {
+          if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
+          if (!(checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)))
+            return;
+          const sym = checker.getSymbolAtLocation(p.name);
+          const fnSym = checker.getSymbolAtLocation(n.name!);
+          const values = new Set<string>();
+          let ok = true;
+          const visit = (x: ts.Node) => {
+            if (!ok) return;
+            if (ts.isIdentifier(x) && x !== p.name && checker.getSymbolAtLocation(x) === sym) {
+              const parent = x.parent;
+              const keyed =
+                ts.isElementAccessExpression(parent) &&
+                parent.expression === x &&
+                !!(
+                  checker.getTypeAtLocation(parent.argumentExpression).flags &
+                  ts.TypeFlags.StringLike
+                );
+              const passedOn =
+                ts.isCallExpression(parent) &&
+                parent.arguments[i] === x &&
+                ts.isIdentifier(parent.expression) &&
+                checker.getSymbolAtLocation(parent.expression) === fnSym;
+              if (!keyed && !passedOn) ok = false;
+              if (keyed) {
+                const write = parent.parent;
+                if (
+                  ts.isBinaryExpression(write) &&
+                  write.left === parent &&
+                  write.operatorToken.kind === ts.SyntaxKind.EqualsToken
+                ) {
+                  const t = checker.getTypeAtLocation(write.right);
+                  const text =
+                    t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+                      ? undefined
+                      : print(checker.getBaseTypeOfLiteralType(t), write.right);
+                  if (text === undefined) ok = false;
+                  else values.add(text);
+                }
+              }
+            }
+            ts.forEachChild(x, visit);
+          };
+          visit(n.body!);
+          if (!ok || values.size !== 1) return;
+          const end = p.name.end;
+          const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+          if (!seg) return;
+          const key = `param:${seg.orig + (end - seg.synth)}`;
+          const text = `Record<string, ${[...values][0]}>`;
+          if (next.get(key) !== text) next.set(key, text);
+        });
+      ts.forEachChild(n, dictionaryParams);
+    };
+    dictionaryParams(sf);
     // A constant that starts as an empty array (bits-ui's IsUsingKeyboard:
     // `const callbacksToDispose = []`, then `push(on(…), …)`): an array of
     // the types of the items pushed onto it (`push` and `unshift` with
@@ -1903,8 +2072,23 @@ export function inferFields(
           )
             for (const a of x.arguments) {
               const t = ts.isSpreadElement(a) ? undefined : checker.getTypeAtLocation(a);
-              const text =
-                t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+              // (An array literal pushed is a tuple of its items: bits-ui's
+              // Command sorts `groups.push([value, max])` by `b[1]`.)
+              const lit = skipParensOf(a);
+              const parts =
+                ts.isArrayLiteralExpression(lit) && !lit.elements.some(ts.isSpreadElement)
+                  ? lit.elements.map(el => {
+                      const et = checker.getTypeAtLocation(el);
+                      return et.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+                        ? undefined
+                        : print(checker.getBaseTypeOfLiteralType(et), el);
+                    })
+                  : undefined;
+              const text = parts
+                ? parts.every(i => i !== undefined)
+                  ? `[${parts.join(', ')}]`
+                  : undefined
+                : t && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
                   ? print(checker.getBaseTypeOfLiteralType(t), a)
                   : undefined;
               if (text === undefined || text === '{}' || /\bany\b/.test(text)) open = true;
@@ -1924,6 +2108,74 @@ export function inferFields(
       ts.forEachChild(n, emptyArrays);
     };
     emptyArrays(sf);
+    // A constant of an object or array literal TypeScript types with `any` or
+    // `never` in it (bits-ui's Command `defaultState` of `new Map()` and
+    // `new Set()`, `const grid = [[]]`) that initialises class fields of one
+    // declared type (`commandState = $state.raw(defaultState)`, declared
+    // `CommandState`) or that a function or getter of a declared result type
+    // returns (`return grid`): that type.
+    const fieldConstants = (n: ts.Node) => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        !n.type &&
+        ts.isIdentifier(n.name) &&
+        n.initializer &&
+        (ts.isObjectLiteralExpression(skipParensOf(n.initializer)) ||
+          ts.isArrayLiteralExpression(skipParensOf(n.initializer))) &&
+        ts.isVariableDeclarationList(n.parent) &&
+        n.parent.flags & ts.NodeFlags.Const &&
+        /\b(any|never)\b/.test(
+          checker.typeToString(
+            checker.getTypeAtLocation(n.name),
+            undefined,
+            ts.TypeFormatFlags.NoTruncation,
+          ),
+        )
+      ) {
+        const sym = checker.getSymbolAtLocation(n.name);
+        // (By type: annotations naming one type differently agree.)
+        const types = new Map<ts.Type, string>();
+        const uses = (x: ts.Node) => {
+          if (ts.isIdentifier(x) && x !== n.name && checker.getSymbolAtLocation(x) === sym) {
+            // The field the value initialises, directly or through a rune.
+            let at: ts.Node = x;
+            while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+            const call = at.parent;
+            const holder =
+              ts.isCallExpression(call) &&
+              call.arguments[0] === at &&
+              /^\$state(\.raw)?$/.test(call.expression.getText())
+                ? call.parent
+                : at.parent;
+            if (ts.isPropertyDeclaration(holder) && holder.type && holder.initializer) {
+              const t = checker.getTypeFromTypeNode(holder.type);
+              if (!types.has(t)) types.set(t, holder.type.getText());
+            }
+            // Returned by its function (not a nested one).
+            if (ts.isReturnStatement(at.parent)) {
+              let fn: ts.Node = at.parent;
+              while (!ts.isFunctionLike(fn)) fn = fn.parent;
+              const declared = (fn as ts.SignatureDeclaration).type;
+              if (declared && fn.pos <= n.pos && n.end <= fn.end) {
+                const t = checker.getTypeFromTypeNode(declared);
+                if (!types.has(t)) types.set(t, declared.getText());
+              }
+            }
+          }
+          ts.forEachChild(x, uses);
+        };
+        if (sym) uses(sf);
+        const end = n.name.end;
+        const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+        if (types.size === 1 && seg) {
+          const key = `var:${seg.orig + (end - seg.synth)}`;
+          const text = [...types.values()][0];
+          if (next.get(key) !== text) next.set(key, text);
+        }
+      }
+      ts.forEachChild(n, fieldConstants);
+    };
+    fieldConstants(sf);
     if (JSON.stringify([...next]) !== JSON.stringify([...m.inferred])) {
       const code = readFileSync(m.file, 'utf8');
       const again = annotate(m.file, code, next);

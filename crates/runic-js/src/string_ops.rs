@@ -620,3 +620,69 @@ pub fn code_points(s: &JsString) -> Vec<JsString> {
     }
     out
 }
+
+/// `CSS.escape(s)` (CSSOM "serialize an identifier", as Chromium implements
+/// it over UTF-16): NUL becomes U+FFFD; control characters, a leading digit
+/// and a digit after a leading `-` are escaped as their code point (`\` hex,
+/// then a space); a lone `-` is escaped; ASCII other than letters, digits,
+/// `-` and `_` gets a backslash; everything from U+0080 on stays.
+pub fn css_escape(s: &JsString) -> JsString {
+    let units = s.units();
+    let mut out: Vec<u16> = Vec::with_capacity(units.len());
+    let first = units.first().copied();
+    let digit = |u: u16| (0x30..=0x39).contains(&u);
+    for (i, &u) in units.iter().enumerate() {
+        if u == 0 {
+            out.push(0xFFFD);
+        } else if (0x01..=0x1F).contains(&u)
+            || u == 0x7F
+            || (i == 0 && digit(u))
+            || (i == 1 && digit(u) && first == Some(0x2D))
+        {
+            out.push(u16::from(b'\\'));
+            out.extend(format!("{u:x} ").encode_utf16());
+        } else if i == 0 && u == 0x2D && units.len() == 1 {
+            out.extend([u16::from(b'\\'), u]);
+        } else if u >= 0x80
+            || u == 0x2D
+            || u == 0x5F
+            || digit(u)
+            || (0x41..=0x5A).contains(&u)
+            || (0x61..=0x7A).contains(&u)
+        {
+            out.push(u);
+        } else {
+            out.extend([u16::from(b'\\'), u]);
+        }
+    }
+    JsString::from_units(out)
+}
+
+#[cfg(test)]
+mod css_escape_tests {
+    use super::*;
+
+    /// Chromium 153's `CSS.escape` (measured).
+    #[test]
+    fn matches_chromium() {
+        let cases: &[(&str, &str)] = &[
+            ("calendar", "calendar"),
+            ("Search Emoji", "Search\\ Emoji"),
+            ("----r1", "----r1"),
+            ("1a", "\\31 a"),
+            ("-1", "-\\31 "),
+            ("-", "\\-"),
+            ("a\u{1}b", "a\\1 b"),
+            ("a\u{0}b", "a\u{FFFD}b"),
+            ("ä.b#c", "ä\\.b\\#c"),
+            ("\"q\"", "\\\"q\\\""),
+        ];
+        for (input, want) in cases {
+            assert_eq!(
+                css_escape(&JsString::from(*input)).to_rust(),
+                *want,
+                "{input:?}"
+            );
+        }
+    }
+}

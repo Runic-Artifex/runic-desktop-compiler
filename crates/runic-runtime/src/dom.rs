@@ -201,6 +201,16 @@ pub(crate) struct Listeners {
     pub(crate) blurred: Option<NodeId>,
     /// Parents whose child lists changed (MutationObserver, M6 overlays).
     pub(crate) child_mutations: Vec<NodeId>,
+    /// Elements whose children script reordered (`append_child`): the
+    /// framework inserting into one is reported unsupported, as the
+    /// frameworks place blocks by anchors (Svelte's comments) the runtime
+    /// does not have.
+    reordered: std::collections::HashSet<NodeId>,
+    /// Attributes script set (`set_attribute`), by element: the framework
+    /// writing one is covered where it writes the value the element has
+    /// (React, Vue and Svelte skip writes of a value they set before, so
+    /// one that differs is reported unsupported).
+    script_attrs: HashMap<NodeId, Vec<String>>,
     /// Inputs whose value was set by script before their editor existed: the
     /// caret moves to the end once the editor is created (as `input.value = v`).
     pending_caret: Vec<NodeId>,
@@ -732,6 +742,98 @@ impl Host {
         false
     }
 
+    /// The next (or previous) element sibling of `node` (M6, bits-ui's
+    /// Command); one that is not the program's (the container, beside
+    /// content mounted in the body) is reported unsupported.
+    pub fn sibling_element(&self, node: u64, next: bool) -> Option<u64> {
+        let dom = self.dom()?;
+        let id = NodeId::from_u64(node);
+        let parent = dom.doc.get_node(dom.doc.get_node(id)?.parent?)?;
+        let at = parent.children.iter().position(|&c| c == id)?;
+        let mut order: Vec<NodeId> = if next {
+            parent.children[at + 1..].to_vec()
+        } else {
+            parent.children[..at].to_vec()
+        };
+        if !next {
+            order.reverse();
+        }
+        let found = order
+            .into_iter()
+            .find(|&c| dom.doc.get_node(c).is_some_and(|n| n.is_element()))?;
+        if Some(found) == dom.listeners.container {
+            crate::unsupported("a sibling that is not the program's (the container)");
+            return None;
+        }
+        Some(found.as_u64())
+    }
+
+    /// The first child node of `node` that is not a comment (M6, bits-ui's
+    /// `getFirstNonCommentChild`), where it is an element; a text node is
+    /// reported unsupported (script values are elements only), unless
+    /// `text`: the program only tests the value for truth and reads its
+    /// data attributes, which a text node has none of (`get_attribute`).
+    pub fn first_non_comment_child(&self, node: u64, text: bool) -> Option<u64> {
+        let dom = self.dom()?;
+        let n = dom.doc.get_node(NodeId::from_u64(node))?;
+        for &c in &n.children {
+            let child = dom.doc.get_node(c)?;
+            if child.is_element() || (text && child.text_data().is_some()) {
+                return Some(c.as_u64());
+            }
+            if child.text_data().is_some() {
+                crate::unsupported(
+                    "the first child node is a text node (script values are elements)",
+                );
+                return None;
+            }
+        }
+        None
+    }
+
+    /// `parent.appendChild(child)` (M6, bits-ui's Command sorting its
+    /// items): `child`, a child of `parent`, moves to its end. Another child,
+    /// or one holding focus (Chromium blurs it), is reported unsupported.
+    pub fn append_child(&self, parent: u64, child: u64) {
+        let Some(dom) = self.dom() else { return };
+        let (parent, child) = (NodeId::from_u64(parent), NodeId::from_u64(child));
+        if dom.doc.get_node(child).and_then(|n| n.parent) != Some(parent) {
+            crate::unsupported(
+                "appendChild of a node that is not a child of the element (reordering is covered)",
+            );
+            return;
+        }
+        if let Some(focused) = dom.doc.get_focussed_node_id() {
+            let mut at = Some(focused);
+            while let Some(n) = at {
+                if n == child {
+                    crate::unsupported("appendChild of an element holding focus");
+                    return;
+                }
+                at = dom.doc.get_node(n).and_then(|x| x.parent);
+            }
+        }
+        dom.listeners.child_mutations.push(parent);
+        dom.listeners.reordered.insert(parent);
+        // (Blitz's append detaches the child first, as the DOM moves it,
+        // keeping its subtree in the document.)
+        dom.doc.mutate().append_children(parent, &[child]);
+    }
+
+    /// `element.setAttribute(name, value)` from script (M6, bits-ui's
+    /// Command item writing its `data-value`): recorded, so that the
+    /// framework writing it again is checked (`Dom::over_script`).
+    pub fn set_attribute(&self, node: u64, name: &str, value: &str) {
+        let Some(dom) = self.dom() else { return };
+        let node = NodeId::from_u64(node);
+        let name = name.to_ascii_lowercase();
+        let names = dom.listeners.script_attrs.entry(node).or_default();
+        if !names.contains(&name) {
+            names.push(name.clone());
+        }
+        dom.doc.mutate().set_attribute(node, attr(&name), value);
+    }
+
     pub fn parent_element(&self, node: u64) -> Option<u64> {
         let dom = self.dom()?;
         let parent = dom.doc.get_node(NodeId::from_u64(node))?.parent?;
@@ -1258,11 +1360,45 @@ impl Dom<'_> {
     }
 
     pub fn set_attr(&mut self, node: NodeId, name: &str, value: &str) {
+        self.over_script(node, name, Some(value));
         self.doc.mutate().set_attribute(node, attr(name), value);
+    }
+
+    /// The framework writing attribute `name` (`None`: removing it): where
+    /// script set it, covered when the element has that value already.
+    fn over_script(&self, node: NodeId, name: &str, next: Option<&str>) {
+        if self.script_attr_conflict(node, name, next) {
+            crate::unsupported(&format!(
+                "the framework writing attribute {name}, which script set to another value (the frameworks skip writes of values they set before)"
+            ));
+        }
+    }
+
+    /// Whether the framework writing attribute `name` of `node` (`None`:
+    /// removing it) would change a value script set (`over_script`).
+    pub(crate) fn script_attr_conflict(
+        &self,
+        node: NodeId,
+        name: &str,
+        next: Option<&str>,
+    ) -> bool {
+        let Some(names) = self.listeners.script_attrs.get(&node) else {
+            return false;
+        };
+        if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            return false;
+        }
+        let current = self
+            .doc
+            .get_node(node)
+            .and_then(|n| n.attr(attr(name).local))
+            .map(str::to_owned);
+        current.as_deref() != next
     }
 
     /// Optional attributes are present iff `value` is Some.
     pub fn set_opt_attr(&mut self, node: NodeId, name: &str, value: Option<&str>) {
+        self.over_script(node, name, value);
         let mut m = self.doc.mutate();
         match value {
             Some(v) => m.set_attribute(node, attr(name), v),
@@ -1272,6 +1408,7 @@ impl Dom<'_> {
 
     /// Boolean attributes are present (with an empty value) iff `on`.
     pub fn set_bool_attr(&mut self, node: NodeId, name: &str, on: bool) {
+        self.over_script(node, name, on.then_some(""));
         let mut m = self.doc.mutate();
         if on {
             m.set_attribute(node, attr(name), "");
@@ -1286,8 +1423,19 @@ impl Dom<'_> {
         self.radios_connected(&[child]);
     }
 
+    /// The framework placing nodes into `parent`: unsupported where script
+    /// reordered its children (`append_child`).
+    fn placing_into(&self, parent: NodeId) {
+        if self.listeners.reordered.contains(&parent) {
+            crate::unsupported(
+                "the framework inserting into an element whose children script reordered (appendChild): its blocks are placed by anchors the runtime does not keep",
+            );
+        }
+    }
+
     /// Insert `child` into `parent` before `before`, or append.
     pub fn insert(&mut self, parent: NodeId, child: NodeId, before: Option<NodeId>) {
+        self.placing_into(parent);
         self.listeners.child_mutations.push(parent);
         let mut m = self.doc.mutate();
         match before {
@@ -1308,6 +1456,8 @@ impl Dom<'_> {
             capture,
             custom,
             freed,
+            reordered,
+            script_attrs,
             ..
         } = &mut *self.listeners;
         self.doc
@@ -1320,6 +1470,8 @@ impl Dom<'_> {
                     freed.extend(list.into_iter().map(|(_, key)| key));
                 }
                 freed.extend(custom.remove(&gone).into_iter().flatten());
+                reordered.remove(&gone);
+                script_attrs.remove(&gone);
             });
     }
 
@@ -1387,6 +1539,7 @@ impl Dom<'_> {
         if nodes.is_empty() {
             return;
         }
+        self.placing_into(parent);
         // (Moved nodes leave their old parents' child lists too.)
         for &n in nodes {
             if let Some(old) = self.doc.get_node(n).and_then(|x| x.parent) {
@@ -2011,5 +2164,120 @@ impl Dom<'_> {
         } else {
             replace_text_content(self.doc, node, text);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use blitz_dom::DocumentConfig;
+
+    /// `<div id="p"> <div id="a"></div> <div id="b"></div></div>` in a body.
+    struct Fixture {
+        doc: Box<BaseDocument>,
+        listeners: Box<Listeners>,
+        p: NodeId,
+        a: NodeId,
+        b: NodeId,
+    }
+
+    impl Fixture {
+        fn new() -> Fixture {
+            let mut doc = Box::new(BaseDocument::new(DocumentConfig::default()));
+            let mut listeners = Box::<Listeners>::default();
+            let mut dom = Dom {
+                doc: &mut doc,
+                listeners: &mut listeners,
+            };
+            let root = dom.doc.root_node().id;
+            let (html, body) = (dom.element("html"), dom.element("body"));
+            dom.append(html, body);
+            dom.append(root, html);
+            let [p, a, b] = ["p", "a", "b"].map(|id| {
+                let el = dom.element("div");
+                dom.set_attr(el, "id", id);
+                el
+            });
+            dom.append(body, p);
+            for el in [a, b] {
+                let space = dom.text(" ");
+                dom.append(p, space);
+                dom.append(p, el);
+            }
+            Fixture {
+                doc,
+                listeners,
+                p,
+                a,
+                b,
+            }
+        }
+
+        fn dom(&mut self) -> Dom<'_> {
+            Dom {
+                doc: &mut self.doc,
+                listeners: &mut self.listeners,
+            }
+        }
+
+        fn elements(&self, parent: NodeId) -> Vec<NodeId> {
+            let p = self.doc.get_node(parent).unwrap();
+            p.children
+                .iter()
+                .copied()
+                .filter(|c| self.doc.get_node(*c).is_some_and(|n| n.is_element()))
+                .collect()
+        }
+    }
+
+    #[test]
+    fn script_attributes_are_checked_against_the_frameworks_writes() {
+        let mut fx = Fixture::new();
+        let (a, b) = (fx.a, fx.b);
+        let host = Host::attach(&mut fx.dom());
+        host.set_attribute(a.as_u64(), "Data-Value", "Calendar");
+        assert_eq!(
+            host.get_attribute(a.as_u64(), "data-value").as_deref(),
+            Some("Calendar")
+        );
+        let dom = fx.dom();
+        // The framework writing the value the element has changes nothing.
+        assert!(!dom.script_attr_conflict(a, "data-value", Some("Calendar")));
+        assert!(dom.script_attr_conflict(a, "data-value", Some("Settings")));
+        assert!(dom.script_attr_conflict(a, "data-value", None));
+        // Attributes script did not set, and other elements, are the framework's.
+        assert!(!dom.script_attr_conflict(a, "id", Some("x")));
+        assert!(!dom.script_attr_conflict(b, "data-value", Some("x")));
+    }
+
+    #[test]
+    fn append_child_moves_a_child_to_the_end() {
+        let mut fx = Fixture::new();
+        let (p, a, b) = (fx.p, fx.a, fx.b);
+        let host = Host::attach(&mut fx.dom());
+        host.append_child(p.as_u64(), a.as_u64());
+        assert_eq!(fx.elements(p), [b, a]);
+        assert!(fx.doc.get_node(a).unwrap().flags.is_in_document());
+        // Another element's child is not moved (reported unsupported).
+        let host = Host::attach(&mut fx.dom());
+        host.append_child(a.as_u64(), b.as_u64());
+        assert_eq!(fx.elements(p), [b, a]);
+    }
+
+    #[test]
+    fn the_first_child_that_is_not_a_comment_and_element_siblings() {
+        let mut fx = Fixture::new();
+        let (p, a, b) = (fx.p, fx.a, fx.b);
+        let host = Host::attach(&mut fx.dom());
+        // The first child is whitespace: a text node only where the program
+        // reads nothing but data attributes and truth.
+        assert_eq!(host.first_non_comment_child(p.as_u64(), false), None);
+        let text = host.first_non_comment_child(p.as_u64(), true).unwrap();
+        assert_ne!(text, a.as_u64());
+        assert_eq!(host.get_attribute(text, "data-value"), None);
+        assert_eq!(host.first_non_comment_child(a.as_u64(), true), None);
+        assert_eq!(host.sibling_element(a.as_u64(), true), Some(b.as_u64()));
+        assert_eq!(host.sibling_element(b.as_u64(), false), Some(a.as_u64()));
+        assert_eq!(host.sibling_element(b.as_u64(), true), None);
     }
 }

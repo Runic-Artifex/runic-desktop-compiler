@@ -83,6 +83,15 @@ export function packageBindings(
       return undefined;
     if (ts.isFunctionDeclaration(decl) && decl.name && decl.body) {
       if (bindPackWrapper(symbol, decl, decl.name.text, lower)) return lower.bindings.get(symbol);
+      // A function reading a first child node (bits-ui's getFirstNonCommentChild).
+      if (lower.firstNonCommentChildFunction(decl)) {
+        lower.bindings.set(symbol, {
+          kind: 'pack',
+          label: `${decl.name.text} (the first child node that is not a comment)`,
+          call: (node, b, l) => l.firstNonCommentChildCall(node, b),
+        });
+        return lower.bindings.get(symbol);
+      }
       lower.declare(symbol, decl, decl.name.text, undefined)?.();
       return lower.bindings.get(symbol);
     }

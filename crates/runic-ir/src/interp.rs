@@ -2788,6 +2788,7 @@ impl<'p> Machine<'p> {
                 return Err(Throw::new("RunicUnsupportedError", what));
             }
             ("", "encodeURIComponent") => Val::Str(js::uri::encode_uri_component(&a[0].string())?),
+            ("css", "escape") => Val::Str(js::string_ops::css_escape(&a[0].string())),
             ("", "decodeURIComponent") => Val::Str(js::uri::decode_uri_component(&a[0].string())?),
             ("", "decodeURI") => Val::Str(js::uri::decode_uri(&a[0].string())?),
             ("history", "length") => Val::Num(self.host.session.length() as f64),
@@ -2836,6 +2837,82 @@ impl<'p> Machine<'p> {
                 return Err(Throw::new(
                     "RunicLayoutError",
                     format!("{name} needs the native layout, which the interpreter does not have"),
+                ));
+            }
+            ("element", m @ ("nextElementSibling" | "previousElementSibling")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let chain = chain_nodes(&self.last_tree, e.0).unwrap_or_default();
+                let split = self.root_len.min(self.last_tree.len());
+                // The children of the parent, or the root's or the body's own.
+                let siblings: &[VNode] = match chain.len().checked_sub(2).map(|i| chain[i]) {
+                    Some(VNode::Element { children, .. }) => children,
+                    _ if self.last_tree[..split]
+                        .iter()
+                        .any(|n| element_id(n) == Some(e.0)) =>
+                    {
+                        &self.last_tree[..split]
+                    }
+                    _ => &self.last_tree[split..],
+                };
+                let at = siblings
+                    .iter()
+                    .position(|n| element_id(n) == Some(e.0))
+                    .unwrap_or(0);
+                let found = if m == "nextElementSibling" {
+                    siblings[at + 1..].iter().find_map(element_id)
+                } else {
+                    siblings[..at].iter().rev().find_map(element_id)
+                };
+                // (Before the first element mounted in the body: the container.)
+                if found.is_none()
+                    && m == "previousElementSibling"
+                    && !self.last_tree[..split]
+                        .iter()
+                        .any(|n| element_id(n) == Some(e.0))
+                    && chain.len() == 1
+                {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        "a sibling that is not the program's (the container)",
+                    ));
+                }
+                found.map_or(Val::Null, |n| Val::Element(js::Element(n)))
+            }
+            // (The interpreter's text nodes have no ids: a text node is
+            // reported for `firstNonCommentNode` too.)
+            ("element", "firstNonCommentChild" | "firstNonCommentNode") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let chain = chain_nodes(&self.last_tree, e.0).unwrap_or_default();
+                match chain.last() {
+                    Some(VNode::Element { children, .. }) => match children.first() {
+                        Some(VNode::Element { id, .. }) => Val::Element(js::Element(*id)),
+                        Some(VNode::Text(_)) => {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "the first child node is a text node (script values are elements)",
+                            ));
+                        }
+                        None => Val::Null,
+                    },
+                    _ => Val::Null,
+                }
+            }
+            // The interpreter renders the templates: script moving their
+            // nodes (M6, bits-ui's Command) needs the native DOM.
+            ("element", "setAttribute") => {
+                return Err(Throw::new(
+                    "RunicLayoutError",
+                    "element.setAttribute needs the native DOM, which the interpreter does not have",
+                ));
+            }
+            ("element", "appendChild") => {
+                return Err(Throw::new(
+                    "RunicLayoutError",
+                    "element.appendChild needs the native DOM, which the interpreter does not have",
                 ));
             }
             // The interpreter models no selection (input actions carry

@@ -150,7 +150,30 @@ export class PropDomains implements DomainHook {
   ): (ts.Type | undefined)[] | undefined {
     const checker = this.lower.checker;
     if (!passed) return [undefined];
-    if ('expr' in passed) return [checker.getTypeAtLocation(passed.expr)];
+    if ('expr' in passed) {
+      const t = checker.getTypeAtLocation(passed.expr);
+      // A prop of the site's component typed wider than the value model,
+      // passed on (shadcn-svelte's InputGroup.Input `bind:value` of its
+      // `value = $bindable()` to Input): the types its own sites pass.
+      const e = passed.expr;
+      const d =
+        t.flags & ts.TypeFlags.Any && ts.isIdentifier(e)
+          ? this.decls.get(checker.getSymbolAtLocation(e)!)
+          : undefined;
+      if (!d) return [t];
+      if (seen.has(d.component)) return undefined;
+      seen.add(d.component);
+      const out: (ts.Type | undefined)[] = [];
+      for (const site of this.byComponent.get(d.component) ?? []) {
+        const types = this.passedTypes(site.values.get(d.key), d.key, seen);
+        if (!types) return undefined;
+        for (const x of types)
+          // (Absent: its fallback, of the type TypeScript gives it.)
+          out.push(x === undefined && d.fallback ? checker.getTypeAtLocation(d.fallback) : x);
+      }
+      seen.delete(d.component);
+      return out;
+    }
     if ('value' in passed)
       return typeof passed.value === 'string'
         ? [checker.getStringType()]

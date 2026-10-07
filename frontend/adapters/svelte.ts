@@ -435,6 +435,18 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     };
     return truth(e);
   };
+  const runeName = (e: ts.Expression | undefined): string | undefined => {
+    if (!e || !ts.isCallExpression(e)) return undefined;
+    const callee = e.expression;
+    if (ts.isIdentifier(callee) && callee.text.startsWith('$')) return callee.text;
+    if (
+      ts.isPropertyAccessExpression(callee) &&
+      ts.isIdentifier(callee.expression) &&
+      callee.expression.text.startsWith('$')
+    )
+      return `${callee.expression.text}.${callee.name.text}`;
+    return undefined;
+  };
   const walkTemplate = (node: unknown, f: (n: SNode) => void, seen = new Set<unknown>()) => {
     if (!node || typeof node !== 'object' || seen.has(node)) return;
     seen.add(node);
@@ -688,6 +700,88 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     root,
   );
   visit(rootFile!, []);
+
+  // A component's instance bound to a variable nothing else names
+  // (shadcn-svelte's Command wrapper: `bind:this={api}` of a prop `api =
+  // $bindable(null)` no site binds): the binding is unobservable, and is
+  // left out. (A name in the script beyond its declaration, in the
+  // template, or a site binding the prop keeps it, and its diagnostic.)
+  for (const u of order) {
+    const binds: { n: SNode; a: SNode }[] = [];
+    walkTemplate(u.ast.fragment, n => {
+      if (n.type === 'Component')
+        for (const a of n.attributes ?? [])
+          if (
+            a.type === 'BindDirective' &&
+            a.name === 'this' &&
+            a.expression?.type === 'Identifier'
+          )
+            binds.push({ n, a });
+    });
+    for (const { n, a } of binds) {
+      const name: string = a.expression.name;
+      let named = 0;
+      walkTemplate(u.ast.fragment, x => {
+        if (x.type === 'Identifier' && x.name === name && x !== a.expression) named++;
+      });
+      if (named) continue;
+      if (
+        u.moduleLength &&
+        new RegExp(`\\b${name}\\b`).test(
+          u.original.slice(u.moduleStart, u.moduleStart + u.moduleLength),
+        )
+      )
+        continue;
+      const script = u.original.slice(u.scriptStart, u.scriptStart + u.scriptLength);
+      const sf = ts.createSourceFile(u.file + '.ts', script, ts.ScriptTarget.Latest, true);
+      let declared: { prop?: string } | undefined;
+      const visitScript = (x: ts.Node) => {
+        if (ts.isIdentifier(x) && x.text === name) {
+          const at = x.parent;
+          // (The name of a property of a type: `{ api?: … }`.)
+          if (ts.isPropertySignature(at) && at.name === x) return;
+          const props =
+            ts.isBindingElement(at) &&
+            at.name === x &&
+            ts.isObjectBindingPattern(at.parent) &&
+            ts.isVariableDeclaration(at.parent.parent) &&
+            runeName(at.parent.parent.initializer) === '$props';
+          const state =
+            ts.isVariableDeclaration(at) &&
+            at.name === x &&
+            ['$state', '$state.raw'].includes(runeName(at.initializer) ?? '');
+          if (!declared && (props || state))
+            declared = props
+              ? {
+                  prop:
+                    ((at as ts.BindingElement).propertyName as ts.Identifier | undefined)?.text ??
+                    name,
+                }
+              : {};
+          else named++;
+        }
+        ts.forEachChild(x, visitScript);
+      };
+      visitScript(sf);
+      if (named || !declared) continue;
+      const prop = declared.prop;
+      const boundBySite =
+        prop !== undefined &&
+        order.some(o => {
+          let found = false;
+          walkTemplate(o.ast.fragment, x => {
+            if (
+              x.type === 'Component' &&
+              o.children.get(x.name) === u.file &&
+              x.attributes?.some((b: SNode) => b.type === 'BindDirective' && b.name === prop)
+            )
+              found = true;
+          });
+          return found;
+        });
+      if (!boundBySite) n.attributes = n.attributes.filter((b: SNode) => b !== a);
+    }
+  }
 
   // Rest props (docs/design/M5-PLATFORM.md): each component's declared prop
   // names and rest binding, and the names its rest bag may hold, gathered
@@ -1109,13 +1203,20 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         else if (n.type === 'KeyBlock') {
           expr(n.expression);
           fragment(n.fragment);
-        } else if (n.type === 'SnippetBlock')
-          fail(
-            'E_TEMPLATE',
-            'Snippets are supported as children of a component tag',
-            locate(u.original, n.start, u.rel),
-          );
-        else if (n.type === 'RegularElement') {
+        } else if (n.type === 'SnippetBlock') {
+          // A snippet of the template itself (bits-ui's Command root: `{#snippet
+          // Label()}` rendered by `{@render Label()}`): a function of its
+          // content, hoisted as Svelte hoists snippets in their fragment.
+          if (n.parameters.length)
+            fail(
+              'E_TEMPLATE',
+              'Snippets declared in a template take no parameters (snippets with parameters are supported as children of a component tag)',
+              locate(u.original, n.start, u.rel),
+            );
+          s += `function ${n.expression.name}() {\n`;
+          fragment(n.body);
+          s += '}\n';
+        } else if (n.type === 'RegularElement') {
           attrs(n.attributes);
           fragment(n.fragment);
         } else if (n.type === 'SvelteElement') {
@@ -2181,18 +2282,6 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     jsonBinding(lower, symbol, graph.modules) ??
     packageLazy(symbol);
   lower.implementation = implementationOf(program, packageModules);
-  const runeName = (e: ts.Expression | undefined): string | undefined => {
-    if (!e || !ts.isCallExpression(e)) return undefined;
-    const callee = e.expression;
-    if (ts.isIdentifier(callee) && callee.text.startsWith('$')) return callee.text;
-    if (
-      ts.isPropertyAccessExpression(callee) &&
-      ts.isIdentifier(callee.expression) &&
-      callee.expression.text.startsWith('$')
-    )
-      return `${callee.expression.text}.${callee.name.text}`;
-    return undefined;
-  };
   /** A component's `<script module>` statements in its virtual module. */
   const moduleStatements = (u: Unit) => {
     const sf = program.getSourceFile(u.virtual)!;
@@ -3545,14 +3634,48 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       handlers.push({ event, ...rest, source: loc(where) });
       return { event, handler: handlers.length - 1, ...(args?.length ? { args } : {}) };
     };
+    /**
+     * The snippets the template declares (`{#snippet name()}`, no
+     * parameters), innermost fragment last: each `{@render name()}` of one
+     * renders its content in place, as Svelte's snippet function does (it
+     * closes over the component's scope; a snippet rendering itself is
+     * rejected).
+     */
+    const localSnippets: Map<string, SNode>[] = [];
+    const rendering = new Set<SNode>();
     const children = (fragment: SNode, parent?: string): Node[] => {
       // An <svg>'s content is in the SVG namespace.
       if (parent === 'svg') inSvg++;
+      const declared = new Map<string, SNode>(
+        (fragment?.nodes ?? [])
+          .filter((c: SNode) => c.type === 'SnippetBlock')
+          .map((c: SNode) => [c.expression.name, c] as [string, SNode]),
+      );
+      localSnippets.push(declared);
       try {
-        return childNodes(fragment, parent);
+        // (Svelte hoists them before trimming the fragment's whitespace:
+        // bits-ui's Command root declares `{#snippet Label()}` first.)
+        return childNodes(
+          declared.size
+            ? { ...fragment, nodes: fragment.nodes.filter((c: SNode) => c.type !== 'SnippetBlock') }
+            : fragment,
+          parent,
+        );
       } finally {
+        localSnippets.pop();
         if (parent === 'svg') inSvg--;
       }
+    };
+    /** The template's snippet `{@render}` tag `n` names, if any. */
+    const localSnippet = (n: SNode): SNode | undefined => {
+      if (n.expression.type !== 'CallExpression' || n.expression.callee.type !== 'Identifier')
+        return undefined;
+      const name = n.expression.callee.name;
+      for (let i = localSnippets.length - 1; i >= 0; i--) {
+        const found = localSnippets[i].get(name);
+        if (found) return found;
+      }
+      return undefined;
     };
     /**
      * Whether rendering `nodes` certainly reads `sym` (a `{@const}`) before
@@ -3724,6 +3847,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         } else if (n.type === 'HtmlTag') {
           flush();
           out.push(htmlTag(n));
+        } else if (n.type === 'RenderTag' && localSnippet(n)) {
+          flush();
+          const snippet = localSnippet(n)!;
+          if (rendering.has(snippet))
+            fail('E_TEMPLATE', 'A snippet that renders itself is unsupported', loc(n));
+          if (n.expression.arguments.length)
+            fail('E_TEMPLATE', 'This snippet takes no arguments', loc(n));
+          rendering.add(snippet);
+          try {
+            out.push(...children(snippet.body));
+          } finally {
+            rendering.delete(snippet);
+          }
+        } else if (n.type === 'SnippetBlock' && localSnippets.at(-1)?.has(n.expression.name)) {
+          // (Rendered where `{@render}` names it.)
         } else if (n.type === 'RenderTag') {
           flush();
           out.push(render(n));

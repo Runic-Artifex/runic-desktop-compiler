@@ -361,6 +361,30 @@ pub fn json_compatible(t: &Type, records: &[RecordType], depth: usize) -> bool {
     }
 }
 
+/// Whether structuredClone copies values of `t`: plain data, and maps and
+/// sets of it, at any depth (bits-ui's Command state snapshot, a record
+/// holding a map and a set).
+fn cloneable(t: &Type, records: &[RecordType], depth: usize) -> bool {
+    if depth > 32 {
+        return true;
+    }
+    match t {
+        Type::Number | Type::String | Type::Boolean => true,
+        Type::Maybe(inner) | Type::Array(inner) | Type::Set(inner) => {
+            cloneable(inner, records, depth + 1)
+        }
+        Type::Map(k, v) => cloneable(k, records, depth + 1) && cloneable(v, records, depth + 1),
+        Type::Record(r) => records.get(*r).is_some_and(|rec| {
+            !rec.class
+                && rec
+                    .fields
+                    .iter()
+                    .all(|f| cloneable(&f.ty, records, depth + 1))
+        }),
+        _ => false,
+    }
+}
+
 fn error_type(t: &Type, records: &[RecordType]) -> bool {
     matches!(t, Type::Record(r) if records.get(*r).is_some_and(crate::validate::is_error_record))
 }
@@ -948,6 +972,34 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(Element)))
         }
+        // The first child node that is not a comment, where it is an element
+        // (M6, bits-ui's `getFirstNonCommentChild`; a text node is reported
+        // unsupported).
+        // The element siblings (M6, bits-ui's Command).
+        ("element", "nextElementSibling" | "previousElementSibling") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(Element)))
+        }
+        // (`firstNonCommentNode`: where the frontend found the value only
+        // tested for truth and read through `dataset`, a text node too.)
+        ("element", "firstNonCommentChild" | "firstNonCommentNode") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(Element)))
+        }
+        // `element.setAttribute(name, value)` from script (M6).
+        ("element", "setAttribute") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "name")?;
+            expect(&args[2], &s, "value").map(|_| Void)
+        }
+        // `parent.appendChild(child)` of a child of parent (M6): it moves to
+        // the end; gives the child.
+        ("element", "appendChild") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Element, "child").map(|_| Element)
+        }
         // `getComputedStyle(e).getPropertyValue(name)` of a property whose
         // resolved value is its computed value (the frontend checks).
         ("element", "computed-style") => {
@@ -1322,6 +1374,11 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             }
             Ok(n)
         }
+        // `CSS.escape(s)` (M6, bits-ui's Command selectors).
+        ("css", "escape") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "argument").map(|_| s)
+        }
         ("", "encodeURIComponent" | "decodeURIComponent" | "decodeURI") => {
             arity(args, 1, 1)?;
             expect(&args[0], &s, "argument").map(|_| s)
@@ -1357,7 +1414,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("", "Boolean") => arity(args, 0, 1).map(|_| b),
         ("", "structuredClone") => {
             arity(args, 1, 1)?;
-            if json_compatible(&args[0], records, 0) || matches!(args[0], Map(..) | Set(_)) {
+            if cloneable(&args[0], records, 0) {
                 Ok(args[0].clone())
             } else {
                 Err("structuredClone supports plain data".into())

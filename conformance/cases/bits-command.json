@@ -1,0 +1,30 @@
+{
+  "description": "bits-ui's Command compiled from its published source through shadcn-svelte's unmodified command, input-group and input wrappers and the command-demo (a search input over two headed groups of items, one disabled, with shortcuts). The first item selected at mount; the input focused by a press; arrow keys moving the selection past the disabled item (not looping); the pointer over an item selecting it; End and Home; a press on an item selecting it; typing a query that only narrows (\"s\", \"se\", \"set\"): the list remounted by its key block, items filtered by bits-ui's fuzzy score and reordered by appendChild, the separator and an emptied group hidden, the first match selected; arrow keys and Enter in the filtered list. data-selected, data-value written by script, aria-activedescendant, the style-vega styles. Clearing the search or a query without matches is not covered (the framework would insert into children script reordered, reported unsupported)",
+  "fixtures": ["bits-command-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "bits-c3" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowUp" },
+    { "kind": "hover", "id": "bits-c17" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "press", "key": "End" },
+    { "kind": "press", "key": "Home" },
+    { "kind": "click", "id": "bits-c10" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "bits-c3" },
+    { "kind": "type", "text": "s" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "type", "text": "e" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "type", "text": "t" },
+    { "kind": "wait", "ms": 200 },
+    { "kind": "press", "key": "ArrowUp" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 100 }
+  ]
+}
