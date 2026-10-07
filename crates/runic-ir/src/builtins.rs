@@ -821,9 +821,10 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &Event, "event")?;
             match m {
                 "type" | "key" | "code" | "value" | "pointerType" => Ok(s),
-                "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "checked"
+                "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "isComposing" | "checked"
                 | "defaultPrevented" | "matches" => Ok(b),
-                "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" | "detail" => Ok(n),
+                "clientX" | "clientY" | "button" | "buttons" | "deltaX" | "deltaY" | "detail"
+                | "pointerId" => Ok(n),
                 "target" => Ok(Element),
                 "relatedTarget" => Ok(Maybe(Box::new(Element))),
                 // Null once the dispatch is over.

@@ -1049,14 +1049,14 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             t[0], t[1]
         ),
         ("event", "keyboard") => format!(
-            "{{ let d = {}.data().clone(); js::Event::new(js::EventData {{ kind: {}, key: d.key, code: d.code, ctrl: d.ctrl, shift: d.shift, alt: d.alt, meta: d.meta, repeat: d.repeat, cancelable: d.cancelable, synthetic: true, keyboard: true, ..Default::default() }}) }}",
+            "{{ let d = {}.data().clone(); js::Event::new(js::EventData {{ kind: {}, key: d.key, code: d.code, ctrl: d.ctrl, shift: d.shift, alt: d.alt, meta: d.meta, repeat: d.repeat, composing: d.composing, cancelable: d.cancelable, synthetic: true, keyboard: true, ..Default::default() }}) }}",
             t[1], t[0]
         ),
         // (An event created by script covers only its type and cancellation,
         // and a keyboard copy its key members.)
         ("event", m) => {
             let e = &t[0];
-            let keys = matches!(m, "key" | "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat");
+            let keys = matches!(m, "key" | "code" | "ctrlKey" | "shiftKey" | "altKey" | "metaKey" | "repeat" | "isComposing");
             let guard = if matches!(
                 m,
                 "type" | "defaultPrevented" | "preventDefault" | "stopPropagation" | "stopImmediatePropagation"
@@ -1078,6 +1078,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "metaKey" => format!("{e}.data().meta"),
                 "matches" => format!("{e}.data().matches"),
                 "repeat" => format!("{e}.data().repeat"),
+                "isComposing" => format!("{e}.data().composing"),
                 "checked" => format!("{e}.data().checked"),
                 "clientX" => format!("{e}.data().client_x"),
                 "clientY" => format!("{e}.data().client_y"),
@@ -1086,6 +1087,9 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "deltaX" => format!("{e}.data().delta_x"),
                 "deltaY" => format!("{e}.data().delta_y"),
                 "detail" => format!("{e}.data().detail"),
+                "pointerId" => format!(
+                    "{e}.data().pointer_id().unwrap_or_else(|| {{ runic_runtime::unsupported(\"pointerId of an event that is not a pointer event\"); 0.0 }})"
+                ),
                 "pointerType" => format!(
                     "JsString::from({e}.data().pointer_type().unwrap_or_else(|| {{ runic_runtime::unsupported(\"pointerType of an event that is not a pointer event\"); \"\" }}))"
                 ),
@@ -1175,11 +1179,6 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
 
 /// Attribute bag built-ins (M6, docs/IR.md "Attribute bags").
 fn attrs_builtin(cx: &mut FnCtx, m: &str, t: &[String], ty: &Type) -> String {
-    let mismatch = |cx: &FnCtx, what: &str| {
-        cx.q(&format!(
-            "Err::<(), _>(js::Throw::type_error(\"RunicAttrsError: the spread passes {what} a value of another type than the prop's\"))"
-        ))
-    };
     match m {
         "has" => format!("{}.entries().iter().any(|(n, _)| *n == {})", t[0], t[1]),
         "without" => {
@@ -1207,7 +1206,8 @@ fn attrs_builtin(cx: &mut FnCtx, m: &str, t: &[String], ty: &Type) -> String {
             let Type::Maybe(inner) = ty else {
                 unreachable!("validated attrs.get type")
             };
-            let bad = mismatch(cx, "a prop");
+            // (Naming the prop, as the interpreter does.)
+            let bad = cx.q("Err::<(), _>(js::Throw::type_error(format!(\"RunicAttrsError: the spread passes {} a value of another type than the prop's\", name.to_rust())))");
             let convert = match &**inner {
                 Type::String => "js::AttrValue::Text(s) => Maybe::Some(s.clone()),".to_string(),
                 Type::Boolean => "js::AttrValue::Flag(b) => Maybe::Some(*b),".to_string(),

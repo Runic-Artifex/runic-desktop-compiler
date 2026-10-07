@@ -3290,16 +3290,20 @@ impl Origins<'_> {
                     }
                     // A plain field of a class instance (M6): the field changes
                     // unnoticed; templates reading it are reported (below).
+                    // (Also through a class reference: the field of each of
+                    // its classes, which have it at one index.)
                     Place::Field { object, field }
                         if matches!(self.scope.infer(object, 0, None),
-                            Ok(Type::Record(r)) if self.p.records[r].class)
+                            Ok(t) if self.p.class_members(&t).is_some())
                             && !matches!(self.origin(object), Origin::Fresh | Origin::Reactive) =>
                     {
                         self.expr(object);
                         let o = self.origin(object);
                         self.change(o);
-                        if let Ok(Type::Record(r)) = self.scope.infer(object, 0, None) {
-                            self.out.fields.insert((r, *field));
+                        if let Ok(t) = self.scope.infer(object, 0, None) {
+                            for r in self.p.class_members(&t).unwrap_or_default() {
+                                self.out.fields.insert((r, *field));
+                            }
                         }
                     }
                     Place::Field { object, .. } => {
@@ -3938,9 +3942,15 @@ fn template_field_reads(p: &Program) -> HashSet<(usize, usize)> {
     ) {
         match e {
             Expr::Get { object, field } => {
-                if let Ok(Type::Record(r)) = scope.infer(object, 0, None) {
+                // (A class reference: the field of each of its classes.)
+                let classes = scope
+                    .infer(object, 0, None)
+                    .ok()
+                    .and_then(|t| p.class_members(&t))
+                    .unwrap_or_default();
+                for r in classes {
                     let rec = &p.records[r];
-                    if rec.class && rec.fields.get(*field).is_some_and(|f| !f.is_derived()) {
+                    if rec.fields.get(*field).is_some_and(|f| !f.is_derived()) {
                         out.insert((r, *field));
                     }
                 }

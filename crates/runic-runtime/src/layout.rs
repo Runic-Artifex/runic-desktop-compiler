@@ -700,6 +700,7 @@ pub(crate) fn scroll_into_view(
     inline: &str,
 ) -> Vec<NodeId> {
     resolve(doc);
+    crate::timeline::check_scroll_target(doc, node);
     let mut changed = vec![];
     if element(doc, node).is_none_or(|n| !n.has_boxes()) {
         return changed;

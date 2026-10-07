@@ -44,17 +44,17 @@ fn io(e: std::io::Error) -> Diagnostic {
     Diagnostic::new("E_OUTPUT", e.to_string(), None)
 }
 
-/// The `[patch.crates-io]` section of a workspace manifest, verbatim (empty
-/// if there is none). A generated app is a workspace of its own, so it
-/// repeats the compiler workspace's patches to resolve the same crates as
-/// the Cargo.lock it copies.
+/// The `[patch.…]` sections of a workspace manifest (crates.io and git
+/// sources), verbatim (empty if there are none). A generated app is a
+/// workspace of its own, so it repeats the compiler workspace's patches to
+/// resolve the same crates as the Cargo.lock it copies.
 pub fn patch_section(manifest: &str) -> String {
     let mut section = String::new();
     let mut inside = false;
     for line in manifest.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            inside = trimmed == "[patch.crates-io]";
+            inside = trimmed.starts_with("[patch.");
         }
         if inside {
             section.push_str(line);
@@ -152,6 +152,11 @@ mod tests {
         // The compiler workspace's own manifest has the renderer forks.
         let root = include_str!("../../../Cargo.toml");
         assert!(patch_section(root).contains("vello_cpu = "));
+        // Git sources too (the Taffy fork).
+        assert!(
+            patch_section(root)
+                .contains("[patch.\"https://github.com/DioxusLabs/taffy\"]\ntaffy = ")
+        );
     }
 
     #[test]

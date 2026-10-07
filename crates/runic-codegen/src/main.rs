@@ -56,8 +56,9 @@ fn main() {
     let text = std::fs::read_to_string(file)
         .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e.to_string(), None)));
     // The build-time CSS oracle (runic_css::check): input
-    // {"css": stylesheet, "declarations": [[name, value], ...]}; output the
-    // rules and declarations Stylo drops and the declarations that do not parse.
+    // {"css": stylesheet, "declarations": [[name, value], ...], "selectors"?:
+    // [selector list, ...]}; output the rules and declarations Stylo drops,
+    // the declarations that do not parse and the selectors' specificities.
     if command == "css-check" {
         let input: serde_json::Value = serde_json::from_str(&text)
             .unwrap_or_else(|e| fail(Diagnostic::new("E_INPUT", e.to_string(), None)));
@@ -81,7 +82,24 @@ fn main() {
                     .collect()
             })
             .unwrap_or_default();
-        println!("{}", json!({"dropped": dropped, "invalid": invalid}));
+        // The specificity of each selector list of "selectors" (null where it
+        // does not parse), for the cascade checks of style guards.
+        let specificity: Vec<serde_json::Value> = input["selectors"]
+            .as_array()
+            .map(|ss| {
+                ss.iter()
+                    .map(|s| {
+                        json!(runic_css::check::specificities(
+                            s.as_str().unwrap_or_default()
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        println!(
+            "{}",
+            json!({"dropped": dropped, "invalid": invalid, "specificity": specificity})
+        );
         return;
     }
     let program = runic_ir::load(&text).unwrap_or_else(|d| fail(d));

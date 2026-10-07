@@ -279,15 +279,23 @@ export function declarationFile(file: string): string | undefined {
  */
 function attachmentFields(sf: ts.SourceFile): Set<string> {
   const out = new Set<string>();
+  const attach = (e: ts.Expression | undefined) =>
+    !!e &&
+    ts.isCallExpression(e) &&
+    ts.isIdentifier(e.expression) &&
+    e.expression.text === 'attachRef';
   const visit = (n: ts.Node) => {
+    if (ts.isPropertyDeclaration(n) && attach(n.initializer)) out.add(n.name.getText(sf));
+    // (Also assigned in a constructor: bits-ui's Select states'
+    // `this.attachment = attachRef(…)`.)
     if (
-      ts.isPropertyDeclaration(n) &&
-      n.initializer &&
-      ts.isCallExpression(n.initializer) &&
-      ts.isIdentifier(n.initializer.expression) &&
-      n.initializer.expression.text === 'attachRef'
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isPropertyAccessExpression(n.left) &&
+      n.left.expression.kind === ts.SyntaxKind.ThisKeyword &&
+      attach(n.right)
     )
-      out.add(n.name.getText(sf));
+      out.add(n.left.name.text);
     ts.forEachChild(n, visit);
   };
   visit(sf);
@@ -1796,8 +1804,20 @@ export function inferFields(
                 const c = x.parent;
                 if (ts.isCallExpression(c) && c.expression === x) {
                   const arg = c.arguments[i];
-                  if (arg && !ts.isSpreadElement(arg)) add(checker.getTypeAtLocation(arg), arg);
-                  else open = true;
+                  const t = arg && checker.getTypeAtLocation(arg);
+                  // A call of the function in its own body with an argument
+                  // that is not typed yet (bits-ui's `autoScroll(tick + 1)`):
+                  // typed by the other calls first, then checked by the
+                  // lowering of the call.
+                  const own =
+                    !!t &&
+                    !!(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) &&
+                    c.pos >= fn.pos &&
+                    c.end <= fn.end;
+                  if (!own) {
+                    if (arg && !ts.isSpreadElement(arg)) add(t, arg);
+                    else open = true;
+                  }
                 } else if (
                   (ts.isCallExpression(c) || ts.isNewExpression(c)) &&
                   c.arguments?.includes(x)

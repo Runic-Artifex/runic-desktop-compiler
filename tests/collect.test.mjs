@@ -173,6 +173,35 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
     (await guards('p { -webkit-line-clamp: 2 }'))[0].message,
     /-webkit-line-clamp: 2 \(s\.css, line 1\)/,
   );
+  // Not where a later rule of at least its specificity sets the property
+  // (`unless`); the legacy box's clamping and orientation not where its
+  // `display: -webkit-box` is overridden; scroll margins only for an
+  // element scrolled into view.
+  const fields = gs => gs.map(g => [g.selector, g.unless, g.when]);
+  assert.deepEqual(
+    fields(
+      await guards(
+        '.a { -webkit-line-clamp: 1; -webkit-box-orient: vertical; display: -webkit-box }\n' +
+          '.a { display: flex }\n.b { scroll-margin-top: 4px }',
+      ),
+    ),
+    [
+      ['.a', '.a', undefined],
+      ['.a', '.a', undefined],
+      ['.a', '.a', undefined],
+      ['.b', undefined, 'scroll-target'],
+    ],
+  );
+  // (A later rule of lower specificity overrides nothing.)
+  assert.deepEqual(
+    fields(
+      await guards('.x .a { display: -webkit-box; -webkit-line-clamp: 1 }\n.a { display: flex }'),
+    ),
+    [
+      ['.x .a', undefined, undefined],
+      ['.x .a', undefined, undefined],
+    ],
+  );
 });
 
 test('CSS filter lists are accepted where the renderers draw them', async () => {

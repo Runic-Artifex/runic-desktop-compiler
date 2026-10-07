@@ -47,6 +47,18 @@ export type Type =
 export type Literal = boolean | number | string;
 
 /**
+ * A declaration the style engine drops (docs/IR.md, styles): reported once
+ * an element matches `selector` and not `unless` (the rules overriding it);
+ * with `when` `"scroll-target"`, once such an element is scrolled into view.
+ */
+export interface StyleGuard {
+  selector: string;
+  unless?: string;
+  when?: 'scroll-target';
+  message: string;
+}
+
+/**
  * An attribute bag item: an entry, the entries of another bag, or an
  * attachment (a function of the element returning its cleanup or nothing)
  * under a key of its own, created when the bag is (M6).
@@ -501,7 +513,7 @@ export interface Program {
     css: string;
     assets: { path: string; sha256: string; bytes: number; mime: string }[];
     /** Declarations the style engine drops, reported once their selector matches. */
-    guards?: { selector: string; message: string }[];
+    guards?: StyleGuard[];
   };
   records?: RecordType[];
   functions?: Fn[];

@@ -22,6 +22,7 @@ import type {
   Type,
   RecordType,
   Effect,
+  StyleGuard,
 } from '../ir.ts';
 import { EVENT_KINDS } from '../ir.ts';
 import {
@@ -33,7 +34,7 @@ import {
   type Hooks,
 } from '../language.ts';
 import { createProgram, RUNES } from '../program.ts';
-import { TypeMapper } from '../types.ts';
+import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules, ModuleResolver } from '../modules.ts';
 import {
   annotate,
@@ -196,7 +197,7 @@ interface Graph {
   entry: string;
   hash: string;
   css: string;
-  styleGuards?: { selector: string; message: string }[];
+  styleGuards?: StyleGuard[];
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
   config: { title: string; renderer?: 'cpu' | 'gpu' };
@@ -211,7 +212,13 @@ interface Graph {
   >;
   tooling: {
     packages: Record<string, string>;
-    compiler: { parse: (src: string, opts: object) => SNode };
+    compiler: {
+      parse: (src: string, opts: object) => SNode;
+      compile: (
+        src: string,
+        opts: object,
+      ) => { js: { code: string }; css: { code: string } | null };
+    };
   };
 }
 
@@ -403,7 +410,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (!strict && !loose) return undefined;
         const a = values(x.left);
         const b = values(x.right);
-        if (!a || !b) return undefined;
+        if (!a || !b) return lower.buildTimeTruth(x);
         const same = (p: unknown, q: unknown) =>
           strict ? p === q : p === q || (p == null && q == null);
         const results = a.flatMap(p => b.map(q => same(p, q)));
@@ -419,7 +426,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (passed !== undefined) return passed;
       }
       const v = values(x);
-      if (!v || !v.length) return undefined;
+      // (Otherwise what the lowering knows at build time: a member of a
+      // union the values reaching it narrowed, `Lowerer.buildTimeTruth`.)
+      if (!v || !v.length) return lower.buildTimeTruth(x);
       if (v.every(Boolean)) return true;
       if (v.every(y => !y)) return false;
       return undefined;
@@ -528,6 +537,23 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         ),
       );
   });
+  /**
+   * Whether a component's `<style>` scopes anything: compiled with a marker
+   * as its hash, the marker appears in the CSS (scoped selectors and
+   * keyframes) or in the code (the scoping class on elements).
+   */
+  const scopedStyles = (u: Unit) => {
+    const marker = 'runic-scoped-css';
+    const out = graph.tooling.compiler.compile(u.original, {
+      filename: u.file,
+      generate: 'client',
+      css: 'external',
+      cssHash: () => marker,
+      runes: true,
+      dev: false,
+    });
+    return out.js.code.includes(marker) || !!out.css?.code.includes(marker);
+  };
   /** A reached component: its checks, and the components its template instantiates. */
   const reach = (u: Unit) => {
     const loc = (n: SNode) => locate(u.original, n.start ?? 0, u.rel);
@@ -543,10 +569,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       offset => locate(u.original, offset, u.rel),
     );
     const { ast } = u;
-    if (ast.css)
+    // Component styles whose rules are all `:global(…)` join the stylesheet
+    // Vite emits, where they are checked with the rest (compiler/collect.mjs).
+    // Scoped rules would need the compiler's scoping class on the elements
+    // they match, which lowering does not add.
+    if (ast.css && scopedStyles(u))
       fail(
         'E_TEMPLATE',
-        'Component styles (scoped CSS) are planned for M6; import local CSS instead',
+        'Scoped component styles are unsupported; use :global(…) rules or import local CSS instead',
         loc(ast.css),
       );
     if (ast.options) fail('E_TEMPLATE', '<svelte:options> is unsupported', loc(ast.options));
@@ -962,9 +992,16 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       for (const n of f?.nodes ?? []) {
         if (n.type === 'ExpressionTag') expr(n.expression);
         else if (n.type === 'IfBlock') {
-          expr(n.test);
+          // As svelte-check types it: the test narrows its branches
+          // (bits-ui's Select root reads its value box as an array inside
+          // `{#if Array.isArray(…)}`).
+          s += 'if ';
+          inline(n.test);
+          s += ' {\n';
           fragment(n.consequent);
+          s += '} else {\n';
           fragment(n.alternate);
+          s += '}\n';
         } else if (n.type === 'EachBlock') {
           s += 'for (const ';
           u.starts.set(n.context, s.length);
@@ -1730,8 +1767,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           return tsFail(p, 'E_EVENT', 'on() options are boolean literals');
         if (key === 'capture') capture = flag;
         else if (key === 'once') once = flag;
-        else if (key === 'passive' && !flag) {
-          // the default
+        else if (key === 'passive' && (!flag || takesNothing(handler))) {
+          // The default, or a listener that cannot cancel the event.
         } else
           return tsFail(
             p,
@@ -1769,7 +1806,7 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     // types from here: `flowType`).
     const want: Type = { fn: { params: ['event'], result: 'void' } };
     // (The element is evaluated before the handler, as the arguments are.)
-    const e = target === 'element' ? l.expr(el, b) : undefined;
+    const e = target === 'element' ? onElement(el, b, l) : undefined;
     if (e && l.irType(e, b) !== 'element')
       return tsFail(el, 'E_EVENT', 'on() takes an element, the document or the window');
     l.expected.set(skipParens(handler), want);
@@ -1867,6 +1904,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     }));
   };
   /** `on(element, type, handler)` of a custom event type (`svelteOn`). */
+  /**
+   * Whether a listener takes no parameters, so it cannot reach the event (a
+   * passive listener's `preventDefault` is ignored: bits-ui's Select marks
+   * its `wheel` and `touchmove` listeners passive, which only set a flag).
+   */
+  const takesNothing = (handler: ts.Expression): boolean => {
+    const sigs = checker.getTypeAtLocation(handler).getCallSignatures();
+    return sigs.length > 0 && sigs.every(s => s.parameters.length === 0);
+  };
+  /**
+   * The element of `on(element, …)`: a nullable one TypeScript narrowed to
+   * present (bits-ui's `on(this.opts.ref.current, …)` after testing it) is
+   * unwrapped (adding a listener to null throws a TypeError).
+   */
+  const onElement = (el: ts.Expression, b: FnBuilder, l: Lowerer): Expr => {
+    const e = l.expr(el, b);
+    return maybeInner(l.irType(e, b)) === 'element' && l.tsPresent(el)
+      ? { op: 'unwrap', value: e }
+      : e;
+  };
   const customOn = (
     node: ts.CallExpression,
     el: ts.Expression,
@@ -1876,11 +1933,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     b: FnBuilder,
     l: Lowerer,
   ): Expr => {
-    if (options)
+    // (`passive` of a listener that takes nothing: it cannot cancel the event.)
+    const o = options && skipParens(options);
+    const passiveOnly =
+      !!o &&
+      ts.isObjectLiteralExpression(o) &&
+      o.properties.every(
+        p =>
+          ts.isPropertyAssignment(p) &&
+          ts.isIdentifier(p.name) &&
+          p.name.text === 'passive' &&
+          [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(
+            skipParens(p.initializer).kind,
+          ),
+      ) &&
+      takesNothing(handler);
+    if (options && !passiveOnly)
       return tsFail(options, 'E_EVENT', 'on() options are not covered for custom event types');
     if (l.hostOf(el) || l.classes.hostField(el))
       return tsFail(el, 'E_EVENT', 'Custom event listeners are covered on elements');
-    const e = l.expr(el, b);
+    const e = onElement(el, b, l);
     if (l.irType(e, b) !== 'element')
       return tsFail(el, 'E_EVENT', 'on() takes an element, the document or the window');
     const name = l.coerce(type, b, 'string');
@@ -2423,16 +2495,21 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const sf = program.getSourceFile(u.virtual)!;
     /** The names bound in branches that can render (`decidedTest`). */
     let boundLive: Set<string> | undefined;
+    // (Not kept while a prop's `written` is being decided: the tests that
+    // read that prop are open then, so more binds count.)
+    let deciding = 0;
     const bound = {
       has(name: string): boolean {
-        if (!boundLive) {
-          boundLive = new Set();
+        let live = boundLive;
+        if (!live) {
+          const found = new Set<string>();
+          live = found;
           const visit = (node: unknown) => {
             if (!node || typeof node !== 'object') return;
             if (Array.isArray(node)) return node.forEach(visit);
             const n = node as SNode;
             if (n.type === 'BindDirective' && n.expression?.type === 'Identifier')
-              boundLive!.add(n.expression.name);
+              found.add(n.expression.name);
             if (n.type === 'IfBlock') {
               const known = decidedTest(u, n.test);
               visit(n.test);
@@ -2443,8 +2520,9 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             for (const [k, v] of Object.entries(n)) if (k !== 'parent') visit(v);
           };
           visit(u.ast.fragment);
+          if (!deciding) boundLive = found;
         }
-        return boundLive.has(name);
+        return live.has(name);
       },
     };
     for (const stmt of instanceStatements(u)) {
@@ -2474,7 +2552,12 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             get written() {
               if (written === undefined) {
                 written = true;
-                written = bound.has(name) || assigned(checker, sf, symbol);
+                deciding++;
+                try {
+                  written = bound.has(name) || assigned(checker, sf, symbol);
+                } finally {
+                  deciding--;
+                }
               }
               return written;
             },
@@ -2578,6 +2661,45 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     return { op: 'cell', cell, read: 'current' };
   });
   lower.domains = domains;
+  // Constants passed to a component prop declared with records of more
+  // optional fields (shadcn-svelte's select demo: `const fruits = [{ value,
+  // label }, …]` passed as `items`, declared `{ value; label; disabled?:
+  // boolean }[]`) take the prop's type, as TypeScript types the literal
+  // written in place (`Lowerer.widens`): arrays and objects keep their
+  // identity, so the site cannot convert them. Sites passing one constant
+  // to props of different types leave it its own.
+  const passedTypes = new Map<ts.Symbol, Type | null>();
+  for (const u of order)
+    walkTemplate(u.ast.fragment, n => {
+      if (n.type !== 'Component' || u.packs.has(n.name)) return;
+      for (const a of n.attributes) {
+        if (a.type !== 'Attribute' || a.value === true || Array.isArray(a.value)) continue;
+        const at = nodeIn(u, a.value.expression) as ts.Expression;
+        const id = skipParens(at);
+        const sym = ts.isIdentifier(id) ? checker.getSymbolAtLocation(id) : undefined;
+        const decl = sym?.valueDeclaration;
+        if (
+          !decl ||
+          !ts.isVariableDeclaration(decl) ||
+          decl.type ||
+          !decl.initializer ||
+          !(ts.getCombinedNodeFlags(decl) & ts.NodeFlags.Const)
+        )
+          continue;
+        const init = skipParens(decl.initializer);
+        if (!ts.isArrayLiteralExpression(init) && !ts.isObjectLiteralExpression(init)) continue;
+        const ctx = checker.getContextualType(at);
+        const want = ctx && lower.types.tryMap(checker.getNonNullableType(ctx), at);
+        const own = lower.types.tryMap(checker.getTypeAtLocation(id), id);
+        if (!want || !own || !lower.widens(own, want)) continue;
+        const known = passedTypes.get(sym!);
+        passedTypes.set(
+          sym!,
+          known === undefined || (known !== null && sameType(known, want)) ? want : null,
+        );
+      }
+    });
+  for (const [sym, t] of passedTypes) if (t) lower.types.override(sym, t);
   domains.spreadValues = (spread, key) => shapes.values(spread, key);
 
   /** The fragments links may navigate to (checked against the element ids below). */
@@ -3292,6 +3414,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             const call = skipParens(value);
             if (d.type && ts.isCallExpression(call) && !lower.expected.has(call))
               lower.expected.set(call, type);
+            // A literal of a constant typed by the prop it is passed to
+            // (`passedTypes`): that type.
+            if (
+              lower.types.overridden(d.name) &&
+              (ts.isArrayLiteralExpression(call) || ts.isObjectLiteralExpression(call)) &&
+              !lower.expected.has(call)
+            )
+              lower.expected.set(call, type);
             // The IR type of the lowered value (a bare `null` takes its contextual type).
             const v = lower.value(value, COMPONENT, `${name}$init`);
             cells[cell].init = coerceInit(v, lower.valueType(v), type, lower.types.records);
@@ -3691,7 +3821,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     const dynamicComponent = (n: SNode): Node[] => {
       const e = exprNode(n.nameNode);
       const v = value(e);
-      const t = typeOf(e, v);
+      // (The value's own type: `{#if Example}` narrows TypeScript's.)
+      const t = lower.irType(v, tb);
       const inner = maybeInner(t) ?? t;
       if (
         typeof inner !== 'object' ||
@@ -4124,8 +4255,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         // bits-ui passes FocusScope `forceMount`, mdsx its blueprint the
         // page's metadata).
         if (a.type === 'Attribute' && restCell < 0 && !declared(a.name)) continue;
-        if (a.type === 'BindDirective' && writers.has(a.name))
-          fail('E_TEMPLATE', `bind:${a.name} after a spread that may hold ${a.name}`, loc(a));
+        // A binding after spreads that may hold its prop (bits-ui's
+        // `<HiddenInput {...hiddenInputState.props} bind:value />`) gives
+        // the prop: Svelte's props read the last source holding it.
+        if (a.type === 'BindDirective') writers.delete(a.name);
         if (a.type === 'Attribute') {
           const want = target.cells[propCell(a)].type;
           let v: Expr;
@@ -4178,6 +4311,29 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           let e = exprNode(a.expression);
           while (ts.isAsExpression(e) || ts.isParenthesizedExpression(e)) e = e.expression;
           const b = ts.isIdentifier(e) ? lower.binding(e) : undefined;
+          // A member (bits-ui's Select root binds `rootState.opts.value.current
+          // as string`): read there, and written there by the setter.
+          if (b?.kind !== 'cell' && ts.isPropertyAccessExpression(e)) {
+            const asserted = exprNode(a.expression);
+            const read = value(asserted);
+            const have = typeOf(asserted, read);
+            const present = !!maybeInner(want) && sameType(have, maybeInner(want)!);
+            if (!sameType(have, want) && !present)
+              fail('E_TEMPLATE', `bind:${a.name} needs a value of the prop's type`, loc(a));
+            if (present)
+              presentWrites.push({
+                component: child.index,
+                cell: propCell(a),
+                name: a.name,
+                at: loc(a),
+              });
+            passed.push({
+              name: a.name,
+              value: present ? { op: 'some', value: read } : read,
+              bind: lower.bindSetter(e, tb, want, present),
+            });
+            continue;
+          }
           const have = b?.kind === 'cell' ? JSON.stringify(cells[b.cell].type) : undefined;
           // A variable of the present type bound to an optional prop (bits-ui's
           // `value = $bindable()`): the child must never write undefined to it

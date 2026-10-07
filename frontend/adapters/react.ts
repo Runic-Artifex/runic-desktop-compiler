@@ -52,6 +52,7 @@ import type {
   Stmt,
   Type,
   RecordType,
+  StyleGuard,
 } from '../ir.ts';
 import { FnBuilder, Lowerer, skipParens, type HandlerEvent, type Hooks } from '../language.ts';
 import { createProgram, REACT } from '../program.ts';
@@ -363,7 +364,7 @@ interface Graph {
   entry: string;
   hash: string;
   css: string;
-  styleGuards?: { selector: string; message: string }[];
+  styleGuards?: StyleGuard[];
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
   config: { title: string; renderer?: 'cpu' | 'gpu' };

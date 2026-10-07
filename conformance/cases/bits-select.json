@@ -1,0 +1,32 @@
+{
+  "description": "bits-ui's Select compiled from its published source through shadcn-svelte's unmodified select wrappers and the select-demo (a single select of five fruits in a labelled group, given as items, bound to a value, with a hidden input named favoriteFruit). Opened by a press on the trigger (the first item highlighted), the pointer over an item (highlighted), a press on it selecting it and closing the content with the trigger showing its label; reopened by ArrowDown (the selected item highlighted), arrow keys through the items (not looping), Enter selecting one; a typed letter selecting the next item it starts while closed (the typeahead of the items); Space opening and Escape closing; a press on the trigger opening and a press outside closing (`covered`). The portal, floating-ui positioning of the content below the trigger, data-state, data-highlighted and data-selected, the check indicator, the open and close animations",
+  "fixtures": ["bits-select-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "bits-c1" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "hover", "id": "bits-c9" },
+    { "kind": "wait", "ms": 100 },
+    { "kind": "click", "id": "bits-c9" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowDown" },
+    { "kind": "press", "key": "ArrowUp" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "b" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": " " },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "press", "key": "Escape" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "click", "id": "bits-c1" },
+    { "kind": "wait", "ms": 400 },
+    { "kind": "click", "id": "demo", "position": { "x": 4, "y": 4 }, "covered": true },
+    { "kind": "wait", "ms": 400 }
+  ]
+}

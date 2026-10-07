@@ -96,6 +96,12 @@ export class Unions {
   /** Unions resolved to a member, by key. */
   private readonly resolved = new Map<string, ts.Type>();
 
+  /**
+   * A test's value where it is known at build time (`Lowerer.buildTimeTruth`):
+   * the branch it rules out gives nothing.
+   */
+  private readonly decided: (test: ts.Expression) => boolean | undefined;
+
   /** Whether a prop is written by its component (undefined: not a declared prop). */
   private readonly propWritten: (sym: ts.Symbol) => boolean | undefined;
 
@@ -109,7 +115,9 @@ export class Unions {
     propValues: PropValues,
     allFiles: () => readonly ts.SourceFile[] = files,
     propWritten: (sym: ts.Symbol) => boolean | undefined = () => undefined,
+    decided: (test: ts.Expression) => boolean | undefined = () => undefined,
   ) {
+    this.decided = decided;
     this.propWritten = propWritten;
     this.allFiles = allFiles;
     this.checker = checker;
@@ -371,8 +379,21 @@ export class Unions {
       }
       let parts = (actual.isUnion() ? actual.types : [actual]).filter(p => !nullish(p));
       if (unionKey(parts) === key) return;
-      // A union already narrowed stands for its member.
-      const narrowed = this.resolved.get(unionKey(parts));
+      // A union already narrowed stands for its member; another union
+      // (another instantiation of the same one: bits-ui's snippet props
+      // through `Expand<…>`) for the members its own census finds.
+      let narrowed = this.resolved.get(unionKey(parts));
+      const other = unionKey(parts);
+      if (
+        !narrowed &&
+        parts.length > 1 &&
+        parts.every(p => memberOf(p)) &&
+        !this.counting.has(other)
+      ) {
+        const found = [...this.count(other, parts).members.keys()];
+        if (!found.length) return;
+        if (found.length === 1) narrowed = found[0];
+      }
       if (narrowed) parts = [narrowed];
       for (const p of parts) {
         const m = memberOf(p);
@@ -431,6 +452,23 @@ export class Unions {
           ts.forEachChild(n.initializer, visit);
           return;
         }
+        // A branch a test decided at build time rules out gives nothing.
+        if (ts.isConditionalExpression(n) || ts.isIfStatement(n)) {
+          const test = ts.isIfStatement(n) ? n.expression : n.condition;
+          const d = this.decided(test);
+          if (d !== undefined) {
+            visit(test);
+            const live = ts.isIfStatement(n)
+              ? d
+                ? n.thenStatement
+                : n.elseStatement
+              : d
+                ? n.whenTrue
+                : n.whenFalse;
+            if (live) visit(live);
+            return;
+          }
+        }
         // (Not a property's name: `"key": value` gives the value.)
         const named =
           !!n.parent &&
@@ -487,6 +525,21 @@ export class Unions {
     // An operand: what it is built from, or else TypeScript's type of it.
     const orType = (x: ts.Expression) =>
       this.trace(x, [], depth + 1, strict) ?? [this.checker.getTypeAtLocation(x)];
+    // A derived value (`$derived(v)`, `$derived.by(f)`): what it computes,
+    // at the same path.
+    if (ts.isCallExpression(e) && e.arguments.length === 1) {
+      const callee = e.expression.getText();
+      const arg = skipAll(e.arguments[0]);
+      if (callee === '$derived') return this.trace(arg, path, depth + 1, strict);
+      if (callee === '$derived.by' && (ts.isArrowFunction(arg) || ts.isFunctionExpression(arg)))
+        return all(
+          returned(arg, this.decided).map(
+            r =>
+              this.trace(r, path, depth + 1, strict) ??
+              (path.length ? undefined : [this.checker.getTypeAtLocation(r)]),
+          ),
+        );
+    }
     if (!path.length) {
       if (e.kind === K.NullKeyword || ts.isVoidExpression(e)) return [];
       if (ts.isIdentifier(e) && e.text === 'undefined' && !this.declared(e)) return [];
@@ -501,7 +554,11 @@ export class Unions {
         ts.isTemplateExpression(e)
       )
         return [this.checker.getTypeAtLocation(e)];
-      if (ts.isConditionalExpression(e)) return all([orType(e.whenTrue), orType(e.whenFalse)]);
+      if (ts.isConditionalExpression(e)) {
+        const d = this.decided(e.condition);
+        if (d !== undefined) return orType(d ? e.whenTrue : e.whenFalse);
+        return all([orType(e.whenTrue), orType(e.whenFalse)]);
+      }
       if (
         ts.isBinaryExpression(e) &&
         [K.QuestionQuestionToken, K.BarBarToken].includes(e.operatorToken.kind)
@@ -541,7 +598,7 @@ export class Unions {
           !ts.isBlock(arg.body) ||
           (arg.body.statements.length === 1 && ts.isReturnStatement(arg.body.statements[0]));
         if (strict && !only) return undefined;
-        return all(returned(arg).map(r => this.trace(r, rest, depth + 1, strict)));
+        return all(returned(arg, this.decided).map(r => this.trace(r, rest, depth + 1, strict)));
       }
       return strict ? undefined : this.trace(arg, rest, depth + 1);
     }
@@ -1213,11 +1270,26 @@ function defaultOf(e: ts.Expression): ts.Expression {
 }
 
 /** The expressions a function literal returns. */
-function returned(fn: ts.ArrowFunction | ts.FunctionExpression): ts.Expression[] {
+/**
+ * The expressions a function literal returns, except in branches a test
+ * `decided` at build time rules out.
+ */
+function returned(
+  fn: ts.ArrowFunction | ts.FunctionExpression,
+  decided: (test: ts.Expression) => boolean | undefined = () => undefined,
+): ts.Expression[] {
   if (!ts.isBlock(fn.body)) return [fn.body];
   const out: ts.Expression[] = [];
   const visit = (n: ts.Node) => {
     if (ts.isFunctionLike(n)) return;
+    if (ts.isIfStatement(n)) {
+      const d = decided(n.expression);
+      if (d !== undefined) {
+        const live = d ? n.thenStatement : n.elseStatement;
+        if (live) visit(live);
+        return;
+      }
+    }
     if (ts.isReturnStatement(n) && n.expression) out.push(n.expression);
     ts.forEachChild(n, visit);
   };

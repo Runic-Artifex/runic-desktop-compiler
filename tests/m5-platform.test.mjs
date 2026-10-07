@@ -197,7 +197,8 @@ test('layout reads and scrolling lower to element built-ins; unsupported shapes 
     ['list.scrollTo({ top: 0 })', "list.scrollTo({ top: 0, behavior: 'smooth' })"],
     [
       "mid.scrollIntoView({ block: 'nearest' })",
-      "mid.scrollIntoView({ block: wide ? 'start' : 'end' })",
+      // (A union of alignments is covered, M6: a string is not.)
+      "mid.scrollIntoView({ block: String(wide ? 'start' : 'end') })",
     ],
     ['list.scrollBy(0, 33.5)', 'list.scrollBy({ top: 1, extra: 2 } as ScrollToOptions)'],
   ])

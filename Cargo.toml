@@ -79,6 +79,11 @@ servo_arc = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = 
 to_shmem = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
 to_shmem_derive = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
 
+# The Taffy fork (docs/BLITZ-GAPS.md): Blitz's Taffy revision plus a
+# percentage flex basis against an indefinite main size used as `content`.
+[patch."https://github.com/DioxusLabs/taffy"]
+taffy = { git = "file:///home/viktor/Development/RunicArtifex/taffy", rev = "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb" }
+
 [profile.dev]
 debug = 0
 

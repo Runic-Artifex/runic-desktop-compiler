@@ -3316,7 +3316,7 @@ dependencies = [
 [[package]]
 name = "taffy"
 version = "0.14.0"
-source = "git+https://github.com/DioxusLabs/taffy?rev=ceb7443d386fc5cc67a1f72b51f7bf505439dff8#ceb7443d386fc5cc67a1f72b51f7bf505439dff8"
+source = "git+file:///home/viktor/Development/RunicArtifex/taffy?rev=e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb#e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb"
 dependencies = [
  "serde",
  "slotmap",

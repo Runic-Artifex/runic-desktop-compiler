@@ -312,6 +312,14 @@ pub struct Styles {
 #[serde(deny_unknown_fields)]
 pub struct StyleGuard {
     pub selector: String,
+    /// The rules overriding the declaration: elements they match are not
+    /// guarded (M6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unless: Option<String>,
+    /// `"scroll-target"`: reported once a guarded element is scrolled into
+    /// view, the only thing the declaration affects (M6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
     pub message: String,
 }
 

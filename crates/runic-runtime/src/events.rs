@@ -979,11 +979,14 @@ fn counted(p: &BlitzPointerEvent, clicks: u32) -> EventData {
     d
 }
 
-fn key_data(k: &BlitzKeyEvent) -> EventData {
+/// A key event's data at `target` (`isComposing`: the target is a text
+/// control composing; Blitz's own flag is never set).
+fn key_data(k: &BlitzKeyEvent, doc: &BaseDocument, target: Option<NodeId>) -> EventData {
     let mut d = EventData {
         key: k.key.to_string().as_str().into(),
         code: k.code.to_string().as_str().into(),
         repeat: k.is_auto_repeating,
+        composing: target.is_some_and(|t| controls::composing(doc, t)),
         ..Default::default()
     };
     modifiers(&mut d, k.modifiers);
@@ -1664,7 +1667,12 @@ impl<A: App> EventHandler for Handler<'_, A> {
         // actions; a cancelled keydown has none (no text insertion,
         // activation or focus navigation).
         if let DomEventData::KeyDown(k) = &event.data {
-            let e = self.fire(doc, chain, Event::Keydown, key_data(k));
+            let e = self.fire(
+                doc,
+                chain,
+                Event::Keydown,
+                key_data(k, doc, chain.first().copied()),
+            );
             if Self::cancelled(&e) {
                 state.prevent_default();
                 *self.space_target = None;
@@ -1747,7 +1755,8 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 self.boundary(doc, p);
                 self.pointer.suppress_mouse = false;
                 // Cancelling pointerdown suppresses the mouse events up to
-                // mouseup but not the default actions (focus).
+                // mouseup and mousedown's default actions (focus stays:
+                // Chromium 153, bits-ui's Select items).
                 let e = self.fire(doc, chain, Event::Pointerdown, pointer_data(p));
                 self.pointer.suppress_mouse = Self::cancelled(&e);
             }
@@ -1783,7 +1792,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                         counted(p, self.pointer.clicks),
                     )
                 };
-                if Self::cancelled(&e) {
+                if Self::cancelled(&e) || self.pointer.suppress_mouse {
                     // Focus stays where it is (the menu and popover pattern).
                     state.prevent_default();
                 } else {
@@ -1999,7 +2008,12 @@ impl<A: App> EventHandler for Handler<'_, A> {
             }
             DomEventData::KeyDown(_) => {}
             DomEventData::KeyUp(k) => {
-                let e = self.fire(doc, chain, Event::Keyup, key_data(k));
+                let e = self.fire(
+                    doc,
+                    chain,
+                    Event::Keyup,
+                    key_data(k, doc, chain.first().copied()),
+                );
                 let space = k.key == Key::Character(" ".into());
                 let target = focused_button.or(focused_checkbox);
                 if space && target.is_some() {

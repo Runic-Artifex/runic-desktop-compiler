@@ -12,6 +12,7 @@
 //!   and the timeline follows the timers' clock.
 
 use blitz_dom::BaseDocument;
+use blitz_traits::node_id::NodeId;
 use std::cell::Cell;
 use std::time::Instant;
 
@@ -54,28 +55,63 @@ pub(crate) fn resolve(doc: &mut BaseDocument) {
     check_style_guards(doc);
 }
 
+type Guard = (&'static str, &'static str, &'static str, &'static str);
+
 thread_local! {
     /// The style guards of the document not yet reported (`App::STYLE_GUARDS`).
-    static STYLE_GUARDS: std::cell::RefCell<Vec<(&'static str, &'static str)>> =
+    static STYLE_GUARDS: std::cell::RefCell<Vec<Guard>> =
         const { std::cell::RefCell::new(Vec::new()) };
 }
 
-pub(crate) fn set_style_guards(guards: &'static [(&'static str, &'static str)]) {
+pub(crate) fn set_style_guards(guards: &'static [Guard]) {
     STYLE_GUARDS.with(|g| *g.borrow_mut() = guards.to_vec());
 }
 
+/// The elements a guard applies to: those matching its selector that its
+/// `unless` selector (the rules overriding the declaration) does not match.
+fn guarded(doc: &BaseDocument, (selector, unless, _, _): &Guard) -> Vec<NodeId> {
+    let matched = doc.query_selector_all(selector).unwrap_or_default();
+    if unless.is_empty() || matched.is_empty() {
+        return matched.into_vec();
+    }
+    let overridden = doc.query_selector_all(unless).unwrap_or_default();
+    matched
+        .into_iter()
+        .filter(|n| !overridden.contains(n))
+        .collect()
+}
+
 /// A declaration the style engine drops applies once its rule's selector
-/// matches an element: it is reported as unsupported (once).
+/// matches an element (and the declaration is not overridden there): it is
+/// reported as unsupported (once). Guards of scroll targets wait for one
+/// (`check_scroll_target`).
 fn check_style_guards(doc: &BaseDocument) {
+    report(doc, |g| g.2.is_empty(), |_| true);
+}
+
+/// A declaration that only affects an element scrolled into view (its
+/// scroll margins), checked when `target` is.
+pub(crate) fn check_scroll_target(doc: &BaseDocument, target: NodeId) {
+    report(
+        doc,
+        |g| g.2 == "scroll-target",
+        |nodes| nodes.contains(&target),
+    );
+}
+
+fn report(doc: &BaseDocument, kind: impl Fn(&Guard) -> bool, hit: impl Fn(&[NodeId]) -> bool) {
     let matched: Vec<&'static str> = STYLE_GUARDS.with(|g| {
         let mut g = g.borrow_mut();
         let mut matched = vec![];
-        g.retain(|(selector, message)| {
-            let hit = !matches!(doc.query_selector(selector), Ok(None));
-            if hit {
-                matched.push(*message);
+        g.retain(|guard| {
+            let fired = kind(guard) && {
+                let nodes = guarded(doc, guard);
+                !nodes.is_empty() && hit(&nodes)
+            };
+            if fired {
+                matched.push(guard.3);
             }
-            !hit
+            !fired
         });
         matched
     });

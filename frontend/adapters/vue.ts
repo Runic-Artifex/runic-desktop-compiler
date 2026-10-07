@@ -59,6 +59,7 @@ import type {
   Stmt,
   Type,
   RecordType,
+  StyleGuard,
 } from '../ir.ts';
 import { EVENT_KINDS } from '../ir.ts';
 import {
@@ -283,7 +284,7 @@ interface Graph {
   entry: string;
   hash: string;
   css: string;
-  styleGuards?: { selector: string; message: string }[];
+  styleGuards?: StyleGuard[];
   assets: { path: string; sha256: string; bytes: number; mime: string }[];
   manifest: unknown;
   config: { title: string; renderer?: 'cpu' | 'gpu' };

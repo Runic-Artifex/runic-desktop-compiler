@@ -163,6 +163,9 @@ async function frameworkTooling(root, config) {
       packages: { svelte: version, '@sveltejs/vite-plugin-svelte': pluginVersion },
       extensions: ['.svelte'],
       scripts: (code, id) => svelteScripts(compiler, root, code, id),
+      // vite-plugin-svelte's virtual module of a component's `<style>`: the component file.
+      componentStyle: id =>
+        /\.svelte\?svelte&type=style&lang\.css$/.test(id) ? id.split('?')[0] : undefined,
     };
   }
   const compiler = require('@vue/compiler-sfc');

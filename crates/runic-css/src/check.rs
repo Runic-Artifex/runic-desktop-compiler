@@ -75,6 +75,37 @@ pub fn declaration_parses(name: &str, value: &str) -> bool {
     name.starts_with("--") || crate::set_property("", name, value, false).is_some()
 }
 
+/// The specificity of each selector of the selector list `selector`, as
+/// Stylo computes it for the cascade; none where Stylo does not parse it.
+pub fn specificities(selector: &str) -> Option<Vec<u32>> {
+    blitz_prefs();
+    let lock = SharedRwLock::new();
+    let contents = StylesheetContents::from_str(
+        &format!("{selector} {{}}"),
+        crate::url_data(),
+        Origin::Author,
+        &lock,
+        None,
+        None,
+        QuirksMode::NoQuirks,
+        AllowImportRules::No,
+        None,
+    );
+    let guard = lock.read();
+    let rules = contents.rules.read_with(&guard);
+    match rules.0.as_slice() {
+        [style::stylesheets::CssRule::Style(rule)] => Some(
+            rule.read_with(&guard)
+                .selectors
+                .slice()
+                .iter()
+                .map(|s| s.specificity())
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,5 +128,16 @@ mod tests {
         ));
         assert!(!declaration_parses("field-sizing", "content"));
         assert!(declaration_parses("--tw-ring", ""));
+    }
+
+    #[test]
+    fn specificities_are_stylo_s() {
+        // (Ids, classes and attributes, types: 10 bits each.)
+        assert_eq!(specificities(".a"), Some(vec![1 << 10]));
+        assert_eq!(specificities("#a, div"), Some(vec![1 << 20, 1]));
+        // `:is()` takes its most specific argument; `:where()` counts nothing.
+        assert_eq!(specificities(":is(.a > *)[x]"), Some(vec![2 << 10]));
+        assert_eq!(specificities(":where(.a) b"), Some(vec![1]));
+        assert_eq!(specificities("::-webkit-nothing"), None);
     }
 }

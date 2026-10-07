@@ -79,8 +79,8 @@ function withIR(ir, f) {
  * preferences, drops from `css` (`{line, column, message}`) and the indexes of
  * the `declarations` (`[name, value]`) it does not parse.
  */
-export function cssCheck(css, declarations) {
-  return withIR({ css, declarations }, file => JSON.parse(run(['css-check', file])));
+export function cssCheck(css, declarations, selectors = []) {
+  return withIR({ css, declarations, selectors }, file => JSON.parse(run(['css-check', file])));
 }
 
 /** Validate `ir` in the Rust backend (the authoritative schema); throws its diagnostic. */

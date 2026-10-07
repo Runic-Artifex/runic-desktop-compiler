@@ -21,6 +21,9 @@ pub struct EventData {
     pub alt: bool,
     pub meta: bool,
     pub repeat: bool,
+    /// `isComposing`: a key event at a text control while an IME
+    /// composition is in progress there.
+    pub composing: bool,
     pub client_x: f64,
     pub client_y: f64,
     pub button: f64,
@@ -130,6 +133,13 @@ impl EventData {
             "click" => Some(if self.detail > 0.0 { "mouse" } else { "" }),
             _ => None,
         }
+    }
+
+    /// `pointerId` of a pointer event: 1, the mouse's (Chromium's id for
+    /// it; the runtime has no other pointer). Other events: none (clicks
+    /// and context menus carry ids that depend on their source).
+    pub fn pointer_id(&self) -> Option<f64> {
+        self.kind.to_rust().starts_with("pointer").then_some(1.0)
     }
 }
 

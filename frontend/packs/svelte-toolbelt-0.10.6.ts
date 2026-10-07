@@ -460,13 +460,35 @@ function domContextRecord(lower: Lowerer): number {
   return record;
 }
 
-/** `new DOMContext(element)` of an element box (a getter is not covered). */
+/**
+ * `new DOMContext(element)` of an element box, or of a getter, which the
+ * constructor wraps as `boxWith(element)`.
+ */
 function newDomContext(node: ts.NewExpression, b: FnBuilder, lower: Lowerer): Expr {
   const [element] = node.arguments ?? [];
   if (!element || node.arguments!.length !== 1)
     return lower.fail(node, 'E_PACK', `${LABEL}: new DOMContext takes the element's box`);
   const record = domContextRecord(lower);
   const want = lower.types.records[record].fields[0].type;
+  if (lower.checker.getTypeAtLocation(element).getCallSignatures().length) {
+    const t: Type = { maybe: 'element' };
+    const fn = skipParens(element);
+    const get =
+      ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)
+        ? lower.closure(fn, b, 'closure', [], t)
+        : functionArg(element, b, lower, fnType([], t));
+    return {
+      op: 'record',
+      record,
+      fields: [
+        {
+          op: 'record',
+          record: (want as { record: number }).record,
+          fields: [get, { op: 'undefined', type: { maybe: fnType([t], 'void') } }],
+        },
+      ],
+    };
+  }
   const v = lower.expr(element, b);
   if (JSON.stringify(lower.irType(v, b)) !== JSON.stringify(want))
     return lower.fail(

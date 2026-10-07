@@ -3437,6 +3437,7 @@ impl<'p> Machine<'p> {
                     alt: d.alt,
                     meta: d.meta,
                     repeat: d.repeat,
+                    composing: d.composing,
                     cancelable: d.cancelable,
                     synthetic: true,
                     keyboard: true,
@@ -3459,6 +3460,7 @@ impl<'p> Machine<'p> {
                                 | "altKey"
                                 | "metaKey"
                                 | "repeat"
+                                | "isComposing"
                         ))
                     && !matches!(
                         m,
@@ -3484,6 +3486,7 @@ impl<'p> Machine<'p> {
                     "altKey" => Val::Bool(d.alt),
                     "metaKey" => Val::Bool(d.meta),
                     "repeat" => Val::Bool(d.repeat),
+                    "isComposing" => Val::Bool(d.composing),
                     "checked" => Val::Bool(d.checked),
                     "matches" => Val::Bool(d.matches),
                     "defaultPrevented" => Val::Bool(e.default_prevented()),
@@ -3492,6 +3495,15 @@ impl<'p> Machine<'p> {
                     "button" => Val::Num(d.button),
                     "buttons" => Val::Num(d.buttons),
                     "detail" => Val::Num(d.detail),
+                    "pointerId" => match d.pointer_id() {
+                        Some(id) => Val::Num(id),
+                        None => {
+                            return Err(Throw::new(
+                                "RunicUnsupportedError",
+                                "pointerId of an event that is not a pointer event",
+                            ));
+                        }
+                    },
                     "pointerType" => match d.pointer_type() {
                         Some(t) => Val::Str(JsString::from(t)),
                         None => {
@@ -6411,7 +6423,8 @@ impl<'p> Machine<'p> {
     /// first click), down, up, then the click (main button; `count`: the
     /// click count) or, after mousedown, the context menu (secondary button,
     /// as on Linux). Disabled controls get the pointer events only; a
-    /// cancelled `pointerdown` suppresses the mouse events up to `mouseup`.
+    /// cancelled `pointerdown` suppresses the mouse events up to `mouseup`
+    /// and mousedown's default actions (focus stays, Chromium 153).
     fn press(&mut self, target: u64, button: f64, count: u32, s: &mut Run) -> Result<()> {
         if count == 1 {
             self.pointer_move(target, s)?;
@@ -6441,9 +6454,11 @@ impl<'p> Machine<'p> {
         } else {
             None
         };
-        // Focus moves on mousedown unless it was cancelled: to the focusable
-        // element pressed, nowhere for anything else (disabled controls too).
-        if !mousedown.is_some_and(|e| e.default_prevented()) {
+        // Focus moves on mousedown unless it or pointerdown was cancelled: to
+        // the focusable element pressed, nowhere for anything else (disabled
+        // controls too).
+        let cancelled_down = !disabled && !compat;
+        if !cancelled_down && !mousedown.is_some_and(|e| e.default_prevented()) {
             let tree = self.render()?;
             let next = chain_nodes(&tree, target).and_then(|n| focus_target(&n));
             self.move_focus(next, s)?;

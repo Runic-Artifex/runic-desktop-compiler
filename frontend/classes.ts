@@ -2061,6 +2061,66 @@ export class Classes {
     return info.fields.find(f => f.name === text);
   }
 
+  /**
+   * Whether fields of the classes `later` can exist before `rest` (the
+   * statements of a base constructor after it first used the instance) runs:
+   * each is a literal or derived (creating it has no effect), and `rest`
+   * reaches the instance only through fields of the classes above them (in
+   * closures too, which it may call at once) or in effects, which run later.
+   */
+  private fieldsUnobserved(
+    rest: readonly ts.Statement[],
+    later: ClassInfo[],
+    info: ClassInfo,
+  ): boolean {
+    const literal = (e: ts.Expression): boolean => {
+      e = skipParens(e);
+      return (
+        ts.isStringLiteralLike(e) ||
+        ts.isNumericLiteral(e) ||
+        e.kind === ts.SyntaxKind.TrueKeyword ||
+        e.kind === ts.SyntaxKind.FalseKeyword ||
+        e.kind === ts.SyntaxKind.NullKeyword ||
+        (ts.isIdentifier(e) && e.text === 'undefined')
+      );
+    };
+    if (
+      !later.every(y =>
+        y.own.every(
+          f => isDerived(f) || (!f.param && !!f.decl?.initializer && literal(f.decl.initializer)),
+        ),
+      )
+    )
+      return false;
+    let ok = true;
+    const visit = (n: ts.Node): void => {
+      if (!ok) return;
+      // A function with its own `this`.
+      if (ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n) || ts.isClassLike(n)) return;
+      // Effects run after the constructor.
+      if (
+        ts.isCallExpression(n) &&
+        /^\$effect(\.pre)?$/.test(n.expression.getText()) &&
+        n.arguments.every(a => ts.isArrowFunction(skipParens(a)))
+      )
+        return;
+      if (n.kind === ts.SyntaxKind.SuperKeyword) ok = false;
+      if (n.kind === ts.SyntaxKind.ThisKeyword) {
+        const access = n.parent;
+        const field =
+          ts.isPropertyAccessExpression(access) &&
+          access.expression === n &&
+          !(ts.isCallExpression(access.parent) && access.parent.expression === access)
+            ? this.fieldNamed(info, access.name)
+            : undefined;
+        if (!field || later.includes(field.owner)) ok = false;
+      }
+      ts.forEachChild(n, visit);
+    };
+    rest.forEach(visit);
+    return ok;
+  }
+
   private constructorBody(
     info: ClassInfo,
     b: FnBuilder,
@@ -2252,14 +2312,23 @@ export class Classes {
     }
     // The classes below one whose constructor uses the instance declare no
     // fields: JavaScript would initialise them only after that code ran.
+    // Unless nothing can tell (bits-ui's SelectSingleRootState): each is a
+    // literal or derived, and what that constructor runs at once never
+    // reaches them (`fieldsUnobserved`); they are then in the record from
+    // the start.
     const later = chain.slice(k);
-    if (broke)
+    if (broke) {
+      const unobserved = this.fieldsUnobserved(broke.rest, later, info);
       for (const y of later)
-        if (y.own.length)
+        if (y.own.length && !unobserved)
           this.fail(
             y.own[0].node,
             `${y.name} declares fields, but the constructor of its base class ${broke.cls.name} uses this before they exist (JavaScript initialises them after super(…) returns); move that code out of the constructor, or the fields into ${broke.cls.name}`,
           );
+        else
+          for (const f of y.own)
+            if (!isDerived(f)) assign(f, lower.expr(f.decl!.initializer!, b), f.decl!);
+    }
     let rest = [...(broke?.rest ?? []), ...later.flatMap(y => [...after(y)])];
     // Methods bound into their fields later in the constructor
     // (`this.onfocus = this.onfocus.bind(this)` after `watch(…)`, bits-ui's

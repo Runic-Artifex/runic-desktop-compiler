@@ -48,6 +48,9 @@ const mime = { '.woff2': 'font/woff2' };
 // properties without effect on desktop or next to their standard property.
 const EQUIVALENT_DROPPED_RULE =
   /::?-(webkit|moz)-|\((forced-colors|prefers-contrast|prefers-reduced-motion)\b/;
+// Declarations of the legacy `display: -webkit-box` that have no effect
+// unless it applies (measured in Chromium 153).
+const WEBKIT_BOX_ONLY = new Set(['-webkit-line-clamp', '-webkit-box-orient']);
 const EQUIVALENT_DROPPED_PROPERTY = new Set([
   '-webkit-text-size-adjust',
   '-webkit-tap-highlight-color',
@@ -271,14 +274,20 @@ async function globCalls(ctx, root, id, code) {
 // Collection is deliberately independent of the React lowering adapter.
 // Modules of packages compiled from source (frontend/sources.ts) are
 // collected too, with the package they belong to.
-export function collectionPlugin(root, modules, tooling, onDiagnostic) {
+export function collectionPlugin(root, modules, tooling, onDiagnostic, componentStyles) {
   let packageModules = 0;
   return {
     name: 'runic-input-graph',
     enforce: 'pre',
     async transform(code, id) {
       try {
-        if (id.includes('?')) return;
+        if (id.includes('?')) {
+          // A component's own stylesheet (Svelte `<style>`), checked with the
+          // CSS modules below.
+          const owner = tooling.componentStyle?.(id);
+          if (owner) componentStyles?.set(id, { code, owner });
+          return;
+        }
         let source;
         if (!id.startsWith(root + path.sep) || id.includes('/node_modules/')) {
           const pkg = await owningPackage(id);
@@ -461,6 +470,7 @@ export async function collect(app) {
       );
   }
   const modules = new Map();
+  const componentStyles = new Map();
   let bundled, collectionError;
   try {
     bundled = await build({
@@ -469,9 +479,15 @@ export async function collect(app) {
       logLevel: 'silent',
       plugins: [
         ...(kit ? [kit.plugin] : []),
-        collectionPlugin(root, modules, tooling, e => {
-          collectionError = new Diagnostic(e.code, e.message, e.source);
-        }),
+        collectionPlugin(
+          root,
+          modules,
+          tooling,
+          e => {
+            collectionError = new Diagnostic(e.code, e.message, e.source);
+          },
+          componentStyles,
+        ),
         ...tooling.plugins,
       ],
       build: {
@@ -560,6 +576,14 @@ export async function collect(app) {
       moduleGuards.push(...checkWithStylo(mod.code, path.relative(root, mod.id)));
     cssParts.push(css.toString());
   }
+  // Component styles join the emitted stylesheet (checked whole with
+  // Tailwind CSS); their resources are resolved there.
+  if (!tooling.tailwind)
+    for (const [, style] of [...componentStyles].sort(([a], [b]) => a.localeCompare(b))) {
+      const label = path.relative(root, style.owner);
+      checkRules(postcss.parse(style.code, { from: style.owner }), label);
+      moduleGuards.push(...checkWithStylo(style.code, label));
+    }
   // Preserve Vite's actual entry cascade, rather than sorting source filenames.
   const emitted = bundled.output.filter(a => a.type === 'asset');
   const styles = emitted.filter(a => a.fileName.endsWith('.css'));
@@ -631,9 +655,14 @@ export async function collect(app) {
  * Report what Stylo drops from the stylesheet `code` (see EQUIVALENT_*). A
  * declaration Stylo drops from a style rule whose selectors can be matched
  * against elements (no pseudo-elements) is not rejected here: it gives a
- * guard, `{ selector, message }`, which the app reports as unsupported once
- * the selector matches an element (a library's variant the page may never
- * use). Returns the guards.
+ * guard, `{ selector, unless?, when?, message }`, which the app reports as
+ * unsupported once the selector matches an element (a library's variant the
+ * page may never use) that `unless` does not match: the later rules of the
+ * same block, of at least the rule's specificity (Stylo's), that set the
+ * property (`overriding`), so the declaration never applies there. Scroll
+ * margins only affect an element scrolled into view (the runtime's focus
+ * never scrolls; Blitz has no scroll snapping): their guards wait for that
+ * (`when: "scroll-target"`). Returns the guards.
  */
 function checkWithStylo(code, file) {
   const guards = [];
@@ -644,11 +673,34 @@ function checkWithStylo(code, file) {
   css.walkDecls(d => {
     if (d.parent?.type === 'rule') decls.push(d);
   });
+  const rules = [];
+  css.walkRules(r => {
+    rules.push(r);
+  });
   const at = (line, column) => ({ file, line, column });
   const result = cssCheck(
     code,
     decls.map(d => [d.prop, d.value]),
+    rules.map(r => fullSelectors(r).join(', ')),
   );
+  const invalid = new Set(result.invalid.map(i => decls[i]));
+  const specificity = new Map(rules.map((r, i) => [r, result.specificity?.[i] ?? null]));
+  /** The selectors of the rules overriding `d` (see above), joined; undefined without any. */
+  const overriding = d => {
+    const rule = d.parent;
+    const own = specificity.get(rule);
+    if (d.important || !own?.length) return undefined;
+    const max = Math.max(...own);
+    const later = rules
+      .slice(rules.indexOf(rule) + 1)
+      .filter(
+        r =>
+          r.parent === rule.parent &&
+          specificity.get(r)?.every(x => x >= max) &&
+          r.nodes.some(x => x.type === 'decl' && x.prop === d.prop && !invalid.has(x)),
+      );
+    return later.length ? later.map(r => fullSelectors(r).join(', ')).join(', ') : undefined;
+  };
   for (const i of result.invalid) {
     const d = decls[i];
     if (EQUIVALENT_DROPPED_PROPERTY.has(d.prop)) continue;
@@ -663,8 +715,23 @@ function checkWithStylo(code, file) {
       selectors.length &&
       !selectors.some(x => /::|:(before|after|first-line|first-letter)\b/i.test(x))
     ) {
+      // The legacy box's line clamping and orientation only apply where the
+      // rule's `display: -webkit-box` does (Chromium 153: with a block, flex
+      // or grid display winning they have no effect).
+      const box =
+        WEBKIT_BOX_ONLY.has(d.prop) &&
+        d.parent.nodes.find(
+          x => x.type === 'decl' && x.prop === 'display' && /^-webkit-(inline-)?box$/.test(x.value),
+        );
+      const unless = box
+        ? overriding(box)
+        : WEBKIT_BOX_ONLY.has(d.prop)
+          ? undefined
+          : overriding(d);
       guards.push({
         selector: selectors.join(', '),
+        ...(unless ? { unless } : {}),
+        ...(/^scroll-margin(-|$)/.test(d.prop) ? { when: 'scroll-target' } : {}),
         message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}), which Blitz's style engine (Stylo) does not support, applies to an element matching ${rule}`,
       });
       continue;

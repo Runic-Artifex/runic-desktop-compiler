@@ -310,11 +310,11 @@ ${sites}
     ),
   );
   // Only elements: the default never applies, so the prop holds an element,
-  // which the nullable \`el\` (narrowed by the block, which the lowering does
-  // not see) is not.
-  await withApp(files('{#if el}<Target to={el} />{/if}'), root =>
-    assert.rejects(lowered(root), failWith('E_PROPS', 'App.svelte', /may be null or undefined/)),
-  );
+  // which the nullable `el` is where `{#if el}` narrowed it (M6).
+  await withApp(files('{#if el}<Target to={el} />{/if}'), async root => {
+    const { ir } = await lowered(root);
+    assert.match(JSON.stringify(interpret(ir, []).at(-1).state.dom), /"element"/);
+  });
 });
 
 test('untyped helpers: function literals typed by their use, curried helpers, presence tests', async () => {

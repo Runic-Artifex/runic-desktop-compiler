@@ -11,6 +11,11 @@ fn editor(doc: &BaseDocument, id: NodeId) -> Option<&blitz_dom::node::TextInputD
     doc.get_node(id)?.element_data()?.text_input_data()
 }
 
+/// Whether a text control has an IME composition in progress.
+pub fn composing(doc: &BaseDocument, id: NodeId) -> bool {
+    editor(doc, id).is_some_and(|e| e.editor.raw_compose().is_some())
+}
+
 pub fn has_editor(doc: &BaseDocument, id: NodeId) -> bool {
     editor(doc, id).is_some()
 }

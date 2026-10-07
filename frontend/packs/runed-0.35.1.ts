@@ -24,6 +24,9 @@
 //   typed port compiled in place of the package's module
 //   (runed-0.35.1/element-size.svelte.ts, which says how it observes).
 //
+// - `Previous` (dist/utilities/previous/previous.svelte.js): a typed port
+//   of the package's class (runed-0.35.1/previous.svelte.ts).
+//
 // Other exports (`watchOnce`, `IsMounted`, …) and shapes are rejected
 // (E_PACK).
 import ts from 'typescript';
@@ -456,6 +459,13 @@ export const runedPack: Pack = {
         'runed-0.35.1/element-size.svelte.ts',
       ),
     },
+    {
+      module: 'dist/utilities/previous/previous.svelte.js',
+      file: path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        'runed-0.35.1/previous.svelte.ts',
+      ),
+    },
   ],
   export(pkg, imported) {
     if (pkg.subpath !== '.') return `${LABEL} covers the main module, not ${pkg.subpath}`;
@@ -470,8 +480,9 @@ export const runedPack: Pack = {
       case 'watch':
         return { kind: 'function', call: watch('post'), methods: { pre: watch('pre') } };
       case 'ElementSize':
+      case 'Previous':
         return { kind: 'ported' };
     }
-    return `${LABEL} covers Context, watch (watch.pre) and ElementSize, not ${imported}`;
+    return `${LABEL} covers Context, watch (watch.pre), ElementSize and Previous, not ${imported}`;
   },
 };

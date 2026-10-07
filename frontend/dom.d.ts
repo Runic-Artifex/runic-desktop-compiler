@@ -9,6 +9,13 @@ interface HTMLElement {
   /** M6 overlays: a click nested in the script; `select()` the text of a text control. */
   click(): void;
   select(): void;
+  /**
+   * M6 (bits-ui's Select trigger): no pointer is ever captured natively
+   * (`setPointerCapture` is unsupported; the mouse is not captured
+   * implicitly), so this is false and releasing is reported unsupported.
+   */
+  hasPointerCapture(pointerId: number): boolean;
+  releasePointerCapture(pointerId: number): void;
   // Layout reads and scrolling (CSSOM View), from the native layout.
   getBoundingClientRect(): DOMRect;
   /** M6 (bits-ui's floating layer): the element's border boxes (none without a box). */
@@ -280,6 +287,7 @@ interface KeyboardEvent extends UIEvent {
   readonly altKey: boolean;
   readonly metaKey: boolean;
   readonly repeat: boolean;
+  readonly isComposing: boolean;
 }
 interface MouseEvent extends UIEvent {
   readonly clientX: number;
@@ -291,7 +299,10 @@ interface MouseEvent extends UIEvent {
   readonly altKey: boolean;
   readonly metaKey: boolean;
 }
-interface PointerEvent extends MouseEvent {}
+interface PointerEvent extends MouseEvent {
+  /** 1, the mouse's (the runtime's only pointer). */
+  readonly pointerId: number;
+}
 interface FocusEvent extends UIEvent {
   readonly relatedTarget: HTMLElement | null;
 }
