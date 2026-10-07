@@ -1,0 +1,262 @@
+/*
+ * The shadcn-svelte theme for the vendored components: the light theme
+ * variables and base layer of the site's src/app.css, and the rules of the
+ * default style (src/lib/registry/styles/style-vega.css, imported there into
+ * the base layer) for Button and Dropdown Menu, with
+ * shadcn-svelte's custom variants, at the pinned commit
+ * (conformance/corpus/north-star.json). MIT licence: lib/LICENSE.md.
+ *
+ * The overlay's and content's open and close animations are the site's:
+ * tw-animate-css (its utilities, the version the site pins).
+ *
+ * As in fixture shadcn-basics-svelte, the Button base's `transition-all` is
+ * kept out of Tailwind's generation (the browser reference renders the same
+ * stylesheet as the native build).
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@source not inline("transition-all");
+@source not inline("fill-foreground");
+
+@custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: RunicFixture;
+  src: url("../assets/DejaVuSans.woff2") format("woff2");
+  font-weight: 100 900;
+}
+
+@theme inline {
+  --font-sans: RunicFixture;
+  --font-heading: RunicFixture;
+  --radius: 0.625rem;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0% 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0% 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0% 0 0);
+  --primary: oklch(0% 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.97 0.01 17);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+}
+
+/*
+ * The custom variants of shadcn-svelte's tailwind.css (packages/cli/src/
+ * tailwind.css, shadcn-svelte 1.7.0, imported by the site's app.css), which
+ * the registry's classes use (data-open:, data-horizontal:, …).
+ */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  .cn-font-heading {
+    @apply font-heading;
+  }
+
+  .style-vega {
+    /* MARK: Button */
+    .cn-button {
+      @apply focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 rounded-md border border-transparent bg-clip-padding text-sm font-medium focus-visible:ring-3 aria-invalid:ring-3 active:not-aria-[haspopup]:translate-y-px [&_svg:not([class*='size-'])]:size-4;
+    }
+
+    .cn-button-variant-default {
+      @apply bg-primary text-primary-foreground hover:bg-primary/80;
+    }
+
+    .cn-button-variant-outline {
+      @apply border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground shadow-xs;
+    }
+
+    .cn-button-variant-secondary {
+      @apply bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground;
+    }
+
+    .cn-button-variant-ghost {
+      @apply hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground;
+    }
+
+    .cn-button-variant-destructive {
+      @apply bg-destructive/10 hover:bg-destructive/20 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/20 text-destructive focus-visible:border-destructive/40 dark:hover:bg-destructive/30;
+    }
+
+    .cn-button-variant-link {
+      @apply text-primary underline-offset-4 hover:underline;
+    }
+
+    .cn-button-size-xs {
+      @apply h-6 gap-1 rounded-[min(var(--radius-md),8px)] px-2 text-xs in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3;
+    }
+
+    .cn-button-size-sm {
+      @apply h-8 gap-1 rounded-[min(var(--radius-md),10px)] px-2.5 in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5;
+    }
+
+    .cn-button-size-default {
+      @apply h-9 gap-1.5 px-2.5 in-data-[slot=button-group]:rounded-md has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2;
+    }
+
+    .cn-button-size-lg {
+      @apply h-10 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2;
+    }
+
+    .cn-button-size-icon-xs {
+      @apply size-6 rounded-[min(var(--radius-md),8px)] in-data-[slot=button-group]:rounded-md [&_svg:not([class*='size-'])]:size-3;
+    }
+
+    .cn-button-size-icon-sm {
+      @apply size-8 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-md;
+    }
+
+    .cn-button-size-icon {
+      @apply size-9;
+    }
+
+    .cn-button-size-icon-lg {
+      @apply size-10;
+    }
+
+    /* MARK: Dropdown Menu */
+    .cn-dropdown-menu-content {
+      @apply data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 ring-foreground/10 bg-popover text-popover-foreground min-w-32 rounded-md p-1 shadow-md ring-1 duration-100;
+    }
+
+    .cn-dropdown-menu-content-logical {
+      @apply data-[side=inline-start]:slide-in-from-right-2 data-[side=inline-end]:slide-in-from-left-2;
+    }
+
+    .cn-dropdown-menu-item {
+      @apply focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:text-destructive not-data-[variant=destructive]:focus:**:text-accent-foreground gap-2 rounded-sm px-2 py-1.5 text-sm data-inset:pl-8 [&_svg:not([class*='size-'])]:size-4;
+    }
+
+    .cn-dropdown-menu-checkbox-item {
+      @apply focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm data-inset:pl-8 [&_svg:not([class*='size-'])]:size-4;
+    }
+
+    .cn-dropdown-menu-radio-item {
+      @apply focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm data-inset:pl-8 [&_svg:not([class*='size-'])]:size-4;
+    }
+
+    .cn-dropdown-menu-item-indicator {
+      @apply absolute right-2 flex items-center justify-center;
+    }
+
+    .cn-dropdown-menu-label {
+      @apply text-muted-foreground px-2 py-1.5 text-xs font-medium data-inset:pl-8;
+    }
+
+    .cn-dropdown-menu-separator {
+      @apply bg-border -mx-1 my-1 h-px;
+    }
+
+    .cn-dropdown-menu-shortcut {
+      @apply text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground ml-auto text-xs tracking-widest;
+    }
+
+    .cn-dropdown-menu-sub-trigger {
+      @apply focus:bg-accent focus:text-accent-foreground data-open:bg-accent data-open:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground gap-2 rounded-sm px-2 py-1.5 text-sm data-inset:pl-8 [&_svg:not([class*='size-'])]:size-4;
+    }
+
+    .cn-dropdown-menu-sub-content {
+      @apply data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 data-closed:zoom-out-95 data-open:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 ring-foreground/10 bg-popover text-popover-foreground min-w-[96px] rounded-md p-1 shadow-lg ring-1 duration-100;
+    }
+
+    .cn-dropdown-menu-subcontent {
+      @apply shadow-lg;
+    }
+  }
+}

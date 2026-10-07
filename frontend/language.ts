@@ -426,7 +426,7 @@ export class Lowerer {
     types.narrow = (parts, at, fail) => this.unions.member(parts, at, fail);
     types.nothingSlot = decl => this.unions.nothingSlot(decl);
     types.nothingInBoxes = decl => this.unions.nothingInBoxes(decl);
-    types.anyFnSlot = decl => this.unions.anyFnSlot(decl);
+    types.anyFnSlot = (decl, box) => this.unions.anyFnSlot(decl, box);
     // Object types implemented with getters (frontend/types.ts `accessorTypes`).
     for (const sf of program.getSourceFiles()) {
       if (sf.isDeclarationFile) continue;
@@ -463,6 +463,48 @@ export class Lowerer {
    * it, no site spreads a bag into its component) and has no default.
    */
   unpassedProp?: (sym: ts.Symbol) => boolean;
+  /** Whether a source file is a component's the program never renders (the adapter's). */
+  unrenderedFile?: (fileName: string) => boolean;
+
+  /**
+   * Whether `node` is in code that never runs: in a function or method all
+   * of whose references are in components the program never renders, or in
+   * such code in turn (bits-ui's `MenuRadioGroupState.create`, called only
+   * by the radio group component, which a menu without radio items does not
+   * render). Conservative: false where unsure.
+   */
+  neverRuns(node: ts.Node, depth = 0): boolean {
+    if (depth > 4 || !this.unrenderedFile) return false;
+    let f: ts.Node | undefined = node.parent;
+    while (
+      f &&
+      !ts.isFunctionDeclaration(f) &&
+      !ts.isMethodDeclaration(f) &&
+      !ts.isConstructorDeclaration(f)
+    )
+      f = f.parent;
+    if (!f) return false;
+    const named = ts.isConstructorDeclaration(f)
+      ? (f.parent as ts.ClassDeclaration).name
+      : (f as ts.FunctionDeclaration | ts.MethodDeclaration).name;
+    if (!named || !ts.isIdentifier(named)) return false;
+    const sym = this.symbol(named);
+    if (!sym) return false;
+    let runs = false;
+    for (const sf of this.program.getSourceFiles()) {
+      if (sf.isDeclarationFile || runs) continue;
+      if (!sf.text.includes(named.text)) continue;
+      const unrendered = this.unrenderedFile(sf.fileName);
+      const visit = (n: ts.Node) => {
+        if (runs) return;
+        if (ts.isIdentifier(n) && n !== named && n.text === named.text && this.symbol(n) === sym)
+          if (!unrendered && !this.neverRuns(n, depth + 1)) runs = true;
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+    return !runs;
+  }
   /**
    * Where `this` lives for the code of a class member (method, accessor,
    * constructor, field initialiser): a local of `owner`, a `maybe` one while
@@ -1185,6 +1227,28 @@ export class Lowerer {
    * `effects` where reading them may have effects (a getter tracked as a
    * dependency): the caller evaluates them. Undefined otherwise.
    */
+  /**
+   * Whether member read `e` is a method (or a property of a function type)
+   * TypeScript declares, not optional, on every type it may come from: a
+   * function (`element.contains?.(x)` is `element.contains(x)`).
+   */
+  private declaredFunction(e: ts.PropertyAccessExpression): boolean {
+    const decls = this.checker.getSymbolAtLocation(e.name)?.declarations ?? [];
+    const t = this.checker.getTypeAtLocation(e);
+    const fn = (d: ts.Declaration) =>
+      ((ts.isMethodSignature(d) || ts.isMethodDeclaration(d)) && !d.questionToken) ||
+      ((ts.isPropertySignature(d) || ts.isPropertyDeclaration(d)) &&
+        !d.questionToken &&
+        !!d.type &&
+        ts.isFunctionTypeNode(d.type));
+    return (
+      decls.length > 0 &&
+      decls.every(fn) &&
+      t.getCallSignatures().length > 0 &&
+      this.checker.getNonNullableType(t) === t
+    );
+  }
+
   private staticTruth(
     e: ts.Expression,
     b: FnBuilder,
@@ -1256,6 +1320,14 @@ export class Lowerer {
     if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) {
       const v = this.staticTruth(e.operand, b, effects);
       return v === undefined ? undefined : !v;
+    }
+    // A method (or a property of a function type) TypeScript declares, not
+    // optional, is a function: truthy (bits-ui's `if (!element ||
+    // !element.focus) return`, also of a union of such declarations). The
+    // receiver is still read.
+    if (ts.isPropertyAccessExpression(e) && !e.questionDotToken && this.declaredFunction(e)) {
+      effects.push(e.expression);
+      return true;
     }
     // A member that holds an object (bits-ui's `!this.opts.style` of a box)
     // is truthy; it is still read.
@@ -2748,6 +2820,24 @@ export class Lowerer {
         type = { maybe: type };
         this.widened.add(sym);
       }
+      // A read of a dictionary object (bits-ui's `let itemIndex =
+      // keyToIndex[e.key]`, then `if (itemIndex === undefined) return`):
+      // undefined for keys it lacks, whatever TypeScript's index signature
+      // says; reads TypeScript narrows unwrap it.
+      if (
+        !d.type &&
+        d.initializer &&
+        ts.isElementAccessExpression(skipParens(d.initializer)) &&
+        !maybeInner(type) &&
+        this.checker
+          .getIndexInfosOfType(
+            this.checker.getTypeAtLocation(
+              (skipParens(d.initializer) as ts.ElementAccessExpression).expression,
+            ),
+          )
+          .some(i => i.keyType.flags & ts.TypeFlags.String)
+      )
+        type = { maybe: type };
       const fn =
         d.initializer &&
         (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer));
@@ -3019,6 +3109,8 @@ export class Lowerer {
   };
   /** Style records spread into style objects, with the function to write (`styleObject`). */
   private readonly styleSpreadChecks: { record: number; fn: number; at: ts.Node }[] = [];
+  /** Record spreads keeping an earlier value where the spread's is undefined (`byName`). */
+  private readonly recordSpreadChecks: { record: number; field: string; at: ts.Node }[] = [];
   /** The key order of the object literal a record expression builds (`byName`). */
   private readonly literalOrder = {
     set: (e: Expr, order: string[]) => void EXPR_TAGS.set(e, { ...EXPR_TAGS.get(e), order }),
@@ -3032,8 +3124,11 @@ export class Lowerer {
    * stands for lacks the key. Call with the finished program.
    */
   checkStyleSpreads(program: unknown): void {
-    if (!this.styleSpreadChecks.length) return;
-    const records = new Set(this.styleSpreadChecks.map(c => c.record));
+    if (!this.styleSpreadChecks.length && !this.recordSpreadChecks.length) return;
+    const records = new Set([
+      ...this.styleSpreadChecks.map(c => c.record),
+      ...this.recordSpreadChecks.map(c => c.record),
+    ]);
     const built = new Map<number, Expr[]>();
     const visit = (x: unknown) => {
       if (Array.isArray(x)) return x.forEach(visit);
@@ -3047,6 +3142,23 @@ export class Lowerer {
       for (const v of Object.values(o)) visit(v);
     };
     visit(program);
+    // Record spreads over earlier values (`byName`): the spread field is
+    // undefined only where the object lacks the key, so the earlier value
+    // stays, as in JavaScript.
+    for (const c of this.recordSpreadChecks) {
+      const r = this.types.records[c.record];
+      const i = r.fields.findIndex(f => f.name === c.field);
+      for (const e of built.get(c.record) ?? []) {
+        if (e.op !== 'record') continue;
+        const v = e.fields[i];
+        if (!(v.op === 'some' || this.absentWhenUndefined.has(v)))
+          this.fail(
+            c.at,
+            'E_OBJECT',
+            `This spread of a ${r.name} object keeps the earlier ${c.field} where the spread one is undefined, but an object may have the key ${c.field} with an undefined value (a spread copies it); whether a key exists is tracked for keys an object literal leaves out or adds by a conditional spread`,
+          );
+      }
+    }
     for (const c of this.styleSpreadChecks) {
       const r = this.types.records[c.record];
       const fail = (why: string) =>
@@ -4776,6 +4888,95 @@ export class Lowerer {
   }
 
   /** Lower `e` and widen it to `target` (T into Maybe<T>, a class instance into a class reference). */
+  /**
+   * `v` (of plain record type `t`, from `e`) as a record of type `target`
+   * whose fields are some of `t`'s, of the same types: a copy of those
+   * fields. JavaScript passes the same object; the copy behaves the same
+   * where no code replaces those fields (options holding boxes, which both
+   * share) and no code compares such objects by identity, both checked
+   * over the program by TypeScript's types of `e` and of its context.
+   */
+  private recordView(
+    e: ts.Expression,
+    v: Expr,
+    t: Type,
+    target: Type,
+    b: FnBuilder,
+  ): Expr | undefined {
+    const rec = (x: Type) => (typeof x === 'object' && 'record' in x ? x.record : undefined);
+    const from = rec(t);
+    const to = rec(target);
+    if (from === undefined || to === undefined || from === to) return undefined;
+    const rf = this.types.records[from];
+    const rt = this.types.records[to];
+    if (rf.class || rt.class || this.types.accessors.has(from) || this.types.accessors.has(to))
+      return undefined;
+    const index = rt.fields.map(f => rf.fields.findIndex(g => g.name === f.name));
+    if (
+      index.some(
+        (j, i) => j < 0 || JSON.stringify(rf.fields[j].type) !== JSON.stringify(rt.fields[i].type),
+      )
+    )
+      return undefined;
+    // The TypeScript types involved: `e`'s and the context's.
+    const loose = (x: ts.Type) => !!(x.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown));
+    const types = [this.checker.getTypeAtLocation(e), this.checker.getContextualType(e)].filter(
+      (x): x is ts.Type => !!x && !loose(x),
+    );
+    if (!types.length) return undefined;
+    const names = new Set(rt.fields.map(f => f.name));
+    const ofTypes = (x: ts.Expression) => {
+      const xt = this.checker.getTypeAtLocation(x);
+      if (loose(xt) || !(xt.flags & ts.TypeFlags.Object)) return false;
+      return types.some(
+        y => this.checker.isTypeAssignableTo(xt, y) && this.checker.isTypeAssignableTo(y, xt),
+      );
+    };
+    let unsafe: ts.Node | undefined;
+    const K = ts.SyntaxKind;
+    for (const sf of this.program.getSourceFiles()) {
+      if (sf.isDeclarationFile || unsafe) continue;
+      const visit = (n: ts.Node) => {
+        if (unsafe) return;
+        if (ts.isBinaryExpression(n)) {
+          const op = n.operatorToken.kind;
+          if (
+            op >= K.FirstAssignment &&
+            op <= K.LastAssignment &&
+            ts.isPropertyAccessExpression(n.left) &&
+            names.has(n.left.name.text) &&
+            ofTypes(n.left.expression)
+          )
+            unsafe = n;
+          if (
+            [
+              K.EqualsEqualsEqualsToken,
+              K.ExclamationEqualsEqualsToken,
+              K.EqualsEqualsToken,
+              K.ExclamationEqualsToken,
+            ].includes(op) &&
+            (ofTypes(n.left) || ofTypes(n.right))
+          )
+            unsafe = n;
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(sf);
+    }
+    if (unsafe) return undefined;
+    const local = b.local('$view', t);
+    return {
+      op: 'with',
+      local,
+      value: v,
+      body: {
+        op: 'record',
+        record: to,
+        fields: index.map(j => ({ op: 'get', object: { op: 'local', local }, field: j }) as Expr),
+      },
+    };
+  }
+
   coerce(e: ts.Expression, b: FnBuilder, target: Type): Expr {
     // A `null` or `undefined` literal where a nullable value is expected:
     // that value of the target type (its own type, only null, has none).
@@ -4803,6 +5004,11 @@ export class Lowerer {
     }
     const v = this.expr(e, b);
     const t = this.irType(v, b);
+    // A record where a record of some of its fields is expected (bits-ui's
+    // `new MenuItemSharedState(opts, …)` of the combined item options): a
+    // view of those fields (`recordView`).
+    const view = this.recordView(e, v, t, target, b);
+    if (view) return view;
     // An event's `currentTarget` where an element is expected (bits-ui's
     // `isFocusVisible(e.currentTarget)` in a listener, where it is the
     // listener's element): null after the dispatch, a TypeError as soon as
@@ -5092,6 +5298,32 @@ export class Lowerer {
       if (maybeInner(declared) && this.knownPresent(id)) return { op: 'unwrap', value: e };
       const own = this.symbol(id);
       if (own && this.widened.has(own)) return e;
+      // (An operand of a comparison with null or undefined: the test reads
+      // the value as it is, `itemIndex === undefined`.)
+      {
+        let at: ts.Node = id;
+        while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+        const p = at.parent;
+        const K = ts.SyntaxKind;
+        const nullish = (x: ts.Expression) => {
+          x = skipParens(x);
+          return (
+            x.kind === K.NullKeyword ||
+            (ts.isIdentifier(x) && x.text === 'undefined' && !this.binding(x))
+          );
+        };
+        if (
+          ts.isBinaryExpression(p) &&
+          [
+            K.EqualsEqualsEqualsToken,
+            K.ExclamationEqualsEqualsToken,
+            K.EqualsEqualsToken,
+            K.ExclamationEqualsToken,
+          ].includes(p.operatorToken.kind) &&
+          (nullish(p.left) || nullish(p.right))
+        )
+          return e;
+      }
       // (An attribute bag is not narrowed: TypeScript's type of merged
       // props says nothing about it.)
       if (declared === 'attrs') return e;
@@ -5529,7 +5761,8 @@ export class Lowerer {
         global === 'Element' ||
         global === 'Node' ||
         global === 'SVGElement' ||
-        global === 'Document'
+        global === 'Document' ||
+        global === 'HTMLInputElement'
       ) {
         const v = this.expr(e.left, b);
         const t = this.irType(v, b);
@@ -5546,6 +5779,25 @@ export class Lowerer {
         });
         const test = (x: Expr): Expr => {
           if (global === 'HTMLElement') return is('isHTML', x);
+          // (An input: an HTML element named `input`, bits-ui's isSelectableInput.)
+          if (global === 'HTMLInputElement') {
+            const local = b.local('$element', 'element');
+            const read: Expr = { op: 'local', local };
+            return {
+              op: 'with',
+              local,
+              value: x,
+              body: {
+                op: 'and',
+                left: is('isHTML', read),
+                right: {
+                  op: 'eq',
+                  left: { op: 'builtin', name: 'element.localName', args: [read], type: STRING },
+                  right: { op: 'lit', value: 'input' },
+                },
+              },
+            };
+          }
           if (global === 'Document') return is('isDocument', x);
           if (global === 'Element') return is('isElement', x);
           const local = b.local('$element', 'element');
@@ -5593,6 +5845,30 @@ export class Lowerer {
           name: 'event.instance-of',
           args: [v, { op: 'lit', value: owner }],
           type: BOOLEAN,
+        };
+      }
+    }
+    // `"select" in element` (bits-ui's isSelectableInput): inputs and text
+    // areas have select().
+    if (op === K.InKeyword && ts.isStringLiteralLike(e.left) && e.left.text === 'select') {
+      const v = this.expr(e.right, b);
+      if (this.irType(v, b) === 'element') {
+        const local = b.local('$element', 'element');
+        const name: Expr = {
+          op: 'builtin',
+          name: 'element.localName',
+          args: [{ op: 'local', local }],
+          type: STRING,
+        };
+        return {
+          op: 'with',
+          local,
+          value: v,
+          body: {
+            op: 'or',
+            left: { op: 'eq', left: name, right: { op: 'lit', value: 'input' } },
+            right: { op: 'eq', left: name, right: { op: 'lit', value: 'textarea' } },
+          },
         };
       }
     }
@@ -7181,9 +7457,16 @@ export class Lowerer {
       if (this.overrides.has(cur)) break;
       // (A base an enclosing `?.` already substituted; not another
       // override, such as a constructor's early field value.)
+      // (A `?.` call of a declared method is a plain call.)
+      const plainCall =
+        ts.isCallExpression(cur) &&
+        ts.isPropertyAccessExpression(cur.expression) &&
+        !cur.expression.questionDotToken &&
+        this.declaredFunction(cur.expression);
       if (
         'questionDotToken' in cur &&
         cur.questionDotToken &&
+        !plainCall &&
         !this.overrides.get(cur.expression)?.link
       )
         found = cur;
@@ -8206,11 +8489,35 @@ export class Lowerer {
       type,
     });
     switch (method) {
-      case 'focus':
-      case 'blur':
-        if (e.arguments.length)
-          this.fail(e.arguments[0], 'E_CALL', `${method}() options are unsupported`);
+      // `select()` (bits-ui's focus helper): the text of a text control.
+      case 'select':
+      // `click()` (bits-ui's menu items on Enter): a click nested in the script.
+      case 'click':
+        if (e.arguments.length) this.fail(e, 'E_CALL', `${method}() takes no arguments`);
         return call(method, [], 'void');
+      case 'focus':
+      case 'blur': {
+        // `focus({ preventScroll: true })` (bits-ui's focus helper): the
+        // runtime's focus never scrolls the element into view.
+        const [options, ...more] = e.arguments;
+        const o = options && skipParens(options);
+        const preventScroll =
+          method === 'focus' &&
+          !!o &&
+          !more.length &&
+          ts.isObjectLiteralExpression(o) &&
+          o.properties.length === 1 &&
+          ts.isPropertyAssignment(o.properties[0]) &&
+          o.properties[0].name.getText() === 'preventScroll' &&
+          o.properties[0].initializer.kind === ts.SyntaxKind.TrueKeyword;
+        if (e.arguments.length && !preventScroll)
+          this.fail(
+            e.arguments[0],
+            'E_CALL',
+            `${method}() options are unsupported (focus({ preventScroll: true }) is covered)`,
+          );
+        return call(method, [], 'void');
+      }
       // (Untyped JavaScript: the result type frontend/dom.d.ts declares.)
       case 'getBoundingClientRect':
       case 'getClientRects':
@@ -8292,6 +8599,14 @@ export class Lowerer {
       // Listeners added by script (M6 overlays: floating-ui's autoUpdate
       // listens for its overflow ancestors' `scroll`), identified by their
       // function value as in the browser.
+      // An event created by script dispatched at the element (M6 overlays:
+      // bits-ui's `MenuOpenEvent.dispatch(node)`): its custom listeners run.
+      case 'dispatchEvent': {
+        const [event] = e.arguments;
+        if (!event || e.arguments.length !== 1)
+          return this.fail(e, 'E_CALL', 'dispatchEvent takes an event');
+        return call('dispatchEvent', [this.coerce(event, b, 'event')], BOOLEAN);
+      }
       case 'addEventListener':
       case 'removeEventListener': {
         const [type, listener, options] = e.arguments;
@@ -8462,34 +8777,34 @@ export class Lowerer {
       const all = [...outerTypes, ...types];
       const restore = this.bindTypeParameters(g.decl, types);
       try {
-      this.function(
-        g.decl,
-        `${g.name}<${all.map(t => JSON.stringify(t)).join(',')}>`,
-        undefined,
-        g.component,
-        index,
-        all,
-        {
-          ...(want !== undefined ? { result: want } : {}),
-          ...(outer ? { outer: outer.params } : {}),
-          ...(inline.size
-            ? {
-                inline: new Map(
-                  [...inline].map(([i, fn]) => [
-                    i + (outer?.params.length ?? 0),
-                    {
-                      kind: 'generic' as const,
-                      decl: fn,
-                      name: `${g.name}.${g.decl.parameters[i].name.getText()}`,
-                      component: g.component,
-                      specs: new Map<string, number>(),
-                    },
-                  ]),
-                ),
-              }
-            : {}),
-        },
-      );
+        this.function(
+          g.decl,
+          `${g.name}<${all.map(t => JSON.stringify(t)).join(',')}>`,
+          undefined,
+          g.component,
+          index,
+          all,
+          {
+            ...(want !== undefined ? { result: want } : {}),
+            ...(outer ? { outer: outer.params } : {}),
+            ...(inline.size
+              ? {
+                  inline: new Map(
+                    [...inline].map(([i, fn]) => [
+                      i + (outer?.params.length ?? 0),
+                      {
+                        kind: 'generic' as const,
+                        decl: fn,
+                        name: `${g.name}.${g.decl.parameters[i].name.getText()}`,
+                        component: g.component,
+                        specs: new Map<string, number>(),
+                      },
+                    ]),
+                  ),
+                }
+              : {}),
+          },
+        );
       } finally {
         restore();
       }
@@ -8501,6 +8816,46 @@ export class Lowerer {
       function: index,
       args: [...outerArgs, ...args.slice(0, g.decl.parameters.length - inline.size)],
     };
+  }
+
+  /**
+   * Whether `e` names a parameter (of a function or method) for which no
+   * call of the program passes an argument: it holds undefined (bits-ui's
+   * `listen(element, callback, options?)`, always called with two).
+   */
+  unpassedParameter(e: ts.Expression): boolean {
+    e = skipParens(e);
+    if (!ts.isIdentifier(e)) return false;
+    const decl = this.symbol(e)?.valueDeclaration;
+    if (!decl || !ts.isParameter(decl) || decl.dotDotDotToken || decl.initializer) return false;
+    const fn = decl.parent;
+    const index = fn.parameters.indexOf(decl);
+    if (this.assigned(this.symbol(e)!, fn)) return false;
+    let passed = false;
+    let called = false;
+    const visit = (n: ts.Node) => {
+      if (passed) return;
+      if (
+        (ts.isCallExpression(n) || ts.isNewExpression(n)) &&
+        this.checker.getResolvedSignature(n)?.declaration === fn
+      ) {
+        called = true;
+        if ((n.arguments?.length ?? 0) > index || n.arguments?.some(ts.isSpreadElement))
+          passed = true;
+      }
+      // (A function passed as a value may be called with it.)
+      if (
+        ts.isIdentifier(n) &&
+        !ts.isCallExpression(n.parent) &&
+        fn.name &&
+        this.symbol(n) === this.symbol(fn.name as ts.Identifier) &&
+        n !== fn.name
+      )
+        passed = true;
+      ts.forEachChild(n, visit);
+    };
+    for (const sf of this.program.getSourceFiles()) if (!sf.isDeclarationFile) visit(sf);
+    return called && !passed;
   }
 
   /** The type arguments of the generic function specialisations being lowered, by type parameter. */
@@ -8811,6 +9166,7 @@ export class Lowerer {
     }
     const argNodes = e.arguments ?? [];
     const sig = this.checker.getResolvedSignature(e);
+    const callee = sig?.getDeclaration();
     // An untyped callee (e.g. a JavaScript callback prop) has no parameter list.
     const untyped = this.checker.getTypeAtLocation(e.expression).flags & ts.TypeFlags.Any;
     if (!sig || untyped) return argNodes.map(a => this.expr(a, b));
@@ -8824,8 +9180,11 @@ export class Lowerer {
     // Parameters TypeScript types outside the value model (svelte-toolbelt's
     // `executeCallbacks(…)` result, `(...args: unknown[]) => void`) of a
     // function value whose IR type is known: its IR parameters.
+    // (Not a method, which is no value: `MenuOpenEvent.dispatch(node)`.)
+    const method = !!callee && (ts.isMethodDeclaration(callee) || ts.isMethodSignature(callee));
     if (
       plainName(e.expression) &&
+      !method &&
       sig.parameters.some(
         p => this.types.tryMap(this.checker.getTypeOfSymbolAtLocation(p, e), e) === undefined,
       )
@@ -8838,7 +9197,19 @@ export class Lowerer {
         });
     }
     return sig.parameters.flatMap((p, i) => {
-      const t = this.checker.getTypeOfSymbolAtLocation(p, e);
+      let t = this.checker.getTypeOfSymbolAtLocation(p, e);
+      // (A parameter declared of a bound type parameter, `detail?: T` of a
+      // generic class's instantiation: the binding, `TypeMapper.typeParameter`.)
+      const declared = callee && 'parameters' in callee ? callee.parameters[i]?.type : undefined;
+      if (
+        t.flags & (ts.TypeFlags.Unknown | ts.TypeFlags.Any) &&
+        declared &&
+        ts.isTypeReferenceNode(declared)
+      ) {
+        const tp = this.checker.getTypeAtLocation(declared);
+        if (tp.flags & ts.TypeFlags.TypeParameter && this.types.typeParameter?.(tp) !== undefined)
+          t = tp;
+      }
       // A rest parameter of a tuple type: one argument per item (its
       // parameters, frontend/types.ts).
       const decl = p.valueDeclaration;
@@ -9091,40 +9462,105 @@ export class Lowerer {
         type,
       };
     }
-    // new CustomEvent(type, { bubbles, cancelable }) (M6 overlays): an event
-    // created by script that is never dispatched (passed to a callback,
-    // which may cancel it).
+    // new CustomEvent(type, init) (M6 overlays): an event created by script,
+    // passed to a callback (which may cancel it) or dispatched at an element
+    // (`element.dispatchEvent`). The options are `bubbles`, `cancelable`,
+    // `composed` (no shadow roots exist: no effect) and a `detail` that holds
+    // nothing; given as an object literal or as a record (bits-ui's
+    // `{ ...this.options, detail }`).
     if (this.hostName(e.expression) === 'CustomEvent') {
       const [type, init, ...rest] = e.arguments ?? [];
       if (!type || rest.length)
         return this.fail(e, 'E_NEW', 'new CustomEvent takes a type and options');
       let cancelable: Expr = { op: 'lit', value: false };
-      if (init) {
-        const o = skipParens(init);
-        if (!ts.isObjectLiteralExpression(o))
-          return this.fail(init, 'E_NEW', 'CustomEvent options are an object literal');
-        for (const p of o.properties) {
-          const key = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
-          if (!key || !ts.isPropertyAssignment(p))
-            return this.fail(p, 'E_NEW', 'CustomEvent options have static keys');
-          if (key === 'cancelable') cancelable = this.coerce(p.initializer, b, BOOLEAN);
-          // (It is never dispatched: bubbling changes nothing.)
-          else if (
-            key === 'bubbles' &&
-            [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(
-              skipParens(p.initializer).kind,
-            )
-          ) {
-            // nothing
+      let bubbles: Expr = { op: 'lit', value: false };
+      const nothing = (v: Expr) => {
+        const t = this.irType(v, b);
+        return t === 'void' || (typeof t === 'object' && 'maybe' in t && t.maybe === 'void');
+      };
+      const o = init && skipParens(init);
+      const staticKeys =
+        o &&
+        ts.isObjectLiteralExpression(o) &&
+        o.properties.every(
+          p =>
+            (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+            ts.isIdentifier(p.name),
+        );
+      // (Values evaluated before the event is created, in order.)
+      const setups: { local: number; value: Expr }[] = [];
+      const evaluate = (value: Expr) =>
+        setups.push({ local: b.local('$option', this.irType(value, b)), value });
+      if (o && staticKeys) {
+        for (const p of (o as ts.ObjectLiteralExpression).properties) {
+          const key = (p.name as ts.Identifier).text;
+          const value = ts.isPropertyAssignment(p)
+            ? p.initializer
+            : (p as ts.ShorthandPropertyAssignment).name;
+          if (key === 'cancelable') cancelable = this.coerce(value, b, BOOLEAN);
+          else if (key === 'bubbles') bubbles = this.coerce(value, b, BOOLEAN);
+          else if (key === 'composed') evaluate(this.expr(value, b));
+          else if (key === 'detail') {
+            const v = this.expr(value, b);
+            if (!nothing(v))
+              return this.fail(
+                p,
+                'E_NEW',
+                'A CustomEvent detail other than undefined is not covered',
+              );
+            evaluate(v);
           } else return this.fail(p, 'E_NEW', `CustomEvent option ${key} is not covered`);
         }
+      } else if (init) {
+        // A record of the options: its fields (absent: false).
+        const v = this.expr(init, b);
+        const t = this.irType(v, b);
+        const record =
+          typeof t === 'object' && 'record' in t ? this.types.records[t.record] : undefined;
+        if (!record)
+          return this.fail(init, 'E_NEW', 'CustomEvent options are an object or a record of them');
+        const local = b.local('$init', t);
+        setups.push({ local, value: v });
+        const flag = (name: string): Expr | undefined => {
+          const field = record.fields.findIndex(f => f.name === name);
+          if (field < 0) return undefined;
+          const ft = record.fields[field].type;
+          const get: Expr = { op: 'get', object: { op: 'local', local }, field };
+          return maybeInner(ft)
+            ? { op: 'nullish', left: get, right: { op: 'lit', value: false } }
+            : get;
+        };
+        for (const f of record.fields)
+          if (!['bubbles', 'cancelable', 'composed', 'detail'].includes(f.name))
+            return this.fail(init, 'E_NEW', `CustomEvent option ${f.name} is not covered`);
+        const detail = record.fields.find(f => f.name === 'detail');
+        if (
+          detail &&
+          !(
+            detail.type === 'void' ||
+            (typeof detail.type === 'object' &&
+              'maybe' in detail.type &&
+              detail.type.maybe === 'void')
+          )
+        )
+          return this.fail(
+            init,
+            'E_NEW',
+            'A CustomEvent detail other than undefined is not covered',
+          );
+        cancelable = flag('cancelable') ?? cancelable;
+        bubbles = flag('bubbles') ?? bubbles;
       }
-      return {
+      const created: Expr = {
         op: 'builtin',
         name: 'event.new',
-        args: [this.coerce(type, b, STRING), cancelable],
+        args: [this.coerce(type, b, STRING), cancelable, bubbles],
         type: 'event',
       };
+      return setups.reduceRight<Expr>(
+        (body, { local, value }) => ({ op: 'with', local, value, body }),
+        created,
+      );
     }
     // new Proxy(target, handler) (bits-ui's dismissible layer wraps a
     // cancelled event): the target, then RunicUnsupportedError (a handler of
@@ -9174,7 +9610,17 @@ export class Lowerer {
         'event',
         'new PointerEvent(…) (an event created by script with pointer members)',
       );
-      for (const a of [...(e.arguments ?? [])].reverse()) {
+      // (The arguments are evaluated first; an options literal's values in order.)
+      const values = (e.arguments ?? []).flatMap(a => {
+        const o = skipParens(a);
+        if (!ts.isObjectLiteralExpression(o)) return [a];
+        return o.properties.map(p => {
+          if (ts.isPropertyAssignment(p)) return p.initializer;
+          if (ts.isShorthandPropertyAssignment(p)) return p.name;
+          return this.fail(p, 'E_NEW', 'PointerEvent options are plain properties');
+        });
+      });
+      for (const a of [...values].reverse()) {
         const v = this.expr(a, b);
         out = { op: 'with', local: b.local('$argument', this.irType(v, b)), value: v, body: out };
       }
@@ -9505,9 +9951,34 @@ export class Lowerer {
         const source = b.local('$spread', st);
         const src = this.types.records[(st as { record: number }).record];
         // Each field that exists in the source overrides earlier values.
+        // (An optional one over an earlier spread's field where the
+        // literal's type has it present, `{ ...defaults, ...options }`: the
+        // earlier value where it is undefined, which is where the object
+        // lacks the key, checked over the program, `checkStyleSpreads`.)
         record.fields.forEach((f, i) => {
           const j = src.fields.findIndex(sf => sf.name === f.name);
-          if (j >= 0) values[i] = { op: 'get', object: { op: 'local', local: source }, field: j };
+          if (j < 0) return;
+          const read: Expr = { op: 'get', object: { op: 'local', local: source }, field: j };
+          const earlier = values[i];
+          if (
+            maybeInner(src.fields[j].type) &&
+            !maybeInner(f.type) &&
+            earlier?.op === 'get' &&
+            earlier.object.op === 'local'
+          ) {
+            // (A function of fewer parameters, `noop` for `onChange`: adapted.)
+            const have = this.irType(earlier, b);
+            const right =
+              JSON.stringify(have) === JSON.stringify(f.type)
+                ? earlier
+                : (this.adaptFunction(earlier, have, f.type) ?? earlier);
+            values[i] = { op: 'nullish', left: read, right };
+            this.recordSpreadChecks.push({
+              record: (st as { record: number }).record,
+              field: f.name,
+              at: p,
+            });
+          } else values[i] = read;
         });
         spreads.push({ local: source, value: this.expr(p.expression, b) });
         continue;
@@ -10221,6 +10692,16 @@ export class Lowerer {
             field: j,
           };
           if (maybeInner(t) && !maybeInner(f.type)) v = { op: 'some', value: v };
+          // An optional field over an earlier value where the literal's
+          // type has it present (bits-ui's `{ ...defaultOptions, ...options }`):
+          // the earlier value where the spread's is undefined, which is
+          // where the object lacks the key (checked over the program,
+          // `checkStyleSpreads`).
+          const before = temps.get(f.name);
+          if (maybeInner(f.type) && !maybeInner(t) && before !== undefined) {
+            v = { op: 'nullish', left: v, right: { op: 'local', local: before } };
+            this.recordSpreadChecks.push({ record: inner.record, field: f.name, at: p });
+          }
           if (nullable) {
             const earlier = temps.get(f.name);
             v = {

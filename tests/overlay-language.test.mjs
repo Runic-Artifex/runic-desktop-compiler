@@ -579,3 +579,123 @@ test('host functions, capture listeners on the document, textContent', async () 
     },
   );
 });
+
+test('custom events: dispatched by script to listeners of a name held in a field, bubbling', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  import { on } from 'svelte/events';
+  class Dispatcher {
+    eventName: string;
+    constructor(name: string) {
+      this.eventName = name;
+    }
+    dispatch(element: HTMLElement): boolean {
+      return element.dispatchEvent(
+        new CustomEvent(this.eventName, { bubbles: true, cancelable: true }),
+      );
+    }
+    listen(element: HTMLElement, callback: () => void): () => void {
+      return on(element, this.eventName, () => callback());
+    }
+  }
+  const opened = new Dispatcher('appopen');
+  let outer = $state<HTMLElement | null>(null);
+  let inner = $state<HTMLElement | null>(null);
+  let out = $state('');
+  const log: string[] = [];
+  $effect(() => {
+    if (!outer) return;
+    return opened.listen(outer, () => log.push('heard'));
+  });
+  function run() {
+    if (inner) log.push(String(opened.dispatch(inner)));
+    out = log.join(' ');
+  }
+</script>
+
+<div id="outer" bind:this={outer}><span id="inner" bind:this={inner}>x</span></div>
+<button id="run" onclick={run}>run</button>
+<p id="out">{out}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'wait', ms: 0 },
+        { kind: 'click', id: 'run' },
+      ]);
+      const out = steps[2].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'out');
+      assert.equal(text(out), 'heard true');
+    },
+  );
+});
+
+test('click() runs the click listeners nested in the script', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  let count = $state(0);
+  let box = $state<HTMLElement | null>(null);
+</script>
+
+<div id="box" bind:this={box} onclick={() => count++}>box</div>
+<button id="run" onclick={() => box?.click()}>run</button>
+<p id="out">{count}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'run' },
+        { kind: 'click', id: 'run' },
+      ]);
+      const out = steps[2].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'out');
+      assert.equal(text(out), '2');
+    },
+  );
+});
+
+test('a record passed where a record of some of its fields is expected; dictionary reads may be undefined', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  interface Base {
+    label: string;
+  }
+  interface Full extends Base {
+    count: number;
+  }
+  function describe(o: Base): string {
+    return o.label;
+  }
+  const full: Full = { count: 2, label: 'full' };
+  const index: Record<string, number> = { a: 1 };
+  let out = $state('');
+  function run(key: string) {
+    let found = index[key];
+    if (found === undefined) {
+      out = describe(full) + ' none';
+      return;
+    }
+    out = describe(full) + ' ' + String(found + full.count);
+  }
+</script>
+
+<button id="a" onclick={() => run('a')}>a</button>
+<button id="b" onclick={() => run('b')}>b</button>
+<p id="out">{out}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'a' },
+        { kind: 'click', id: 'b' },
+      ]);
+      const out = s => steps[s].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'out');
+      assert.equal(text(out(1)), 'full 3');
+      assert.equal(text(out(2)), 'full none');
+    },
+  );
+});

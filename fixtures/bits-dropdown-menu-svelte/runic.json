@@ -1,0 +1,9 @@
+{
+  "framework": "svelte",
+  "entry": "main.js",
+  "title": "Runic bits-dropdown-menu-svelte",
+  "tailwind": true,
+  "alias": {
+    "$lib": "src/lib"
+  }
+}

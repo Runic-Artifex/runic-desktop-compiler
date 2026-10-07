@@ -1688,13 +1688,24 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
    * reported when a spread sets it).
    */
   const svelteOn = (node: ts.CallExpression, b: FnBuilder, l: Lowerer): Expr => {
-    const [el, type, handler, options, ...more] = node.arguments;
-    if (!el || !type || !handler || more.length || !ts.isStringLiteralLike(type))
+    const [el, type, handler, given, ...more] = node.arguments;
+    if (!el || !type || !handler || more.length)
       return tsFail(
         node,
         'E_EVENT',
-        'on(target, "event", handler, options?) takes a literal event name',
+        'on(target, "event", handler, options?) takes three or four arguments',
       );
+    // (Options a parameter holds that no call passes: none.)
+    const options = given && l.unpassedParameter(given) ? undefined : given;
+    // A type that is not a native event's, or one known at run time
+    // (bits-ui's `on(element, this.eventName, handler)`): a custom event
+    // listener of an element, which only `dispatchEvent` calls.
+    if (
+      !ts.isStringLiteralLike(type) ||
+      (!EVENT_KINDS.includes(type.text as HandlerEvent) &&
+        !['beforematch', 'popstate', 'hashchange', 'resize'].includes(type.text))
+    )
+      return customOn(node, el, type, handler, options, b, l);
     const kind = type.text;
     // Options: `capture` (the document's and the window's), `passive: false`
     // (the default of every event the runtime fires), `once` (reported
@@ -1854,6 +1865,64 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       function: add,
       args: element ? [e!, handler] : [handler],
     }));
+  };
+  /** `on(element, type, handler)` of a custom event type (`svelteOn`). */
+  const customOn = (
+    node: ts.CallExpression,
+    el: ts.Expression,
+    type: ts.Expression,
+    handler: ts.Expression,
+    options: ts.Expression | undefined,
+    b: FnBuilder,
+    l: Lowerer,
+  ): Expr => {
+    if (options)
+      return tsFail(options, 'E_EVENT', 'on() options are not covered for custom event types');
+    if (l.hostOf(el) || l.classes.hostField(el))
+      return tsFail(el, 'E_EVENT', 'Custom event listeners are covered on elements');
+    const e = l.expr(el, b);
+    if (l.irType(e, b) !== 'element')
+      return tsFail(el, 'E_EVENT', 'on() takes an element, the document or the window');
+    const name = l.coerce(type, b, 'string');
+    const want: Type = { fn: { params: ['event'], result: 'void' } };
+    l.expected.set(skipParens(handler), want);
+    const f = l.expr(handler, b);
+    const ft = l.irType(f, b);
+    if (
+      typeof ft !== 'object' ||
+      !('fn' in ft) ||
+      !(ft.fn.params.length === 0 || (ft.fn.params.length === 1 && ft.fn.params[0] === 'event'))
+    )
+      return tsFail(handler, 'E_EVENT', 'on() takes a listener taking the event or nothing');
+    const remover: Type = { fn: { params: [], result: 'void' } };
+    const captured = [
+      { name: 'element', type: 'element' as Type },
+      { name: 'type', type: 'string' as Type },
+      { name: 'handler', type: ft },
+    ];
+    const args: Expr[] = [0, 1, 2].map(i => ({ op: 'local', local: i }));
+    const remove = l.reserve();
+    l.functions[remove] = {
+      name: 'on$remove',
+      captures: captured,
+      params: [],
+      locals: [],
+      result: 'void',
+      body: [{ op: 'expr', value: { op: 'builtin', name: 'custom.unlisten', args, type: 'void' } }],
+    };
+    const add = l.reserve();
+    l.functions[add] = {
+      name: 'on',
+      params: captured,
+      locals: [],
+      result: remover,
+      body: [
+        { op: 'expr', value: { op: 'builtin', name: 'custom.listen', args, type: 'void' } },
+        { op: 'return', value: { op: 'closure', function: remove, captures: [0, 1, 2] } },
+      ],
+    };
+    void node;
+    return { op: 'call', function: add, args: [e, name, f] };
   };
   /**
    * `mount(Component, { target, props, context })` (svelte, M6 overlays): an
@@ -2025,6 +2094,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     };
   };
   const lower = new Lowerer(program, checker, types, hooks, tsFail, sourceOf);
+  {
+    const unrendered = new Set([...units.values()].filter(u => !u.reached).map(u => u.virtual));
+    lower.unrenderedFile = f => unrendered.has(f);
+  }
   // The script runs once per instance: its functions keep their identity.
   lower.stableFunctions = true;
   // Declarations of package modules are lowered when the program reaches them.
@@ -3351,6 +3424,68 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         if (parent === 'svg') inSvg--;
       }
     };
+    /**
+     * Whether rendering `nodes` certainly reads `sym` (a `{@const}`) before
+     * evaluating anything that may have effects: Svelte computes the
+     * `{@const}` at that first read, so evaluating it as the block renders
+     * is the same (bits-ui's `{@const finalProps = mergeProps(props,
+     * mergedProps, …)}`, read by the content's spread after the wrapper's).
+     * Effect-free here is syntactic: names, member reads, literals.
+     */
+    const readFirst = (sym: ts.Symbol, nodes: SNode[]): 'read' | 'effect' | 'none' => {
+      const reads = (e: ts.Node): boolean =>
+        (ts.isIdentifier(e) && checker.getSymbolAtLocation(e) === sym) ||
+        !!ts.forEachChild(e, c => reads(c) || undefined);
+      const pure = (e: ts.Node): boolean =>
+        ts.isIdentifier(e) ||
+        e.kind === ts.SyntaxKind.ThisKeyword ||
+        ts.isLiteralExpression(e) ||
+        ts.isNoSubstitutionTemplateLiteral(e) ||
+        [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(
+          e.kind,
+        ) ||
+        (ts.isPropertyAccessExpression(e) && pure(e.expression)) ||
+        (ts.isParenthesizedExpression(e) && pure(e.expression)) ||
+        (ts.isTemplateExpression(e) && e.templateSpans.every(t => pure(t.expression)));
+      const expression = (x: SNode): 'read' | 'effect' | 'none' => {
+        const e = exprNode(x);
+        return reads(e) ? 'read' : pure(e) ? 'none' : 'effect';
+      };
+      const walk = (list: SNode[]): 'read' | 'effect' | 'none' => {
+        for (const n of list) {
+          let r: 'read' | 'effect' | 'none' = 'none';
+          if (n.type === 'Text' || n.type === 'Comment') continue;
+          if (n.type === 'ExpressionTag') r = expression(n.expression);
+          else if (n.type === 'RegularElement') {
+            for (const a of n.attributes) {
+              const values =
+                a.type === 'Attribute'
+                  ? a.value === true
+                    ? []
+                    : (Array.isArray(a.value) ? a.value : [a.value])
+                        .filter((v: SNode) => v.type === 'ExpressionTag')
+                        .map((v: SNode) => v.expression)
+                  : a.type === 'SpreadAttribute'
+                    ? [a.expression]
+                    : null;
+              if (values === null) return 'effect';
+              for (const v of values) {
+                r = expression(v);
+                if (r !== 'none') return r;
+              }
+            }
+            r = walk(n.fragment.nodes);
+          } else if (n.type === 'IfBlock') {
+            const decided = decidedTest(u, n.test);
+            if (decided === undefined) return 'effect';
+            r = walk((decided ? n.consequent : n.alternate)?.nodes ?? []);
+          } else return 'effect';
+          if (r !== 'none') return r;
+        }
+        return 'none';
+      };
+      return walk(nodes);
+    };
     const childNodes = (fragment: SNode, parent?: string): Node[] => {
       const cleaned = clean(fragment, parent);
       // `{@const name = value}` (bits-ui's `{@const finalProps =
@@ -3374,7 +3509,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           const plain = (x: Type): boolean =>
             ['string', 'number', 'boolean', 'attrs'].includes(x as string) ||
             (typeof x === 'object' && 'maybe' in x && plain(x.maybe));
-          if (!plain(t) || !lower.effectFree(v))
+          if (
+            !plain(t) ||
+            (!lower.effectFree(v) &&
+              readFirst(
+                checker.getSymbolAtLocation(decl.name)!,
+                cleaned.filter((n: SNode) => n.type !== 'ConstTag'),
+              ) !== 'read')
+          )
             fail(
               'E_TEMPLATE',
               '{@const} is supported for text, numbers, booleans and attribute bags computed without effects',

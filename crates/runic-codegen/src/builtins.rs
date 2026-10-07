@@ -590,6 +590,11 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             t[0], t[1]
         ),
         ("element", "localName") => format!("JsString::from(cx.dom.local_name({}.0))", t[0]),
+        ("element", "select") => format!("{{ cx.dom.select_text({}.0); }}", t[0]),
+        ("element", "click") => format!(
+            "{{ let events = cx.dom.click({}.0); run_nested(cx, events); }}",
+            t[0]
+        ),
         ("element", "textContent") => format!("JsString::from(cx.dom.text_content({}.0))", t[0]),
         ("element", "contains") => format!("cx.dom.contains({}.0, {}.0)", t[0], t[1]),
         ("element", "parent") => format!(
@@ -1010,7 +1015,33 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             }
         }
         ("event", "new") => format!(
-            "js::Event::new(js::EventData {{ kind: {}, cancelable: {}, synthetic: true, ..Default::default() }})",
+            "js::Event::new(js::EventData {{ kind: {}, cancelable: {}, bubbles: {}, synthetic: true, ..Default::default() }})",
+            t[0],
+            t[1],
+            t.get(2).map_or("false", |b| b.as_str())
+        ),
+        // Custom event listeners (M6 overlays), identified by their function
+        // value, and their dispatch by script.
+        ("custom", m @ ("listen" | "unlisten")) => {
+            let find = "cx.custom_host.iter().position(|h| h.0 == node && h.1 == name && h.2 == id)";
+            if m == "unlisten" {
+                format!(
+                    "{{ let node = {}.0; let name = {}; let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if let Some(i) = {find} {{ let key = cx.custom_host.remove(i).3; cx.dom.unlisten_custom(node, key); }} }}",
+                    t[0], t[1], t[2]
+                )
+            } else {
+                let call = match &types[2] {
+                    Type::Fn(f) if f.params.is_empty() => "f(cx)",
+                    _ => "f(cx, cx.event.clone().expect(\"event context\"))",
+                };
+                format!(
+                    "{{ let node = {}.0; let name = {}; if Event::parse(&name.to_rust()).is_some() {{ runic_runtime::unsupported(&format!(\"a listener of native {{}} events added with a type known at run time\", name.to_rust())); }} else {{ let f = {}; let id = Rc::as_ptr(&f) as *const () as usize; if {find}.is_none() {{ let g: Lst = Rc::new(move |cx: &mut Cx| {{ let _ = {call}?; Ok(()) }}); let key = cx.listen(g); cx.dom.listen_custom(node, key); cx.custom_host.push((node, name, id, key)); }} }} }}",
+                    t[0], t[1], t[2]
+                )
+            }
+        }
+        ("element", "dispatchEvent") => format!(
+            "{{ let target = {}.0; let ev = {}; let name = ev.data().kind.clone(); if !ev.data().synthetic || Event::parse(&name.to_rust()).is_some() {{ runic_runtime::unsupported(&format!(\"dispatchEvent of a {{}} event\", name.to_rust())); false }} else {{ let mut path = vec![target]; if ev.data().bubbles {{ let mut n = target; while let Some(p) = cx.dom.parent_element(n) {{ path.push(p); n = p; }} }} let outer = cx.event.replace(ev.clone()); for node in path {{ let keys: Vec<u32> = cx.custom_host.iter().filter(|h| h.0 == node && h.1 == name).map(|h| h.3).collect(); for key in keys {{ if !ev.enter(js::Element(node)) {{ break; }} let l = cx.listeners.get(key as usize).cloned().flatten(); if let Some(l) = l {{ if let Err(e) = l(cx) {{ eprintln!(\"runic: uncaught exception in a listener: {{e}}\"); }} }} }} if ev.propagation_stopped() {{ break; }} }} cx.event = outer; ev.finish(); !ev.default_prevented() }} }}",
             t[0], t[1]
         ),
         ("event", "instance-of") => format!(

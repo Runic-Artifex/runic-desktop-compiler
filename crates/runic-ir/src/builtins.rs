@@ -773,9 +773,33 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         // An event created by script (M6 overlays: `new CustomEvent(type,
         // { cancelable })`), never dispatched.
         ("event", "new") => {
-            arity(args, 2, 2)?;
+            arity(args, 2, 3)?;
             expect(&args[0], &s, "type")?;
+            if let Some(bubbles) = args.get(2) {
+                expect(bubbles, &b, "bubbles")?;
+            }
             expect(&args[1], &b, "cancelable").map(|_| Event)
+        }
+        // M6 overlays (bits-ui's menu): an event created by script, of a type
+        // that is not a native event's, dispatched at an element: its
+        // listeners added by script (`custom.listen`) run at once, through
+        // the element's ancestors where it bubbles; whether it was not
+        // cancelled.
+        ("element", "dispatchEvent") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Event, "event").map(|_| b.clone())
+        }
+        // Listeners of events of other types than the native ones (a name
+        // known at run time: a native one is reported unsupported).
+        ("custom", "listen" | "unlisten") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "target")?;
+            expect(&args[1], &s, "type")?;
+            match &args[2] {
+                Fn(f) if *f.result == Void && (f.params.is_empty() || f.params == [Event]) => Ok(Void),
+                other => Err(format!("custom listeners take the event or nothing, found {}", other.name())),
+            }
         }
         // `new KeyboardEvent(type, e)` of another event (M6 overlays): a
         // copy of its key, modifiers and cancelability, never dispatched.
@@ -818,7 +842,8 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 )),
             }
         }
-        ("element", "focus" | "blur") => {
+        // `select()`: all text of a text control (others: nothing).
+        ("element", "focus" | "blur" | "select" | "click") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| Void)
         }

@@ -304,8 +304,28 @@ function bagInitializer(
   attachments: Set<string> = new Set(),
 ): boolean {
   if (!init) return false;
+  // (Also svelte-toolbelt's `mergeProps(…)`, which returns a bag: bits-ui's
+  // `props = $derived.by(() => mergeProps(this.item.props, { … }))`.)
+  const merged = (e: ts.Node): boolean =>
+    ts.isCallExpression(e) &&
+    ts.isIdentifier(e.expression) &&
+    e.expression.text === 'mergeProps' &&
+    e
+      .getSourceFile()
+      .statements.some(
+        st =>
+          ts.isImportDeclaration(st) &&
+          ts.isStringLiteral(st.moduleSpecifier) &&
+          st.moduleSpecifier.text === 'svelte-toolbelt' &&
+          !!st.importClause?.namedBindings &&
+          ts.isNamedImports(st.importClause.namedBindings) &&
+          st.importClause.namedBindings.elements.some(
+            el => el.name.text === 'mergeProps' && !el.propertyName,
+          ),
+      );
   const object = (e: ts.Node | undefined): boolean => {
     while (e && ts.isParenthesizedExpression(e)) e = e.expression;
+    if (e && merged(e)) return true;
     return (
       !!e &&
       ts.isObjectLiteralExpression(e) &&
@@ -409,15 +429,11 @@ export function annotate(
                       n.typeArguments?.length === 1 &&
                       binds(n.typeArguments[0], name)));
         const bindable = dts?.typeParameters?.every(tp =>
-          dts.parameters.some(dp => !!dp.type && !dp.dotDotDotToken && binds(dp.type, tp.name.text)),
+          dts.parameters.some(
+            dp => !!dp.type && !dp.dotDotDotToken && binds(dp.type, tp.name.text),
+          ),
         );
-        if (
-          d.signatures !== 1 ||
-          !dts?.type ||
-          !plainParams ||
-          !bindable ||
-          stmt.typeParameters
-        )
+        if (d.signatures !== 1 || !dts?.type || !plainParams || !bindable || stmt.typeParameters)
           continue;
         const local = new Set(dts.typeParameters!.map(t => t.name.text));
         const q = (n: ts.Node) => qualified(n, declared.sf!, declared.top, local);

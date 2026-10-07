@@ -7,7 +7,8 @@
 //   `setContext` (it returns `v`), `get()` its `getContext`, throwing
 //   `Error('Context "<name>" not found')` when no component above set it.
 //   The value type is the type of the values the program sets; all `set`
-//   calls must agree. The IR built-ins `context.set`/`context.get` look up
+//   calls must agree (calls in code that never runs, `Lowerer.neverRuns`,
+//   are left out). The IR built-ins `context.set`/`context.get` look up
 //   the instance and the instances whose output contains it, nearest first.
 // - `watch(source, effect, options?)` and `watch.pre`
 //   (dist/utilities/watch/watch.svelte.js): an effect (`$effect`, or
@@ -62,6 +63,9 @@ function contextConstant(
       ? lower.checker.getSymbolAtLocation(decl.name)
       : undefined;
   let type: Type | undefined;
+  // (Calls in code that never runs, `Lowerer.neverRuns`, are left out, or
+  // give the type where no other call sets it: get() then finds no value.)
+  const sets: { n: ts.CallExpression; dead: boolean }[] = [];
   for (const sf of lower.program.getSourceFiles()) {
     if (sf.isDeclarationFile) continue;
     const visit = (n: ts.Node) => {
@@ -72,19 +76,18 @@ function contextConstant(
         ts.isIdentifier(n.expression.expression) &&
         lower.symbol(n.expression.expression) === sym &&
         n.arguments[0]
-      ) {
-        const t = lower.types.of(n.arguments[0]);
-        if (type !== undefined && JSON.stringify(t) !== JSON.stringify(type))
-          lower.fail(
-            n,
-            'E_PACK',
-            `${LABEL}: context ${label} is set with values of different types`,
-          );
-        type = t;
-      }
+      )
+        sets.push({ n, dead: lower.neverRuns(n) });
       ts.forEachChild(n, visit);
     };
     visit(sf);
+  }
+  const live = sets.filter(x => !x.dead);
+  for (const { n } of live.length ? live : sets) {
+    const t = lower.types.of(n.arguments[0]);
+    if (type !== undefined && JSON.stringify(t) !== JSON.stringify(type))
+      lower.fail(n, 'E_PACK', `${LABEL}: context ${label} is set with values of different types`);
+    type = t;
   }
   const valueType = (at: ts.Node): Type =>
     type ?? lower.fail(at, 'E_PACK', `${LABEL}: context ${label} is never set`);
@@ -97,6 +100,17 @@ function contextConstant(
       set(n, b, l) {
         if (n.arguments.length !== 1) l.fail(n, 'E_PACK', `${LABEL}: set takes the value`);
         const t = valueType(n);
+        // A set in code that never runs, of another type (bits-ui's radio
+        // group under a menu without one): reported unsupported if it ran.
+        if (live.length && sets.some(x => x.n === n && x.dead)) {
+          const at = l.types.tryMap(l.checker.getTypeAtLocation(n.arguments[0]), n);
+          if (JSON.stringify(at) !== JSON.stringify(t))
+            return l.unsupportedValue(
+              'context$set',
+              t,
+              `context ${label} set with a value of another type (code the compiler found never runs)`,
+            );
+        }
         return {
           op: 'builtin',
           name: 'context.set',

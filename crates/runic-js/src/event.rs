@@ -41,9 +41,12 @@ pub struct EventData {
     /// A `MediaQueryList` change event: whether the query matches now.
     pub matches: bool,
     /// Created by script (`new CustomEvent(type, { cancelable })`, M6
-    /// overlays) and never dispatched: only its type and cancellation are
-    /// covered.
+    /// overlays): only its type, cancellation and propagation are covered
+    /// (dispatched by script with `dispatchEvent` where its type is not a
+    /// native event's).
     pub synthetic: bool,
+    /// Whether an event created by script bubbles when dispatched.
+    pub bubbles: bool,
     /// A synthetic `KeyboardEvent` initialised from another event (bits-ui's
     /// `new KeyboardEvent(e.type, e)`): its key members are covered too.
     pub keyboard: bool,

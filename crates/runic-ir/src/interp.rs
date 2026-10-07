@@ -739,6 +739,9 @@ pub struct Machine<'p> {
     /// Element listeners added by script (M6 overlays), after the
     /// template's listeners of their element.
     element_listeners: Vec<(u64, EventKind, Val)>,
+    /// Listeners of events of non-native types added by script (M6
+    /// overlays), by element and type, in registration order.
+    custom_listeners: Vec<(u64, JsString, Val)>,
     /// The visual viewport's listeners (M6 overlays).
     viewport_listeners: Vec<(EventKind, Val)>,
     /// MediaQueryList change listeners: each list (in creation order) with
@@ -1050,6 +1053,7 @@ impl<'p> Machine<'p> {
             host_listeners: vec![],
             capture_listeners: vec![],
             element_listeners: vec![],
+            custom_listeners: vec![],
             viewport_listeners: vec![],
             media_lists: vec![],
             root: runic_css::Root::with_attrs(
@@ -2834,6 +2838,31 @@ impl<'p> Machine<'p> {
                     format!("{name} needs the native layout, which the interpreter does not have"),
                 ));
             }
+            // The interpreter models no selection (input actions carry
+            // whole values): selecting the text changes nothing it observes.
+            ("element", "select") => Val::Undefined,
+            // A click nested in the script (`detail` 0); nothing inside a
+            // disabled control; activation behaviour is not covered.
+            ("element", "click") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let tree = self.last_tree.clone();
+                if let Some(nodes) = chain_nodes(&tree, e.0) {
+                    let disabled = nodes.iter().any(|n| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "select" | "textarea" | "fieldset") && attrs.contains_key("disabled")));
+                    let activates = nodes.iter().any(|n| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "input" | "button" | "select" | "textarea" | "option" | "label" | "summary") || (matches!(tag.as_str(), "a" | "area") && attrs.contains_key("href"))));
+                    if activates {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            "click() of an element with activation behaviour (a control, a label, a link or a summary)",
+                        ));
+                    }
+                    if !disabled {
+                        self.dispatch_nested(e.0, EventKind::Click, js::EventData::default(), true);
+                    }
+                }
+                Val::Undefined
+            }
             ("element", m @ ("focus" | "blur")) => {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
@@ -3297,9 +3326,88 @@ impl<'p> Machine<'p> {
             ("event", "new") => Val::Event(js::Event::new(js::EventData {
                 kind: a[0].string(),
                 cancelable: matches!(a[1], Val::Bool(true)),
+                bubbles: matches!(a.get(2), Some(Val::Bool(true))),
                 synthetic: true,
                 ..Default::default()
             })),
+            ("custom", m @ ("listen" | "unlisten")) => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let name = a[1].string();
+                if EventKind::parse(&name.to_rust()).is_some() {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        format!(
+                            "a listener of native {} events added with a type known at run time",
+                            name.to_rust()
+                        ),
+                    ));
+                }
+                let f = a[2].clone();
+                let at = self
+                    .custom_listeners
+                    .iter()
+                    .position(|g| g.0 == e.0 && g.1 == name && g.2.same(&f));
+                match (m, at) {
+                    ("listen", None) => self.custom_listeners.push((e.0, name, f)),
+                    ("unlisten", Some(i)) => {
+                        self.custom_listeners.remove(i);
+                    }
+                    _ => {}
+                }
+                Val::Undefined
+            }
+            // An event created by script dispatched at an element: its
+            // listeners run at once (the target's, then its ancestors' where
+            // it bubbles); a throwing listener is reported, the others run.
+            ("element", "dispatchEvent") => {
+                let (Val::Element(e), Val::Event(ev)) = (&a[0], &a[1]) else {
+                    panic!("validated element and event")
+                };
+                let name = ev.data().kind.clone();
+                if !ev.data().synthetic || EventKind::parse(&name.to_rust()).is_some() {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        format!("dispatchEvent of a {} event", name.to_rust()),
+                    ));
+                }
+                let mut path: Vec<u64> = match chain_nodes(&self.last_tree, e.0) {
+                    Some(nodes) => nodes
+                        .iter()
+                        .filter_map(|n| match n {
+                            VNode::Element { id, .. } => Some(*id),
+                            VNode::Text(_) => None,
+                        })
+                        .collect(),
+                    None => vec![e.0],
+                };
+                path.reverse();
+                if !ev.data().bubbles {
+                    path.truncate(1);
+                }
+                for node in path {
+                    let fs: Vec<Val> = self
+                        .custom_listeners
+                        .iter()
+                        .filter(|g| g.0 == node && g.1 == name)
+                        .map(|g| g.2.clone())
+                        .collect();
+                    for f in fs {
+                        if !ev.enter(js::Element(node)) {
+                            break;
+                        }
+                        if let Err(t) = self.call_value(&f, vec![Val::Event(ev.clone())]) {
+                            self.uncaught.push(t);
+                        }
+                    }
+                    if ev.propagation_stopped() {
+                        break;
+                    }
+                }
+                ev.finish();
+                Val::Bool(!ev.default_prevented())
+            }
             ("event", "instance-of") => {
                 let Val::Event(e) = &a[0] else {
                     panic!("validated event")

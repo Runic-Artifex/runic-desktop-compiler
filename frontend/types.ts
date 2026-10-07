@@ -52,7 +52,7 @@ export class TypeMapper {
    * typed as any function (`(...args: any[]) => any`), where they all have
    * one type (frontend/unions.ts).
    */
-  anyFnSlot?: (decl: ts.Declaration) => ts.Type | undefined;
+  anyFnSlot?: (decl: ts.Declaration, box?: boolean) => ts.Type | undefined;
   /** While a box property holding nothing is mapped: its `unknown` content. */
   private boxNothing = false;
   /** The record of MutationObservers, once a program uses one. */
@@ -260,7 +260,38 @@ export class TypeMapper {
       if (t.getProperty('__runicElement')) return 'element';
       if (t.getProperty('__runicEvent')) return 'event';
       const attrs = (t as ts.IntersectionType).types.some(p => p.getProperty('__runicAttrs'));
-      return attrs ? 'attrs' : { record: this.record(t, at) };
+      if (attrs) return 'attrs';
+      // Functions intersected (mergeProps' `((e: E) => void) &
+      // PointerEventHandler<…>` of merged handlers): the first, where the
+      // others take the same parameters and give the same result or `any`
+      // (calls resolve to the first signature).
+      const parts = (t as ts.IntersectionType).types;
+      if (
+        parts.every(
+          p => p.getCallSignatures().length === 1 && !this.checker.getPropertiesOfType(p).length,
+        )
+      ) {
+        const first = this.map(parts[0], at);
+        const fnOf = (x: Type | undefined) =>
+          typeof x === 'object' && x !== null && 'fn' in x ? x.fn : undefined;
+        const f = fnOf(first);
+        const compatible = parts.slice(1).every(p => {
+          const sig = p.getCallSignatures()[0];
+          const params = sig.parameters.map(q => this.tryMap(this.checker.getTypeOfSymbol(q), at));
+          const result = sig.getReturnType();
+          return (
+            !!f &&
+            params.length === f.params.length &&
+            params.every(
+              (q, i) => q !== undefined && JSON.stringify(q) === JSON.stringify(f.params[i]),
+            ) &&
+            (!!(result.flags & F.Any) ||
+              JSON.stringify(this.tryMap(result, at)) === JSON.stringify(f.result))
+          );
+        });
+        if (compatible) return first;
+      }
+      return { record: this.record(t, at) };
     }
     return this.fail(at, 'E_TYPE_UNSUPPORTED', `Unsupported type ${this.checker.typeToString(t)}`);
   }
@@ -283,11 +314,6 @@ export class TypeMapper {
     return this.records[r]?.fields[0]?.name === '()';
   }
 
-  /**
-   * The parameters a rest parameter of type `t` stands for, one per item: a
-   * tuple of required items, or a union of such tuples of the same item
-   * types (bits-ui's `...args: Parameters<T> | []` with T = `() => void`).
-   */
   /**
    * The type of the functions given to the property or field `node` names,
    * where TypeScript types it as any function (bits-ui's `static _cleanup?:
@@ -350,6 +376,11 @@ export class TypeMapper {
     return anyRest || !!(sig.getReturnType().flags & ts.TypeFlags.Any);
   }
 
+  /**
+   * The parameters a rest parameter of type `t` stands for, one per item: a
+   * tuple of required items, or a union of such tuples of the same item
+   * types (bits-ui's `...args: Parameters<T> | []` with T = `() => void`).
+   */
   restParams(t: ts.Type, at: ts.Node): Type[] | undefined {
     const parts = t.isUnion() ? t.types : [t];
     const items = parts.map(p => this.tupleItems(p, at));
@@ -471,7 +502,8 @@ export class TypeMapper {
           `Union ${rest.map(p => this.checker.typeToString(p)).join(' | ')} is outside the value model (M2 supports nullable types and literal unions)`,
         );
     }
-    return nullish.length ? { maybe: base } : base;
+    // (A member already nullable, a type parameter bound to `maybe<X>`: one layer.)
+    return nullish.length && !maybeInner(base) ? { maybe: base } : base;
   }
 
   private object(t: ts.ObjectType, at: ts.Node): Type {
@@ -822,8 +854,15 @@ export class TypeMapper {
         !!this.nothingInBoxes?.(decl as ts.Declaration);
       // A property typed as a function with `any` in it (bits-ui's menu
       // `onClose: AnyFn`): the type of the functions given to it.
+      // (Also a box of such a function: bits-ui's `onSelect: ReadableBox<AnyFn>`.)
+      const boxOfAnyFn = (() => {
+        const current = pt.getProperty('current');
+        return !!current && this.anyFn(this.checker.getTypeOfSymbol(current));
+      })();
       const given =
-        !nothing && decl && this.anyFn(pt) ? this.anyFnSlot?.(decl as ts.Declaration) : undefined;
+        !nothing && decl && (this.anyFn(pt) || boxOfAnyFn)
+          ? this.anyFnSlot?.(decl as ts.Declaration, boxOfAnyFn)
+          : undefined;
       if (given) pt = given;
       const outer = this.boxNothing;
       this.boxNothing = boxNothing;

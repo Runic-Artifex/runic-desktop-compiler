@@ -339,8 +339,16 @@ pub(crate) fn intersection(
         if is_root(doc, id) {
             break;
         }
-        if a.transform().as_deref().is_some() {
-            crate::unsupported("IntersectionObserver of a target under a transformed ancestor");
+        // A translation (floating-ui positions floating elements with one:
+        // a submenu's anchor) moves the ancestor's box, which `client_rect`
+        // gives as it is drawn; other transforms are not covered.
+        if let Some(t) = a.transform().as_deref() {
+            let [xx, yx, xy, yy, _, _] = t.as_coeffs();
+            if xx != 1.0 || yx != 0.0 || xy != 0.0 || yy != 1.0 {
+                crate::unsupported(
+                    "IntersectionObserver of a target under an ancestor transformed other than by a translation",
+                );
+            }
         }
         if style(doc, id, "clip-path") != "none" {
             crate::unsupported("IntersectionObserver of a target under a clip-path");
@@ -630,18 +638,35 @@ fn aligned(current: f64, port: f64, start: f64, size: f64, how: &str) -> f64 {
 /// The scroll containers around `node`, innermost first (the root
 /// element's scrolling is the viewport's).
 fn scrollers(doc: &BaseDocument, node: NodeId) -> Vec<NodeId> {
+    // Along the containing blocks: a fixed or absolutely positioned element
+    // escapes the scroll containers that do not contain it (a portalled
+    // menu under a body whose scroll is locked).
     let mut scrollers = vec![];
-    let mut parent = doc.get_node(node).and_then(|n| n.parent);
-    while let Some(p) = parent {
+    let mut current = doc.get_node(node).and_then(|n| n.containing_block());
+    while let Some(p) = current {
         if is_root(doc, p) {
             break;
         }
-        if element(doc, p).is_some() && is_scroller(doc, p) {
+        if element(doc, p).is_some() && is_scroller(doc, p) && !propagated_to_viewport(doc, p) {
             scrollers.push(p);
         }
-        parent = doc.get_node(p).and_then(|n| n.parent);
+        current = doc.get_node(p).and_then(|n| n.containing_block());
     }
     scrollers
+}
+
+/// Whether `node` is the body whose `overflow` applies to the viewport (the
+/// root element's is `visible`): it is then no scroll container itself.
+fn propagated_to_viewport(doc: &BaseDocument, node: NodeId) -> bool {
+    let Some(root) = doc.try_root_element().map(|r| r.id) else {
+        return false;
+    };
+    let body = doc.get_node(node).is_some_and(|n| {
+        n.parent == Some(root) && n.element_data().is_some_and(|e| &*e.name.local == "body")
+    });
+    body && ["overflow-x", "overflow-y"]
+        .iter()
+        .all(|p| style(doc, root, p) == "visible")
 }
 
 /// The scrollport (padding box less scrollbars) of `scroller`, or the

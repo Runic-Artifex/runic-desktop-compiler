@@ -67,17 +67,17 @@ anyrender_vello = { git = "file:///home/viktor/Development/RunicArtifex/anyrende
 anyrender_svg = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "9ddae5a464c2b32966de11c970456337ddccefc3" }
 softbuffer_window_renderer = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "9ddae5a464c2b32966de11c970456337ddccefc3" }
 wgpu_context = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "9ddae5a464c2b32966de11c970456337ddccefc3" }
-stylo = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-stylo_atoms = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-stylo_derive = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-stylo_dom = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-stylo_malloc_size_of = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-stylo_static_prefs = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-stylo_traits = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-selectors = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-servo_arc = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-to_shmem = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
-to_shmem_derive = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "d37f800e6992e5c215462736baed12aec8b97a75" }
+stylo = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+stylo_atoms = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+stylo_derive = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+stylo_dom = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+stylo_malloc_size_of = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+stylo_static_prefs = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+stylo_traits = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+selectors = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+servo_arc = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+to_shmem = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
+to_shmem_derive = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "a768a48b3228a60bdfac0665a303f3b4703112aa" }
 
 [profile.dev]
 debug = 0

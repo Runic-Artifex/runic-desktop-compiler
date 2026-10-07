@@ -1,0 +1,99 @@
+{
+  "description": "Unmodified MIT-licensed shadcn-svelte sources (licence: src/lib/LICENSE.md), copied from the north-star checkout (conformance/corpus/north-star.json) so that the fixture builds without it; tests/bits.test.mjs checks the hashes, and the files against .cache/corpus when it is fetched. The app (src/App.svelte) and its theme (src/app.css) are this repository's. bits-ui is compiled from its published package (node_modules/bits-ui at the version the north star's lockfile pins).",
+  "source": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "files": {
+    "src/lib/LICENSE.md": {
+      "upstream": "LICENSE.md",
+      "sha256": "230594c9dedb06fb0759381a520b449c1b47b0f63b95fc88ef9d7e851e2540a9"
+    },
+    "src/lib/registry/examples/dropdown-menu-demo.svelte": {
+      "upstream": "docs/src/lib/registry/examples/dropdown-menu-demo.svelte",
+      "sha256": "93685157e0529fa9c3706b9e128aa1f3f8b3e3c08a897c42be3fdd9603b15e6c"
+    },
+    "src/lib/registry/ui/button/button.svelte": {
+      "upstream": "docs/src/lib/registry/ui/button/button.svelte",
+      "sha256": "836d6b14108ce6f20ed88c6500d981c412e1d9cc8bbde02c2f64552b1c0b195c"
+    },
+    "src/lib/registry/ui/button/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/button/index.ts",
+      "sha256": "0f6b6f040d92b4153821d3f9b4d6b9cbc567247e4fda913e64c1d0fcc4a2f386"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-checkbox-group.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-checkbox-group.svelte",
+      "sha256": "96f8cf7d2ce72fd2fd4ff5e579067b1a32101abbbe5a20612aa00a69e5df205d"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-checkbox-item.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-checkbox-item.svelte",
+      "sha256": "7a873b90c9378874f16e904072ddabdcc1bdf42b19f99b06b82330778a81ce8d"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-content.svelte",
+      "sha256": "010cd1521e8ccbd4a97d66e87bc4be2bb2019f91e2e185a1e7bed3e32db71296"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-group-heading.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-group-heading.svelte",
+      "sha256": "00abee4afdf462991506e372df73cffc15005e7f9131bc883f4f555351402ccd"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-group.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-group.svelte",
+      "sha256": "75f1eaeff2b3cf25f957d7f9137d3addb409815ec480e1a3bb4036bb82e8d60c"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-item.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-item.svelte",
+      "sha256": "ae38d8c7b057984645cdf21c2404c4405a2078490f006490c200981df2eeeb6f"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-label.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-label.svelte",
+      "sha256": "a57cdefd938378f1d2cd0cfd37bcc0c3c9bdbf7f14d3d69e61d47bb6572b09de"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-portal.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-portal.svelte",
+      "sha256": "38f6abf9c1d47d2ab4912556d05845ec9ba1ee6825405adb5f8831d6a30ac08b"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-radio-group.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-radio-group.svelte",
+      "sha256": "ac025c63e0ade7c26cef7db98de2fe217208fe9387eb8bfaf97730ab3f013da2"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-radio-item.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-radio-item.svelte",
+      "sha256": "b559d506f16d9d23c692287a457fb3aabe6ad42ed8609ffe2756e4776b1b2ddd"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-separator.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-separator.svelte",
+      "sha256": "71c80f50ed3b17b78df212a4a1313e545fb4a4eeecddb3dd125e2d20abe9b3ee"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-shortcut.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-shortcut.svelte",
+      "sha256": "f3cf32739e01fd8d67a803338934e7e42893520938b9a56d4df177b9bb4b8195"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-sub-content.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-sub-content.svelte",
+      "sha256": "37fd45747e8de662c1dfd200c76b492e13e5ebfe528176322ca55ca052aa82a3"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-sub-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-sub-trigger.svelte",
+      "sha256": "34bc942dbbff4405402597d7747cebb7591b2434e4cd9218a5597bc6203a136b"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-sub.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-sub.svelte",
+      "sha256": "1208155828183ef72dc8c96ff58c90fcd5584cce28d938a23545253013cfb9c5"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu-trigger.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-trigger.svelte",
+      "sha256": "bdad1ff46fd23466dec6d1212186e9ac4e34edf862987308821956c6b24f709c"
+    },
+    "src/lib/registry/ui/dropdown-menu/dropdown-menu.svelte": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu.svelte",
+      "sha256": "d49b60f3d9832a870e5eed726d39f9c0e09abb2bc061deb1ef0dfec97aa319e5"
+    },
+    "src/lib/registry/ui/dropdown-menu/index.ts": {
+      "upstream": "docs/src/lib/registry/ui/dropdown-menu/index.ts",
+      "sha256": "843e6f031021c365665e0de10bb9862fa8dba12066336fbd3348fa0078028bcc"
+    },
+    "src/lib/utils.ts": {
+      "upstream": "docs/src/lib/registry/lib/utils.ts",
+      "sha256": "d56c48595cabedfe55b5233e04383a388eec79bd43a595bdbd36081a8342fd8c"
+    }
+  }
+}

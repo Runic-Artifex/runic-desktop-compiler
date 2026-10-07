@@ -944,7 +944,7 @@ fn is_element(doc: &BaseDocument, id: NodeId) -> bool {
     doc.get_node(id).is_some_and(|n| n.element_data().is_some())
 }
 
-fn inside_disabled(doc: &BaseDocument, chain: &[NodeId]) -> bool {
+pub(crate) fn inside_disabled(doc: &BaseDocument, chain: &[NodeId]) -> bool {
     chain.iter().any(|&n| is_disabled_control(doc, n))
 }
 

@@ -191,6 +191,10 @@ pub(crate) struct Listeners {
     /// Capture listeners of elements (attribute bag entries
     /// `on<event>capture`, M6 overlays).
     capture: HashMap<NodeId, Vec<(Event, u32)>>,
+    /// Listeners of events of non-native types added by script (M6
+    /// overlays): the app dispatches them; registered here to be freed with
+    /// their element.
+    custom: HashMap<NodeId, Vec<u32>>,
     /// Keys of listeners whose elements were removed (the app frees them).
     freed: Vec<u32>,
     /// An element that lost focus because a list move detached it.
@@ -423,6 +427,30 @@ impl Host {
         }
     }
 
+    /// A listener of a custom event type added by script (M6 overlays): its
+    /// key is released with the element.
+    pub fn listen_custom(&self, node: u64, key: u32) {
+        if let Some(mut dom) = self.dom() {
+            dom.listen_custom(NodeId::from_u64(node), key);
+        }
+    }
+
+    /// Remove a custom event listener; its key is released (unless its
+    /// element was removed, which released it).
+    pub fn unlisten_custom(&self, node: u64, key: u32) {
+        if let Some(mut dom) = self.dom() {
+            let node = NodeId::from_u64(node);
+            if dom
+                .listeners
+                .custom
+                .get(&node)
+                .is_some_and(|l| l.contains(&key))
+            {
+                dom.unlisten_custom(node, key);
+            }
+        }
+    }
+
     /// Remove a listener added by script (`removeEventListener`); its key is
     /// released. A listener of a removed element was released with it.
     pub fn unlisten_element(&self, node: u64, key: u32) {
@@ -646,6 +674,24 @@ impl Host {
     }
 
     /// `element.localName`.
+    /// `element.click()` (`click_event`): the events to run nested.
+    pub fn click(&self, node: u64) -> Vec<(runic_js::Event, Event, Vec<crate::Delivery>)> {
+        self.dom()
+            .map(|dom| click_event(&dom, NodeId::from_u64(node)))
+            .unwrap_or_default()
+    }
+
+    /// `element.select()`: selects all text of a text control.
+    pub fn select_text(&self, node: u64) {
+        if let Some(dom) = self.dom() {
+            let id = NodeId::from_u64(node);
+            if crate::controls::has_editor(dom.doc, id) {
+                dom.doc
+                    .with_text_input(id, |mut editor| editor.select_all());
+            }
+        }
+    }
+
     /// `element.textContent`: the text of its descendant text nodes.
     pub fn text_content(&self, node: u64) -> String {
         self.dom()
@@ -950,6 +996,57 @@ impl Host {
 /// A focus event at `target` with its deliveries along the current
 /// ancestor chain (bubbling kinds) or at the target: the event, its kind and
 /// the listener calls, for a nested run.
+/// `element.click()` (M6 overlays: bits-ui's menu items on Enter and
+/// Space): a click at `target`, nested in the running script (`detail` 0,
+/// cancelable, bubbling), none inside a disabled control. Elements with
+/// activation behaviour on the path (controls, labels, links, `summary`)
+/// are reported unsupported: the runtime runs only the listeners.
+pub(crate) fn click_event(
+    dom: &Dom,
+    target: NodeId,
+) -> Vec<(runic_js::Event, Event, Vec<crate::Delivery>)> {
+    let chain = crate::events::element_chain(dom.doc, target);
+    if crate::events::inside_disabled(dom.doc, &chain) {
+        return vec![];
+    }
+    let activates = chain.iter().any(|&n| {
+        let Some(node) = dom.doc.get_node(n) else {
+            return false;
+        };
+        node.element_data().is_some_and(|e| {
+            let tag = &*e.name.local;
+            matches!(
+                tag,
+                "input" | "button" | "select" | "textarea" | "option" | "label" | "summary"
+            ) || (matches!(tag, "a" | "area") && node.attr("href".into()).is_some())
+        })
+    });
+    if activates {
+        crate::unsupported(
+            "click() of an element with activation behaviour (a control, a label, a link or a summary)",
+        );
+    }
+    let kind = Event::Click;
+    let event = runic_js::Event::new(runic_js::EventData {
+        kind: kind.name().into(),
+        target: runic_js::Element(target.as_u64()),
+        cancelable: kind.cancelable(),
+        ..Default::default()
+    });
+    let mut deliveries = dom.listeners.capture_deliveries(&chain, kind, &event);
+    deliveries.extend(chain.iter().flat_map(|&n| {
+        let event = &event;
+        dom.listeners
+            .all(n, kind)
+            .map(move |listener| crate::Delivery {
+                listener,
+                event: event.clone(),
+                current: n.as_u64(),
+            })
+    }));
+    vec![(event, kind, deliveries)]
+}
+
 fn focus_event(
     dom: &Dom,
     target: NodeId,
@@ -1209,6 +1306,7 @@ impl Dom<'_> {
         let Listeners {
             map,
             capture,
+            custom,
             freed,
             ..
         } = &mut *self.listeners;
@@ -1221,6 +1319,7 @@ impl Dom<'_> {
                 {
                     freed.extend(list.into_iter().map(|(_, key)| key));
                 }
+                freed.extend(custom.remove(&gone).into_iter().flatten());
             });
     }
 
@@ -1701,6 +1800,19 @@ impl Dom<'_> {
         }
         if let Some(list) = self.listeners.capture.get_mut(&node) {
             list.retain(|(_, k)| *k != key);
+        }
+        self.listeners.freed.push(key);
+    }
+
+    /// Register the key of a custom event listener of `node` (freed with it).
+    pub fn listen_custom(&mut self, node: NodeId, handler: u32) {
+        self.listeners.custom.entry(node).or_default().push(handler);
+    }
+
+    /// Release the key of a custom event listener of `node`.
+    pub fn unlisten_custom(&mut self, node: NodeId, key: u32) {
+        if let Some(list) = self.listeners.custom.get_mut(&node) {
+            list.retain(|k| *k != key);
         }
         self.listeners.freed.push(key);
     }

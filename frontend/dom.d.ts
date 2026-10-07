@@ -6,6 +6,9 @@ interface HTMLElement {
   readonly __runicElement: true;
   focus(): void;
   blur(): void;
+  /** M6 overlays: a click nested in the script; `select()` the text of a text control. */
+  click(): void;
+  select(): void;
   // Layout reads and scrolling (CSSOM View), from the native layout.
   getBoundingClientRect(): DOMRect;
   /** M6 (bits-ui's floating layer): the element's border boxes (none without a box). */
@@ -53,6 +56,11 @@ interface HTMLElement {
   /** M6 overlays: whether the node is this element or one of its descendants. */
   contains(other: HTMLElement | null): boolean;
   requestSubmit(): void;
+  /**
+   * M6 overlays (bits-ui's menu): dispatch an event created by script, of a
+   * type that is not a native event's; whether it was not cancelled.
+   */
+  dispatchEvent(event: Event): boolean;
   // M6 overlays (floating-ui's autoUpdate): listeners added by script;
   // pointer movement too (bits-ui's submenu intent).
   addEventListener<K extends ElementScriptEvent>(
@@ -172,6 +180,8 @@ interface ScrollIntoViewOptions {
   behavior?: ScrollBehavior;
 }
 interface HTMLInputElement extends HTMLElement {}
+/** M6 overlays (bits-ui's isSelectableInput): `x instanceof HTMLInputElement` of element values. */
+declare var HTMLInputElement: { prototype: HTMLInputElement };
 interface HTMLButtonElement extends HTMLElement {}
 interface HTMLDivElement extends HTMLElement {}
 interface HTMLSpanElement extends HTMLElement {}
@@ -190,7 +200,27 @@ declare var Document: { prototype: HostDocument };
 /** The document's type where declaration files name it (svelte-toolbelt's `getDocument(…): Document`). */
 type Document = HostDocument;
 declare var Node: { prototype: Element };
-interface EventTarget {}
+/**
+ * An event target where declaration files name one (bits-ui's
+ * `CustomEventDispatcher.listen(element: EventTarget, …)`): an element value
+ * (which may stand for the document or the window as an event's target).
+ */
+interface EventTarget {
+  readonly __runicElement: true;
+}
+/** M6 overlays: an event created by script (`detail` is not covered). */
+interface CustomEvent<T = unknown> extends Event {}
+interface CustomEventInit<T = unknown> {
+  bubbles?: boolean;
+  cancelable?: boolean;
+  composed?: boolean;
+  detail?: T;
+}
+interface AddEventListenerOptions {
+  capture?: boolean;
+  once?: boolean;
+  passive?: boolean;
+}
 /**
  * An attribute bag (docs/IR.md `attrs`): attribute values, listeners and
  * attachments by name. Object literals that build one (computed keys in
@@ -234,9 +264,12 @@ declare var Event: { prototype: Event };
 /** `x instanceof SVGElement` of element values (M6 overlays). */
 interface SVGElement extends HTMLElement {}
 declare var SVGElement: { prototype: SVGElement };
-/** M6 overlays (bits-ui's focus scope): an event created by script, never dispatched. */
+/**
+ * M6 overlays (bits-ui's focus scope and menu): an event created by script,
+ * dispatched by `element.dispatchEvent` where its type is not a native one.
+ */
 declare var CustomEvent: {
-  new (type: string, init?: { bubbles?: boolean; cancelable?: boolean }): Event;
+  new <T = unknown>(type: string, init?: CustomEventInit<T>): CustomEvent<T>;
 };
 interface InputEvent extends UIEvent {}
 interface KeyboardEvent extends UIEvent {

@@ -319,7 +319,9 @@ export class Classes {
       if (
         !arg ||
         !bound ||
-        (arg.flags & ts.TypeFlags.TypeParameter && arg.symbol?.declarations?.includes(p))
+        (arg.flags & ts.TypeFlags.TypeParameter && arg.symbol?.declarations?.includes(p)) ||
+        // (`unknown` the instantiation found holds nothing, `neverPassed`.)
+        (arg.flags & ts.TypeFlags.Unknown && JSON.stringify(bound) === '{"maybe":"void"}')
       )
         return;
       const got = this.lower.types.map(arg, at);

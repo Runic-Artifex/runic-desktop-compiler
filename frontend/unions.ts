@@ -193,12 +193,13 @@ export class Unions {
   }
 
   /**
-   * The type of the functions given to the property declared by `decl`
-   * (typed as any function), where every value the program gives it is a
+   * The type of the functions (`box`: boxes of functions) given to the
+   * property declared by `decl` (typed as any function), where every value
+   * the program gives it is a
    * function of one type without `any` and nothing else may fill it (a
    * write, a spread, an untyped literal of its name); undefined otherwise.
    */
-  anyFnSlot(decl: ts.Declaration): ts.Type | undefined {
+  anyFnSlot(decl: ts.Declaration, box = false): ts.Type | undefined {
     const index = this.properties();
     const given = index.given.get(decl) ?? [];
     const name = (decl as ts.NamedDeclaration).name;
@@ -213,8 +214,13 @@ export class Unions {
     const types: ts.Type[] = [];
     // (A function value TypeScript types without `any`: a literal, or a
     // call's typed result such as `$effect.root(…)`'s cleanup.)
+    // (`box`: boxes, by the function their `current` holds; the box's type
+    // is the property's, bits-ui's `onSelect: boxWith(() => onSelect)`.)
     for (const g of given) {
-      const t = this.checker.getTypeAtLocation(skipAll(g));
+      const whole = this.checker.getTypeAtLocation(skipAll(g));
+      const current = box ? whole.getProperty('current') : undefined;
+      if (box && !current) return undefined;
+      const t = current ? this.checker.getTypeOfSymbol(current) : whole;
       const [sig, ...more] = t.getCallSignatures();
       if (!sig || more.length || this.checker.getPropertiesOfType(t).length) return undefined;
       const anyIn = (x: ts.Type) => !!(x.flags & (F.Any | F.Unknown));
@@ -223,7 +229,7 @@ export class Unions {
         sig.parameters.some(p => anyIn(this.checker.getTypeOfSymbol(p)))
       )
         return undefined;
-      types.push(t);
+      types.push(whole);
     }
     const [first] = types;
     const same = (a: ts.Type, b: ts.Type) =>
@@ -757,6 +763,11 @@ export class Unions {
         const pattern = this.propsPattern(decl.getSourceFile());
         if (pattern && pattern.rest === sym) {
           if (pattern.byKey.has(key)) return 'absent';
+          // (No site passing it at all: absent, bits-ui's `child` where every
+          // site gives content.)
+          const sites = this.sites().get(decl.getSourceFile().fileName) ?? [];
+          if (sites.length && sites.every(x => this.bagHas(x, key, depth + 1) === 'absent'))
+            return 'absent';
           return this.mayBeAbsent(decl.getSourceFile(), key, depth + 1) ? 'maybe' : 'present';
         }
       }
