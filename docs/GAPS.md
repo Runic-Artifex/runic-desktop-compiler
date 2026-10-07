@@ -12,7 +12,9 @@ gates. The [table worktree experiment](research/BLITZ-TABLES.md) fixes the origi
 table-layout gaps locally. The isolated branch accepts table tags for compiled
 integration tests; the integrated compiler still rejects them. The
 [implementation record](../conformance/results/chromium-parity.md) retains the
-new failures and shipping gates.
+new failures and shipping gates. The [font/inline continuation](../conformance/results/chromium-font-inline.md)
+records the settled-text repair, remaining focus/nested-inline paint, and font
+instance coverage.
 
 ## Detail
 

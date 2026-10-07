@@ -70,15 +70,22 @@ The next useful closures are driven by retained failures, in this order:
 
 | Gap | Evidence and owner | Next acceptance gate |
 |---|---|---|
-| CP-FONT-RANGE | Compiled table fixture declares a static face as `font-weight: 100 900`; Blitz records only the lower bound in `FontFaceOverrides`, while fontique represents a single weight | Preserve CSS face ranges through font registration/selection in the font layer; compare normal/bold/variable faces without changing fixture CSS |
+| CP-FONT-RANGE | Registration, range-aware matching/subset fallback and weight clamping are repaired in isolated Blitz/Fontique commits; 13 Fontique tests pass. This was not the table label paint cause | Keep the direct static/variable range matrix, decide the public struct-field API/semver change, then integrate reviewed pins; broader font paint remains open |
+| CP-INTRINSIC-TEXT | Fixed: sizing queries overwrote settled Parley line positions, moving table button labels outside their boxes despite correct DOM geometry | Preserve the compiled table and reduced table/flex/grid mutation/resize pixel cases; measure the retained-layout copy cost |
+| CP-TEXT-MEASURE-COST | Retaining text during intrinsic queries adds a measured mutation cost to the 100/1,000-row release benchmark | Reuse a separate scratch measurement layout or narrower retained state in the text/layout owner; require the same cache/mutation pixel regressions and before/after median/p95 measurements |
+| CP-EDITOR-FOCUS | After the label fix, compiled table failures concentrate in focused/selected text inputs; Chrome and Blitz use different outline and selection paint | Isolate focus, select-all, caret and disabled/read-only states using pinned fonts; fix UA/native-control painting with no forced blur |
+| CP-NESTED-INLINE | Nested atomic inline/button reductions retain local paint failures while geometry passes; baseline measurement can promote child sizing to PerformLayout | Compare retained child line positions and baselines across table/flex/grid intrinsic passes; keep nested failures in the oracle |
+| CP-FONT-INSTANCES | Variable-font auto optical sizing/normal-line-height states retain geometry and paint failures; static single-face synthetic bold and DPR 2 paint also fail | Resolve CSS variation precedence and optical sizing in the Blitz font bridge and metrics provider, consume synthesis in paint, then compare pinned glyph regions across DPR |
+| CP-FONT-ORDER | Both source orders of overlapping static/variable CSS face declarations retain geometry/pixel failures in `font-weights.mjs` | Preserve CSS face priority at the registration/query boundary independently of generic/system Fontique family ordering; cover overlapping ranges and resource completion order without dropping subset fallback |
 | CP-INLINE-BASELINE | `table-controls.mjs` retains a 0.5 px checkable baseline discrepancy in quirks mode; its standards variant passes geometry after fixing UA line-height inheritance | Compare primary-font struts, atomic inline ascent/descent and table middle alignment; fix Parley/Blitz metrics without mode-specific coordinate adjustments |
 | CP-ROUNDED-HIT | Fractional rounded buttons retain an edge hit discrepancy after the inline child-coordinate fix | Use Chromium's rounded-rectangle intersection model and consistent layout coordinates; keep corner hits independent of painting |
 | CP-EDITOR-WRAP | `controls.mjs` textarea after scrolling retains different wrapping and paint; authored input intrinsic widths are covered separately | Compare editor content widths, line advances and break opportunities; repair editor geometry rather than alter its text or font |
 | CP-RASTER | `glyphs.mjs`, `borders.mjs` and checked-radio crop retain local paint failures | Separate outline/hinting, coverage and dotted-stroke phase/count in their renderer owners; retain local MAE 3 across sizes/origins/DPR |
 | CP-TABLE-WPT | Practical table oracle does not cover the complete CSS table model | Add attributed anonymous-box, `empty-cells`, collapse, height distribution and border-order reductions from WPT as the app corpus needs them |
 
-The checked-in [verification record](../../conformance/results/chromium-parity.md)
-separates fixed worktree behavior, residual failures and shipping gates. None of
+The checked-in [initial verification record](../../conformance/results/chromium-parity.md)
+and [font/inline continuation](../../conformance/results/chromium-font-inline.md)
+separate fixed worktree behavior, residual failures and shipping gates. None of
 the broader P1/P4/P7 clusters is closed merely by these patches.
 
 | Batch | Gaps and app relevance | Owning modules | Completion evidence |

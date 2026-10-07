@@ -1,0 +1,714 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": {
+    "compilerImplementation": "45d0e19",
+    "compilerOverlapProbes": "789e1ef",
+    "blitz": "f0843274",
+    "parleyFontique": "2edeab7",
+    "stylo": "715f4d98b",
+    "vello": "a8efce54"
+  },
+  "gates": {
+    "geometryToleranceCSSPx": 0.125,
+    "localPixelMAE": 3
+  },
+  "direct": {
+    "originalTables": {
+      "states": 69,
+      "geometryPassed": 69,
+      "hitsPassed": 69,
+      "scrollPassed": 69,
+      "localPixelsPassed": 69,
+      "offscreenNamedCrops": 0
+    },
+    "legacyPaintControls": {
+      "states": 8,
+      "geometryPassed": 8,
+      "hitsPassed": 8,
+      "scrollPassed": 8,
+      "localPixelsPassed": 5,
+      "offscreenNamedCrops": 0
+    },
+    "table-document-mode": {
+      "states": 12,
+      "geometryPassed": 12,
+      "hitsPassed": 12,
+      "scrollPassed": 12,
+      "localPixelsPassed": 12,
+      "offscreenNamedCrops": 0
+    },
+    "table-controls": {
+      "states": 4,
+      "geometryPassed": 2,
+      "hitsPassed": 2,
+      "scrollPassed": 4,
+      "localPixelsPassed": 4,
+      "offscreenNamedCrops": 0
+    },
+    "scrolling": {
+      "states": 148,
+      "geometryPassed": 148,
+      "hitsPassed": 148,
+      "scrollPassed": 148,
+      "localPixelsPassed": 148,
+      "offscreenNamedCrops": 2
+    },
+    "table-integration": {
+      "states": 30,
+      "geometryPassed": 22,
+      "hitsPassed": 24,
+      "scrollPassed": 30,
+      "localPixelsPassed": 23,
+      "offscreenNamedCrops": 0
+    },
+    "controls": {
+      "states": 9,
+      "geometryPassed": 8,
+      "hitsPassed": 8,
+      "scrollPassed": 9,
+      "localPixelsPassed": 6,
+      "offscreenNamedCrops": 0
+    },
+    "css-animations": {
+      "states": 40,
+      "geometryPassed": 40,
+      "hitsPassed": 40,
+      "scrollPassed": 40,
+      "localPixelsPassed": 40,
+      "offscreenNamedCrops": 0
+    },
+    "intrinsic-text": {
+      "states": 30,
+      "geometryPassed": 30,
+      "hitsPassed": 30,
+      "scrollPassed": 30,
+      "localPixelsPassed": 20,
+      "offscreenNamedCrops": 0,
+      "cases": {
+        "flex_buttons": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 5,
+          "offscreenNamedCrops": 0
+        },
+        "flex_nested": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 1,
+          "offscreenNamedCrops": 0
+        },
+        "grid_buttons": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 5,
+          "offscreenNamedCrops": 0
+        },
+        "grid_nested": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 1,
+          "offscreenNamedCrops": 0
+        },
+        "table_buttons": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 5,
+          "offscreenNamedCrops": 0
+        },
+        "table_nested": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 3,
+          "offscreenNamedCrops": 0
+        }
+      }
+    },
+    "intrinsic-text-baseline": {
+      "states": 30,
+      "geometryPassed": 30,
+      "hitsPassed": 30,
+      "scrollPassed": 30,
+      "localPixelsPassed": 5,
+      "offscreenNamedCrops": 0,
+      "cases": {
+        "flex_buttons": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 1,
+          "offscreenNamedCrops": 0
+        },
+        "flex_nested": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 1,
+          "offscreenNamedCrops": 0
+        },
+        "grid_buttons": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 1,
+          "offscreenNamedCrops": 0
+        },
+        "grid_nested": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0
+        },
+        "table_buttons": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 1,
+          "offscreenNamedCrops": 0
+        },
+        "table_nested": {
+          "states": 5,
+          "geometryPassed": 5,
+          "hitsPassed": 5,
+          "scrollPassed": 5,
+          "localPixelsPassed": 1,
+          "offscreenNamedCrops": 0
+        }
+      }
+    },
+    "font-weights": {
+      "states": 36,
+      "geometryPassed": 12,
+      "hitsPassed": 28,
+      "scrollPassed": 36,
+      "localPixelsPassed": 12,
+      "offscreenNamedCrops": 0,
+      "cases": {
+        "RangeOverlapLastStatic": {
+          "states": 4,
+          "geometryPassed": 0,
+          "hitsPassed": 4,
+          "scrollPassed": 4,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0
+        },
+        "RangeOverlapLastVariable": {
+          "states": 4,
+          "geometryPassed": 0,
+          "hitsPassed": 4,
+          "scrollPassed": 4,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0
+        },
+        "RangeSelection": {
+          "states": 4,
+          "geometryPassed": 4,
+          "hitsPassed": 4,
+          "scrollPassed": 4,
+          "localPixelsPassed": 3,
+          "offscreenNamedCrops": 0
+        },
+        "StaticRange": {
+          "states": 4,
+          "geometryPassed": 4,
+          "hitsPassed": 4,
+          "scrollPassed": 4,
+          "localPixelsPassed": 3,
+          "offscreenNamedCrops": 0
+        },
+        "StaticSingle": {
+          "states": 4,
+          "geometryPassed": 4,
+          "hitsPassed": 4,
+          "scrollPassed": 4,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0
+        },
+        "VariableRange": {
+          "states": 4,
+          "geometryPassed": 0,
+          "hitsPassed": 4,
+          "scrollPassed": 4,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0
+        },
+        "VariableRangeOpticalNone": {
+          "states": 4,
+          "geometryPassed": 0,
+          "hitsPassed": 0,
+          "scrollPassed": 4,
+          "localPixelsPassed": 3,
+          "offscreenNamedCrops": 0
+        },
+        "VariableRestricted": {
+          "states": 4,
+          "geometryPassed": 0,
+          "hitsPassed": 4,
+          "scrollPassed": 4,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0
+        },
+        "VariableRestrictedOpticalNone": {
+          "states": 4,
+          "geometryPassed": 0,
+          "hitsPassed": 0,
+          "scrollPassed": 4,
+          "localPixelsPassed": 3,
+          "offscreenNamedCrops": 0
+        }
+      }
+    }
+  },
+  "compiled": {
+    "font-inline-cpu": {
+      "summary": {
+        "schema": 1,
+        "runs": 16,
+        "browserVersion": "153.0.8010.12",
+        "gates": {
+          "semantics": "passed",
+          "geometry": "passed",
+          "pixels": "failed"
+        },
+        "knownGaps": [],
+        "failures": [
+          "tables-interactive/table-svelte/800x600",
+          "tables-interactive/table-svelte/420x600",
+          "tables-interactive/table-react/800x600",
+          "tables-interactive/table-react/420x600",
+          "tables-interactive/table-vue/800x600",
+          "tables-interactive/table-vue/420x600"
+        ]
+      },
+      "tables": {
+        "runs": 6,
+        "states": 96,
+        "semanticsPassed": 96,
+        "geometryPassed": 96,
+        "pixelsPassed": 72,
+        "initialPaneMAE": [
+          0.92,
+          0.864,
+          0.839,
+          0.822,
+          0.839,
+          0.822
+        ],
+        "maximumPaneMAE": 4.678,
+        "renderers": [
+          {
+            "kind": "cpu"
+          },
+          {
+            "kind": "cpu"
+          },
+          {
+            "kind": "cpu"
+          },
+          {
+            "kind": "cpu"
+          },
+          {
+            "kind": "cpu"
+          },
+          {
+            "kind": "cpu"
+          }
+        ]
+      },
+      "other": {
+        "runs": 10,
+        "states": 120,
+        "semanticsPassed": 120,
+        "geometryPassed": 120,
+        "pixelsPassed": 120
+      }
+    },
+    "font-inline-gpu": {
+      "summary": {
+        "schema": 1,
+        "runs": 2,
+        "browserVersion": "153.0.8010.12",
+        "renderer": "gpu",
+        "gpuAdapters": [
+          "llvmpipe (LLVM 21.1.8, 256 bits)"
+        ],
+        "gates": {
+          "semantics": "passed",
+          "geometry": "passed",
+          "pixels": "failed"
+        },
+        "knownGaps": [],
+        "failures": [
+          "tables-interactive/table-svelte/800x600",
+          "tables-interactive/table-svelte/420x600"
+        ]
+      },
+      "tables": {
+        "runs": 2,
+        "states": 32,
+        "semanticsPassed": 32,
+        "geometryPassed": 32,
+        "pixelsPassed": 24,
+        "initialPaneMAE": [
+          1.363,
+          1.335
+        ],
+        "maximumPaneMAE": 5.102,
+        "renderers": [
+          {
+            "adapter": "llvmpipe (LLVM 21.1.8, 256 bits)",
+            "antialiasing": "Area",
+            "backend": "vulkan",
+            "driver": "llvmpipe",
+            "driverInfo": "Mesa 26.2.3 (LLVM 21.1.8)",
+            "kind": "gpu"
+          },
+          {
+            "adapter": "llvmpipe (LLVM 21.1.8, 256 bits)",
+            "antialiasing": "Area",
+            "backend": "vulkan",
+            "driver": "llvmpipe",
+            "driverInfo": "Mesa 26.2.3 (LLVM 21.1.8)",
+            "kind": "gpu"
+          }
+        ]
+      }
+    }
+  },
+  "tests": {
+    "npm": {
+      "passed": 297,
+      "failed": 0
+    },
+    "rustWorkspace": {
+      "passed": 117,
+      "failed": 0
+    },
+    "fontique": {
+      "passed": 13,
+      "failed": 0
+    },
+    "blitzDom": {
+      "passed": 48,
+      "failed": 2
+    }
+  },
+  "fonts": {
+    "hashes": {
+      "static": "a75044e4dab293c1ac7f8eba9f20df03f183f41b9319054f43b955959981632a",
+      "variable": "2bd17942bba38048b2f86e00cdd6fb2242035c0b2c843d5979bb24f13d5512ef"
+    },
+    "variableAssetBaseRevision": "718dcb721941fd8e72128833122d31f5a4e80504",
+    "fontiquePatchRevision": "2edeab70c4985ec59443462f8e15579594b8f1c1",
+    "variableAssetRepository": "https://github.com/linebender/parley",
+    "variableAssetPath": "parley_dev/assets/fonts/roboto_fonts/RobotoFlex-VariableFont.ttf",
+    "spec": "https://drafts.csswg.org/css-fonts-4/#font-prop-desc"
+  },
+  "releaseLayoutCosts": {
+    "parent": {
+      "memory": [
+        "VmHWM:\t   34396 kB",
+        "VmRSS:\t   34396 kB"
+      ],
+      "results": [
+        {
+          "cellUpdate": {
+            "medianMs": 2.729062,
+            "p95Ms": 2.757532
+          },
+          "initial": {
+            "medianMs": 17.332628999999997,
+            "p95Ms": 17.607218
+          },
+          "parentResize": {
+            "medianMs": 3.1990909999999997,
+            "p95Ms": 3.3892369999999996
+          },
+          "rowInsertion": {
+            "medianMs": 3.1490839999999998,
+            "p95Ms": 3.206933
+          },
+          "rows": 100
+        },
+        {
+          "cellUpdate": {
+            "medianMs": 37.216224,
+            "p95Ms": 41.845253
+          },
+          "initial": {
+            "medianMs": 69.910335,
+            "p95Ms": 72.966858
+          },
+          "parentResize": {
+            "medianMs": 38.298123000000004,
+            "p95Ms": 40.174928
+          },
+          "rowInsertion": {
+            "medianMs": 41.325501,
+            "p95Ms": 45.476874
+          },
+          "rows": 1000
+        }
+      ],
+      "samples": 15,
+      "viewport": [
+        800,
+        600
+      ],
+      "warmup": 3
+    },
+    "currentFirst": {
+      "memory": [
+        "VmHWM:\t   31468 kB",
+        "VmRSS:\t   28820 kB"
+      ],
+      "results": [
+        {
+          "cellUpdate": {
+            "medianMs": 3.06962,
+            "p95Ms": 3.17891
+          },
+          "initial": {
+            "medianMs": 18.096567,
+            "p95Ms": 18.262681999999998
+          },
+          "parentResize": {
+            "medianMs": 3.63176,
+            "p95Ms": 3.7228660000000002
+          },
+          "rowInsertion": {
+            "medianMs": 3.5738,
+            "p95Ms": 3.6398300000000003
+          },
+          "rows": 100
+        },
+        {
+          "cellUpdate": {
+            "medianMs": 40.498968000000005,
+            "p95Ms": 42.225945
+          },
+          "initial": {
+            "medianMs": 73.78314,
+            "p95Ms": 90.450065
+          },
+          "parentResize": {
+            "medianMs": 40.867353,
+            "p95Ms": 43.087173
+          },
+          "rowInsertion": {
+            "medianMs": 44.52948000000001,
+            "p95Ms": 46.163049
+          },
+          "rows": 1000
+        }
+      ],
+      "samples": 15,
+      "viewport": [
+        800,
+        600
+      ],
+      "warmup": 3
+    },
+    "currentRepeat": {
+      "memory": [
+        "VmHWM:\t   31196 kB",
+        "VmRSS:\t   28232 kB"
+      ],
+      "results": [
+        {
+          "cellUpdate": {
+            "medianMs": 3.035785,
+            "p95Ms": 3.192846
+          },
+          "initial": {
+            "medianMs": 18.025574,
+            "p95Ms": 19.033112000000003
+          },
+          "parentResize": {
+            "medianMs": 3.5573089999999996,
+            "p95Ms": 3.694143
+          },
+          "rowInsertion": {
+            "medianMs": 3.5937959999999998,
+            "p95Ms": 3.7431140000000003
+          },
+          "rows": 100
+        },
+        {
+          "cellUpdate": {
+            "medianMs": 40.23042,
+            "p95Ms": 43.269753
+          },
+          "initial": {
+            "medianMs": 73.06019900000001,
+            "p95Ms": 77.73516
+          },
+          "parentResize": {
+            "medianMs": 41.476923,
+            "p95Ms": 43.91121
+          },
+          "rowInsertion": {
+            "medianMs": 43.476785,
+            "p95Ms": 47.343502
+          },
+          "rows": 1000
+        }
+      ],
+      "samples": 15,
+      "viewport": [
+        800,
+        600
+      ],
+      "warmup": 3
+    },
+    "parentBlitz": "4301f75a",
+    "currentBlitz": "f0843274",
+    "controlledDesktop": false
+  },
+  "review": {
+    "manual": "completed",
+    "boundedReadOnly": "completed",
+    "codeReviewCommand": "unavailable"
+  },
+  "reports": [
+    {
+      "file": "artifacts/tables/results.json",
+      "sha256": "dee92e0af972deda8348313a980d79c2be40fe8dbb67aef8ea1735d5022d76c2"
+    },
+    {
+      "file": "artifacts/tables/metadata.json",
+      "sha256": "b005176f05d3c9b8824daa63733c2481c6f0324f626fc6bafeabb519f7051c06"
+    },
+    {
+      "file": "artifacts/table-document-mode/results.json",
+      "sha256": "3b9371da9faaf6bb963dc6470a40cf4f459e1a9eba433af393e66cba26928fc7"
+    },
+    {
+      "file": "artifacts/table-document-mode/metadata.json",
+      "sha256": "ae5312521ed8fc8d312a2fd04b3e732501cfb389186c0268aeb37294972811ac"
+    },
+    {
+      "file": "artifacts/table-controls/results.json",
+      "sha256": "ba7c8042787db3ee91483e8cf984e76d852a91cf0f83c5e0c82fdd585e860cc6"
+    },
+    {
+      "file": "artifacts/table-controls/metadata.json",
+      "sha256": "b005176f05d3c9b8824daa63733c2481c6f0324f626fc6bafeabb519f7051c06"
+    },
+    {
+      "file": "artifacts/scrolling/results.json",
+      "sha256": "3fe5f2b764d2c895da20d1dbef30471963552bfaeadf8a11bf620b2e846e7d91"
+    },
+    {
+      "file": "artifacts/scrolling/metadata.json",
+      "sha256": "b005176f05d3c9b8824daa63733c2481c6f0324f626fc6bafeabb519f7051c06"
+    },
+    {
+      "file": "artifacts/table-integration/results.json",
+      "sha256": "552aacb028c48fe2182c1c50c8f1e6f749af07ea37680825bf2423d07b94c811"
+    },
+    {
+      "file": "artifacts/table-integration/metadata.json",
+      "sha256": "ae5312521ed8fc8d312a2fd04b3e732501cfb389186c0268aeb37294972811ac"
+    },
+    {
+      "file": "artifacts/controls/results.json",
+      "sha256": "2e775107e77b5ed2fe4f2e46d09b62ff73ad4f03a6cfa2f5a6e8840596ff1cc5"
+    },
+    {
+      "file": "artifacts/controls/metadata.json",
+      "sha256": "ae5312521ed8fc8d312a2fd04b3e732501cfb389186c0268aeb37294972811ac"
+    },
+    {
+      "file": "artifacts/css-animations/results.json",
+      "sha256": "e930b3359f27f81edc0ff8b2d20e083adb3d9aa4c070d9f3fe63fcec24fc8454"
+    },
+    {
+      "file": "artifacts/css-animations/metadata.json",
+      "sha256": "6ecacae75d076ebafc2ea7ee9acea53f5b1eda2ae91dfdecc4491db7ec3506de"
+    },
+    {
+      "file": "artifacts/intrinsic-text/results.json",
+      "sha256": "3b67a65dbd13272d7d994aea8b826c7d0724583d0230fde573ae38cae7167cb4"
+    },
+    {
+      "file": "artifacts/intrinsic-text/metadata.json",
+      "sha256": "b37b645f3a6ab34fa4b9de62f1ee2476b8e847d8d81fa05668736ea2533a5ed0"
+    },
+    {
+      "file": "artifacts/intrinsic-text-baseline/results.json",
+      "sha256": "cd15f389055e0f59588ac43f5f785869eadb7770a348b1c26ad60a0d1e88c527"
+    },
+    {
+      "file": "artifacts/intrinsic-text-baseline/metadata.json",
+      "sha256": "70e8aec55176bf89be985ec5f884ae108bb242be3d84917bef12fbfc0af74679"
+    },
+    {
+      "file": "artifacts/font-weights/results.json",
+      "sha256": "9548ff5ecbb63d9a8bf06e680fd82ce7399849e6b1653366ee1c90d1dcc41fd3"
+    },
+    {
+      "file": "artifacts/font-weights/metadata.json",
+      "sha256": "a9d1e64c0fcdb624eb152971e92317fdd3e1999d2e4676c69401e236301a7eaa"
+    },
+    {
+      "file": "artifacts/font-inline-cpu/report.json",
+      "sha256": "3e8e5466b656aef260bd264878687d9a34edd59372012d048e3815749b47bcb2"
+    },
+    {
+      "file": "artifacts/font-inline-gpu/report.json",
+      "sha256": "17f1cff04c275f3bb9b69d0b01b4e8f5635ad0792bc3a2031682b8e985e45807"
+    },
+    {
+      "file": "artifacts/table-label-bench-baseline.json",
+      "sha256": "e24a0113d6bde0b812c9dd590da3f330c2f7d876d882f1b4211f0f825db52614"
+    },
+    {
+      "file": "artifacts/table-label-bench.json",
+      "sha256": "badaeaee85f66c751f53479b99a8cc9a060b12bee108af69f2bd2aebf5a28303"
+    },
+    {
+      "file": "artifacts/font-inline-bench-repeat.json",
+      "sha256": "cb0ba87d737cd0190fa8d868c883a8f37776baad3630fd1e0e0b81d1be5b9f25"
+    },
+    {
+      "file": "artifacts/font-inline-npm.log",
+      "sha256": "9238bbd2bd40319b223eeb5614d76482fd4556240d8622c4ef506a546b52e496"
+    },
+    {
+      "file": "artifacts/font-inline-workspace.log",
+      "sha256": "4d73bf7c4dd6ccda183627516a97aba56c4098b6753da38339490a303443d820"
+    },
+    {
+      "file": "artifacts/font-inline-fontique.log",
+      "sha256": "ba36dc55edb6fa3e5692697d13fed979ff90becc6179de8884392fa6b990d551"
+    },
+    {
+      "file": "artifacts/font-inline-blitz-dom.log",
+      "sha256": "b2c2b764b680f2d1f7037ca6efcdc8129afbf170bffe64dd11890ebee8713c7c"
+    },
+    {
+      "file": "artifacts/font-weights/fonts.json",
+      "sha256": "12d6d3c5129591b06265ecbc3dd27fa8f2335733a7ce157c71e521e30dd81fad"
+    }
+  ]
+}
