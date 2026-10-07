@@ -55,12 +55,14 @@ runic-css = { path = "crates/runic-css" }
 # style change cancels a CSS animation. Every crate of each repository in the
 # graph is patched, so that crates.io and git copies are never mixed.
 [patch.crates-io]
-vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "2a06f3e9b4db30951156034ab384f7af6d8a32d0" }
-vello_common = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "2a06f3e9b4db30951156034ab384f7af6d8a32d0" }
-glifo = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "2a06f3e9b4db30951156034ab384f7af6d8a32d0" }
-vello = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "2a06f3e9b4db30951156034ab384f7af6d8a32d0" }
-vello_encoding = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "2a06f3e9b4db30951156034ab384f7af6d8a32d0" }
-vello_shaders = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "2a06f3e9b4db30951156034ab384f7af6d8a32d0" }
+# Isolated raster-parity worktree at the existing Vello base 2a06f3e9.
+# Replace local paths with reviewed pins before integration.
+vello_cpu = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/vello_cpu" }
+vello_common = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/vello_common" }
+glifo = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/glifo" }
+vello = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/research/vello_research" }
+vello_encoding = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/research/vello_encoding" }
+vello_shaders = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/research/vello_shaders" }
 anyrender = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 anyrender_vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 anyrender_vello = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }

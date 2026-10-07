@@ -4,13 +4,17 @@ Based on compiler commit `485fc86` and Blitz fork `e8dd36c6`, in isolated branch
 
 - Blitz: `table-layout`, `/home/viktor/Development/RunicArtifex/blitz-tables`.
 - Compiler verification: `blitz-tables`, `/home/viktor/Development/RunicDesktopCompiler-tables`.
+- Shared renderer: `runic-raster-parity`, `/home/viktor/Development/RunicArtifex/vello-raster-parity`, based on the existing Vello pin `2a06f3e9`.
 
 The compiler worktree patches the existing local Blitz URL to the Blitz worktree's
-packages. All other dependency pins are unchanged. Neither branch is integrated
-into `main` or `m6`. Tables remain rejected by the compiler.
+packages and the existing Vello packages to the renderer worktree. Dependency
+versions and other pins are unchanged. These branches are not integrated into
+`main` or `m6`. Tables remain rejected by the compiler.
 
-Blitz implementation: signed commits `3971a7ba` and `f85b2539`. The follow-up
-improves cell heights and collapsed-border painting. [Verification summary](../../conformance/results/blitz-tables.md).
+Blitz implementation: signed commits `3971a7ba`, `f85b2539` and `166f3a61`.
+The follow-ups improve cell heights, collapsed-border painting and round-dot
+geometry. Shared glyph painting lives in renderer commit `a8efce54`.
+[Verification summary](../../conformance/results/blitz-tables.md).
 
 The width and baseline rules follow [CSS 2 table layout](https://www.w3.org/TR/CSS2/tables.html); Chromium is the comparison oracle.
 
@@ -58,6 +62,22 @@ are omitted. These rules follow the
 [border painter](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/core/paint/box_border_painter.cc)
 and [stroke fitting](https://github.com/chromium/chromium/blob/main/third_party/blink/renderer/platform/graphics/styled_stroke_data.cc).
 
+Round dots are flattened explicitly at 0.01 device pixels before the backend's
+general curve flattening. Its 0.25px tolerance had visibly reduced the area of
+small circles. The helper is shared with ordinary dotted borders; it changes
+neither table layout nor border conflict resolution. Later CSS transforms may
+scale the approximation; transformed/DPR cases still need broader verification.
+
+Text fixes live in Glifo, not in the table context or Blitz text painter. Hinted
+outlines use quarter-pixel horizontal device origins, including run translation
+and scale, and the atlas bucket wraps with the matching integer carry. TrueType
+outlines use light auto hinting, following
+[Skia's Fontations light-hinting policy](https://github.com/google/skia/blob/main/src/ports/fontations/src/hinting.rs).
+Linear advances remain the layout engine's. Other outline formats retain their
+previous hinting policy; unhinted and rotated outlines retain their transforms.
+This is a shared renderer experiment verified on Linux CPU, not certification
+of CFF/variable fonts, other platforms or the research Vello GPU text path.
+
 Table boxes retain fractional layout coordinates in the final layout. Whole-pixel
 rounding had changed text positions and boundary hits despite correct CSSOM rects.
 Internal group/gap boxes do not intercept hits, and row clicks reach descendants
@@ -78,7 +98,10 @@ Chromium, an embedded DejaVu Sans font, a 640x300 viewport and unchanged DOM ope
 id's rect at 1/8px tolerance, three hit targets per id, full-page pixels, and pixels
 cropped to the table region at 3/255 MAE. It retains failures; it exits nonzero if
 any geometry, hit or cropped pixel check fails. Selected case names can be passed
-as arguments. Dynamic cases change contents, widths, spans, caption side and cell
+as arguments. Table, ordinary-border and glyph controls are reported separately;
+the latter two isolate shared painting from table layout. Environment, font,
+binary and input hashes are retained alongside the observations. Dynamic cases
+change contents, widths, spans, caption side and cell
 alignment and absolute/percentage heights. Six font-independent native regression
 tests are also provided in the Blitz worktree and the compiler's `table-probe` test module.
 
@@ -92,11 +115,12 @@ The direct oracle does not certify OS input, accessibility, pagination, anonymou
 boxes for misparented CSS table parts, positioned internal table containing blocks,
 arbitrary caption/table effects and clipping, overconstrained percentage rows,
 percentage spanning/calc constraints, empty-cells/visibility-collapse semantics,
-or row/group effects and image backgrounds on internal table boxes. Three localized pixel cases remain above the unchanged threshold: baseline
-text, the empty-table caption text and thick round dotted borders. Text line
-positions and advances were inspected separately and agree in the sampled cases;
-that does not certify every glyph or layout. No generic text-renderer change or
-tolerance relaxation is included. The layout currently performs extra cell layout passes for baselines and alignment; no
+or row/group effects and image backgrounds on internal table boxes. All three
+previous table-region failures now pass. The wider controls retain two dense
+fractional-origin text failures and a rounded ordinary dotted-border paint/hit
+failure. No tolerance relaxation is included. The layout currently performs extra
+cell layout passes for baselines and alignment; no
 performance improvement is claimed. Compiler table acceptance waits for the
-remaining renderer cases and framework conformance. Nothing has been offered
-upstream yet.
+practical integration gate and framework conformance. Nothing has been offered
+upstream yet. The [targeted Chromium parity plan](CHROMIUM-PARITY.md) assigns the
+remaining work to its modules and defines the next gates.

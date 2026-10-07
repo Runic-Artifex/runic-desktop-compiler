@@ -6,6 +6,11 @@ Everything the compiler, runtime and verification do not cover yet, with the rea
 
 **Keeping it current.** A change that adds a rejection or an unsupported report adds a row; a change that covers one removes it (and the contract gains it). Rows name the diagnostic code and the main source location, so `rg` finds the code.
 
+The [targeted Chromium parity plan](research/CHROMIUM-PARITY.md) turns the renderer
+subset of this register into ordered work with module owners and verification
+gates. The [table worktree experiment](research/BLITZ-TABLES.md) fixes the original
+table-layout gaps locally; compiler tables remain rejected pending integration.
+
 ## Detail
 
 | File | Content |

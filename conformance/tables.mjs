@@ -2,6 +2,7 @@
 import { chromium } from 'playwright-core';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { pixelMAE } from './harness/compare.mjs';
@@ -87,6 +88,14 @@ const cases = {
     '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:1px dotted green"></td><td id="b" style="width:29px;border:1px dotted blue"></td></tr></table>',
   collapse_dots2:
     '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:2px dotted green"></td><td id="b" style="width:29px;border:2px dotted blue"></td></tr></table>',
+  collapse_dots4:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:4px dotted green"></td><td id="b" style="width:29px;border:4px dotted blue"></td></tr></table>',
+  collapse_dots7:
+    '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:7px dotted green"></td><td id="b" style="width:29px;border:7px dotted blue"></td></tr></table>',
+  collapse_dots5_fractional:
+    '<table id="table" style="border-collapse:collapse;margin-left:.375px;margin-top:.625px"><tr id="row"><td id="a" style="width:47px;height:20px;border:5px dotted green"></td><td id="b" style="width:29px;border:5px dotted blue"></td></tr></table>',
+  collapse_dots5_rtl:
+    '<table id="table" dir="rtl" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:5px dotted green"></td><td id="b" style="width:29px;border:5px dotted blue"></td></tr></table>',
   collapse_dots5:
     '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:5px dotted green"></td><td id="b" style="width:29px;border:5px dotted blue"></td></tr></table>',
   collapse_bevel:
@@ -119,7 +128,26 @@ const cases = {
     '<table id="table" style="border-collapse:collapse"><tr id="row"><td id="a" style="width:47px;height:20px;border:3px double red;background:linear-gradient(to right,#ffc,#cfc)"></td><td id="b" style="width:29px;border:3px dashed blue;background:linear-gradient(to bottom,#def,#cef)"></td></tr></table>',
 };
 
+// These primitive controls isolate shared painting from the table formatting
+// context. "table" is only the region id used by this oracle's crop metric.
+Object.assign(cases, {
+  border_dots5:
+    '<div id="table" style="width:90px;height:30px;border:5px dotted green"></div>',
+  border_dots5_rounded:
+    '<div id="table" style="width:90px;height:30px;border:5px dotted green;border-radius:12px;margin-left:.375px;margin-top:.625px"></div>',
+  glyph_positive_origin:
+    '<div id="table" style="display:inline-block;margin-left:.875px;padding:4px"><div id="text">Empty table</div></div>',
+  glyph_negative_origin:
+    '<div id="table" style="display:inline-block;margin-left:-.125px;padding:4px"><div id="text">Empty table</div></div>',
+  glyph_sizes:
+    '<div id="table" style="display:inline-block;padding:4px"><div id="text" style="font-size:12px">Small text</div></div>',
+});
 const actions = {
+  glyph_sizes: [
+    { kind: 'attribute', selector: '#text', name: 'style', value: 'font-size:14px' },
+    { kind: 'attribute', selector: '#text', name: 'style', value: 'font-size:16px' },
+    { kind: 'attribute', selector: '#text', name: 'style', value: 'font-size:24px' },
+  ],
   percentage_height: [
     {
       kind: 'attribute',
@@ -183,6 +211,25 @@ await withSharedTarget(async () => {
     viewport: { width: 640, height: 300 },
     deviceScaleFactor: 1,
   });
+  const sha256 = data => createHash('sha256').update(data).digest('hex');
+  await writeFile(
+    path.join(out, 'metadata.json'),
+    JSON.stringify(
+      {
+        chromium: browser.version(),
+        viewport: [640, 300],
+        deviceScaleFactor: 1,
+        renderer: 'cpu',
+        fontSHA256: sha256(Buffer.from(font, 'base64')),
+        cargoLockSHA256: sha256(await readFile(path.join(root, 'Cargo.lock'))),
+        nativeBinarySHA256: sha256(await readFile(path.join(targetDir, 'debug/table-probe'))),
+        geometryTolerance: 0.125,
+        pixelMAEThreshold: 3,
+      },
+      null,
+      2,
+    ),
+  );
   const results = [];
   async function reference() {
     return page.evaluate(() => {
@@ -289,6 +336,12 @@ await withSharedTarget(async () => {
           tablePixelMAE = pixelMAE(...cropped);
         const result = {
           name,
+          suite: name.startsWith('glyph_')
+            ? 'glyphs'
+            : name.startsWith('border_')
+              ? 'borders'
+              : 'tables',
+          inputSHA256: sha256(html),
           step,
           geometry: differences.length === 0,
           pixelMAE: mae,
