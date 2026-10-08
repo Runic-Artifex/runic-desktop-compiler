@@ -338,7 +338,7 @@ interface does not implement span margin advances or establish full bidi parity.
 
 A separate conservative per-line gate precedes snapped leaf targeting. It uses
 raw line boxes (including leading), span/font overflow bounds and outward-rounded
-glyph ink from existing font data. Unknown font ink, synthesis skew, decorations,
+glyph ink from existing font data. Unknown font ink, synthesis skew or embolden, decorations,
 shadows and atomic content retain traversal. This is a conservative bound, not a
 complete implementation of Blink's paint ink overflow. It prevents an exact gap
 boundary from reaching the next line merely because that line's text box snaps

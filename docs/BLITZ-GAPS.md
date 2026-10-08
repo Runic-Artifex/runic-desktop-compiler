@@ -34,9 +34,19 @@ passing gate regression. Table-control hits improve 2→4/4. Main inline hits
 change 270→258, effects 87→93 and text metrics 408→420, including 81 new hit losses
 (60 margins, 3 nested boundaries, 9 child/parent priorities, 9 marker edges).
 All paired non-hit gates and 389 compiled states preserve their passing states.
-The next patches need normalized text-range/DOM provenance and deferred fragment
-ordering in Blitz, plus generic span-edge flow in Parley and CSS binding in Blitz.
-Full fragment lists, odd-height/negative-origin hits and local glyph paint remain open.
+The [text-provenance continuation](../conformance/results/chromium-inline-source-order.md)
+adds optional normalized source ranges in Parley and a private reverse fragment
+walk in Blitz. It repairs 69 paired standard-hit states and three explicit-point
+states, including all 12 preceding nested/effects losses. Main hits are 261/363,
+effects 102/102 and pointer explicit points 219/234. The new oracle passes
+192/216 hits and 186/216 geometry states, with 18/18 explicit-point states.
+Three new middle-alignment hit losses expose the unchanged 0.296875px metric
+error; 60 margin-flow and nine marker losses remain. No paired non-hit gate
+regresses, and all 389 compiled states retain their gates.
+The next patches need primary-font metric diagnostics, generic span-edge flow in
+Parley and CSS binding in Blitz. DOM sibling heuristics, full fragment lists,
+preserved tabs/RTL atomic flow, odd-height/negative-origin hits and local glyph
+paint retain independent gates.
 
 ## Rendering and layout
 

@@ -16,16 +16,21 @@ the [text-metric continuation](../conformance/results/chromium-text-metrics.md),
 the [line-width continuation](../conformance/results/chromium-line-widths.md),
 the [inline-fragment continuation](../conformance/results/chromium-inline-fragments.md),
 the [pointer-geometry continuation](../conformance/results/chromium-pointer-geometry.md),
+the [text-provenance continuation](../conformance/results/chromium-inline-source-order.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation carries a private pointer footprint through
-logical positioning, scrolling, clips and inverse transforms. Its new oracle
-passes 234/234 standard hits and 216/234 explicit-point states; all 12 preceding
-leading-gap losses are repaired. It also introduces 81 passing-to-failing hit
-states across retained inline/effects/text-metric suites, including 60 margin
-states. These remain failures; geometry and pixel gates are independent.
-Table-control hits now pass 4/4, and 389 compiled states retain all gates.
-Text-node provenance, fragment ordering, margin flow and local paint remain open.
+The latest isolated continuation adds optional normalized text-source metadata
+in Parley and private source-aware inline targeting in Blitz. It repairs 69 paired
+standard-hit states and three explicit-point states; the new source-order oracle
+passes 192/216 hits. All 12 nested/effects hit losses from the pointer checkpoint
+are repaired. Sixty margin-flow and nine marker-edge losses remain, and three
+new middle-alignment hit failures expose an unchanged 0.296875px geometry error.
+Every paired non-hit gate preserves its passing states. Pointer standard hits
+remain 234/234 and explicit points improve to 219/234; table-control hits remain
+4/4, and all 389 compiled states pass semantics, geometry and local pixels.
+Primary font metrics, margin flow, full fragment segmentation, RTL/tab/atomic
+reductions and local paint remain open. Source metadata does not split shaping
+atoms or add framework-specific behavior.
 The probe's inline `getClientRects()` oracle does not broaden compiler acceptance
 or the shipping DOM contract below.
 
