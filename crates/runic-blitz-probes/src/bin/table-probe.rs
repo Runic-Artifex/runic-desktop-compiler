@@ -450,6 +450,57 @@ mod tests {
     }
 
     #[test]
+    fn terminal_inline_breaks_do_not_add_a_scroll_line() {
+        use base64::Engine;
+        let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
+            "../../../../fixtures/counter-svelte/assets/DejaVuSans.woff2"
+        ));
+        for doctype in ["<!doctype html>", ""] {
+            for content in ["Alpha<br>", "Alpha\n"] {
+                let mut doc = HtmlDocument::from_html(
+                    &format!(
+                        "{doctype}<style>@font-face{{font-family:Test;src:url(data:font/woff2;base64,{font})}}body{{margin:0;font:16px/20px Test}}#line{{white-space:pre}}</style><div id='line'>{content}</div>"
+                    ),
+                    DocumentConfig {
+                        net_provider: Some(blitz_shell::DataUriNetProvider::shared(None)),
+                        html_parser_provider: Some(std::sync::Arc::new(blitz_html::HtmlProvider)),
+                        ..Default::default()
+                    },
+                );
+                for scale in [1.0, 1.25, 2.0, 1.0] {
+                    doc.inner_mut()
+                        .set_viewport(blitz_traits::shell::Viewport::new(
+                            (420.0 * scale) as u32,
+                            (180.0 * scale) as u32,
+                            scale,
+                            blitz_traits::shell::ColorScheme::Light,
+                        ));
+                    for (height, expected_scroll) in [(12, 15.0), (16, 17.0), (32, 32.0)] {
+                        let mut inner = doc.inner_mut();
+                        let line = inner.get_element_by_id("line").unwrap();
+                        inner.mutate().set_attribute(
+                            line,
+                            QualName::new(None, ns!(), local_name!("style")),
+                            &format!("line-height:{height}px;white-space:pre"),
+                        );
+                        for _ in 0..4 {
+                            inner.resolve(0.0);
+                        }
+                        assert_eq!(
+                            inner.get_client_bounding_rect(line).unwrap().height,
+                            height as f64
+                        );
+                        assert_eq!(
+                            inner.get_node(line).unwrap().scroll_height(),
+                            expected_scroll
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn logical_text_metrics_survive_viewport_scale_changes() {
         use base64::Engine;
         let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
