@@ -461,6 +461,42 @@ mod tests {
     }
 
     #[test]
+    fn pointer_footprint_hits_small_gaps_and_preserves_large_gap_misses() {
+        for (size, height, expected_text) in [(16, 20, true), (24, 48, false)] {
+            let mut doc = document(&format!(
+                "<div id='line' style='margin:20.375px;width:92px;font:{size}px/{height}px Test'><span id='text'>Alpha Agpq</span></div>"
+            ));
+            for scale in [1.0, 1.25, 2.0, 1.0] {
+                doc.inner_mut()
+                    .set_viewport(blitz_traits::shell::Viewport::new(
+                        (640.0 * scale) as u32,
+                        (300.0 * scale) as u32,
+                        scale,
+                        blitz_traits::shell::ColorScheme::Light,
+                    ));
+                for _ in 0..4 {
+                    doc.inner_mut().resolve(0.0);
+                }
+                let inner = doc.inner();
+                let line = inner.query_selector("#line").unwrap().unwrap();
+                let text = inner.query_selector("#text").unwrap().unwrap();
+                let rect = inner.get_client_bounding_rect(text).unwrap();
+                let hit = inner
+                    .hit(
+                        (rect.x + rect.width / 2.0) as f32,
+                        (rect.y + rect.height / 2.0) as f32,
+                    )
+                    .unwrap();
+                assert_eq!(
+                    hit.node_id,
+                    if expected_text { text } else { line },
+                    "font={size}/{height}, scale={scale}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn terminal_inline_breaks_do_not_add_a_scroll_line() {
         use base64::Engine;
         let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(

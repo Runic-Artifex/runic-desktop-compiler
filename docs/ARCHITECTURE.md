@@ -273,3 +273,24 @@ retained-layout restoration must be covered. Empty/whitespace spans and first/
 last wrapped-fragment ownership need dedicated cases before that interface is
 frozen. CSS span direction versus adjacent glyph bidi level remains an explicit
 design dependency, including Arabic in LTR spans and Latin in RTL spans.
+
+## Chromium parity: pointer footprint (2026-10-08, isolated)
+
+Blitz DOM owns a private `HitLocation`, constructed once at pointer traversal
+entry. It retains the original point for event/caret coordinates and a 1 CSS px
+footprint whose origin is floored to 1/64 CSS px. Translation moves both; inverse
+affine transforms map the complete quad and preserve its area/shape in the local
+coordinate space. Singular transforms reject hits. Scrolling translates the
+content query after inverse mapping the unscrolled border query. Public `hit`
+signatures, DOM geometry, Parley metrics and renderer paths are unchanged.
+
+Intersection policy belongs to the target: ordinary boxes, culled inline
+ancestors and traversal bounds use raw positive-area rectangle intersections;
+text uses pixel-snapped bounds after accumulated paint offsets. Snapping uses
+positive-infinity half ties, including negative coordinates. A transformed node
+starts a new layer coordinate space for target snapping. Rounded clips test the
+quad against corner ellipses, rather than accepting its bounding rectangle.
+The [explicit point oracle](../conformance/pointer-geometry.mjs) preserves small
+and large text gaps, exact edges, fractional origins, scaling, rotation/skew,
+rounded clips and scroll mutations. It supplements the retained inline/control
+checks; this checkpoint defines an implementation boundary, not a parity claim.
