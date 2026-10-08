@@ -34,7 +34,7 @@ for (const [mode, doctype] of Object.entries(modes)) {
         [420, 180, 1],
         [420, 180, 2],
       ],
-      html: `<div id="table" style="${
+      html: `<div id="table" ${kind === 'atomic_hidden' || kind === 'atomic_clip' ? 'data-scroll' : ''} style="${
         kind === 'atomic_newline'
           ? 'white-space:pre'
           : kind === 'atomic_hidden' || kind === 'atomic_clip'
