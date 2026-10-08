@@ -40,6 +40,7 @@ fn observe(doc: &HtmlDocument) -> Value {
     let mut editors = Map::new();
     let mut line_widths = Map::new();
     let mut client_rects = Map::new();
+    let mut font_metrics = Map::new();
     // Device-space layout metrics are diagnostic evidence for native text
     // rasterization. They are deliberately separate from `textLines`, whose
     // CSS-space geometry is compared with the browser oracle.
@@ -149,6 +150,25 @@ fn observe(doc: &HtmlDocument) -> Value {
             .element_data()
             .and_then(|el| el.inline_layout_data.as_ref())
         {
+            if node.attr(LocalName::from("data-font-metrics")).is_some() {
+                let runs: Vec<_> = inline
+                    .layout
+                    .lines()
+                    .flat_map(|line| line.runs())
+                    .map(|run| {
+                        let metrics = run.font_metrics();
+                        // Optional diagnostic extraction uses the exact font bytes
+                        // used by shaping, after WOFF decoding. It is not a gate.
+                        if let Ok(path) = std::env::var("RUNIC_FONT_DIAGNOSTIC_PATH") {
+                            std::fs::write(path, run.font().font.data.as_ref()).unwrap();
+                        }
+                        json!({"size":run.font_size(), "ascent":metrics.ascent,
+                        "descent":metrics.descent, "xHeight":metrics.x_height,
+                        "capHeight":metrics.cap_height})
+                    })
+                    .collect();
+                font_metrics.insert(name.into(), json!(runs));
+            }
             let layout = node.final_layout();
             let scale = inner.viewport().scale();
             let lines: Vec<_> = inline.layout.lines().map(|line| {
@@ -193,7 +213,7 @@ fn observe(doc: &HtmlDocument) -> Value {
         }
         hits.insert(name.into(), json!(targets));
     }
-    json!({"rects":rects,"hits":hits,"pointHits":point_hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics,"lineWidths":line_widths,"clientRects":client_rects})
+    json!({"rects":rects,"hits":hits,"pointHits":point_hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics,"lineWidths":line_widths,"clientRects":client_rects,"fontMetrics":font_metrics})
 }
 fn render(doc: &mut HtmlDocument, path: &str, width: u32, height: u32) {
     let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);

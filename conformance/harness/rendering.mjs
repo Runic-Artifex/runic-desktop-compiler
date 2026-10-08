@@ -90,6 +90,43 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
       return page.evaluate(() => {
         const elements = [...document.querySelectorAll('[id]')];
         return {
+          // Diagnostic font metrics remain separate from geometry/hit gates.
+          fontMetrics: Object.fromEntries(
+            elements
+              .filter(el => el.hasAttribute('data-font-metrics'))
+              .map(el => {
+                const style = getComputedStyle(el);
+                const context = document.createElement('canvas').getContext('2d');
+                context.font = `${style.fontSize} ${style.fontFamily}`;
+                const x = context.measureText('x');
+                const ex = document.createElement('span');
+                ex.style.cssText = 'position:fixed;visibility:hidden;width:1ex;height:0';
+                for (const property of [
+                  'fontFamily',
+                  'fontSize',
+                  'fontWeight',
+                  'fontStyle',
+                  'fontStretch',
+                  'fontVariationSettings',
+                  'fontOpticalSizing',
+                ])
+                  ex.style[property] = style[property];
+                document.body.append(ex);
+                const xHeight = ex.getBoundingClientRect().width;
+                ex.remove();
+                return [
+                  el.id,
+                  {
+                    size: parseFloat(style.fontSize),
+                    ascent: x.fontBoundingBoxAscent,
+                    descent: x.fontBoundingBoxDescent,
+                    xInkAscent: x.actualBoundingBoxAscent,
+                    xInkDescent: x.actualBoundingBoxDescent,
+                    xHeight,
+                  },
+                ];
+              }),
+          ),
           pointHits: Object.fromEntries(
             elements
               .filter(el => el.hasAttribute('data-hit-points'))
