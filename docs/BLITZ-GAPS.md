@@ -50,10 +50,21 @@ lists, 138 hits and 75 strict pixel states. All 3,674 exact direct pairs preserv
 their passing gates; all 389 compiled states retain theirs. Sixty nested-middle
 geometry states still fail, with 27 atomic and 15 nested hit failures in the new
 matrix. Device/unquantized behavior and declared font metrics are preserved.
-The next patches need per-line nested alignment and generic span-edge flow in
-Parley, then CSS binding in Blitz. DOM sibling heuristics, full fragment lists,
-preserved tabs/RTL atomic flow, odd-height/negative-origin hits and local glyph
-paint retain independent gates.
+The [nested-alignment continuation](../conformance/results/chromium-nested-alignment.md)
+repairs all 60 nested-middle geometry and fragment-list failures with a private
+per-line descendant union in Parley and fixes atomic length-shift scaling in
+Blitz. The middle matrix now passes 180/180 geometry, 120/120 measured
+fragment states, 147 hits and 78 strict pixels. A new 72-state oracle passes
+66 geometry, 57 fragments and 63 hits, with 0 strict pixels. Six empty-span
+geometry states remain failed. All 3,746 exact direct pairs preserve passing
+nonpixel gates, with 10 strict pixel repairs and 7 pixel regressions. All 389
+compiled states retain their gates. Device/unquantized behavior,
+the prior x-height repairs and public interfaces are preserved.
+The next patches need normalized empty-span participation and generic span-edge
+flow in Parley, then CSS binding in Blitz. Full deferred nested top/bottom
+alignment, DOM sibling heuristics, fragment lists, preserved tabs/RTL atomic
+flow, odd-height/negative-origin hits and local glyph paint retain independent
+gates.
 
 ## Rendering and layout
 

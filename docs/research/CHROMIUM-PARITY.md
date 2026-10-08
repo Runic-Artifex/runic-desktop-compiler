@@ -178,7 +178,7 @@ all focus/table regressions and the newly exposed failures. Owners and gates:
 | CP-INLINE-SPAN-BOUNDS | First-font content height and short-line overflow are repaired in Parley/Blitz; all 108 font states match geometry/lists. The 180-state margin group passes 24 bounding, 15 list and 90 hit states, including 60 new hit losses; 132 retained control states still omit an 8px text margin | Add generic ordered owner/start/end advances in Parley, then bind CSS margins in Blitz. Cover intrinsic/break replay, negative/empty/percent/nested spans and first/last wrapped fragments; margins stay outside own border rects/hits |
 | CP-INLINE-HIT-LOCATION | Private footprint/quad plus normalized source metadata and reverse fragments repair preceding narrow-gap/nested/effects losses. Pointer is 234/234 standard and 219/234 explicit points; source ordering is 192/216 hits. The three middle metric/hit losses are repaired; sixty margin and nine marker losses remain | Preserve shaping atoms, eligible ancestors and per-line parent groups. Reduce exact layout-object siblings versus DOM heuristics, preserved tabs, narrowed RTL wraps and atomic flow. Repair metrics/margins in their owners; retain large-gap, negative viewport and exact marker samples |
 | CP-INLINE-FRAGMENT-LISTS | Blitz retains one union per line; bidi passes 0/12 list states and effects 60/102 despite 102/102 bounding geometry | Preserve bidi/culled/nested segmentation, zero-width newlines and preserved trailing spaces. Keep list order/count independent of bounding unions and pointer gates |
-| CP-INLINE-ALIGN-METRICS | The missing primary-font x-height provider is repaired in logical mode. All three retained middle geometry/fragment/hit states pass; vertical alignment is 30/30. The new 180-state oracle passes 120 geometry and 138 hits; all 60 nested geometry states still fail by 0.25–1 CSS px | Resolve parent-relative alignment bottom-up from actual per-line descendant participation, preserving Device/unquantized behavior, declared metrics and the hinted provider. Cover direct text, empty ancestors, wrapping, negative leading, nested top/bottom, intrinsic replay and atomic descendants; require geometry and hits together |
+| CP-INLINE-ALIGN-METRICS | The logical x-height provider and bottom-up per-line alignment are repaired. All 60 retained nested-middle geometry/list failures now pass; the 180-state oracle is 180 geometry, 120/120 measured fragments, 147 hits and 78 strict pixels. The new 72-state oracle is 66 geometry, 57 fragments, 63 hits and 0 pixels | Preserve Device/unquantized behavior, declared metrics, hinted x-height, saved/default breaker states and atomic scale conversion. Materialize empty span participation (six new geometry failures), then reduce full deferred nested top/bottom/fixed-point semantics; hits and pixels remain independently gated |
 | CP-CONTROL-THEME | A default button label matches bounds and passes its interior crop at MAE 1.464, while its full crop is 22.076 from native lower/right bevel colors | Reduce `appearance:auto` theme paint separately from authored CSS borders and `appearance:none`; cover active/disabled/focus states and preserve custom control/table cases |
 | CP-DOCUMENT-MODE | Parser mode, fragment preservation, device rebuilds and empty root struts are repaired. Core mode geometry is now 60/60; full 132-state oracle retains float and break/newline failures | Keep mode/cache regressions; separately reduce quirks/limited-quirks `<br>` and preserved newlines (19px residual), empty/collapsed whitespace and inline border/padding. Enable floats only for a measured float scope |
 | CP-NESTED-INLINE | Nested atomic inline/button reductions retain local paint failures while geometry passes; baseline measurement can promote child sizing to PerformLayout | Compare retained child line positions and baselines across table/flex/grid intrinsic passes; keep nested failures in the oracle |
@@ -198,7 +198,9 @@ The checked-in [initial verification record](../../conformance/results/chromium-
 [line widths](../../conformance/results/chromium-line-widths.md) and
 [inline fragments](../../conformance/results/chromium-inline-fragments.md) and
 [pointer geometry](../../conformance/results/chromium-pointer-geometry.md) and
-[text provenance](../../conformance/results/chromium-inline-source-order.md), separate
+[text provenance](../../conformance/results/chromium-inline-source-order.md),
+[middle metrics](../../conformance/results/chromium-middle-metrics.md) and
+[nested alignment](../../conformance/results/chromium-nested-alignment.md), separate
 fixed worktree behavior, residual failures and shipping gates. None of
 the broader P1/P4/P7 clusters is closed merely by these patches.
 
@@ -219,33 +221,50 @@ seven Parley metadata/normalization/shaping tests, the 216 source-order states,
 all repaired nested/effects edges, 18 eligible ancestors and leading-gap/wrap
 controls. Source records are optional metadata; they must not split shaping atoms.
 
-1. **Per-line nested alignment (Parley).** The primary-font x-height seam is now
-   repaired. Source tracing suggests the remaining nested offsets come from
-   eager own-box shifts versus Blink's descendant-united metrics. Define a
-   bottom-up aligned-subtree calculation after actual line participation is known.
-   Cover parents with/without direct text, empty spans, wrapping, negative leading,
-   nested top/bottom alignment and atomic descendants, including intrinsic replay.
-   Preserve the three middle repairs, all 180 metric states, declared OS/2/MVAR,
-   Device defaults and unquantized behavior. Geometry and hits must improve
-   together; do not add a root/span/hit exception.
-2. **Inline margin flow (Parley, then Blitz).** Define generic owner/start/end
-   advances with stable ordering, intrinsic/break replay and pending whitespace.
-   Use a separate positioned-edge iterator to preserve public enum compatibility.
-   Bind CSS percentages/calc/auto in Blitz; test negative/empty/nested/wrapped
-   spans, first/last ownership and mutations. Freeze CSS direction versus glyph
-   bidi before claiming bidi margins. Preserve the table/flex/grid sizing cases.
-3. **Fragment lists and remaining hits (Blitz/Parley).** Retain full fragment count/order,
+The per-line alignment reduction is implemented in Parley's private logical
+layout module. Preserve all 180 middle states, the new 72-state oracle, the three
+primary-font repairs and the eight union/replay/default-policy tests. Textless
+ancestors retain their own strut; fully empty spans still lack participation.
+Blitz owns atomic CSS-to-layout length conversion. Neither change adds a public
+API, IR field or framework branch. The layout repair also introduces seven strict
+text-crop regressions, alongside ten repairs. An 18-state diagnostic exposes
+the formerly anonymous child: both ancestor and child geometry/fragment lists
+match while those pixel failures remain.
+
+1. **Nested text-crop regressions (Parley/Blitz paint/Glifo/Vello).** Retain the
+   seven exact states and the inner-span diagnostic. Trace the logical baseline
+   through glyph placement, font metrics, hinting and raster translation against
+   pinned Blink/Skia. Restore the pixel gates while retaining both levels of
+   geometry, fragments and hit targets; identify the owning seam before patching.
+2. **Inline span participation and margin flow (Parley, then Blitz).** Empty
+   style-tree nodes currently receive no resolved style ID and no line box.
+   Define normalized owner/start/end participation with equal offsets allowed,
+   nesting and stable ordering; include own struts before line sizing. Reuse this
+   seam for generic ordered margin advances and a separate positioned-edge
+   iterator, preserving public enum compatibility. Keep nonempty text provenance
+   separate and avoid zero-length shaping runs. Design the API in an ADR before
+   introducing it. Cover collapse/pending whitespace, wrapping, intrinsic/revert
+   replay, empty/nested spans, pseudos, display:contents, mutations and first/last
+   ownership. Bind CSS percentages/calc/auto in Blitz. Define CSS direction versus
+   glyph bidi before claiming bidi margins; preserve table/flex/grid sizing.
+3. **Deferred alignment edges (Parley).** Reduce nested top/bottom placement at
+   the nearest deferred ancestor and its descendant union before claiming the
+   full Blink model. Cover text-top/text-bottom, fallback-font boxes, fractional
+   fixed-point boundaries and odd/negative leading. Preserve declared OS/2/MVAR,
+   the hinted provider, Device defaults and unquantized behavior. Geometry,
+   fragments, hits and pixels remain separate gates.
+4. **Fragment lists and remaining hits (Blitz/Parley).** Retain full fragment count/order,
    bidi/culled segmentation and newline/whitespace fragments. Reduce nine tiny marker
    boundaries, preserved tabs, narrowed RTL wraps and RTL atomic flow. Compare the
    DOM sibling heuristic with layout-object siblings for empty/display:contents
    nodes and complex source seams. Keep transformed/overlapping atomic traversal,
    odd-height/negative-origin points and nested shifts independently gated.
-4. **Editor interaction (Blitz events/layout).** Separate clicks inside a selected
+5. **Editor interaction (Blitz events/layout).** Separate clicks inside a selected
    range and drag initiation from RTL/start/end/center alignment. Determine editor
    alignment width independently of single-line no-wrap shaping and scroll extent;
    require retained selection/caret behavior across width, font and scale changes.
    Add exact boundary and double/triple-click cases before expanding the claim.
-5. **Paint and cost (Blitz paint/Glifo/Vello).** Fix flattened hidden-descendant
+6. **Paint and cost (Blitz paint/Glifo/Vello).** Fix flattened hidden-descendant
    text paint and profile run/style scans before caching, with refresh and intrinsic
    layout-copy regressions. Retain the two previously exposed standards input
    crops and isolate fractional container/editor translations whose final baseline
