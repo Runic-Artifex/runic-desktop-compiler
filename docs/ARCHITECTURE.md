@@ -381,3 +381,7 @@ intrinsic layout reconstruction recomputes them. Device mode and disabled
 quantization retain the existing eager calculation. No IR or public API changes
 are required. Nested geometry, fragment lists, hits and paint are independent
 acceptance gates, with both ancestor and descendant observations.
+
+Blitz converts atomic-box CSS length shifts to layout units at the adapter
+boundary, using the same scale as box dimensions and baselines. Text spans
+continue to supply CSS units to Parley's style resolver, which scales them once.
