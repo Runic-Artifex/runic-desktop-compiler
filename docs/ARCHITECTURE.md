@@ -73,6 +73,29 @@ The honesty rules from Phases 1–4 still apply: a missing stage is *incomplete*
 
 ## Design checklist for new capabilities
 
+### Chromium parity: document mode and empty line struts (2026-10-08, isolated)
+
+HTML parsing owns document mode. Blitz exposes the existing Stylo
+`QuirksMode` enum and `BaseDocument::{quirks_mode,set_quirks_mode}`; the node
+tree and stylist retain the same mode. A new document defaults to `NoQuirks`.
+Only full-document HTML parsing sets it; fragment insertion preserves the
+containing document's mode. Full quirks mode adds legacy control box sizing at
+UA origin, so authored `box-sizing` still wins. Limited quirks keeps standards
+control sizing. This is not a claim of complete quirks CSS parsing support.
+
+Parley exposes `Layout::set_include_root_strut(bool)`, defaulting to `true`
+and reset to that default when a builder reuses a layout. The flag controls
+only the unconditional root font contribution before line breaking. Actual
+text and atomic boxes retain their metrics, alignment and scale. Blitz turns
+it off for ordinary inline layout in quirks and limited-quirks documents,
+following the [blocks ignore line-height quirk](https://quirks.spec.whatwg.org/#the-blocks-ignore-line-height-quirk).
+Editors retain the default so empty controls still have caret geometry.
+Neither API changes metric quantization or introduces a coordinate offset.
+Paired document modes, text versus atomic-only lines, authored sizing and
+fragment replacement are the acceptance cases. No IR or adapter change is
+needed; upstream API review remains required before integrating these local
+pins.
+
 ### Chromium parity: face weight ranges (2026-10-08, isolated)
 
 Blitz carries both endpoints of a CSS `@font-face` weight descriptor to

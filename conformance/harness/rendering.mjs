@@ -155,7 +155,8 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
           await page.setViewportSize({ width, height });
           const suffix = width === 640 && height === 300 ? '' : `-${width}x${height}`;
           const fileName = name + suffix + (dpr === 1 ? '' : `-dpr${dpr}`);
-          const html = (config.standards ? '<!doctype html>' : '') + base + config.html;
+          const html =
+            (config.doctype ?? (config.standards ? '<!doctype html>' : '')) + base + config.html;
           const input = path.join(out, `${fileName}.html`),
             nativePng = path.join(out, `${fileName}-native.png`);
           await writeFile(input, html);
