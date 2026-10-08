@@ -174,4 +174,26 @@ for (const origin of [20.375, 20.625]) {
     )}' style="position:absolute;left:30.375px;top:20.375px;width:10.4px;height:10.4px;border-radius:6px;background:#567"></div></div>`,
   };
 }
+for (const effect of [
+  'pointer-events:none',
+  'visibility:hidden',
+  'pointer-events:none;visibility:hidden',
+]) {
+  const token = effect.replaceAll(/[^a-z]/g, '_');
+  cases[`eligible_ancestor_${token}`] = {
+    standards: true,
+    region: 'table',
+    regions: ['table', 'text', 'child'],
+    viewports,
+    html: `<div id="table" style="margin:20.375px;line-height:32px"><span id="text" data-client-rects><span id="child" data-client-rects data-hit-points='${points(
+      [
+        [4, 8],
+        [20, 8],
+      ],
+    )}' style="${effect}">Alpha</span></span></div>`,
+    actions: [
+      { kind: 'style', selector: '#child', value: 'pointer-events:auto;visibility:visible' },
+    ],
+  };
+}
 await runRenderingCases(cases, {}, 'pointer-geometry', '#table{background:#f4f0e8}');

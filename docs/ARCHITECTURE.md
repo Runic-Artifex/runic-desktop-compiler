@@ -291,8 +291,9 @@ Intersection policy belongs to the target: ordinary boxes, culled inline
 ancestors and traversal bounds use raw positive-area rectangle intersections;
 text uses the existing Parley style-primary-font bounds, excluding leading and
 span padding/borders, pixel-snapped after accumulated paint offsets. Its owning
-span independently retains its raw content box. Ineligible text runs are skipped
-before ancestor tests; the formatting root retains its block-box target.
+span independently retains its raw content box. Ineligible text leaves do not
+match text, while eligible culled inline ancestors remain candidates; the
+formatting root retains its block-box target.
 Rounded contours use snapped border/padding rectangles. Snapping uses
 positive-infinity half ties, including negative coordinates. A transformed node
 starts a new layer coordinate space. Identity/translation and unit-scale axes
