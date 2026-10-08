@@ -77,7 +77,8 @@ The honesty rules from Phases 1–4 still apply: a missing stage is *incomplete*
 
 HTML parsing owns document mode. Blitz exposes the existing Stylo
 `QuirksMode` enum and `BaseDocument::{quirks_mode,set_quirks_mode}`; the node
-tree and stylist retain the same mode. A new document defaults to `NoQuirks`.
+tree, stylist and device retain the same mode after resolve. A new document
+defaults to `NoQuirks`.
 Only full-document HTML parsing sets it; fragment insertion preserves the
 containing document's mode. Full quirks mode adds legacy control box sizing at
 UA origin, so authored `box-sizing` still wins. Limited quirks keeps standards
