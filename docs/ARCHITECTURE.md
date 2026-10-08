@@ -305,3 +305,13 @@ The [explicit point oracle](../conformance/pointer-geometry.mjs) preserves small
 and large text gaps, exact edges, fractional origins, scaling, rotation/skew,
 rounded clips and scroll mutations. It supplements the retained inline/control
 checks; this checkpoint defines an implementation boundary, not a parity claim.
+
+The [verified checkpoint](../conformance/results/chromium-pointer-geometry.md)
+passes 234/234 standard hits and 216/234 explicit-point states in the new oracle,
+but retains 81 newly failing hit states in other inline matrices. The flattened
+`TextBrush` stores a styled element id; it does not identify the actual DOM text
+node for a shaped byte range. Chromium’s first/previous-sibling culled-inline
+ordering therefore needs source-range provenance before it can be reproduced.
+Do not infer that ordering from a brush id or protect descendants with an
+unconditional ancestry priority. Generic margin advances and per-fragment
+ownership remain text/layout work; geometry consumers must not repair positions.

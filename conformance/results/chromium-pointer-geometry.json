@@ -1,0 +1,2015 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler-tables",
+      "revision": "9e426bae61c42d26c33e325b790680e4a3279bbb",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz-tables",
+      "revision": "4b9e43bd53026bb9d1b39605e7821a1a26af48e6",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/parley-chromium-parity",
+      "revision": "5a3e022364566223ab122cf26f1d770b6a1a7849",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo-chromium-parity",
+      "revision": "f0e404e2daa6a5f6ed881e9cdb12e7a4ac375aa4",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello-raster-parity",
+      "revision": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+      "signature": "G",
+      "status": ""
+    }
+  ],
+  "originals": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "status": "",
+      "currentRevision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "e8dd36c6694be78902599320ab1653564627d128",
+      "status": "",
+      "currentRevision": "e8dd36c6694be78902599320ab1653564627d128",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "status": "",
+      "currentRevision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "status": "",
+      "currentRevision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "currentStatus": ""
+    }
+  ],
+  "oneExperimentWorktreePerRepository": true,
+  "environment": {
+    "chromium": "153.0.8010.12",
+    "viewport": [640, 300],
+    "deviceScaleFactor": 1,
+    "renderer": "cpu",
+    "screenshotCaret": "initial",
+    "fontSHA256": "a75044e4dab293c1ac7f8eba9f20df03f183f41b9319054f43b955959981632a",
+    "cargoLockSHA256": "1364b4e71332172936c2bb2ceb57bd13f1d5127e63f994f06ef1061a9735bca6",
+    "nativeBinarySHA256": "7129c914f3307e4b309b82555066cd434b84f79254585f2493c4c0b5b63a97a1",
+    "geometryTolerance": 0.125,
+    "pixelMAEThreshold": 3,
+    "flakeLockSHA256": "ed928e945c79e3d7f19d37b13a05f0d97b98440b38661d97bf77844e40606431",
+    "build": "Locked Git-aware Nix profile; offline cargo via compiler/cargo.mjs, shared main target, jobs=2, serial matrices",
+    "gpu": "Locked lavapipe/llvmpipe, not a hardware-adapter claim"
+  },
+  "gates": {
+    "directGeometryCSSPx": 0.125,
+    "compiledGeometryCSSPx": 2,
+    "pixels": "Viewport, container and every measured named crop MAE <=3/255",
+    "hit": "Exact closest-id target including explicit pointHitDifferences, independently gated",
+    "optional": "Empty reference maps are unmeasured; absent count field means unmeasured",
+    "countEncoding": "[passed, measured]; absent paired changedGates entries have zero repairs/regressions"
+  },
+  "sourceSnapshotValidation": {
+    "directMatrices": 23,
+    "allChecksPassed": true,
+    "checks": [
+      "five source pins match",
+      "clean empty diffs/untracked lists",
+      "same font/cargo lock/native binary/Chromium"
+    ]
+  },
+  "newOracles": {
+    "pointer-geometry": {
+      "before": {
+        "states": 150,
+        "geometry": [132, 150],
+        "hitDifferences": [111, 150],
+        "pointHitDifferences": [93, 150],
+        "clientRectDifferences": [18, 72],
+        "scrollDifferences": [0, 48],
+        "pixels": [127, 150]
+      },
+      "after": {
+        "states": 234,
+        "geometry": [216, 234],
+        "hitDifferences": [234, 234],
+        "pointHitDifferences": [216, 234],
+        "clientRectDifferences": [60, 114],
+        "scrollDifferences": [0, 48],
+        "pixels": [157, 234]
+      },
+      "paired": {
+        "matched": 150,
+        "afterOnly": 84,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {
+          "hitDifferences": {
+            "repaired": 39,
+            "regressed": 0,
+            "regressedFamilies": []
+          },
+          "pointHitDifferences": {
+            "repaired": 54,
+            "regressed": 0,
+            "regressedFamilies": []
+          }
+        }
+      }
+    },
+    "inline-fragments": {
+      "before": {
+        "states": 363,
+        "geometry": [189, 363],
+        "hitDifferences": [270, 363],
+        "clientRectDifferences": [174, 363],
+        "pixels": [0, 363]
+      },
+      "after": {
+        "states": 363,
+        "geometry": [189, 363],
+        "hitDifferences": [258, 363],
+        "clientRectDifferences": [174, 363],
+        "pixels": [0, 363]
+      },
+      "paired": {
+        "matched": 363,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {
+          "hitDifferences": {
+            "repaired": 51,
+            "regressed": 63,
+            "regressedFamilies": [
+              "nested_small_child",
+              "margin_ltr_8px_line",
+              "margin_ltr__3_375px_line",
+              "margin_ltr_5__line",
+              "margin_ltr_calc_5____2_125px__line",
+              "margin_ltr_auto_line",
+              "margin_rtl_8px_line",
+              "margin_rtl__3_375px_line",
+              "margin_rtl_5__line",
+              "margin_rtl_calc_5____2_125px__line",
+              "margin_rtl_auto_line"
+            ]
+          }
+        }
+      },
+      "groups": {
+        "font": {
+          "states": 108,
+          "geometry": 108,
+          "hits": 108,
+          "fragmentLists": 108
+        },
+        "align": {
+          "states": 30,
+          "geometry": 27,
+          "hits": 30,
+          "fragmentLists": 27
+        },
+        "nested": {
+          "states": 30,
+          "geometry": 24,
+          "hits": 18,
+          "fragmentLists": 24
+        },
+        "margin": {
+          "states": 180,
+          "geometry": 24,
+          "hits": 90,
+          "fragmentLists": 15
+        },
+        "bidi": {
+          "states": 12,
+          "geometry": 6,
+          "hits": 9,
+          "fragmentLists": 0
+        },
+        "decorated": {
+          "states": 3,
+          "geometry": 0,
+          "hits": 3,
+          "fragmentLists": 0
+        }
+      }
+    },
+    "inline-fragment-effects": {
+      "before": {
+        "states": 102,
+        "geometry": [102, 102],
+        "hitDifferences": [87, 102],
+        "clientRectDifferences": [60, 102],
+        "scrollDifferences": [54, 54],
+        "pixels": [0, 102]
+      },
+      "after": {
+        "states": 102,
+        "geometry": [102, 102],
+        "hitDifferences": [93, 102],
+        "clientRectDifferences": [60, 102],
+        "scrollDifferences": [54, 54],
+        "pixels": [0, 102]
+      },
+      "paired": {
+        "matched": 102,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {
+          "hitDifferences": {
+            "repaired": 15,
+            "regressed": 9,
+            "regressedFamilies": [
+              "target_pointer_events_none",
+              "target_visibility_hidden",
+              "target_pointer_events_none_visibility_hidden"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "retainedOracles": {
+    "line-width-grid": {
+      "before": {
+        "states": 176,
+        "geometry": [176, 176],
+        "hitDifferences": [176, 176],
+        "editorDifferences": [176, 176],
+        "lineWidthDifferences": [176, 176],
+        "pixels": [30, 176]
+      },
+      "after": {
+        "states": 176,
+        "geometry": [176, 176],
+        "hitDifferences": [176, 176],
+        "editorDifferences": [176, 176],
+        "lineWidthDifferences": [176, 176],
+        "pixels": [30, 176]
+      },
+      "paired": {
+        "matched": 176,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "line-width-effects": {
+      "before": {
+        "states": 76,
+        "geometry": [76, 76],
+        "hitDifferences": [76, 76],
+        "lineWidthDifferences": [76, 76],
+        "pixels": [45, 76]
+      },
+      "after": {
+        "states": 76,
+        "geometry": [76, 76],
+        "hitDifferences": [76, 76],
+        "lineWidthDifferences": [76, 76],
+        "pixels": [45, 76]
+      },
+      "paired": {
+        "matched": 76,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "text-metric-grid": {
+      "before": {
+        "states": 432,
+        "geometry": [432, 432],
+        "hitDifferences": [408, 432],
+        "editorDifferences": [384, 384],
+        "pixels": [48, 432]
+      },
+      "after": {
+        "states": 432,
+        "geometry": [432, 432],
+        "hitDifferences": [420, 432],
+        "editorDifferences": [384, 384],
+        "pixels": [48, 432]
+      },
+      "paired": {
+        "matched": 432,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {
+          "hitDifferences": {
+            "repaired": 21,
+            "regressed": 9,
+            "regressedFamilies": [
+              "inline_arabic_14_eighth",
+              "inline_latin_24_eighth",
+              "inline_latin_24_fraction"
+            ]
+          }
+        }
+      }
+    },
+    "input-line-height": {
+      "before": {
+        "states": 504,
+        "geometry": [504, 504],
+        "hitDifferences": [504, 504],
+        "editorDifferences": [504, 504],
+        "pixels": [134, 504]
+      },
+      "after": {
+        "states": 504,
+        "geometry": [504, 504],
+        "hitDifferences": [504, 504],
+        "editorDifferences": [504, 504],
+        "pixels": [134, 504]
+      },
+      "paired": {
+        "matched": 504,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "input-pointer": {
+      "before": {
+        "states": 264,
+        "geometry": [264, 264],
+        "hitDifferences": [264, 264],
+        "editorDifferences": [231, 264],
+        "pixels": [13, 264]
+      },
+      "after": {
+        "states": 264,
+        "geometry": [264, 264],
+        "hitDifferences": [264, 264],
+        "editorDifferences": [231, 264],
+        "pixels": [13, 264]
+      },
+      "paired": {
+        "matched": 264,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-document-mode": {
+      "before": {
+        "states": 132,
+        "geometry": [92, 132],
+        "hitDifferences": [120, 132],
+        "editorDifferences": [48, 48],
+        "scrollDifferences": [24, 24],
+        "pixels": [84, 132]
+      },
+      "after": {
+        "states": 132,
+        "geometry": [92, 132],
+        "hitDifferences": [120, 132],
+        "editorDifferences": [48, 48],
+        "scrollDifferences": [24, 24],
+        "pixels": [84, 132]
+      },
+      "paired": {
+        "matched": 132,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-layout": {
+      "before": {
+        "states": 264,
+        "geometry": [132, 264],
+        "hitDifferences": [264, 264],
+        "editorDifferences": [264, 264],
+        "pixels": [0, 264]
+      },
+      "after": {
+        "states": 264,
+        "geometry": [132, 264],
+        "hitDifferences": [264, 264],
+        "editorDifferences": [264, 264],
+        "pixels": [0, 264]
+      },
+      "paired": {
+        "matched": 264,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-selection": {
+      "before": {
+        "states": 48,
+        "geometry": [48, 48],
+        "hitDifferences": [48, 48],
+        "editorDifferences": [48, 48],
+        "pixels": [12, 48]
+      },
+      "after": {
+        "states": 48,
+        "geometry": [48, 48],
+        "hitDifferences": [48, 48],
+        "editorDifferences": [48, 48],
+        "pixels": [12, 48]
+      },
+      "paired": {
+        "matched": 48,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-focus": {
+      "before": {
+        "states": 252,
+        "geometry": [252, 252],
+        "hitDifferences": [252, 252],
+        "editorDifferences": [252, 252],
+        "pixels": [164, 252]
+      },
+      "after": {
+        "states": 252,
+        "geometry": [252, 252],
+        "hitDifferences": [252, 252],
+        "editorDifferences": [252, 252],
+        "pixels": [164, 252]
+      },
+      "paired": {
+        "matched": 252,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "tables": {
+      "before": {
+        "states": 77,
+        "geometry": [77, 77],
+        "hitDifferences": [77, 77],
+        "pixels": [74, 77]
+      },
+      "after": {
+        "states": 77,
+        "geometry": [77, 77],
+        "hitDifferences": [77, 77],
+        "pixels": [74, 77]
+      },
+      "paired": {
+        "matched": 77,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "table-document-mode": {
+      "before": {
+        "states": 12,
+        "geometry": [12, 12],
+        "hitDifferences": [12, 12],
+        "pixels": [12, 12]
+      },
+      "after": {
+        "states": 12,
+        "geometry": [12, 12],
+        "hitDifferences": [12, 12],
+        "pixels": [12, 12]
+      },
+      "paired": {
+        "matched": 12,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "table-controls": {
+      "before": {
+        "states": 4,
+        "geometry": [4, 4],
+        "hitDifferences": [2, 4],
+        "editorDifferences": [4, 4],
+        "scrollDifferences": [4, 4],
+        "pixels": [4, 4]
+      },
+      "after": {
+        "states": 4,
+        "geometry": [4, 4],
+        "hitDifferences": [4, 4],
+        "editorDifferences": [4, 4],
+        "scrollDifferences": [4, 4],
+        "pixels": [4, 4]
+      },
+      "paired": {
+        "matched": 4,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {
+          "hitDifferences": {
+            "repaired": 2,
+            "regressed": 0,
+            "regressedFamilies": []
+          }
+        }
+      }
+    },
+    "table-integration": {
+      "before": {
+        "states": 30,
+        "geometry": [22, 30],
+        "hitDifferences": [24, 30],
+        "editorDifferences": [8, 8],
+        "scrollDifferences": [12, 12],
+        "pixels": [23, 30]
+      },
+      "after": {
+        "states": 30,
+        "geometry": [22, 30],
+        "hitDifferences": [24, 30],
+        "editorDifferences": [8, 8],
+        "scrollDifferences": [12, 12],
+        "pixels": [23, 30]
+      },
+      "paired": {
+        "matched": 30,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "controls": {
+      "before": {
+        "states": 9,
+        "geometry": [8, 9],
+        "hitDifferences": [8, 9],
+        "editorDifferences": [6, 6],
+        "scrollDifferences": [2, 2],
+        "pixels": [6, 9]
+      },
+      "after": {
+        "states": 9,
+        "geometry": [8, 9],
+        "hitDifferences": [8, 9],
+        "editorDifferences": [6, 6],
+        "scrollDifferences": [2, 2],
+        "pixels": [6, 9]
+      },
+      "paired": {
+        "matched": 9,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "scrolling": {
+      "before": {
+        "states": 148,
+        "geometry": [148, 148],
+        "hitDifferences": [148, 148],
+        "scrollDifferences": [140, 140],
+        "pixels": [148, 148]
+      },
+      "after": {
+        "states": 148,
+        "geometry": [148, 148],
+        "hitDifferences": [148, 148],
+        "scrollDifferences": [140, 140],
+        "pixels": [148, 148]
+      },
+      "paired": {
+        "matched": 148,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "css-animations": {
+      "before": {
+        "states": 40,
+        "geometry": [40, 40],
+        "hitDifferences": [40, 40],
+        "pixels": [40, 40]
+      },
+      "after": {
+        "states": 40,
+        "geometry": [40, 40],
+        "hitDifferences": [40, 40],
+        "pixels": [40, 40]
+      },
+      "paired": {
+        "matched": 40,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "intrinsic-text": {
+      "before": {
+        "states": 30,
+        "geometry": [30, 30],
+        "hitDifferences": [30, 30],
+        "pixels": [20, 30]
+      },
+      "after": {
+        "states": 30,
+        "geometry": [30, 30],
+        "hitDifferences": [30, 30],
+        "pixels": [20, 30]
+      },
+      "paired": {
+        "matched": 30,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "font-weights": {
+      "before": {
+        "states": 36,
+        "geometry": [20, 36],
+        "hitDifferences": [36, 36],
+        "pixels": [16, 36]
+      },
+      "after": {
+        "states": 36,
+        "geometry": [20, 36],
+        "hitDifferences": [36, 36],
+        "pixels": [16, 36]
+      },
+      "paired": {
+        "matched": 36,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "glyphs": {
+      "before": {
+        "states": 38,
+        "geometry": [38, 38],
+        "hitDifferences": [38, 38],
+        "pixels": [4, 38]
+      },
+      "after": {
+        "states": 38,
+        "geometry": [38, 38],
+        "hitDifferences": [38, 38],
+        "pixels": [4, 38]
+      },
+      "paired": {
+        "matched": 38,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "borders": {
+      "before": {
+        "states": 7,
+        "geometry": [7, 7],
+        "hitDifferences": [7, 7],
+        "pixels": [0, 7]
+      },
+      "after": {
+        "states": 7,
+        "geometry": [7, 7],
+        "hitDifferences": [7, 7],
+        "pixels": [0, 7]
+      },
+      "paired": {
+        "matched": 7,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    }
+  },
+  "compiled": {
+    "tables-cpu": {
+      "schema": 1,
+      "runs": 6,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 96,
+      "maxMAE": 1.27,
+      "gpuAdapters": []
+    },
+    "tables-gpu": {
+      "schema": 1,
+      "runs": 2,
+      "browserVersion": "153.0.8010.12",
+      "renderer": "gpu",
+      "gpuAdapters": ["llvmpipe (LLVM 21.1.8, 256 bits)"],
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 32,
+      "maxMAE": 2.396
+    },
+    "forms-focus": {
+      "schema": 1,
+      "runs": 22,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 242,
+      "maxMAE": 0.388,
+      "gpuAdapters": []
+    },
+    "control-regressions": {
+      "schema": 1,
+      "runs": 7,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 19,
+      "maxMAE": 0.594,
+      "gpuAdapters": []
+    }
+  },
+  "units": {
+    "compiler": {
+      "passed": 297,
+      "failed": 0
+    },
+    "workspace": {
+      "passed": 122,
+      "failed": 0
+    },
+    "blitzDom": {
+      "passed": 57,
+      "failed": 2,
+      "knownFailures": ["hover_styles_apply_and_clear", "scroll_by_clamps_and_bubbles"]
+    },
+    "blitzPaint": {
+      "passed": 8,
+      "failed": 0
+    },
+    "blitzHtml": {
+      "passed": 3,
+      "failed": 0
+    },
+    "unchangedDependencies": "Prior Parley110 pass/4 known fontless failures, focused3 and libm; Stylo policy1 retained from preceding exact-source record, not rerun here"
+  },
+  "regressions": {
+    "states": 81,
+    "byFamily": [
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "nested_small_child",
+        "states": 3,
+        "steps": [1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "table",
+            "reference": ["table", "text", "table"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_ltr_8px_line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_ltr__3_375px_line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_ltr_5__line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_ltr_calc_5____2_125px__line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_ltr_auto_line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_rtl_8px_line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_rtl__3_375px_line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_rtl_5__line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_rtl_calc_5____2_125px__line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragments",
+        "gate": "hitDifferences",
+        "name": "margin_rtl_auto_line",
+        "states": 6,
+        "steps": [0, 1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "text",
+            "reference": ["text", "text", "text"],
+            "native": ["text", "text", "table"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragment-effects",
+        "gate": "hitDifferences",
+        "name": "target_pointer_events_none",
+        "states": 3,
+        "steps": [1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "child",
+            "reference": ["child", "child", "child"],
+            "native": ["child", "child", "text"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragment-effects",
+        "gate": "hitDifferences",
+        "name": "target_visibility_hidden",
+        "states": 3,
+        "steps": [1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "child",
+            "reference": ["child", "child", "child"],
+            "native": ["child", "child", "text"]
+          }
+        ]
+      },
+      {
+        "suite": "inline-fragment-effects",
+        "gate": "hitDifferences",
+        "name": "target_pointer_events_none_visibility_hidden",
+        "states": 3,
+        "steps": [1],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "child",
+            "reference": ["child", "child", "child"],
+            "native": ["child", "child", "text"]
+          }
+        ]
+      },
+      {
+        "suite": "text-metric-grid",
+        "gate": "hitDifferences",
+        "name": "inline_arabic_14_eighth",
+        "states": 3,
+        "steps": [0],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "baseline",
+            "reference": ["baseline", null, "baseline"],
+            "native": ["baseline", "table", "baseline"]
+          }
+        ]
+      },
+      {
+        "suite": "text-metric-grid",
+        "gate": "hitDifferences",
+        "name": "inline_latin_24_eighth",
+        "states": 3,
+        "steps": [0],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "baseline",
+            "reference": ["baseline", null, "baseline"],
+            "native": ["baseline", "table", "baseline"]
+          }
+        ]
+      },
+      {
+        "suite": "text-metric-grid",
+        "gate": "hitDifferences",
+        "name": "inline_latin_24_fraction",
+        "states": 3,
+        "steps": [0],
+        "dprs": [1, 1.25, 2],
+        "sample": [
+          {
+            "id": "baseline",
+            "reference": ["baseline", null, "baseline"],
+            "native": ["baseline", "table", "baseline"]
+          }
+        ]
+      }
+    ]
+  },
+  "previousTwelveLeadingGaps": [
+    {
+      "name": "font_12_1_25",
+      "viewport": [420, 240],
+      "dpr": 1,
+      "step": 2,
+      "passed": true
+    },
+    {
+      "name": "font_12_1_25",
+      "viewport": [420, 240],
+      "dpr": 1.25,
+      "step": 2,
+      "passed": true
+    },
+    {
+      "name": "font_12_1_25",
+      "viewport": [420, 240],
+      "dpr": 2,
+      "step": 2,
+      "passed": true
+    },
+    {
+      "name": "font_16_1_25",
+      "viewport": [420, 240],
+      "dpr": 1,
+      "step": 2,
+      "passed": true
+    },
+    {
+      "name": "font_16_1_25",
+      "viewport": [420, 240],
+      "dpr": 1.25,
+      "step": 2,
+      "passed": true
+    },
+    {
+      "name": "font_16_1_25",
+      "viewport": [420, 240],
+      "dpr": 2,
+      "step": 2,
+      "passed": true
+    },
+    {
+      "name": "font_24_1_25",
+      "viewport": [420, 240],
+      "dpr": 1,
+      "step": 1,
+      "passed": true
+    },
+    {
+      "name": "font_24_1_25",
+      "viewport": [420, 240],
+      "dpr": 1.25,
+      "step": 1,
+      "passed": true
+    },
+    {
+      "name": "font_24_1_25",
+      "viewport": [420, 240],
+      "dpr": 2,
+      "step": 1,
+      "passed": true
+    },
+    {
+      "name": "bidi_ltr",
+      "viewport": [420, 240],
+      "dpr": 1,
+      "step": 0,
+      "passed": true
+    },
+    {
+      "name": "bidi_ltr",
+      "viewport": [420, 240],
+      "dpr": 1.25,
+      "step": 0,
+      "passed": true
+    },
+    {
+      "name": "bidi_ltr",
+      "viewport": [420, 240],
+      "dpr": 2,
+      "step": 0,
+      "passed": true
+    }
+  ],
+  "incompleteStages": [
+    "Named /code-review tool unavailable; root and independent read-only reviews are substitutes only",
+    "OS keyboard/pointer/IME delivery not established by internal or headless probes",
+    "System-font Parley default-feature tests remain incomplete from preceding record"
+  ],
+  "remainingGaps": [
+    "Generic CSS inline margin flow and first/last fragment ownership",
+    "Construction-time normalized text-range to DOM text-node provenance, deferred culled/leaf inline edge priority and per-fragment boundaries",
+    "Odd-height primary-font text hit edges and negative viewport boundaries",
+    "Transformed fragment lists and relative-positioned scroll extent",
+    "Hidden flattened descendant paint, local glyph/theme/raster failures",
+    "Editor selection/RTL behavior and existing document-mode/float cases"
+  ],
+  "oldEvidenceValidation": [
+    {
+      "record": "chromium-line-widths",
+      "checked": 121,
+      "failures": []
+    },
+    {
+      "record": "chromium-text-metrics",
+      "checked": 118,
+      "failures": []
+    },
+    {
+      "record": "chromium-inline-fragments",
+      "checked": 220,
+      "failures": []
+    }
+  ],
+  "commands": [
+    {
+      "name": "npm",
+      "command": ["npm", "test"],
+      "artifact": null,
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 67.874,
+      "log": "artifacts/pointer-final-npm.log"
+    },
+    {
+      "name": "workspace",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "--workspace"],
+      "artifact": null,
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 21.839,
+      "log": "artifacts/pointer-final-workspace.log"
+    },
+    {
+      "name": "blitz-dom",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-dom"],
+      "artifact": null,
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 0.447,
+      "log": "artifacts/pointer-final-blitz-dom.log"
+    },
+    {
+      "name": "blitz-paint",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-paint"],
+      "artifact": null,
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 1.935,
+      "log": "artifacts/pointer-final-blitz-paint.log"
+    },
+    {
+      "name": "blitz-html",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-html"],
+      "artifact": null,
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 2.797,
+      "log": "artifacts/pointer-final-blitz-html.log"
+    },
+    {
+      "name": "pointer-geometry",
+      "command": ["node", "conformance/pointer-geometry.mjs"],
+      "artifact": "artifacts/pointer-final-pointer-geometry",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 93.675,
+      "log": "artifacts/pointer-final-pointer-geometry.log"
+    },
+    {
+      "name": "inline-fragments",
+      "command": ["node", "conformance/inline-fragments.mjs"],
+      "artifact": "artifacts/pointer-final-inline-fragments",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 127.889,
+      "log": "artifacts/pointer-final-inline-fragments.log"
+    },
+    {
+      "name": "inline-fragment-effects",
+      "command": ["node", "conformance/inline-fragment-effects.mjs"],
+      "artifact": "artifacts/pointer-final-inline-fragment-effects",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 35.435,
+      "log": "artifacts/pointer-final-inline-fragment-effects.log"
+    },
+    {
+      "name": "line-width-grid",
+      "command": ["node", "conformance/line-width-grid.mjs"],
+      "artifact": "artifacts/pointer-final-line-width-grid",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 91.741,
+      "log": "artifacts/pointer-final-line-width-grid.log"
+    },
+    {
+      "name": "line-width-effects",
+      "command": ["node", "conformance/line-width-effects.mjs"],
+      "artifact": "artifacts/pointer-final-line-width-effects",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 26.807,
+      "log": "artifacts/pointer-final-line-width-effects.log"
+    },
+    {
+      "name": "text-metric-grid",
+      "command": ["node", "conformance/text-metric-grid.mjs"],
+      "artifact": "artifacts/pointer-final-text-metric-grid",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 156.577,
+      "log": "artifacts/pointer-final-text-metric-grid.log"
+    },
+    {
+      "name": "input-line-height",
+      "command": ["node", "conformance/input-line-height.mjs"],
+      "artifact": "artifacts/pointer-final-input-line-height",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 151.974,
+      "log": "artifacts/pointer-final-input-line-height.log"
+    },
+    {
+      "name": "input-pointer",
+      "command": ["node", "conformance/input-pointer.mjs"],
+      "artifact": "artifacts/pointer-final-input-pointer",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 74.147,
+      "log": "artifacts/pointer-final-input-pointer.log"
+    },
+    {
+      "name": "control-document-mode",
+      "command": ["node", "conformance/control-document-mode.mjs"],
+      "artifact": "artifacts/pointer-final-control-document-mode",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 48.844,
+      "log": "artifacts/pointer-final-control-document-mode.log"
+    },
+    {
+      "name": "control-layout",
+      "command": ["node", "conformance/control-layout.mjs"],
+      "artifact": "artifacts/pointer-final-control-layout",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 111.127,
+      "log": "artifacts/pointer-final-control-layout.log"
+    },
+    {
+      "name": "control-selection",
+      "command": ["node", "conformance/control-selection.mjs"],
+      "artifact": "artifacts/pointer-final-control-selection",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.185,
+      "log": "artifacts/pointer-final-control-selection.log"
+    },
+    {
+      "name": "control-focus",
+      "command": ["node", "conformance/control-focus.mjs"],
+      "artifact": "artifacts/pointer-final-control-focus",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 92.873,
+      "log": "artifacts/pointer-final-control-focus.log"
+    },
+    {
+      "name": "tables",
+      "command": ["node", "conformance/tables.mjs"],
+      "artifact": "artifacts/pointer-final-tables",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 18.832,
+      "log": "artifacts/pointer-final-tables.log"
+    },
+    {
+      "name": "table-document-mode",
+      "command": ["node", "conformance/table-document-mode.mjs"],
+      "artifact": "artifacts/pointer-final-table-document-mode",
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.972,
+      "log": "artifacts/pointer-final-table-document-mode.log"
+    },
+    {
+      "name": "table-controls",
+      "command": ["node", "conformance/table-controls.mjs"],
+      "artifact": "artifacts/pointer-final-table-controls",
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.913,
+      "log": "artifacts/pointer-final-table-controls.log"
+    },
+    {
+      "name": "table-integration",
+      "command": ["node", "conformance/table-integration.mjs"],
+      "artifact": "artifacts/pointer-final-table-integration",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 8.875,
+      "log": "artifacts/pointer-final-table-integration.log"
+    },
+    {
+      "name": "controls",
+      "command": ["node", "conformance/controls.mjs"],
+      "artifact": "artifacts/pointer-final-controls",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 4.404,
+      "log": "artifacts/pointer-final-controls.log"
+    },
+    {
+      "name": "scrolling",
+      "command": ["node", "conformance/scrolling.mjs"],
+      "artifact": "artifacts/pointer-final-scrolling",
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 32.743,
+      "log": "artifacts/pointer-final-scrolling.log"
+    },
+    {
+      "name": "css-animations",
+      "command": ["node", "conformance/css-animations.mjs"],
+      "artifact": "artifacts/pointer-final-css-animations",
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 6.821,
+      "log": "artifacts/pointer-final-css-animations.log"
+    },
+    {
+      "name": "intrinsic-text",
+      "command": ["node", "conformance/intrinsic-text.mjs"],
+      "artifact": "artifacts/pointer-final-intrinsic-text",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 10.073,
+      "log": "artifacts/pointer-final-intrinsic-text.log"
+    },
+    {
+      "name": "font-weights",
+      "command": ["node", "conformance/font-weights.mjs"],
+      "artifact": "artifacts/pointer-final-font-weights",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 67.212,
+      "log": "artifacts/pointer-final-font-weights.log"
+    },
+    {
+      "name": "glyphs",
+      "command": ["node", "conformance/glyphs.mjs"],
+      "artifact": "artifacts/pointer-final-glyphs",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.242,
+      "log": "artifacts/pointer-final-glyphs.log"
+    },
+    {
+      "name": "borders",
+      "command": ["node", "conformance/borders.mjs"],
+      "artifact": "artifacts/pointer-final-borders",
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 3.096,
+      "log": "artifacts/pointer-final-borders.log"
+    },
+    {
+      "name": "tables-cpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--out",
+        "artifacts/pointer-final-tables-cpu"
+      ],
+      "artifact": null,
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 53.677,
+      "log": "artifacts/pointer-final-tables-cpu.log"
+    },
+    {
+      "name": "tables-gpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--renderer",
+        "gpu",
+        "--fixture",
+        "table-svelte",
+        "--out",
+        "artifacts/pointer-final-tables-gpu"
+      ],
+      "artifact": null,
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 22.391,
+      "log": "artifacts/pointer-final-tables-gpu.log"
+    },
+    {
+      "name": "forms-focus",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "forms",
+        "forms-react",
+        "forms-vue",
+        "measure",
+        "scroll-events",
+        "focus",
+        "focus-fixup",
+        "--pixels",
+        "--out",
+        "artifacts/pointer-final-forms-focus"
+      ],
+      "artifact": null,
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 118.357,
+      "log": "artifacts/pointer-final-forms-focus.log"
+    },
+    {
+      "name": "control-regressions",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "blitz-buttons",
+        "blitz-button-baseline",
+        "blitz-control-line-height",
+        "blitz-inline-baselines",
+        "--pixels",
+        "--out",
+        "artifacts/pointer-final-control-regressions"
+      ],
+      "artifact": null,
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 30.108,
+      "log": "artifacts/pointer-final-control-regressions.log"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/pointer-final-npm.log",
+      "sha256": "3c6834f222eb2b1c41e2e4fc8ec7729c08c1a815a4a2ddfb9512aecbac1ab1ec"
+    },
+    {
+      "path": "artifacts/pointer-final-workspace.log",
+      "sha256": "d91b2927206e5a8558f90d103d1f2114343c586a6596e5e3f1a2f5569ed57d84"
+    },
+    {
+      "path": "artifacts/pointer-final-blitz-dom.log",
+      "sha256": "e95f3857c0f644cf256d6a463831ca268277326b1af5413d75a17f3cd15be202"
+    },
+    {
+      "path": "artifacts/pointer-final-blitz-paint.log",
+      "sha256": "82d94e7b4a98795fa2f236a46d18b5197c3e0d1033b88f144a0b6c00be588c19"
+    },
+    {
+      "path": "artifacts/pointer-final-blitz-html.log",
+      "sha256": "468b4ee449a09b7b7914bdeaba2ed624c0a4530e362a4257e46e7be7e73de7c1"
+    },
+    {
+      "path": "artifacts/pointer-final-pointer-geometry.log",
+      "sha256": "0c59a31db5eeb27c36a28e9b8ced660c9c49c7c4a812822f0133431a89fce6b8"
+    },
+    {
+      "path": "artifacts/pointer-final-pointer-geometry/results.json",
+      "sha256": "0fdf73fde5a20e63b12393cb25be418416ddb216b25eda97c713bcc5f9801f15"
+    },
+    {
+      "path": "artifacts/pointer-final-pointer-geometry/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-pointer-geometry/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/pointer-final-inline-fragments.log",
+      "sha256": "2278788d7bd37a2f4f0877281b35f90d1ccbda7e5961ce70ba662e399a4dd9ff"
+    },
+    {
+      "path": "artifacts/pointer-final-inline-fragments/results.json",
+      "sha256": "8f458712be9fe40cf423ebb0a64d8c02859956bf1f5e647d32efee0bcf73406f"
+    },
+    {
+      "path": "artifacts/pointer-final-inline-fragments/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-inline-fragments/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-inline-fragment-effects.log",
+      "sha256": "a5d1ee3bf2e1dd2a273055d31d3ed40c13160028e13b5565baf787f790143311"
+    },
+    {
+      "path": "artifacts/pointer-final-inline-fragment-effects/results.json",
+      "sha256": "6e6bd653e6fa6bdaffef8a221081ec9d7dce5aef27eba2903370e5fba1115e00"
+    },
+    {
+      "path": "artifacts/pointer-final-inline-fragment-effects/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-inline-fragment-effects/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/pointer-final-line-width-grid.log",
+      "sha256": "b4540e75ffe6b3ef93532419632070aa452f35fd81577336dca27039c95f8f08"
+    },
+    {
+      "path": "artifacts/pointer-final-line-width-grid/results.json",
+      "sha256": "a5e99ec5e16905293b6027368328a40bdf0691156b81d4411caf3b06d49bc756"
+    },
+    {
+      "path": "artifacts/pointer-final-line-width-grid/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-line-width-grid/oracle-build.log",
+      "sha256": "2f76371da65e938ba90b4f1a788d5f7a1da6f4a8b1b466ca199aa65ecf4e0197"
+    },
+    {
+      "path": "artifacts/pointer-final-line-width-effects.log",
+      "sha256": "0fdc034852aaaddb808b77bba75fc10dfb47ba51b8c63f586482af7a6dc29f6f"
+    },
+    {
+      "path": "artifacts/pointer-final-line-width-effects/results.json",
+      "sha256": "42c5ced34bc295ce14f9c00a808264036fa417720785b686a6aae07927ce57c7"
+    },
+    {
+      "path": "artifacts/pointer-final-line-width-effects/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-line-width-effects/oracle-build.log",
+      "sha256": "91b175105a5aa0e82a9254864c40c3c9668768a99632544942a3fb9538c16e7d"
+    },
+    {
+      "path": "artifacts/pointer-final-text-metric-grid.log",
+      "sha256": "b03afe93d5638a4854858c1e2169a6959deb627a17bfc7eef35778ecf88c6e72"
+    },
+    {
+      "path": "artifacts/pointer-final-text-metric-grid/results.json",
+      "sha256": "eb98619f63d0c470490194ae41ddb3b8f3a988a80d5ed8a3c56cb37526ebc877"
+    },
+    {
+      "path": "artifacts/pointer-final-text-metric-grid/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-text-metric-grid/oracle-build.log",
+      "sha256": "9df213ed1a765d99f117074464235149cfac4ca24c0770d64ff62173f9b8e5b9"
+    },
+    {
+      "path": "artifacts/pointer-final-input-line-height.log",
+      "sha256": "8cc972142b83ce8cb51f1c64e0f3849f5787cf5a1a61cc47e49ec14592f1608e"
+    },
+    {
+      "path": "artifacts/pointer-final-input-line-height/results.json",
+      "sha256": "8dc4dee679d6cd53f2d5aaddf165b1db2ca02de200879f2de67d11272d95042b"
+    },
+    {
+      "path": "artifacts/pointer-final-input-line-height/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-input-line-height/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-input-pointer.log",
+      "sha256": "ee6ac5f6fbf238f3558fd1ce222bb3775d55ec5708db7295ee34ea07b5a68eff"
+    },
+    {
+      "path": "artifacts/pointer-final-input-pointer/results.json",
+      "sha256": "5860788eefcc3cdf49f2caa5dfd252ba93590818b7b8b47b210265c22403299a"
+    },
+    {
+      "path": "artifacts/pointer-final-input-pointer/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-input-pointer/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/pointer-final-control-document-mode.log",
+      "sha256": "9234aead5c2a8ae9228f2b1d3a789844853627fddf4e0b6a5653dfc1e262dee9"
+    },
+    {
+      "path": "artifacts/pointer-final-control-document-mode/results.json",
+      "sha256": "cb6237d559ddc1eb42f18d14ecc0208e3812def6f60c5a976b8e1b75cb388321"
+    },
+    {
+      "path": "artifacts/pointer-final-control-document-mode/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-control-document-mode/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/pointer-final-control-layout.log",
+      "sha256": "80f819333749ec51dbdc0b38f894af4e3fcabaf6228f0c552b22708b4aa22142"
+    },
+    {
+      "path": "artifacts/pointer-final-control-layout/results.json",
+      "sha256": "6eeee53ce0371dd6f0d8b8ba90db2394b8fed34317dc0856b57d31d57c751b56"
+    },
+    {
+      "path": "artifacts/pointer-final-control-layout/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-control-layout/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-control-selection.log",
+      "sha256": "0e2a0590fd5d1f9925e9627190c5d785ea47699dbbefb1d44dd608d20eb9e7a2"
+    },
+    {
+      "path": "artifacts/pointer-final-control-selection/results.json",
+      "sha256": "7c22f49513a651dd7e027a8f8b99203cbe880017ad47dd327e7013f0b777ae54"
+    },
+    {
+      "path": "artifacts/pointer-final-control-selection/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-control-selection/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/pointer-final-control-focus.log",
+      "sha256": "29d0412cffc31dd9c8596e1b0c2736281fd213839430ebb772cc60123107dc94"
+    },
+    {
+      "path": "artifacts/pointer-final-control-focus/results.json",
+      "sha256": "a664a1c71c7665799a62c7a20bb89cb226a9e947a9c6af00490f964e45c3eca7"
+    },
+    {
+      "path": "artifacts/pointer-final-control-focus/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-control-focus/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-tables.log",
+      "sha256": "a049ec85a6f3335525d828c0864852e355d230568badfe098645cc86079988a9"
+    },
+    {
+      "path": "artifacts/pointer-final-tables/results.json",
+      "sha256": "7a26f31285e4f4c12f6668a951393f9611764701b0680edaaaf105a33dc26f18"
+    },
+    {
+      "path": "artifacts/pointer-final-tables/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-tables/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-table-document-mode.log",
+      "sha256": "5d414d8c861c5214fce8f39775d7d187b70dfb6af6f4290ba58205bdc0f46b09"
+    },
+    {
+      "path": "artifacts/pointer-final-table-document-mode/results.json",
+      "sha256": "f9cebe47d1d03af390a2355fa16b2d7cc615036e6534851f57af276a2b71431f"
+    },
+    {
+      "path": "artifacts/pointer-final-table-document-mode/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-table-document-mode/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/pointer-final-table-controls.log",
+      "sha256": "0e8ab34a8ea49ccb82367288e302f7e41f7aa09a933a0604e2e26bc7c8017ba0"
+    },
+    {
+      "path": "artifacts/pointer-final-table-controls/results.json",
+      "sha256": "788e6c63648985b1775018ae0153dc47d383eb9e52c6e4c36aab9f5e7fadc8c2"
+    },
+    {
+      "path": "artifacts/pointer-final-table-controls/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-table-controls/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-table-integration.log",
+      "sha256": "7861df495bd5491faf8c0687d1a3d7d32f6280317fcce9ff1a82352ea32a1a4b"
+    },
+    {
+      "path": "artifacts/pointer-final-table-integration/results.json",
+      "sha256": "6101a3b3d34fe0b37dd9f7718addf91a9b2b76f8169b698a17ec52147815da31"
+    },
+    {
+      "path": "artifacts/pointer-final-table-integration/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-table-integration/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-controls.log",
+      "sha256": "7d8c8cbdba5504b511b967e50dcbc6f5d0d1580f56f8505b6ca14d5def74ddde"
+    },
+    {
+      "path": "artifacts/pointer-final-controls/results.json",
+      "sha256": "6ea5bd937e36b383a256846db69116fbdd9a1849685d21070c1088f604efd62e"
+    },
+    {
+      "path": "artifacts/pointer-final-controls/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-controls/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-scrolling.log",
+      "sha256": "18b7400e66d4a604af32f11ca04b9567f98b886179772f9c807068b21c64787d"
+    },
+    {
+      "path": "artifacts/pointer-final-scrolling/results.json",
+      "sha256": "a1e39783b300d8559f511699e77bceb6332911325db994988afea1ca9cb8287a"
+    },
+    {
+      "path": "artifacts/pointer-final-scrolling/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-scrolling/oracle-build.log",
+      "sha256": "9df213ed1a765d99f117074464235149cfac4ca24c0770d64ff62173f9b8e5b9"
+    },
+    {
+      "path": "artifacts/pointer-final-css-animations.log",
+      "sha256": "8d470f7de7ea055aefa58ed10f30d5dd51076cf1c9c0b1ca2d2a746e35590f7f"
+    },
+    {
+      "path": "artifacts/pointer-final-css-animations/results.json",
+      "sha256": "f7041adbe59eb89c596a08c333f196740b94db2aeab53798f2133cf547a6425b"
+    },
+    {
+      "path": "artifacts/pointer-final-css-animations/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-css-animations/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/pointer-final-intrinsic-text.log",
+      "sha256": "ae44e259a19ff28bc90142005274936c36e3cb2850a0b9f15dfdb5cc3a97c47a"
+    },
+    {
+      "path": "artifacts/pointer-final-intrinsic-text/results.json",
+      "sha256": "aa475317d8c994ba2f59d5702e5ce5ab62e5b62e72f4d51d2c4ce8a0a33912dd"
+    },
+    {
+      "path": "artifacts/pointer-final-intrinsic-text/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-intrinsic-text/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-font-weights.log",
+      "sha256": "bdffaf223dffeae428620c1ba03ff30bb63b8d5610d761190c7e5784a182d6a7"
+    },
+    {
+      "path": "artifacts/pointer-final-font-weights/results.json",
+      "sha256": "6368af28c4d7389a1808443c797a981f562bd074a845334826418bd845919dd8"
+    },
+    {
+      "path": "artifacts/pointer-final-font-weights/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-font-weights/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-glyphs.log",
+      "sha256": "1e498620efdf356898ed62f5fa3c1acf386d21fbf257ac3bef02484de20b86aa"
+    },
+    {
+      "path": "artifacts/pointer-final-glyphs/results.json",
+      "sha256": "bfad409b0dbef888c95ebd8c42af286c625cd2b35ab92d6bf32a1fe4dbd299c3"
+    },
+    {
+      "path": "artifacts/pointer-final-glyphs/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-glyphs/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/pointer-final-borders.log",
+      "sha256": "3c76d0aadb5f8ed67b35d70133992367b39d794abb01984ad7aecc2a1cd47c05"
+    },
+    {
+      "path": "artifacts/pointer-final-borders/results.json",
+      "sha256": "6da530ca4059ff528aa305eebd7af1a69c23cb67d81503544b2c267fc9519bc5"
+    },
+    {
+      "path": "artifacts/pointer-final-borders/metadata.json",
+      "sha256": "a7b335cdd2cee121e9705a86171c081b1c4a6a90002575514b5003f3946bd1ea"
+    },
+    {
+      "path": "artifacts/pointer-final-borders/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/pointer-final-tables-cpu.log",
+      "sha256": "8641f64a46ff9738a9e6a942f8525af447df6caca1aaa510398c2847da53a6b6"
+    },
+    {
+      "path": "artifacts/pointer-final-tables-gpu.log",
+      "sha256": "43343372f8be25d1c21787bf5ba86d958ab33428f632ff09f54d69c66bb6ecd1"
+    },
+    {
+      "path": "artifacts/pointer-final-forms-focus.log",
+      "sha256": "e618dcbdffea056ba28f989cf01d4ad3cdd4f77238ef0114866adae165a59d4c"
+    },
+    {
+      "path": "artifacts/pointer-final-control-regressions.log",
+      "sha256": "845c5a1599d18ba106aa55ea001cbbc3a4935a7cb77aca39fee6c68a613e008c"
+    },
+    {
+      "path": "artifacts/pointer-final-commands.json",
+      "sha256": "def33ee627e9cf8652dd047f610a37f0e013ca69d8b0e012bc6c39719085d12c"
+    },
+    {
+      "path": "artifacts/pointer-final-audit.json",
+      "sha256": "6a973e942f27face202ea5cce41c2fbbaf7c3319ea6c1d025861e94a0d46c550"
+    },
+    {
+      "path": "artifacts/pointer-final-source-proof.json",
+      "sha256": "fe3c715c702c3329e0296083f88802ef5bbde311ee403a9221ad2df2577f19ce"
+    },
+    {
+      "path": "artifacts/pointer-geometry-before/results.json",
+      "sha256": "02e00da5542fc5a6925f2046cdc4b7dff21c031dd3aab34417ec06b4119b4998"
+    },
+    {
+      "path": "artifacts/pointer-geometry-before/metadata.json",
+      "sha256": "482cd1e7e96e7529ecec13cc181d709a285fb28154f82c8679dc89f5e594483b"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragments/results.json",
+      "sha256": "a5f2e753c105d881a57b70fe40e32d4bce89c6b21da74cbcc789abfe1eb4ed4a"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragments/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragment-effects/results.json",
+      "sha256": "8a35a019dfa22c3b5ac13468b74af8c883609e65f7e14aec73ab11feba0775ff"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragment-effects/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/pointer-final-tables-cpu/report.json",
+      "sha256": "f06a7ed9d2115476e4cd7a7c2549a9e90527784c0134d8895ad3ba7171828cae"
+    },
+    {
+      "path": "artifacts/pointer-final-tables-gpu/report.json",
+      "sha256": "7ce9f626ae0a8e91ee9fb875d1bf34f3f999a72577adeb0318d1beef9e68ce7d"
+    },
+    {
+      "path": "artifacts/pointer-final-forms-focus/report.json",
+      "sha256": "eca6d4bea5d0096685195f97b59c0a28bd12c928f392c6de56fc9e7d84bd47f8"
+    },
+    {
+      "path": "artifacts/pointer-final-control-regressions/report.json",
+      "sha256": "1ff6b7e00d8ea4d91063698e5d1f2f54682b6a5c062195e503b7146369d7cc70"
+    },
+    {
+      "path": "artifacts/pointer-final-agent-audit.json",
+      "sha256": "7776e4617e54bcb54b298a9ae55523efde84d07df81e5fd5b203955d7ff5c37d"
+    },
+    {
+      "path": "artifacts/pointer-final-root-review.md",
+      "sha256": "609c4d032565fa55f0af59f5248f423edaf9782aabb0b3b56ec19c34db7179b2"
+    },
+    {
+      "path": "artifacts/pointer-root-hypothesis.json",
+      "sha256": "4b4805770f78548bc67fe523b9a39d55c032ed7188accb63cbcd6302148f51fe"
+    },
+    {
+      "path": "artifacts/pointer-final-interruption.json",
+      "sha256": "aee26fe7f76b0d203ad9cf20cf0f7c6b045ce757ba684e544ccec3ec307319ef"
+    },
+    {
+      "path": "artifacts/pointer-restored-build.log",
+      "sha256": "98be26d093425576607c08ffff1638e0053bfac23a1fca01a8338f8e99ccb074"
+    },
+    {
+      "path": "artifacts/pointer-focused-root-commands.json",
+      "sha256": "0dd7e8f8212458ed1d4d357ac54f289404bcb98a29abda23f061583b50499c0d"
+    }
+  ],
+  "measurementNotes": [
+    "234 pointer states include150 paired states with identical HTML SHA and84 after-only states; no baseline-pass→fail in its paired gates",
+    "Direct results use each engine’s own geometry for relative samples; toleranced geometry matching does not establish exact hit-edge equivalence",
+    "No geometry/client/editor/scroll/computed-width/pixel gate regressions in paired direct matrices; all hit regressions remain listed",
+    "No tolerance widening, blur, removed cases or rewritten references"
+  ],
+  "iterationFailures": [
+    "Initial unfrozen standalone Blitz manifest build used a different dependency graph and was stopped; it is not verification",
+    "Earlier pointer-complete source attempt interrupted for eligible-ancestor correction. Canonical pointer-final verification interrupted after14 for root/inline hypothesis, restored identical source/binary then resumed18; failed focused hypothesis removed and not counted as final results",
+    "Initial probe helper lacked registered font and failed; embedded test font repair was verified before source freeze"
+  ],
+  "cleanup": "Task-owned temporary Nix profile and helper scripts removed after consumers; original trees and shared caches retained; no merge/push"
+}

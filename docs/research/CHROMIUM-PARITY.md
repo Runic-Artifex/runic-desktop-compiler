@@ -127,8 +127,19 @@ their gates. Every new local pixel gate still fails.
 [inline API contract](../ARCHITECTURE.md#chromium-parity-inline-font-content-bounds-2026-10-08-isolated)
 record exact sources, measurements and remaining scope.
 
-The next useful order is shared pointer geometry, generic span edges/CSS margins,
-then fragment segmentation/alignment, measured editor interactions and glyph paint.
+The pointer continuation implements the private footprint/quad, logical positions,
+transform-layer phases and snapped rounded/text intersections. Its 234-state
+oracle passes all standard hits and 216 explicit-point states;150 paired states
+repair 54 explicit-point failures without regression. All 12 preceding leading-gap
+losses are repaired, and table-control hits improve 2→4/4. Main hits270→258,
+effects 87→93 and text metrics 408→420 expose 81 passing-to-failing hit states.
+All paired non-hit gates and 389 compiled states preserve their passing states.
+[Results](../../conformance/results/chromium-pointer-geometry.md) separate every
+regression from geometry and pixel gates.
+
+The next useful order is text-range/DOM provenance and fragment targeting,
+generic span edges/CSS margins, then segmentation/alignment, editor interaction
+and glyph paint.
 Keep native theme paint and document-mode edges separate. Float layout needs an
 explicitly enabled build; the compiler currently disables that feature. Preserve
 all focus/table regressions and the newly exposed failures. Owners and gates:
@@ -142,20 +153,20 @@ all focus/table regressions and the newly exposed failures. Owners and gates:
 | CP-EDITOR-INITIAL | Repaired in Parley: valid logical positions survive fontless layouts instead of moving to EOF. All 48 refresh states, 9 older control states and 30 integration states match | Preserve resource/style/width/scale refresh cases; bidi, OS/IME and arbitrary invalid UTF-8 cursor offsets remain separate gates |
 | CP-CONTROL-UA-BOX | Ordinary text/search/textarea/button box models and textarea context baselines/visible overflow are repaired in Blitz/Stylo. The full layout matrix remains 132/264 geometry; remaining differences are solely the text span's omitted 8px margin. Hits/editor gates pass; this matrix has no scroll probe | Keep default/authored sizing, standards/quirks, inline/flex/grid/table and overflow cases; close inline margin flow and retained paint/wrapping gaps; preserve the repaired metrics, centering and fractional-width suites |
 | CP-CONTROL-CENTER | Repaired in Blitz: conditional inner-editor line height and signed centering share geometry with baselines, paint and pointers. Input geometry and hits now pass 504/504, with pixels 134/504 | Preserve auto/fixed/percent/calc and integer-threshold cases, authored outer CSS, textarea behavior and refreshes; retain pixel gates independently |
-| CP-TEXT-METRIC-GRID | Repaired metric scaling in opt-in Parley Logical mode: textarea is 15/35 CSS px at all scales, 30/70 device px at DPR 2. Text geometry now passes 432/432; hits are 408/432 and pixels 48/432 | Preserve Device default, unquantized behavior, builder reuse/editor refresh, fractional authored geometry and std/libm checks; retain tiny marker edge hits and renderer coverage separately |
+| CP-TEXT-METRIC-GRID | Repaired metric scaling in opt-in Parley Logical mode: textarea is 15/35 CSS px at all scales, 30/70 device px at DPR 2. Text geometry now passes 432/432; hits are 420/432 (21 repairs, 9 marker-edge regressions) and pixels 48/432 | Preserve Device default, unquantized behavior, builder reuse/editor refresh, fractional authored geometry and std/libm checks; retain tiny marker edge hits and renderer coverage separately |
 | CP-CONTROL-FRACTIONAL-BOX | Repaired in Stylo/Blitz: CssPixel is opt-in; DevicePixel/default and physical hairlines are preserved. All 176 width and 76 supplemental states match computed widths/geometry across DPR 1/1.25/1.5/2, including CSS zoom | Preserve before-app-unit tiny/near-integer thresholds, default/opt-in cache invalidation, logical sides, inheritance, zoom and mutation samples; broad transitions/additivity and animated zoom require their own gates |
 | CP-EDITOR-POINTER | Outside-line ordinary clicks/drags now use logical boundaries, including RTL; geometry is 264/264 and editor state 231/264. Fifteen selected-text click and eighteen RTL inside-editor states fail | Preserve all new states; reduce delayed collapse/drag initiation separately from RTL content-width/alignment, and keep single-line no-wrap scrolling |
-| CP-INLINE-SPAN-BOUNDS | First-font content height and short-line overflow are repaired in Parley/Blitz; all 108 font states match geometry/lists. The 180-state margin group passes only 24 bounding and 15 list states; 132 retained control states still omit an 8px text margin | Add generic ordered owner/start/end advances in Parley, then bind CSS margins in Blitz. Cover intrinsic/break replay, negative/empty/percent/nested spans and first/last wrapped fragments; margins stay outside own border rects/hits |
-| CP-INLINE-HIT-LOCATION | Run/font-content targeting repairs 51 main and 24 terminal hits but exposes 12 narrow font/bidi leading-gap losses; 15 supplemental wrap hits also fail | Derive pinned Chromium point-footprint, physical-fragment intersection and pixel-enclosure behavior. Share it through transforms, scrolling and clips; retain large-gap misses, tiny markers and rounded corners |
+| CP-INLINE-SPAN-BOUNDS | First-font content height and short-line overflow are repaired in Parley/Blitz; all 108 font states match geometry/lists. The 180-state margin group passes 24 bounding, 15 list and 90 hit states, including 60 new hit losses; 132 retained control states still omit an 8px text margin | Add generic ordered owner/start/end advances in Parley, then bind CSS margins in Blitz. Cover intrinsic/break replay, negative/empty/percent/nested spans and first/last wrapped fragments; margins stay outside own border rects/hits |
+| CP-INLINE-HIT-LOCATION | Private footprint/quad repairs all 12 preceding narrow-gap and 15 wrap losses; new oracle 234/234 standard and 216/234 explicit points. Main/effects/text-metric retain81 new hit losses; brush ids lack actual DOM text provenance | Preserve normalized text-range/DOM ancestry, then implement deferred culled-inline first/previous-sibling ordering and per-fragment regions. Keep margin flow separate; retain large-gap misses, odd-height gaps, negative viewport edges and exact marker samples |
 | CP-INLINE-FRAGMENT-LISTS | Blitz retains one union per line; bidi passes 0/12 list states and effects 60/102 despite 102/102 bounding geometry | Preserve bidi/culled/nested segmentation, zero-width newlines and preserved trailing spaces. Keep list order/count independent of bounding unions and pointer gates |
-| CP-INLINE-ALIGN-METRICS | Vertical alignment passes 27/30 and nested spans 24/30 geometry; `middle` differs by 0.296875 CSS px | Repair aligned-baseline metrics in the layout owner; retain tall descendants, atomic boxes and nested top/bottom/shift cases across scale/font/width changes |
+| CP-INLINE-ALIGN-METRICS | Vertical alignment passes 27/30 and nested spans 24/30 geometry; hits are 30/30 and 18/30 respectively (three new nested boundary losses); `middle` differs by 0.296875 CSS px | Repair aligned-baseline metrics in the layout owner; retain tall descendants, atomic boxes and nested top/bottom/shift cases across scale/font/width changes |
 | CP-CONTROL-THEME | A default button label matches bounds and passes its interior crop at MAE 1.464, while its full crop is 22.076 from native lower/right bevel colors | Reduce `appearance:auto` theme paint separately from authored CSS borders and `appearance:none`; cover active/disabled/focus states and preserve custom control/table cases |
 | CP-DOCUMENT-MODE | Parser mode, fragment preservation, device rebuilds and empty root struts are repaired. Core mode geometry is now 60/60; full 132-state oracle retains float and break/newline failures | Keep mode/cache regressions; separately reduce quirks/limited-quirks `<br>` and preserved newlines (19px residual), empty/collapsed whitespace and inline border/padding. Enable floats only for a measured float scope |
 | CP-NESTED-INLINE | Nested atomic inline/button reductions retain local paint failures while geometry passes; baseline measurement can promote child sizing to PerformLayout | Compare retained child line positions and baselines across table/flex/grid intrinsic passes; keep nested failures in the oracle |
 | CP-FONT-INSTANCES | Font-weight geometry improves 12→20/36 and hits 28→36/36 through span bounds. Variable-font auto optical sizing/normal-line-height and static synthetic-bold/DPR 2 paint remain open | Resolve CSS variation precedence and optical sizing in the Blitz font bridge and metrics provider, consume synthesis in paint, then compare pinned glyph regions across DPR; the bounds repair does not certify font matching |
 | CP-FONT-ORDER | Both source orders of overlapping static/variable CSS face declarations retain geometry/pixel failures in `font-weights.mjs` | Preserve CSS face priority at the registration/query boundary independently of generic/system Fontique family ordering; cover overlapping ranges and resource completion order without dropping subset fallback |
-| CP-INLINE-BASELINE | Retained table-control geometry now passes 4/4 in standards and quirks; pixels remain 4/4, with corner hits still 2/4 | Preserve primary-font/atomic-box/table alignment reductions across fonts and mutations; corner hits remain CP-ROUNDED-HIT |
-| CP-ROUNDED-HIT | Fractional rounded buttons retain an edge hit discrepancy after the inline child-coordinate fix | Use Chromium's rounded-rectangle intersection model and consistent layout coordinates; keep corner hits independent of painting |
+| CP-INLINE-BASELINE | Retained table-control geometry now passes 4/4 in standards and quirks; pixels and corner hits now pass 4/4 | Preserve primary-font/atomic-box/table alignment reductions across fonts and mutations; keep the expanded rounded/transform point oracle independently gated |
+| CP-ROUNDED-HIT | Snapped constrained outer radii and quad/corner-ellipse intersections repair retained table controls and positive-origin rounded/constrained-corner reductions. Negative viewport edges still fail | Preserve exact points through inverse transforms/scroll clips; expand negative-origin and nested-layer contours as needed. Painting remains independently gated |
 | CP-EDITOR-WRAP | `controls.mjs` textarea after scrolling retains different wrapping and paint; authored input intrinsic widths are covered separately | Compare editor content widths, line advances and break opportunities; repair editor geometry rather than alter its text or font |
 | CP-RASTER | `glyphs.mjs`, `borders.mjs` and checked-radio crop retain local paint failures; new width/effects matrices pass only 30/176 and 45/76 pixels despite matching geometry/computed widths | Separate glyph placement/hinting, outline coverage and dotted-stroke phase/count in their renderer owners; retain local MAE 3 across sizes/origins/DPR |
 | CP-TABLE-WPT | Practical table oracle does not cover the complete CSS table model | Add attributed anonymous-box, `empty-cells`, collapse, height distribution and border-order reductions from WPT as the app corpus needs them |
@@ -166,7 +177,8 @@ The checked-in [initial verification record](../../conformance/results/chromium-
 [control boxes](../../conformance/results/chromium-control-boxes.md) and
 [text metrics](../../conformance/results/chromium-text-metrics.md) and
 [line widths](../../conformance/results/chromium-line-widths.md) and
-[inline fragments](../../conformance/results/chromium-inline-fragments.md), separate
+[inline fragments](../../conformance/results/chromium-inline-fragments.md) and
+[pointer geometry](../../conformance/results/chromium-pointer-geometry.md), separate
 fixed worktree behavior, residual failures and shipping gates. None of
 the broader P1/P4/P7 clusters is closed merely by these patches.
 
@@ -182,10 +194,14 @@ The fractional-DPR box reduction is implemented. Keep its style-owner ADR,
 additive opt-in API and default preservation, and all paired width/zoom/control
 cases as regressions. No renderer adjustment substitutes for these shared widths.
 
-1. **Pointer geometry (Blitz).** Reduce the point footprint and physical fragment
-   intersection from pinned Chromium. Carry shared geometry through transforms,
-   scroll and clipping; require all 12 new losses, 15 supplemental misses, large-gap
-   controls, tiny markers and rounded-button cases without widening tolerances.
+1. **Text provenance and fragment targets (Blitz).** Freeze a private normalized
+   text-range to DOM text-node/inline ancestry mapping. A run brush already names
+   the styled element and cannot identify Chromium’s text object. Use the mapping
+   to defer raw culled-parent checks until descendant/previous-sibling fragments
+   are tested. Require the 3 nested and 9 child-boundary losses, 18 eligible-ancestor
+   controls and 9 marker edges without ancestry-priority or whitespace cropping.
+   Preserve the repaired 12 leading-gap and 15 wrap states; keep odd-height and
+   negative-origin exact points as separate remaining footprint gates.
 2. **Inline margin flow (Parley, then Blitz).** Define generic owner/start/end
    advances with stable ordering, intrinsic/break replay and pending whitespace.
    Use a separate positioned-edge iterator to preserve public enum compatibility.

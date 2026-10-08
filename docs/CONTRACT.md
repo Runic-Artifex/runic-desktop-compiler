@@ -15,11 +15,17 @@ the [control-box continuation](../conformance/results/chromium-control-boxes.md)
 the [text-metric continuation](../conformance/results/chromium-text-metrics.md),
 the [line-width continuation](../conformance/results/chromium-line-widths.md),
 the [inline-fragment continuation](../conformance/results/chromium-inline-fragments.md),
+the [pointer-geometry continuation](../conformance/results/chromium-pointer-geometry.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation repairs first-font inline bounds, pointer run
-targeting and short-line scroll overflow. Retained direct gates do not regress;
-new margin, fragment-list, narrow-gap hit and local-pixel failures remain measured.
+The latest isolated continuation carries a private pointer footprint through
+logical positioning, scrolling, clips and inverse transforms. Its new oracle
+passes 234/234 standard hits and 216/234 explicit-point states; all 12 preceding
+leading-gap losses are repaired. It also introduces 81 passing-to-failing hit
+states across retained inline/effects/text-metric suites, including 60 margin
+states. These remain failures; geometry and pixel gates are independent.
+Table-control hits now pass 4/4, and 389 compiled states retain all gates.
+Text-node provenance, fragment ordering, margin flow and local paint remain open.
 The probe's inline `getClientRects()` oracle does not broaden compiler acceptance
 or the shipping DOM contract below.
 

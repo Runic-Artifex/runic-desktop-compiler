@@ -26,8 +26,17 @@ run geometry with pointer targets. All 108 font-size/line-height states match
 geometry/fragment lists; the full new matrix passes 189/363 bounding states and
 270/363 hits, with 12 newly exposed narrow-gap hit failures. All 2,579 retained
 direct states preserve their passing gates and all 389 compiled states pass.
-Margins, full fragment lists and local glyph paint remain open; the targeted plan
-keeps shared pointer geometry and generic span-edge flow as separate next patches.
+The [pointer-geometry continuation](../conformance/results/chromium-pointer-geometry.md)
+adds a shared private footprint for clips, inverse transforms, snapped text and
+rounded contours. The new oracle passes 234/234 standard hits and 216/234 exact
+point states; the 150 paired states repair 54 explicit-point failures without a
+passing gate regression. Table-control hits improve 2→4/4. Main inline hits
+change 270→258, effects 87→93 and text metrics 408→420, including 81 new hit losses
+(60 margins, 3 nested boundaries, 9 child/parent priorities, 9 marker edges).
+All paired non-hit gates and 389 compiled states preserve their passing states.
+The next patches need normalized text-range/DOM provenance and deferred fragment
+ordering in Blitz, plus generic span-edge flow in Parley and CSS binding in Blitz.
+Full fragment lists, odd-height/negative-origin hits and local glyph paint remain open.
 
 ## Rendering and layout
 
