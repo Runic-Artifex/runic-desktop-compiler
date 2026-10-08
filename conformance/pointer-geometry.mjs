@@ -16,7 +16,15 @@ const edge = [
   [40.015625, 10],
 ];
 for (const origin of [20.375, 20.625]) {
-  for (const transform of ['none', 'scale(.5)', 'scale(2)', 'rotate(15deg)', 'skewX(20deg)']) {
+  for (const transform of [
+    'none',
+    'scale(.5)',
+    'scale(2)',
+    'rotate(15deg)',
+    'skewX(20deg)',
+    'scale(1,.5)',
+    'translate(.25px,.5px)',
+  ]) {
     const token = `${origin}_${transform}`.replaceAll(/[^a-z0-9]/g, '_');
     cases[`box_${token}`] = {
       standards: true,
