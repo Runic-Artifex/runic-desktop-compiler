@@ -90,6 +90,21 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
       return page.evaluate(() => {
         const elements = [...document.querySelectorAll('[id]')];
         return {
+          pointHits: Object.fromEntries(
+            elements
+              .filter(el => el.hasAttribute('data-hit-points'))
+              .map(el => {
+                const rect = el.getBoundingClientRect();
+                return [
+                  el.id,
+                  JSON.parse(el.getAttribute('data-hit-points')).map(
+                    ([x, y]) =>
+                      document.elementFromPoint(rect.x + x, rect.y + y)?.closest('[id]')?.id ??
+                      null,
+                  ),
+                ];
+              }),
+          ),
           clientRects: Object.fromEntries(
             elements
               .filter(el => el.hasAttribute('data-client-rects'))
@@ -310,6 +325,12 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
                 ([id, value]) => JSON.stringify(value) !== JSON.stringify(observation.hits[id]),
               )
               .map(([id, reference]) => ({ id, reference, native: observation.hits[id] }));
+            const pointHitDifferences = Object.entries(expected.pointHits)
+              .filter(
+                ([id, value]) =>
+                  JSON.stringify(value) !== JSON.stringify(observation.pointHits[id]),
+              )
+              .map(([id, reference]) => ({ id, reference, native: observation.pointHits[id] }));
             const scrollDifferences = Object.entries(expected.scroll)
               .filter(
                 ([id, values]) =>
@@ -409,6 +430,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
               localPixelMAEs,
               differences,
               hitDifferences,
+              pointHitDifferences,
               editorDifferences,
               scrollDifferences,
               lineWidthDifferences,
@@ -430,6 +452,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
           r.tablePixelMAE > 3 ||
           Object.values(r.localPixelMAEs).some(v => v > 3) ||
           r.hitDifferences.length ||
+          r.pointHitDifferences.length ||
           r.editorDifferences.length ||
           r.scrollDifferences.length ||
           r.lineWidthDifferences.length ||

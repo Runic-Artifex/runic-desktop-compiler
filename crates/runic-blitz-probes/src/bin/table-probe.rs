@@ -5,10 +5,36 @@ use blitz_html::HtmlDocument;
 use markup5ever::{LocalName, QualName, local_name, ns};
 use serde_json::{Map, Value, json};
 
+fn hit_target(doc: &blitz_dom::BaseDocument, point: (f64, f64)) -> Option<String> {
+    let viewport = doc.viewport();
+    let in_view = point.0 >= 0.0
+        && point.1 >= 0.0
+        && point.0 < f64::from(viewport.window_size.0) / viewport.scale_f64()
+        && point.1 < f64::from(viewport.window_size.1) / viewport.scale_f64();
+    let mut id = in_view
+        .then(|| {
+            doc.hit(
+                (point.0 + doc.viewport_scroll().x) as f32,
+                (point.1 + doc.viewport_scroll().y) as f32,
+            )
+        })
+        .flatten()
+        .map(|hit| hit.node_id);
+    while let Some(current) = id {
+        let node = doc.get_node(current).unwrap();
+        if let Some(name) = node.attr(local_name!("id")) {
+            return Some(name.to_string());
+        }
+        id = node.parent;
+    }
+    None
+}
+
 fn observe(doc: &HtmlDocument) -> Value {
     let inner = doc.inner();
     let mut rects = Map::new();
     let mut hits = Map::new();
+    let mut point_hits = Map::new();
     let mut text_lines = Map::new();
     let mut scroll = Map::new();
     let mut editors = Map::new();
@@ -22,6 +48,14 @@ fn observe(doc: &HtmlDocument) -> Value {
         let node = inner.get_node(id).unwrap();
         let name = node.attr(local_name!("id")).unwrap();
         let rect = inner.get_transformed_client_bounding_rect(id).unwrap();
+        if let Some(points) = node.attr(LocalName::from("data-hit-points")) {
+            let points: Vec<[f64; 2]> = serde_json::from_str(points).unwrap();
+            let targets: Vec<_> = points
+                .into_iter()
+                .map(|[x, y]| hit_target(&inner, (rect.x + x, rect.y + y)))
+                .collect();
+            point_hits.insert(name.into(), json!(targets));
+        }
         if node.attr(LocalName::from("data-client-rects")).is_some() {
             let fragments: Vec<_> = inner
                 .node_client_rects(id)
@@ -155,34 +189,11 @@ fn observe(doc: &HtmlDocument) -> Value {
             (rect.width - 1.0, rect.height - 1.0),
         ] {
             let point = (rect.x + dx, rect.y + dy);
-            let viewport = inner.viewport();
-            let in_view = point.0 >= 0.0
-                && point.1 >= 0.0
-                && point.0 < f64::from(viewport.window_size.0) / viewport.scale_f64()
-                && point.1 < f64::from(viewport.window_size.1) / viewport.scale_f64();
-            let mut id = in_view
-                .then(|| {
-                    inner.hit(
-                        (point.0 + inner.viewport_scroll().x) as f32,
-                        (point.1 + inner.viewport_scroll().y) as f32,
-                    )
-                })
-                .flatten()
-                .map(|hit| hit.node_id);
-            let mut target = None;
-            while let Some(current) = id {
-                let node = inner.get_node(current).unwrap();
-                if let Some(name) = node.attr(local_name!("id")) {
-                    target = Some(name.to_string());
-                    break;
-                }
-                id = node.parent;
-            }
-            targets.push(target);
+            targets.push(hit_target(&inner, point));
         }
         hits.insert(name.into(), json!(targets));
     }
-    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics,"lineWidths":line_widths,"clientRects":client_rects})
+    json!({"rects":rects,"hits":hits,"pointHits":point_hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics,"lineWidths":line_widths,"clientRects":client_rects})
 }
 fn render(doc: &mut HtmlDocument, path: &str, width: u32, height: u32) {
     let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);
