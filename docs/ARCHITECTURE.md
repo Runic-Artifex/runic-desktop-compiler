@@ -362,3 +362,22 @@ This policy matches the locked Linux Chromium web-font oracle; it does not promi
 every platform's font hinting configuration. Font metrics, span layout, hit regions
 and glyph paint remain separate modules. The middle-alignment oracle measures
 box/fragment geometry, hits and paint independently over sizes, origins and DPRs.
+
+## Chromium parity: per-line nested alignment (2026-10-08, isolated)
+
+Parley's enabled logical policy resolves parent-relative inline alignment from
+the content participating on each line. A private layout module collects direct
+text metrics, fallback runs and atomic boxes, then aligns descendant unions
+bottom-up. Participating ancestors retain their own span metrics, including
+textless ancestors in standards mode. The root strut remains explicit;
+top/bottom descendants retain independent aligned subtrees.
+
+Per-line span offsets belong to line-breaking output, alongside subtree offsets.
+Glyph positioning, span content bounds and atomic positioning consume these
+offsets through the existing line API. Style metrics remain font/line-height
+inputs; DOM geometry and hit testing do not correct alignment. Saved breaking
+opportunities retain the participating metrics with their line state, and
+intrinsic layout reconstruction recomputes them. Device mode and disabled
+quantization retain the existing eager calculation. No IR or public API changes
+are required. Nested geometry, fragment lists, hits and paint are independent
+acceptance gates, with both ancestor and descendant observations.
