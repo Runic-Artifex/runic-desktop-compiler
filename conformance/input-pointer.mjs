@@ -30,6 +30,35 @@ for (const height of [8, 16, 24, 33.5]) {
   }
 }
 
+for (const height of [16, 33.5]) {
+  for (const direction of ['ltr', 'rtl']) {
+    cases[`arabic_${direction}_${height}`] = {
+      suite: 'controls',
+      standards: true,
+      region: 'table',
+      regions: ['table', 'control'],
+      viewports: [
+        [360, 140, 1],
+        [360, 140, 1.25],
+        [360, 140, 2],
+      ],
+      browserStyleRequirements: [
+        { selector: '#control', property: 'caretAnimation', value: 'manual' },
+      ],
+      html: `<div id="table"><input id="control" dir="${direction}" value="ترجمة Alpha" style="height:${height}px;line-height:normal"></div>`,
+      actions: [
+        { kind: 'pointerDown', selector: '#control', x: 65, y: 1.5 },
+        { kind: 'pointerMove', selector: '#control', x: 25, y: 1.5 },
+        { kind: 'pointerUp', selector: '#control', x: 25, y: 1.5 },
+        { kind: 'selection', selector: '#control', start: 0, end: 0 },
+        { kind: 'pointerDown', selector: '#control', x: 65, y: height + 2.5 },
+        { kind: 'pointerMove', selector: '#control', x: 25, y: height + 2.5 },
+        { kind: 'pointerUp', selector: '#control', x: 25, y: height + 2.5 },
+      ],
+    };
+  }
+}
+
 await runRenderingCases(
   cases,
   {},
