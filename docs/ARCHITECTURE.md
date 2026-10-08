@@ -315,3 +315,32 @@ ordering therefore needs source-range provenance before it can be reproduced.
 Do not infer that ordering from a brush id or protect descendants with an
 unconditional ancestry priority. Generic margin advances and per-fragment
 ownership remain text/layout work; geometry consumers must not repair positions.
+
+## Chromium parity: text provenance (2026-10-08, isolated)
+
+Parley owns whitespace normalization and offers optional opaque source ids on
+`TreeBuilder::push_text_with_source`. `build_into_with_sources` returns normalized
+UTF-8 byte ranges and their ids alongside the text. Collapsed spaces retain the
+first contributing source; removed whitespace has no range. Existing builder
+methods and shaping/style boundaries are unchanged. Metadata does not affect
+fonts, line breaking, bidi, glyphs or positioned-item enum variants.
+
+An additive `GlyphRun::text_range` exposes its complete shaping atoms. Blitz
+records versioned DOM text ids after text transforms; untagged synthetic text
+keeps its existing brush owner. The map lives with `TextLayout`, is cloned for intrinsic queries,
+and is replaced on reconstruction. A private inline hit module combines it with
+positioned clusters, traverses fragments in reverse paint order, and tests text
+before eligible culled parents. A parent is deferred while the preceding fragment
+belongs to its subtree. Parent rectangles remain distinct from snapped text
+rectangles. The source-order oracle covers adjacent same-style text nodes,
+ligatures, nesting, bidi, whitespace, atomic content and DOM replacement. This
+interface does not implement span margin advances or establish full bidi parity.
+
+A separate conservative per-line gate precedes snapped leaf targeting. It uses
+raw line boxes (including leading), span/font overflow bounds and outward-rounded
+glyph ink from existing font data. Unknown font ink, synthesis skew, decorations,
+shadows and atomic content retain traversal. This is a conservative bound, not a
+complete implementation of Blink's paint ink overflow. It prevents an exact gap
+boundary from reaching the next line merely because that line's text box snaps
+upward. Neither ink bounds nor provenance seams become pointer targets: ligature
+atoms stay intact, and the styled element remains the public hit target.
