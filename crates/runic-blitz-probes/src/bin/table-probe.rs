@@ -456,7 +456,10 @@ mod tests {
             "../../../../fixtures/counter-svelte/assets/DejaVuSans.woff2"
         ));
         for doctype in ["<!doctype html>", ""] {
-            for content in ["Alpha<br>", "Alpha\n"] {
+            for content in [
+                "<span id='text'>Alpha</span><br>",
+                "<span id='text'>Alpha\n</span>",
+            ] {
                 let mut doc = HtmlDocument::from_html(
                     &format!(
                         "{doctype}<style>@font-face{{font-family:Test;src:url(data:font/woff2;base64,{font})}}body{{margin:0;font:16px/20px Test}}#line{{white-space:pre}}</style><div id='line'>{content}</div>"
@@ -493,6 +496,12 @@ mod tests {
                         assert_eq!(
                             inner.get_node(line).unwrap().scroll_height(),
                             expected_scroll
+                        );
+                        let text = inner.get_element_by_id("text").unwrap();
+                        let rect = inner.get_client_bounding_rect(text).unwrap();
+                        assert_eq!(
+                            inner.hit(10.0, (rect.y + 18.0) as f32).unwrap().node_id,
+                            text
                         );
                     }
                 }
