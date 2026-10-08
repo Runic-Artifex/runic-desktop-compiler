@@ -70,8 +70,19 @@ states retain their gates.
 The additive Parley primary-font metrics getter preserves existing layout policy.
 Tight child crops, sticky materialization history, layer-local/transformed anchors,
 containment/SVG and complete bidi fragment provenance remain independent gaps.
-The next patches need normalized empty-span participation and generic span-edge
-flow in Parley, then CSS binding in Blitz. Full deferred nested top/bottom
+The [empty-inline continuation](../conformance/results/chromium-empty-inline.md)
+materializes standards-mode zero-advance spans in Parley and consumes their own-font
+fragments in Blitz. All 108 new geometry/list/hit states pass; strict pixels are
+21/108. The retained nested matrix now passes 72 geometry, 63 fragments and 69 hits
+out of 72, with 0 pixels. A private normalized boundary stream repairs all 42 new
+ligature geometry/list failures while preserving 42 hits. Tight shaping pixels
+change 11→6/42, with six repairs and eleven new failures. All 4,040 exact direct
+pairs preserve passing retained gates; all 389 compiled states retain their gates.
+
+The next patches need explicit caller shaping-boundary intent and generic span-edge
+flow in Parley, then CSS binding in Blitz. Geometric alignment cannot distinguish
+CSS vertical-align:0px from baseline; nonempty boundaries and horizontal edges
+remain open. Full deferred nested top/bottom
 alignment, DOM sibling heuristics, fragment lists, preserved tabs/RTL atomic
 flow, odd-height/negative-origin hits and local glyph paint retain independent
 gates.

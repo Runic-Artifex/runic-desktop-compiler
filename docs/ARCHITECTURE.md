@@ -433,3 +433,12 @@ lines remain invisible for block sizing; their font-area fragments remain
 observable. Quirks mode, inline margins/padding advances, generated pseudo layout
 ownership and full bidi boundary behavior remain independent parity work. No
 framework, IR, renderer or font-hinting change is involved.
+
+The private boundary derivation covers retained empty spans whose Parley alignment
+value differs from BASELINE. CSS vertical-align:0px has the same geometric value
+as BASELINE in the current representation, while Blink retains a distinct
+[kLength category](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/style/computed_style_constants.h#238).
+Explicit caller boundary intent for that category, nonempty spans and horizontal
+edges requires a separate additive API checkpoint. No epsilon encodes that intent.
+The [verified continuation](../conformance/results/chromium-empty-inline.md) keeps
+shaping correctness and the eleven new tight-crop pixel failures separate.

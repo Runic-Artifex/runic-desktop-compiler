@@ -20,32 +20,34 @@ the [text-provenance continuation](../conformance/results/chromium-inline-source
 the [middle-metric continuation](../conformance/results/chromium-middle-metrics.md),
 the [nested-alignment continuation](../conformance/results/chromium-nested-alignment.md),
 the [text-paint continuation](../conformance/results/chromium-text-paint-origins.md),
+the [empty-inline continuation](../conformance/results/chromium-empty-inline.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation repairs all seven strict pixel regressions from
-the nested-alignment checkpoint through Blitz's private CSS text paint anchors.
-The 180-state middle oracle passes 180 geometry, 120/120 measured fragments,
-147 hits and 89 strict pixels. The new 108-state paint-origin oracle passes
-108 geometry, 108 fragments, 105 hits and 85 strict pixels.
-Across 3,890 exact direct pairs, 63 strict pixel states are repaired without a
-measured gate regression.
-All 389 compiled semantic, geometry and strict pixel passes remain.
-Parley's additive read-only primary-font metrics accessor supports paint without
-changing line breaking or logical baselines. Glyphs, decorations and ellipsis
-share the paint correction; selection, backgrounds, DOM geometry and hit testing
-retain layout coordinates. Renderer hinting, Device defaults and unquantized
-layout are preserved. The 72-state nested oracle remains 66 geometry, 57
-fragments, 63 hits and 0 pixels. Empty spans and broader paint/fragment gaps remain
-independent gates.
+The latest isolated continuation implements standards-mode empty-inline participation
+in Parley and Blitz. Its 108-state oracle passes every geometry, fragment and hit
+state, with strict pixels 21/108. The retained nested oracle improves to 72/72
+geometry, 63/72 fragments and 69/72 hits; pixels remain 0/72. A private shaping
+boundary stream repairs all 42 ligature-oracle geometry/list failures and retains
+42/42 hits. Baseline spans preserve compatible shaping and use full-atom anchors;
+the private stream interrupts cross-boundary ligatures for represented non-baseline
+alignment. CSS 0px and nonempty boundary intent remain open. Tight pixels change 11→6/42
+with six repairs and eleven new failures, all retained in the record.
+
+Across 4,040 exact direct pairs, every previously passing retained gate is preserved.
+All 389 compiled semantic, geometry and strict pixel passes remain. The preceding
+paint-anchor repairs remain: middle is 180 geometry, 120/120 measured fragments,
+147 hits and 89 pixels; paint origins are 108 geometry/fragments, 105 hits and
+85 pixels. Logical layout, renderer hinting and Device/unquantized defaults remain
+separate from paint. Six existing dependency unit failures and incomplete system-font,
+OS input/IME and named review stages are explicitly recorded.
 
 Optional source metadata and private source-aware targeting remain in place.
-Pointer stays 234/234 standard and 219/234 explicit points; source ordering stays
-192/216 hits. Sixty margin-flow and nine marker-edge losses remain. Empty-span
-participation, full deferred nested top/bottom alignment, atomic edge hits,
-fragment segmentation, RTL/tab flow, editor delivery and local paint remain open.
-Source metadata does not split shaping atoms or add framework-specific behavior.
-The probe's inline `getClientRects()` oracle does not broaden compiler acceptance
-or the shipping DOM contract below.
+Pointer is 234/234 standard and 219/234 explicit points; source ordering is
+192/216 hits. Sixty margin-flow and nine marker-edge losses remain. Explicit caller
+boundary intent (including CSS vertical-align:0px and nonempty spans), generic
+span edges, deferred nested top/bottom alignment, fragment segmentation, RTL/tab
+flow, editor delivery and local paint remain open. The probe's getClientRects()
+oracle does not broaden compiler acceptance or the shipping DOM contract below.
 
 The TypeScript frontends (`frontend/`) lower every framework through one shared language layer to [IR schema 4](IR.md). Ordinary JavaScript/TypeScript code follows the JavaScript value model. M3 added component instances, props, lists, slots, element refs, checkboxes and `keydown` ([design](design/M3-COMPONENTS.md)); M4 added the event loop, effects, timers, promises and `async`/`await`, and `localStorage` ([design](design/M4-EFFECTS.md)); M5 added the DOM event model, forms, layout reads and scrolling, media queries, host services ([design](design/M5-PLATFORM.md)) and inline SVG icons. Native applications execute no JavaScript engine.
 

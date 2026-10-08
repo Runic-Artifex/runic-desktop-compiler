@@ -1,4 +1,4 @@
-// Empty inline boxes retain their own font area without introducing text or shaping seams.
+// Empty inline boxes retain their own font area without generating text.
 import { runRenderingCases } from './harness/rendering.mjs';
 
 const cases = {};
