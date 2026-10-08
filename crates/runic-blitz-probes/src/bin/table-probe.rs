@@ -12,6 +12,7 @@ fn observe(doc: &HtmlDocument) -> Value {
     let mut text_lines = Map::new();
     let mut scroll = Map::new();
     let mut editors = Map::new();
+    let mut line_widths = Map::new();
     // Device-space layout metrics are diagnostic evidence for native text
     // rasterization. They are deliberately separate from `textLines`, whose
     // CSS-space geometry is compared with the browser oracle.
@@ -20,6 +21,38 @@ fn observe(doc: &HtmlDocument) -> Value {
         let node = inner.get_node(id).unwrap();
         let name = node.attr(local_name!("id")).unwrap();
         let rect = inner.get_transformed_client_bounding_rect(id).unwrap();
+        if node.attr(LocalName::from("data-line-widths")).is_some() {
+            let style = node.primary_styles().unwrap();
+            let zoom = style.effective_zoom;
+            let resolved = |width: f32, hidden: bool| {
+                if hidden { 0.0 } else { zoom.unzoom(width) }
+            };
+            line_widths.insert(
+                name.into(),
+                json!([
+                    resolved(
+                        style.clone_border_top_width().0.to_f32_px(),
+                        style.clone_border_top_style().none_or_hidden()
+                    ),
+                    resolved(
+                        style.clone_border_right_width().0.to_f32_px(),
+                        style.clone_border_right_style().none_or_hidden()
+                    ),
+                    resolved(
+                        style.clone_border_bottom_width().0.to_f32_px(),
+                        style.clone_border_bottom_style().none_or_hidden()
+                    ),
+                    resolved(
+                        style.clone_border_left_width().0.to_f32_px(),
+                        style.clone_border_left_style().none_or_hidden()
+                    ),
+                    resolved(
+                        style.clone_outline_width().0.to_f32_px(),
+                        style.clone_outline_style().none_or_hidden()
+                    ),
+                ]),
+            );
+        }
         let mut node_layout_metrics = Map::new();
         if node.attr(LocalName::from("data-scroll")).is_some() {
             scroll.insert(
@@ -140,7 +173,7 @@ fn observe(doc: &HtmlDocument) -> Value {
         }
         hits.insert(name.into(), json!(targets));
     }
-    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics})
+    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics,"lineWidths":line_widths})
 }
 fn render(doc: &mut HtmlDocument, path: &str, width: u32, height: u32) {
     let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);

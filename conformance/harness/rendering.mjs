@@ -90,6 +90,12 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
       return page.evaluate(() => {
         const elements = [...document.querySelectorAll('[id]')];
         return {
+          lineWidths: Object.fromEntries(
+            elements.filter(el => el.hasAttribute('data-line-widths')).map(el => {
+              const style = getComputedStyle(el);
+              return [el.id, ['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'outlineWidth'].map(property => parseFloat(style[property]))];
+            }),
+          ),
           editors: Object.fromEntries(
             elements
               .filter(
@@ -255,6 +261,9 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
               JSON.stringify(expected, null, 2),
             );
             const differences = [];
+            const lineWidthDifferences = Object.entries(expected.lineWidths)
+              .filter(([id, values]) => !observation.lineWidths?.[id] || values.some((v, i) => Math.abs(v - observation.lineWidths[id][i]) > 0.02))
+              .map(([id, reference]) => ({id, reference, native: observation.lineWidths?.[id]}));
             for (const [id, rect] of Object.entries(expected.rects)) {
               if (!observation.rects[id]) {
                 differences.push({ id, missing: true });
@@ -370,6 +379,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
               hitDifferences,
               editorDifferences,
               scrollDifferences,
+              lineWidthDifferences,
             };
             results.push(result);
             console.log(JSON.stringify(result));
@@ -388,7 +398,8 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
           Object.values(r.localPixelMAEs).some(v => v > 3) ||
           r.hitDifferences.length ||
           r.editorDifferences.length ||
-          r.scrollDifferences.length,
+          r.scrollDifferences.length ||
+          r.lineWidthDifferences.length,
       )
     )
       process.exitCode = 1;
