@@ -184,3 +184,33 @@ across candidate removal, vertical writing and the full event-loop suppression
 window remain explicit verification gates. Table layout has no anchoring hooks.
 
 Before adding a capability, identify the layer that owns it (adapter, language layer, IR, runtime, host), the observable behaviour to preserve, its input domain, and the conformance cases that prove it, run against each framework's own runtime. A new IR construct needs a framework-independent definition, validator rules, interpreter semantics and a runtime implementation. Bump the schema version whenever the serialised form changes.
+## Chromium parity: line-width rounding (2026-10-08, isolated)
+
+Stylo owns the computed border and outline widths consumed by layout, hit testing
+and paint. Its Servo `Device` gains opt-in `LineWidthRounding::CssPixel`;
+`DevicePixel` remains the default, with the existing app-unit/device-pixel path
+unchanged. Blitz selects CssPixel whenever it constructs/rebuilds a device.
+The consuming layout and painter cannot apply another compatibility correction.
+
+CssPixel resolves the specified length (including CSS effective zoom) before
+rounding: zero stays zero, any positive value below one CSS layout pixel becomes
+one, and larger values truncate toward zero. Preserve the positive value before
+conversion to integer app units, so `.001px` does not disappear and `1.999px`
+does not round up first. Line-width keywords are multiplied by effective CSS zoom
+before this operation. DPR/window zoom is a later viewport conversion; changing
+it must not change these computed widths. Ordinary lengths and text stroke width
+are unaffected. Gecko behavior is unchanged.
+
+The device policy is set by a consuming builder method, before attaching it to a
+stylist. There is no dynamic setter bypassing style invalidation. Default-created
+devices retain DevicePixel; Blitz's shared device factory preserves CssPixel
+across rebuilds. Computed inheritance retains the rounded parent value. Animation
+interpolation and outline offsets remain separate behavior; this policy does not
+silently resnap their values.
+
+Chromium's border converter explains the policy; the locked Chromium binary is
+the acceptance oracle. `line-width-grid.mjs` checks resolved widths independently
+at 0.02 CSS px, geometry at the existing 0.125 CSS px and local pixels at MAE 3,
+with DPR 1/1.25/1.5/2, tiny/fractional/keyword/calc widths, inheritance, style
+changes, ordinary elements and controls. CSS zoom cases remain in the oracle even
+where Blitz does not support that property; they cannot be claimed as passed.

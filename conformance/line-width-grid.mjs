@@ -3,16 +3,17 @@ import { runRenderingCases } from './harness/rendering.mjs';
 
 const cases = {};
 const viewports = [1, 1.25, 1.5, 2].map(dpr => [620, 200, dpr]);
-function controls() {
-  return '<div id="plain" data-line-widths></div><input id="input" data-line-widths value="Alpha"><textarea id="textarea" data-line-widths>Alpha</textarea><button id="button" data-line-widths>Alpha</button>';
+function controls(inherit) {
+  const html = '<div id="plain" data-line-widths></div><input id="input" data-line-widths value="Alpha"><textarea id="textarea" data-line-widths>Alpha</textarea><button id="button" data-line-widths>Alpha</button>';
+  return inherit ? html.replaceAll('data-line-widths', 'data-line-widths style="border-width:inherit;outline-width:inherit"') : html;
 }
-function add(name, style, mutation) {
+function add(name, style, mutation, inherit = false) {
   cases[name] = {
     standards: true,
     suite: 'borders',
     regions: ['plain', 'input', 'textarea', 'button'],
     viewports,
-    html: `<div id="table" style="${style}">${controls()}</div>`,
+    html: `<div id="table" style="${style}">${controls(inherit)}</div>`,
     actions: [{kind: 'attribute', selector: '#table', name: 'style', value: mutation}],
   };
 }
@@ -25,7 +26,7 @@ for(const zoom of [.5, 1.25, 2]) {
 for(const borderStyle of ['none', 'hidden']) {
   add(`style_${borderStyle}`, `--width:2.99px;--border-style:${borderStyle}`, '--width:2.99px;--border-style:solid');
 }
-add('inherited_width', 'border:1.99px solid;outline:1.99px solid;--width:inherit', 'border:4.01px solid;outline:4.01px solid;--width:inherit');
+add('inherited_width', 'border:1.99px solid;outline:1.99px solid;--width:1px', 'border:4.01px solid;outline:4.01px solid;--width:1px', true);
 
 await runRenderingCases(cases, {}, 'line-width-grid', `
 #table{display:flex;gap:8px;align-items:flex-start;width:max-content;margin:20.375px;background:#f4f0e8}
