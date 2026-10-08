@@ -14,7 +14,14 @@ the [focus continuation](../conformance/results/chromium-control-focus.md),
 the [control-box continuation](../conformance/results/chromium-control-boxes.md),
 the [text-metric continuation](../conformance/results/chromium-text-metrics.md),
 the [line-width continuation](../conformance/results/chromium-line-widths.md),
+the [inline-fragment continuation](../conformance/results/chromium-inline-fragments.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
+
+The latest isolated continuation repairs first-font inline bounds, pointer run
+targeting and short-line scroll overflow. Retained direct gates do not regress;
+new margin, fragment-list, narrow-gap hit and local-pixel failures remain measured.
+The probe's inline `getClientRects()` oracle does not broaden compiler acceptance
+or the shipping DOM contract below.
 
 The TypeScript frontends (`frontend/`) lower every framework through one shared language layer to [IR schema 4](IR.md). Ordinary JavaScript/TypeScript code follows the JavaScript value model. M3 added component instances, props, lists, slots, element refs, checkboxes and `keydown` ([design](design/M3-COMPONENTS.md)); M4 added the event loop, effects, timers, promises and `async`/`await`, and `localStorage` ([design](design/M4-EFFECTS.md)); M5 added the DOM event model, forms, layout reads and scrolling, media queries, host services ([design](design/M5-PLATFORM.md)) and inline SVG icons. Native applications execute no JavaScript engine.
 

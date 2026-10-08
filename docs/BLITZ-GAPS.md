@@ -20,6 +20,14 @@ repairs those fractional-DPR control boxes through Stylo's opt-in CSS-pixel
 rounding, preserving its device-pixel default and physical hairlines. All 176 new
 width and 76 supplemental states match geometry/computed widths; raster coverage,
 inline fragments and editor interactions retain separate gates.
+The [inline-fragment continuation](../conformance/results/chromium-inline-fragments.md)
+repairs first-font span bounds and short-line scroll overflow, sharing positioned
+run geometry with pointer targets. All 108 font-size/line-height states match
+geometry/fragment lists; the full new matrix passes 189/363 bounding states and
+270/363 hits, with 12 newly exposed narrow-gap hit failures. All 2,579 retained
+direct states preserve their passing gates and all 389 compiled states pass.
+Margins, full fragment lists and local glyph paint remain open; the targeted plan
+keeps shared pointer geometry and generic span-edge flow as separate next patches.
 
 ## Rendering and layout
 

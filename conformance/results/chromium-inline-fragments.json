@@ -1,0 +1,3310 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": {
+    "RunicDesktopCompiler-tables": "e645e0bb5d310f2a0fe01df1083d3d964986361f",
+    "blitz-tables": "2191d55414d73f5dccb5c534df6c1462cc486088",
+    "parley-chromium-parity": "5a3e022364566223ab122cf26f1d770b6a1a7849",
+    "stylo-chromium-parity": "f0e404e2daa6a5f6ed881e9cdb12e7a4ac375aa4",
+    "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f"
+  },
+  "originals": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "e8dd36c6694be78902599320ab1653564627d128",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "status": ""
+    }
+  ],
+  "oneExperimentWorktreePerRepository": true,
+  "environment": {
+    "sharedTarget": "/home/viktor/Development/RunicDesktopCompiler/target",
+    "nativeBuildWrapper": "node compiler/cargo.mjs",
+    "profile": "/tmp/runic-inline-dev-profile",
+    "flakeLockSHA256": "ed928e945c79e3d7f19d37b13a05f0d97b98440b38661d97bf77844e40606431",
+    "cargoLockSHA256": "1364b4e71332172936c2bb2ceb57bd13f1d5127e63f994f06ef1061a9735bca6",
+    "fontSHA256": "a75044e4dab293c1ac7f8eba9f20df03f183f41b9319054f43b955959981632a"
+  },
+  "gates": {
+    "resolvedLineWidthsCSSPx": 0.02,
+    "directGeometryCSSPx": 0.125,
+    "compiledGeometryCSSPx": 2,
+    "localPixelMAE": 3,
+    "clientRectGeometryCSSPx": 0.125
+  },
+  "newOracles": {
+    "inline-fragments": {
+      "before": {
+        "states": 363,
+        "geometryPassed": 15,
+        "clientRectsPassed": 15,
+        "clientRectsMeasuredStates": 363,
+        "hitsPassed": 231,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 363
+      },
+      "after": {
+        "states": 363,
+        "geometryPassed": 189,
+        "clientRectsPassed": 174,
+        "clientRectsMeasuredStates": 363,
+        "hitsPassed": 270,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 363
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 174,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 159,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 51,
+          "regressed": [
+            {
+              "name": "font_12_1_25",
+              "viewport": [420, 240],
+              "dpr": 1,
+              "step": 2
+            },
+            {
+              "name": "font_12_1_25",
+              "viewport": [420, 240],
+              "dpr": 1.25,
+              "step": 2
+            },
+            {
+              "name": "font_12_1_25",
+              "viewport": [420, 240],
+              "dpr": 2,
+              "step": 2
+            },
+            {
+              "name": "font_16_1_25",
+              "viewport": [420, 240],
+              "dpr": 1,
+              "step": 2
+            },
+            {
+              "name": "font_16_1_25",
+              "viewport": [420, 240],
+              "dpr": 1.25,
+              "step": 2
+            },
+            {
+              "name": "font_16_1_25",
+              "viewport": [420, 240],
+              "dpr": 2,
+              "step": 2
+            },
+            {
+              "name": "font_24_1_25",
+              "viewport": [420, 240],
+              "dpr": 1,
+              "step": 1
+            },
+            {
+              "name": "font_24_1_25",
+              "viewport": [420, 240],
+              "dpr": 1.25,
+              "step": 1
+            },
+            {
+              "name": "font_24_1_25",
+              "viewport": [420, 240],
+              "dpr": 2,
+              "step": 1
+            },
+            {
+              "name": "bidi_ltr",
+              "viewport": [420, 240],
+              "dpr": 1,
+              "step": 0
+            },
+            {
+              "name": "bidi_ltr",
+              "viewport": [420, 240],
+              "dpr": 1.25,
+              "step": 0
+            },
+            {
+              "name": "bidi_ltr",
+              "viewport": [420, 240],
+              "dpr": 2,
+              "step": 0
+            }
+          ]
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      },
+      "baselineSources": {
+        "blitz-tables": "35bc90b5261a7cd0fcde13304fa2d687b4c21502",
+        "parley-chromium-parity": "ac9bed8a4f17dfc327bf5f156f486185821b4a89",
+        "stylo-chromium-parity": "f0e404e2daa6a5f6ed881e9cdb12e7a4ac375aa4",
+        "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+        "RunicDesktopCompiler-tables": "1a7d09af3ee9bbf5f5ae68280cff8b8f62cccdb0"
+      }
+    },
+    "inline-fragment-effects": {
+      "after": {
+        "states": 102,
+        "geometryPassed": 102,
+        "clientRectsPassed": 60,
+        "clientRectsMeasuredStates": 102,
+        "hitsPassed": 87,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 54,
+        "scrollMeasuredStates": 54,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 102
+      },
+      "terminalBreaks": {
+        "before": {
+          "states": 36,
+          "geometryPassed": 36,
+          "clientRectsPassed": 18,
+          "clientRectsMeasuredStates": 36,
+          "hitsPassed": 12,
+          "editorStatesPassed": 0,
+          "editorStatesMeasuredStates": 0,
+          "scrollPassed": 0,
+          "scrollMeasuredStates": 36,
+          "lineWidthsPassed": 0,
+          "lineWidthsMeasuredStates": 0,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0,
+          "allLocalCropsMeasuredStates": 36
+        },
+        "after": {
+          "states": 36,
+          "geometryPassed": 36,
+          "clientRectsPassed": 18,
+          "clientRectsMeasuredStates": 36,
+          "hitsPassed": 36,
+          "editorStatesPassed": 0,
+          "editorStatesMeasuredStates": 0,
+          "scrollPassed": 36,
+          "scrollMeasuredStates": 36,
+          "lineWidthsPassed": 0,
+          "lineWidthsMeasuredStates": 0,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0,
+          "allLocalCropsMeasuredStates": 36
+        },
+        "identicalInputHashesAndStateOrder": true,
+        "transitions": {
+          "geometry": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "clientRects": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "hits": {
+            "repaired": 24,
+            "regressed": []
+          },
+          "editorStates": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "scroll": {
+            "repaired": 36,
+            "regressed": []
+          },
+          "lineWidths": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "localPixels": {
+            "repaired": 0,
+            "regressed": []
+          }
+        }
+      },
+      "shortLineScroll": {
+        "before": {
+          "states": 66,
+          "geometryPassed": 66,
+          "clientRectsPassed": 42,
+          "clientRectsMeasuredStates": 66,
+          "hitsPassed": 51,
+          "editorStatesPassed": 0,
+          "editorStatesMeasuredStates": 0,
+          "scrollPassed": 9,
+          "scrollMeasuredStates": 18,
+          "lineWidthsPassed": 0,
+          "lineWidthsMeasuredStates": 0,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0,
+          "allLocalCropsMeasuredStates": 66
+        },
+        "after": {
+          "states": 66,
+          "geometryPassed": 66,
+          "clientRectsPassed": 42,
+          "clientRectsMeasuredStates": 66,
+          "hitsPassed": 51,
+          "editorStatesPassed": 0,
+          "editorStatesMeasuredStates": 0,
+          "scrollPassed": 18,
+          "scrollMeasuredStates": 18,
+          "lineWidthsPassed": 0,
+          "lineWidthsMeasuredStates": 0,
+          "localPixelsPassed": 0,
+          "offscreenNamedCrops": 0,
+          "allLocalCropsMeasuredStates": 66
+        },
+        "identicalInputHashesAndStateOrder": true,
+        "transitions": {
+          "geometry": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "clientRects": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "hits": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "editorStates": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "scroll": {
+            "repaired": 9,
+            "regressed": []
+          },
+          "lineWidths": {
+            "repaired": 0,
+            "regressed": []
+          },
+          "localPixels": {
+            "repaired": 0,
+            "regressed": []
+          }
+        }
+      }
+    }
+  },
+  "retainedOracles": {
+    "line-width-effects": {
+      "before": {
+        "states": 76,
+        "geometryPassed": 76,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 76,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 76,
+        "lineWidthsMeasuredStates": 76,
+        "localPixelsPassed": 45,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 76
+      },
+      "after": {
+        "states": 76,
+        "geometryPassed": 76,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 76,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 76,
+        "lineWidthsMeasuredStates": 76,
+        "localPixelsPassed": 45,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 76
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "line-width-grid": {
+      "before": {
+        "states": 176,
+        "geometryPassed": 176,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 176,
+        "editorStatesPassed": 176,
+        "editorStatesMeasuredStates": 176,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 176,
+        "lineWidthsMeasuredStates": 176,
+        "localPixelsPassed": 30,
+        "offscreenNamedCrops": 8,
+        "allLocalCropsMeasuredStates": 168
+      },
+      "after": {
+        "states": 176,
+        "geometryPassed": 176,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 176,
+        "editorStatesPassed": 176,
+        "editorStatesMeasuredStates": 176,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 176,
+        "lineWidthsMeasuredStates": 176,
+        "localPixelsPassed": 30,
+        "offscreenNamedCrops": 8,
+        "allLocalCropsMeasuredStates": 168
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "text-metric-grid": {
+      "before": {
+        "states": 432,
+        "geometryPassed": 432,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 408,
+        "editorStatesPassed": 384,
+        "editorStatesMeasuredStates": 384,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 48,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 432
+      },
+      "after": {
+        "states": 432,
+        "geometryPassed": 432,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 408,
+        "editorStatesPassed": 384,
+        "editorStatesMeasuredStates": 384,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 48,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 432
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "input-line-height": {
+      "before": {
+        "states": 504,
+        "geometryPassed": 504,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 504,
+        "editorStatesPassed": 504,
+        "editorStatesMeasuredStates": 504,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 134,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 504
+      },
+      "after": {
+        "states": 504,
+        "geometryPassed": 504,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 504,
+        "editorStatesPassed": 504,
+        "editorStatesMeasuredStates": 504,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 134,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 504
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "input-pointer": {
+      "before": {
+        "states": 264,
+        "geometryPassed": 264,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 264,
+        "editorStatesPassed": 231,
+        "editorStatesMeasuredStates": 264,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 13,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 264
+      },
+      "after": {
+        "states": 264,
+        "geometryPassed": 264,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 264,
+        "editorStatesPassed": 231,
+        "editorStatesMeasuredStates": 264,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 13,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 264
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "control-document-mode": {
+      "before": {
+        "states": 132,
+        "geometryPassed": 92,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 120,
+        "editorStatesPassed": 48,
+        "editorStatesMeasuredStates": 48,
+        "scrollPassed": 24,
+        "scrollMeasuredStates": 24,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 84,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 132
+      },
+      "after": {
+        "states": 132,
+        "geometryPassed": 92,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 120,
+        "editorStatesPassed": 48,
+        "editorStatesMeasuredStates": 48,
+        "scrollPassed": 24,
+        "scrollMeasuredStates": 24,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 84,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 132
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "control-layout": {
+      "before": {
+        "states": 264,
+        "geometryPassed": 132,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 264,
+        "editorStatesPassed": 264,
+        "editorStatesMeasuredStates": 264,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 264
+      },
+      "after": {
+        "states": 264,
+        "geometryPassed": 132,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 264,
+        "editorStatesPassed": 264,
+        "editorStatesMeasuredStates": 264,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 264
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "control-selection": {
+      "before": {
+        "states": 48,
+        "geometryPassed": 48,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 48,
+        "editorStatesPassed": 48,
+        "editorStatesMeasuredStates": 48,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 48
+      },
+      "after": {
+        "states": 48,
+        "geometryPassed": 48,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 48,
+        "editorStatesPassed": 48,
+        "editorStatesMeasuredStates": 48,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 48
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "control-focus": {
+      "before": {
+        "states": 252,
+        "geometryPassed": 252,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 252,
+        "editorStatesPassed": 252,
+        "editorStatesMeasuredStates": 252,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 164,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 252
+      },
+      "after": {
+        "states": 252,
+        "geometryPassed": 252,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 252,
+        "editorStatesPassed": 252,
+        "editorStatesMeasuredStates": 252,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 164,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 252
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "tables": {
+      "before": {
+        "states": 77,
+        "geometryPassed": 77,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 77,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 74,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 77
+      },
+      "after": {
+        "states": 77,
+        "geometryPassed": 77,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 77,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 74,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 77
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "table-document-mode": {
+      "before": {
+        "states": 12,
+        "geometryPassed": 12,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 12
+      },
+      "after": {
+        "states": 12,
+        "geometryPassed": 12,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 12,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 12
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "table-controls": {
+      "before": {
+        "states": 4,
+        "geometryPassed": 4,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 2,
+        "editorStatesPassed": 4,
+        "editorStatesMeasuredStates": 4,
+        "scrollPassed": 4,
+        "scrollMeasuredStates": 4,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 4
+      },
+      "after": {
+        "states": 4,
+        "geometryPassed": 4,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 2,
+        "editorStatesPassed": 4,
+        "editorStatesMeasuredStates": 4,
+        "scrollPassed": 4,
+        "scrollMeasuredStates": 4,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 4
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "table-integration": {
+      "before": {
+        "states": 30,
+        "geometryPassed": 22,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 24,
+        "editorStatesPassed": 8,
+        "editorStatesMeasuredStates": 8,
+        "scrollPassed": 12,
+        "scrollMeasuredStates": 12,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 23,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 30
+      },
+      "after": {
+        "states": 30,
+        "geometryPassed": 22,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 24,
+        "editorStatesPassed": 8,
+        "editorStatesMeasuredStates": 8,
+        "scrollPassed": 12,
+        "scrollMeasuredStates": 12,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 23,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 30
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "controls": {
+      "before": {
+        "states": 9,
+        "geometryPassed": 8,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 8,
+        "editorStatesPassed": 6,
+        "editorStatesMeasuredStates": 6,
+        "scrollPassed": 2,
+        "scrollMeasuredStates": 2,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 9
+      },
+      "after": {
+        "states": 9,
+        "geometryPassed": 8,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 8,
+        "editorStatesPassed": 6,
+        "editorStatesMeasuredStates": 6,
+        "scrollPassed": 2,
+        "scrollMeasuredStates": 2,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 9
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "scrolling": {
+      "before": {
+        "states": 148,
+        "geometryPassed": 148,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 148,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 140,
+        "scrollMeasuredStates": 140,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 148,
+        "offscreenNamedCrops": 2,
+        "allLocalCropsMeasuredStates": 146
+      },
+      "after": {
+        "states": 148,
+        "geometryPassed": 148,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 148,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 140,
+        "scrollMeasuredStates": 140,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 148,
+        "offscreenNamedCrops": 2,
+        "allLocalCropsMeasuredStates": 146
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "css-animations": {
+      "before": {
+        "states": 40,
+        "geometryPassed": 40,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 40,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 40,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 40
+      },
+      "after": {
+        "states": 40,
+        "geometryPassed": 40,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 40,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 40,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 40
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "intrinsic-text": {
+      "before": {
+        "states": 30,
+        "geometryPassed": 30,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 30,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 20,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 30
+      },
+      "after": {
+        "states": 30,
+        "geometryPassed": 30,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 30,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 20,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 30
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "font-weights": {
+      "before": {
+        "states": 36,
+        "geometryPassed": 12,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 28,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 16,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 36
+      },
+      "after": {
+        "states": 36,
+        "geometryPassed": 20,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 36,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 16,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 36
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 8,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 8,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "glyphs": {
+      "before": {
+        "states": 38,
+        "geometryPassed": 38,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 38,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 38
+      },
+      "after": {
+        "states": 38,
+        "geometryPassed": 38,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 38,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 38
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    },
+    "borders": {
+      "before": {
+        "states": 7,
+        "geometryPassed": 7,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 7,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 7
+      },
+      "after": {
+        "states": 7,
+        "geometryPassed": 7,
+        "clientRectsPassed": 0,
+        "clientRectsMeasuredStates": 0,
+        "hitsPassed": 7,
+        "editorStatesPassed": 0,
+        "editorStatesMeasuredStates": 0,
+        "scrollPassed": 0,
+        "scrollMeasuredStates": 0,
+        "lineWidthsPassed": 0,
+        "lineWidthsMeasuredStates": 0,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0,
+        "allLocalCropsMeasuredStates": 7
+      },
+      "identicalInputHashesAndStateOrder": true,
+      "transitions": {
+        "geometry": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "clientRects": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "hits": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "editorStates": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "scroll": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "lineWidths": {
+          "repaired": 0,
+          "regressed": []
+        },
+        "localPixels": {
+          "repaired": 0,
+          "regressed": []
+        }
+      }
+    }
+  },
+  "compiled": {
+    "tables-cpu": {
+      "runs": 6,
+      "states": 96,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 1.27
+    },
+    "tables-gpu": {
+      "runs": 2,
+      "states": 32,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": ["llvmpipe (LLVM 21.1.8, 256 bits)"],
+      "maxPixelMAE": 2.396
+    },
+    "forms-focus": {
+      "runs": 22,
+      "states": 242,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 0.388
+    },
+    "control-regressions": {
+      "runs": 7,
+      "states": 19,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 0.594
+    }
+  },
+  "units": {
+    "workspace": {
+      "exitCode": 0,
+      "passed": 121,
+      "failed": 0,
+      "log": "artifacts/inline-fragment-complete-workspace.log"
+    },
+    "npm": {
+      "exitCode": 0,
+      "passed": 297,
+      "failed": 0,
+      "log": "artifacts/inline-fragment-complete-npm.log",
+      "includesFrontendTypeCheck": true
+    },
+    "blitz-dom": {
+      "exitCode": 101,
+      "passed": 51,
+      "failed": 2,
+      "log": "artifacts/inline-fragment-complete-blitz-dom.log"
+    },
+    "blitz-paint": {
+      "exitCode": 0,
+      "passed": 8,
+      "failed": 0,
+      "log": "artifacts/inline-fragment-complete-blitz-paint.log"
+    },
+    "blitz-html": {
+      "exitCode": 0,
+      "passed": 3,
+      "failed": 0,
+      "log": "artifacts/inline-fragment-complete-blitz-html.log"
+    },
+    "parley-focused": {
+      "exitCode": 0,
+      "passed": 3,
+      "failed": 0,
+      "log": "artifacts/inline-fragment-complete-parley-focused.log"
+    },
+    "parley-std": {
+      "exitCode": 101,
+      "passed": 110,
+      "failed": 4,
+      "log": "artifacts/inline-fragment-complete-parley-std.log"
+    },
+    "parley-libm": {
+      "exitCode": 0,
+      "check": "passed",
+      "log": "artifacts/inline-fragment-complete-parley-libm.log"
+    },
+    "stylo": {
+      "exitCode": 0,
+      "passed": 1,
+      "failed": 0,
+      "log": "artifacts/inline-fragment-complete-stylo.log"
+    }
+  },
+  "newRegressions": {
+    "line-width-effects": {},
+    "line-width-grid": {},
+    "text-metric-grid": {},
+    "input-line-height": {},
+    "input-pointer": {},
+    "control-document-mode": {},
+    "control-layout": {},
+    "control-selection": {},
+    "control-focus": {},
+    "tables": {},
+    "table-document-mode": {},
+    "table-controls": {},
+    "table-integration": {},
+    "controls": {},
+    "scrolling": {},
+    "css-animations": {},
+    "intrinsic-text": {},
+    "font-weights": {},
+    "glyphs": {},
+    "borders": {}
+  },
+  "knownUnitFailures": {
+    "blitz-dom": [
+      "document::hover_invalidation_tests::hover_styles_apply_and_clear",
+      "node::element::tests::scroll_by_clamps_and_bubbles"
+    ],
+    "parley": [
+      "cluster_from_position_center_alignment",
+      "cluster_from_position_end_alignment",
+      "cluster_from_position_justified_alignment",
+      "cluster_from_position_start_alignment"
+    ]
+  },
+  "incompleteStages": [
+    "/code-review tool unavailable; root and read-only agent reviews completed.",
+    "Parley default system-font feature tests unavailable: project shell has no fontconfig pkg-config metadata. Exact-source std tests and libm check run separately.",
+    "OS keyboard/pointer/compositor/IME delivery is not established by internal probes.",
+    "Full bidi/culled fragment segmentation, margins and empty spans remain unverified.",
+    "Font-content overflow is metric based; fallback/combining glyph ink overflow is not certified."
+  ],
+  "commands": [
+    {
+      "name": "workspace",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "--workspace"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 23.792,
+      "log": "artifacts/inline-fragment-complete-workspace.log",
+      "artifact": null
+    },
+    {
+      "name": "inline-fragment-effects",
+      "command": ["node", "conformance/inline-fragment-effects.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 44.803,
+      "log": "artifacts/inline-fragment-complete-inline-fragment-effects.log",
+      "artifact": "artifacts/inline-fragment-complete-inline-fragment-effects"
+    },
+    {
+      "name": "inline-fragments",
+      "command": ["node", "conformance/inline-fragments.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 136.553,
+      "log": "artifacts/inline-fragment-complete-inline-fragments.log",
+      "artifact": "artifacts/inline-fragment-complete-inline-fragments"
+    },
+    {
+      "name": "npm",
+      "command": ["npm", "test"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 73.469,
+      "log": "artifacts/inline-fragment-complete-npm.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-dom",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-dom"],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 4.47,
+      "log": "artifacts/inline-fragment-complete-blitz-dom.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-paint",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-paint"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 1.876,
+      "log": "artifacts/inline-fragment-complete-blitz-paint.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-html",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-html"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 2.832,
+      "log": "artifacts/inline-fragment-complete-blitz-html.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-focused",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-inline-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--lib",
+        "--no-default-features",
+        "--features",
+        "std",
+        "style_content_bounds"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 0.389,
+      "log": "artifacts/inline-fragment-complete-parley-focused.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-std",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-inline-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--lib",
+        "--no-default-features",
+        "--features",
+        "std"
+      ],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 0.386,
+      "log": "artifacts/inline-fragment-complete-parley-std.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-libm",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "check",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-inline-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--no-default-features",
+        "--features",
+        "libm"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 0.42,
+      "log": "artifacts/inline-fragment-complete-parley-libm.log",
+      "artifact": null
+    },
+    {
+      "name": "stylo",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "stylo",
+        "--lib",
+        "line_width_rounding_tests"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 0.481,
+      "log": "artifacts/inline-fragment-complete-stylo.log",
+      "artifact": null
+    },
+    {
+      "name": "line-width-grid",
+      "command": ["node", "conformance/line-width-grid.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 99.424,
+      "log": "artifacts/inline-fragment-complete-line-width-grid.log",
+      "artifact": "artifacts/inline-fragment-complete-line-width-grid"
+    },
+    {
+      "name": "line-width-effects",
+      "command": ["node", "conformance/line-width-effects.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 24.507,
+      "log": "artifacts/inline-fragment-complete-line-width-effects.log",
+      "artifact": "artifacts/inline-fragment-complete-line-width-effects"
+    },
+    {
+      "name": "text-metric-grid",
+      "command": ["node", "conformance/text-metric-grid.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 145.597,
+      "log": "artifacts/inline-fragment-complete-text-metric-grid.log",
+      "artifact": "artifacts/inline-fragment-complete-text-metric-grid"
+    },
+    {
+      "name": "input-line-height",
+      "command": ["node", "conformance/input-line-height.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 156.412,
+      "log": "artifacts/inline-fragment-complete-input-line-height.log",
+      "artifact": "artifacts/inline-fragment-complete-input-line-height"
+    },
+    {
+      "name": "input-pointer",
+      "command": ["node", "conformance/input-pointer.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 76.643,
+      "log": "artifacts/inline-fragment-complete-input-pointer.log",
+      "artifact": "artifacts/inline-fragment-complete-input-pointer"
+    },
+    {
+      "name": "control-document-mode",
+      "command": ["node", "conformance/control-document-mode.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 50.843,
+      "log": "artifacts/inline-fragment-complete-control-document-mode.log",
+      "artifact": "artifacts/inline-fragment-complete-control-document-mode"
+    },
+    {
+      "name": "control-layout",
+      "command": ["node", "conformance/control-layout.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 108.417,
+      "log": "artifacts/inline-fragment-complete-control-layout.log",
+      "artifact": "artifacts/inline-fragment-complete-control-layout"
+    },
+    {
+      "name": "control-selection",
+      "command": ["node", "conformance/control-selection.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.976,
+      "log": "artifacts/inline-fragment-complete-control-selection.log",
+      "artifact": "artifacts/inline-fragment-complete-control-selection"
+    },
+    {
+      "name": "control-focus",
+      "command": ["node", "conformance/control-focus.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 80.065,
+      "log": "artifacts/inline-fragment-complete-control-focus.log",
+      "artifact": "artifacts/inline-fragment-complete-control-focus"
+    },
+    {
+      "name": "tables",
+      "command": ["node", "conformance/tables.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 19.322,
+      "log": "artifacts/inline-fragment-complete-tables.log",
+      "artifact": "artifacts/inline-fragment-complete-tables"
+    },
+    {
+      "name": "table-document-mode",
+      "command": ["node", "conformance/table-document-mode.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.694,
+      "log": "artifacts/inline-fragment-complete-table-document-mode.log",
+      "artifact": "artifacts/inline-fragment-complete-table-document-mode"
+    },
+    {
+      "name": "table-controls",
+      "command": ["node", "conformance/table-controls.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 3.705,
+      "log": "artifacts/inline-fragment-complete-table-controls.log",
+      "artifact": "artifacts/inline-fragment-complete-table-controls"
+    },
+    {
+      "name": "table-integration",
+      "command": ["node", "conformance/table-integration.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 8.564,
+      "log": "artifacts/inline-fragment-complete-table-integration.log",
+      "artifact": "artifacts/inline-fragment-complete-table-integration"
+    },
+    {
+      "name": "controls",
+      "command": ["node", "conformance/controls.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 4.215,
+      "log": "artifacts/inline-fragment-complete-controls.log",
+      "artifact": "artifacts/inline-fragment-complete-controls"
+    },
+    {
+      "name": "scrolling",
+      "command": ["node", "conformance/scrolling.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 31.921,
+      "log": "artifacts/inline-fragment-complete-scrolling.log",
+      "artifact": "artifacts/inline-fragment-complete-scrolling"
+    },
+    {
+      "name": "css-animations",
+      "command": ["node", "conformance/css-animations.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 6.952,
+      "log": "artifacts/inline-fragment-complete-css-animations.log",
+      "artifact": "artifacts/inline-fragment-complete-css-animations"
+    },
+    {
+      "name": "intrinsic-text",
+      "command": ["node", "conformance/intrinsic-text.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 9.989,
+      "log": "artifacts/inline-fragment-complete-intrinsic-text.log",
+      "artifact": "artifacts/inline-fragment-complete-intrinsic-text"
+    },
+    {
+      "name": "font-weights",
+      "command": ["node", "conformance/font-weights.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 68.358,
+      "log": "artifacts/inline-fragment-complete-font-weights.log",
+      "artifact": "artifacts/inline-fragment-complete-font-weights"
+    },
+    {
+      "name": "glyphs",
+      "command": ["node", "conformance/glyphs.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.609,
+      "log": "artifacts/inline-fragment-complete-glyphs.log",
+      "artifact": "artifacts/inline-fragment-complete-glyphs"
+    },
+    {
+      "name": "borders",
+      "command": ["node", "conformance/borders.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 3.01,
+      "log": "artifacts/inline-fragment-complete-borders.log",
+      "artifact": "artifacts/inline-fragment-complete-borders"
+    },
+    {
+      "name": "tables-cpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--out",
+        "artifacts/inline-fragment-complete-tables-cpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 51.686,
+      "log": "artifacts/inline-fragment-complete-tables-cpu.log",
+      "artifact": null
+    },
+    {
+      "name": "tables-gpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--renderer",
+        "gpu",
+        "--fixture",
+        "table-svelte",
+        "--out",
+        "artifacts/inline-fragment-complete-tables-gpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 21.338,
+      "log": "artifacts/inline-fragment-complete-tables-gpu.log",
+      "artifact": null
+    },
+    {
+      "name": "forms-focus",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "forms",
+        "forms-react",
+        "forms-vue",
+        "measure",
+        "scroll-events",
+        "focus",
+        "focus-fixup",
+        "--pixels",
+        "--out",
+        "artifacts/inline-fragment-complete-forms-focus"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 119.48,
+      "log": "artifacts/inline-fragment-complete-forms-focus.log",
+      "artifact": null
+    },
+    {
+      "name": "control-regressions",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "blitz-buttons",
+        "blitz-button-baseline",
+        "blitz-control-line-height",
+        "blitz-inline-baselines",
+        "--pixels",
+        "--out",
+        "artifacts/inline-fragment-complete-control-regressions"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 31.809,
+      "log": "artifacts/inline-fragment-complete-control-regressions.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-cache-refresh",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "clean",
+        "--manifest-path",
+        "/tmp/runic-inline-parley-tests/Cargo.toml",
+        "-p",
+        "parley_dev"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 0.347,
+      "log": "artifacts/inline-fragment-complete-parley-cache-refresh.log",
+      "artifact": null
+    }
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/inline-fragment-agent-audit/complete-audit.json",
+      "sha256": "baf05de128ebbd869d1445bdc7405cf06ab29e5ac28f3d4880a97c677571fd44"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-commands.json",
+      "sha256": "5aa7c33171ae743d13ed72ad9e0e13c266ee01ebeb6287b87e1860ee3f904838"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-inline-fragment-effects.log",
+      "sha256": "98039c471841a582f3e0beb40a541e9d61c3c01aa82b43533a68d07daae789f1"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-inline-fragment-effects/metadata.json",
+      "sha256": "8fe8933239fcd6114757b8749c5f609a855a08789752234a4847b59bd6601279"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-inline-fragment-effects/oracle-build.log",
+      "sha256": "41aa38bfc94a6632b0e2110c042ecc4a489dd27896fb1caf04ead74d0e2be9cd"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-inline-fragment-effects/results.json",
+      "sha256": "62d084452eca32bd0732956007bb9b3fea7cea3c7fe7e0b36c586f95810d705f"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-inline-fragments.log",
+      "sha256": "0537ba54a945448037e87c00384726fb18c2ae0d2065a9476f70febbb8f5f52e"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-inline-fragments/metadata.json",
+      "sha256": "8fe8933239fcd6114757b8749c5f609a855a08789752234a4847b59bd6601279"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-inline-fragments/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/inline-fragment-checked-inline-fragments/results.json",
+      "sha256": "b22298fe8ef543e50a9db97611c0a6ff576019e094347bce81fcefa1fd7fac37"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-blitz-dom.log",
+      "sha256": "d8dca41bad82a4360c3e0bb6a943ce0816f43514ff180ed9ca83f76bf3bf2993"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-blitz-html.log",
+      "sha256": "4cb17f31c86f208e65049001327eda2da5b01db774366c03bfb0501a96c0c2f1"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-blitz-paint.log",
+      "sha256": "f81931aede37f2b909debd5462096f3208f2641f7f273a4bf5c43edd778be01c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-borders.log",
+      "sha256": "63c8d49fd5cd8f13495ae2e381ce1581c5a500bac6544228420d652119454501"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-borders/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-borders/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-borders/results.json",
+      "sha256": "acdc139f14f349af48550751bb603b41cf7fdbd470e825aa51ef81bb4355fd95"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-commands.json",
+      "sha256": "0043ee9d12a91f345933ca6697ef79f11ab07922930943d1f42e67c0aaeffafa"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-document-mode.log",
+      "sha256": "292e67f14bba7a4bd5179d5858517d7265e6bc2e5a35352c31d99cf48c7b2f34"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-document-mode/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-document-mode/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-document-mode/results.json",
+      "sha256": "fead28115939ea30816cda61f8d2e47a6b8926cf50185ab483607fcc3c0b447b"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-focus.log",
+      "sha256": "4be8f0713892f83eded929942f717413b3e01105442954928b2d667763cf4f6a"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-focus/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-focus/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-focus/results.json",
+      "sha256": "0f045a5f07a15f71c57bca3a03876c84dd42c4f2c31e6ebb74c53f2804460504"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-layout.log",
+      "sha256": "8e850c62606fed2813e236d0364f4ede28e4a8af1aa5d641b30e4104780474ee"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-layout/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-layout/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-layout/results.json",
+      "sha256": "e6412ed1fb1ff1dca9831dc39382c82c46b0eda0497f9587903e1db4e8463409"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions.log",
+      "sha256": "3143f79a5ce1578dc9875763afec77a45eb90a324865df3e1366d4daa2cc2b7e"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions/blitz-button-baseline--blitz-button-baseline-svelte--420x600.json",
+      "sha256": "ad83d06ebe4973f000666001204f3cb277e3ec720e08263318db3556f2be6a3d"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions/blitz-button-baseline--blitz-button-baseline-svelte--800x600.json",
+      "sha256": "80fd132f39b62fb646c3144f78616fb5584fae8099c0725d9af028082a3bc0c2"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions/blitz-buttons--blitz-buttons-svelte--420x600.json",
+      "sha256": "3c8501b73d614f0dfbb0e9a9f6092560cc558575dc87b07ee4b9fb68ab11127c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions/blitz-buttons--blitz-buttons-svelte--800x600.json",
+      "sha256": "364b7de4647482eb27e89b103069699be1daec8c635eae63b01ac4b0b34d5ed8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions/blitz-control-line-height--blitz-control-line-height-svelte--800x600.json",
+      "sha256": "711e766138156ab5e4bef2205304d153284182f04a8278a38569ea62bef25da9"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions/blitz-inline-baselines--blitz-inline-baselines-svelte--420x800.json",
+      "sha256": "b7e6e9a1e42be2e398e863e5f5f897927210ebb35e1e486b3e30c8d9bf28a4db"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions/blitz-inline-baselines--blitz-inline-baselines-svelte--800x800.json",
+      "sha256": "845d4735124fa52638deb4da626c303497924e031716c136cf60faa1aef3f657"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-regressions/report.json",
+      "sha256": "99716ac3e59e40ae8fe72365a58cb1aafd420132b2d654ed3d74c15008b2f37f"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-selection.log",
+      "sha256": "ee81452fe9551069f8fb0fddf2e48909a554bd7b9798c6c51533dddf8d8a37a8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-selection/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-selection/oracle-build.log",
+      "sha256": "6bb997c2bcbbdff72f4e5eb5015f991997cfd5ae29f2787ca08c3ed7f8dd6bee"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-control-selection/results.json",
+      "sha256": "8f93aa6ff2606e9164cf0d07220e619d346def66479efd9f502866898ee43408"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-controls.log",
+      "sha256": "70778e7bea919ae3e16696c18dc495d335dd177f56ce301610458da3587fa136"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-controls/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-controls/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-controls/results.json",
+      "sha256": "9673e2f46635ec272120fcc1e0d98425f7220090704bc4d6d1d75344df42a952"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-css-animations.log",
+      "sha256": "e00466abb56691c2e61dad76c3f5d5580316168c78d9aa1fcbfb51c10544066b"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-css-animations/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-css-animations/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-css-animations/results.json",
+      "sha256": "a60566bb3e64459257c4bbb19cd223b280d9644baf1a0f886cc84e44ce7f3de3"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-font-weights.log",
+      "sha256": "ad9c3d68ce7f5ee94efb2b0c5405d7c303a99d55418e8cc2b0270566fd0f6673"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-font-weights/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-font-weights/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-font-weights/results.json",
+      "sha256": "eb7fcd5123d0dcddd093a8b50447580e1f2b01a4e00cb59ceae53ecdb064a0e5"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus.log",
+      "sha256": "f02581d414d950ea2c4ba09767ff12a64e4d6aab678320131e229f30063a0edb"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/focus--focus-react--420x600.json",
+      "sha256": "b0aec851be51b7f213fe0d5377513d5d8307e0ec54ec08b307173d30e9df6fb0"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/focus--focus-react--800x600.json",
+      "sha256": "ed5677382781c1476c278f2e72bab9a4883c234849562acae3520dad8ec456be"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/focus--focus-svelte--420x600.json",
+      "sha256": "c3b7e155a51e218a2f55a99d0d29f1ad02361975295115dc4f2b70f4ce65baf1"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/focus--focus-svelte--800x600.json",
+      "sha256": "f4d4c3e46888a2f5157ee132b263c28b2ac731a5fe239ff350e6604472196b4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/focus--focus-vue--420x600.json",
+      "sha256": "a793deae0ac1d5dba23de55d6ec8fe94eb1629563d878b852cea43a62b8eef9a"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/focus--focus-vue--800x600.json",
+      "sha256": "89b2852e1968a57f734522a8a6dae6d0aa49078ec58cda5d9e5ad9f45707e84c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/focus-fixup--fixup-svelte--420x600.json",
+      "sha256": "e91d721cd394b1ec96308fbe9304ab1b34b9385b54efd7ad5c8529ba530a05bf"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/focus-fixup--fixup-svelte--800x600.json",
+      "sha256": "24003c4178bdd4182dbc9589e652fd171cc665e9b65a0e9267bda2415be15d12"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/forms--forms-svelte--420x600.json",
+      "sha256": "b181fca7fc0738542e26f6da3cde8da765f9e9a372ea2c172c3cd3091a617a24"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/forms--forms-svelte--800x600.json",
+      "sha256": "9457885261cc036c38cc19f857b75ae484e4e628f4b88b832e20ccdff584dafb"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/forms-react--forms-react--420x600.json",
+      "sha256": "33f18d461735cff7c3066294709a1ee663a03b4502cc9efd5b36a93c99e3a9f7"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/forms-react--forms-react--800x600.json",
+      "sha256": "9bb9c4ba11c3a014b97be0e1322fe0ce36b35785428abc4301a5dd5c0106076a"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/forms-vue--forms-vue--420x600.json",
+      "sha256": "274ad57c40c0f59e5d041f84c747ab21bd342c81013747d67629a2493f24f74c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/forms-vue--forms-vue--800x600.json",
+      "sha256": "ec166e5e36ac5ce4e7b4c8c9e6293b31721fe2b1025450fbe2f4a55b96efd595"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/measure--measure-svelte--420x600.json",
+      "sha256": "83e58753757f2aefb690060bfe063f3c55bf9bd78c5dd93d45cba228857b2b58"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/measure--measure-svelte--800x600.json",
+      "sha256": "c887d8ffe3563e87745d1590a12a972c1d184678c72585d7aced1a011e54aebb"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/report.json",
+      "sha256": "fbbe9b860b4546874ef6959e3a42d2a1ec64213c7d8dcd2df2e712998a2abe8b"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/scroll-events--scrolling-react--420x600.json",
+      "sha256": "b7841165d5ddf22387c8d997038aca6bef2b21ab22fdbb81c20fbcf835174064"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/scroll-events--scrolling-react--800x600.json",
+      "sha256": "bc92fbfc864b8e3cb50f63f51fdc84804ebf160dcc4f0166b2f35cd20b8b962f"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/scroll-events--scrolling-svelte--420x600.json",
+      "sha256": "004c6a8f84ea737e8965cc94547506457f8e79fb7b84e94da64ff8897887903d"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/scroll-events--scrolling-svelte--800x600.json",
+      "sha256": "49e87d5820a690993dc0d03db17a06a27bdedbae576d5843dea0e05c916dc391"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/scroll-events--scrolling-vue--420x600.json",
+      "sha256": "8a96d26f826eaaae3aa379b0a5f9a89ed11b0df83389fd7a1ff9436f4a567a67"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-forms-focus/scroll-events--scrolling-vue--800x600.json",
+      "sha256": "bd7eddc30700518f5f486fcb08edb180e86b43cecb2747b4c95de85964644eb1"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-glyphs.log",
+      "sha256": "b8f615930d3d0103343e48c8076c276ce7d8825998b4d344803e1bb25a1224ed"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-glyphs/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-glyphs/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-glyphs/results.json",
+      "sha256": "858e355043eeacf22dc726d8d4915cb9d9942043832ef5e150410df82858175f"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragment-effects.log",
+      "sha256": "05333bc341a3a2657c32e3a80c2646735260ff0bab0fe2f6c36c30df139a0be0"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragment-effects/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragment-effects/oracle-build.log",
+      "sha256": "6864bfd09be958cd6587cc8055a0ee375f7039cf99837d55c45847966b102c7e"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragment-effects/results.json",
+      "sha256": "8a35a019dfa22c3b5ac13468b74af8c883609e65f7e14aec73ab11feba0775ff"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragments.log",
+      "sha256": "1ffe7f8b6efaa585f745353a5073a026c7455c468be5e5e5568eb0c123877acc"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragments/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragments/oracle-build.log",
+      "sha256": "b356811843cc872172decad32c18e63429208fe06eec0eda54c8c588faa9e954"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-inline-fragments/results.json",
+      "sha256": "a5f2e753c105d881a57b70fe40e32d4bce89c6b21da74cbcc789abfe1eb4ed4a"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-input-line-height.log",
+      "sha256": "84289ca9a17d19fec488042e53adac032f11d3feb1e61d1396a7ced63e888212"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-input-line-height/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-input-line-height/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-input-line-height/results.json",
+      "sha256": "0fd498188999fb7ada5c9cbad99ff2b9e72bb1cd0230d24b52da4904d91b668f"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-input-pointer.log",
+      "sha256": "945de55409616a8fe13a022fee69abe7ac89d8af37d490dfe77f6ec68796eea8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-input-pointer/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-input-pointer/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-input-pointer/results.json",
+      "sha256": "4942fc0e03dff356eb785a2ddd6d307f2f3a65487af393a3f094d6bfbe7b6f0c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-intrinsic-text.log",
+      "sha256": "8de6cba748b3c90ad749bd8e2154165cb24219c12cab8c44dab23913c40b3ec4"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-intrinsic-text/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-intrinsic-text/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-intrinsic-text/results.json",
+      "sha256": "18a86fd5c43041ecdc05a3c49699c8625b1ef340245caac4748e3e643177c9c3"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-line-width-effects.log",
+      "sha256": "ae331c06b50347bf6daee073329fc07615a59dec6a4e2a3c6a8b4db41a492cc8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-line-width-effects/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-line-width-effects/oracle-build.log",
+      "sha256": "91b175105a5aa0e82a9254864c40c3c9668768a99632544942a3fb9538c16e7d"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-line-width-effects/results.json",
+      "sha256": "970a9e1edc5eb047f83508b9900b6e259879d7f74e1c706a5862f4ee89305328"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-line-width-grid.log",
+      "sha256": "fef7cb695e6b18def826df3c16e06ec6778fe4a80aefff10f846333d0f3a20a3"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-line-width-grid/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-line-width-grid/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-line-width-grid/results.json",
+      "sha256": "d63ea6fb11970b43a55b9079a523af5faa3cfc705e0106bb635585562d098970"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-npm.log",
+      "sha256": "b57a47f19ae0c9ae33020655f1b0b35443e9779339c662b129414ec599a4ac94"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-parley-cache-refresh.log",
+      "sha256": "4ba1298f7d59885d9dd38b256ea1ab3a4bd63730f01ef55bfc4239dfd793564d"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-parley-focused.log",
+      "sha256": "8a9f68f0141faa520ef8bf74d9ecac7948757f3a95c8b569783321e0119555d1"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-parley-libm.log",
+      "sha256": "a5f4c585ee974ca44916ac30a98bbc189e067a7e0a6bc6d2e8d6bc525be724af"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-parley-std.log",
+      "sha256": "8193dce4793702a2b49cabea85cad83938faf143ddcfb8aa62e045e2b0527a7c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-scrolling.log",
+      "sha256": "e8c35e7f5e74dd696d65a5212a67c78ed94f6011881e04775f42d852dabf0c6c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-scrolling/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-scrolling/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-scrolling/results.json",
+      "sha256": "2e8e566cc9fffd9d12d18a486f72d4411af2cdec18cb36daf79094da704df495"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-stylo.log",
+      "sha256": "f550327662028ab65b3330ce2bc1482cc7c994348b59503a6ba92f48fb89ac6f"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-controls.log",
+      "sha256": "5954d90d140995c2dae073b2a2e0ce3c3161e3c53582e844fba527f7caa1898f"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-controls/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-controls/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-controls/results.json",
+      "sha256": "d61fd25e0bff4829e93735eedc41685dcb5cd8362741604fbf1c210a427a7641"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-document-mode.log",
+      "sha256": "7fa6cd2b1d653f1523275daa809360833359f0bff13ded0c4aff8114368ddcb9"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-document-mode/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-document-mode/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-document-mode/results.json",
+      "sha256": "6225d9e2e0fc57bb8f562572a13412e0257891d2320c379b1d6b5dcbbebcf1a6"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-integration.log",
+      "sha256": "cf9276747427569b08ec719cc121f5f361a0a4da9c0e0658057a7857a1f6a0db"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-integration/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-integration/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-table-integration/results.json",
+      "sha256": "6e9251291208cbfaee54cd2db21c8c0c2fcd983dc732e0dd197847ba03b7e078"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-cpu.log",
+      "sha256": "c00609a0f3cffb0367115a793d1820e7421092a9b677d43c311d1afa5f0bfecb"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-cpu/report.json",
+      "sha256": "e97a62dd71e77f12e50f24fda553b091046f370cf33602df863e47c336cdacc0"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-cpu/tables-interactive--table-react--420x600.json",
+      "sha256": "3e96ec089ce07998befadaeb96cecf9a571b7a9adfcb120778fbf28d339e1eb0"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-cpu/tables-interactive--table-react--800x600.json",
+      "sha256": "f92fed455b6456a5e005a8d41c6d5002ffc39c4d31c9a0c9cf09edfa539f1948"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-cpu/tables-interactive--table-svelte--420x600.json",
+      "sha256": "9a0edeb0b4e987e71e440f726d1ce518b11448583a9abfb1380d3a38b7aef71a"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-cpu/tables-interactive--table-svelte--800x600.json",
+      "sha256": "c66f36c836c524027fc4db3858ca7a2cfd6ea274e82985470286d4af788c5a4a"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-cpu/tables-interactive--table-vue--420x600.json",
+      "sha256": "775f7626d48bbc33974a4908b2a2e087a6d8ef13af70972efc09a716304e0e53"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-cpu/tables-interactive--table-vue--800x600.json",
+      "sha256": "5b135c744a0221a42e67a65c6e3768b4a53d9cc2bac458e0db762b6248abcefd"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-gpu.log",
+      "sha256": "f742a6bf7a93320c40400a35d1ac007f287ff3105afe05dca998a62c0190a861"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-gpu/report.json",
+      "sha256": "93debe9259d9a87784e3a24bd923e6d1312317676d2b0415c1316d9e841338e7"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-gpu/tables-interactive--table-svelte--420x600.json",
+      "sha256": "bd7734cc9be669743905fbb44342892fb6ecfb6fd55f054923e38005c252cce5"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables-gpu/tables-interactive--table-svelte--800x600.json",
+      "sha256": "da316725c11764d20fd61e575b35de9cb4bb2487bf0f10171757c4692801e27a"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables.log",
+      "sha256": "ac80b084a743f975e109daabf6527f323696f3eb22b3de5cb7829f0253bf3e33"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-tables/results.json",
+      "sha256": "20602f563a1a690333b0b1b3385d7afd8f880924ca6c53326ad8827cd6b4aa91"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-text-metric-grid.log",
+      "sha256": "297c5fbdcd15717592b3a48e92e5f780ac464f84519c8a82bca33e889623e734"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-text-metric-grid/metadata.json",
+      "sha256": "9c973a202b5714698e13ff40246c2572213591820c29702bb18541c96fae11f8"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-text-metric-grid/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-text-metric-grid/results.json",
+      "sha256": "a5227f58c8b2c5fa43a31ed239250ae531135ed81aa57cde88fe5b7a4bc264ab"
+    },
+    {
+      "path": "artifacts/inline-fragment-complete-workspace.log",
+      "sha256": "0c6349603d6961d5b7ec0faea84e74c61ebe8943e200245a3e881c337e14ef0c"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-blitz-dom.log",
+      "sha256": "ecf5b08065e24ed7c87dcd776812918851f480bcbe566517e8e375318d9b5115"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-blitz-html.log",
+      "sha256": "43fdc94bf07962605b34d5d4fe0e1386cec70df7f83988b70960900a11fbc1e1"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-blitz-paint.log",
+      "sha256": "49d00b51b4d9d1b9d5bdb9f28541a6802705ada8384b340dd43ebf485ecd4e65"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-commands.json",
+      "sha256": "d9677240afaaa0348d7379f32f5bba5f7d39ca3b9741eca9750cae7b2192993f"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-inline-fragment-effects.log",
+      "sha256": "f49e18f9fdfad9c8d915157486cb31bfa8f358f9d169a2988c76ec2f5acb3f3e"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-inline-fragment-effects/metadata.json",
+      "sha256": "2c15db5e89d3ac182e3c6e1199aaa3da4595b17f365e9215ba48810eb062b884"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-inline-fragment-effects/oracle-build.log",
+      "sha256": "670488bb0bf0af84021937b770ab44e4036c1d689cb0d827130264684de6117d"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-inline-fragment-effects/results.json",
+      "sha256": "0038f180494d31e7f5e2314e4d8152e6f07f1196e0224822465a0f6e39c061d8"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-npm.log",
+      "sha256": "0a014acd9dd36e182215b8710b39690421ed0bb3a9b6727762c7eb19cd1acdff"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-parley-focused.log",
+      "sha256": "b41c19676b949007029e21ee79ba1a2aa787cffbea55f99ecb3e3ae2948c0df5"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-parley-libm.log",
+      "sha256": "736e2582f563605dd272e5fb977840b0c0767377d27b6940c440caf75eec7157"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-parley-std.log",
+      "sha256": "c79965c1c7c9c7fff30d1206ef30cbd51cb11112743064c886cb9f0a3541e280"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-stylo.log",
+      "sha256": "358261dabafd790324a62f96c954f80bd438638d770d58c8effd12c06bb16764"
+    },
+    {
+      "path": "artifacts/inline-fragment-final-workspace.log",
+      "sha256": "06d63902873b15eb4c87a4c0743e6ed65ec43d5f06c155f470e128a97d7ceb00"
+    },
+    {
+      "path": "artifacts/inline-fragment-parley-harness/Cargo.lock",
+      "sha256": "3db962c0e48a937d33bff15f0de1a732e5b1c24dc51503b6704b9d84c5d2f53c"
+    },
+    {
+      "path": "artifacts/inline-fragment-parley-harness/Cargo.toml",
+      "sha256": "fac96968b007d998655911d4914e73dfcf3d552073f1dfbd9ad76543b7e02267"
+    },
+    {
+      "path": "artifacts/inline-fragment-parley-harness/SOURCE-FILES",
+      "sha256": "57b4e05be6515d93c3bd383dab2e7f73cc9a18d095abc5248efea59c26dfbe63"
+    },
+    {
+      "path": "artifacts/inline-fragment-parley-harness/SOURCE-SHA256",
+      "sha256": "902dfd560d82da81c143432af06246b0e089df9f15a7c68bc615a6366fd031b0"
+    },
+    {
+      "path": "artifacts/inline-fragment-parley-harness/metadata.json",
+      "sha256": "0b4d0935eacf2717653fd71cd0c9334e0417fd74fbc06f4fae9e5968b324f63d"
+    },
+    {
+      "path": "artifacts/inline-fragment-unit-first.log",
+      "sha256": "bf6f110266e955e64e18cf9ef2f36a3a869956172c135a6117275211a053d4a3"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-blitz-dom.log",
+      "sha256": "4dde428b00fc42a6c742e781cc83a07da9250a5c3c36d84f9ca70ce7ba78acb6"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-blitz-html.log",
+      "sha256": "d404d3ac0f9f6a0e837e6a5fe0966236c6d6923217eb4e90a8ca7f8e996c9d2c"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-blitz-paint.log",
+      "sha256": "ccb643fe08c0b98052fd4535c28c3809b3d1969085e099944724e4280471082f"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-commands.json",
+      "sha256": "e110e9be4ce051c5b1b186535b4db6afc48794ccc96f4bf89b5fd91e9fa1f95a"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-control-layout.log",
+      "sha256": "8e850c62606fed2813e236d0364f4ede28e4a8af1aa5d641b30e4104780474ee"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-control-layout/metadata.json",
+      "sha256": "40a62f79be38bb4a2e8b681ece469e2a99c5ea6313f741ccc2b5968b94e46a3a"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-control-layout/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-control-layout/results.json",
+      "sha256": "e6412ed1fb1ff1dca9831dc39382c82c46b0eda0497f9587903e1db4e8463409"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-inline-fragment-effects.log",
+      "sha256": "d4cf8b14d24c2151b8d75e679797b7a7eafc11fbafdcb4df3fed349ac10d7619"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-inline-fragment-effects/metadata.json",
+      "sha256": "63ad28ec42eb0e97709db531128df249d5a3e3af6052281dcec0c1d0d8f32db2"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-inline-fragment-effects/oracle-build.log",
+      "sha256": "7c5d5f330c4c37d3c22369ed2975f6d4b2556d3c0ee7ea404a82fe01644aab4f"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-inline-fragment-effects/results.json",
+      "sha256": "fae2aaab94eef2ef3ec20d12105d653471ff00574bf06445512aad87436b96af"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-inline-fragments.log",
+      "sha256": "0537ba54a945448037e87c00384726fb18c2ae0d2065a9476f70febbb8f5f52e"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-inline-fragments/metadata.json",
+      "sha256": "40a62f79be38bb4a2e8b681ece469e2a99c5ea6313f741ccc2b5968b94e46a3a"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-inline-fragments/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-inline-fragments/results.json",
+      "sha256": "b22298fe8ef543e50a9db97611c0a6ff576019e094347bce81fcefa1fd7fac37"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-npm.log",
+      "sha256": "d67dfe57cf5033a28de29946c10b4e4d369b0e5d2e6a022db25b0abf787c868f"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-parley-cache-refresh.log",
+      "sha256": "d2ea563dd7902ca7627d87646ed15dc56727dbb5397e082f2347610c51034306"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-parley-focused-final.log",
+      "sha256": "7b3c059725da94838acde9e1e0a4c2c8a2997081a76bf7bcf77bcf225ae00bfa"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-parley-focused-repeat.log",
+      "sha256": "aecbe7679f386b71b58b54ec19ab9027f9744563690ccac1b0898f2e7b7e7415"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-parley-focused.log",
+      "sha256": "09ddb161279241da7ce743d5351ef1eadd54bc4473e41e9b199cde33b197b970"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-parley-libm.log",
+      "sha256": "9302a721a39380162a0a8f658a081f56c7017cbaf6f5b2943244b3fb71ef1487"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-parley-std-final.log",
+      "sha256": "c8819fcc0768e23522a5cb97084998daab25a7f12ac4f12c88efb514c6c3cf56"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-parley-std.log",
+      "sha256": "5eb863f0b5fcb8ffb8af820144457b6bdc10fa2c181564bce0247730c43d1ca5"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-table-controls.log",
+      "sha256": "5954d90d140995c2dae073b2a2e0ce3c3161e3c53582e844fba527f7caa1898f"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-table-controls/metadata.json",
+      "sha256": "40a62f79be38bb4a2e8b681ece469e2a99c5ea6313f741ccc2b5968b94e46a3a"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-table-controls/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-table-controls/results.json",
+      "sha256": "d61fd25e0bff4829e93735eedc41685dcb5cd8362741604fbf1c210a427a7641"
+    },
+    {
+      "path": "artifacts/inline-fragment-verified-workspace.log",
+      "sha256": "df859b73674de27668db1abc1f7d14e1c09563b7f32855cddd69552259ac4fe8"
+    },
+    {
+      "path": "artifacts/inline-fragments-action-discovery.log",
+      "sha256": "3d9fd751a0b44e4fd9665e606bde237e563f1210aee7419398bb6d1009547ca7"
+    },
+    {
+      "path": "artifacts/inline-fragments-action-discovery/metadata.json",
+      "sha256": "401a40ab5f52bbebdaab12f4ea26cdf5d146573aea39d9ee63d663bc8978c534"
+    },
+    {
+      "path": "artifacts/inline-fragments-action-discovery/oracle-build.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/inline-fragments-before.log",
+      "sha256": "d1a394db2477dffe0f71709596b8f8eafec1ab6478d9b1a388033e6e2fe4c3ed"
+    },
+    {
+      "path": "artifacts/inline-fragments-before/metadata.json",
+      "sha256": "e9e8bdd35799bdb42d394d628dc5aca4553d6cffa045fbcce67aac3cca88fc84"
+    },
+    {
+      "path": "artifacts/inline-fragments-before/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/inline-fragments-before/results.json",
+      "sha256": "0e6fe9849f686950fd4e798b37b7b59f59bbb9e35cc4764620571692e385d463"
+    },
+    {
+      "path": "artifacts/inline-fragments-first.log",
+      "sha256": "e3964695f6eff79286e57033bfc0e8c25b8183f326529e22be31a09814c68d44"
+    },
+    {
+      "path": "artifacts/inline-fragments-first/metadata.json",
+      "sha256": "2df802679d4395ca240b3424730513518d20a60c57ba2cafdb3a0d6f0a3fe6e2"
+    },
+    {
+      "path": "artifacts/inline-fragments-first/oracle-build.log",
+      "sha256": "f032686b7e2c399f5f26d2114b7fc878b7effade1b4d2ab6c14949a2bc231e55"
+    },
+    {
+      "path": "artifacts/inline-fragments-first/results.json",
+      "sha256": "2a97b63e035a1d9ffc5fdbb1f4479ba9b516f5c3e82d2d8362701750f6195ce7"
+    },
+    {
+      "path": "artifacts/inline-terminal-before-command.json",
+      "sha256": "3dd86566e035f38fd2da660da60c28173c4ba737b71720c07ad435d83e71a5a5"
+    },
+    {
+      "path": "artifacts/inline-terminal-before/metadata.json",
+      "sha256": "9e19cde6fa70ff9cc559865814ff59ab2336e71a17324bef6339d04bd7f7475e"
+    },
+    {
+      "path": "artifacts/inline-terminal-before/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/inline-terminal-before/results.json",
+      "sha256": "bf9342f4a229e4252a601d273e3f72f7c24e743fecfafa0911878f237e36c51d"
+    },
+    {
+      "path": "artifacts/inline-terminal-hit-unit.log",
+      "sha256": "3da7863e5b6a5807c55ba169ae6d0867b5d02857133de5638c80ad973f044dc8"
+    },
+    {
+      "path": "artifacts/inline-fragment-cleanup.json",
+      "sha256": "19e93679261db526e5b59d5370e61ca1c20a778322875fb08dbf07e0d0aaecae"
+    }
+  ],
+  "measurementNotes": [
+    "Optional gates count only states whose reference contains measured clientRects/editors/scroll/lineWidths; empty maps are unmeasured, not passes. Earlier records included some empty-map comparisons in state totals.",
+    "Pixel acceptance requires tablePixelMAE <= 3 and every non-null named crop <= 3. Null/offscreen crops are reported separately."
+  ],
+  "sourceSnapshotValidation": {
+    "directMatrices": 22,
+    "cleanSnapshots": true,
+    "nativeBinarySHA256": ["88df7b7de4dcdb09722b0107d74074477f9d25b4833a2c39c0b4fb98873afab9"],
+    "signedSourceHeads": true
+  },
+  "newOracleRegressions": {
+    "inlineFragments": [
+      {
+        "name": "font_12_1_25",
+        "viewport": [420, 240],
+        "dpr": 1,
+        "step": 2
+      },
+      {
+        "name": "font_12_1_25",
+        "viewport": [420, 240],
+        "dpr": 1.25,
+        "step": 2
+      },
+      {
+        "name": "font_12_1_25",
+        "viewport": [420, 240],
+        "dpr": 2,
+        "step": 2
+      },
+      {
+        "name": "font_16_1_25",
+        "viewport": [420, 240],
+        "dpr": 1,
+        "step": 2
+      },
+      {
+        "name": "font_16_1_25",
+        "viewport": [420, 240],
+        "dpr": 1.25,
+        "step": 2
+      },
+      {
+        "name": "font_16_1_25",
+        "viewport": [420, 240],
+        "dpr": 2,
+        "step": 2
+      },
+      {
+        "name": "font_24_1_25",
+        "viewport": [420, 240],
+        "dpr": 1,
+        "step": 1
+      },
+      {
+        "name": "font_24_1_25",
+        "viewport": [420, 240],
+        "dpr": 1.25,
+        "step": 1
+      },
+      {
+        "name": "font_24_1_25",
+        "viewport": [420, 240],
+        "dpr": 2,
+        "step": 1
+      },
+      {
+        "name": "bidi_ltr",
+        "viewport": [420, 240],
+        "dpr": 1,
+        "step": 0
+      },
+      {
+        "name": "bidi_ltr",
+        "viewport": [420, 240],
+        "dpr": 1.25,
+        "step": 0
+      },
+      {
+        "name": "bidi_ltr",
+        "viewport": [420, 240],
+        "dpr": 2,
+        "step": 0
+      }
+    ],
+    "classification": "Twelve leading-gap point hits exposed by replacing whole-line bounds with font content. A shared affine point-hit footprint and physical fragment intersection need their own reduction; full line-box hit areas are contradicted by the large-leading controls."
+  },
+  "pairedActionAndGateSources": {
+    "inlineFragmentsUnchangedSinceBaseline": "1a7d09af3ee9bbf5f5ae68280cff8b8f62cccdb0",
+    "terminalCasesUnchangedSinceBaseline": "1a1a74b",
+    "gatesUnchanged": true
+  },
+  "controlLayoutResidual": {
+    "states": 132,
+    "onlyElement": "text",
+    "onlyAxis": "x",
+    "missingMarginCSSPx": 8,
+    "otherRectangleComponentsWithinTolerance": true
+  },
+  "remainingGaps": [
+    {
+      "id": "CP-INLINE-HIT-LOCATION",
+      "owner": "Blitz document/node geometry",
+      "evidence": "12 new main leading-gap losses; 15 supplemental wrapping hits; existing tiny marker and rounded-button edge hits",
+      "next": "Carry a 1 CSS px point footprint through translations, scrolling, clips and inverse transforms, then use Chromium physical fragment intersection/snap rules. Preserve large leading-gap misses."
+    },
+    {
+      "id": "CP-INLINE-SPAN-EDGES",
+      "owner": "Parley generic boundary advances; Blitz CSS binding",
+      "evidence": "156/180 margin geometry failures; the older control suite has only an 8px span x error in 132 states",
+      "next": "Explicit owner/start/end advances with stable insertion ordering, intrinsic sizing and break replay. Resolve percentages from the inline context content width; keep own margins outside own rect/hits."
+    },
+    {
+      "id": "CP-INLINE-FRAGMENT-LISTS",
+      "owner": "Blitz DOM over Parley positioned layout",
+      "evidence": "189 main and 42 supplemental client-rect failures",
+      "next": "Preserve bidi and culled/nested fragments, trailing preserved space and zero-width final newline fragments; a bounding union is insufficient."
+    },
+    {
+      "id": "CP-INLINE-ALIGN-METRICS",
+      "owner": "Parley metrics/alignment; Blitz font bridge",
+      "evidence": "middle alignment has a 0.296875 CSS px position/line-height error at all three DPRs; nested alignment still has six geometry failures",
+      "next": "Reduce x-height/alignment rounding and nested shifts at the metric owner, without changing CSSOM positions separately from layout/paint."
+    },
+    {
+      "id": "CP-INLINE-PAINT",
+      "owner": "Blitz paint and glyph renderer",
+      "evidence": "All 465 new strict local pixel gates fail; flattened hidden descendant text is skipped by hits but still painted",
+      "next": "Fix descendant visibility in paint and reduce glyph placement/hinting independently. Preserve local MAE 3."
+    },
+    {
+      "id": "CP-INLINE-COST",
+      "owner": "Blitz text geometry",
+      "evidence": "Pointer scan is linear in positioned runs; repeated span lookup also scans styles",
+      "next": "Profile representative paragraphs and editor/table rows before caching; validate font/style/width/scale refresh and clone/intrinsic query invalidation."
+    }
+  ],
+  "iterationFailures": {
+    "initialTarget": "An accidentally started worktree-local target was stopped and its task-owned 392 MB output removed; all recorded checks use the shared target.",
+    "oracleActions": "Initial malformed action schema panicked; fixed in signed 1a7d09a and baseline restarted. Discovery log retained.",
+    "parleyCache": "Cached test helper embedded the previous removed temporary font path; only parley_dev was cleaned before repeating.",
+    "parleyTest": "Top/bottom test assertion compared the aligned subtree with the parent line box; corrected test-only at 5a3e022. Focused 3/3 and full std repeated.",
+    "terminalScroll": "Review found the synthetic terminal empty line included in scroll overflow. Paired 36-state reduction went 0 to 36 scroll matches after 87ac324f; 2191d554 also repaired 24 terminal hits."
+  },
+  "finalRecordChanges": "Verification source is frozen at compiler e645e0b. The following signed commit changes only architecture/contract/gap/plan documentation and these result summaries; it does not change verified code.",
+  "cleanup": {
+    "intermediateScreenshotsRemoved": [
+      {
+        "directory": "artifacts/inline-fragments-first",
+        "pngFiles": 2904,
+        "bytes": 9979377
+      },
+      {
+        "directory": "artifacts/inline-fragments-action-discovery",
+        "pngFiles": 1,
+        "bytes": 2349
+      },
+      {
+        "directory": "artifacts/inline-fragment-verified-inline-fragments",
+        "pngFiles": 2904,
+        "bytes": 9979377
+      },
+      {
+        "directory": "artifacts/inline-fragment-verified-inline-fragment-effects",
+        "pngFiles": 528,
+        "bytes": 1292723
+      },
+      {
+        "directory": "artifacts/inline-fragment-verified-control-layout",
+        "pngFiles": 2640,
+        "bytes": 14290174
+      },
+      {
+        "directory": "artifacts/inline-fragment-verified-table-controls",
+        "pngFiles": 40,
+        "bytes": 575886
+      },
+      {
+        "directory": "artifacts/inline-fragment-final-inline-fragment-effects",
+        "pngFiles": 528,
+        "bytes": 1292723
+      },
+      {
+        "directory": "artifacts/inline-fragment-checked-inline-fragments",
+        "pngFiles": 2904,
+        "bytes": 9979377
+      },
+      {
+        "directory": "artifacts/inline-fragment-checked-inline-fragment-effects",
+        "pngFiles": 816,
+        "bytes": 1743671
+      }
+    ],
+    "temporaryParleySourcesRemoved": "/tmp/runic-inline-parley-tests",
+    "temporaryRunnerFilesRemoved": [
+      "/tmp/runic-inline-audit.json",
+      "/tmp/runic-inline-audit.mjs",
+      "/tmp/runic-inline-audit.stdout",
+      "/tmp/runic-inline-checked.mjs",
+      "/tmp/runic-inline-complete.mjs",
+      "/tmp/runic-inline-final.mjs",
+      "/tmp/runic-inline-record.mjs",
+      "/tmp/runic-inline-verify.mjs"
+    ],
+    "profile": "/tmp/runic-inline-dev-profile",
+    "profileLifetime": "Retained only until final result formatting; task profile links then removed.",
+    "retainedEvidence": "Final and paired baseline observations, logs and exact-source harness proof.",
+    "sharedCache": "Only parley_dev was cleaned via cargo, as recorded by the final runner. No broad pruning."
+  }
+}

@@ -230,10 +230,20 @@ Blitz owns the CSS border-area expansion: its private `TextLayout` helper adds
 vertical padding/border, resolving percentages against the inline context's
 content width. DOM fragments, offsets/bounding unions and pointer targets share
 these block bounds. Collapsed trailing whitespace is excluded from a wrapping
-fragment; preserved whitespace is retained. Visual traversal bounds include
-overflowing font content so short line heights do not prevent ancestor hit
-descent. Taffy's scroll extents remain separate. Selection/caret geometry keeps
-its line-box semantics.
+fragment; preserved whitespace is retained. DOM reads and pointer targeting also
+share each positioned run's visible advance. Pointer candidates use positioned
+runs with leaf-to-ancestor pointer/visibility checks; later matching text runs
+win, after atomic children have been visited. Caret lookup remains cluster-based
+and selection/caret geometry keeps its line-box semantics.
+
+Visual traversal bounds conservatively include overflowing font content so short
+line heights do not prevent ancestor hit descent. Blitz contributes that content's
+bottom to Taffy's scrollable-overflow output without increasing block height;
+the synthetic empty line after a terminal break is excluded, as it already is
+from measured height and last baseline. Existing overflow clipping is retained.
+These are font metric bounds, not a model of fallback glyph ink or stacked marks.
+The run/ancestor/style scans need profiling before adding a cache; any cache must
+cover style/font/width/scale refresh and intrinsic-query layout copies.
 
 The [CSSOM View fragment rules](https://www.w3.org/TR/cssom-view-1/#dom-element-getclientrects)
 and [CSS inline content-area rules](https://www.w3.org/TR/CSS2/visudet.html#inline-non-replaced)
@@ -243,13 +253,21 @@ unions, with the existing 0.125 CSS px tolerance. Hits, editor/scroll state and
 local MAE 3 remain independent gates. This API does not certify margins,
 horizontal border/padding flow, empty spans or the complete bidi fragment model.
 The compiler's integrated inline-rect rejection is not broadened by this patch.
+The [continuation record](../conformance/results/chromium-inline-fragments.md)
+keeps the 12 newly exposed leading-gap pointer failures and all local pixel
+failures. A shared hit-location footprint needs its own pinned Chromium reduction;
+neither whole-line hit regions nor DOM-rect tolerances define that policy.
 
 Horizontal margins require a distinct line-layout representation. The next
 design checkpoint is a generic ordered span-edge advance, with explicit owner
-and start/end association. It must participate in shaping boundaries, intrinsic
-measurement, breakpoint replay and positioning without turning the span into
-an atomic box. Own margin advances stay outside its border rect and hit region;
-an enclosing span can include a descendant's advance in its content extent.
+and start/end association and stable ordering alongside atomic items. A separate
+positioned-edge iterator avoids adding a source-breaking variant to public
+`PositionedLayoutItem`. Edges must participate in shaping boundaries, intrinsic
+measurement, pending whitespace, breakpoint lookahead/replay and positioning
+without turning the span into an atomic box. Zero/no advances preserve existing
+defaults; negative advances need explicit cases. Own margin advances stay outside
+its border rect and hit region; an enclosing span can include a descendant's
+advance in its content extent.
 Percentages use the context's content width; indefinite intrinsic queries and
 retained-layout restoration must be covered. Empty/whitespace spans and first/
 last wrapped-fragment ownership need dedicated cases before that interface is
