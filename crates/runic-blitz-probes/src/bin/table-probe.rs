@@ -391,6 +391,61 @@ mod tests {
     }
 
     #[test]
+    fn inline_span_bounds_and_hits_survive_short_lines_and_refresh() {
+        use base64::Engine;
+        let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
+            "../../../../fixtures/counter-svelte/assets/DejaVuSans.woff2"
+        ));
+        let mut doc = HtmlDocument::from_html(
+            &format!(
+                "<!doctype html><style>@font-face{{font-family:Test;src:url(data:font/woff2;base64,{font})}}body{{margin:0;font:16px/32px Test}}#line{{margin:20px}}</style><div id='line'><span id='text' data-client-rects>Alpha</span></div>"
+            ),
+            DocumentConfig {
+                net_provider: Some(blitz_shell::DataUriNetProvider::shared(None)),
+                html_parser_provider: Some(std::sync::Arc::new(blitz_html::HtmlProvider)),
+                ..Default::default()
+            },
+        );
+        for scale in [1.0, 1.25, 2.0, 1.0] {
+            doc.inner_mut()
+                .set_viewport(blitz_traits::shell::Viewport::new(
+                    (420.0 * scale) as u32,
+                    (180.0 * scale) as u32,
+                    scale,
+                    blitz_traits::shell::ColorScheme::Light,
+                ));
+            for (height, expected_y) in [(32, 26.0), (16, 18.0)] {
+                let mut inner = doc.inner_mut();
+                let line = inner.get_element_by_id("line").unwrap();
+                inner.mutate().set_attribute(
+                    line,
+                    QualName::new(None, ns!(), local_name!("style")),
+                    &format!("line-height:{height}px"),
+                );
+                for _ in 0..4 {
+                    inner.resolve(0.0);
+                }
+                let text = inner.get_element_by_id("text").unwrap();
+                let rect = inner.get_client_bounding_rect(text).unwrap();
+                assert_eq!(rect.y, expected_y);
+                assert_eq!(rect.height, 19.0);
+                let fragments = inner.node_client_rects(text);
+                assert_eq!(fragments.len(), 1);
+                assert_eq!(fragments[0].height, 19.0);
+                // The lower edge is outside the block when line-height is 16;
+                // ancestor culling must still let the span receive the hit.
+                assert_eq!(
+                    inner.hit(30.0, (rect.y + 18.0) as f32).unwrap().node_id,
+                    text
+                );
+                if height == 32 {
+                    assert_eq!(inner.hit(30.0, 21.0).unwrap().node_id, line);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn logical_text_metrics_survive_viewport_scale_changes() {
         use base64::Engine;
         let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(

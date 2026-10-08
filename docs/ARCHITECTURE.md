@@ -216,3 +216,42 @@ with DPR 1/1.25/1.5/2, tiny/fractional/keyword/calc widths, inheritance, style
 changes, ordinary elements and controls. Numeric and keyword CSS zoom cases pass
 on this branch. The [verification record](../conformance/results/chromium-line-widths.md)
 retains independent raster failures and source pins.
+
+## Chromium parity: inline font content bounds (2026-10-08, isolated)
+
+Parley adds `Line::style_content_bounds(style_index) -> Option<(f32, f32)>`.
+This read-only API returns the first available font's ascent/descent bounds at
+that style's aligned baseline, in layout coordinates. Leading, fallback glyph
+overflow and descendant atomic boxes do not enlarge that span's content area.
+It uses existing resolved metrics and the active quantization policy; invalid
+indices return `None`. Builders, editors and the Device default are unchanged.
+
+Blitz owns the CSS border-area expansion: its private `TextLayout` helper adds
+vertical padding/border, resolving percentages against the inline context's
+content width. DOM fragments, offsets/bounding unions and pointer targets share
+these block bounds. Collapsed trailing whitespace is excluded from a wrapping
+fragment; preserved whitespace is retained. Visual traversal bounds include
+overflowing font content so short line heights do not prevent ancestor hit
+descent. Taffy's scroll extents remain separate. Selection/caret geometry keeps
+its line-box semantics.
+
+The [CSSOM View fragment rules](https://www.w3.org/TR/cssom-view-1/#dom-element-getclientrects)
+and [CSS inline content-area rules](https://www.w3.org/TR/CSS2/visudet.html#inline-non-replaced)
+guide the reduction; locked Chromium remains the acceptance oracle. The direct
+probe now measures tagged `getClientRects()` lists independently of bounding
+unions, with the existing 0.125 CSS px tolerance. Hits, editor/scroll state and
+local MAE 3 remain independent gates. This API does not certify margins,
+horizontal border/padding flow, empty spans or the complete bidi fragment model.
+The compiler's integrated inline-rect rejection is not broadened by this patch.
+
+Horizontal margins require a distinct line-layout representation. The next
+design checkpoint is a generic ordered span-edge advance, with explicit owner
+and start/end association. It must participate in shaping boundaries, intrinsic
+measurement, breakpoint replay and positioning without turning the span into
+an atomic box. Own margin advances stay outside its border rect and hit region;
+an enclosing span can include a descendant's advance in its content extent.
+Percentages use the context's content width; indefinite intrinsic queries and
+retained-layout restoration must be covered. Empty/whitespace spans and first/
+last wrapped-fragment ownership need dedicated cases before that interface is
+frozen. CSS span direction versus adjacent glyph bidi level remains an explicit
+design dependency, including Arabic in LTR spans and Latin in RTL spans.
