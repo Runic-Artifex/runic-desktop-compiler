@@ -15,6 +15,11 @@ adds opt-in Parley logical metrics, conditional inner-editor line height and sha
 signed centering/pointer boundaries. DPR 1/2 geometry passes both new text matrices;
 fractional-DPR boxes, raster placement and selected-text/RTL pointer states remain
 open. Two older input crops newly fail paint after their box offset is corrected.
+The [line-width continuation](../conformance/results/chromium-line-widths.md)
+repairs those fractional-DPR control boxes through Stylo's opt-in CSS-pixel
+rounding, preserving its device-pixel default and physical hairlines. All 176 new
+width and 76 supplemental states match geometry/computed widths; raster coverage,
+inline fragments and editor interactions retain separate gates.
 
 ## Rendering and layout
 

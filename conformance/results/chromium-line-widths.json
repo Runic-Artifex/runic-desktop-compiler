@@ -1,0 +1,1395 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": {
+    "RunicDesktopCompiler-tables": "99c16ca8ead572fce392ea2756d65132b9531ca2",
+    "blitz-tables": "35bc90b5261a7cd0fcde13304fa2d687b4c21502",
+    "parley-chromium-parity": "ac9bed8a4f17dfc327bf5f156f486185821b4a89",
+    "stylo-chromium-parity": "f0e404e2daa6a5f6ed881e9cdb12e7a4ac375aa4",
+    "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f"
+  },
+  "originals": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "e8dd36c6694be78902599320ab1653564627d128",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "status": ""
+    }
+  ],
+  "oneExperimentWorktreePerRepository": true,
+  "environment": {
+    "sharedTarget": "/home/viktor/Development/RunicDesktopCompiler/target",
+    "nativeBuildWrapper": "node compiler/cargo.mjs",
+    "profile": "/tmp/runic-border-dev-profile",
+    "flakeLockSHA256": "ed928e945c79e3d7f19d37b13a05f0d97b98440b38661d97bf77844e40606431",
+    "cargoLockSHA256": "1364b4e71332172936c2bb2ceb57bd13f1d5127e63f994f06ef1061a9735bca6",
+    "fontSHA256": "a75044e4dab293c1ac7f8eba9f20df03f183f41b9319054f43b955959981632a"
+  },
+  "gates": {
+    "resolvedLineWidthsCSSPx": 0.02,
+    "directGeometryCSSPx": 0.125,
+    "compiledGeometryCSSPx": 2,
+    "localPixelMAE": 3
+  },
+  "newOracles": {
+    "lineWidthGrid": {
+      "before": {
+        "states": 176,
+        "geometryPassed": 116,
+        "hitsPassed": 176,
+        "editorStatesPassed": 176,
+        "scrollPassed": 176,
+        "localPixelsPassed": 25,
+        "offscreenNamedCrops": 8,
+        "lineWidthsPassed": 110
+      },
+      "after": {
+        "states": 176,
+        "geometryPassed": 176,
+        "hitsPassed": 176,
+        "editorStatesPassed": 176,
+        "scrollPassed": 176,
+        "localPixelsPassed": 30,
+        "offscreenNamedCrops": 8,
+        "lineWidthsPassed": 176
+      },
+      "baselineSources": {
+        "blitz-tables": "09ebf3ceac7a4e5a2c4cac43ad2406da3e977203",
+        "parley-chromium-parity": "ac9bed8a4f17dfc327bf5f156f486185821b4a89",
+        "stylo-chromium-parity": "b2cf0bbebffd5a26c2c5e3141f2f4226e67ec2dc",
+        "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+        "RunicDesktopCompiler-tables": "111e52cf17326f59a5df86d260cfef8cc8b2a4f3"
+      },
+      "identicalInputs": true,
+      "actionAndGateSourceUnchangedExceptFormatting": true
+    },
+    "lineWidthEffects": {
+      "after": {
+        "states": 76,
+        "geometryPassed": 76,
+        "hitsPassed": 76,
+        "editorStatesPassed": 76,
+        "scrollPassed": 76,
+        "localPixelsPassed": 45,
+        "offscreenNamedCrops": 0,
+        "lineWidthsPassed": 76
+      },
+      "byGroup": {
+        "keyword": {
+          "states": 36,
+          "geometryPassed": 36,
+          "hitsPassed": 36,
+          "editorStatesPassed": 36,
+          "scrollPassed": 36,
+          "localPixelsPassed": 23,
+          "offscreenNamedCrops": 0,
+          "lineWidthsPassed": 36
+        },
+        "logical": {
+          "states": 16,
+          "geometryPassed": 16,
+          "hitsPassed": 16,
+          "editorStatesPassed": 16,
+          "scrollPassed": 16,
+          "localPixelsPassed": 8,
+          "offscreenNamedCrops": 0,
+          "lineWidthsPassed": 16
+        },
+        "animated": {
+          "states": 24,
+          "geometryPassed": 24,
+          "hitsPassed": 24,
+          "editorStatesPassed": 24,
+          "scrollPassed": 24,
+          "localPixelsPassed": 14,
+          "offscreenNamedCrops": 0,
+          "lineWidthsPassed": 24
+        }
+      }
+    }
+  },
+  "retainedOracles": {
+    "text-metric-grid": {
+      "before": {
+        "states": 432,
+        "geometryPassed": 304,
+        "hitsPassed": 280,
+        "editorStatesPassed": 432,
+        "scrollPassed": 432,
+        "localPixelsPassed": 48,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 432,
+        "geometryPassed": 432,
+        "hitsPassed": 408,
+        "editorStatesPassed": 432,
+        "scrollPassed": 432,
+        "localPixelsPassed": 48,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "input-line-height": {
+      "before": {
+        "states": 504,
+        "geometryPassed": 336,
+        "hitsPassed": 336,
+        "editorStatesPassed": 504,
+        "scrollPassed": 504,
+        "localPixelsPassed": 134,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 504,
+        "geometryPassed": 504,
+        "hitsPassed": 504,
+        "editorStatesPassed": 504,
+        "scrollPassed": 504,
+        "localPixelsPassed": 134,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "input-pointer": {
+      "before": {
+        "states": 264,
+        "geometryPassed": 176,
+        "hitsPassed": 264,
+        "editorStatesPassed": 231,
+        "scrollPassed": 264,
+        "localPixelsPassed": 13,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 264,
+        "geometryPassed": 264,
+        "hitsPassed": 264,
+        "editorStatesPassed": 231,
+        "scrollPassed": 264,
+        "localPixelsPassed": 13,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "control-document-mode": {
+      "before": {
+        "states": 132,
+        "geometryPassed": 92,
+        "hitsPassed": 120,
+        "editorStatesPassed": 132,
+        "scrollPassed": 132,
+        "localPixelsPassed": 84,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 132,
+        "geometryPassed": 92,
+        "hitsPassed": 120,
+        "editorStatesPassed": 132,
+        "scrollPassed": 132,
+        "localPixelsPassed": 84,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "control-layout": {
+      "before": {
+        "states": 264,
+        "geometryPassed": 132,
+        "hitsPassed": 264,
+        "editorStatesPassed": 264,
+        "scrollPassed": 264,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 264,
+        "geometryPassed": 132,
+        "hitsPassed": 264,
+        "editorStatesPassed": 264,
+        "scrollPassed": 264,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "control-selection": {
+      "before": {
+        "states": 48,
+        "geometryPassed": 48,
+        "hitsPassed": 48,
+        "editorStatesPassed": 48,
+        "scrollPassed": 48,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 48,
+        "geometryPassed": 48,
+        "hitsPassed": 48,
+        "editorStatesPassed": 48,
+        "scrollPassed": 48,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "control-focus": {
+      "before": {
+        "states": 252,
+        "geometryPassed": 252,
+        "hitsPassed": 252,
+        "editorStatesPassed": 252,
+        "scrollPassed": 252,
+        "localPixelsPassed": 164,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 252,
+        "geometryPassed": 252,
+        "hitsPassed": 252,
+        "editorStatesPassed": 252,
+        "scrollPassed": 252,
+        "localPixelsPassed": 164,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "tables": {
+      "before": {
+        "states": 77,
+        "geometryPassed": 77,
+        "hitsPassed": 77,
+        "editorStatesPassed": 77,
+        "scrollPassed": 77,
+        "localPixelsPassed": 74,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 77,
+        "geometryPassed": 77,
+        "hitsPassed": 77,
+        "editorStatesPassed": 77,
+        "scrollPassed": 77,
+        "localPixelsPassed": 74,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "table-document-mode": {
+      "before": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "table-controls": {
+      "before": {
+        "states": 4,
+        "geometryPassed": 4,
+        "hitsPassed": 2,
+        "editorStatesPassed": 4,
+        "scrollPassed": 4,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 4,
+        "geometryPassed": 4,
+        "hitsPassed": 2,
+        "editorStatesPassed": 4,
+        "scrollPassed": 4,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "table-integration": {
+      "before": {
+        "states": 30,
+        "geometryPassed": 22,
+        "hitsPassed": 24,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 23,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 30,
+        "geometryPassed": 22,
+        "hitsPassed": 24,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 23,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "controls": {
+      "before": {
+        "states": 9,
+        "geometryPassed": 8,
+        "hitsPassed": 8,
+        "editorStatesPassed": 9,
+        "scrollPassed": 9,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 9,
+        "geometryPassed": 8,
+        "hitsPassed": 8,
+        "editorStatesPassed": 9,
+        "scrollPassed": 9,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "scrolling": {
+      "before": {
+        "states": 148,
+        "geometryPassed": 148,
+        "hitsPassed": 148,
+        "editorStatesPassed": 148,
+        "scrollPassed": 148,
+        "localPixelsPassed": 148,
+        "offscreenNamedCrops": 2
+      },
+      "after": {
+        "states": 148,
+        "geometryPassed": 148,
+        "hitsPassed": 148,
+        "editorStatesPassed": 148,
+        "scrollPassed": 148,
+        "localPixelsPassed": 148,
+        "offscreenNamedCrops": 2
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "css-animations": {
+      "before": {
+        "states": 40,
+        "geometryPassed": 40,
+        "hitsPassed": 40,
+        "editorStatesPassed": 40,
+        "scrollPassed": 40,
+        "localPixelsPassed": 40,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 40,
+        "geometryPassed": 40,
+        "hitsPassed": 40,
+        "editorStatesPassed": 40,
+        "scrollPassed": 40,
+        "localPixelsPassed": 40,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "intrinsic-text": {
+      "before": {
+        "states": 30,
+        "geometryPassed": 30,
+        "hitsPassed": 30,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 20,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 30,
+        "geometryPassed": 30,
+        "hitsPassed": 30,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 20,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "font-weights": {
+      "before": {
+        "states": 36,
+        "geometryPassed": 12,
+        "hitsPassed": 28,
+        "editorStatesPassed": 36,
+        "scrollPassed": 36,
+        "localPixelsPassed": 16,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 36,
+        "geometryPassed": 12,
+        "hitsPassed": 28,
+        "editorStatesPassed": 36,
+        "scrollPassed": 36,
+        "localPixelsPassed": 16,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "glyphs": {
+      "before": {
+        "states": 38,
+        "geometryPassed": 38,
+        "hitsPassed": 38,
+        "editorStatesPassed": 38,
+        "scrollPassed": 38,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 38,
+        "geometryPassed": 38,
+        "hitsPassed": 38,
+        "editorStatesPassed": 38,
+        "scrollPassed": 38,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    },
+    "borders": {
+      "before": {
+        "states": 7,
+        "geometryPassed": 7,
+        "hitsPassed": 7,
+        "editorStatesPassed": 7,
+        "scrollPassed": 7,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 7,
+        "geometryPassed": 7,
+        "hitsPassed": 7,
+        "editorStatesPassed": 7,
+        "scrollPassed": 7,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashesAndStateOrder": true
+    }
+  },
+  "newRegressions": [],
+  "compiled": {
+    "tables-cpu": {
+      "runs": 6,
+      "states": 96,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 1.27
+    },
+    "tables-gpu": {
+      "runs": 2,
+      "states": 32,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": ["llvmpipe (LLVM 21.1.8, 256 bits)"],
+      "maxPixelMAE": 2.396
+    },
+    "forms-focus": {
+      "runs": 22,
+      "states": 242,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 0.388
+    },
+    "control-regressions": {
+      "runs": 7,
+      "states": 19,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 0.594
+    }
+  },
+  "units": {
+    "workspace": {
+      "exitCode": 0,
+      "passed": 119,
+      "failed": 0,
+      "log": "artifacts/line-width-verified-workspace.log"
+    },
+    "stylo": {
+      "exitCode": 0,
+      "passed": 1,
+      "failed": 0,
+      "log": "artifacts/line-width-verified-stylo.log"
+    },
+    "blitz-dom": {
+      "exitCode": 101,
+      "passed": 51,
+      "failed": 2,
+      "log": "artifacts/line-width-verified-blitz-dom.log"
+    },
+    "blitz-paint": {
+      "exitCode": 0,
+      "passed": 8,
+      "failed": 0,
+      "log": "artifacts/line-width-verified-blitz-paint.log"
+    },
+    "blitz-html": {
+      "exitCode": 0,
+      "passed": 3,
+      "failed": 0,
+      "log": "artifacts/line-width-verified-blitz-html.log"
+    },
+    "npm": {
+      "passed": 297,
+      "failed": 0,
+      "exitCode": 0,
+      "includesFrontendTypeCheck": true
+    }
+  },
+  "knownUnitFailures": {
+    "blitz-dom": [
+      "document::hover_invalidation_tests::hover_styles_apply_and_clear",
+      "node::element::tests::scroll_by_clamps_and_bubbles"
+    ]
+  },
+  "unchangedDependencies": {
+    "parley": "No source changes; prior std/libm results and known fontless/default-system-font limitations remain in chromium-text-metrics.json.",
+    "vello": "No renderer source changes."
+  },
+  "incompleteStages": [
+    "/code-review tool unavailable; root and read-only agent reviews completed.",
+    "Gecko build not run; Gecko conversion branch unchanged and Servo-only policy reviewed.",
+    "OS keyboard/pointer/compositor/IME delivery not established by internal events.",
+    "Broad transitions, additivity and animated CSS-zoom interaction not certified by the sampled animation matrix."
+  ],
+  "commands": [
+    {
+      "name": "npm",
+      "command": ["npm", "test"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 90.596,
+      "log": "artifacts/line-width-verified-npm.log"
+    },
+    {
+      "name": "workspace",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "--workspace"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 31.551,
+      "log": "artifacts/line-width-verified-workspace.log"
+    },
+    {
+      "name": "stylo",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "stylo",
+        "--lib",
+        "line_width_rounding_tests"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 16.748,
+      "log": "artifacts/line-width-verified-stylo.log"
+    },
+    {
+      "name": "blitz-dom",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-dom"],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 0.47,
+      "log": "artifacts/line-width-verified-blitz-dom.log"
+    },
+    {
+      "name": "blitz-paint",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-paint"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 2.315,
+      "log": "artifacts/line-width-verified-blitz-paint.log"
+    },
+    {
+      "name": "blitz-html",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-html"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.027,
+      "log": "artifacts/line-width-verified-blitz-html.log"
+    },
+    {
+      "name": "line-width-grid",
+      "command": ["node", "conformance/line-width-grid.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 105.188,
+      "log": "artifacts/line-width-verified-line-width-grid.log"
+    },
+    {
+      "name": "line-width-effects",
+      "command": ["node", "conformance/line-width-effects.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 23.356,
+      "log": "artifacts/line-width-verified-line-width-effects.log"
+    },
+    {
+      "name": "text-metric-grid",
+      "command": ["node", "conformance/text-metric-grid.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 139.303,
+      "log": "artifacts/line-width-verified-text-metric-grid.log"
+    },
+    {
+      "name": "input-line-height",
+      "command": ["node", "conformance/input-line-height.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 148.351,
+      "log": "artifacts/line-width-verified-input-line-height.log"
+    },
+    {
+      "name": "input-pointer",
+      "command": ["node", "conformance/input-pointer.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 74.663,
+      "log": "artifacts/line-width-verified-input-pointer.log"
+    },
+    {
+      "name": "control-document-mode",
+      "command": ["node", "conformance/control-document-mode.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 51.324,
+      "log": "artifacts/line-width-verified-control-document-mode.log"
+    },
+    {
+      "name": "control-layout",
+      "command": ["node", "conformance/control-layout.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 129.517,
+      "log": "artifacts/line-width-verified-control-layout.log"
+    },
+    {
+      "name": "control-selection",
+      "command": ["node", "conformance/control-selection.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.215,
+      "log": "artifacts/line-width-verified-control-selection.log"
+    },
+    {
+      "name": "control-focus",
+      "command": ["node", "conformance/control-focus.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 75.46,
+      "log": "artifacts/line-width-verified-control-focus.log"
+    },
+    {
+      "name": "tables",
+      "command": ["node", "conformance/tables.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 17.879,
+      "log": "artifacts/line-width-verified-tables.log"
+    },
+    {
+      "name": "table-document-mode",
+      "command": ["node", "conformance/table-document-mode.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 4.092,
+      "log": "artifacts/line-width-verified-table-document-mode.log"
+    },
+    {
+      "name": "table-controls",
+      "command": ["node", "conformance/table-controls.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 4.204,
+      "log": "artifacts/line-width-verified-table-controls.log"
+    },
+    {
+      "name": "table-integration",
+      "command": ["node", "conformance/table-integration.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 8.447,
+      "log": "artifacts/line-width-verified-table-integration.log"
+    },
+    {
+      "name": "controls",
+      "command": ["node", "conformance/controls.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 4.61,
+      "log": "artifacts/line-width-verified-controls.log"
+    },
+    {
+      "name": "scrolling",
+      "command": ["node", "conformance/scrolling.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 31.164,
+      "log": "artifacts/line-width-verified-scrolling.log"
+    },
+    {
+      "name": "css-animations",
+      "command": ["node", "conformance/css-animations.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 6.777,
+      "log": "artifacts/line-width-verified-css-animations.log"
+    },
+    {
+      "name": "intrinsic-text",
+      "command": ["node", "conformance/intrinsic-text.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 10.108,
+      "log": "artifacts/line-width-verified-intrinsic-text.log"
+    },
+    {
+      "name": "font-weights",
+      "command": ["node", "conformance/font-weights.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 68.2,
+      "log": "artifacts/line-width-verified-font-weights.log"
+    },
+    {
+      "name": "glyphs",
+      "command": ["node", "conformance/glyphs.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.333,
+      "log": "artifacts/line-width-verified-glyphs.log"
+    },
+    {
+      "name": "borders",
+      "command": ["node", "conformance/borders.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 2.948,
+      "log": "artifacts/line-width-verified-borders.log"
+    },
+    {
+      "name": "tables-cpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--out",
+        "artifacts/line-width-verified-tables-cpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 51.929,
+      "log": "artifacts/line-width-verified-tables-cpu.log"
+    },
+    {
+      "name": "tables-gpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--renderer",
+        "gpu",
+        "--fixture",
+        "table-svelte",
+        "--out",
+        "artifacts/line-width-verified-tables-gpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 41.064,
+      "log": "artifacts/line-width-verified-tables-gpu.log"
+    },
+    {
+      "name": "forms-focus",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "forms",
+        "forms-react",
+        "forms-vue",
+        "measure",
+        "scroll-events",
+        "focus",
+        "focus-fixup",
+        "--pixels",
+        "--out",
+        "artifacts/line-width-verified-forms-focus"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 118.453,
+      "log": "artifacts/line-width-verified-forms-focus.log"
+    },
+    {
+      "name": "control-regressions",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "blitz-buttons",
+        "blitz-button-baseline",
+        "blitz-control-line-height",
+        "blitz-inline-baselines",
+        "--pixels",
+        "--out",
+        "artifacts/line-width-verified-control-regressions"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 30.658,
+      "log": "artifacts/line-width-verified-control-regressions.log"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/line-width-grid-after.log",
+      "sha256": "6eacf593cd37c87634f27135a969f252277075d6cbe64437d5257bb12839c484"
+    },
+    {
+      "path": "artifacts/line-width-grid-before.log",
+      "sha256": "7aff88ff3ca24bb3a820f83515ab2dc94e0ff12a654648feb4d68cfa1d2c3bb5"
+    },
+    {
+      "path": "artifacts/line-width-grid-before/metadata.json",
+      "sha256": "f0a7a19b05cf4b50d88b640213e031ac151b3aeed3bb7feb52bea9e713647ef3"
+    },
+    {
+      "path": "artifacts/line-width-grid-before/results.json",
+      "sha256": "91c120ca16fe005d71717bcf600cf6300e71975231cf7dd1489bfe3647b0034d"
+    },
+    {
+      "path": "artifacts/line-width-policy-unit-compile-failure.log",
+      "sha256": "5fd9f1fadc49f920443c5b0a85dd1cc8f73b6708506338405382bc8fa6c9199c"
+    },
+    {
+      "path": "artifacts/line-width-policy-unit-layout-failure.log",
+      "sha256": "e3ce0d39df224383ccbde68334a0bb65af84e3c40b4081e06a220f28a8d16aa8"
+    },
+    {
+      "path": "artifacts/line-width-policy-unit-rounded-layout-failure.log",
+      "sha256": "100c48ce1d0a6e2eda2204fb68e2213691dbbc8bd441a817b72b2b36552b9b41"
+    },
+    {
+      "path": "artifacts/line-width-policy-unit.log",
+      "sha256": "4f57f1e050da52f10ff8408f8e60bed59da919ac0e2956abae0b4a5537ba402c"
+    },
+    {
+      "path": "artifacts/line-width-unit.log",
+      "sha256": "2cecbf1d2c6bef25e956220cc7506d9f9882858b108637b54846d4d4e518519d"
+    },
+    {
+      "path": "artifacts/line-width-verified-blitz-dom.log",
+      "sha256": "308d501de8f73bec82b92caf84b67f8b0b620c535457d60d7a4f722853c865d8"
+    },
+    {
+      "path": "artifacts/line-width-verified-blitz-html.log",
+      "sha256": "305aa71a9c989e85037d65effeae19dcdb82a8d959cd2e0da1935f15585e534b"
+    },
+    {
+      "path": "artifacts/line-width-verified-blitz-paint.log",
+      "sha256": "ad599db0a78186d788de7d0d968487a860d16b38094b1d00456d51d4e4613d98"
+    },
+    {
+      "path": "artifacts/line-width-verified-borders.log",
+      "sha256": "a396093407ac4e802d43f1a75a95b612935de30caa34271b3db4e992e7168be2"
+    },
+    {
+      "path": "artifacts/line-width-verified-borders/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-borders/results.json",
+      "sha256": "073e29a8cd7bbecf17168e5451d67f5bf2cfbe2622ea3247050352c655bdee4c"
+    },
+    {
+      "path": "artifacts/line-width-verified-commands.json",
+      "sha256": "e6460efd78244e522e981a0af8085d829ec1a787a0917753486626d7e516d908"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-document-mode.log",
+      "sha256": "94a13769a6b4b365a80462254e73239ed62c0f523a892c08b05ed802174c9ef7"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-document-mode/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-document-mode/results.json",
+      "sha256": "96704112c90ed2cdff15cae0ff8ca6e662c22c0d46bd9dee32757b4641df57ad"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-focus.log",
+      "sha256": "bc572644644b1fd5002834059b422a8675465812ba3122a2d52bc561ff849371"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-focus/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-focus/results.json",
+      "sha256": "c2ff245c99a4c9add4172fa178b6cb2cdaeab139d9ff9127d43961e33826f221"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-layout.log",
+      "sha256": "6ad2e8318d41420919cea34dfc46695edf3312e68e7ad691a67133b5a85b6afe"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-layout/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-layout/results.json",
+      "sha256": "52b18391b24da98547a046196021f07297f805fee5925f0fd1baaea20acb8c92"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-regressions.log",
+      "sha256": "3caac6788afba43a13bf5b8a4f7a117ddd245d4a5b9b42f1799b4bc6ddf64d4a"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-regressions/report.json",
+      "sha256": "76819fa4904f39dd83f8f9c7090581a90c5ca647b7727b80d4b873b086f9c469"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-selection.log",
+      "sha256": "a7a3ecff8dcd2a84bfb012baab28ad6f88748c69f3c5a9ea19a96eacbbe67543"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-selection/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-control-selection/results.json",
+      "sha256": "68b906a064b98c11bca14937a2ad91ff6936526e5f5260c3e1638f241b4e1797"
+    },
+    {
+      "path": "artifacts/line-width-verified-controls.log",
+      "sha256": "9428674166dafb4757f1d50210fb61d8d2fdc9f2ee5a48ce36e06a1c69625512"
+    },
+    {
+      "path": "artifacts/line-width-verified-controls/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-controls/results.json",
+      "sha256": "b25bb8d9d6b5b6e3bd052e5c8eb9bedb9a800de975424f6f29127cc6028fd22f"
+    },
+    {
+      "path": "artifacts/line-width-verified-css-animations.log",
+      "sha256": "dc0719a349309e747fe85f960fa3741278a898b6bd87f52ccfb6448cd96952c4"
+    },
+    {
+      "path": "artifacts/line-width-verified-css-animations/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-css-animations/results.json",
+      "sha256": "b50978736dc3b88369ea767658ad66dceacd39db7a24e304489a5ab9c1e822c4"
+    },
+    {
+      "path": "artifacts/line-width-verified-font-weights.log",
+      "sha256": "5d29f382d48e016dbbb017cb28a54cf5665e7de8b14954a8255b73ad30ba6047"
+    },
+    {
+      "path": "artifacts/line-width-verified-font-weights/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-font-weights/results.json",
+      "sha256": "512e179dc74cdbeea4907ed4a6ae68df1cd6ddcdc931c6882b1e09bdad098661"
+    },
+    {
+      "path": "artifacts/line-width-verified-forms-focus.log",
+      "sha256": "dabeb5dc8ae0834d623feacb2a30b7a2b0ea6569a7f2045cd8ca204f9898c5ff"
+    },
+    {
+      "path": "artifacts/line-width-verified-forms-focus/report.json",
+      "sha256": "a4e197d472f87b377b4a6bce9b74f95236623041466eae7c5d1005620c210934"
+    },
+    {
+      "path": "artifacts/line-width-verified-glyphs.log",
+      "sha256": "4c28e6e3c8130f0b0fbba21a79c90bbf3fa4c272c55b2b42bce9732fe1a263fc"
+    },
+    {
+      "path": "artifacts/line-width-verified-glyphs/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-glyphs/results.json",
+      "sha256": "dcc2a3ef1f9ce3fb3f15cfea14dca29ba5a81bd60da0e29805baa89d9628a683"
+    },
+    {
+      "path": "artifacts/line-width-verified-input-line-height.log",
+      "sha256": "6adc1de30d28a80226d592835f368e6228eca1b3bb233ed46a455b7752dae8b8"
+    },
+    {
+      "path": "artifacts/line-width-verified-input-line-height/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-input-line-height/results.json",
+      "sha256": "d0309f6e612b5728f677fbde6d1edc7edac4d0cff03b919b443f24995cd882f4"
+    },
+    {
+      "path": "artifacts/line-width-verified-input-pointer.log",
+      "sha256": "e90064f2772f6415a33f82cdd838b7fbd25ff602a17015aa67357a5eb0e962ac"
+    },
+    {
+      "path": "artifacts/line-width-verified-input-pointer/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-input-pointer/results.json",
+      "sha256": "c83e507bc14a8ded53ea7357b25aee9f3735f867ded7da827cd643a3b9f55615"
+    },
+    {
+      "path": "artifacts/line-width-verified-intrinsic-text.log",
+      "sha256": "d8d71f4453bdaf893f43ec5333a29a8d5216736862feeee4ebd432234c89a91d"
+    },
+    {
+      "path": "artifacts/line-width-verified-intrinsic-text/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-intrinsic-text/results.json",
+      "sha256": "d74a6b7db1abbac784d33f4d77efdc4e4c4377a99372a150b90a3858e31e2f67"
+    },
+    {
+      "path": "artifacts/line-width-verified-line-width-effects.log",
+      "sha256": "98b0892aacb939eaa7b4b06f7ad22a915cc940977cce0496912eb7f8ffb82099"
+    },
+    {
+      "path": "artifacts/line-width-verified-line-width-effects/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-line-width-effects/results.json",
+      "sha256": "8b562eba35ef91545028af8a67425078e12eccd3e3e9e4985262067addf472a0"
+    },
+    {
+      "path": "artifacts/line-width-verified-line-width-grid.log",
+      "sha256": "6eacf593cd37c87634f27135a969f252277075d6cbe64437d5257bb12839c484"
+    },
+    {
+      "path": "artifacts/line-width-verified-line-width-grid/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-line-width-grid/results.json",
+      "sha256": "5d73791d9cb566207268404bc95514f5eff1ed3c428f30023ec9a0c30ea3a6dd"
+    },
+    {
+      "path": "artifacts/line-width-verified-npm.log",
+      "sha256": "e8b1183bf355ec062409e996cd7743020861ac9117d7f22a34e5a6712f8f244a"
+    },
+    {
+      "path": "artifacts/line-width-verified-scrolling.log",
+      "sha256": "df8cb3c85f03c9909afba73649ce92af1046856bfd0ade5b0978a642bb1fb835"
+    },
+    {
+      "path": "artifacts/line-width-verified-scrolling/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-scrolling/results.json",
+      "sha256": "65cb22e5a5409c263b16aa670b23913ebe2c3414ebdc2a3ea055b43bf47e1289"
+    },
+    {
+      "path": "artifacts/line-width-verified-source.json",
+      "sha256": "90368e36711a116541997d154069f25d7d49d53840f0f94df62b8bd4b1d078a4"
+    },
+    {
+      "path": "artifacts/line-width-verified-stylo.log",
+      "sha256": "2c1fd6d59c39da1dd9e8501a548fd63d4d98ed4821e95e52e0d2eb2fc00c097b"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-controls.log",
+      "sha256": "8d63129b65dfa23c947ede89f433f9a575f84a62724e8c52d01568d941a91d55"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-controls/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-controls/results.json",
+      "sha256": "cffc1927421bd2c4e06ff05378cc27c9d4e8c5aca136b432078cf170ac238e08"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-document-mode.log",
+      "sha256": "8ac593df28f6c1bc53b307b17f6c010005047f2b592a979fcacf8e66c425590d"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-document-mode/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-document-mode/results.json",
+      "sha256": "10d33749bea62addf86c9e8e0d926eb29da990b3db60f7bb9bcb0d6dd0d03b3a"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-integration.log",
+      "sha256": "a503d252fdcded48122f188bbce0bd1d7d8e10baa515e66c084cd3a1addd3315"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-integration/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-table-integration/results.json",
+      "sha256": "634b77c7914b9b2fdd2a4d483e70c62aec77489f50a15796b2f135ee167a34da"
+    },
+    {
+      "path": "artifacts/line-width-verified-tables-cpu.log",
+      "sha256": "29776bee1a7a3f4aa3f00b6fbd33320ab3fbe0b52e78c219dbaf70bbebdc844a"
+    },
+    {
+      "path": "artifacts/line-width-verified-tables-cpu/report.json",
+      "sha256": "62826493d0f13c7b3912bdd36a35b45b580672789c57f37f38cdced6946ee4ac"
+    },
+    {
+      "path": "artifacts/line-width-verified-tables-gpu.log",
+      "sha256": "2f97c96ecd3c1fc1e3ae1a0dfe70d6104a19bba84886293ea18aaa9af4c456a6"
+    },
+    {
+      "path": "artifacts/line-width-verified-tables-gpu/report.json",
+      "sha256": "fa6bd61f0bf9b3ba6b8929ec0f63709297e0605f7a4763eb56f9d0ce4bbac069"
+    },
+    {
+      "path": "artifacts/line-width-verified-tables.log",
+      "sha256": "b97d30d7845685efd72f617648f939140f8ef3211eccced0f84a5916a1c2f5de"
+    },
+    {
+      "path": "artifacts/line-width-verified-tables/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-tables/results.json",
+      "sha256": "a60012c30de50b6c5003d5dcc9582be0e9c8588ab91280cbfc901f97e17cde88"
+    },
+    {
+      "path": "artifacts/line-width-verified-text-metric-grid.log",
+      "sha256": "4b06f92d5cf22d79c49fa7a01ec2a62a0282732169b2e2c8a7f5dd6c4c7e6e8a"
+    },
+    {
+      "path": "artifacts/line-width-verified-text-metric-grid/metadata.json",
+      "sha256": "07f60f018e9c4a2090994cadf324197a56db8688ac7ce5e7c49f63809d66ff5d"
+    },
+    {
+      "path": "artifacts/line-width-verified-text-metric-grid/results.json",
+      "sha256": "e60721c4dbb8f4d57d56a34538c93e169bfabf67c5e2f3a0f666234c32c38dcb"
+    },
+    {
+      "path": "artifacts/line-width-verified-workspace.log",
+      "sha256": "f6141e5bc4f4bdc1371dda03e8af7898b2b464e8eeb535e2e17b2d57e3ad8372"
+    },
+    {
+      "path": "artifacts/text-metrics-final-borders/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-borders/results.json",
+      "sha256": "68aad8e23f241fb55b85a29317ac94373408fbdfdf9ecab7fc1419a9563a40d3"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-document-mode/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-document-mode/results.json",
+      "sha256": "729efc233bdf6efec3d47e0e50de14000f11ffe6c6f62df5b8c44391acecd378"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-focus/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-focus/results.json",
+      "sha256": "81bf8e77d75226fcc7223aeb2cdad23fd302215501e52d5404984f2319469656"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-layout/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-layout/results.json",
+      "sha256": "6ceb2268f8ebb235f7d26024d16e27cb9ced7a0a1378f95c7d2b3ece09445278"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-selection/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-selection/results.json",
+      "sha256": "57f149f1f979f0a8a07867e8c283846ad6f705f763cefb96a113554515aedfa2"
+    },
+    {
+      "path": "artifacts/text-metrics-final-controls/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-controls/results.json",
+      "sha256": "dd5c2b828829b5c972d245a94a74b1339786f37fa94eb5f932b2938376d34233"
+    },
+    {
+      "path": "artifacts/text-metrics-final-css-animations/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-css-animations/results.json",
+      "sha256": "dc690b9891527a636e3adc911dc63eff156cb4e743086a7f1bea0a9f1ea38726"
+    },
+    {
+      "path": "artifacts/text-metrics-final-font-weights/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-font-weights/results.json",
+      "sha256": "27c7cab9844029f0e2364a32c2dbec2b71139b9084fc91af6ac2e9b583571529"
+    },
+    {
+      "path": "artifacts/text-metrics-final-glyphs/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-glyphs/results.json",
+      "sha256": "fdede16b15901e4b4e5253ae120731e08f3d6f8d4f080bda39163538f938bae8"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-line-height/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-line-height/results.json",
+      "sha256": "03eb708d34e641899e610f0917511f844c224580bcea7060b12a397e548d0db8"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-pointer/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-pointer/results.json",
+      "sha256": "84f4cf70abb261e28f07e64127a0138845f04bde40532157adc08e0c879a944c"
+    },
+    {
+      "path": "artifacts/text-metrics-final-intrinsic-text/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-intrinsic-text/results.json",
+      "sha256": "70bde9a1aced507aebe11eb6ee10b1f67ef6a376b24729ded71a9f2f1bc630f5"
+    },
+    {
+      "path": "artifacts/text-metrics-final-scrolling/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-scrolling/results.json",
+      "sha256": "b08f82f01903ce88c9410e5ce9d8b7d7d5c7932090fcf7881edd40003f131a0a"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-controls/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-controls/results.json",
+      "sha256": "c71686e344701123ef719ccdf30768535d4046ff2ea125b9fceda052f99820fa"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-document-mode/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-document-mode/results.json",
+      "sha256": "116859f74d93628da728de1b0d0a75520ac654a5712d52c70ad5a4d4ae91a34c"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-integration/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-integration/results.json",
+      "sha256": "19689010ac5575eb15939335d22e0e4f0ec1ff4242e0d5a411ff7f524a50e8cc"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables/results.json",
+      "sha256": "d814b32310a728797ef5590f9746da19fae059737a433bf121a16a926be537a5"
+    },
+    {
+      "path": "artifacts/text-metrics-final-text-metric-grid/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-text-metric-grid/results.json",
+      "sha256": "b2cefbc14d46a80c5fb7228ffdca9a7baf24173abe8ed65bbb39f996cd6656fa"
+    }
+  ],
+  "finalRecordChanges": {
+    "kind": "Documentation/results and rustfmt-only assertion wrapping",
+    "verifiedSourceRevision": "99c16ca8ead572fce392ea2756d65132b9531ca2",
+    "probePath": "crates/runic-blitz-probes/src/bin/table-probe.rs",
+    "probeFormattingOnly": true,
+    "formattedProbeSHA256": "62b51bbf9c70e07bb1d3007195199dd3b3c82aa2b646834ab1418233e5940aaf"
+  }
+}

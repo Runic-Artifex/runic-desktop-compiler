@@ -26,6 +26,11 @@ repairs logical font metric scaling and single-line inner-editor geometry, and
 shares signed offsets with pointer selection. Its new oracles retain fractional-DPR
 box, glyph-placement, selected-text click and RTL alignment failures. This remains
 isolated implementation evidence, not integrated compatibility.
+The [line-width continuation](../conformance/results/chromium-line-widths.md)
+closes the retained fractional-DPR control-box geometry gap with an opt-in Stylo
+policy. Text, input-height and pointer geometry pass 432/432, 504/504 and 264/264;
+pixel and pointer-state residuals remain independently open. Shipping support is
+unchanged.
 
 ## Detail
 

@@ -204,13 +204,15 @@ are unaffected. Gecko behavior is unchanged.
 The device policy is set by a consuming builder method, before attaching it to a
 stylist. There is no dynamic setter bypassing style invalidation. Default-created
 devices retain DevicePixel; Blitz's shared device factory preserves CssPixel
-across rebuilds. Computed inheritance retains the rounded parent value. Animation
-interpolation and outline offsets remain separate behavior; this policy does not
-silently resnap their values.
+across rebuilds. Computed inheritance retains the rounded parent value. This patch
+does not change animated-value conversions or outline-offset rounding. The
+supplemental oracle verifies sampled border/outline animation; broader transitions,
+additivity and animated CSS-zoom interaction remain separate gates.
 
 Chromium's border converter explains the policy; the locked Chromium binary is
 the acceptance oracle. `line-width-grid.mjs` checks resolved widths independently
 at 0.02 CSS px, geometry at the existing 0.125 CSS px and local pixels at MAE 3,
 with DPR 1/1.25/1.5/2, tiny/fractional/keyword/calc widths, inheritance, style
-changes, ordinary elements and controls. CSS zoom cases remain in the oracle even
-where Blitz does not support that property; they cannot be claimed as passed.
+changes, ordinary elements and controls. Numeric and keyword CSS zoom cases pass
+on this branch. The [verification record](../conformance/results/chromium-line-widths.md)
+retains independent raster failures and source pins.
