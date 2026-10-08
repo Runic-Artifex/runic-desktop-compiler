@@ -385,3 +385,21 @@ acceptance gates, with both ancestor and descendant observations.
 Blitz converts atomic-box CSS length shifts to layout units at the adapter
 boundary, using the same scale as box dimensions and baselines. Text spans
 continue to supply CSS units to Parley's style resolver, which scales them once.
+
+## Chromium parity: inline text paint anchors (2026-10-08, isolated)
+
+Blitz's paint layer owns CSS-space text-origin snapping. An ordinary line supplies
+the initial anchor; a materialized non-atomic inline box replaces it for its
+descendants, while culled spans inherit it. The signed correction is computed
+before the renderer's device-space glyph quantization. Glyphs and text decorations
+share that correction; selection, inline backgrounds, geometry and hit testing
+retain layout coordinates. Font hinting and raster coverage remain renderer concerns.
+
+Parley's additive `Line::style_font_metrics(style_index)` accessor returns the
+primary span's ascent/descent in layout units, with its existing quantization
+policy, or `None` for an invalid index. This lets paint compare parent and child
+font heights without querying fonts again or deriving metrics from aligned bounds.
+It neither changes line breaking nor exposes the private alignment arenas. The
+paint implementation stays private to Blitz; no IR or framework adapter changes
+are required. Fractional origins, box materialization and mutations have separate
+geometry, fragment, hit and strict local pixel gates.
