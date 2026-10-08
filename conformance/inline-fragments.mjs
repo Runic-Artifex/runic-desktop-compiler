@@ -23,8 +23,13 @@ for (const size of [12, 16, 24]) {
       span('Alpha Agpq'),
       `font:${size}px/${height} Test`,
       [
-        { selector: '#table', attr: 'style', value: `font:${size}px/${height} Test;width:92px` },
-        { selector: '#text', attr: 'style', value: 'font-size:20px' },
+        {
+          selector: '#table',
+          kind: 'attribute',
+          name: 'style',
+          value: `font:${size}px/${height} Test;width:92px`,
+        },
+        { selector: '#text', kind: 'attribute', name: 'style', value: 'font-size:20px' },
       ],
     );
   }
@@ -56,7 +61,7 @@ for (const variant of ['large_child', 'small_child', 'atomic', 'nested_shift']) 
       '<span id="child" data-client-rects style="vertical-align:super"><span style="vertical-align:3.375px">Child</span></span>',
   }[variant];
   add(`nested_${variant}`, span(`Alpha ${child} Beta Gamma Delta`), 'width:150px', [
-    { selector: '#table', attr: 'style', value: 'width:100px' },
+    { selector: '#table', kind: 'attribute', name: 'style', value: 'width:100px' },
   ]);
 }
 for (const direction of ['ltr', 'rtl']) {
@@ -70,10 +75,16 @@ for (const direction of ['ltr', 'rtl']) {
         [
           {
             selector: '#text',
-            attr: 'style',
+            kind: 'attribute',
+            name: 'style',
             value: `margin-left:${margin};margin-right:11.375px`,
           },
-          { selector: '#table', attr: 'style', value: `direction:${direction};width:112px` },
+          {
+            selector: '#table',
+            kind: 'attribute',
+            name: 'style',
+            value: `direction:${direction};width:112px`,
+          },
         ],
       );
     }
@@ -84,7 +95,14 @@ for (const direction of ['ltr', 'rtl']) {
     `bidi_${direction}`,
     `Start ${span('ترجمة Alpha Beta نص Gamma')} End`,
     `direction:${direction};width:150px`,
-    [{ selector: '#table', attr: 'style', value: `direction:${direction};width:100px` }],
+    [
+      {
+        selector: '#table',
+        kind: 'attribute',
+        name: 'style',
+        value: `direction:${direction};width:100px`,
+      },
+    ],
   );
 }
 add(
@@ -94,7 +112,7 @@ add(
     'margin:0 8px',
   ),
   'width:160px',
-  [{ selector: '#table', attr: 'style', value: 'width:105px' }],
+  [{ selector: '#table', kind: 'attribute', name: 'style', value: 'width:105px' }],
 );
 add(
   'decorated',
