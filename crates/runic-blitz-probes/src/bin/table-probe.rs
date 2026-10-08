@@ -365,7 +365,7 @@ mod tests {
                 doc.inner_mut().resolve(0.0);
             }
             let observed = observe(&doc);
-            assert_eq!(observed["lineWidths"]["box"], json!([1, 1, 2, 1, 1]));
+            assert_eq!(observed["lineWidths"]["box"], json!([1.0, 1.0, 2.0, 1.0, 1.0]));
             assert_eq!(observed["rects"]["box"][2], json!(32.0));
             assert_eq!(observed["rects"]["box"][3], json!(23.0));
             // A physical hairline remains a device pixel, independently of line widths.
