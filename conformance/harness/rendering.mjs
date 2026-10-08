@@ -91,10 +91,21 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
         const elements = [...document.querySelectorAll('[id]')];
         return {
           lineWidths: Object.fromEntries(
-            elements.filter(el => el.hasAttribute('data-line-widths')).map(el => {
-              const style = getComputedStyle(el);
-              return [el.id, ['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'outlineWidth'].map(property => parseFloat(style[property]))];
-            }),
+            elements
+              .filter(el => el.hasAttribute('data-line-widths'))
+              .map(el => {
+                const style = getComputedStyle(el);
+                return [
+                  el.id,
+                  [
+                    'borderTopWidth',
+                    'borderRightWidth',
+                    'borderBottomWidth',
+                    'borderLeftWidth',
+                    'outlineWidth',
+                  ].map(property => parseFloat(style[property])),
+                ];
+              }),
           ),
           editors: Object.fromEntries(
             elements
@@ -262,8 +273,12 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
             );
             const differences = [];
             const lineWidthDifferences = Object.entries(expected.lineWidths)
-              .filter(([id, values]) => !observation.lineWidths?.[id] || values.some((v, i) => Math.abs(v - observation.lineWidths[id][i]) > 0.02))
-              .map(([id, reference]) => ({id, reference, native: observation.lineWidths?.[id]}));
+              .filter(
+                ([id, values]) =>
+                  !observation.lineWidths?.[id] ||
+                  values.some((v, i) => Math.abs(v - observation.lineWidths[id][i]) > 0.02),
+              )
+              .map(([id, reference]) => ({ id, reference, native: observation.lineWidths?.[id] }));
             for (const [id, rect] of Object.entries(expected.rects)) {
               if (!observation.rects[id]) {
                 differences.push({ id, missing: true });
