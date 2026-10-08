@@ -137,6 +137,8 @@ for (const origin of [20.375, 20.625]) {
       html: `<div id="table" style="position:relative;margin:${origin}px;width:160px;height:90px"><button id="target" data-hit-points='${points(
         [
           [1, 1],
+          [-1.015625, 14],
+          [-1, 14],
           [52.28125, 27],
           [53.28125, 27],
           [52.78125, 27.5],
@@ -144,5 +146,24 @@ for (const origin of [20.375, 20.625]) {
       )}' style="position:absolute;left:30.328125px;top:20px;box-sizing:border-box;width:53.28125px;height:28px;border:0;padding:0;border-radius:${radius}px;background:#567">Save</button></div>`,
     };
   }
+}
+for (const origin of [20.375, 20.625]) {
+  const token = `${origin}`.replace('.', '_');
+  cases[`constrained_corners_${token}`] = {
+    standards: true,
+    region: 'table',
+    regions: ['table', 'target'],
+    viewports,
+    html: `<div id="table" style="position:relative;margin:${origin}px;width:120px;height:80px"><div id="target" data-hit-points='${points(
+      [
+        [-1, 5],
+        [0, 0],
+        [1, 1],
+        [5, -1],
+        [9.4, 5],
+        [9.4, 9.4],
+      ],
+    )}' style="position:absolute;left:30.375px;top:20.375px;width:10.4px;height:10.4px;border-radius:6px;background:#567"></div></div>`,
+  };
 }
 await runRenderingCases(cases, {}, 'pointer-geometry', '#table{background:#f4f0e8}');
