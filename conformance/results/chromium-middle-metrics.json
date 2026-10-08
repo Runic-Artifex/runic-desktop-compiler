@@ -1,0 +1,2473 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler-tables",
+      "revision": "e6b482f8e9d3126fda27019ec822069b8f052565",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz-tables",
+      "revision": "9fc666f9e3362b3776222365822a76de2b48355a",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/parley-chromium-parity",
+      "revision": "1b7146f09693d7dcb12dcc1bd5878b1a62232ab0",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo-chromium-parity",
+      "revision": "f0e404e2daa6a5f6ed881e9cdb12e7a4ac375aa4",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello-raster-parity",
+      "revision": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+      "signature": "G",
+      "status": ""
+    }
+  ],
+  "originals": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "status": "",
+      "currentRevision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "e8dd36c6694be78902599320ab1653564627d128",
+      "status": "",
+      "currentRevision": "e8dd36c6694be78902599320ab1653564627d128",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "status": "",
+      "currentRevision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "status": "",
+      "currentRevision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "currentStatus": ""
+    }
+  ],
+  "oneExperimentWorktreePerRepository": true,
+  "environment": {
+    "chromium": "153.0.8010.12",
+    "viewport": [640, 300],
+    "deviceScaleFactor": 1,
+    "renderer": "cpu",
+    "screenshotCaret": "initial",
+    "fontSHA256": "a75044e4dab293c1ac7f8eba9f20df03f183f41b9319054f43b955959981632a",
+    "cargoLockSHA256": "1364b4e71332172936c2bb2ceb57bd13f1d5127e63f994f06ef1061a9735bca6",
+    "nativeBinarySHA256": "8aa0fd049a7cea145373fa0cb6432c0a6f39738942bef75140108953cc76eb0b",
+    "geometryTolerance": 0.125,
+    "pixelMAEThreshold": 3,
+    "flakeLockSHA256": "ed928e945c79e3d7f19d37b13a05f0d97b98440b38661d97bf77844e40606431",
+    "build": "Locked Git-aware Nix profile; offline cargo wrapper; shared target; jobs 2; serial matrices",
+    "gpu": "Locked lavapipe/llvmpipe"
+  },
+  "gates": {
+    "directGeometryCSSPx": 0.125,
+    "compiledGeometryCSSPx": 2,
+    "pixels": "Viewport, container and every measured named crop MAE <=3/255",
+    "hit": "Exact closest-id target including explicit pointHitDifferences, independently gated",
+    "optional": "Empty reference maps are unmeasured; absent count field means unmeasured",
+    "countEncoding": "[passed, measured]; absent paired changedGates entries have zero repairs/regressions"
+  },
+  "sourceSnapshotValidation": {
+    "directMatrices": 25,
+    "allChecksPassed": true,
+    "checks": [
+      {
+        "name": "middle-metrics",
+        "passed": true
+      },
+      {
+        "name": "inline-source-order",
+        "passed": true
+      },
+      {
+        "name": "pointer-geometry",
+        "passed": true
+      },
+      {
+        "name": "inline-fragments",
+        "passed": true
+      },
+      {
+        "name": "inline-fragment-effects",
+        "passed": true
+      },
+      {
+        "name": "line-width-grid",
+        "passed": true
+      },
+      {
+        "name": "line-width-effects",
+        "passed": true
+      },
+      {
+        "name": "text-metric-grid",
+        "passed": true
+      },
+      {
+        "name": "input-line-height",
+        "passed": true
+      },
+      {
+        "name": "input-pointer",
+        "passed": true
+      },
+      {
+        "name": "control-document-mode",
+        "passed": true
+      },
+      {
+        "name": "control-layout",
+        "passed": true
+      },
+      {
+        "name": "control-selection",
+        "passed": true
+      },
+      {
+        "name": "control-focus",
+        "passed": true
+      },
+      {
+        "name": "tables",
+        "passed": true
+      },
+      {
+        "name": "table-document-mode",
+        "passed": true
+      },
+      {
+        "name": "table-controls",
+        "passed": true
+      },
+      {
+        "name": "table-integration",
+        "passed": true
+      },
+      {
+        "name": "controls",
+        "passed": true
+      },
+      {
+        "name": "scrolling",
+        "passed": true
+      },
+      {
+        "name": "css-animations",
+        "passed": true
+      },
+      {
+        "name": "intrinsic-text",
+        "passed": true
+      },
+      {
+        "name": "font-weights",
+        "passed": true
+      },
+      {
+        "name": "glyphs",
+        "passed": true
+      },
+      {
+        "name": "borders",
+        "passed": true
+      }
+    ]
+  },
+  "primaryMetricRepair": {
+    "states": 3,
+    "dprs": [1, 1.25, 2],
+    "geometry": true,
+    "fragmentLists": true,
+    "hits": true,
+    "pixels": false,
+    "oldDisplacementCSS": 0.296875
+  },
+  "newOracle": {
+    "before": {
+      "states": 180,
+      "geometry": [0, 180],
+      "hitDifferences": [132, 180],
+      "clientRectDifferences": [0, 120],
+      "pixels": [30, 180]
+    },
+    "after": {
+      "states": 180,
+      "geometry": [120, 180],
+      "hitDifferences": [138, 180],
+      "clientRectDifferences": [60, 120],
+      "pixels": [75, 180]
+    },
+    "paired": {
+      "matched": 180,
+      "afterOnly": 0,
+      "unmatchedBefore": 0,
+      "inputMismatch": [],
+      "changedGates": {
+        "geometry": {
+          "repairs": [
+            "[\"text_12_20px\",[420,220],1,0]",
+            "[\"text_12_20px\",[420,220],1,1]",
+            "[\"text_12_20px\",[420,220],1.25,0]",
+            "[\"text_12_20px\",[420,220],1.25,1]",
+            "[\"text_12_20px\",[420,220],2,0]",
+            "[\"text_12_20px\",[420,220],2,1]",
+            "[\"atomic_12_20px\",[420,220],1,0]",
+            "[\"atomic_12_20px\",[420,220],1,1]",
+            "[\"atomic_12_20px\",[420,220],1.25,0]",
+            "[\"atomic_12_20px\",[420,220],1.25,1]",
+            "[\"atomic_12_20px\",[420,220],2,0]",
+            "[\"atomic_12_20px\",[420,220],2,1]",
+            "[\"text_12_20_375px\",[420,220],1,0]",
+            "[\"text_12_20_375px\",[420,220],1,1]",
+            "[\"text_12_20_375px\",[420,220],1.25,0]",
+            "[\"text_12_20_375px\",[420,220],1.25,1]",
+            "[\"text_12_20_375px\",[420,220],2,0]",
+            "[\"text_12_20_375px\",[420,220],2,1]",
+            "[\"atomic_12_20_375px\",[420,220],1,0]",
+            "[\"atomic_12_20_375px\",[420,220],1,1]",
+            "[\"atomic_12_20_375px\",[420,220],1.25,0]",
+            "[\"atomic_12_20_375px\",[420,220],1.25,1]",
+            "[\"atomic_12_20_375px\",[420,220],2,0]",
+            "[\"atomic_12_20_375px\",[420,220],2,1]",
+            "[\"text_16_20px\",[420,220],1,0]",
+            "[\"text_16_20px\",[420,220],1,1]",
+            "[\"text_16_20px\",[420,220],1.25,0]",
+            "[\"text_16_20px\",[420,220],1.25,1]",
+            "[\"text_16_20px\",[420,220],2,0]",
+            "[\"text_16_20px\",[420,220],2,1]",
+            "[\"atomic_16_20px\",[420,220],1,0]",
+            "[\"atomic_16_20px\",[420,220],1,1]",
+            "[\"atomic_16_20px\",[420,220],1.25,0]",
+            "[\"atomic_16_20px\",[420,220],1.25,1]",
+            "[\"atomic_16_20px\",[420,220],2,0]",
+            "[\"atomic_16_20px\",[420,220],2,1]",
+            "[\"text_16_20_375px\",[420,220],1,0]",
+            "[\"text_16_20_375px\",[420,220],1,1]",
+            "[\"text_16_20_375px\",[420,220],1.25,0]",
+            "[\"text_16_20_375px\",[420,220],1.25,1]",
+            "[\"text_16_20_375px\",[420,220],2,0]",
+            "[\"text_16_20_375px\",[420,220],2,1]",
+            "[\"atomic_16_20_375px\",[420,220],1,0]",
+            "[\"atomic_16_20_375px\",[420,220],1,1]",
+            "[\"atomic_16_20_375px\",[420,220],1.25,0]",
+            "[\"atomic_16_20_375px\",[420,220],1.25,1]",
+            "[\"atomic_16_20_375px\",[420,220],2,0]",
+            "[\"atomic_16_20_375px\",[420,220],2,1]",
+            "[\"text_20_20px\",[420,220],1,0]",
+            "[\"text_20_20px\",[420,220],1,1]",
+            "[\"text_20_20px\",[420,220],1.25,0]",
+            "[\"text_20_20px\",[420,220],1.25,1]",
+            "[\"text_20_20px\",[420,220],2,0]",
+            "[\"text_20_20px\",[420,220],2,1]",
+            "[\"atomic_20_20px\",[420,220],1,0]",
+            "[\"atomic_20_20px\",[420,220],1,1]",
+            "[\"atomic_20_20px\",[420,220],1.25,0]",
+            "[\"atomic_20_20px\",[420,220],1.25,1]",
+            "[\"atomic_20_20px\",[420,220],2,0]",
+            "[\"atomic_20_20px\",[420,220],2,1]",
+            "[\"text_20_20_375px\",[420,220],1,0]",
+            "[\"text_20_20_375px\",[420,220],1,1]",
+            "[\"text_20_20_375px\",[420,220],1.25,0]",
+            "[\"text_20_20_375px\",[420,220],1.25,1]",
+            "[\"text_20_20_375px\",[420,220],2,0]",
+            "[\"text_20_20_375px\",[420,220],2,1]",
+            "[\"atomic_20_20_375px\",[420,220],1,0]",
+            "[\"atomic_20_20_375px\",[420,220],1,1]",
+            "[\"atomic_20_20_375px\",[420,220],1.25,0]",
+            "[\"atomic_20_20_375px\",[420,220],1.25,1]",
+            "[\"atomic_20_20_375px\",[420,220],2,0]",
+            "[\"atomic_20_20_375px\",[420,220],2,1]",
+            "[\"text_24_20px\",[420,220],1,0]",
+            "[\"text_24_20px\",[420,220],1,1]",
+            "[\"text_24_20px\",[420,220],1.25,0]",
+            "[\"text_24_20px\",[420,220],1.25,1]",
+            "[\"text_24_20px\",[420,220],2,0]",
+            "[\"text_24_20px\",[420,220],2,1]",
+            "[\"atomic_24_20px\",[420,220],1,0]",
+            "[\"atomic_24_20px\",[420,220],1,1]",
+            "[\"atomic_24_20px\",[420,220],1.25,0]",
+            "[\"atomic_24_20px\",[420,220],1.25,1]",
+            "[\"atomic_24_20px\",[420,220],2,0]",
+            "[\"atomic_24_20px\",[420,220],2,1]",
+            "[\"text_24_20_375px\",[420,220],1,0]",
+            "[\"text_24_20_375px\",[420,220],1,1]",
+            "[\"text_24_20_375px\",[420,220],1.25,0]",
+            "[\"text_24_20_375px\",[420,220],1.25,1]",
+            "[\"text_24_20_375px\",[420,220],2,0]",
+            "[\"text_24_20_375px\",[420,220],2,1]",
+            "[\"atomic_24_20_375px\",[420,220],1,0]",
+            "[\"atomic_24_20_375px\",[420,220],1,1]",
+            "[\"atomic_24_20_375px\",[420,220],1.25,0]",
+            "[\"atomic_24_20_375px\",[420,220],1.25,1]",
+            "[\"atomic_24_20_375px\",[420,220],2,0]",
+            "[\"atomic_24_20_375px\",[420,220],2,1]",
+            "[\"text_32_20px\",[420,220],1,0]",
+            "[\"text_32_20px\",[420,220],1,1]",
+            "[\"text_32_20px\",[420,220],1.25,0]",
+            "[\"text_32_20px\",[420,220],1.25,1]",
+            "[\"text_32_20px\",[420,220],2,0]",
+            "[\"text_32_20px\",[420,220],2,1]",
+            "[\"atomic_32_20px\",[420,220],1,0]",
+            "[\"atomic_32_20px\",[420,220],1,1]",
+            "[\"atomic_32_20px\",[420,220],1.25,0]",
+            "[\"atomic_32_20px\",[420,220],1.25,1]",
+            "[\"atomic_32_20px\",[420,220],2,0]",
+            "[\"atomic_32_20px\",[420,220],2,1]",
+            "[\"text_32_20_375px\",[420,220],1,0]",
+            "[\"text_32_20_375px\",[420,220],1,1]",
+            "[\"text_32_20_375px\",[420,220],1.25,0]",
+            "[\"text_32_20_375px\",[420,220],1.25,1]",
+            "[\"text_32_20_375px\",[420,220],2,0]",
+            "[\"text_32_20_375px\",[420,220],2,1]",
+            "[\"atomic_32_20_375px\",[420,220],1,0]",
+            "[\"atomic_32_20_375px\",[420,220],1,1]",
+            "[\"atomic_32_20_375px\",[420,220],1.25,0]",
+            "[\"atomic_32_20_375px\",[420,220],1.25,1]",
+            "[\"atomic_32_20_375px\",[420,220],2,0]",
+            "[\"atomic_32_20_375px\",[420,220],2,1]"
+          ],
+          "regressions": []
+        },
+        "hitDifferences": {
+          "repairs": [
+            "[\"text_12_20_375px\",[420,220],1,1]",
+            "[\"text_12_20_375px\",[420,220],1.25,1]",
+            "[\"text_12_20_375px\",[420,220],2,1]",
+            "[\"text_16_20_375px\",[420,220],1,0]",
+            "[\"text_16_20_375px\",[420,220],1.25,0]",
+            "[\"text_16_20_375px\",[420,220],2,0]"
+          ],
+          "regressions": []
+        },
+        "clientRectDifferences": {
+          "repairs": [
+            "[\"text_12_20px\",[420,220],1,0]",
+            "[\"text_12_20px\",[420,220],1,1]",
+            "[\"text_12_20px\",[420,220],1.25,0]",
+            "[\"text_12_20px\",[420,220],1.25,1]",
+            "[\"text_12_20px\",[420,220],2,0]",
+            "[\"text_12_20px\",[420,220],2,1]",
+            "[\"text_12_20_375px\",[420,220],1,0]",
+            "[\"text_12_20_375px\",[420,220],1,1]",
+            "[\"text_12_20_375px\",[420,220],1.25,0]",
+            "[\"text_12_20_375px\",[420,220],1.25,1]",
+            "[\"text_12_20_375px\",[420,220],2,0]",
+            "[\"text_12_20_375px\",[420,220],2,1]",
+            "[\"text_16_20px\",[420,220],1,0]",
+            "[\"text_16_20px\",[420,220],1,1]",
+            "[\"text_16_20px\",[420,220],1.25,0]",
+            "[\"text_16_20px\",[420,220],1.25,1]",
+            "[\"text_16_20px\",[420,220],2,0]",
+            "[\"text_16_20px\",[420,220],2,1]",
+            "[\"text_16_20_375px\",[420,220],1,0]",
+            "[\"text_16_20_375px\",[420,220],1,1]",
+            "[\"text_16_20_375px\",[420,220],1.25,0]",
+            "[\"text_16_20_375px\",[420,220],1.25,1]",
+            "[\"text_16_20_375px\",[420,220],2,0]",
+            "[\"text_16_20_375px\",[420,220],2,1]",
+            "[\"text_20_20px\",[420,220],1,0]",
+            "[\"text_20_20px\",[420,220],1,1]",
+            "[\"text_20_20px\",[420,220],1.25,0]",
+            "[\"text_20_20px\",[420,220],1.25,1]",
+            "[\"text_20_20px\",[420,220],2,0]",
+            "[\"text_20_20px\",[420,220],2,1]",
+            "[\"text_20_20_375px\",[420,220],1,0]",
+            "[\"text_20_20_375px\",[420,220],1,1]",
+            "[\"text_20_20_375px\",[420,220],1.25,0]",
+            "[\"text_20_20_375px\",[420,220],1.25,1]",
+            "[\"text_20_20_375px\",[420,220],2,0]",
+            "[\"text_20_20_375px\",[420,220],2,1]",
+            "[\"text_24_20px\",[420,220],1,0]",
+            "[\"text_24_20px\",[420,220],1,1]",
+            "[\"text_24_20px\",[420,220],1.25,0]",
+            "[\"text_24_20px\",[420,220],1.25,1]",
+            "[\"text_24_20px\",[420,220],2,0]",
+            "[\"text_24_20px\",[420,220],2,1]",
+            "[\"text_24_20_375px\",[420,220],1,0]",
+            "[\"text_24_20_375px\",[420,220],1,1]",
+            "[\"text_24_20_375px\",[420,220],1.25,0]",
+            "[\"text_24_20_375px\",[420,220],1.25,1]",
+            "[\"text_24_20_375px\",[420,220],2,0]",
+            "[\"text_24_20_375px\",[420,220],2,1]",
+            "[\"text_32_20px\",[420,220],1,0]",
+            "[\"text_32_20px\",[420,220],1,1]",
+            "[\"text_32_20px\",[420,220],1.25,0]",
+            "[\"text_32_20px\",[420,220],1.25,1]",
+            "[\"text_32_20px\",[420,220],2,0]",
+            "[\"text_32_20px\",[420,220],2,1]",
+            "[\"text_32_20_375px\",[420,220],1,0]",
+            "[\"text_32_20_375px\",[420,220],1,1]",
+            "[\"text_32_20_375px\",[420,220],1.25,0]",
+            "[\"text_32_20_375px\",[420,220],1.25,1]",
+            "[\"text_32_20_375px\",[420,220],2,0]",
+            "[\"text_32_20_375px\",[420,220],2,1]"
+          ],
+          "regressions": []
+        },
+        "pixels": {
+          "repairs": [
+            "[\"text_12_20px\",[420,220],2,0]",
+            "[\"text_12_20px\",[420,220],2,1]",
+            "[\"nested_12_20px\",[420,220],1,0]",
+            "[\"nested_12_20px\",[420,220],1,1]",
+            "[\"nested_12_20px\",[420,220],1.25,0]",
+            "[\"text_16_20px\",[420,220],2,0]",
+            "[\"nested_16_20px\",[420,220],1,0]",
+            "[\"text_20_20px\",[420,220],1,1]",
+            "[\"text_20_20px\",[420,220],1.25,1]",
+            "[\"text_20_20px\",[420,220],2,1]",
+            "[\"atomic_20_20px\",[420,220],1,1]",
+            "[\"atomic_20_20px\",[420,220],1.25,1]",
+            "[\"atomic_20_20px\",[420,220],2,1]",
+            "[\"nested_20_20px\",[420,220],1,1]",
+            "[\"nested_20_20px\",[420,220],1.25,1]",
+            "[\"nested_20_20px\",[420,220],2,1]",
+            "[\"text_24_20px\",[420,220],1,0]",
+            "[\"text_24_20px\",[420,220],1,1]",
+            "[\"text_24_20px\",[420,220],1.25,0]",
+            "[\"text_24_20px\",[420,220],2,0]",
+            "[\"text_24_20px\",[420,220],2,1]",
+            "[\"atomic_24_20px\",[420,220],1,0]",
+            "[\"atomic_24_20px\",[420,220],1,1]",
+            "[\"atomic_24_20px\",[420,220],1.25,0]",
+            "[\"atomic_24_20px\",[420,220],1.25,1]",
+            "[\"atomic_24_20px\",[420,220],2,0]",
+            "[\"atomic_24_20px\",[420,220],2,1]",
+            "[\"nested_24_20px\",[420,220],1,0]",
+            "[\"nested_24_20px\",[420,220],1,1]",
+            "[\"nested_24_20px\",[420,220],1.25,0]",
+            "[\"nested_24_20px\",[420,220],1.25,1]",
+            "[\"nested_24_20px\",[420,220],2,0]",
+            "[\"nested_24_20px\",[420,220],2,1]",
+            "[\"text_32_20px\",[420,220],1,0]",
+            "[\"text_32_20px\",[420,220],1,1]",
+            "[\"text_32_20px\",[420,220],1.25,0]",
+            "[\"text_32_20px\",[420,220],1.25,1]",
+            "[\"text_32_20px\",[420,220],2,0]",
+            "[\"text_32_20px\",[420,220],2,1]",
+            "[\"atomic_32_20px\",[420,220],1,0]",
+            "[\"atomic_32_20px\",[420,220],1,1]",
+            "[\"atomic_32_20px\",[420,220],1.25,0]",
+            "[\"atomic_32_20px\",[420,220],1.25,1]",
+            "[\"atomic_32_20px\",[420,220],2,0]",
+            "[\"atomic_32_20px\",[420,220],2,1]"
+          ],
+          "regressions": []
+        }
+      }
+    },
+    "groups": {
+      "text": {
+        "states": 60,
+        "geometry": 60,
+        "hits": 60,
+        "strictPixels": 29
+      },
+      "atomic": {
+        "states": 60,
+        "geometry": 60,
+        "hits": 33,
+        "strictPixels": 31
+      },
+      "nested": {
+        "states": 60,
+        "geometry": 0,
+        "hits": 45,
+        "strictPixels": 15
+      }
+    }
+  },
+  "retainedOracles": {
+    "inline-source-order": {
+      "before": {
+        "states": 216,
+        "geometry": [186, 216],
+        "hitDifferences": [192, 216],
+        "pointHitDifferences": [18, 18],
+        "clientRectDifferences": [24, 216],
+        "pixels": [0, 216]
+      },
+      "after": {
+        "states": 216,
+        "geometry": [186, 216],
+        "hitDifferences": [192, 216],
+        "pointHitDifferences": [18, 18],
+        "clientRectDifferences": [24, 216],
+        "pixels": [0, 216]
+      },
+      "paired": {
+        "matched": 216,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "pointer-geometry": {
+      "before": {
+        "states": 234,
+        "geometry": [216, 234],
+        "hitDifferences": [234, 234],
+        "pointHitDifferences": [219, 234],
+        "clientRectDifferences": [60, 114],
+        "scrollDifferences": [0, 48],
+        "pixels": [157, 234]
+      },
+      "after": {
+        "states": 234,
+        "geometry": [216, 234],
+        "hitDifferences": [234, 234],
+        "pointHitDifferences": [219, 234],
+        "clientRectDifferences": [60, 114],
+        "scrollDifferences": [0, 48],
+        "pixels": [157, 234]
+      },
+      "paired": {
+        "matched": 234,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "inline-fragments": {
+      "before": {
+        "states": 363,
+        "geometry": [189, 363],
+        "hitDifferences": [261, 363],
+        "clientRectDifferences": [174, 363],
+        "pixels": [0, 363]
+      },
+      "after": {
+        "states": 363,
+        "geometry": [192, 363],
+        "hitDifferences": [264, 363],
+        "clientRectDifferences": [177, 363],
+        "pixels": [0, 363]
+      },
+      "paired": {
+        "matched": 363,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {
+          "geometry": {
+            "repairs": [
+              "[\"align_middle\",[420,240],1,0]",
+              "[\"align_middle\",[420,240],1.25,0]",
+              "[\"align_middle\",[420,240],2,0]"
+            ],
+            "regressions": []
+          },
+          "hitDifferences": {
+            "repairs": [
+              "[\"align_middle\",[420,240],1,0]",
+              "[\"align_middle\",[420,240],1.25,0]",
+              "[\"align_middle\",[420,240],2,0]"
+            ],
+            "regressions": []
+          },
+          "clientRectDifferences": {
+            "repairs": [
+              "[\"align_middle\",[420,240],1,0]",
+              "[\"align_middle\",[420,240],1.25,0]",
+              "[\"align_middle\",[420,240],2,0]"
+            ],
+            "regressions": []
+          }
+        }
+      }
+    },
+    "inline-fragment-effects": {
+      "before": {
+        "states": 102,
+        "geometry": [102, 102],
+        "hitDifferences": [102, 102],
+        "clientRectDifferences": [60, 102],
+        "scrollDifferences": [54, 54],
+        "pixels": [0, 102]
+      },
+      "after": {
+        "states": 102,
+        "geometry": [102, 102],
+        "hitDifferences": [102, 102],
+        "clientRectDifferences": [60, 102],
+        "scrollDifferences": [54, 54],
+        "pixels": [0, 102]
+      },
+      "paired": {
+        "matched": 102,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "line-width-grid": {
+      "before": {
+        "states": 176,
+        "geometry": [176, 176],
+        "hitDifferences": [176, 176],
+        "editorDifferences": [176, 176],
+        "lineWidthDifferences": [176, 176],
+        "pixels": [30, 176]
+      },
+      "after": {
+        "states": 176,
+        "geometry": [176, 176],
+        "hitDifferences": [176, 176],
+        "editorDifferences": [176, 176],
+        "lineWidthDifferences": [176, 176],
+        "pixels": [30, 176]
+      },
+      "paired": {
+        "matched": 176,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "line-width-effects": {
+      "before": {
+        "states": 76,
+        "geometry": [76, 76],
+        "hitDifferences": [76, 76],
+        "lineWidthDifferences": [76, 76],
+        "pixels": [45, 76]
+      },
+      "after": {
+        "states": 76,
+        "geometry": [76, 76],
+        "hitDifferences": [76, 76],
+        "lineWidthDifferences": [76, 76],
+        "pixels": [45, 76]
+      },
+      "paired": {
+        "matched": 76,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "text-metric-grid": {
+      "before": {
+        "states": 432,
+        "geometry": [432, 432],
+        "hitDifferences": [420, 432],
+        "editorDifferences": [384, 384],
+        "pixels": [48, 432]
+      },
+      "after": {
+        "states": 432,
+        "geometry": [432, 432],
+        "hitDifferences": [420, 432],
+        "editorDifferences": [384, 384],
+        "pixels": [48, 432]
+      },
+      "paired": {
+        "matched": 432,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "input-line-height": {
+      "before": {
+        "states": 504,
+        "geometry": [504, 504],
+        "hitDifferences": [504, 504],
+        "editorDifferences": [504, 504],
+        "pixels": [134, 504]
+      },
+      "after": {
+        "states": 504,
+        "geometry": [504, 504],
+        "hitDifferences": [504, 504],
+        "editorDifferences": [504, 504],
+        "pixels": [134, 504]
+      },
+      "paired": {
+        "matched": 504,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "input-pointer": {
+      "before": {
+        "states": 264,
+        "geometry": [264, 264],
+        "hitDifferences": [264, 264],
+        "editorDifferences": [231, 264],
+        "pixels": [13, 264]
+      },
+      "after": {
+        "states": 264,
+        "geometry": [264, 264],
+        "hitDifferences": [264, 264],
+        "editorDifferences": [231, 264],
+        "pixels": [13, 264]
+      },
+      "paired": {
+        "matched": 264,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-document-mode": {
+      "before": {
+        "states": 132,
+        "geometry": [92, 132],
+        "hitDifferences": [120, 132],
+        "editorDifferences": [48, 48],
+        "scrollDifferences": [24, 24],
+        "pixels": [84, 132]
+      },
+      "after": {
+        "states": 132,
+        "geometry": [92, 132],
+        "hitDifferences": [120, 132],
+        "editorDifferences": [48, 48],
+        "scrollDifferences": [24, 24],
+        "pixels": [84, 132]
+      },
+      "paired": {
+        "matched": 132,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-layout": {
+      "before": {
+        "states": 264,
+        "geometry": [132, 264],
+        "hitDifferences": [264, 264],
+        "editorDifferences": [264, 264],
+        "pixels": [0, 264]
+      },
+      "after": {
+        "states": 264,
+        "geometry": [132, 264],
+        "hitDifferences": [264, 264],
+        "editorDifferences": [264, 264],
+        "pixels": [0, 264]
+      },
+      "paired": {
+        "matched": 264,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-selection": {
+      "before": {
+        "states": 48,
+        "geometry": [48, 48],
+        "hitDifferences": [48, 48],
+        "editorDifferences": [48, 48],
+        "pixels": [12, 48]
+      },
+      "after": {
+        "states": 48,
+        "geometry": [48, 48],
+        "hitDifferences": [48, 48],
+        "editorDifferences": [48, 48],
+        "pixels": [12, 48]
+      },
+      "paired": {
+        "matched": 48,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-focus": {
+      "before": {
+        "states": 252,
+        "geometry": [252, 252],
+        "hitDifferences": [252, 252],
+        "editorDifferences": [252, 252],
+        "pixels": [164, 252]
+      },
+      "after": {
+        "states": 252,
+        "geometry": [252, 252],
+        "hitDifferences": [252, 252],
+        "editorDifferences": [252, 252],
+        "pixels": [164, 252]
+      },
+      "paired": {
+        "matched": 252,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "tables": {
+      "before": {
+        "states": 77,
+        "geometry": [77, 77],
+        "hitDifferences": [77, 77],
+        "pixels": [74, 77]
+      },
+      "after": {
+        "states": 77,
+        "geometry": [77, 77],
+        "hitDifferences": [77, 77],
+        "pixels": [74, 77]
+      },
+      "paired": {
+        "matched": 77,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "table-document-mode": {
+      "before": {
+        "states": 12,
+        "geometry": [12, 12],
+        "hitDifferences": [12, 12],
+        "pixels": [12, 12]
+      },
+      "after": {
+        "states": 12,
+        "geometry": [12, 12],
+        "hitDifferences": [12, 12],
+        "pixels": [12, 12]
+      },
+      "paired": {
+        "matched": 12,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "table-controls": {
+      "before": {
+        "states": 4,
+        "geometry": [4, 4],
+        "hitDifferences": [4, 4],
+        "editorDifferences": [4, 4],
+        "scrollDifferences": [4, 4],
+        "pixels": [4, 4]
+      },
+      "after": {
+        "states": 4,
+        "geometry": [4, 4],
+        "hitDifferences": [4, 4],
+        "editorDifferences": [4, 4],
+        "scrollDifferences": [4, 4],
+        "pixels": [4, 4]
+      },
+      "paired": {
+        "matched": 4,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "table-integration": {
+      "before": {
+        "states": 30,
+        "geometry": [22, 30],
+        "hitDifferences": [24, 30],
+        "editorDifferences": [8, 8],
+        "scrollDifferences": [12, 12],
+        "pixels": [23, 30]
+      },
+      "after": {
+        "states": 30,
+        "geometry": [22, 30],
+        "hitDifferences": [24, 30],
+        "editorDifferences": [8, 8],
+        "scrollDifferences": [12, 12],
+        "pixels": [23, 30]
+      },
+      "paired": {
+        "matched": 30,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "controls": {
+      "before": {
+        "states": 9,
+        "geometry": [8, 9],
+        "hitDifferences": [8, 9],
+        "editorDifferences": [6, 6],
+        "scrollDifferences": [2, 2],
+        "pixels": [6, 9]
+      },
+      "after": {
+        "states": 9,
+        "geometry": [8, 9],
+        "hitDifferences": [8, 9],
+        "editorDifferences": [6, 6],
+        "scrollDifferences": [2, 2],
+        "pixels": [6, 9]
+      },
+      "paired": {
+        "matched": 9,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "scrolling": {
+      "before": {
+        "states": 148,
+        "geometry": [148, 148],
+        "hitDifferences": [148, 148],
+        "scrollDifferences": [140, 140],
+        "pixels": [148, 148]
+      },
+      "after": {
+        "states": 148,
+        "geometry": [148, 148],
+        "hitDifferences": [148, 148],
+        "scrollDifferences": [140, 140],
+        "pixels": [148, 148]
+      },
+      "paired": {
+        "matched": 148,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "css-animations": {
+      "before": {
+        "states": 40,
+        "geometry": [40, 40],
+        "hitDifferences": [40, 40],
+        "pixels": [40, 40]
+      },
+      "after": {
+        "states": 40,
+        "geometry": [40, 40],
+        "hitDifferences": [40, 40],
+        "pixels": [40, 40]
+      },
+      "paired": {
+        "matched": 40,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "intrinsic-text": {
+      "before": {
+        "states": 30,
+        "geometry": [30, 30],
+        "hitDifferences": [30, 30],
+        "pixels": [20, 30]
+      },
+      "after": {
+        "states": 30,
+        "geometry": [30, 30],
+        "hitDifferences": [30, 30],
+        "pixels": [20, 30]
+      },
+      "paired": {
+        "matched": 30,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "font-weights": {
+      "before": {
+        "states": 36,
+        "geometry": [20, 36],
+        "hitDifferences": [36, 36],
+        "pixels": [16, 36]
+      },
+      "after": {
+        "states": 36,
+        "geometry": [20, 36],
+        "hitDifferences": [36, 36],
+        "pixels": [16, 36]
+      },
+      "paired": {
+        "matched": 36,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "glyphs": {
+      "before": {
+        "states": 38,
+        "geometry": [38, 38],
+        "hitDifferences": [38, 38],
+        "pixels": [4, 38]
+      },
+      "after": {
+        "states": 38,
+        "geometry": [38, 38],
+        "hitDifferences": [38, 38],
+        "pixels": [4, 38]
+      },
+      "paired": {
+        "matched": 38,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "borders": {
+      "before": {
+        "states": 7,
+        "geometry": [7, 7],
+        "hitDifferences": [7, 7],
+        "pixels": [0, 7]
+      },
+      "after": {
+        "states": 7,
+        "geometry": [7, 7],
+        "hitDifferences": [7, 7],
+        "pixels": [0, 7]
+      },
+      "paired": {
+        "matched": 7,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    }
+  },
+  "totals": {
+    "afterStates": 3674,
+    "matched": 3674,
+    "afterOnly": 0,
+    "unmatchedBefore": 0,
+    "inputMismatch": 0,
+    "changedGates": {
+      "geometry": {
+        "repairs": 123,
+        "regressions": 0
+      },
+      "hitDifferences": {
+        "repairs": 9,
+        "regressions": 0
+      },
+      "clientRectDifferences": {
+        "repairs": 63,
+        "regressions": 0
+      },
+      "pixels": {
+        "repairs": 45,
+        "regressions": 0
+      }
+    }
+  },
+  "compiled": {
+    "tables-cpu": {
+      "schema": 1,
+      "runs": 6,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 96,
+      "maxMAE": 1.27,
+      "gpuAdapters": []
+    },
+    "tables-gpu": {
+      "schema": 1,
+      "runs": 2,
+      "browserVersion": "153.0.8010.12",
+      "renderer": "gpu",
+      "gpuAdapters": ["llvmpipe (LLVM 21.1.8, 256 bits)"],
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 32,
+      "maxMAE": 2.396
+    },
+    "forms-focus": {
+      "schema": 1,
+      "runs": 22,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 242,
+      "maxMAE": 0.388,
+      "gpuAdapters": []
+    },
+    "control-regressions": {
+      "schema": 1,
+      "runs": 7,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 19,
+      "maxMAE": 0.594,
+      "gpuAdapters": []
+    }
+  },
+  "units": {
+    "compiler": {
+      "passed": 297,
+      "failed": 0
+    },
+    "workspace": {
+      "passed": 122,
+      "failed": 0
+    },
+    "blitzDom": {
+      "passed": 57,
+      "failed": 2,
+      "knownFailures": ["hover_styles_apply_and_clear", "scroll_by_clamps_and_bubbles"]
+    },
+    "blitzPaint": {
+      "passed": 8,
+      "failed": 0
+    },
+    "blitzHtml": {
+      "passed": 3,
+      "failed": 0
+    },
+    "parleyStd": {
+      "passed": 120,
+      "failed": 4,
+      "knownFailures": [
+        "cluster_from_position_start_alignment",
+        "cluster_from_position_end_alignment",
+        "cluster_from_position_center_alignment",
+        "cluster_from_position_justified_alignment"
+      ],
+      "newMetricTests": 3
+    },
+    "parleyEngine": {
+      "passed": 39,
+      "failed": 0,
+      "newMetricTests": 6
+    },
+    "parleyLibm": {
+      "status": "passed"
+    }
+  },
+  "oldEvidenceValidation": [
+    {
+      "record": "chromium-line-widths",
+      "checked": 121,
+      "failures": []
+    },
+    {
+      "record": "chromium-text-metrics",
+      "checked": 118,
+      "failures": []
+    },
+    {
+      "record": "chromium-inline-fragments",
+      "checked": 220,
+      "failures": []
+    },
+    {
+      "record": "chromium-pointer-geometry",
+      "checked": 120,
+      "failures": []
+    },
+    {
+      "record": "chromium-inline-source-order",
+      "checked": 186,
+      "failures": []
+    }
+  ],
+  "incompleteStages": [
+    "Named /code-review tool unavailable; root and independent read-only reviews are substitutes only",
+    "OS keyboard/pointer/IME delivery not established by internal or headless probes",
+    "System-font Parley default-feature tests remain incomplete from preceding record"
+  ],
+  "remainingGaps": [
+    "60 nested middle geometry states: descendant-united per-line alignment versus eager own-box offsets",
+    "42 new middle hit states and 105 strict pixel states remain failed",
+    "Generic inline margin flow; 60 preceding margin and nine marker hit losses remain",
+    "Preserved tabs, narrowed RTL wraps and RTL atomic flow",
+    "Full fragment lists, relative-position overflow, hidden flattened descendant paint",
+    "Local raster, editor selection/RTL, native keyboard/IME delivery"
+  ],
+  "commands": [
+    {
+      "name": "npm",
+      "command": ["npm", "test"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 67.87,
+      "log": "artifacts/middle-final-npm.log",
+      "artifact": null
+    },
+    {
+      "name": "workspace",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "--workspace"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 24.611,
+      "log": "artifacts/middle-final-workspace.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-dom",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-dom"],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 5.016,
+      "log": "artifacts/middle-final-blitz-dom.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-paint",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-paint"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 1.89,
+      "log": "artifacts/middle-final-blitz-paint.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-html",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-html"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 2.987,
+      "log": "artifacts/middle-final-blitz-html.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-std",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-middle-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--lib",
+        "--no-default-features",
+        "--features",
+        "std"
+      ],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 2.279,
+      "log": "artifacts/middle-final-parley-std.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-libm",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "check",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-middle-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--no-default-features",
+        "--features",
+        "libm"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 1.707,
+      "log": "artifacts/middle-final-parley-libm.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-engine",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-middle-parley-tests/Cargo.toml",
+        "-p",
+        "parley_engine",
+        "--lib",
+        "--no-default-features",
+        "--features",
+        "std"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 1.514,
+      "log": "artifacts/middle-final-parley-engine.log",
+      "artifact": null
+    },
+    {
+      "name": "middle-metrics",
+      "command": ["node", "conformance/middle-metrics.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 73.209,
+      "log": "artifacts/middle-final-middle-metrics.log",
+      "artifact": "artifacts/middle-final-middle-metrics"
+    },
+    {
+      "name": "inline-source-order",
+      "command": ["node", "conformance/inline-source-order.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 89.183,
+      "log": "artifacts/middle-final-inline-source-order.log",
+      "artifact": "artifacts/middle-final-inline-source-order"
+    },
+    {
+      "name": "pointer-geometry",
+      "command": ["node", "conformance/pointer-geometry.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 94.373,
+      "log": "artifacts/middle-final-pointer-geometry.log",
+      "artifact": "artifacts/middle-final-pointer-geometry"
+    },
+    {
+      "name": "inline-fragments",
+      "command": ["node", "conformance/inline-fragments.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 130.351,
+      "log": "artifacts/middle-final-inline-fragments.log",
+      "artifact": "artifacts/middle-final-inline-fragments"
+    },
+    {
+      "name": "inline-fragment-effects",
+      "command": ["node", "conformance/inline-fragment-effects.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 36.422,
+      "log": "artifacts/middle-final-inline-fragment-effects.log",
+      "artifact": "artifacts/middle-final-inline-fragment-effects"
+    },
+    {
+      "name": "line-width-grid",
+      "command": ["node", "conformance/line-width-grid.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 94.968,
+      "log": "artifacts/middle-final-line-width-grid.log",
+      "artifact": "artifacts/middle-final-line-width-grid"
+    },
+    {
+      "name": "line-width-effects",
+      "command": ["node", "conformance/line-width-effects.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 26.185,
+      "log": "artifacts/middle-final-line-width-effects.log",
+      "artifact": "artifacts/middle-final-line-width-effects"
+    },
+    {
+      "name": "text-metric-grid",
+      "command": ["node", "conformance/text-metric-grid.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 142.863,
+      "log": "artifacts/middle-final-text-metric-grid.log",
+      "artifact": "artifacts/middle-final-text-metric-grid"
+    },
+    {
+      "name": "input-line-height",
+      "command": ["node", "conformance/input-line-height.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 152.655,
+      "log": "artifacts/middle-final-input-line-height.log",
+      "artifact": "artifacts/middle-final-input-line-height"
+    },
+    {
+      "name": "input-pointer",
+      "command": ["node", "conformance/input-pointer.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 90.719,
+      "log": "artifacts/middle-final-input-pointer.log",
+      "artifact": "artifacts/middle-final-input-pointer"
+    },
+    {
+      "name": "control-document-mode",
+      "command": ["node", "conformance/control-document-mode.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 51.031,
+      "log": "artifacts/middle-final-control-document-mode.log",
+      "artifact": "artifacts/middle-final-control-document-mode"
+    },
+    {
+      "name": "control-layout",
+      "command": ["node", "conformance/control-layout.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 109.319,
+      "log": "artifacts/middle-final-control-layout.log",
+      "artifact": "artifacts/middle-final-control-layout"
+    },
+    {
+      "name": "control-selection",
+      "command": ["node", "conformance/control-selection.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.352,
+      "log": "artifacts/middle-final-control-selection.log",
+      "artifact": "artifacts/middle-final-control-selection"
+    },
+    {
+      "name": "control-focus",
+      "command": ["node", "conformance/control-focus.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 76.999,
+      "log": "artifacts/middle-final-control-focus.log",
+      "artifact": "artifacts/middle-final-control-focus"
+    },
+    {
+      "name": "tables",
+      "command": ["node", "conformance/tables.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 18.377,
+      "log": "artifacts/middle-final-tables.log",
+      "artifact": "artifacts/middle-final-tables"
+    },
+    {
+      "name": "table-document-mode",
+      "command": ["node", "conformance/table-document-mode.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 4.053,
+      "log": "artifacts/middle-final-table-document-mode.log",
+      "artifact": "artifacts/middle-final-table-document-mode"
+    },
+    {
+      "name": "table-controls",
+      "command": ["node", "conformance/table-controls.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.95,
+      "log": "artifacts/middle-final-table-controls.log",
+      "artifact": "artifacts/middle-final-table-controls"
+    },
+    {
+      "name": "table-integration",
+      "command": ["node", "conformance/table-integration.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 8.692,
+      "log": "artifacts/middle-final-table-integration.log",
+      "artifact": "artifacts/middle-final-table-integration"
+    },
+    {
+      "name": "controls",
+      "command": ["node", "conformance/controls.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 4.499,
+      "log": "artifacts/middle-final-controls.log",
+      "artifact": "artifacts/middle-final-controls"
+    },
+    {
+      "name": "scrolling",
+      "command": ["node", "conformance/scrolling.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 32.639,
+      "log": "artifacts/middle-final-scrolling.log",
+      "artifact": "artifacts/middle-final-scrolling"
+    },
+    {
+      "name": "css-animations",
+      "command": ["node", "conformance/css-animations.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 6.721,
+      "log": "artifacts/middle-final-css-animations.log",
+      "artifact": "artifacts/middle-final-css-animations"
+    },
+    {
+      "name": "intrinsic-text",
+      "command": ["node", "conformance/intrinsic-text.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 10.304,
+      "log": "artifacts/middle-final-intrinsic-text.log",
+      "artifact": "artifacts/middle-final-intrinsic-text"
+    },
+    {
+      "name": "font-weights",
+      "command": ["node", "conformance/font-weights.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 68.252,
+      "log": "artifacts/middle-final-font-weights.log",
+      "artifact": "artifacts/middle-final-font-weights"
+    },
+    {
+      "name": "glyphs",
+      "command": ["node", "conformance/glyphs.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 16.002,
+      "log": "artifacts/middle-final-glyphs.log",
+      "artifact": "artifacts/middle-final-glyphs"
+    },
+    {
+      "name": "borders",
+      "command": ["node", "conformance/borders.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 3.076,
+      "log": "artifacts/middle-final-borders.log",
+      "artifact": "artifacts/middle-final-borders"
+    },
+    {
+      "name": "tables-cpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--out",
+        "artifacts/middle-final-tables-cpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 54.264,
+      "log": "artifacts/middle-final-tables-cpu.log",
+      "artifact": null
+    },
+    {
+      "name": "tables-gpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--renderer",
+        "gpu",
+        "--fixture",
+        "table-svelte",
+        "--out",
+        "artifacts/middle-final-tables-gpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 21.566,
+      "log": "artifacts/middle-final-tables-gpu.log",
+      "artifact": null
+    },
+    {
+      "name": "forms-focus",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "forms",
+        "forms-react",
+        "forms-vue",
+        "measure",
+        "scroll-events",
+        "focus",
+        "focus-fixup",
+        "--pixels",
+        "--out",
+        "artifacts/middle-final-forms-focus"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 121.65,
+      "log": "artifacts/middle-final-forms-focus.log",
+      "artifact": null
+    },
+    {
+      "name": "control-regressions",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "blitz-buttons",
+        "blitz-button-baseline",
+        "blitz-control-line-height",
+        "blitz-inline-baselines",
+        "--pixels",
+        "--out",
+        "artifacts/middle-final-control-regressions"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 31.697,
+      "log": "artifacts/middle-final-control-regressions.log",
+      "artifact": null
+    }
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/middle-before/metadata.json",
+      "sha256": "6d7100c82304730e56c0a50b7133da2779d72ea3c11fd2c19ecfaa129262de25"
+    },
+    {
+      "path": "artifacts/middle-before/results.json",
+      "sha256": "87c858643914fb58ed0f1d3d421322ea08490758ac559a7e40b99b133b63e926"
+    },
+    {
+      "path": "artifacts/middle-cleanup-complete.mjs",
+      "sha256": "80335b0adc8fb46131c125b43a051bf204f7eea815cb7027ee166995dff01706"
+    },
+    {
+      "path": "artifacts/middle-cleanup.json",
+      "sha256": "2c5b3c4f79ab854fcc7618e735fa22b28395273635a007177690e1d3549d2bdd"
+    },
+    {
+      "path": "artifacts/middle-final-blitz-dom.log",
+      "sha256": "fc2effce4977f12b6e1621274b8add391f2cdaa9b1ed43a412f4ed769ddc9e3a"
+    },
+    {
+      "path": "artifacts/middle-final-blitz-html.log",
+      "sha256": "0875f7a73ace0af2d90cdf8d49b9363893e1dc81726b3083a4aa36cbd421c7f1"
+    },
+    {
+      "path": "artifacts/middle-final-blitz-paint.log",
+      "sha256": "7e4de5aa539017f4031daa15b290a8b352d9fd50b4461d4e5817f61dc9177b72"
+    },
+    {
+      "path": "artifacts/middle-final-borders.log",
+      "sha256": "3c76d0aadb5f8ed67b35d70133992367b39d794abb01984ad7aecc2a1cd47c05"
+    },
+    {
+      "path": "artifacts/middle-final-borders/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-borders/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/middle-final-borders/results.json",
+      "sha256": "6da530ca4059ff528aa305eebd7af1a69c23cb67d81503544b2c267fc9519bc5"
+    },
+    {
+      "path": "artifacts/middle-final-commands.json",
+      "sha256": "d7f135c60a41de99a91fbc128caf1846cca80f84e4f0aaac33b4b543cec2c64b"
+    },
+    {
+      "path": "artifacts/middle-final-control-document-mode.log",
+      "sha256": "9234aead5c2a8ae9228f2b1d3a789844853627fddf4e0b6a5653dfc1e262dee9"
+    },
+    {
+      "path": "artifacts/middle-final-control-document-mode/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-control-document-mode/oracle-build.log",
+      "sha256": "9df213ed1a765d99f117074464235149cfac4ca24c0770d64ff62173f9b8e5b9"
+    },
+    {
+      "path": "artifacts/middle-final-control-document-mode/results.json",
+      "sha256": "cb6237d559ddc1eb42f18d14ecc0208e3812def6f60c5a976b8e1b75cb388321"
+    },
+    {
+      "path": "artifacts/middle-final-control-focus.log",
+      "sha256": "29d0412cffc31dd9c8596e1b0c2736281fd213839430ebb772cc60123107dc94"
+    },
+    {
+      "path": "artifacts/middle-final-control-focus/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-control-focus/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/middle-final-control-focus/results.json",
+      "sha256": "a664a1c71c7665799a62c7a20bb89cb226a9e947a9c6af00490f964e45c3eca7"
+    },
+    {
+      "path": "artifacts/middle-final-control-layout.log",
+      "sha256": "80f819333749ec51dbdc0b38f894af4e3fcabaf6228f0c552b22708b4aa22142"
+    },
+    {
+      "path": "artifacts/middle-final-control-layout/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-control-layout/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-control-layout/results.json",
+      "sha256": "6eeee53ce0371dd6f0d8b8ba90db2394b8fed34317dc0856b57d31d57c751b56"
+    },
+    {
+      "path": "artifacts/middle-final-control-regressions.log",
+      "sha256": "a5cc12aa29edfa2be9b72dc4c13297c597b2b393a3382a12b450692bdcd6b6ab"
+    },
+    {
+      "path": "artifacts/middle-final-control-regressions/report.json",
+      "sha256": "ed0790ae8c91323f81e55572fd5d5443586ef32fa5a309cc812a79504b8c2ed9"
+    },
+    {
+      "path": "artifacts/middle-final-control-selection.log",
+      "sha256": "0e2a0590fd5d1f9925e9627190c5d785ea47699dbbefb1d44dd608d20eb9e7a2"
+    },
+    {
+      "path": "artifacts/middle-final-control-selection/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-control-selection/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/middle-final-control-selection/results.json",
+      "sha256": "7c22f49513a651dd7e027a8f8b99203cbe880017ad47dd327e7013f0b777ae54"
+    },
+    {
+      "path": "artifacts/middle-final-controls.log",
+      "sha256": "7d8c8cbdba5504b511b967e50dcbc6f5d0d1580f56f8505b6ca14d5def74ddde"
+    },
+    {
+      "path": "artifacts/middle-final-controls/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-controls/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-controls/results.json",
+      "sha256": "6ea5bd937e36b383a256846db69116fbdd9a1849685d21070c1088f604efd62e"
+    },
+    {
+      "path": "artifacts/middle-final-css-animations.log",
+      "sha256": "8d470f7de7ea055aefa58ed10f30d5dd51076cf1c9c0b1ca2d2a746e35590f7f"
+    },
+    {
+      "path": "artifacts/middle-final-css-animations/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-css-animations/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-css-animations/results.json",
+      "sha256": "f7041adbe59eb89c596a08c333f196740b94db2aeab53798f2133cf547a6425b"
+    },
+    {
+      "path": "artifacts/middle-final-font-weights.log",
+      "sha256": "bdffaf223dffeae428620c1ba03ff30bb63b8d5610d761190c7e5784a182d6a7"
+    },
+    {
+      "path": "artifacts/middle-final-font-weights/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-font-weights/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-font-weights/results.json",
+      "sha256": "6368af28c4d7389a1808443c797a981f562bd074a845334826418bd845919dd8"
+    },
+    {
+      "path": "artifacts/middle-final-forms-focus.log",
+      "sha256": "29f1a95c5c2651e30864b888cc157f13ba394495944179c19e416bedf2e6ebcc"
+    },
+    {
+      "path": "artifacts/middle-final-forms-focus/report.json",
+      "sha256": "5df71477924524c80413cb0e1354e2594c0856f48450e24142cf07dcfd737eef"
+    },
+    {
+      "path": "artifacts/middle-final-glyphs.log",
+      "sha256": "1e498620efdf356898ed62f5fa3c1acf386d21fbf257ac3bef02484de20b86aa"
+    },
+    {
+      "path": "artifacts/middle-final-glyphs/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-glyphs/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-glyphs/results.json",
+      "sha256": "bfad409b0dbef888c95ebd8c42af286c625cd2b35ab92d6bf32a1fe4dbd299c3"
+    },
+    {
+      "path": "artifacts/middle-final-inline-fragment-effects.log",
+      "sha256": "02246b772cc8df43ddb3c99849c0adf6d7eeae2d9a2c616db7740ef7e109f58a"
+    },
+    {
+      "path": "artifacts/middle-final-inline-fragment-effects/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-inline-fragment-effects/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/middle-final-inline-fragment-effects/results.json",
+      "sha256": "10c63b4459bafac93ac6a528c31c59b576b0407f2eebdcf7c5ab1d2c0c70fe23"
+    },
+    {
+      "path": "artifacts/middle-final-inline-fragments.log",
+      "sha256": "54e373d5b5f23600ee3a91fb5c42d03ba3bd7468401fcb54f9bbdf37dfc440a2"
+    },
+    {
+      "path": "artifacts/middle-final-inline-fragments/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-inline-fragments/oracle-build.log",
+      "sha256": "758341027c9ade7ddd6acdd76fae4e5f400436cb5458afaa89d400236395a271"
+    },
+    {
+      "path": "artifacts/middle-final-inline-fragments/results.json",
+      "sha256": "9b02078aa42d63b6f507e72bd6e8c44b4465f3bde5a2634aa72e3c20938c183e"
+    },
+    {
+      "path": "artifacts/middle-final-inline-source-order.log",
+      "sha256": "c3b1717bddaacda16ad3301c0fb7935974d3d78155a182a83fc0d87a77c90be0"
+    },
+    {
+      "path": "artifacts/middle-final-inline-source-order/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-inline-source-order/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/middle-final-inline-source-order/results.json",
+      "sha256": "128d3c68f95548e849a3ed249a7fa627f6752220e5fa154e3c0380baa0540140"
+    },
+    {
+      "path": "artifacts/middle-final-input-line-height.log",
+      "sha256": "8cc972142b83ce8cb51f1c64e0f3849f5787cf5a1a61cc47e49ec14592f1608e"
+    },
+    {
+      "path": "artifacts/middle-final-input-line-height/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-input-line-height/oracle-build.log",
+      "sha256": "758341027c9ade7ddd6acdd76fae4e5f400436cb5458afaa89d400236395a271"
+    },
+    {
+      "path": "artifacts/middle-final-input-line-height/results.json",
+      "sha256": "8dc4dee679d6cd53f2d5aaddf165b1db2ca02de200879f2de67d11272d95042b"
+    },
+    {
+      "path": "artifacts/middle-final-input-pointer.log",
+      "sha256": "ee6ac5f6fbf238f3558fd1ce222bb3775d55ec5708db7295ee34ea07b5a68eff"
+    },
+    {
+      "path": "artifacts/middle-final-input-pointer/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-input-pointer/oracle-build.log",
+      "sha256": "2f76371da65e938ba90b4f1a788d5f7a1da6f4a8b1b466ca199aa65ecf4e0197"
+    },
+    {
+      "path": "artifacts/middle-final-input-pointer/results.json",
+      "sha256": "5860788eefcc3cdf49f2caa5dfd252ba93590818b7b8b47b210265c22403299a"
+    },
+    {
+      "path": "artifacts/middle-final-intrinsic-text.log",
+      "sha256": "ae44e259a19ff28bc90142005274936c36e3cb2850a0b9f15dfdb5cc3a97c47a"
+    },
+    {
+      "path": "artifacts/middle-final-intrinsic-text/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-intrinsic-text/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-intrinsic-text/results.json",
+      "sha256": "aa475317d8c994ba2f59d5702e5ce5ab62e5b62e72f4d51d2c4ce8a0a33912dd"
+    },
+    {
+      "path": "artifacts/middle-final-line-width-effects.log",
+      "sha256": "0fdc034852aaaddb808b77bba75fc10dfb47ba51b8c63f586482af7a6dc29f6f"
+    },
+    {
+      "path": "artifacts/middle-final-line-width-effects/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-line-width-effects/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-line-width-effects/results.json",
+      "sha256": "42c5ced34bc295ce14f9c00a808264036fa417720785b686a6aae07927ce57c7"
+    },
+    {
+      "path": "artifacts/middle-final-line-width-grid.log",
+      "sha256": "b4540e75ffe6b3ef93532419632070aa452f35fd81577336dca27039c95f8f08"
+    },
+    {
+      "path": "artifacts/middle-final-line-width-grid/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-line-width-grid/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-line-width-grid/results.json",
+      "sha256": "a5e99ec5e16905293b6027368328a40bdf0691156b81d4411caf3b06d49bc756"
+    },
+    {
+      "path": "artifacts/middle-final-middle-metrics.log",
+      "sha256": "b81c5fec56e8bcc7fdf5cb11d3d42cb1660d4b947cbd0c07466306c201c72dea"
+    },
+    {
+      "path": "artifacts/middle-final-middle-metrics/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-middle-metrics/oracle-build.log",
+      "sha256": "a53190a8fde0d229a162e5d3cac255035058760d4f376ed6fd7ef7f71239a24b"
+    },
+    {
+      "path": "artifacts/middle-final-middle-metrics/results.json",
+      "sha256": "d0c01a78731d197efd97f0012da04d03dff139e4bc66f7a1c0228f7be8a90f18"
+    },
+    {
+      "path": "artifacts/middle-final-npm.log",
+      "sha256": "9f96e334657ca83aea2c520f4ba651d717f90c3bb6f7a42ec12cc8d0d258dcd3"
+    },
+    {
+      "path": "artifacts/middle-final-observation-manifest.json",
+      "sha256": "5d693ab44734677cf775a3972aa7c80b4e0c77d058439945f59c2fa15fdfab9c"
+    },
+    {
+      "path": "artifacts/middle-final-parley-engine.log",
+      "sha256": "3b89ee2018bebc9fad2b717bf576b4f35262b38b92e86ccef9a00021e15f02d4"
+    },
+    {
+      "path": "artifacts/middle-final-parley-libm.log",
+      "sha256": "424aefc769fdff10dd8abd92fb8f88c4b0a576d870004118f6a7579b516f05a5"
+    },
+    {
+      "path": "artifacts/middle-final-parley-std.log",
+      "sha256": "0be46698055b8e2bead7ccc28076fdbef0e651575e22852b7033eacea39dcc24"
+    },
+    {
+      "path": "artifacts/middle-final-pointer-geometry.log",
+      "sha256": "7dfeb4b516edeb8ba61ebfdd3a1143d9e6e936308ed22b5b6afd98401b4877d7"
+    },
+    {
+      "path": "artifacts/middle-final-pointer-geometry/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-pointer-geometry/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-pointer-geometry/results.json",
+      "sha256": "2bdde47ba2043753273cf597423f015d8839def94d4a870472514372a1e05988"
+    },
+    {
+      "path": "artifacts/middle-final-root-audit.json",
+      "sha256": "1e1930c4e4993125240567370070e5a8052800c61a2f61c747170ebb55207424"
+    },
+    {
+      "path": "artifacts/middle-final-scrolling.log",
+      "sha256": "18b7400e66d4a604af32f11ca04b9567f98b886179772f9c807068b21c64787d"
+    },
+    {
+      "path": "artifacts/middle-final-scrolling/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-scrolling/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-scrolling/results.json",
+      "sha256": "a1e39783b300d8559f511699e77bceb6332911325db994988afea1ca9cb8287a"
+    },
+    {
+      "path": "artifacts/middle-final-source-proof.json",
+      "sha256": "00a91e78b32406b385435774b74a9c402aaf7ca6f21b147a4fdb9220294dfcc7"
+    },
+    {
+      "path": "artifacts/middle-final-table-controls.log",
+      "sha256": "0e8ab34a8ea49ccb82367288e302f7e41f7aa09a933a0604e2e26bc7c8017ba0"
+    },
+    {
+      "path": "artifacts/middle-final-table-controls/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-table-controls/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-table-controls/results.json",
+      "sha256": "788e6c63648985b1775018ae0153dc47d383eb9e52c6e4c36aab9f5e7fadc8c2"
+    },
+    {
+      "path": "artifacts/middle-final-table-document-mode.log",
+      "sha256": "5d414d8c861c5214fce8f39775d7d187b70dfb6af6f4290ba58205bdc0f46b09"
+    },
+    {
+      "path": "artifacts/middle-final-table-document-mode/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-table-document-mode/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/middle-final-table-document-mode/results.json",
+      "sha256": "f9cebe47d1d03af390a2355fa16b2d7cc615036e6534851f57af276a2b71431f"
+    },
+    {
+      "path": "artifacts/middle-final-table-integration.log",
+      "sha256": "7861df495bd5491faf8c0687d1a3d7d32f6280317fcce9ff1a82352ea32a1a4b"
+    },
+    {
+      "path": "artifacts/middle-final-table-integration/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-table-integration/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/middle-final-table-integration/results.json",
+      "sha256": "6101a3b3d34fe0b37dd9f7718addf91a9b2b76f8169b698a17ec52147815da31"
+    },
+    {
+      "path": "artifacts/middle-final-tables-cpu.log",
+      "sha256": "f145f6ea9824be3d7fbea016a3059dbbe4703c4048f0048203dd7970efba83db"
+    },
+    {
+      "path": "artifacts/middle-final-tables-cpu/report.json",
+      "sha256": "fd6c53a5a480ddc39cc4b0bf6241dbddeb7a6598f8b5ab8cf988a2da039f062b"
+    },
+    {
+      "path": "artifacts/middle-final-tables-gpu.log",
+      "sha256": "9b0f42665db1c6494c48b217cb17c8adbfff80de0fe0641667f82fdacb48398e"
+    },
+    {
+      "path": "artifacts/middle-final-tables-gpu/report.json",
+      "sha256": "c9fc10741c2e0b2504c78cb6d3d3ac2af2005f96cedef7e4574d99b579579e5c"
+    },
+    {
+      "path": "artifacts/middle-final-tables.log",
+      "sha256": "a049ec85a6f3335525d828c0864852e355d230568badfe098645cc86079988a9"
+    },
+    {
+      "path": "artifacts/middle-final-tables/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-tables/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/middle-final-tables/results.json",
+      "sha256": "7a26f31285e4f4c12f6668a951393f9611764701b0680edaaaf105a33dc26f18"
+    },
+    {
+      "path": "artifacts/middle-final-text-metric-grid.log",
+      "sha256": "b03afe93d5638a4854858c1e2169a6959deb627a17bfc7eef35778ecf88c6e72"
+    },
+    {
+      "path": "artifacts/middle-final-text-metric-grid/metadata.json",
+      "sha256": "57ceffd1d31645176f6132b6c9ce5e640e5ebca305e47044f1827b25acc5a1c5"
+    },
+    {
+      "path": "artifacts/middle-final-text-metric-grid/oracle-build.log",
+      "sha256": "9df213ed1a765d99f117074464235149cfac4ca24c0770d64ff62173f9b8e5b9"
+    },
+    {
+      "path": "artifacts/middle-final-text-metric-grid/results.json",
+      "sha256": "eb98619f63d0c470490194ae41ddb3b8f3a988a80d5ed8a3c56cb37526ebc877"
+    },
+    {
+      "path": "artifacts/middle-final-workspace.log",
+      "sha256": "57890e626c8c9ef874efc1c8ea0ad5685a91d95bda8ecbf7b4e277924f026441"
+    },
+    {
+      "path": "artifacts/middle-fixture-metrics.json",
+      "sha256": "15c3b46097c06ba97c4a30b37364f884cb80885ffb1d5a99461aed0a2dd62ae1"
+    },
+    {
+      "path": "artifacts/middle-frozen-source-proof.json",
+      "sha256": "d68ad854cbf014e909dd6d69fcfef8b08fdd2a187bcdef52248c9099a2dd6feb"
+    },
+    {
+      "path": "artifacts/middle-hint-diagnostic.json",
+      "sha256": "1ca9ecd148a4cc2fd18d6240c0da6d017f145e9fcab991a25506ef707b7e5252"
+    },
+    {
+      "path": "artifacts/middle-hint-diagnostic.rs",
+      "sha256": "584e13efcf50ef5a02a6ec3bf58b27769827c75d7305519680279d895c88a1ae"
+    },
+    {
+      "path": "artifacts/middle-hint-exact-settings.log",
+      "sha256": "0ffa25530200e67748eae42d72939ad81018c05a487aeb1454849f6fc516f184"
+    },
+    {
+      "path": "artifacts/middle-independent-audit.json",
+      "sha256": "2cb1e83a3352d40d2f71ba49cc55ee29384023e795bd8cb8342cf4b9b1b3a0a5"
+    },
+    {
+      "path": "artifacts/middle-independent-audit.mjs",
+      "sha256": "7da4387580c5ad400b600f23d443ba7870fea216a541c297a2d028e607c475e6"
+    },
+    {
+      "path": "artifacts/middle-metric-research.json",
+      "sha256": "fb36b97bf36d869ae6c2c0692c4ebe2df58134dff127898a8aafb0b2c1f9bd90"
+    },
+    {
+      "path": "artifacts/middle-nested-research.json",
+      "sha256": "cfaea7f475911b1c2347b3fbe264be5515a0437ea648db0f26cb0a60c1fcda58"
+    },
+    {
+      "path": "artifacts/middle-old-evidence-proof.json",
+      "sha256": "5f06ff1ed90ce7c140cb8879c5ae8677eed9533159a0eec2b9627555c9e75393"
+    },
+    {
+      "path": "artifacts/middle-originals-proof.json",
+      "sha256": "23c6265b83b733d9d073d8760d733607d403915b162b53ab51730cb2307c6419"
+    },
+    {
+      "path": "artifacts/middle-parley-harness/Cargo.lock",
+      "sha256": "3db962c0e48a937d33bff15f0de1a732e5b1c24dc51503b6704b9d84c5d2f53c"
+    },
+    {
+      "path": "artifacts/middle-parley-harness/Cargo.toml",
+      "sha256": "fac96968b007d998655911d4914e73dfcf3d552073f1dfbd9ad76543b7e02267"
+    },
+    {
+      "path": "artifacts/middle-parley-post-test-proof.json",
+      "sha256": "397b649a0ed58bc654c95ee00fcf4a5676f73c73e59391a10f7b026bf77879a2"
+    },
+    {
+      "path": "artifacts/middle-parley-source-proof.json",
+      "sha256": "84b7e8d005db8673f6f36b96ea508b7c91f78582c584112c78c19f45ba915f6e"
+    },
+    {
+      "path": "artifacts/middle-review.json",
+      "sha256": "c1382f2206fec310276275d17ce8905ebd2162d001cb55c755fbd3b3de2366b5"
+    },
+    {
+      "path": "artifacts/middle-verification-harness/audit.mjs",
+      "sha256": "c54683cda325c6427ef30ab49bfc908f7aa3666d7e29166cadbf41792d0265e5"
+    },
+    {
+      "path": "artifacts/middle-verification-harness/final.mjs",
+      "sha256": "f4f8812dc12e23cdee6ffbcd44c7ae0231ded69f4cc152049cbc571e3f911ac3"
+    },
+    {
+      "path": "artifacts/middle-verification-harness/record.md",
+      "sha256": "661f43aecc63c5a60b3927442ad815ebc878078f5c0bc64473734fe9c0fea149"
+    },
+    {
+      "path": "artifacts/middle-verification-harness/record.mjs",
+      "sha256": "a9509da952793ddd69db609ca8f2478faa9b0a6b95bf0ad7c7659cb24020897a"
+    },
+    {
+      "path": "artifacts/middle-verification-harness/update-docs.mjs",
+      "sha256": "4b752e3e1856ae831d2f258283cd14d332f8cbe2926a18f96a449806ccce1411"
+    },
+    {
+      "path": "artifacts/provenance-final-borders/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-borders/results.json",
+      "sha256": "6da530ca4059ff528aa305eebd7af1a69c23cb67d81503544b2c267fc9519bc5"
+    },
+    {
+      "path": "artifacts/provenance-final-control-document-mode/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-control-document-mode/results.json",
+      "sha256": "cb6237d559ddc1eb42f18d14ecc0208e3812def6f60c5a976b8e1b75cb388321"
+    },
+    {
+      "path": "artifacts/provenance-final-control-focus/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-control-focus/results.json",
+      "sha256": "a664a1c71c7665799a62c7a20bb89cb226a9e947a9c6af00490f964e45c3eca7"
+    },
+    {
+      "path": "artifacts/provenance-final-control-layout/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-control-layout/results.json",
+      "sha256": "6eeee53ce0371dd6f0d8b8ba90db2394b8fed34317dc0856b57d31d57c751b56"
+    },
+    {
+      "path": "artifacts/provenance-final-control-selection/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-control-selection/results.json",
+      "sha256": "7c22f49513a651dd7e027a8f8b99203cbe880017ad47dd327e7013f0b777ae54"
+    },
+    {
+      "path": "artifacts/provenance-final-controls/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-controls/results.json",
+      "sha256": "6ea5bd937e36b383a256846db69116fbdd9a1849685d21070c1088f604efd62e"
+    },
+    {
+      "path": "artifacts/provenance-final-css-animations/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-css-animations/results.json",
+      "sha256": "f7041adbe59eb89c596a08c333f196740b94db2aeab53798f2133cf547a6425b"
+    },
+    {
+      "path": "artifacts/provenance-final-font-weights/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-font-weights/results.json",
+      "sha256": "6368af28c4d7389a1808443c797a981f562bd074a845334826418bd845919dd8"
+    },
+    {
+      "path": "artifacts/provenance-final-glyphs/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-glyphs/results.json",
+      "sha256": "bfad409b0dbef888c95ebd8c42af286c625cd2b35ab92d6bf32a1fe4dbd299c3"
+    },
+    {
+      "path": "artifacts/provenance-final-inline-fragment-effects/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-inline-fragment-effects/results.json",
+      "sha256": "10c63b4459bafac93ac6a528c31c59b576b0407f2eebdcf7c5ab1d2c0c70fe23"
+    },
+    {
+      "path": "artifacts/provenance-final-inline-fragments/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-inline-fragments/results.json",
+      "sha256": "c56b24c4a000582f3661f0311ff5d05f3ad5c312fc1e81d51073bc97a7b0b2bd"
+    },
+    {
+      "path": "artifacts/provenance-final-inline-source-order/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-inline-source-order/results.json",
+      "sha256": "128d3c68f95548e849a3ed249a7fa627f6752220e5fa154e3c0380baa0540140"
+    },
+    {
+      "path": "artifacts/provenance-final-input-line-height/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-input-line-height/results.json",
+      "sha256": "8dc4dee679d6cd53f2d5aaddf165b1db2ca02de200879f2de67d11272d95042b"
+    },
+    {
+      "path": "artifacts/provenance-final-input-pointer/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-input-pointer/results.json",
+      "sha256": "5860788eefcc3cdf49f2caa5dfd252ba93590818b7b8b47b210265c22403299a"
+    },
+    {
+      "path": "artifacts/provenance-final-intrinsic-text/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-intrinsic-text/results.json",
+      "sha256": "aa475317d8c994ba2f59d5702e5ce5ab62e5b62e72f4d51d2c4ce8a0a33912dd"
+    },
+    {
+      "path": "artifacts/provenance-final-line-width-effects/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-line-width-effects/results.json",
+      "sha256": "42c5ced34bc295ce14f9c00a808264036fa417720785b686a6aae07927ce57c7"
+    },
+    {
+      "path": "artifacts/provenance-final-line-width-grid/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-line-width-grid/results.json",
+      "sha256": "a5e99ec5e16905293b6027368328a40bdf0691156b81d4411caf3b06d49bc756"
+    },
+    {
+      "path": "artifacts/provenance-final-pointer-geometry/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-pointer-geometry/results.json",
+      "sha256": "2bdde47ba2043753273cf597423f015d8839def94d4a870472514372a1e05988"
+    },
+    {
+      "path": "artifacts/provenance-final-scrolling/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-scrolling/results.json",
+      "sha256": "a1e39783b300d8559f511699e77bceb6332911325db994988afea1ca9cb8287a"
+    },
+    {
+      "path": "artifacts/provenance-final-table-controls/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-table-controls/results.json",
+      "sha256": "788e6c63648985b1775018ae0153dc47d383eb9e52c6e4c36aab9f5e7fadc8c2"
+    },
+    {
+      "path": "artifacts/provenance-final-table-document-mode/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-table-document-mode/results.json",
+      "sha256": "f9cebe47d1d03af390a2355fa16b2d7cc615036e6534851f57af276a2b71431f"
+    },
+    {
+      "path": "artifacts/provenance-final-table-integration/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-table-integration/results.json",
+      "sha256": "6101a3b3d34fe0b37dd9f7718addf91a9b2b76f8169b698a17ec52147815da31"
+    },
+    {
+      "path": "artifacts/provenance-final-tables/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-tables/results.json",
+      "sha256": "7a26f31285e4f4c12f6668a951393f9611764701b0680edaaaf105a33dc26f18"
+    },
+    {
+      "path": "artifacts/provenance-final-text-metric-grid/metadata.json",
+      "sha256": "1549c72ffd203a25c245a51cb05c96b81397df19d4dfec32f96a144c87499a15"
+    },
+    {
+      "path": "artifacts/provenance-final-text-metric-grid/results.json",
+      "sha256": "eb98619f63d0c470490194ae41ddb3b8f3a988a80d5ed8a3c56cb37526ebc877"
+    }
+  ],
+  "observationManifest": {
+    "path": "artifacts/middle-final-observation-manifest.json",
+    "files": 37203,
+    "sha256": "5d693ab44734677cf775a3972aa7c80b4e0c77d058439945f59c2fa15fdfab9c"
+  },
+  "cleanup": {
+    "duplicateScreenshotCount": 1512,
+    "duplicateScreenshotBytesRemoved": 5244301,
+    "temporaryPathsRemoved": [
+      "/tmp/runic-middle-audit.mjs",
+      "/tmp/runic-middle-candidate-audit.mjs",
+      "/tmp/runic-middle-dev-profile",
+      "/tmp/runic-middle-dev-profile-1-link",
+      "/tmp/runic-middle-final.mjs",
+      "/tmp/runic-middle-fixture.ttf",
+      "/tmp/runic-middle-parley-tests",
+      "/tmp/runic-middle-progress.mjs",
+      "/tmp/runic-middle-record.md",
+      "/tmp/runic-middle-record.mjs",
+      "/tmp/runic-middle-update-docs.mjs"
+    ],
+    "pendingTemporaryCleanup": [],
+    "preserved": [
+      "All baseline and canonical final observations, screenshots and reports",
+      "Iteration JSON/HTML/logs and font metric diagnostics",
+      "Verification recipes and exact-source harness manifest/lock",
+      "Originals, existing experiment worktrees, legacy worktrees, shared target and caches"
+    ]
+  }
+}

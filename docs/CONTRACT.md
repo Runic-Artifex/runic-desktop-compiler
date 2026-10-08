@@ -17,20 +17,24 @@ the [line-width continuation](../conformance/results/chromium-line-widths.md),
 the [inline-fragment continuation](../conformance/results/chromium-inline-fragments.md),
 the [pointer-geometry continuation](../conformance/results/chromium-pointer-geometry.md),
 the [text-provenance continuation](../conformance/results/chromium-inline-source-order.md),
+the [middle-metric continuation](../conformance/results/chromium-middle-metrics.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation adds optional normalized text-source metadata
-in Parley and private source-aware inline targeting in Blitz. It repairs 69 paired
-standard-hit states and three explicit-point states; the new source-order oracle
-passes 192/216 hits. All 12 nested/effects hit losses from the pointer checkpoint
-are repaired. Sixty margin-flow and nine marker-edge losses remain, and three
-new middle-alignment hit failures expose an unchanged 0.296875px geometry error.
-Every paired non-hit gate preserves its passing states. Pointer standard hits
-remain 234/234 and explicit points improve to 219/234; table-control hits remain
-4/4, and all 389 compiled states pass semantics, geometry and local pixels.
-Primary font metrics, margin flow, full fragment segmentation, RTL/tab/atomic
-reductions and local paint remain open. Source metadata does not split shaping
-atoms or add framework-specific behavior.
+The latest isolated continuation repairs all three retained middle-alignment
+geometry, fragment-list and hit failures through a generic hinted x-height
+fallback in Parley's enabled logical metric policy. Device defaults, unquantized
+layout, declared font metrics and shaping remain unchanged. The new 180-state
+oracle passes 120 bounding geometry, 60/120 measured fragment lists, 138 hits and
+75 strict pixel states. Across 3,674 exact direct pairs it repairs 123 geometry,
+63 fragment-list, nine hit and 45 pixel states without a passing gate regression.
+All 389 compiled states retain semantics, geometry and local pixels.
+
+Optional source metadata and private source-aware targeting remain in place.
+Pointer stays 234/234 standard and 219/234 explicit points; source ordering stays
+192/216 hits. Sixty margin-flow and nine marker-edge losses remain. Per-line
+nested alignment, atomic edge hits, full fragment segmentation, RTL/tab flow,
+editor delivery and local paint remain open. Source metadata does not split
+shaping atoms or add framework-specific behavior.
 The probe's inline `getClientRects()` oracle does not broaden compiler acceptance
 or the shipping DOM contract below.
 

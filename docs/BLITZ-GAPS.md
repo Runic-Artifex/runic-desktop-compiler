@@ -43,8 +43,15 @@ effects 102/102 and pointer explicit points 219/234. The new oracle passes
 Three new middle-alignment hit losses expose the unchanged 0.296875px metric
 error; 60 margin-flow and nine marker losses remain. No paired non-hit gate
 regresses, and all 389 compiled states retain their gates.
-The next patches need primary-font metric diagnostics, generic span-edge flow in
-Parley and CSS binding in Blitz. DOM sibling heuristics, full fragment lists,
+The [middle-metric continuation](../conformance/results/chromium-middle-metrics.md)
+repairs those three geometry/fragment/hit failures through Parley's opt-in hinted
+x-height fallback. The new 180-state matrix passes 120 geometry, 60/120 fragment
+lists, 138 hits and 75 strict pixel states. All 3,674 exact direct pairs preserve
+their passing gates; all 389 compiled states retain theirs. Sixty nested-middle
+geometry states still fail, with 27 atomic and 15 nested hit failures in the new
+matrix. Device/unquantized behavior and declared font metrics are preserved.
+The next patches need per-line nested alignment and generic span-edge flow in
+Parley, then CSS binding in Blitz. DOM sibling heuristics, full fragment lists,
 preserved tabs/RTL atomic flow, odd-height/negative-origin hits and local glyph
 paint retain independent gates.
 
