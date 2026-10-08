@@ -403,3 +403,27 @@ It neither changes line breaking nor exposes the private alignment arenas. The
 paint implementation stays private to Blitz; no IR or framework adapter changes
 are required. Fractional origins, box materialization and mutations have separate
 geometry, fragment, hit and strict local pixel gates.
+
+## Chromium parity: empty inline participation (2026-10-08, isolated)
+
+Parley's tree builder offers opt-in `set_empty_span_participation(bool)`. Ordinary
+style spans that produce neither normalized text nor an atomic box retain a
+zero-advance anchor and their own primary-font metrics. Style-modification scopes
+remain normalization scopes, so a CSS `display:contents` whitespace scope cannot
+acquire an element box. The default stays disabled and builders reset it.
+
+Normalization owns anchor placement across delayed collapsed spaces. Line
+breaking consumes anchors in text order, before taking the following break
+opportunity; saved opportunities and explicit replay retain the same cursor and
+participating metrics. Empty anchors do not introduce shaping runs, change text
+provenance, reserve inline advance or become caret stops. The additive read-only
+`Line::empty_spans()` iterator returns style indices and positioned inline offsets
+in layout units; the positioned-item enum remains unchanged. Geometry consumers
+combine these offsets with the existing own-font content bounds.
+
+Blitz enables this policy for standards-mode ordinary inline contexts. It binds
+styles to DOM owners and includes zero-width fragments in geometry. Empty-only
+lines remain invisible for block sizing; their font-area fragments remain
+observable. Quirks mode, inline margins/padding advances, generated pseudo layout
+ownership and full bidi boundary behavior remain independent parity work. No
+framework, IR, renderer or font-hinting change is involved.
