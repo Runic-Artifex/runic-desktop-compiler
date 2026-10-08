@@ -42,6 +42,26 @@ for (const overflow of ['visible', 'hidden', 'clip']) {
     ],
   };
 }
+for (const standards of [true, false]) {
+  for (const terminal of ['br', 'newline']) {
+    cases[`terminal_${terminal}_${standards ? 'standards' : 'quirks'}`] = {
+      standards,
+      region: 'table',
+      regions: ['table', 'text'],
+      viewports,
+      html: `<div id="table" data-scroll style="line-height:12px;white-space:pre">${
+        terminal === 'br'
+          ? '<span id="text" data-client-rects>Alpha</span><br>'
+          : '<span id="text" data-client-rects>Alpha\n</span>'
+      }</div>`,
+      actions: [16, 32].map(height => ({
+        kind: 'style',
+        selector: '#table',
+        value: `line-height:${height}px;white-space:pre`,
+      })),
+    };
+  }
+}
 cases.vertical_padding = {
   standards: true,
   region: 'table',
