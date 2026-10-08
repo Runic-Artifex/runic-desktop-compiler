@@ -432,6 +432,10 @@ mod tests {
                 let fragments = inner.node_client_rects(text);
                 assert_eq!(fragments.len(), 1);
                 assert_eq!(fragments[0].height, 19.0);
+                assert_eq!(
+                    inner.get_node(line).unwrap().scroll_height(),
+                    if height == 32 { 32.0 } else { 17.0 }
+                );
                 // The lower edge is outside the block when line-height is 16;
                 // ancestor culling must still let the span receive the hit.
                 assert_eq!(
