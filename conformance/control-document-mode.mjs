@@ -16,6 +16,12 @@ const contents = {
     '<textarea id="control" style="box-sizing:content-box">Alpha Beta\nSecond line</textarea>',
   textarea_text: '<textarea id="control">Alpha Beta\nSecond line</textarea> Text',
   atomic_only: '<span id="control" class="atomic"></span>',
+  atomic_float: '<span id="control" class="atomic" style="float:left"></span>',
+  atomic_float_text: '<span id="control" class="atomic" style="float:left"></span> Text',
+  atomic_break: '<span id="control" class="atomic"></span><br>',
+  atomic_newline: '<span id="control" class="atomic"></span>\nText\n',
+  atomic_hidden: '<span id="control" class="atomic"></span>',
+  atomic_clip: '<span id="control" class="atomic"></span>',
 };
 for (const [mode, doctype] of Object.entries(modes)) {
   for (const [kind, content] of Object.entries(contents)) {
@@ -28,7 +34,13 @@ for (const [mode, doctype] of Object.entries(modes)) {
         [420, 180, 1],
         [420, 180, 2],
       ],
-      html: `<div id="table">${content}</div><div id="after">After</div>`,
+      html: `<div id="table" style="${
+        kind === 'atomic_newline'
+          ? 'white-space:pre'
+          : kind === 'atomic_hidden' || kind === 'atomic_clip'
+            ? `height:32px;overflow:${kind.slice(7)}`
+            : ''
+      }">${content}</div><div id="after">After</div>`,
       actions: [{ kind: 'html', selector: '#table', value: content }],
     };
   }
