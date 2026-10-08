@@ -349,6 +349,36 @@ fn main() {
 mod tests {
     use super::*;
     #[test]
+    fn css_line_widths_survive_device_rebuilds_and_pre_app_unit_thresholds() {
+        let mut doc = document(
+            "<div id='box' data-line-widths style='width:30px;height:20px;border-style:solid;border-width:.001px 1.999px 2.999px .5px;outline:1.999px solid'></div>",
+        );
+        for scale in [1.0, 1.25, 1.5, 2.0, 1.0] {
+            doc.inner_mut()
+                .set_viewport(blitz_traits::shell::Viewport::new(
+                    (640.0 * scale) as u32,
+                    (300.0 * scale) as u32,
+                    scale,
+                    blitz_traits::shell::ColorScheme::Light,
+                ));
+            for _ in 0..4 {
+                doc.inner_mut().resolve(0.0);
+            }
+            let observed = observe(&doc);
+            assert_eq!(observed["lineWidths"]["box"], json!([1, 1, 2, 1, 1]));
+            assert_eq!(observed["rects"]["box"][2], json!(32.0));
+            assert_eq!(observed["rects"]["box"][3], json!(23.0));
+            // A physical hairline remains a device pixel, independently of line widths.
+            assert_eq!(
+                doc.inner_mut()
+                    .stylist_device()
+                    .app_units_per_device_pixel(),
+                (60.0 / scale) as i32
+            );
+        }
+    }
+
+    #[test]
     fn logical_text_metrics_survive_viewport_scale_changes() {
         use base64::Engine;
         let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
