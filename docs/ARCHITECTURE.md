@@ -283,10 +283,15 @@ affine transforms map the complete quad and preserve its area/shape in the local
 coordinate space. Singular transforms reject hits. Scrolling translates the
 content query after inverse mapping the unscrolled border query. Public `hit`
 signatures, DOM geometry, Parley metrics and renderer paths are unchanged.
+Raw hit boxes and positioning use the same unrounded layout as CSSOM. Hoisted
+positions share the positioning-chain walk with painting, selecting the logical
+location at each step; painter caches retain their existing rounded geometry.
 
 Intersection policy belongs to the target: ordinary boxes, culled inline
 ancestors and traversal bounds use raw positive-area rectangle intersections;
-text uses pixel-snapped bounds after accumulated paint offsets. Snapping uses
+text uses the actual run's font ascent/descent, pixel-snapped after accumulated
+paint offsets. Its owning span independently retains its raw content box.
+Rounded contours use snapped border/padding rectangles. Snapping uses
 positive-infinity half ties, including negative coordinates. A transformed node
 starts a new layer coordinate space for target snapping. Rounded clips test the
 quad against corner ellipses, rather than accepting its bounding rectangle.

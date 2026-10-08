@@ -80,4 +80,69 @@ for (const transform of ['none', 'scale(.5)', 'scale(2)', 'rotate(15deg)']) {
     };
   }
 }
+// Identity transforms create a snapping layer even though they do not move the
+// query. Keep fractional ancestor offsets to distinguish the two paths.
+for (const transform of ['none', 'translate(0)']) {
+  for (const height of [25, 48]) {
+    const token = `${height}_${transform}`.replaceAll(/[^a-z0-9]/g, '_');
+    cases[`layer_${token}`] = {
+      standards: true,
+      region: 'table',
+      regions: ['table', 'text'],
+      viewports,
+      html: `<div id="table" style="margin:20.375px;padding:0.25px;width:120px"><div id="line" data-hit-points='${points(
+        [
+          [20, 23.984375],
+          [20, 24],
+          [20, height - 1],
+          [20, height - 0.5],
+        ],
+      )}' style="width:92px;font:20px/${height}px Test;transform:${transform}"><span id="text" data-client-rects>Alpha Agpq</span></div></div>`,
+      actions: [
+        { kind: 'style', selector: '#table', value: 'margin:20.625px;padding:0.25px;width:120px' },
+      ],
+    };
+  }
+}
+// Negative half ties remain observable at the viewport's left edge. The raw
+// rectangular box and the snapped rounded contour are separate target rules.
+for (const origin of [-0.5, -0.515625]) {
+  for (const radius of [0, 4]) {
+    const token = `${origin}_${radius}`.replaceAll(/[^a-z0-9]/g, '_');
+    cases[`negative_${token}`] = {
+      standards: true,
+      region: 'table',
+      regions: ['table', 'target'],
+      viewports,
+      html: `<div id="table" style="position:relative;width:120px;height:90px"><div id="target" data-hit-points='${points(
+        [
+          [0.5, 10],
+          [0.515625, 0],
+          [1, 1],
+          [39.984375, 10],
+          [40, 10],
+        ],
+      )}' style="position:absolute;left:${origin}px;top:20.5px;width:40px;height:20px;border-radius:${radius}px;background:#567"></div></div>`,
+    };
+  }
+}
+for (const origin of [20.375, 20.625]) {
+  for (const radius of [0, 4]) {
+    const token = `${origin}_${radius}`.replaceAll(/[^a-z0-9]/g, '_');
+    cases[`rounded_control_${token}`] = {
+      standards: true,
+      region: 'table',
+      regions: ['table', 'target'],
+      viewports,
+      html: `<div id="table" style="position:relative;margin:${origin}px;width:160px;height:90px"><button id="target" data-hit-points='${points(
+        [
+          [1, 1],
+          [52.28125, 27],
+          [53.28125, 27],
+          [52.78125, 27.5],
+        ],
+      )}' style="position:absolute;left:30.328125px;top:20px;box-sizing:border-box;width:53.28125px;height:28px;border:0;padding:0;border-radius:${radius}px;background:#567">Save</button></div>`,
+    };
+  }
+}
 await runRenderingCases(cases, {}, 'pointer-geometry', '#table{background:#f4f0e8}');

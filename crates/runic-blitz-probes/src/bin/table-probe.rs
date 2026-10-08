@@ -462,10 +462,21 @@ mod tests {
 
     #[test]
     fn pointer_footprint_hits_small_gaps_and_preserves_large_gap_misses() {
+        use base64::Engine;
+        let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
+            "../../../../fixtures/counter-svelte/assets/DejaVuSans.woff2"
+        ));
         for (size, height, expected_text) in [(16, 20, true), (24, 48, false)] {
-            let mut doc = document(&format!(
-                "<div id='line' style='margin:20.375px;width:92px;font:{size}px/{height}px Test'><span id='text'>Alpha Agpq</span></div>"
-            ));
+            let mut doc = HtmlDocument::from_html(
+                &format!(
+                    "<!doctype html><style>@font-face{{font-family:Test;src:url(data:font/woff2;base64,{font})}}body{{margin:0}}</style><div id='line' style='margin:20.375px;width:92px;font:{size}px/{height}px Test'><span id='text'>Alpha Agpq</span></div>"
+                ),
+                DocumentConfig {
+                    net_provider: Some(blitz_shell::DataUriNetProvider::shared(None)),
+                    html_parser_provider: Some(std::sync::Arc::new(blitz_html::HtmlProvider)),
+                    ..Default::default()
+                },
+            );
             for scale in [1.0, 1.25, 2.0, 1.0] {
                 doc.inner_mut()
                     .set_viewport(blitz_traits::shell::Viewport::new(
