@@ -10,6 +10,11 @@ boundaries. Isolated worktree fixes below are not integrated fork support.
 The [control-box continuation](../conformance/results/chromium-control-boxes.md)
 records the repaired UA boxes, textarea baselines/overflow, mode/strut policy and
 fontless logical selections, with explicit residual geometry/paint gates.
+The [text-metric continuation](../conformance/results/chromium-text-metrics.md)
+adds opt-in Parley logical metrics, conditional inner-editor line height and shared
+signed centering/pointer boundaries. DPR 1/2 geometry passes both new text matrices;
+fractional-DPR boxes, raster placement and selected-text/RTL pointer states remain
+open. Two older input crops newly fail paint after their box offset is corrected.
 
 ## Rendering and layout
 

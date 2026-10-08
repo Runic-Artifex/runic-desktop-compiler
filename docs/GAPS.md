@@ -21,6 +21,11 @@ UA control geometry, DPR 2 text and other renderer gaps. The
 repairs UA sizing, textarea baselines/overflow, document-mode struts and fontless
 selection positions, while retaining span bounds, input centering, native theme
 paint and shared DPR metrics as separately owned work.
+The [text-metric continuation](../conformance/results/chromium-text-metrics.md)
+repairs logical font metric scaling and single-line inner-editor geometry, and
+shares signed offsets with pointer selection. Its new oracles retain fractional-DPR
+box, glyph-placement, selected-text click and RTL alignment failures. This remains
+isolated implementation evidence, not integrated compatibility.
 
 ## Detail
 

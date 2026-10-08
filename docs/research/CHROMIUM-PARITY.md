@@ -91,26 +91,40 @@ the 48-state refresh matrix and the older control/integration suites.
 record the scope. Legacy CSS parsing and empty inline/forced-break behavior
 remain distinct gaps.
 
-The next useful implementation order is the text metric-grid contract and
-single-line control centering, then ordinary inline span geometry. Keep native
-theme paint and document-mode edge cases as separate reductions. Float layout
-needs an explicitly enabled build; the current compiler disables that feature.
-Keep all repaired focus/table cases as regressions. The gaps retain separate
-owners and acceptance gates:
+The text continuation implements an opt-in Parley logical metric policy while
+preserving the device default, and Blitz's private inner-editor line-height,
+signed centering and ordinary pointer-boundary policy. Identical inputs improve
+text geometry 128→304/432, input geometry 64→336/504 and pointer editor state
+141→231/264. Every DPR 1/2 geometry state in both new text matrices passes.
+The older focus matrix now passes geometry 252/252 and pixels 164/252; layout
+geometry is 132/264. Compiled tables, forms and button/inline checks retain their
+gates. Two document-mode pixel states newly fail after fixing their 0.5px box
+position; retain that glyph-placement reduction explicitly.
+[Results](../../conformance/results/chromium-text-metrics.md) and the
+[logical-mode contract](../ARCHITECTURE.md#chromium-parity-logical-text-metric-quantization-2026-10-08-isolated)
+record scope and unchanged gates.
+
+The next useful order is fractional-DPR border/box geometry, ordinary inline span
+bounds, then the measured editor pointer/alignment and glyph-placement gaps.
+Keep native theme paint and document-mode edges separate. Float layout needs an
+explicitly enabled build; the compiler currently disables that feature. Preserve
+all focus/table regressions and the newly exposed failures. Owners and gates:
 
 | Gap | Evidence and owner | Next acceptance gate |
 |---|---|---|
 | CP-FONT-RANGE | Registration, range-aware matching/subset fallback and weight clamping are repaired in isolated Blitz/Fontique commits; 13 Fontique tests pass. This was not the table label paint cause | Keep the direct static/variable range matrix, decide the public struct-field API/semver change, then integrate reviewed pins; broader font paint remains open |
 | CP-INTRINSIC-TEXT | Fixed: sizing queries overwrote settled Parley line positions, moving table button labels outside their boxes despite correct DOM geometry | Preserve the compiled table and reduced table/flex/grid mutation/resize pixel cases; measure the retained-layout copy cost |
 | CP-TEXT-MEASURE-COST | Retaining text during intrinsic queries adds a measured mutation cost to the 100/1,000-row release benchmark | Reuse a separate scratch measurement layout or narrower retained state in the text/layout owner; require the same cache/mutation pixel regressions and before/after median/p95 measurements |
-| CP-EDITOR-FOCUS | Fixed for compiled table CPU/GPU fixtures: selected foreground/background, auto outlines and placeholder paint; disabled focus/traversal also repaired. The 252-state direct suite retains 172 pixel failures | Preserve visible/manual caret and independent editor-state checks; extend authored selection, dark/platform themes, bidi/IME and multibox outline cases when required |
+| CP-EDITOR-FOCUS | Fixed for compiled table CPU/GPU fixtures: selected foreground/background, auto outlines and placeholder paint; disabled focus/traversal also repaired. The 252-state direct suite now retains 88 pixel failures | Preserve visible/manual caret and independent editor-state checks; extend authored selection, dark/platform themes, bidi/IME and multibox outline cases when required |
 | CP-EDITOR-INITIAL | Repaired in Parley: valid logical positions survive fontless layouts instead of moving to EOF. All 48 refresh states, 9 older control states and 30 integration states match | Preserve resource/style/width/scale refresh cases; bidi, OS/IME and arbitrary invalid UTF-8 cursor offsets remain separate gates |
-| CP-CONTROL-UA-BOX | Ordinary text/search/textarea/button box models and textarea context baselines/visible overflow are repaired in Blitz/Stylo. The full layout matrix is 84/264 geometry, with all hits/editor/scroll passing | Keep default/authored sizing, standards/quirks, inline/flex/grid/table and visible/hidden/clip cases; close span bounds, fixed-height input alignment and DPR metrics without loosening gates |
-| CP-CONTROL-CENTER | Fixed-height single-line inputs retain a 0.5 px alignment discrepancy at DPR 1 and 2; textarea uses a separate multiline baseline path | Reduce inner editor line-height and vertical centering across heights/padding/margins and UA/authored fonts; keep computed outer styles intact |
-| CP-TEXT-METRIC-GRID | Shared textarea baselines are 15/35 device px at DPR 1 and 31/71 at DPR 2, instead of a doubled 30/70. Ordinary glyphs share the one-device-pixel drift | Write an explicit CSS-grid ADR before adding an opt-in Parley policy; preserve public physical quantization default and compare glyph/selection/caret grids at DPR 1/1.25/2 |
+| CP-CONTROL-UA-BOX | Ordinary text/search/textarea/button box models and textarea context baselines/visible overflow are repaired in Blitz/Stylo. The full layout matrix is now 132/264 geometry, with all hits/editor/scroll passing | Keep default/authored sizing, standards/quirks, inline/flex/grid/table and visible/hidden/clip cases; close span bounds, fixed-height input alignment and DPR metrics without loosening gates |
+| CP-CONTROL-CENTER | Repaired in Blitz: conditional inner-editor line height and signed centering share geometry with baselines, paint and pointers. New input geometry is 336/504; all DPR 1/2 states pass | Preserve auto/fixed/percent/calc and integer-threshold cases, authored outer CSS, textarea behavior and refreshes; fractional-DPR boxes remain separate |
+| CP-TEXT-METRIC-GRID | Repaired metric scaling in opt-in Parley Logical mode: textarea is 15/35 CSS px at all scales, 30/70 device px at DPR 2. Text geometry is 304/432, but only 48 local pixel states pass | Preserve Device default, unquantized behavior, builder reuse/editor refresh, fractional authored geometry and std/libm checks; raster coverage stays separately owned |
+| CP-CONTROL-FRACTIONAL-BOX | At DPR 1.25, control borders produce about 0.4px outer-size differences; all 128 text and 168 height-matrix geometry residuals are here. Stylo device-pixel border snapping differs from Chromium layout rounding | Reduce border widths and CSS zoom on plain boxes/controls at DPR 1/1.25/1.5/2; freeze a style-owner policy before changing public APIs; share computed, layout, paint and hit values |
+| CP-EDITOR-POINTER | Outside-line ordinary clicks/drags now use logical boundaries, including RTL; 231/264 editor states pass. Fifteen selected-text click and eighteen RTL inside-editor states fail | Preserve all new states; reduce delayed collapse/drag initiation separately from RTL content-width/alignment, and keep single-line no-wrap scrolling |
 | CP-INLINE-SPAN-BOUNDS | Ordinary `#text` spans in the control matrix retain whole-line height and omit their 8px inline margin placement | Reduce inline fragment bounds and margins in Blitz/Parley across wrapping and bidi; share geometry with hits/DOM reads rather than compensating control paint |
 | CP-CONTROL-THEME | A default button label matches bounds and passes its interior crop at MAE 1.464, while its full crop is 22.076 from native lower/right bevel colors | Reduce `appearance:auto` theme paint separately from authored CSS borders and `appearance:none`; cover active/disabled/focus states and preserve custom control/table cases |
-| CP-DOCUMENT-MODE | Parser mode, fragment preservation, device rebuilds and empty root struts are repaired. Core mode geometry is 58/60; full 132-state oracle retains float and break/newline failures | Keep mode/cache regressions; separately reduce quirks/limited-quirks `<br>` and preserved newlines (19px residual), empty/collapsed whitespace and inline border/padding. Enable floats only for a measured float scope |
+| CP-DOCUMENT-MODE | Parser mode, fragment preservation, device rebuilds and empty root struts are repaired. Core mode geometry is now 60/60; full 132-state oracle retains float and break/newline failures | Keep mode/cache regressions; separately reduce quirks/limited-quirks `<br>` and preserved newlines (19px residual), empty/collapsed whitespace and inline border/padding. Enable floats only for a measured float scope |
 | CP-NESTED-INLINE | Nested atomic inline/button reductions retain local paint failures while geometry passes; baseline measurement can promote child sizing to PerformLayout | Compare retained child line positions and baselines across table/flex/grid intrinsic passes; keep nested failures in the oracle |
 | CP-FONT-INSTANCES | Variable-font auto optical sizing/normal-line-height states retain geometry and paint failures; static single-face synthetic bold and DPR 2 paint also fail | Resolve CSS variation precedence and optical sizing in the Blitz font bridge and metrics provider, consume synthesis in paint, then compare pinned glyph regions across DPR |
 | CP-FONT-ORDER | Both source orders of overlapping static/variable CSS face declarations retain geometry/pixel failures in `font-weights.mjs` | Preserve CSS face priority at the registration/query boundary independently of generic/system Fontique family ordering; cover overlapping ranges and resource completion order without dropping subset fallback |
@@ -123,20 +137,39 @@ owners and acceptance gates:
 The checked-in [initial verification record](../../conformance/results/chromium-parity.md),
 [font/inline continuation](../../conformance/results/chromium-font-inline.md) and
 [focus continuation](../../conformance/results/chromium-control-focus.md), followed by
-[control boxes](../../conformance/results/chromium-control-boxes.md), separate
+[control boxes](../../conformance/results/chromium-control-boxes.md) and
+[text metrics](../../conformance/results/chromium-text-metrics.md), separate
 fixed worktree behavior, residual failures and shipping gates. None of
 the broader P1/P4/P7 clusters is closed merely by these patches.
 
-Before a CSS-grid prototype, write an ADR defining font metric units, scale
-conversion ownership, baseline/half-leading rounding and the shared glyph,
-selection and caret raster grid, including fractional DPR. Add a distinct
-opt-in policy with the current physical mode as default. The acceptance matrix
-must cover DPR 1/1.25/2, 12/14/16/24px, fractional origins, ordinary inline text,
-input and two-line textarea, focus/caret/selection, and Arabic as well as Latin.
-The private probe already records device baselines and line heights. Keep CSS
-geometry, hits, editor state, scroll and pixels independent, preserving existing
-gates. Synthesis, optical sizing and CSS face ordering remain font-owner work;
-native theme painting cannot change general authored border semantics.
+The logical-grid ADR and 432-state text matrix are implemented. Keep the public
+Device default, fractional authored positions, shared glyph/selection/caret metrics,
+and independent geometry/hit/editor/scroll/pixel gates as regressions. Synthesis,
+optical sizing and CSS face ordering remain font-owner work; native theme paint
+cannot change general authored border semantics.
+
+The next bounded reductions should be implemented in this order:
+
+1. **Fractional-DPR boxes (Stylo/Blitz device).** Compare computed and used border
+   widths, content/border boxes and minimum sizes across plain elements and text
+   controls, including fractional widths and CSS zoom. Chromium's converter rounds
+   computed layout lengths; Stylo currently uses device-pixel app units. Record
+   unchanged defaults and a style-owner ADR before introducing a public policy.
+   Close the retained DPR 1.25 failures without a painter-only compensation.
+2. **Inline fragments (Blitz/Parley).** Reduce ordinary span font bounds and inline
+   margins across wrapping, empty content, nested vertical alignment and bidi.
+   Share visual fragment geometry with DOM reads and hits; preserve the table,
+   flex/grid intrinsic, mutation and resize cases.
+3. **Editor interaction (Blitz events/layout).** Separate clicks inside a selected
+   range and drag initiation from RTL/start/end/center alignment. Determine editor
+   alignment width independently of single-line no-wrap shaping and scroll extent;
+   require retained selection/caret behavior across width, font and scale changes.
+   Add exact boundary and double/triple-click cases before expanding the claim.
+4. **Glyph placement (Glifo/Vello).** Retain the two newly failing standards input
+   crops and isolate fractional container/editor translations whose final baseline
+   is integral. Compare cached/direct outline paths and hinting/coverage; geometry
+   stays correct and pixel MAE remains 3. Keep font instances/order and theme paint
+   as distinct reductions.
 
 | Batch | Gaps and app relevance | Owning modules | Completion evidence |
 |---|---|---|---|

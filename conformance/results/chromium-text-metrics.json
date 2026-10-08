@@ -1,0 +1,1484 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": {
+    "RunicDesktopCompiler-tables": "ab5314d6abc8a629f2fe60eef917ccdca0cb5c6d",
+    "blitz-tables": "09ebf3ceac7a4e5a2c4cac43ad2406da3e977203",
+    "parley-chromium-parity": "ac9bed8a4f17dfc327bf5f156f486185821b4a89",
+    "stylo-chromium-parity": "b2cf0bbebffd5a26c2c5e3141f2f4226e67ec2dc",
+    "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f"
+  },
+  "gates": {
+    "directGeometryToleranceCSSPx": 0.125,
+    "compiledGeometryToleranceCSSPx": 2,
+    "localPixelMAE": 3
+  },
+  "environment": {
+    "sharedTarget": "/home/viktor/Development/RunicDesktopCompiler/target",
+    "nativeBuildWrapper": "node compiler/cargo.mjs",
+    "profile": "/tmp/runic-metrics-dev-profile",
+    "flakeLockSHA256": "ed928e945c79e3d7f19d37b13a05f0d97b98440b38661d97bf77844e40606431",
+    "cargoLockSHA256": "1364b4e71332172936c2bb2ceb57bd13f1d5127e63f994f06ef1061a9735bca6",
+    "fontSHA256": "a75044e4dab293c1ac7f8eba9f20df03f183f41b9319054f43b955959981632a"
+  },
+  "originals": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "e8dd36c6694be78902599320ab1653564627d128",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "status": ""
+    }
+  ],
+  "oneExperimentWorktreePerRepository": true,
+  "newOracles": {
+    "text-metric-grid": {
+      "baselineDirectory": "artifacts/text-metric-grid-baseline",
+      "baselineSources": {
+        "blitz-tables": "57db2372e1cdf695cb261db0622df5868c42a3b4",
+        "parley-chromium-parity": "e5f3dc34c372d1b59991436730852c635cd7ca71",
+        "stylo-chromium-parity": "b2cf0bbebffd5a26c2c5e3141f2f4226e67ec2dc",
+        "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+        "RunicDesktopCompiler-tables": "9c9c1d96d2ce6afc20ef2080896aa628460b69d1"
+      },
+      "finalDirectory": "artifacts/text-metrics-final-text-metric-grid",
+      "identicalHTMLHashesAndStateOrder": true,
+      "unchangedActionScript": true,
+      "before": {
+        "states": 432,
+        "geometryPassed": 128,
+        "hitsPassed": 280,
+        "editorStatesPassed": 432,
+        "scrollPassed": 432,
+        "localPixelsPassed": 19,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 432,
+        "geometryPassed": 304,
+        "hitsPassed": 280,
+        "editorStatesPassed": 432,
+        "scrollPassed": 432,
+        "localPixelsPassed": 48,
+        "offscreenNamedCrops": 0
+      },
+      "byDPR": {
+        "1": {
+          "states": 144,
+          "geometryPassed": 144,
+          "hitsPassed": 136,
+          "editorStatesPassed": 144,
+          "scrollPassed": 144,
+          "localPixelsPassed": 18,
+          "offscreenNamedCrops": 0
+        },
+        "2": {
+          "states": 144,
+          "geometryPassed": 144,
+          "hitsPassed": 136,
+          "editorStatesPassed": 144,
+          "scrollPassed": 144,
+          "localPixelsPassed": 16,
+          "offscreenNamedCrops": 0
+        },
+        "1.25": {
+          "states": 144,
+          "geometryPassed": 16,
+          "hitsPassed": 8,
+          "editorStatesPassed": 144,
+          "scrollPassed": 144,
+          "localPixelsPassed": 14,
+          "offscreenNamedCrops": 0
+        }
+      }
+    },
+    "input-line-height": {
+      "baselineDirectory": "artifacts/input-line-height-before",
+      "baselineSources": {
+        "blitz-tables": "44cfd0f073d507f487dead72919574fbea51347b",
+        "parley-chromium-parity": "eb5c8a16316daf840f9130ec651737d28d70166c",
+        "stylo-chromium-parity": "b2cf0bbebffd5a26c2c5e3141f2f4226e67ec2dc",
+        "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+        "RunicDesktopCompiler-tables": "1d478285b84d50171e3c08f687ab39ddce564121"
+      },
+      "finalDirectory": "artifacts/text-metrics-final-input-line-height",
+      "identicalHTMLHashesAndStateOrder": true,
+      "unchangedActionScript": true,
+      "before": {
+        "states": 504,
+        "geometryPassed": 64,
+        "hitsPassed": 336,
+        "editorStatesPassed": 504,
+        "scrollPassed": 504,
+        "localPixelsPassed": 70,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 504,
+        "geometryPassed": 336,
+        "hitsPassed": 336,
+        "editorStatesPassed": 504,
+        "scrollPassed": 504,
+        "localPixelsPassed": 134,
+        "offscreenNamedCrops": 0
+      },
+      "byDPR": {
+        "1": {
+          "states": 168,
+          "geometryPassed": 168,
+          "hitsPassed": 168,
+          "editorStatesPassed": 168,
+          "scrollPassed": 168,
+          "localPixelsPassed": 46,
+          "offscreenNamedCrops": 0
+        },
+        "2": {
+          "states": 168,
+          "geometryPassed": 168,
+          "hitsPassed": 168,
+          "editorStatesPassed": 168,
+          "scrollPassed": 168,
+          "localPixelsPassed": 52,
+          "offscreenNamedCrops": 0
+        },
+        "1.25": {
+          "states": 168,
+          "geometryPassed": 0,
+          "hitsPassed": 0,
+          "editorStatesPassed": 168,
+          "scrollPassed": 168,
+          "localPixelsPassed": 36,
+          "offscreenNamedCrops": 0
+        }
+      }
+    },
+    "input-pointer": {
+      "baselineDirectory": "artifacts/input-pointer-before",
+      "baselineSources": {
+        "blitz-tables": "75946614bee5e47d2172a59337008585fda44222",
+        "parley-chromium-parity": "ac9bed8a4f17dfc327bf5f156f486185821b4a89",
+        "stylo-chromium-parity": "b2cf0bbebffd5a26c2c5e3141f2f4226e67ec2dc",
+        "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+        "RunicDesktopCompiler-tables": "ab5314d6abc8a629f2fe60eef917ccdca0cb5c6d"
+      },
+      "finalDirectory": "artifacts/text-metrics-final-input-pointer",
+      "identicalHTMLHashesAndStateOrder": true,
+      "unchangedActionScript": true,
+      "before": {
+        "states": 264,
+        "geometryPassed": 176,
+        "hitsPassed": 264,
+        "editorStatesPassed": 141,
+        "scrollPassed": 264,
+        "localPixelsPassed": 13,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 264,
+        "geometryPassed": 176,
+        "hitsPassed": 264,
+        "editorStatesPassed": 231,
+        "scrollPassed": 264,
+        "localPixelsPassed": 13,
+        "offscreenNamedCrops": 0
+      },
+      "byDPR": {
+        "1": {
+          "states": 88,
+          "geometryPassed": 88,
+          "hitsPassed": 88,
+          "editorStatesPassed": 77,
+          "scrollPassed": 88,
+          "localPixelsPassed": 5,
+          "offscreenNamedCrops": 0
+        },
+        "2": {
+          "states": 88,
+          "geometryPassed": 88,
+          "hitsPassed": 88,
+          "editorStatesPassed": 77,
+          "scrollPassed": 88,
+          "localPixelsPassed": 6,
+          "offscreenNamedCrops": 0
+        },
+        "1.25": {
+          "states": 88,
+          "geometryPassed": 0,
+          "hitsPassed": 88,
+          "editorStatesPassed": 77,
+          "scrollPassed": 88,
+          "localPixelsPassed": 2,
+          "offscreenNamedCrops": 0
+        }
+      }
+    }
+  },
+  "olderOracles": {
+    "control-document-mode": {
+      "before": {
+        "states": 132,
+        "geometryPassed": 90,
+        "hitsPassed": 120,
+        "editorStatesPassed": 132,
+        "scrollPassed": 132,
+        "localPixelsPassed": 64,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 132,
+        "geometryPassed": 92,
+        "hitsPassed": 120,
+        "editorStatesPassed": 132,
+        "scrollPassed": 132,
+        "localPixelsPassed": 84,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "control-layout": {
+      "before": {
+        "states": 264,
+        "geometryPassed": 84,
+        "hitsPassed": 264,
+        "editorStatesPassed": 264,
+        "scrollPassed": 264,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 264,
+        "geometryPassed": 132,
+        "hitsPassed": 264,
+        "editorStatesPassed": 264,
+        "scrollPassed": 264,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "control-selection": {
+      "before": {
+        "states": 48,
+        "geometryPassed": 48,
+        "hitsPassed": 48,
+        "editorStatesPassed": 48,
+        "scrollPassed": 48,
+        "localPixelsPassed": 8,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 48,
+        "geometryPassed": 48,
+        "hitsPassed": 48,
+        "editorStatesPassed": 48,
+        "scrollPassed": 48,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "control-focus": {
+      "before": {
+        "states": 252,
+        "geometryPassed": 240,
+        "hitsPassed": 252,
+        "editorStatesPassed": 252,
+        "scrollPassed": 252,
+        "localPixelsPassed": 80,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 252,
+        "geometryPassed": 252,
+        "hitsPassed": 252,
+        "editorStatesPassed": 252,
+        "scrollPassed": 252,
+        "localPixelsPassed": 164,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "tables": {
+      "before": {
+        "states": 77,
+        "geometryPassed": 77,
+        "hitsPassed": 77,
+        "editorStatesPassed": 77,
+        "scrollPassed": 77,
+        "localPixelsPassed": 74,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 77,
+        "geometryPassed": 77,
+        "hitsPassed": 77,
+        "editorStatesPassed": 77,
+        "scrollPassed": 77,
+        "localPixelsPassed": 74,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "table-document-mode": {
+      "before": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 12,
+        "geometryPassed": 12,
+        "hitsPassed": 12,
+        "editorStatesPassed": 12,
+        "scrollPassed": 12,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "table-controls": {
+      "before": {
+        "states": 4,
+        "geometryPassed": 4,
+        "hitsPassed": 2,
+        "editorStatesPassed": 4,
+        "scrollPassed": 4,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 4,
+        "geometryPassed": 4,
+        "hitsPassed": 2,
+        "editorStatesPassed": 4,
+        "scrollPassed": 4,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "table-integration": {
+      "before": {
+        "states": 30,
+        "geometryPassed": 22,
+        "hitsPassed": 24,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 23,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 30,
+        "geometryPassed": 22,
+        "hitsPassed": 24,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 23,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "controls": {
+      "before": {
+        "states": 9,
+        "geometryPassed": 8,
+        "hitsPassed": 8,
+        "editorStatesPassed": 9,
+        "scrollPassed": 9,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 9,
+        "geometryPassed": 8,
+        "hitsPassed": 8,
+        "editorStatesPassed": 9,
+        "scrollPassed": 9,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "scrolling": {
+      "before": {
+        "states": 148,
+        "geometryPassed": 148,
+        "hitsPassed": 148,
+        "editorStatesPassed": 148,
+        "scrollPassed": 148,
+        "localPixelsPassed": 148,
+        "offscreenNamedCrops": 2
+      },
+      "after": {
+        "states": 148,
+        "geometryPassed": 148,
+        "hitsPassed": 148,
+        "editorStatesPassed": 148,
+        "scrollPassed": 148,
+        "localPixelsPassed": 148,
+        "offscreenNamedCrops": 2
+      },
+      "identicalInputHashes": true
+    },
+    "css-animations": {
+      "before": {
+        "states": 40,
+        "geometryPassed": 40,
+        "hitsPassed": 40,
+        "editorStatesPassed": 40,
+        "scrollPassed": 40,
+        "localPixelsPassed": 40,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 40,
+        "geometryPassed": 40,
+        "hitsPassed": 40,
+        "editorStatesPassed": 40,
+        "scrollPassed": 40,
+        "localPixelsPassed": 40,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "intrinsic-text": {
+      "before": {
+        "states": 30,
+        "geometryPassed": 30,
+        "hitsPassed": 30,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 20,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 30,
+        "geometryPassed": 30,
+        "hitsPassed": 30,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 20,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "font-weights": {
+      "before": {
+        "states": 36,
+        "geometryPassed": 12,
+        "hitsPassed": 28,
+        "editorStatesPassed": 36,
+        "scrollPassed": 36,
+        "localPixelsPassed": 12,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 36,
+        "geometryPassed": 12,
+        "hitsPassed": 28,
+        "editorStatesPassed": 36,
+        "scrollPassed": 36,
+        "localPixelsPassed": 16,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "glyphs": {
+      "before": {
+        "states": 38,
+        "geometryPassed": 38,
+        "hitsPassed": 38,
+        "editorStatesPassed": 38,
+        "scrollPassed": 38,
+        "localPixelsPassed": 3,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 38,
+        "geometryPassed": 38,
+        "hitsPassed": 38,
+        "editorStatesPassed": 38,
+        "scrollPassed": 38,
+        "localPixelsPassed": 4,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    },
+    "borders": {
+      "before": {
+        "states": 7,
+        "geometryPassed": 7,
+        "hitsPassed": 7,
+        "editorStatesPassed": 7,
+        "scrollPassed": 7,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "after": {
+        "states": 7,
+        "geometryPassed": 7,
+        "hitsPassed": 7,
+        "editorStatesPassed": 7,
+        "scrollPassed": 7,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "identicalInputHashes": true
+    }
+  },
+  "newRegressions": [
+    {
+      "suite": "control-document-mode",
+      "gate": "pixels",
+      "name": "standards_input_default",
+      "dpr": 1,
+      "step": 0,
+      "beforeLocalPixelMAEs": {
+        "table": 0.23723950500000002,
+        "control": 0.87697305
+      },
+      "afterLocalPixelMAEs": {
+        "table": 2.7772305000000004,
+        "control": 10.2662745
+      }
+    },
+    {
+      "suite": "control-document-mode",
+      "gate": "pixels",
+      "name": "standards_input_default",
+      "dpr": 1,
+      "step": 1,
+      "beforeLocalPixelMAEs": {
+        "table": 0.23723950500000002,
+        "control": 0.87697305
+      },
+      "afterLocalPixelMAEs": {
+        "table": 2.7772305000000004,
+        "control": 10.2662745
+      }
+    }
+  ],
+  "compiled": {
+    "tables-cpu": {
+      "runs": 6,
+      "states": 96,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 1.27
+    },
+    "tables-gpu": {
+      "runs": 2,
+      "states": 32,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": ["llvmpipe (LLVM 21.1.8, 256 bits)"],
+      "maxPixelMAE": 2.396
+    },
+    "forms-focus": {
+      "runs": 22,
+      "states": 242,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 0.388
+    },
+    "control-regressions": {
+      "runs": 7,
+      "states": 19,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "browserVersion": "153.0.8010.12",
+      "gpuAdapters": [],
+      "maxPixelMAE": 0.594
+    }
+  },
+  "units": {
+    "workspace": {
+      "exitCode": 0,
+      "passed": 118,
+      "failed": 0,
+      "log": "artifacts/text-metrics-final-workspace.log"
+    },
+    "blitz-paint": {
+      "exitCode": 0,
+      "passed": 8,
+      "failed": 0,
+      "log": "artifacts/text-metrics-final-blitz-paint.log"
+    },
+    "blitz-dom": {
+      "exitCode": 101,
+      "passed": 50,
+      "failed": 2,
+      "log": "artifacts/text-metrics-final-blitz-dom.log"
+    },
+    "blitz-html": {
+      "exitCode": 0,
+      "passed": 3,
+      "failed": 0,
+      "log": "artifacts/text-metrics-final-blitz-html.log"
+    },
+    "parley-std": {
+      "exitCode": 101,
+      "passed": 107,
+      "failed": 4,
+      "log": "artifacts/text-metrics-final-parley-std.log"
+    },
+    "npm": {
+      "exitCode": 0,
+      "passed": 297,
+      "failed": 0,
+      "includesFrontendTypeCheck": true
+    },
+    "parley-libm": {
+      "exitCode": 0,
+      "kind": "no-default-features libm compile check"
+    }
+  },
+  "knownUnitFailures": {
+    "blitz-dom": [
+      "document::hover_invalidation_tests::hover_styles_apply_and_clear",
+      "node::element::tests::scroll_by_clamps_and_bubbles"
+    ],
+    "parley-std": [
+      "cluster_from_position_center_alignment",
+      "cluster_from_position_end_alignment",
+      "cluster_from_position_justified_alignment",
+      "cluster_from_position_start_alignment"
+    ],
+    "parleyReason": "Existing tests assume system fonts and do not register a test font; they assert more than five glyphs in a fontless collection."
+  },
+  "incompleteStages": [
+    "Original Parley workspace includes unavailable unused Tango git benchmark dependency; focused source-only workspace used.",
+    "Parley default system-font test feature: locked development environment lacks fontconfig pkg-config metadata.",
+    "/code-review tool unavailable.",
+    "OS keyboard/pointer/compositor/IME delivery not established by internal events."
+  ],
+  "parleyHarness": {
+    "exactSourceFilesMatched": 148,
+    "dependencyPruning": {
+      "newPackageVersionSourceTuples": 0,
+      "removedUnusedPackages": 401
+    },
+    "sourceRevision": "ac9bed8a4f17dfc327bf5f156f486185821b4a89",
+    "metadata": "artifacts/text-metrics-final-parley-harness/metadata.json"
+  },
+  "commands": [
+    {
+      "name": "input-pointer",
+      "command": ["node", "conformance/input-pointer.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 72.978693334,
+      "log": "artifacts/text-metrics-final-input-pointer.log"
+    },
+    {
+      "name": "text-metric-grid",
+      "command": ["node", "conformance/text-metric-grid.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 141.980171889,
+      "log": "artifacts/text-metrics-final-text-metric-grid.log"
+    },
+    {
+      "name": "input-line-height",
+      "command": ["node", "conformance/input-line-height.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 150.64256785800004,
+      "log": "artifacts/text-metrics-final-input-line-height.log"
+    },
+    {
+      "name": "npm",
+      "command": ["npm", "test"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 67.351058853,
+      "log": "artifacts/text-metrics-final-npm.log"
+    },
+    {
+      "name": "control-document-mode",
+      "command": ["node", "conformance/control-document-mode.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 49.33846494400001,
+      "log": "artifacts/text-metrics-final-control-document-mode.log"
+    },
+    {
+      "name": "control-layout",
+      "command": ["node", "conformance/control-layout.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 105.47950432799999,
+      "log": "artifacts/text-metrics-final-control-layout.log"
+    },
+    {
+      "name": "control-selection",
+      "command": ["node", "conformance/control-selection.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 14.292439729,
+      "log": "artifacts/text-metrics-final-control-selection.log"
+    },
+    {
+      "name": "control-focus",
+      "command": ["node", "conformance/control-focus.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 76.018071014,
+      "log": "artifacts/text-metrics-final-control-focus.log"
+    },
+    {
+      "name": "tables-cpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--out",
+        "artifacts/text-metrics-final-tables-cpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 56.140928774,
+      "log": "artifacts/text-metrics-final-tables-cpu.log"
+    },
+    {
+      "name": "tables-gpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--renderer",
+        "gpu",
+        "--fixture",
+        "table-svelte",
+        "--out",
+        "artifacts/text-metrics-final-tables-gpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 22.908253583999997,
+      "log": "artifacts/text-metrics-final-tables-gpu.log"
+    },
+    {
+      "name": "forms-focus",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "forms",
+        "forms-react",
+        "forms-vue",
+        "measure",
+        "scroll-events",
+        "focus",
+        "focus-fixup",
+        "--pixels",
+        "--out",
+        "artifacts/text-metrics-final-forms-focus"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 117.442795701,
+      "log": "artifacts/text-metrics-final-forms-focus.log"
+    },
+    {
+      "name": "control-regressions",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "blitz-buttons",
+        "blitz-button-baseline",
+        "blitz-control-line-height",
+        "blitz-inline-baselines",
+        "--pixels",
+        "--out",
+        "artifacts/text-metrics-final-control-regressions"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 30.026479531000017,
+      "log": "artifacts/text-metrics-final-control-regressions.log"
+    },
+    {
+      "name": "tables",
+      "command": ["node", "conformance/tables.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 17.95381576,
+      "log": "artifacts/text-metrics-final-tables.log"
+    },
+    {
+      "name": "table-document-mode",
+      "command": ["node", "conformance/table-document-mode.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.6221868719999986,
+      "log": "artifacts/text-metrics-final-table-document-mode.log"
+    },
+    {
+      "name": "table-controls",
+      "command": ["node", "conformance/table-controls.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 3.5756702390000026,
+      "log": "artifacts/text-metrics-final-table-controls.log"
+    },
+    {
+      "name": "table-integration",
+      "command": ["node", "conformance/table-integration.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 8.551312623,
+      "log": "artifacts/text-metrics-final-table-integration.log"
+    },
+    {
+      "name": "controls",
+      "command": ["node", "conformance/controls.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 4.164941312999999,
+      "log": "artifacts/text-metrics-final-controls.log"
+    },
+    {
+      "name": "scrolling",
+      "command": ["node", "conformance/scrolling.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 31.909548189000002,
+      "log": "artifacts/text-metrics-final-scrolling.log"
+    },
+    {
+      "name": "css-animations",
+      "command": ["node", "conformance/css-animations.mjs"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 6.738039312,
+      "log": "artifacts/text-metrics-final-css-animations.log"
+    },
+    {
+      "name": "intrinsic-text",
+      "command": ["node", "conformance/intrinsic-text.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 9.974179923,
+      "log": "artifacts/text-metrics-final-intrinsic-text.log"
+    },
+    {
+      "name": "font-weights",
+      "command": ["node", "conformance/font-weights.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 65.471388173,
+      "log": "artifacts/text-metrics-final-font-weights.log"
+    },
+    {
+      "name": "glyphs",
+      "command": ["node", "conformance/glyphs.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.803296794000001,
+      "log": "artifacts/text-metrics-final-glyphs.log"
+    },
+    {
+      "name": "borders",
+      "command": ["node", "conformance/borders.mjs"],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 2.9871059460000104,
+      "log": "artifacts/text-metrics-final-borders.log"
+    },
+    {
+      "name": "workspace",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "--workspace"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 22.333487408,
+      "log": "artifacts/text-metrics-final-workspace.log"
+    },
+    {
+      "name": "blitz-paint",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-paint", "--lib"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 2.0828165530000007,
+      "log": "artifacts/text-metrics-final-blitz-paint.log"
+    },
+    {
+      "name": "blitz-dom",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-dom", "--lib"],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 5.70855157,
+      "log": "artifacts/text-metrics-final-blitz-dom.log"
+    },
+    {
+      "name": "blitz-html",
+      "command": ["node", "compiler/cargo.mjs", "test", "--offline", "-p", "blitz-html", "--lib"],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.0074039630000002,
+      "log": "artifacts/text-metrics-final-blitz-html.log"
+    },
+    {
+      "name": "parley-std",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-metrics-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--lib",
+        "--no-default-features",
+        "--features",
+        "std"
+      ],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 5.366821857,
+      "log": "artifacts/text-metrics-final-parley-std.log"
+    },
+    {
+      "name": "parley-libm",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "check",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-metrics-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--no-default-features",
+        "--features",
+        "libm"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 6.855908149000001,
+      "log": "artifacts/text-metrics-final-parley-libm.log"
+    }
+  ],
+  "interruptedAttempts": [
+    {
+      "stage": "npm",
+      "result": "terminated by SIGTERM; incomplete; repeated in full"
+    },
+    {
+      "stage": "font-weights",
+      "result": "terminated by SIGTERM before results were finalized; incomplete; repeated in full"
+    }
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/control-box-verified-borders/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-borders/results.json",
+      "sha256": "68aad8e23f241fb55b85a29317ac94373408fbdfdf9ecab7fc1419a9563a40d3"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-document-mode/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-document-mode/results.json",
+      "sha256": "e68b2b3ed9e449b4fe4fc2cf1b00abee5e7312499b11a9ca1117f7417972a85a"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-focus/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-focus/results.json",
+      "sha256": "4fe4f79764b6951eeea2843f1f6bf96f0d6ac34a1b268b740890fc8224e58854"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-layout/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-layout/results.json",
+      "sha256": "4f44a9e94487ad8c628ad2f896bcf7e086c062aea70d6cf1bfe10e66ab3b5562"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-selection/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-selection/results.json",
+      "sha256": "1e0d21f7ce262e1396624eb1462faa322891a80868c619d3bc0eddcd88127e8d"
+    },
+    {
+      "path": "artifacts/control-box-verified-controls/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-controls/results.json",
+      "sha256": "dd5c2b828829b5c972d245a94a74b1339786f37fa94eb5f932b2938376d34233"
+    },
+    {
+      "path": "artifacts/control-box-verified-css-animations/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-css-animations/results.json",
+      "sha256": "dc690b9891527a636e3adc911dc63eff156cb4e743086a7f1bea0a9f1ea38726"
+    },
+    {
+      "path": "artifacts/control-box-verified-font-weights/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-font-weights/results.json",
+      "sha256": "39ef5ab2fe6f30e4d01eb75b3fb371a09d67648e2a4bb8cba0716961c8883996"
+    },
+    {
+      "path": "artifacts/control-box-verified-glyphs/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-glyphs/results.json",
+      "sha256": "d302ee201be08d5b05900bce8378a6bd67d8e200d3a3d49e7e89f1cf7e40b888"
+    },
+    {
+      "path": "artifacts/control-box-verified-intrinsic-text/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-intrinsic-text/results.json",
+      "sha256": "70bde9a1aced507aebe11eb6ee10b1f67ef6a376b24729ded71a9f2f1bc630f5"
+    },
+    {
+      "path": "artifacts/control-box-verified-scrolling/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-scrolling/results.json",
+      "sha256": "267a7031628b8eab560fa33e5241014b8edbdd99fa84802fd5389eb88a0f34fe"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-controls/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-controls/results.json",
+      "sha256": "c71686e344701123ef719ccdf30768535d4046ff2ea125b9fceda052f99820fa"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-document-mode/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-document-mode/results.json",
+      "sha256": "116859f74d93628da728de1b0d0a75520ac654a5712d52c70ad5a4d4ae91a34c"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-integration/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-integration/results.json",
+      "sha256": "19689010ac5575eb15939335d22e0e4f0ec1ff4242e0d5a411ff7f524a50e8cc"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables/results.json",
+      "sha256": "d814b32310a728797ef5590f9746da19fae059737a433bf121a16a926be537a5"
+    },
+    {
+      "path": "artifacts/input-line-height-before.log",
+      "sha256": "739718f0ca38527f222bec7188ecfd80dc120b923e5805d8a987b9f98d688885"
+    },
+    {
+      "path": "artifacts/input-line-height-before/metadata.json",
+      "sha256": "fa1fdde5e11cf6fbe2b3fb762e983f94ba45224d7fbc7b71b7eb0f746ca55c98"
+    },
+    {
+      "path": "artifacts/input-line-height-before/results.json",
+      "sha256": "e9456a2513f5551d873526a8fce2fcc9de5247cd18eb4900f150266122bc6f04"
+    },
+    {
+      "path": "artifacts/input-pointer-before.log",
+      "sha256": "a26adb682e35b251e2b8562ef32843cfe3ffd2fa5d45e2e058a33e6dc5f6fccb"
+    },
+    {
+      "path": "artifacts/input-pointer-before/metadata.json",
+      "sha256": "6c77b6d2c97557277d397865fce46e5fbf0bc54847b2e89cdce3fbf16d226103"
+    },
+    {
+      "path": "artifacts/input-pointer-before/results.json",
+      "sha256": "75070abcd70fb13fa7956573fe878e0d1fbb6bdba67a4620f7d5186e3fe98f42"
+    },
+    {
+      "path": "artifacts/text-metric-grid-baseline.log",
+      "sha256": "c0c35b7bf1f1f8c46cf7ba33b088bd80bda04a8a33da61cf6b18e5b73521906e"
+    },
+    {
+      "path": "artifacts/text-metric-grid-baseline/metadata.json",
+      "sha256": "eef86b18b9ee0db185700125d33cfc4fc03eb19510ab250d4e6078a145db1c1f"
+    },
+    {
+      "path": "artifacts/text-metric-grid-baseline/results.json",
+      "sha256": "d1e0ec0d2aebb7d5af1fd1036039137256a29d941ad20910fe124b34e11066b3"
+    },
+    {
+      "path": "artifacts/text-metrics-final-blitz-dom.log",
+      "sha256": "efb00ec52f09805e0c867bdf96164f9c47d52f68f0f6bd7438b51932fe0d1c38"
+    },
+    {
+      "path": "artifacts/text-metrics-final-blitz-html.log",
+      "sha256": "ce7d4b43f99d32f11b357eae42824fc0644571c42fc7330d7a40ac4794d74ce4"
+    },
+    {
+      "path": "artifacts/text-metrics-final-blitz-paint.log",
+      "sha256": "7c90c47a8d1bdc97c12bb42071b392e9bd7837964c4f37f6f60e0ea0ffa8446b"
+    },
+    {
+      "path": "artifacts/text-metrics-final-borders.log",
+      "sha256": "6390da8549ae25e666a59019d548d749717100159c1ad94b23192a2079f2c51a"
+    },
+    {
+      "path": "artifacts/text-metrics-final-borders/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-borders/results.json",
+      "sha256": "68aad8e23f241fb55b85a29317ac94373408fbdfdf9ecab7fc1419a9563a40d3"
+    },
+    {
+      "path": "artifacts/text-metrics-final-commands.json",
+      "sha256": "eef847d5856be95a5e807ad8334a1bad91757257d5629f24dcf2ed7750751bea"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-document-mode.log",
+      "sha256": "694f7b7a07dffd7c721e71a583ea6d25637e62c50787d38ffe85c3d60bd2dfbd"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-document-mode/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-document-mode/results.json",
+      "sha256": "729efc233bdf6efec3d47e0e50de14000f11ffe6c6f62df5b8c44391acecd378"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-focus.log",
+      "sha256": "ede096095722f436c6658a0a953a794d52dda13cabd28c420e4124b00444be24"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-focus/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-focus/results.json",
+      "sha256": "81bf8e77d75226fcc7223aeb2cdad23fd302215501e52d5404984f2319469656"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-layout.log",
+      "sha256": "cce0c41256f4ae91ab251ff784c982c21020b943e2e23051af03dbf45f0dc067"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-layout/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-layout/results.json",
+      "sha256": "6ceb2268f8ebb235f7d26024d16e27cb9ced7a0a1378f95c7d2b3ece09445278"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-regressions.log",
+      "sha256": "6e1eaaed8b7213a4b463e21b5ac4e9edad3d24c74174488c9e7a67a23f465d29"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-regressions/report.json",
+      "sha256": "f7e8ba0f7d2d5976b65ad039bc0247899a7cb66b8d241d1be4de2c461b64e6e5"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-selection.log",
+      "sha256": "569cde41d03277b8f4a7566056ae4d6f261b67f7195c464987d6931d4a6b2b20"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-selection/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-control-selection/results.json",
+      "sha256": "57f149f1f979f0a8a07867e8c283846ad6f705f763cefb96a113554515aedfa2"
+    },
+    {
+      "path": "artifacts/text-metrics-final-controls.log",
+      "sha256": "cf0af4bfc63b1749b18330320d5056b4646b3030e5e236579749cba2d024a11b"
+    },
+    {
+      "path": "artifacts/text-metrics-final-controls/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-controls/results.json",
+      "sha256": "dd5c2b828829b5c972d245a94a74b1339786f37fa94eb5f932b2938376d34233"
+    },
+    {
+      "path": "artifacts/text-metrics-final-css-animations.log",
+      "sha256": "ba499622108956ce8cc53d2e1a7711b2693283cc34c55778d54d5264b1ff691a"
+    },
+    {
+      "path": "artifacts/text-metrics-final-css-animations/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-css-animations/results.json",
+      "sha256": "dc690b9891527a636e3adc911dc63eff156cb4e743086a7f1bea0a9f1ea38726"
+    },
+    {
+      "path": "artifacts/text-metrics-final-font-weights-interrupted.log",
+      "sha256": "b188e2a79acd6565605e28c4fa2f81f6c86c39ac983ab81857fbbe03b22e6fd0"
+    },
+    {
+      "path": "artifacts/text-metrics-final-font-weights.log",
+      "sha256": "d21710cb994b41e4817ad0cb70179dd33fa78380a501d6ff15a1b078929fe6d5"
+    },
+    {
+      "path": "artifacts/text-metrics-final-font-weights/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-font-weights/results.json",
+      "sha256": "27c7cab9844029f0e2364a32c2dbec2b71139b9084fc91af6ac2e9b583571529"
+    },
+    {
+      "path": "artifacts/text-metrics-final-forms-focus.log",
+      "sha256": "97a458333c4caa96d3ae580c7b1b0e29214c4a599b8f5babcedd72f7eeab9cf5"
+    },
+    {
+      "path": "artifacts/text-metrics-final-forms-focus/report.json",
+      "sha256": "9e38339f63dd34b0c11ebc4bdef14e5ab70444cf15f5aa6ebb67f17f9aa2067a"
+    },
+    {
+      "path": "artifacts/text-metrics-final-glyphs.log",
+      "sha256": "c93c2b2375437c1d91d6c4e2e741ba7be286321722b74a59442a11819cd43ad1"
+    },
+    {
+      "path": "artifacts/text-metrics-final-glyphs/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-glyphs/results.json",
+      "sha256": "fdede16b15901e4b4e5253ae120731e08f3d6f8d4f080bda39163538f938bae8"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-line-height.log",
+      "sha256": "b942789f94e772bb5f47a1fced0c83f4d8a5aaf5c70a6a9c82fcd5eab0f9df2a"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-line-height/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-line-height/results.json",
+      "sha256": "03eb708d34e641899e610f0917511f844c224580bcea7060b12a397e548d0db8"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-pointer.log",
+      "sha256": "aa5e974f4bbb6073d6205dc206f6514c68c0fc7d9f16d472c9ed2cfc8b5beedc"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-pointer/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-input-pointer/results.json",
+      "sha256": "84f4cf70abb261e28f07e64127a0138845f04bde40532157adc08e0c879a944c"
+    },
+    {
+      "path": "artifacts/text-metrics-final-intrinsic-text.log",
+      "sha256": "99f710ddfa98717b44997b46957e5c37a24c12093df63d79e2559ab6fdd205b5"
+    },
+    {
+      "path": "artifacts/text-metrics-final-intrinsic-text/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-intrinsic-text/results.json",
+      "sha256": "70bde9a1aced507aebe11eb6ee10b1f67ef6a376b24729ded71a9f2f1bc630f5"
+    },
+    {
+      "path": "artifacts/text-metrics-final-npm-interrupted.log",
+      "sha256": "9cec89af97014194d6df7528013818e372073aefb028699e74cb2a049687ace3"
+    },
+    {
+      "path": "artifacts/text-metrics-final-npm.log",
+      "sha256": "d8b84bde02e2a6721336c1dc56f0618fb74056255d1677e334e201a52bf04677"
+    },
+    {
+      "path": "artifacts/text-metrics-final-parley-harness/Cargo.lock",
+      "sha256": "3db962c0e48a937d33bff15f0de1a732e5b1c24dc51503b6704b9d84c5d2f53c"
+    },
+    {
+      "path": "artifacts/text-metrics-final-parley-harness/Cargo.toml",
+      "sha256": "fac96968b007d998655911d4914e73dfcf3d552073f1dfbd9ad76543b7e02267"
+    },
+    {
+      "path": "artifacts/text-metrics-final-parley-harness/SOURCE-FILES",
+      "sha256": "57b4e05be6515d93c3bd383dab2e7f73cc9a18d095abc5248efea59c26dfbe63"
+    },
+    {
+      "path": "artifacts/text-metrics-final-parley-harness/SOURCE-SHA256",
+      "sha256": "2b980eba35a0c174fe930a4f51b6be92575684542482338ffdfed3effaf3a4e3"
+    },
+    {
+      "path": "artifacts/text-metrics-final-parley-harness/metadata.json",
+      "sha256": "36fb75b7362a6daf623a8293b2f2734497d114f0177bbddd9f41bc1993a7fa6e"
+    },
+    {
+      "path": "artifacts/text-metrics-final-parley-libm.log",
+      "sha256": "89095aa9a80f93e14b249e3e99e5e2096649bb9e1d6ff8bf0e50953fdeb5f891"
+    },
+    {
+      "path": "artifacts/text-metrics-final-parley-std.log",
+      "sha256": "9379a952a391d5f32c75ac30f42a04f8998e04f9a13331a065e595a1db10c442"
+    },
+    {
+      "path": "artifacts/text-metrics-final-scrolling.log",
+      "sha256": "d5dcdec5dedcf3f4784af83ab446104ca2fabc9f63010f62be8f3ee5b01309d6"
+    },
+    {
+      "path": "artifacts/text-metrics-final-scrolling/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-scrolling/results.json",
+      "sha256": "b08f82f01903ce88c9410e5ce9d8b7d7d5c7932090fcf7881edd40003f131a0a"
+    },
+    {
+      "path": "artifacts/text-metrics-final-source.json",
+      "sha256": "f07ca74488132fd53e543072be0003cd4a58ecd92afb3df66a8d0875e4031adc"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-controls.log",
+      "sha256": "f9c707ec0915dc04597c5a383851275686fbcc5c288b213e53c95c5120c3397a"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-controls/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-controls/results.json",
+      "sha256": "c71686e344701123ef719ccdf30768535d4046ff2ea125b9fceda052f99820fa"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-document-mode.log",
+      "sha256": "d5b5ae398382df020234e28d8c15fc7639b3c59c87f01b8adb73e4333bdd7782"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-document-mode/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-document-mode/results.json",
+      "sha256": "116859f74d93628da728de1b0d0a75520ac654a5712d52c70ad5a4d4ae91a34c"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-integration.log",
+      "sha256": "783d3516eec0a89ff25f72727a209dac718713bcdc5d2769bde45482b4a45445"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-integration/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-table-integration/results.json",
+      "sha256": "19689010ac5575eb15939335d22e0e4f0ec1ff4242e0d5a411ff7f524a50e8cc"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables-cpu.log",
+      "sha256": "fb7cb05edf104b4c573ef3c08ea6ff9a2198a6e53aab497b6e398456fa91d545"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables-cpu/report.json",
+      "sha256": "f3c5313a275c47e85157675424388a758b199f5f47656d5f5e93051d29039f3a"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables-gpu.log",
+      "sha256": "9cb5e6b6dd389dfe39be37af1d525a2db275adf09ab66da7f6e758964e3b7d12"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables-gpu/report.json",
+      "sha256": "66e6cf7ac2e0121031e0e41b30cb40759fe3a40b1f56d474115988144cd05727"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables.log",
+      "sha256": "9be53ef4685ccb865a772bb958383aaecc29302b616d2d29358067373f731d32"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-tables/results.json",
+      "sha256": "d814b32310a728797ef5590f9746da19fae059737a433bf121a16a926be537a5"
+    },
+    {
+      "path": "artifacts/text-metrics-final-text-metric-grid.log",
+      "sha256": "65a0a5313ba4124a6f70fb0fa98f03e91d2b26ced06f610ed6d1aff2d76009ce"
+    },
+    {
+      "path": "artifacts/text-metrics-final-text-metric-grid/metadata.json",
+      "sha256": "d84d5f3b94c8fc9b36b424b7886342ee7c515676c8bedea2ef3209a3ab7cb74d"
+    },
+    {
+      "path": "artifacts/text-metrics-final-text-metric-grid/results.json",
+      "sha256": "b2cefbc14d46a80c5fb7228ffdca9a7baf24173abe8ed65bbb39f996cd6656fa"
+    },
+    {
+      "path": "artifacts/text-metrics-final-workspace.log",
+      "sha256": "efa61e0a8a07d38133b8aebbb874dbe06c2cff7e3d2c5dce089e5d289b176093"
+    },
+    {
+      "path": "artifacts/text-metrics-unit-pointer.log",
+      "sha256": "a739f2844473949a121c1664c22b4ca15b554ba657052e13d007fb45bae1f695"
+    }
+  ]
+}
