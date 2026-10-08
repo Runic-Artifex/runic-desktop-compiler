@@ -477,7 +477,23 @@ Blitz requests both ordinary-span boundaries in standards mode when computed
 alignment differs from baseline or the shift is not implicit zero. It converts
 the implicit value to exactly zero geometric shift. `display:contents` continues
 to use modification scopes; atomic boxes retain their existing shaping boundary.
-Alignment/shift category changes recollect tree styles before layout. Paint uses
-geometric zero for its existing anchor decisions. Horizontal edge advances and
+Pure alignment restyles update cached layout metrics while retaining shaped text,
+following pinned Blink's layout-only invalidation. Fresh shaping uses current
+boundary intent; recollection can itself reuse cached shapes. Font/text changes
+and their shape-reuse rules remain independently gated. Paint uses geometric zero
+for its existing anchor decisions. Horizontal edge advances and
 their per-side boundary predicates remain the next generic-flow slice; no IR,
 framework, renderer or global ligature policy changes are required.
+
+Parley's additive `Layout::update_vertical_alignments(&[Option<VerticalAlign>])`
+accepts one entry per collected style in layout units; `None` keeps that entry.
+It returns false for a mismatched length without changing the layout. Valid
+updates recompute alignment metrics parent-first from cached font/line metrics,
+without font queries, itemization, source changes or glyph changes. Callers must
+break lines again before consuming their positions, like other layout setters.
+Unchanged updates are a no-op. Blitz supplies the current CSS alignment for each
+retained style owner before line breaking and refreshes atomic-box alignment in
+its existing box-update loop. CSS remains in Blitz/Stylo; Parley owns alignment
+and both breaker paths. Device, logical and unquantized policies remain separate
+focused gates. The [refresh oracle](../conformance/inline-shaping-refresh.mjs)
+compares style-only history with a subsequent font-triggered reshape.
