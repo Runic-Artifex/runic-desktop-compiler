@@ -22,6 +22,9 @@ for (const height of [8, 16, 24, 33.5]) {
         { kind: 'pointerDown', selector: '#control', x: 65, y: 1.5 },
         { kind: 'pointerMove', selector: '#control', x: 25, y: 1.5 },
         { kind: 'pointerUp', selector: '#control', x: 25, y: 1.5 },
+        { kind: 'pointerDown', selector: '#control', x: 65, y: height + 2.5 },
+        { kind: 'pointerMove', selector: '#control', x: 25, y: height + 2.5 },
+        { kind: 'pointerUp', selector: '#control', x: 25, y: height + 2.5 },
       ],
     };
   }
