@@ -73,6 +73,36 @@ The honesty rules from Phases 1–4 still apply: a missing stage is *incomplete*
 
 ## Design checklist for new capabilities
 
+### Chromium parity: logical text metric quantization (2026-10-08, isolated)
+
+Parley's existing `quantize` boolean keeps its device-pixel contract and default.
+An opt-in `QuantizationMode::Logical` on all three builders and `PlainEditor`
+rounds ascent, descent and normal-line-height font leading in pre-scale logical
+units, then returns device-space metrics. Half-leading is floored in the same
+logical units. Explicit line heights, x-height, baseline shifts, atomic box
+dimensions and accumulated line positions retain fractional geometry in this
+mode; glyph advances and shaping are unchanged. `Device` preserves every
+existing rounding site. With `quantize=false`, either mode remains unquantized.
+Builders reset to `Device`; editor mode persists across refreshes and invalidates
+layout when changed. Logical mode requires a finite positive scale.
+
+Blitz selects logical mode consistently for ordinary text, list markers,
+placeholders and editors. Its CSS boxes remain in CSS units; Parley receives the
+viewport scale and returns device units once. Painting, selection and caret
+geometry consume those same line metrics, without a painter-only correction or
+new compiler/IR switch. Font synthesis, variation precedence, theme painting and
+raster coverage remain separately owned work.
+
+The motivating Chromium implementation uses integer HTML font metrics and
+floors half-leading before device scaling ([font metrics](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/platform/fonts/font_metrics.h),
+[leading calculation](https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/core/layout/inline/line_utils.cc)).
+These moving implementation links are explanatory; the behavior oracle uses the
+locked Chromium binary. Acceptance compares identical inputs at DPR 1/1.25/2,
+12/14/16/24px, fractional origins, Latin/Arabic and ordinary/input/textarea text,
+with focus, selection and collapsed caret states. Existing table, editor,
+font-instance and glyph gates remain independent. The local public API still
+requires upstream review before integration.
+
 ### Chromium parity: document mode and empty line struts (2026-10-08, isolated)
 
 HTML parsing owns document mode. Blitz exposes the existing Stylo
