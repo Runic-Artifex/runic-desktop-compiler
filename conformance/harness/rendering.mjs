@@ -201,7 +201,16 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
               }
             });
           for (let step = 0; step <= mutations.length; step++) {
-            if (step)
+            if (step && mutations[step - 1].kind.startsWith('pointer')) {
+              const action = mutations[step - 1];
+              const rect = await page.locator(action.selector).boundingBox();
+              if (!rect) throw new Error(`${name}: pointer target has no box`);
+              await page.mouse.move(rect.x + action.x, rect.y + action.y);
+              if (action.kind === 'pointerDown') await page.mouse.down();
+              else if (action.kind === 'pointerUp') await page.mouse.up();
+              else if (action.kind !== 'pointerMove')
+                throw new Error(`Unknown renderer action ${action.kind}`);
+            } else if (step)
               await page.evaluate(
                 action => {
                   const el = document.querySelector(action.selector ?? 'html');

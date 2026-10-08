@@ -223,6 +223,33 @@ fn main() {
                 "focus" => {
                     inner.set_focus_to(id);
                 }
+                "pointerDown" | "pointerMove" | "pointerUp" => {
+                    use blitz_traits::events::{MouseEventButton, MouseEventButtons, UiEvent};
+                    let node = inner.get_node(id).unwrap();
+                    let rect = inner.get_transformed_client_bounding_rect(id).unwrap();
+                    let x = (rect.x + action["x"].as_f64().unwrap()) as f32;
+                    let y = (rect.y + action["y"].as_f64().unwrap()) as f32;
+                    let mut event = node.synthetic_click_event_data(Default::default());
+                    event.coords.page_x = x;
+                    event.coords.client_x = x;
+                    event.coords.screen_x = x;
+                    event.coords.page_y = y;
+                    event.coords.client_y = y;
+                    event.coords.screen_y = y;
+                    event.button = MouseEventButton::Main;
+                    event.buttons = if action["kind"] == "pointerUp" {
+                        MouseEventButtons::None
+                    } else {
+                        MouseEventButtons::Primary
+                    };
+                    let event = match action["kind"].as_str().unwrap() {
+                        "pointerDown" => UiEvent::PointerDown(event),
+                        "pointerMove" => UiEvent::PointerMove(event),
+                        _ => UiEvent::PointerUp(event),
+                    };
+                    drop(inner);
+                    doc.handle_ui_event(event);
+                }
                 "selection" => {
                     let text = inner
                         .get_node(id)
