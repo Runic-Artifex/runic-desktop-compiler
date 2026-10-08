@@ -415,8 +415,14 @@ acquire an element box. The default stays disabled and builders reset it.
 Normalization owns anchor placement across delayed collapsed spaces. Line
 breaking consumes anchors in text order, before taking the following break
 opportunity; saved opportunities and explicit replay retain the same cursor and
-participating metrics. Empty anchors do not introduce shaping runs, change text
-provenance, reserve inline advance or become caret stops. The additive read-only
+participating metrics. Baseline-aligned anchors preserve compatible adjacent-text
+shaping. An empty non-baseline vertical alignment is a normalized shaping boundary,
+derived privately before itemization; it creates no text, source entry, inline
+advance or caret stop. It blocks a ligature across the boundary while retaining
+ligatures within each side. This follows pinned Chromium's
+[boundary predicates](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/inline_node.cc#493)
+and [zero-length tag scan](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/inline_node.cc#1632).
+Shaping boundaries remain distinct from future span-edge advances. The additive read-only
 `Line::empty_spans()` iterator returns style indices and positioned inline offsets
 in layout units; the positioned-item enum remains unchanged. Geometry consumers
 combine these offsets with the existing own-font content bounds.

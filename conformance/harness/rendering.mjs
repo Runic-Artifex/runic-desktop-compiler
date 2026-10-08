@@ -486,8 +486,11 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
       results.some(
         r =>
           !r.geometry ||
+          !Number.isFinite(r.pixelMAE) ||
+          r.pixelMAE > 3 ||
+          !Number.isFinite(r.tablePixelMAE) ||
           r.tablePixelMAE > 3 ||
-          Object.values(r.localPixelMAEs).some(v => v > 3) ||
+          Object.values(r.localPixelMAEs).some(v => v !== null && (!Number.isFinite(v) || v > 3)) ||
           r.hitDifferences.length ||
           r.pointHitDifferences.length ||
           r.editorDifferences.length ||
