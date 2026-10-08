@@ -13,6 +13,7 @@ fn observe(doc: &HtmlDocument) -> Value {
     let mut scroll = Map::new();
     let mut editors = Map::new();
     let mut line_widths = Map::new();
+    let mut client_rects = Map::new();
     // Device-space layout metrics are diagnostic evidence for native text
     // rasterization. They are deliberately separate from `textLines`, whose
     // CSS-space geometry is compared with the browser oracle.
@@ -21,6 +22,14 @@ fn observe(doc: &HtmlDocument) -> Value {
         let node = inner.get_node(id).unwrap();
         let name = node.attr(local_name!("id")).unwrap();
         let rect = inner.get_transformed_client_bounding_rect(id).unwrap();
+        if node.attr(LocalName::from("data-client-rects")).is_some() {
+            let fragments: Vec<_> = inner
+                .node_client_rects(id)
+                .into_iter()
+                .map(|r| [r.x, r.y, r.width, r.height])
+                .collect();
+            client_rects.insert(name.into(), json!(fragments));
+        }
         if node.attr(LocalName::from("data-line-widths")).is_some() {
             let style = node.primary_styles().unwrap();
             let zoom = style.effective_zoom;
@@ -173,7 +182,7 @@ fn observe(doc: &HtmlDocument) -> Value {
         }
         hits.insert(name.into(), json!(targets));
     }
-    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics,"lineWidths":line_widths})
+    json!({"rects":rects,"hits":hits,"textLines":text_lines,"scroll":scroll,"editors":editors,"layoutMetrics":layout_metrics,"lineWidths":line_widths,"clientRects":client_rects})
 }
 fn render(doc: &mut HtmlDocument, path: &str, width: u32, height: u32) {
     let mut renderer = anyrender_vello_cpu::VelloCpuImageRenderer::new(width, height);

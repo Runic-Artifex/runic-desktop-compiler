@@ -90,6 +90,11 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
       return page.evaluate(() => {
         const elements = [...document.querySelectorAll('[id]')];
         return {
+          clientRects: Object.fromEntries(
+            elements
+              .filter(el => el.hasAttribute('data-client-rects'))
+              .map(el => [el.id, [...el.getClientRects()].map(r => [r.x, r.y, r.width, r.height])]),
+          ),
           lineWidths: Object.fromEntries(
             elements
               .filter(el => el.hasAttribute('data-line-widths'))
@@ -272,6 +277,18 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
               JSON.stringify(expected, null, 2),
             );
             const differences = [];
+            const clientRectDifferences = Object.entries(expected.clientRects)
+              .filter(([id, rects]) => {
+                const actual = observation.clientRects?.[id];
+                return (
+                  !actual ||
+                  actual.length !== rects.length ||
+                  rects.some((rect, index) =>
+                    rect.some((value, axis) => Math.abs(value - actual[index][axis]) > 0.125),
+                  )
+                );
+              })
+              .map(([id, reference]) => ({ id, reference, native: observation.clientRects?.[id] }));
             const lineWidthDifferences = Object.entries(expected.lineWidths)
               .filter(
                 ([id, values]) =>
@@ -395,6 +412,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
               editorDifferences,
               scrollDifferences,
               lineWidthDifferences,
+              clientRectDifferences,
             };
             results.push(result);
             console.log(JSON.stringify(result));
@@ -414,7 +432,8 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
           r.hitDifferences.length ||
           r.editorDifferences.length ||
           r.scrollDifferences.length ||
-          r.lineWidthDifferences.length,
+          r.lineWidthDifferences.length ||
+          r.clientRectDifferences.length,
       )
     )
       process.exitCode = 1;
