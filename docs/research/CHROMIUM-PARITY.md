@@ -20,7 +20,7 @@ enable compiler tables on this evidence alone. [Results](../../conformance/resul
 | Owner | Responsibilities | Boundary to preserve |
 |---|---|---|
 | Blitz DOM/layout | Table formatting, anonymous boxes, used geometry, overflow, visual offsets, inline fragments | HTML/CSS rules only; no shadcn, framework, editor or fixture names |
-| Blitz paint | Borders, backgrounds, clips, control decorations; consume used geometry | No layout repair or coordinate changes invisible to hit testing and DOM reads |
+| Blitz paint | Borders, backgrounds, clips, control decorations and CSS text paint anchors; consume used geometry | Preserve logical geometry; keep paint snapping separate from DOM reads and hit targets |
 | Glifo / Vello | Outline hinting, glyph cache placement, path coverage | Font/device/rendering policy; no table-specific text correction |
 | Parley | Shaping, advances, line boxes, line breaking | Glyph raster policy stays in the renderer; Blitz consumes line metrics |
 | Stylo | Cascade, computed properties, animation lifetime, selectors | No duplicate CSS parser or fixture-specific restyle sequence in the runtime |
@@ -156,9 +156,20 @@ in Parley's enabled logical mode. The new oracle passes 120/180 geometry and
 without regression. All 389 compiled states retain their gates.
 [Results](../../conformance/results/chromium-middle-metrics.md).
 
-The next useful order is per-line nested alignment, generic span edges/CSS
-margins, then full segmentation/RTL/tab/atomic reductions, editor interaction
-and glyph paint.
+The text-paint continuation implements private CSS anchor snapping in Blitz and
+an additive read-only Parley primary-font metric getter. All seven preceding
+pixel regressions are repaired; middle strict pixels improve 78→89/180
+and the 108-state paint-origin oracle improves 38→85/108.
+Logical baselines, geometry, selection/background coordinates and renderer
+hinting are preserved. Across 3,890 exact direct pairs, 63 strict pixel states are
+repaired without a measured gate regression.
+All 389 compiled states retain their gates.
+[Results](../../conformance/results/chromium-text-paint-origins.md) retain tight
+child crop failures and the layer/materialization/fragment scope boundaries.
+
+The next useful order is normalized empty span participation, generic span edges/
+CSS margins, then full segmentation/RTL/tab/atomic reductions, editor interaction
+and the remaining paint coverage.
 Keep native theme paint and document-mode edges separate. Float layout needs an
 explicitly enabled build; the compiler currently disables that feature. Preserve
 all focus/table regressions and the newly exposed failures. Owners and gates:
@@ -178,7 +189,8 @@ all focus/table regressions and the newly exposed failures. Owners and gates:
 | CP-INLINE-SPAN-BOUNDS | First-font content height and short-line overflow are repaired in Parley/Blitz; all 108 font states match geometry/lists. The 180-state margin group passes 24 bounding, 15 list and 90 hit states, including 60 new hit losses; 132 retained control states still omit an 8px text margin | Add generic ordered owner/start/end advances in Parley, then bind CSS margins in Blitz. Cover intrinsic/break replay, negative/empty/percent/nested spans and first/last wrapped fragments; margins stay outside own border rects/hits |
 | CP-INLINE-HIT-LOCATION | Private footprint/quad plus normalized source metadata and reverse fragments repair preceding narrow-gap/nested/effects losses. Pointer is 234/234 standard and 219/234 explicit points; source ordering is 192/216 hits. The three middle metric/hit losses are repaired; sixty margin and nine marker losses remain | Preserve shaping atoms, eligible ancestors and per-line parent groups. Reduce exact layout-object siblings versus DOM heuristics, preserved tabs, narrowed RTL wraps and atomic flow. Repair metrics/margins in their owners; retain large-gap, negative viewport and exact marker samples |
 | CP-INLINE-FRAGMENT-LISTS | Blitz retains one union per line; bidi passes 0/12 list states and effects 60/102 despite 102/102 bounding geometry | Preserve bidi/culled/nested segmentation, zero-width newlines and preserved trailing spaces. Keep list order/count independent of bounding unions and pointer gates |
-| CP-INLINE-ALIGN-METRICS | The logical x-height provider and bottom-up per-line alignment are repaired. All 60 retained nested-middle geometry/list failures now pass; the 180-state oracle is 180 geometry, 120/120 measured fragments, 147 hits and 78 strict pixels. The new 72-state oracle is 66 geometry, 57 fragments, 63 hits and 0 pixels | Preserve Device/unquantized behavior, declared metrics, hinted x-height, saved/default breaker states and atomic scale conversion. Materialize empty span participation (six new geometry failures), then reduce full deferred nested top/bottom/fixed-point semantics; hits and pixels remain independently gated |
+| CP-INLINE-ALIGN-METRICS | The logical x-height provider and bottom-up per-line alignment are repaired. All 60 retained nested-middle geometry/list failures now pass; the 180-state oracle is 180 geometry, 120/120 measured fragments, 147 hits and 78 strict pixels. The new 72-state oracle is 66 geometry, 57 fragments, 63 hits and 0 pixels; the paint-anchor continuation repairs all seven pixel regressions and improves middle pixels to 89/180 | Preserve Device/unquantized behavior, declared metrics, hinted x-height, saved/default breaker states and atomic scale conversion. Materialize empty span participation (six new geometry failures), then reduce full deferred nested top/bottom/fixed-point semantics; hits and pixels remain independently gated |
+| CP-TEXT-PAINT-ANCHOR | Private Blitz CSS anchor snapping repairs all seven prior losses; new oracle 85/108 pixels, 108/108 geometry/fragments. Parley supplies primary metrics; renderer hinting stays unchanged | Retain all origin/DPR/background/mutation states and tight child crops; add sticky materialization, layer-local/transformed, containment/SVG and bidi fragment provenance reductions before broader claims |
 | CP-CONTROL-THEME | A default button label matches bounds and passes its interior crop at MAE 1.464, while its full crop is 22.076 from native lower/right bevel colors | Reduce `appearance:auto` theme paint separately from authored CSS borders and `appearance:none`; cover active/disabled/focus states and preserve custom control/table cases |
 | CP-DOCUMENT-MODE | Parser mode, fragment preservation, device rebuilds and empty root struts are repaired. Core mode geometry is now 60/60; full 132-state oracle retains float and break/newline failures | Keep mode/cache regressions; separately reduce quirks/limited-quirks `<br>` and preserved newlines (19px residual), empty/collapsed whitespace and inline border/padding. Enable floats only for a measured float scope |
 | CP-NESTED-INLINE | Nested atomic inline/button reductions retain local paint failures while geometry passes; baseline measurement can promote child sizing to PerformLayout | Compare retained child line positions and baselines across table/flex/grid intrinsic passes; keep nested failures in the oracle |
@@ -200,7 +212,8 @@ The checked-in [initial verification record](../../conformance/results/chromium-
 [pointer geometry](../../conformance/results/chromium-pointer-geometry.md) and
 [text provenance](../../conformance/results/chromium-inline-source-order.md),
 [middle metrics](../../conformance/results/chromium-middle-metrics.md) and
-[nested alignment](../../conformance/results/chromium-nested-alignment.md), separate
+[nested alignment](../../conformance/results/chromium-nested-alignment.md) and
+[text paint origins](../../conformance/results/chromium-text-paint-origins.md), separate
 fixed worktree behavior, residual failures and shipping gates. None of
 the broader P1/P4/P7 clusters is closed merely by these patches.
 
@@ -226,16 +239,20 @@ layout module. Preserve all 180 middle states, the new 72-state oracle, the thre
 primary-font repairs and the eight union/replay/default-policy tests. Textless
 ancestors retain their own strut; fully empty spans still lack participation.
 Blitz owns atomic CSS-to-layout length conversion. Neither change adds a public
-API, IR field or framework branch. The layout repair also introduces seven strict
-text-crop regressions, alongside ten repairs. An 18-state diagnostic exposes
-the formerly anonymous child: both ancestor and child geometry/fragment lists
-match while those pixel failures remain.
+API, IR field or framework branch. That checkpoint introduced seven strict
+text-crop regressions, alongside ten repairs; the paint continuation now repairs
+all seven. The frozen 18-state diagnostic exposes the formerly anonymous child:
+both ancestor and child geometry/fragment lists match, while two tighter child
+crops still fail the pixel gate.
 
-1. **Nested text-crop regressions (Parley/Blitz paint/Glifo/Vello).** Retain the
-   seven exact states and the inner-span diagnostic. Trace the logical baseline
-   through glyph placement, font metrics, hinting and raster translation against
-   pinned Blink/Skia. Restore the pixel gates while retaining both levels of
-   geometry, fragments and hit targets; identify the owning seam before patching.
+1. **Text paint anchors (implemented in Blitz paint).** Keep the seven repaired
+   states, frozen inner-span diagnostic and 108-state origin/materialization
+   matrix. Logical baselines agree; nearest materialized CSS fragment anchors
+   select the paint phase before device hinting. Preserve the private module and
+   additive read-only primary metrics API. Tight child crops and broad font
+   coverage remain failed. Trace layer-local/transformed coordinates, sticky
+   materialization flags after restyles, empty/pseudo/contents participation and
+   bidi fragment owners before extending this bounded ordinary-inline model.
 2. **Inline span participation and margin flow (Parley, then Blitz).** Empty
    style-tree nodes currently receive no resolved style ID and no line box.
    Define normalized owner/start/end participation with equal offsets allowed,

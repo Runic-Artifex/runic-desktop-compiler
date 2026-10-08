@@ -1,0 +1,4064 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler-tables",
+      "revision": "69dc00e19d1b9aacd79b5ac3d7d1da62fa5cfa46",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz-tables",
+      "revision": "94a1dc1a1035e66c8f491d8a6675ae00d8b2fdae",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/parley-chromium-parity",
+      "revision": "b2abdc17a11f3d6e0fd551475c7e8e4c94957f60",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo-chromium-parity",
+      "revision": "f0e404e2daa6a5f6ed881e9cdb12e7a4ac375aa4",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello-raster-parity",
+      "revision": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+      "signature": "G",
+      "status": ""
+    }
+  ],
+  "originals": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "status": "",
+      "currentRevision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "e8dd36c6694be78902599320ab1653564627d128",
+      "status": "",
+      "currentRevision": "e8dd36c6694be78902599320ab1653564627d128",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "status": "",
+      "currentRevision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "currentStatus": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "status": "",
+      "currentRevision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "currentStatus": ""
+    }
+  ],
+  "oneExperimentWorktreePerRepository": true,
+  "environment": {
+    "chromium": "153.0.8010.12",
+    "viewport": [
+      640,
+      300
+    ],
+    "deviceScaleFactor": 1,
+    "renderer": "cpu",
+    "screenshotCaret": "initial",
+    "fontSHA256": "a75044e4dab293c1ac7f8eba9f20df03f183f41b9319054f43b955959981632a",
+    "cargoLockSHA256": "1364b4e71332172936c2bb2ceb57bd13f1d5127e63f994f06ef1061a9735bca6",
+    "nativeBinarySHA256": "ce0acf7253fa4679f205ed5bfcb85a220f3c01a1f0d22d10cfc7b086bd9ad62d",
+    "geometryTolerance": 0.125,
+    "pixelMAEThreshold": 3,
+    "flakeLockSHA256": "ed928e945c79e3d7f19d37b13a05f0d97b98440b38661d97bf77844e40606431",
+    "build": "Locked Git-aware Nix profile; offline cargo wrapper; shared target; jobs 2; serial matrices",
+    "gpu": "Locked lavapipe/llvmpipe"
+  },
+  "gates": {
+    "directGeometryCSSPx": 0.125,
+    "compiledGeometryCSSPx": 2,
+    "pixels": "Viewport, container and every measured named crop MAE <=3/255",
+    "hit": "Exact closest-id target including explicit pointHitDifferences, independently gated",
+    "optional": "Empty reference maps are unmeasured; absent count field means unmeasured",
+    "countEncoding": "[passed, measured]; absent paired changedGates entries have zero repairs/regressions"
+  },
+  "sourceSnapshotValidation": {
+    "directMatrices": 28,
+    "allChecksPassed": true,
+    "checks": [
+      {
+        "name": "middle-metrics",
+        "passed": true
+      },
+      {
+        "name": "nested-alignment",
+        "passed": true
+      },
+      {
+        "name": "paint-origins",
+        "passed": true
+      },
+      {
+        "name": "paint-decorations",
+        "passed": true
+      },
+      {
+        "name": "inline-source-order",
+        "passed": true
+      },
+      {
+        "name": "pointer-geometry",
+        "passed": true
+      },
+      {
+        "name": "inline-fragments",
+        "passed": true
+      },
+      {
+        "name": "inline-fragment-effects",
+        "passed": true
+      },
+      {
+        "name": "line-width-grid",
+        "passed": true
+      },
+      {
+        "name": "line-width-effects",
+        "passed": true
+      },
+      {
+        "name": "text-metric-grid",
+        "passed": true
+      },
+      {
+        "name": "input-line-height",
+        "passed": true
+      },
+      {
+        "name": "input-pointer",
+        "passed": true
+      },
+      {
+        "name": "control-document-mode",
+        "passed": true
+      },
+      {
+        "name": "control-layout",
+        "passed": true
+      },
+      {
+        "name": "control-selection",
+        "passed": true
+      },
+      {
+        "name": "control-focus",
+        "passed": true
+      },
+      {
+        "name": "tables",
+        "passed": true
+      },
+      {
+        "name": "table-document-mode",
+        "passed": true
+      },
+      {
+        "name": "table-controls",
+        "passed": true
+      },
+      {
+        "name": "table-integration",
+        "passed": true
+      },
+      {
+        "name": "controls",
+        "passed": true
+      },
+      {
+        "name": "scrolling",
+        "passed": true
+      },
+      {
+        "name": "css-animations",
+        "passed": true
+      },
+      {
+        "name": "intrinsic-text",
+        "passed": true
+      },
+      {
+        "name": "font-weights",
+        "passed": true
+      },
+      {
+        "name": "glyphs",
+        "passed": true
+      },
+      {
+        "name": "borders",
+        "passed": true
+      }
+    ]
+  },
+  "paintAnchorRepair": {
+    "previousRegressionStates": [
+      {
+        "state": [
+          "nested_16_20px",
+          [
+            420,
+            220
+          ],
+          1,
+          1
+        ],
+        "inputSHA256": "dd65233af3b6d082161daa87cba7551b333ea32ec2c50165689a150d5c0ffaff",
+        "beforePassed": false,
+        "afterPassed": true
+      },
+      {
+        "state": [
+          "nested_20_20px",
+          [
+            420,
+            220
+          ],
+          1,
+          0
+        ],
+        "inputSHA256": "37ff4c7629aa538c239a6c6eadff3ffa2e111bf6e7dad71119e063ab48622204",
+        "beforePassed": false,
+        "afterPassed": true
+      },
+      {
+        "state": [
+          "nested_20_20px",
+          [
+            420,
+            220
+          ],
+          1.25,
+          1
+        ],
+        "inputSHA256": "37ff4c7629aa538c239a6c6eadff3ffa2e111bf6e7dad71119e063ab48622204",
+        "beforePassed": false,
+        "afterPassed": true
+      },
+      {
+        "state": [
+          "nested_20_20px",
+          [
+            420,
+            220
+          ],
+          2,
+          1
+        ],
+        "inputSHA256": "37ff4c7629aa538c239a6c6eadff3ffa2e111bf6e7dad71119e063ab48622204",
+        "beforePassed": false,
+        "afterPassed": true
+      },
+      {
+        "state": [
+          "nested_24_20px",
+          [
+            420,
+            220
+          ],
+          1.25,
+          0
+        ],
+        "inputSHA256": "623ffbd0aff1ba61499cc56cd862b2e19b90981530dc1a16f9ddc0d6139b0f12",
+        "beforePassed": false,
+        "afterPassed": true
+      },
+      {
+        "state": [
+          "nested_24_20px",
+          [
+            420,
+            220
+          ],
+          2,
+          0
+        ],
+        "inputSHA256": "623ffbd0aff1ba61499cc56cd862b2e19b90981530dc1a16f9ddc0d6139b0f12",
+        "beforePassed": false,
+        "afterPassed": true
+      },
+      {
+        "state": [
+          "nested_24_20px",
+          [
+            420,
+            220
+          ],
+          2,
+          1
+        ],
+        "inputSHA256": "623ffbd0aff1ba61499cc56cd862b2e19b90981530dc1a16f9ddc0d6139b0f12",
+        "beforePassed": false,
+        "afterPassed": true
+      }
+    ],
+    "allSevenRepaired": true,
+    "owner": "Private Blitz paint module; additive read-only Parley primary-font metrics accessor",
+    "layoutCoordinatesUnchanged": true,
+    "rendererHintingUnchanged": true
+  },
+  "newOracle": {
+    "before": {
+      "states": 108,
+      "geometry": [
+        108,
+        108
+      ],
+      "hitDifferences": [
+        105,
+        108
+      ],
+      "clientRectDifferences": [
+        108,
+        108
+      ],
+      "pixels": [
+        38,
+        108
+      ]
+    },
+    "after": {
+      "states": 108,
+      "geometry": [
+        108,
+        108
+      ],
+      "hitDifferences": [
+        105,
+        108
+      ],
+      "clientRectDifferences": [
+        108,
+        108
+      ],
+      "pixels": [
+        85,
+        108
+      ]
+    },
+    "paired": {
+      "matched": 108,
+      "afterOnly": 0,
+      "unmatchedBefore": 0,
+      "inputMismatch": [],
+      "changedGates": {
+        "pixels": {
+          "repairs": [
+            "[\"nested_middle_integer\",[420,180],1,0]",
+            "[\"nested_middle_integer\",[420,180],2,1]",
+            "[\"nested_middle_fractional\",[420,180],1,0]",
+            "[\"nested_middle_fractional\",[420,180],2,1]",
+            "[\"nested_middle_negative\",[420,180],1,1]",
+            "[\"nested_middle_negative\",[420,180],1.25,0]",
+            "[\"nested_middle_negative\",[420,180],2,0]",
+            "[\"nested_middle_negative\",[420,180],2,1]",
+            "[\"parent_background_integer\",[420,180],1,0]",
+            "[\"parent_background_integer\",[420,180],2,1]",
+            "[\"parent_background_fractional\",[420,180],1,0]",
+            "[\"parent_background_fractional\",[420,180],2,1]",
+            "[\"parent_background_negative\",[420,180],1,1]",
+            "[\"parent_background_negative\",[420,180],1.25,0]",
+            "[\"parent_background_negative\",[420,180],2,0]",
+            "[\"parent_background_negative\",[420,180],2,1]",
+            "[\"child_background_integer\",[420,180],2,0]",
+            "[\"child_background_integer\",[420,180],2,1]",
+            "[\"child_background_fractional\",[420,180],1,0]",
+            "[\"child_background_fractional\",[420,180],1.25,0]",
+            "[\"child_background_fractional\",[420,180],2,0]",
+            "[\"child_background_fractional\",[420,180],2,1]",
+            "[\"child_background_negative\",[420,180],1,1]",
+            "[\"child_background_negative\",[420,180],2,0]",
+            "[\"child_background_negative\",[420,180],2,1]",
+            "[\"parent_text_integer\",[420,180],1,0]",
+            "[\"parent_text_integer\",[420,180],1.25,1]",
+            "[\"parent_text_integer\",[420,180],2,1]",
+            "[\"parent_text_fractional\",[420,180],1,0]",
+            "[\"parent_text_fractional\",[420,180],1.25,1]",
+            "[\"parent_text_fractional\",[420,180],2,1]",
+            "[\"parent_text_negative\",[420,180],1,0]",
+            "[\"parent_text_negative\",[420,180],1.25,1]",
+            "[\"parent_text_negative\",[420,180],2,0]",
+            "[\"parent_text_negative\",[420,180],2,1]",
+            "[\"parent_length_integer\",[420,180],1,0]",
+            "[\"parent_length_integer\",[420,180],1.25,0]",
+            "[\"parent_length_integer\",[420,180],2,0]",
+            "[\"parent_length_integer\",[420,180],2,1]",
+            "[\"parent_length_fractional\",[420,180],1,0]",
+            "[\"parent_length_fractional\",[420,180],1.25,0]",
+            "[\"parent_length_fractional\",[420,180],2,0]",
+            "[\"parent_length_fractional\",[420,180],2,1]",
+            "[\"parent_length_negative\",[420,180],1,1]",
+            "[\"parent_length_negative\",[420,180],1.25,0]",
+            "[\"parent_length_negative\",[420,180],2,0]",
+            "[\"parent_length_negative\",[420,180],2,1]"
+          ],
+          "regressions": []
+        }
+      }
+    },
+    "groups": {
+      "nested_middle_integer": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "nested_middle_fractional": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "nested_middle_negative": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "parent_background_integer": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "parent_background_fractional": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "parent_background_negative": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "child_background_integer": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "child_background_fractional": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "child_background_negative": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "nested_baseline_integer": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 3
+      },
+      "nested_baseline_fractional": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "nested_baseline_negative": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 3,
+        "strictPixels": 5
+      },
+      "parent_text_integer": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 4
+      },
+      "parent_text_fractional": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 4
+      },
+      "parent_text_negative": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 4
+      },
+      "parent_length_integer": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "parent_length_fractional": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      },
+      "parent_length_negative": {
+        "states": 6,
+        "geometry": 6,
+        "fragments": 6,
+        "hits": 6,
+        "strictPixels": 5
+      }
+    }
+  },
+  "decorationOracle": {
+    "before": {
+      "states": 36,
+      "geometry": [
+        36,
+        36
+      ],
+      "hitDifferences": [
+        36,
+        36
+      ],
+      "clientRectDifferences": [
+        36,
+        36
+      ],
+      "pixels": [
+        2,
+        36
+      ]
+    },
+    "after": {
+      "states": 36,
+      "geometry": [
+        36,
+        36
+      ],
+      "hitDifferences": [
+        36,
+        36
+      ],
+      "clientRectDifferences": [
+        36,
+        36
+      ],
+      "pixels": [
+        7,
+        36
+      ]
+    },
+    "paired": {
+      "matched": 36,
+      "afterOnly": 0,
+      "unmatchedBefore": 0,
+      "inputMismatch": [],
+      "changedGates": {
+        "pixels": {
+          "repairs": [
+            "[\"culled_integer\",[420,220],1,0]",
+            "[\"culled_integer\",[420,220],1,1]",
+            "[\"culled_integer\",[420,220],1.25,0]",
+            "[\"culled_negative\",[420,220],1,0]",
+            "[\"culled_negative\",[420,220],1,1]"
+          ],
+          "regressions": []
+        }
+      }
+    }
+  },
+  "interruptedVerification": {
+    "reason": "Stopped after source review found a root-decoration fallback discarding paint phase",
+    "completedCommands": 15,
+    "interruptedProcessGroup": 2544049,
+    "terminationExitCode": 143,
+    "moved": [
+      {
+        "from": "artifacts/paint-final-blitz-dom.log",
+        "to": "artifacts/paint-rejected-phase-blitz-dom.log"
+      },
+      {
+        "from": "artifacts/paint-final-blitz-html.log",
+        "to": "artifacts/paint-rejected-phase-blitz-html.log"
+      },
+      {
+        "from": "artifacts/paint-final-blitz-paint.log",
+        "to": "artifacts/paint-rejected-phase-blitz-paint.log"
+      },
+      {
+        "from": "artifacts/paint-final-commands.json",
+        "to": "artifacts/paint-rejected-phase-commands.json"
+      },
+      {
+        "from": "artifacts/paint-final-inline-fragment-effects",
+        "to": "artifacts/paint-rejected-phase-inline-fragment-effects"
+      },
+      {
+        "from": "artifacts/paint-final-inline-fragment-effects.log",
+        "to": "artifacts/paint-rejected-phase-inline-fragment-effects.log"
+      },
+      {
+        "from": "artifacts/paint-final-inline-fragments",
+        "to": "artifacts/paint-rejected-phase-inline-fragments"
+      },
+      {
+        "from": "artifacts/paint-final-inline-fragments.log",
+        "to": "artifacts/paint-rejected-phase-inline-fragments.log"
+      },
+      {
+        "from": "artifacts/paint-final-inline-source-order",
+        "to": "artifacts/paint-rejected-phase-inline-source-order"
+      },
+      {
+        "from": "artifacts/paint-final-inline-source-order.log",
+        "to": "artifacts/paint-rejected-phase-inline-source-order.log"
+      },
+      {
+        "from": "artifacts/paint-final-line-width-grid.log",
+        "to": "artifacts/paint-rejected-phase-line-width-grid.log"
+      },
+      {
+        "from": "artifacts/paint-final-middle-metrics",
+        "to": "artifacts/paint-rejected-phase-middle-metrics"
+      },
+      {
+        "from": "artifacts/paint-final-middle-metrics.log",
+        "to": "artifacts/paint-rejected-phase-middle-metrics.log"
+      },
+      {
+        "from": "artifacts/paint-final-nested-alignment",
+        "to": "artifacts/paint-rejected-phase-nested-alignment"
+      },
+      {
+        "from": "artifacts/paint-final-nested-alignment.log",
+        "to": "artifacts/paint-rejected-phase-nested-alignment.log"
+      },
+      {
+        "from": "artifacts/paint-final-npm.log",
+        "to": "artifacts/paint-rejected-phase-npm.log"
+      },
+      {
+        "from": "artifacts/paint-final-paint-origins",
+        "to": "artifacts/paint-rejected-phase-paint-origins"
+      },
+      {
+        "from": "artifacts/paint-final-paint-origins.log",
+        "to": "artifacts/paint-rejected-phase-paint-origins.log"
+      },
+      {
+        "from": "artifacts/paint-final-parley-engine.log",
+        "to": "artifacts/paint-rejected-phase-parley-engine.log"
+      },
+      {
+        "from": "artifacts/paint-final-parley-libm.log",
+        "to": "artifacts/paint-rejected-phase-parley-libm.log"
+      },
+      {
+        "from": "artifacts/paint-final-parley-std.log",
+        "to": "artifacts/paint-rejected-phase-parley-std.log"
+      },
+      {
+        "from": "artifacts/paint-final-pointer-geometry",
+        "to": "artifacts/paint-rejected-phase-pointer-geometry"
+      },
+      {
+        "from": "artifacts/paint-final-pointer-geometry.log",
+        "to": "artifacts/paint-rejected-phase-pointer-geometry.log"
+      },
+      {
+        "from": "artifacts/paint-final-runner.log",
+        "to": "artifacts/paint-rejected-phase-runner.log"
+      },
+      {
+        "from": "artifacts/paint-final-workspace.log",
+        "to": "artifacts/paint-rejected-phase-workspace.log"
+      },
+      {
+        "from": "artifacts/line-width-grid",
+        "to": "artifacts/paint-rejected-phase-partial-line-width-grid"
+      }
+    ]
+  },
+  "additionalDiagnostic": {
+    "directory": "artifacts/paint-final-inner-origin-probe",
+    "states": 18,
+    "matched": 18,
+    "beforeStrictPixels": 9,
+    "afterStrictPixels": 16,
+    "geometry": 18,
+    "fragments": 18,
+    "pixelRepairs": 7,
+    "pixelRegressions": 0,
+    "remainingStrictFailures": [
+      {
+        "name": "nested_20_20px",
+        "dpr": 1.25,
+        "step": 1,
+        "localPixelMAEs": {
+          "table": 0.9725266499999999,
+          "text": 1.6730779500000001,
+          "inner": 4.015383
+        }
+      },
+      {
+        "name": "nested_24_20px",
+        "dpr": 1.25,
+        "step": 0,
+        "localPixelMAEs": {
+          "table": 0.9725266499999999,
+          "text": 1.6730779500000001,
+          "inner": 4.015383
+        }
+      }
+    ]
+  },
+  "retainedOracles": {
+    "middle-metrics": {
+      "before": {
+        "states": 180,
+        "geometry": [
+          180,
+          180
+        ],
+        "hitDifferences": [
+          147,
+          180
+        ],
+        "clientRectDifferences": [
+          120,
+          120
+        ],
+        "pixels": [
+          78,
+          180
+        ]
+      },
+      "after": {
+        "states": 180,
+        "geometry": [
+          180,
+          180
+        ],
+        "hitDifferences": [
+          147,
+          180
+        ],
+        "clientRectDifferences": [
+          120,
+          120
+        ],
+        "pixels": [
+          89,
+          180
+        ]
+      },
+      "paired": {
+        "matched": 180,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {
+          "pixels": {
+            "repairs": [
+              "[\"nested_12_20px\",[420,220],1.25,1]",
+              "[\"nested_12_20px\",[420,220],2,1]",
+              "[\"nested_16_20px\",[420,220],1,1]",
+              "[\"nested_16_20px\",[420,220],1.25,0]",
+              "[\"nested_16_20px\",[420,220],2,0]",
+              "[\"nested_20_20px\",[420,220],1,0]",
+              "[\"nested_20_20px\",[420,220],1.25,1]",
+              "[\"nested_20_20px\",[420,220],2,1]",
+              "[\"nested_24_20px\",[420,220],1.25,0]",
+              "[\"nested_24_20px\",[420,220],2,0]",
+              "[\"nested_24_20px\",[420,220],2,1]"
+            ],
+            "regressions": []
+          }
+        }
+      }
+    },
+    "nested-alignment": {
+      "before": {
+        "states": 72,
+        "geometry": [
+          66,
+          72
+        ],
+        "hitDifferences": [
+          63,
+          72
+        ],
+        "clientRectDifferences": [
+          57,
+          72
+        ],
+        "pixels": [
+          0,
+          72
+        ]
+      },
+      "after": {
+        "states": 72,
+        "geometry": [
+          66,
+          72
+        ],
+        "hitDifferences": [
+          63,
+          72
+        ],
+        "clientRectDifferences": [
+          57,
+          72
+        ],
+        "pixels": [
+          0,
+          72
+        ]
+      },
+      "paired": {
+        "matched": 72,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "paint-decorations": {
+      "before": {
+        "states": 36,
+        "geometry": [
+          36,
+          36
+        ],
+        "hitDifferences": [
+          36,
+          36
+        ],
+        "clientRectDifferences": [
+          36,
+          36
+        ],
+        "pixels": [
+          2,
+          36
+        ]
+      },
+      "after": {
+        "states": 36,
+        "geometry": [
+          36,
+          36
+        ],
+        "hitDifferences": [
+          36,
+          36
+        ],
+        "clientRectDifferences": [
+          36,
+          36
+        ],
+        "pixels": [
+          7,
+          36
+        ]
+      },
+      "paired": {
+        "matched": 36,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {
+          "pixels": {
+            "repairs": [
+              "[\"culled_integer\",[420,220],1,0]",
+              "[\"culled_integer\",[420,220],1,1]",
+              "[\"culled_integer\",[420,220],1.25,0]",
+              "[\"culled_negative\",[420,220],1,0]",
+              "[\"culled_negative\",[420,220],1,1]"
+            ],
+            "regressions": []
+          }
+        }
+      }
+    },
+    "inline-source-order": {
+      "before": {
+        "states": 216,
+        "geometry": [
+          186,
+          216
+        ],
+        "hitDifferences": [
+          192,
+          216
+        ],
+        "pointHitDifferences": [
+          18,
+          18
+        ],
+        "clientRectDifferences": [
+          24,
+          216
+        ],
+        "pixels": [
+          0,
+          216
+        ]
+      },
+      "after": {
+        "states": 216,
+        "geometry": [
+          186,
+          216
+        ],
+        "hitDifferences": [
+          192,
+          216
+        ],
+        "pointHitDifferences": [
+          18,
+          18
+        ],
+        "clientRectDifferences": [
+          24,
+          216
+        ],
+        "pixels": [
+          0,
+          216
+        ]
+      },
+      "paired": {
+        "matched": 216,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "pointer-geometry": {
+      "before": {
+        "states": 234,
+        "geometry": [
+          216,
+          234
+        ],
+        "hitDifferences": [
+          234,
+          234
+        ],
+        "pointHitDifferences": [
+          219,
+          234
+        ],
+        "clientRectDifferences": [
+          60,
+          114
+        ],
+        "scrollDifferences": [
+          0,
+          48
+        ],
+        "pixels": [
+          157,
+          234
+        ]
+      },
+      "after": {
+        "states": 234,
+        "geometry": [
+          216,
+          234
+        ],
+        "hitDifferences": [
+          234,
+          234
+        ],
+        "pointHitDifferences": [
+          219,
+          234
+        ],
+        "clientRectDifferences": [
+          60,
+          114
+        ],
+        "scrollDifferences": [
+          0,
+          48
+        ],
+        "pixels": [
+          157,
+          234
+        ]
+      },
+      "paired": {
+        "matched": 234,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "inline-fragments": {
+      "before": {
+        "states": 363,
+        "geometry": [
+          192,
+          363
+        ],
+        "hitDifferences": [
+          264,
+          363
+        ],
+        "clientRectDifferences": [
+          177,
+          363
+        ],
+        "pixels": [
+          0,
+          363
+        ]
+      },
+      "after": {
+        "states": 363,
+        "geometry": [
+          192,
+          363
+        ],
+        "hitDifferences": [
+          264,
+          363
+        ],
+        "clientRectDifferences": [
+          177,
+          363
+        ],
+        "pixels": [
+          0,
+          363
+        ]
+      },
+      "paired": {
+        "matched": 363,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "inline-fragment-effects": {
+      "before": {
+        "states": 102,
+        "geometry": [
+          102,
+          102
+        ],
+        "hitDifferences": [
+          102,
+          102
+        ],
+        "clientRectDifferences": [
+          60,
+          102
+        ],
+        "scrollDifferences": [
+          54,
+          54
+        ],
+        "pixels": [
+          0,
+          102
+        ]
+      },
+      "after": {
+        "states": 102,
+        "geometry": [
+          102,
+          102
+        ],
+        "hitDifferences": [
+          102,
+          102
+        ],
+        "clientRectDifferences": [
+          60,
+          102
+        ],
+        "scrollDifferences": [
+          54,
+          54
+        ],
+        "pixels": [
+          0,
+          102
+        ]
+      },
+      "paired": {
+        "matched": 102,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "line-width-grid": {
+      "before": {
+        "states": 176,
+        "geometry": [
+          176,
+          176
+        ],
+        "hitDifferences": [
+          176,
+          176
+        ],
+        "editorDifferences": [
+          176,
+          176
+        ],
+        "lineWidthDifferences": [
+          176,
+          176
+        ],
+        "pixels": [
+          30,
+          176
+        ]
+      },
+      "after": {
+        "states": 176,
+        "geometry": [
+          176,
+          176
+        ],
+        "hitDifferences": [
+          176,
+          176
+        ],
+        "editorDifferences": [
+          176,
+          176
+        ],
+        "lineWidthDifferences": [
+          176,
+          176
+        ],
+        "pixels": [
+          30,
+          176
+        ]
+      },
+      "paired": {
+        "matched": 176,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "line-width-effects": {
+      "before": {
+        "states": 76,
+        "geometry": [
+          76,
+          76
+        ],
+        "hitDifferences": [
+          76,
+          76
+        ],
+        "lineWidthDifferences": [
+          76,
+          76
+        ],
+        "pixels": [
+          45,
+          76
+        ]
+      },
+      "after": {
+        "states": 76,
+        "geometry": [
+          76,
+          76
+        ],
+        "hitDifferences": [
+          76,
+          76
+        ],
+        "lineWidthDifferences": [
+          76,
+          76
+        ],
+        "pixels": [
+          45,
+          76
+        ]
+      },
+      "paired": {
+        "matched": 76,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "text-metric-grid": {
+      "before": {
+        "states": 432,
+        "geometry": [
+          432,
+          432
+        ],
+        "hitDifferences": [
+          420,
+          432
+        ],
+        "editorDifferences": [
+          384,
+          384
+        ],
+        "pixels": [
+          48,
+          432
+        ]
+      },
+      "after": {
+        "states": 432,
+        "geometry": [
+          432,
+          432
+        ],
+        "hitDifferences": [
+          420,
+          432
+        ],
+        "editorDifferences": [
+          384,
+          384
+        ],
+        "pixels": [
+          48,
+          432
+        ]
+      },
+      "paired": {
+        "matched": 432,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "input-line-height": {
+      "before": {
+        "states": 504,
+        "geometry": [
+          504,
+          504
+        ],
+        "hitDifferences": [
+          504,
+          504
+        ],
+        "editorDifferences": [
+          504,
+          504
+        ],
+        "pixels": [
+          134,
+          504
+        ]
+      },
+      "after": {
+        "states": 504,
+        "geometry": [
+          504,
+          504
+        ],
+        "hitDifferences": [
+          504,
+          504
+        ],
+        "editorDifferences": [
+          504,
+          504
+        ],
+        "pixels": [
+          134,
+          504
+        ]
+      },
+      "paired": {
+        "matched": 504,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "input-pointer": {
+      "before": {
+        "states": 264,
+        "geometry": [
+          264,
+          264
+        ],
+        "hitDifferences": [
+          264,
+          264
+        ],
+        "editorDifferences": [
+          231,
+          264
+        ],
+        "pixels": [
+          13,
+          264
+        ]
+      },
+      "after": {
+        "states": 264,
+        "geometry": [
+          264,
+          264
+        ],
+        "hitDifferences": [
+          264,
+          264
+        ],
+        "editorDifferences": [
+          231,
+          264
+        ],
+        "pixels": [
+          13,
+          264
+        ]
+      },
+      "paired": {
+        "matched": 264,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-document-mode": {
+      "before": {
+        "states": 132,
+        "geometry": [
+          92,
+          132
+        ],
+        "hitDifferences": [
+          120,
+          132
+        ],
+        "editorDifferences": [
+          48,
+          48
+        ],
+        "scrollDifferences": [
+          24,
+          24
+        ],
+        "pixels": [
+          84,
+          132
+        ]
+      },
+      "after": {
+        "states": 132,
+        "geometry": [
+          92,
+          132
+        ],
+        "hitDifferences": [
+          120,
+          132
+        ],
+        "editorDifferences": [
+          48,
+          48
+        ],
+        "scrollDifferences": [
+          24,
+          24
+        ],
+        "pixels": [
+          84,
+          132
+        ]
+      },
+      "paired": {
+        "matched": 132,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-layout": {
+      "before": {
+        "states": 264,
+        "geometry": [
+          132,
+          264
+        ],
+        "hitDifferences": [
+          264,
+          264
+        ],
+        "editorDifferences": [
+          264,
+          264
+        ],
+        "pixels": [
+          0,
+          264
+        ]
+      },
+      "after": {
+        "states": 264,
+        "geometry": [
+          132,
+          264
+        ],
+        "hitDifferences": [
+          264,
+          264
+        ],
+        "editorDifferences": [
+          264,
+          264
+        ],
+        "pixels": [
+          0,
+          264
+        ]
+      },
+      "paired": {
+        "matched": 264,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-selection": {
+      "before": {
+        "states": 48,
+        "geometry": [
+          48,
+          48
+        ],
+        "hitDifferences": [
+          48,
+          48
+        ],
+        "editorDifferences": [
+          48,
+          48
+        ],
+        "pixels": [
+          12,
+          48
+        ]
+      },
+      "after": {
+        "states": 48,
+        "geometry": [
+          48,
+          48
+        ],
+        "hitDifferences": [
+          48,
+          48
+        ],
+        "editorDifferences": [
+          48,
+          48
+        ],
+        "pixels": [
+          12,
+          48
+        ]
+      },
+      "paired": {
+        "matched": 48,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "control-focus": {
+      "before": {
+        "states": 252,
+        "geometry": [
+          252,
+          252
+        ],
+        "hitDifferences": [
+          252,
+          252
+        ],
+        "editorDifferences": [
+          252,
+          252
+        ],
+        "pixels": [
+          164,
+          252
+        ]
+      },
+      "after": {
+        "states": 252,
+        "geometry": [
+          252,
+          252
+        ],
+        "hitDifferences": [
+          252,
+          252
+        ],
+        "editorDifferences": [
+          252,
+          252
+        ],
+        "pixels": [
+          164,
+          252
+        ]
+      },
+      "paired": {
+        "matched": 252,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "tables": {
+      "before": {
+        "states": 77,
+        "geometry": [
+          77,
+          77
+        ],
+        "hitDifferences": [
+          77,
+          77
+        ],
+        "pixels": [
+          74,
+          77
+        ]
+      },
+      "after": {
+        "states": 77,
+        "geometry": [
+          77,
+          77
+        ],
+        "hitDifferences": [
+          77,
+          77
+        ],
+        "pixels": [
+          74,
+          77
+        ]
+      },
+      "paired": {
+        "matched": 77,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "table-document-mode": {
+      "before": {
+        "states": 12,
+        "geometry": [
+          12,
+          12
+        ],
+        "hitDifferences": [
+          12,
+          12
+        ],
+        "pixels": [
+          12,
+          12
+        ]
+      },
+      "after": {
+        "states": 12,
+        "geometry": [
+          12,
+          12
+        ],
+        "hitDifferences": [
+          12,
+          12
+        ],
+        "pixels": [
+          12,
+          12
+        ]
+      },
+      "paired": {
+        "matched": 12,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "table-controls": {
+      "before": {
+        "states": 4,
+        "geometry": [
+          4,
+          4
+        ],
+        "hitDifferences": [
+          4,
+          4
+        ],
+        "editorDifferences": [
+          4,
+          4
+        ],
+        "scrollDifferences": [
+          4,
+          4
+        ],
+        "pixels": [
+          4,
+          4
+        ]
+      },
+      "after": {
+        "states": 4,
+        "geometry": [
+          4,
+          4
+        ],
+        "hitDifferences": [
+          4,
+          4
+        ],
+        "editorDifferences": [
+          4,
+          4
+        ],
+        "scrollDifferences": [
+          4,
+          4
+        ],
+        "pixels": [
+          4,
+          4
+        ]
+      },
+      "paired": {
+        "matched": 4,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "table-integration": {
+      "before": {
+        "states": 30,
+        "geometry": [
+          22,
+          30
+        ],
+        "hitDifferences": [
+          24,
+          30
+        ],
+        "editorDifferences": [
+          8,
+          8
+        ],
+        "scrollDifferences": [
+          12,
+          12
+        ],
+        "pixels": [
+          23,
+          30
+        ]
+      },
+      "after": {
+        "states": 30,
+        "geometry": [
+          22,
+          30
+        ],
+        "hitDifferences": [
+          24,
+          30
+        ],
+        "editorDifferences": [
+          8,
+          8
+        ],
+        "scrollDifferences": [
+          12,
+          12
+        ],
+        "pixels": [
+          23,
+          30
+        ]
+      },
+      "paired": {
+        "matched": 30,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "controls": {
+      "before": {
+        "states": 9,
+        "geometry": [
+          8,
+          9
+        ],
+        "hitDifferences": [
+          8,
+          9
+        ],
+        "editorDifferences": [
+          6,
+          6
+        ],
+        "scrollDifferences": [
+          2,
+          2
+        ],
+        "pixels": [
+          6,
+          9
+        ]
+      },
+      "after": {
+        "states": 9,
+        "geometry": [
+          8,
+          9
+        ],
+        "hitDifferences": [
+          8,
+          9
+        ],
+        "editorDifferences": [
+          6,
+          6
+        ],
+        "scrollDifferences": [
+          2,
+          2
+        ],
+        "pixels": [
+          6,
+          9
+        ]
+      },
+      "paired": {
+        "matched": 9,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "scrolling": {
+      "before": {
+        "states": 148,
+        "geometry": [
+          148,
+          148
+        ],
+        "hitDifferences": [
+          148,
+          148
+        ],
+        "scrollDifferences": [
+          140,
+          140
+        ],
+        "pixels": [
+          148,
+          148
+        ]
+      },
+      "after": {
+        "states": 148,
+        "geometry": [
+          148,
+          148
+        ],
+        "hitDifferences": [
+          148,
+          148
+        ],
+        "scrollDifferences": [
+          140,
+          140
+        ],
+        "pixels": [
+          148,
+          148
+        ]
+      },
+      "paired": {
+        "matched": 148,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "css-animations": {
+      "before": {
+        "states": 40,
+        "geometry": [
+          40,
+          40
+        ],
+        "hitDifferences": [
+          40,
+          40
+        ],
+        "pixels": [
+          40,
+          40
+        ]
+      },
+      "after": {
+        "states": 40,
+        "geometry": [
+          40,
+          40
+        ],
+        "hitDifferences": [
+          40,
+          40
+        ],
+        "pixels": [
+          40,
+          40
+        ]
+      },
+      "paired": {
+        "matched": 40,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "intrinsic-text": {
+      "before": {
+        "states": 30,
+        "geometry": [
+          30,
+          30
+        ],
+        "hitDifferences": [
+          30,
+          30
+        ],
+        "pixels": [
+          20,
+          30
+        ]
+      },
+      "after": {
+        "states": 30,
+        "geometry": [
+          30,
+          30
+        ],
+        "hitDifferences": [
+          30,
+          30
+        ],
+        "pixels": [
+          20,
+          30
+        ]
+      },
+      "paired": {
+        "matched": 30,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "font-weights": {
+      "before": {
+        "states": 36,
+        "geometry": [
+          20,
+          36
+        ],
+        "hitDifferences": [
+          36,
+          36
+        ],
+        "pixels": [
+          16,
+          36
+        ]
+      },
+      "after": {
+        "states": 36,
+        "geometry": [
+          20,
+          36
+        ],
+        "hitDifferences": [
+          36,
+          36
+        ],
+        "pixels": [
+          16,
+          36
+        ]
+      },
+      "paired": {
+        "matched": 36,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "glyphs": {
+      "before": {
+        "states": 38,
+        "geometry": [
+          38,
+          38
+        ],
+        "hitDifferences": [
+          38,
+          38
+        ],
+        "pixels": [
+          4,
+          38
+        ]
+      },
+      "after": {
+        "states": 38,
+        "geometry": [
+          38,
+          38
+        ],
+        "hitDifferences": [
+          38,
+          38
+        ],
+        "pixels": [
+          4,
+          38
+        ]
+      },
+      "paired": {
+        "matched": 38,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    },
+    "borders": {
+      "before": {
+        "states": 7,
+        "geometry": [
+          7,
+          7
+        ],
+        "hitDifferences": [
+          7,
+          7
+        ],
+        "pixels": [
+          0,
+          7
+        ]
+      },
+      "after": {
+        "states": 7,
+        "geometry": [
+          7,
+          7
+        ],
+        "hitDifferences": [
+          7,
+          7
+        ],
+        "pixels": [
+          0,
+          7
+        ]
+      },
+      "paired": {
+        "matched": 7,
+        "afterOnly": 0,
+        "unmatchedBefore": 0,
+        "inputMismatch": [],
+        "changedGates": {}
+      }
+    }
+  },
+  "totals": {
+    "afterStates": 3890,
+    "matched": 3890,
+    "afterOnly": 0,
+    "unmatchedBefore": 0,
+    "inputMismatch": 0,
+    "changedGates": {
+      "pixels": {
+        "repairs": 63,
+        "regressions": 0
+      }
+    }
+  },
+  "rawObservationValidation": {
+    "states": 7780,
+    "gates": [
+      "geometry",
+      "clientRects",
+      "hits",
+      "pointHits"
+    ],
+    "valid": true
+  },
+  "compiled": {
+    "tables-cpu": {
+      "schema": 1,
+      "runs": 6,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 96,
+      "maxMAE": 1.27,
+      "gpuAdapters": []
+    },
+    "tables-gpu": {
+      "schema": 1,
+      "runs": 2,
+      "browserVersion": "153.0.8010.12",
+      "renderer": "gpu",
+      "gpuAdapters": [
+        "llvmpipe (LLVM 21.1.8, 256 bits)"
+      ],
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 32,
+      "maxMAE": 2.396
+    },
+    "forms-focus": {
+      "schema": 1,
+      "runs": 22,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 242,
+      "maxMAE": 0.388,
+      "gpuAdapters": []
+    },
+    "control-regressions": {
+      "schema": 1,
+      "runs": 7,
+      "browserVersion": "153.0.8010.12",
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "knownGaps": [],
+      "failures": [],
+      "states": 19,
+      "maxMAE": 0.594,
+      "gpuAdapters": []
+    }
+  },
+  "units": {
+    "compiler": {
+      "passed": 297,
+      "failed": 0
+    },
+    "workspace": {
+      "passed": 122,
+      "failed": 0
+    },
+    "blitzDom": {
+      "passed": 57,
+      "failed": 2,
+      "knownFailures": [
+        "hover_styles_apply_and_clear",
+        "scroll_by_clamps_and_bubbles"
+      ]
+    },
+    "blitzPaint": {
+      "passed": 12,
+      "failed": 0
+    },
+    "blitzHtml": {
+      "passed": 3,
+      "failed": 0
+    },
+    "parleyStd": {
+      "passed": 128,
+      "failed": 4,
+      "knownFailures": [
+        "cluster_from_position_start_alignment",
+        "cluster_from_position_end_alignment",
+        "cluster_from_position_center_alignment",
+        "cluster_from_position_justified_alignment"
+      ]
+    },
+    "parleyEngine": {
+      "passed": 39,
+      "failed": 0
+    },
+    "parleyLibm": {
+      "status": "passed"
+    }
+  },
+  "oldEvidenceValidation": {
+    "head": "69dc00e19d1b9aacd79b5ac3d7d1da62fa5cfa46",
+    "records": [
+      {
+        "path": "conformance/results/chromium-line-widths.json",
+        "currentSHA256": "7829b6ca8810bdf000334acb13e987b7be35bd213d6902d07d4970a9832ac492",
+        "headSHA256": "7829b6ca8810bdf000334acb13e987b7be35bd213d6902d07d4970a9832ac492",
+        "unchanged": true,
+        "headError": null
+      },
+      {
+        "path": "conformance/results/chromium-text-metrics.json",
+        "currentSHA256": "3314c51af85a8852f0742fd2b3157419958eedcad4f7327d71a131f8076e3528",
+        "headSHA256": "3314c51af85a8852f0742fd2b3157419958eedcad4f7327d71a131f8076e3528",
+        "unchanged": true,
+        "headError": null
+      },
+      {
+        "path": "conformance/results/chromium-inline-fragments.json",
+        "currentSHA256": "ba472f9aa1a08ae1ea3fac497464a8cb956df3069c9a4e1fd19501aefa06bb8d",
+        "headSHA256": "ba472f9aa1a08ae1ea3fac497464a8cb956df3069c9a4e1fd19501aefa06bb8d",
+        "unchanged": true,
+        "headError": null
+      },
+      {
+        "path": "conformance/results/chromium-pointer-geometry.json",
+        "currentSHA256": "b527cdaa3c69a290e797d9523a5365f4fed7a5a18c2095a18733007bfcfc5cac",
+        "headSHA256": "b527cdaa3c69a290e797d9523a5365f4fed7a5a18c2095a18733007bfcfc5cac",
+        "unchanged": true,
+        "headError": null
+      },
+      {
+        "path": "conformance/results/chromium-inline-source-order.json",
+        "currentSHA256": "6efe9225362ccb50a4313a5b00ad03866c781587a8174e376257b92b043eac58",
+        "headSHA256": "6efe9225362ccb50a4313a5b00ad03866c781587a8174e376257b92b043eac58",
+        "unchanged": true,
+        "headError": null
+      },
+      {
+        "path": "conformance/results/chromium-middle-metrics.json",
+        "currentSHA256": "184c40724e5933445eae1bb9bc873a249b339b3260afa0acb7eff7ae93d90205",
+        "headSHA256": "184c40724e5933445eae1bb9bc873a249b339b3260afa0acb7eff7ae93d90205",
+        "unchanged": true,
+        "headError": null
+      },
+      {
+        "path": "conformance/results/chromium-nested-alignment.json",
+        "currentSHA256": "8be2ae31f1e7e8143b56a79cabf36988371b6d50d4428cc1b4743fda2bb74048",
+        "headSHA256": "8be2ae31f1e7e8143b56a79cabf36988371b6d50d4428cc1b4743fda2bb74048",
+        "unchanged": true,
+        "headError": null
+      }
+    ],
+    "oldEvidence": {
+      "entries": 1167,
+      "uniquePathHashes": 983,
+      "duplicates": 184,
+      "missing": [],
+      "mismatched": [],
+      "unsafe": [],
+      "valid": true
+    },
+    "observationManifest": {
+      "path": "artifacts/nested-final-observation-manifest.json",
+      "sha256": "358fdf96a1a880e947ff7704ce494c5f5d43be80ff086e7e259c49e83a70249b",
+      "declaredFiles": 38289,
+      "entries": 38289,
+      "missing": [],
+      "mismatched": [],
+      "unsafe": [],
+      "valid": true
+    },
+    "valid": true
+  },
+  "diagnosticRecovery": {
+    "head": "765ee3dedad7429258b0bbf1cf793c6e4b87c5fc",
+    "records": [
+      {
+        "path": "conformance/results/chromium-line-widths.json",
+        "currentSHA256": "7829b6ca8810bdf000334acb13e987b7be35bd213d6902d07d4970a9832ac492",
+        "headSHA256": "7829b6ca8810bdf000334acb13e987b7be35bd213d6902d07d4970a9832ac492",
+        "unchanged": true
+      },
+      {
+        "path": "conformance/results/chromium-text-metrics.json",
+        "currentSHA256": "3314c51af85a8852f0742fd2b3157419958eedcad4f7327d71a131f8076e3528",
+        "headSHA256": "3314c51af85a8852f0742fd2b3157419958eedcad4f7327d71a131f8076e3528",
+        "unchanged": true
+      },
+      {
+        "path": "conformance/results/chromium-inline-fragments.json",
+        "currentSHA256": "ba472f9aa1a08ae1ea3fac497464a8cb956df3069c9a4e1fd19501aefa06bb8d",
+        "headSHA256": "ba472f9aa1a08ae1ea3fac497464a8cb956df3069c9a4e1fd19501aefa06bb8d",
+        "unchanged": true
+      },
+      {
+        "path": "conformance/results/chromium-pointer-geometry.json",
+        "currentSHA256": "b527cdaa3c69a290e797d9523a5365f4fed7a5a18c2095a18733007bfcfc5cac",
+        "headSHA256": "b527cdaa3c69a290e797d9523a5365f4fed7a5a18c2095a18733007bfcfc5cac",
+        "unchanged": true
+      },
+      {
+        "path": "conformance/results/chromium-inline-source-order.json",
+        "currentSHA256": "6efe9225362ccb50a4313a5b00ad03866c781587a8174e376257b92b043eac58",
+        "headSHA256": "6efe9225362ccb50a4313a5b00ad03866c781587a8174e376257b92b043eac58",
+        "unchanged": true
+      },
+      {
+        "path": "conformance/results/chromium-middle-metrics.json",
+        "currentSHA256": "184c40724e5933445eae1bb9bc873a249b339b3260afa0acb7eff7ae93d90205",
+        "headSHA256": "184c40724e5933445eae1bb9bc873a249b339b3260afa0acb7eff7ae93d90205",
+        "unchanged": true
+      },
+      {
+        "path": "conformance/results/chromium-nested-alignment.json",
+        "currentSHA256": "8be2ae31f1e7e8143b56a79cabf36988371b6d50d4428cc1b4743fda2bb74048",
+        "headSHA256": "8be2ae31f1e7e8143b56a79cabf36988371b6d50d4428cc1b4743fda2bb74048",
+        "unchanged": true
+      }
+    ],
+    "oldEvidence": {
+      "entries": 1167,
+      "missing": [],
+      "mismatched": [],
+      "unsafe": [],
+      "valid": true
+    },
+    "observationManifest": {
+      "path": "artifacts/nested-final-observation-manifest.json",
+      "declaredFiles": 38289,
+      "entries": 38289,
+      "sha256": "358fdf96a1a880e947ff7704ce494c5f5d43be80ff086e7e259c49e83a70249b",
+      "check": {
+        "entries": 38289,
+        "missing": [],
+        "mismatched": [],
+        "unsafe": [],
+        "valid": true
+      }
+    },
+    "valid": true
+  },
+  "incompleteStages": [
+    "Named /code-review tool unavailable; root and independent read-only reviews are substitutes only",
+    "OS keyboard/pointer/IME delivery not established by internal or headless probes",
+    "System-font Parley default-feature tests remain incomplete from preceding record"
+  ],
+  "remainingGaps": [
+    "Strict pixel failures remain independently gated, including tight anonymous-child diagnostic crops",
+    "Empty inline participant boxes and generic span margin flow",
+    "Sticky materialization provenance across style mutations; layer-local anchors, transforms, containment, SVG and special paint branches",
+    "Bidi/materialized fragment provenance, complete fragment lists and duplicated synthetic style owners",
+    "Full deferred nested top/bottom and fixed-point alignment semantics",
+    "Variable-font optical sizing, synthesis and CSS face ordering",
+    "RTL editor selection/clicks, native theme paint and OS keyboard/IME delivery"
+  ],
+  "commands": [
+    {
+      "name": "npm",
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 66.34,
+      "log": "artifacts/paint-final-npm.log",
+      "artifact": null
+    },
+    {
+      "name": "workspace",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--workspace"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 20.817,
+      "log": "artifacts/paint-final-workspace.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-dom",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "blitz-dom"
+      ],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 0.469,
+      "log": "artifacts/paint-final-blitz-dom.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-paint",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "blitz-paint"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 0.537,
+      "log": "artifacts/paint-final-blitz-paint.log",
+      "artifact": null
+    },
+    {
+      "name": "blitz-html",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "blitz-html"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 0.487,
+      "log": "artifacts/paint-final-blitz-html.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-std",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-paint-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--lib",
+        "--no-default-features",
+        "--features",
+        "std"
+      ],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 0.408,
+      "log": "artifacts/paint-final-parley-std.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-libm",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "check",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-paint-parley-tests/Cargo.toml",
+        "-p",
+        "parley",
+        "--no-default-features",
+        "--features",
+        "libm"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 0.351,
+      "log": "artifacts/paint-final-parley-libm.log",
+      "artifact": null
+    },
+    {
+      "name": "parley-engine",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--locked",
+        "--manifest-path",
+        "/tmp/runic-paint-parley-tests/Cargo.toml",
+        "-p",
+        "parley_engine",
+        "--lib",
+        "--no-default-features",
+        "--features",
+        "std"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 0.343,
+      "log": "artifacts/paint-final-parley-engine.log",
+      "artifact": null
+    },
+    {
+      "name": "middle-metrics",
+      "command": [
+        "node",
+        "conformance/middle-metrics.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 68.915,
+      "log": "artifacts/paint-final-middle-metrics.log",
+      "artifact": "artifacts/paint-final-middle-metrics"
+    },
+    {
+      "name": "nested-alignment",
+      "command": [
+        "node",
+        "conformance/nested-alignment.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 32.791,
+      "log": "artifacts/paint-final-nested-alignment.log",
+      "artifact": "artifacts/paint-final-nested-alignment"
+    },
+    {
+      "name": "paint-origins",
+      "command": [
+        "node",
+        "conformance/paint-origins.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 46.031,
+      "log": "artifacts/paint-final-paint-origins.log",
+      "artifact": "artifacts/paint-final-paint-origins"
+    },
+    {
+      "name": "paint-decorations",
+      "command": [
+        "node",
+        "conformance/paint-decorations.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 16.934,
+      "log": "artifacts/paint-final-paint-decorations.log",
+      "artifact": "artifacts/paint-final-paint-decorations"
+    },
+    {
+      "name": "inline-source-order",
+      "command": [
+        "node",
+        "conformance/inline-source-order.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 85.03,
+      "log": "artifacts/paint-final-inline-source-order.log",
+      "artifact": "artifacts/paint-final-inline-source-order"
+    },
+    {
+      "name": "pointer-geometry",
+      "command": [
+        "node",
+        "conformance/pointer-geometry.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 92.454,
+      "log": "artifacts/paint-final-pointer-geometry.log",
+      "artifact": "artifacts/paint-final-pointer-geometry"
+    },
+    {
+      "name": "inline-fragments",
+      "command": [
+        "node",
+        "conformance/inline-fragments.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 129.514,
+      "log": "artifacts/paint-final-inline-fragments.log",
+      "artifact": "artifacts/paint-final-inline-fragments"
+    },
+    {
+      "name": "inline-fragment-effects",
+      "command": [
+        "node",
+        "conformance/inline-fragment-effects.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 35.745,
+      "log": "artifacts/paint-final-inline-fragment-effects.log",
+      "artifact": "artifacts/paint-final-inline-fragment-effects"
+    },
+    {
+      "name": "line-width-grid",
+      "command": [
+        "node",
+        "conformance/line-width-grid.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 92.249,
+      "log": "artifacts/paint-final-line-width-grid.log",
+      "artifact": "artifacts/paint-final-line-width-grid"
+    },
+    {
+      "name": "line-width-effects",
+      "command": [
+        "node",
+        "conformance/line-width-effects.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 23.507,
+      "log": "artifacts/paint-final-line-width-effects.log",
+      "artifact": "artifacts/paint-final-line-width-effects"
+    },
+    {
+      "name": "text-metric-grid",
+      "command": [
+        "node",
+        "conformance/text-metric-grid.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 141.911,
+      "log": "artifacts/paint-final-text-metric-grid.log",
+      "artifact": "artifacts/paint-final-text-metric-grid"
+    },
+    {
+      "name": "input-line-height",
+      "command": [
+        "node",
+        "conformance/input-line-height.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 148.374,
+      "log": "artifacts/paint-final-input-line-height.log",
+      "artifact": "artifacts/paint-final-input-line-height"
+    },
+    {
+      "name": "input-pointer",
+      "command": [
+        "node",
+        "conformance/input-pointer.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 73.773,
+      "log": "artifacts/paint-final-input-pointer.log",
+      "artifact": "artifacts/paint-final-input-pointer"
+    },
+    {
+      "name": "control-document-mode",
+      "command": [
+        "node",
+        "conformance/control-document-mode.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 49.937,
+      "log": "artifacts/paint-final-control-document-mode.log",
+      "artifact": "artifacts/paint-final-control-document-mode"
+    },
+    {
+      "name": "control-layout",
+      "command": [
+        "node",
+        "conformance/control-layout.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 106.279,
+      "log": "artifacts/paint-final-control-layout.log",
+      "artifact": "artifacts/paint-final-control-layout"
+    },
+    {
+      "name": "control-selection",
+      "command": [
+        "node",
+        "conformance/control-selection.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 14.918,
+      "log": "artifacts/paint-final-control-selection.log",
+      "artifact": "artifacts/paint-final-control-selection"
+    },
+    {
+      "name": "control-focus",
+      "command": [
+        "node",
+        "conformance/control-focus.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 75.665,
+      "log": "artifacts/paint-final-control-focus.log",
+      "artifact": "artifacts/paint-final-control-focus"
+    },
+    {
+      "name": "tables",
+      "command": [
+        "node",
+        "conformance/tables.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 18.193,
+      "log": "artifacts/paint-final-tables.log",
+      "artifact": "artifacts/paint-final-tables"
+    },
+    {
+      "name": "table-document-mode",
+      "command": [
+        "node",
+        "conformance/table-document-mode.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.843,
+      "log": "artifacts/paint-final-table-document-mode.log",
+      "artifact": "artifacts/paint-final-table-document-mode"
+    },
+    {
+      "name": "table-controls",
+      "command": [
+        "node",
+        "conformance/table-controls.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 3.85,
+      "log": "artifacts/paint-final-table-controls.log",
+      "artifact": "artifacts/paint-final-table-controls"
+    },
+    {
+      "name": "table-integration",
+      "command": [
+        "node",
+        "conformance/table-integration.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 8.692,
+      "log": "artifacts/paint-final-table-integration.log",
+      "artifact": "artifacts/paint-final-table-integration"
+    },
+    {
+      "name": "controls",
+      "command": [
+        "node",
+        "conformance/controls.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 4.289,
+      "log": "artifacts/paint-final-controls.log",
+      "artifact": "artifacts/paint-final-controls"
+    },
+    {
+      "name": "scrolling",
+      "command": [
+        "node",
+        "conformance/scrolling.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 32.127,
+      "log": "artifacts/paint-final-scrolling.log",
+      "artifact": "artifacts/paint-final-scrolling"
+    },
+    {
+      "name": "css-animations",
+      "command": [
+        "node",
+        "conformance/css-animations.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 6.582,
+      "log": "artifacts/paint-final-css-animations.log",
+      "artifact": "artifacts/paint-final-css-animations"
+    },
+    {
+      "name": "intrinsic-text",
+      "command": [
+        "node",
+        "conformance/intrinsic-text.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 9.87,
+      "log": "artifacts/paint-final-intrinsic-text.log",
+      "artifact": "artifacts/paint-final-intrinsic-text"
+    },
+    {
+      "name": "font-weights",
+      "command": [
+        "node",
+        "conformance/font-weights.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 66.176,
+      "log": "artifacts/paint-final-font-weights.log",
+      "artifact": "artifacts/paint-final-font-weights"
+    },
+    {
+      "name": "glyphs",
+      "command": [
+        "node",
+        "conformance/glyphs.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 15.758,
+      "log": "artifacts/paint-final-glyphs.log",
+      "artifact": "artifacts/paint-final-glyphs"
+    },
+    {
+      "name": "borders",
+      "command": [
+        "node",
+        "conformance/borders.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 3.135,
+      "log": "artifacts/paint-final-borders.log",
+      "artifact": "artifacts/paint-final-borders"
+    },
+    {
+      "name": "tables-cpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--out",
+        "artifacts/paint-final-tables-cpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 51.641,
+      "log": "artifacts/paint-final-tables-cpu.log",
+      "artifact": null
+    },
+    {
+      "name": "tables-gpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--renderer",
+        "gpu",
+        "--fixture",
+        "table-svelte",
+        "--out",
+        "artifacts/paint-final-tables-gpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 20.163,
+      "log": "artifacts/paint-final-tables-gpu.log",
+      "artifact": null
+    },
+    {
+      "name": "forms-focus",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "forms",
+        "forms-react",
+        "forms-vue",
+        "measure",
+        "scroll-events",
+        "focus",
+        "focus-fixup",
+        "--pixels",
+        "--out",
+        "artifacts/paint-final-forms-focus"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 118.472,
+      "log": "artifacts/paint-final-forms-focus.log",
+      "artifact": null
+    },
+    {
+      "name": "control-regressions",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "blitz-buttons",
+        "blitz-button-baseline",
+        "blitz-control-line-height",
+        "blitz-inline-baselines",
+        "--pixels",
+        "--out",
+        "artifacts/paint-final-control-regressions"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 30.957,
+      "log": "artifacts/paint-final-control-regressions.log",
+      "artifact": null
+    }
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/nested-final-borders/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-borders/results.json",
+      "sha256": "6da530ca4059ff528aa305eebd7af1a69c23cb67d81503544b2c267fc9519bc5"
+    },
+    {
+      "path": "artifacts/nested-final-control-document-mode/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-control-document-mode/results.json",
+      "sha256": "cb6237d559ddc1eb42f18d14ecc0208e3812def6f60c5a976b8e1b75cb388321"
+    },
+    {
+      "path": "artifacts/nested-final-control-focus/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-control-focus/results.json",
+      "sha256": "a664a1c71c7665799a62c7a20bb89cb226a9e947a9c6af00490f964e45c3eca7"
+    },
+    {
+      "path": "artifacts/nested-final-control-layout/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-control-layout/results.json",
+      "sha256": "6eeee53ce0371dd6f0d8b8ba90db2394b8fed34317dc0856b57d31d57c751b56"
+    },
+    {
+      "path": "artifacts/nested-final-control-selection/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-control-selection/results.json",
+      "sha256": "7c22f49513a651dd7e027a8f8b99203cbe880017ad47dd327e7013f0b777ae54"
+    },
+    {
+      "path": "artifacts/nested-final-controls/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-controls/results.json",
+      "sha256": "6ea5bd937e36b383a256846db69116fbdd9a1849685d21070c1088f604efd62e"
+    },
+    {
+      "path": "artifacts/nested-final-css-animations/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-css-animations/results.json",
+      "sha256": "f7041adbe59eb89c596a08c333f196740b94db2aeab53798f2133cf547a6425b"
+    },
+    {
+      "path": "artifacts/nested-final-font-weights/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-font-weights/results.json",
+      "sha256": "6368af28c4d7389a1808443c797a981f562bd074a845334826418bd845919dd8"
+    },
+    {
+      "path": "artifacts/nested-final-glyphs/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-glyphs/results.json",
+      "sha256": "bfad409b0dbef888c95ebd8c42af286c625cd2b35ab92d6bf32a1fe4dbd299c3"
+    },
+    {
+      "path": "artifacts/nested-final-inline-fragment-effects/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-inline-fragment-effects/results.json",
+      "sha256": "10c63b4459bafac93ac6a528c31c59b576b0407f2eebdcf7c5ab1d2c0c70fe23"
+    },
+    {
+      "path": "artifacts/nested-final-inline-fragments/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-inline-fragments/results.json",
+      "sha256": "9b02078aa42d63b6f507e72bd6e8c44b4465f3bde5a2634aa72e3c20938c183e"
+    },
+    {
+      "path": "artifacts/nested-final-inline-source-order/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-inline-source-order/results.json",
+      "sha256": "128d3c68f95548e849a3ed249a7fa627f6752220e5fa154e3c0380baa0540140"
+    },
+    {
+      "path": "artifacts/nested-final-input-line-height/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-input-line-height/results.json",
+      "sha256": "8dc4dee679d6cd53f2d5aaddf165b1db2ca02de200879f2de67d11272d95042b"
+    },
+    {
+      "path": "artifacts/nested-final-input-pointer/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-input-pointer/results.json",
+      "sha256": "5860788eefcc3cdf49f2caa5dfd252ba93590818b7b8b47b210265c22403299a"
+    },
+    {
+      "path": "artifacts/nested-final-intrinsic-text/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-intrinsic-text/results.json",
+      "sha256": "aa475317d8c994ba2f59d5702e5ce5ab62e5b62e72f4d51d2c4ce8a0a33912dd"
+    },
+    {
+      "path": "artifacts/nested-final-line-width-effects/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-line-width-effects/results.json",
+      "sha256": "42c5ced34bc295ce14f9c00a808264036fa417720785b686a6aae07927ce57c7"
+    },
+    {
+      "path": "artifacts/nested-final-line-width-grid/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-line-width-grid/results.json",
+      "sha256": "a5e99ec5e16905293b6027368328a40bdf0691156b81d4411caf3b06d49bc756"
+    },
+    {
+      "path": "artifacts/nested-final-middle-metrics/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-middle-metrics/results.json",
+      "sha256": "d3c7aa09bb5e60c17b48d8beaba321df74e240e709f96e2ac9aa0be6b2d0c553"
+    },
+    {
+      "path": "artifacts/nested-final-nested-alignment/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-nested-alignment/results.json",
+      "sha256": "7de1b4104b50c11584cbf15f4149d0b65b70b5d5abadbd1335068781a9291459"
+    },
+    {
+      "path": "artifacts/nested-final-pointer-geometry/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-pointer-geometry/results.json",
+      "sha256": "2bdde47ba2043753273cf597423f015d8839def94d4a870472514372a1e05988"
+    },
+    {
+      "path": "artifacts/nested-final-scrolling/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-scrolling/results.json",
+      "sha256": "a1e39783b300d8559f511699e77bceb6332911325db994988afea1ca9cb8287a"
+    },
+    {
+      "path": "artifacts/nested-final-table-controls/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-table-controls/results.json",
+      "sha256": "788e6c63648985b1775018ae0153dc47d383eb9e52c6e4c36aab9f5e7fadc8c2"
+    },
+    {
+      "path": "artifacts/nested-final-table-document-mode/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-table-document-mode/results.json",
+      "sha256": "f9cebe47d1d03af390a2355fa16b2d7cc615036e6534851f57af276a2b71431f"
+    },
+    {
+      "path": "artifacts/nested-final-table-integration/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-table-integration/results.json",
+      "sha256": "6101a3b3d34fe0b37dd9f7718addf91a9b2b76f8169b698a17ec52147815da31"
+    },
+    {
+      "path": "artifacts/nested-final-tables/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-tables/results.json",
+      "sha256": "7a26f31285e4f4c12f6668a951393f9611764701b0680edaaaf105a33dc26f18"
+    },
+    {
+      "path": "artifacts/nested-final-text-metric-grid/metadata.json",
+      "sha256": "b26bccf0c29aaf44f8d63a0c74e0c9b3202ae0203b6bc815b6afd0883e0148c2"
+    },
+    {
+      "path": "artifacts/nested-final-text-metric-grid/results.json",
+      "sha256": "eb98619f63d0c470490194ae41ddb3b8f3a988a80d5ed8a3c56cb37526ebc877"
+    },
+    {
+      "path": "artifacts/nested-paint-parent-span-research.json",
+      "sha256": "1b846689c3a99121fc00239fa8065d93dd478e693c802c4937934b5b4fde1128"
+    },
+    {
+      "path": "artifacts/paint-anchor-origin-probe-2.log",
+      "sha256": "ecf19105bf22660fb680385546038f5ed9c4ca2b35134448eefa31d477da5ad6"
+    },
+    {
+      "path": "artifacts/paint-anchor-origin-probe-2/metadata.json",
+      "sha256": "265346d6716ba8a1013d6877a102e2b91915faf18018eac1ac529b3f39ea257d"
+    },
+    {
+      "path": "artifacts/paint-anchor-origin-probe-2/oracle-build.log",
+      "sha256": "e799c8a93ad2f0777db9f46da4de485b9c46e43b857a86216125379cb6f4b589"
+    },
+    {
+      "path": "artifacts/paint-anchor-origin-probe-2/results.json",
+      "sha256": "b16a15caaa6ec33db1335b6a325e58d6cf320d5f11feecdaf7f9387c813caf06"
+    },
+    {
+      "path": "artifacts/paint-anchor-origin-probe.log",
+      "sha256": "fcfa1a82f9e48ee235523a21603e79acb47355bbaef0e80b7a162e8917a6657e"
+    },
+    {
+      "path": "artifacts/paint-anchor-origin-probe/metadata.json",
+      "sha256": "6706aa4dd2ea31ee163238119dcd7ddeac3d4bf0c1a70e4035ae735390e6d9fc"
+    },
+    {
+      "path": "artifacts/paint-anchor-origin-probe/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-anchor-origin-probe/results.json",
+      "sha256": "1bae25827fe6a3f0af9a7c253f7b2e747e5d7e95ef48c57c6dc98a93b698ecaa"
+    },
+    {
+      "path": "artifacts/paint-anchor-paint-origins-3.log",
+      "sha256": "fec0c298e3cb74adbb4ec5784d2d062613f2739f56cba06ed08021338b3acefb"
+    },
+    {
+      "path": "artifacts/paint-anchor-paint-origins-3/metadata.json",
+      "sha256": "c32dd946ae0967d12e2718db34dbf1b3d16de3adcf1f5b32a65b995281147620"
+    },
+    {
+      "path": "artifacts/paint-anchor-paint-origins-3/oracle-build.log",
+      "sha256": "558fb9edac75e12241b6d7c08bd7971c570ab6149919d37eaeab569ee401ffb5"
+    },
+    {
+      "path": "artifacts/paint-anchor-paint-origins-3/results.json",
+      "sha256": "622de5e2d2f4400a5b68c4652db2ec68f24f1aa9882635bd67a2699389d9b170"
+    },
+    {
+      "path": "artifacts/paint-anchor-paint-origins.log",
+      "sha256": "baab945aec7631970bf28c482f4b796962ebd26070e2ddae40de211a8c6820d5"
+    },
+    {
+      "path": "artifacts/paint-anchor-paint-origins/metadata.json",
+      "sha256": "265346d6716ba8a1013d6877a102e2b91915faf18018eac1ac529b3f39ea257d"
+    },
+    {
+      "path": "artifacts/paint-anchor-paint-origins/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/paint-anchor-paint-origins/results.json",
+      "sha256": "e850094b94f88956cc02ec4f221bf9b3a89c2c0d52d2261ec1351028ad3dfc9f"
+    },
+    {
+      "path": "artifacts/paint-audit.mjs",
+      "sha256": "303ed957c5f2d4c3b75b96db2310dee69dd41e18704431f1c6f95cceebc1b7e5"
+    },
+    {
+      "path": "artifacts/paint-baseline-paint-decorations/metadata.json",
+      "sha256": "ababaad0399ddc74967a03267e6dc5254915f2caa9a62d297487f991034b1218"
+    },
+    {
+      "path": "artifacts/paint-baseline-paint-decorations/results.json",
+      "sha256": "21efcab9e9db9f5aef2a906a6a5c32560c4dbb5ec2cf658ac58aab85854b560b"
+    },
+    {
+      "path": "artifacts/paint-baseline-paint-origins/metadata.json",
+      "sha256": "fc0a16a3b6fa80df4e37a49bda3238d31275fb425cb0cb36c26fb073edb97dd4"
+    },
+    {
+      "path": "artifacts/paint-baseline-paint-origins/results.json",
+      "sha256": "17d387d518e13b784c19b9834498402cbb4e2d219c9adf2f2f4128be5645354e"
+    },
+    {
+      "path": "artifacts/paint-candidate-review-final.json",
+      "sha256": "7c24aee66ae62c1d69a5acb139a1284e9f3d53f8dbd73610c52909f284a2b46f"
+    },
+    {
+      "path": "artifacts/paint-candidate-review.json",
+      "sha256": "6dcaf5d2b126519eaf9c87e8b1dc4b8cf54c7bc336c551ac4f066fbe255d3968"
+    },
+    {
+      "path": "artifacts/paint-ceil-origin-probe.log",
+      "sha256": "869685af8f245ec7d054d622ebcb1457dd895275da9c2ebd7140e8ea73f97868"
+    },
+    {
+      "path": "artifacts/paint-ceil-origin-probe/metadata.json",
+      "sha256": "d8e3d1c8e336ed347a45d0f408adeb7f92fca24ea412b94449674d00ae0d6f65"
+    },
+    {
+      "path": "artifacts/paint-ceil-origin-probe/oracle-build.log",
+      "sha256": "dc534720c20b02bdf8da2c6ea37f86e8bad2a755d7b5f5cf111e08fc3954ac60"
+    },
+    {
+      "path": "artifacts/paint-ceil-origin-probe/results.json",
+      "sha256": "584651430d5465a23394139cea4c8259f1de49023d224617e95d9b9aba5e0797"
+    },
+    {
+      "path": "artifacts/paint-cleanup.json",
+      "sha256": "cd71b6b7cbcbc087c0c0c90041183a9f1968ac8fcecfb574f48e42c806d1ebee"
+    },
+    {
+      "path": "artifacts/paint-code-review.json",
+      "sha256": "33785af735e1b5f6a93a0fd85dc7955666c9c50e3ffdc621466b8373f08e8071"
+    },
+    {
+      "path": "artifacts/paint-decoration-candidate.log",
+      "sha256": "718aa5af29c034628d61430d7c371c6f072a8d29bbce8a76bd482d9f42a2ea6c"
+    },
+    {
+      "path": "artifacts/paint-decoration-candidate/metadata.json",
+      "sha256": "bb847b7a931aaacdc6e2d39c12d2990a06c5f87144077378e0a36906384e8af7"
+    },
+    {
+      "path": "artifacts/paint-decoration-candidate/oracle-build.log",
+      "sha256": "89f542a6388fc3d08988ba068e5d0d5b55209f96a91183ed9a92f4bb230e588c"
+    },
+    {
+      "path": "artifacts/paint-decoration-candidate/results.json",
+      "sha256": "aff0ca3857881dd1c0e7192deb57f9691da508c90447fc5864e08f4dbc206aa7"
+    },
+    {
+      "path": "artifacts/paint-decoration-fix-review.json",
+      "sha256": "f7f04bd48a2d5513030ea2432d645ada8941c68e27c8f5b1dcdd6c243fcf4ebb"
+    },
+    {
+      "path": "artifacts/paint-decoration-fix.patch",
+      "sha256": "34f8025c24e4fb09c1005d01a08781a4fb810a8d11b86a2549e9633c87dcbda4"
+    },
+    {
+      "path": "artifacts/paint-decoration-focused-unit.log",
+      "sha256": "af5726f94de2624c07f5dc4376dba064cf10afeb3d94ce71440637e64ec759da"
+    },
+    {
+      "path": "artifacts/paint-decoration-scope-review.json",
+      "sha256": "586159305524788059c20f6f1fafe29e27e76d249677d5be4320eaa4c45ee564"
+    },
+    {
+      "path": "artifacts/paint-diagnostic-recovery.json",
+      "sha256": "93cca0dcb4e3ef2de9ee913afc4b75200921ad47f0c2f66a6f018fe13d003421"
+    },
+    {
+      "path": "artifacts/paint-final-blitz-dom.log",
+      "sha256": "6a85db25486a17c7710958ae33089fcf8baa2a21a7118ea105a88f79dd3cfd1b"
+    },
+    {
+      "path": "artifacts/paint-final-blitz-html.log",
+      "sha256": "457c8d59d6fb387e74a259fd61d77af556522b5bd0266109d392fb6b38be39be"
+    },
+    {
+      "path": "artifacts/paint-final-blitz-paint.log",
+      "sha256": "51ed7983731d7c0938ae89ee509aee4d1f42651be659033178b5940c55b7f70a"
+    },
+    {
+      "path": "artifacts/paint-final-borders.log",
+      "sha256": "3c76d0aadb5f8ed67b35d70133992367b39d794abb01984ad7aecc2a1cd47c05"
+    },
+    {
+      "path": "artifacts/paint-final-borders/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-borders/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/paint-final-borders/results.json",
+      "sha256": "6da530ca4059ff528aa305eebd7af1a69c23cb67d81503544b2c267fc9519bc5"
+    },
+    {
+      "path": "artifacts/paint-final-commands.json",
+      "sha256": "747bbae84d04d060b51e6bffa30a74d362190522f881f9664747c812fdbc21e2"
+    },
+    {
+      "path": "artifacts/paint-final-control-document-mode.log",
+      "sha256": "9234aead5c2a8ae9228f2b1d3a789844853627fddf4e0b6a5653dfc1e262dee9"
+    },
+    {
+      "path": "artifacts/paint-final-control-document-mode/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-control-document-mode/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-control-document-mode/results.json",
+      "sha256": "cb6237d559ddc1eb42f18d14ecc0208e3812def6f60c5a976b8e1b75cb388321"
+    },
+    {
+      "path": "artifacts/paint-final-control-focus.log",
+      "sha256": "29d0412cffc31dd9c8596e1b0c2736281fd213839430ebb772cc60123107dc94"
+    },
+    {
+      "path": "artifacts/paint-final-control-focus/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-control-focus/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-control-focus/results.json",
+      "sha256": "a664a1c71c7665799a62c7a20bb89cb226a9e947a9c6af00490f964e45c3eca7"
+    },
+    {
+      "path": "artifacts/paint-final-control-layout.log",
+      "sha256": "2a7dd1546face8845ceb9c29e8505a98efa68fa97dbf7e6708f7ba152a1c10c0"
+    },
+    {
+      "path": "artifacts/paint-final-control-layout/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-control-layout/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/paint-final-control-layout/results.json",
+      "sha256": "7c22806a3f16605866e4f123ae8368a1c9fe4de25f60103399abc000b3fbc315"
+    },
+    {
+      "path": "artifacts/paint-final-control-regressions.log",
+      "sha256": "8978fa5548946147f95b93526c19eb0f98fd5bdcedc440542ba131833801eec7"
+    },
+    {
+      "path": "artifacts/paint-final-control-regressions/report.json",
+      "sha256": "d7756e363e8c75d721f743cdb238bc7c3bb2c1983c36dbd9949b40efcd95f366"
+    },
+    {
+      "path": "artifacts/paint-final-control-selection.log",
+      "sha256": "0e2a0590fd5d1f9925e9627190c5d785ea47699dbbefb1d44dd608d20eb9e7a2"
+    },
+    {
+      "path": "artifacts/paint-final-control-selection/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-control-selection/oracle-build.log",
+      "sha256": "f854ae7455639abb7d1d480b4aabe2d0bdd47ed55a926c2d7940554109887632"
+    },
+    {
+      "path": "artifacts/paint-final-control-selection/results.json",
+      "sha256": "7c22f49513a651dd7e027a8f8b99203cbe880017ad47dd327e7013f0b777ae54"
+    },
+    {
+      "path": "artifacts/paint-final-controls.log",
+      "sha256": "7d8c8cbdba5504b511b967e50dcbc6f5d0d1580f56f8505b6ca14d5def74ddde"
+    },
+    {
+      "path": "artifacts/paint-final-controls/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-controls/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/paint-final-controls/results.json",
+      "sha256": "6ea5bd937e36b383a256846db69116fbdd9a1849685d21070c1088f604efd62e"
+    },
+    {
+      "path": "artifacts/paint-final-css-animations.log",
+      "sha256": "8d470f7de7ea055aefa58ed10f30d5dd51076cf1c9c0b1ca2d2a746e35590f7f"
+    },
+    {
+      "path": "artifacts/paint-final-css-animations/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-css-animations/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-css-animations/results.json",
+      "sha256": "f7041adbe59eb89c596a08c333f196740b94db2aeab53798f2133cf547a6425b"
+    },
+    {
+      "path": "artifacts/paint-final-font-weights.log",
+      "sha256": "bdffaf223dffeae428620c1ba03ff30bb63b8d5610d761190c7e5784a182d6a7"
+    },
+    {
+      "path": "artifacts/paint-final-font-weights/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-font-weights/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-font-weights/results.json",
+      "sha256": "6368af28c4d7389a1808443c797a981f562bd074a845334826418bd845919dd8"
+    },
+    {
+      "path": "artifacts/paint-final-forms-focus.log",
+      "sha256": "3c2ddd16fdc612322a351870938a54403bbe43945ed65b187ce2f33b5957087f"
+    },
+    {
+      "path": "artifacts/paint-final-forms-focus/report.json",
+      "sha256": "7205bd3f6457445ce8bc3f0e9087aafeafd57ab7103b5468c691f4d8f262449a"
+    },
+    {
+      "path": "artifacts/paint-final-glyphs.log",
+      "sha256": "1e498620efdf356898ed62f5fa3c1acf386d21fbf257ac3bef02484de20b86aa"
+    },
+    {
+      "path": "artifacts/paint-final-glyphs/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-glyphs/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-glyphs/results.json",
+      "sha256": "bfad409b0dbef888c95ebd8c42af286c625cd2b35ab92d6bf32a1fe4dbd299c3"
+    },
+    {
+      "path": "artifacts/paint-final-inline-fragment-effects.log",
+      "sha256": "02246b772cc8df43ddb3c99849c0adf6d7eeae2d9a2c616db7740ef7e109f58a"
+    },
+    {
+      "path": "artifacts/paint-final-inline-fragment-effects/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-inline-fragment-effects/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-inline-fragment-effects/results.json",
+      "sha256": "10c63b4459bafac93ac6a528c31c59b576b0407f2eebdcf7c5ab1d2c0c70fe23"
+    },
+    {
+      "path": "artifacts/paint-final-inline-fragments.log",
+      "sha256": "be7e31dc90ba3236085716e4e0ee7ee4f9c48ea4349cc2619052fe98ff63c841"
+    },
+    {
+      "path": "artifacts/paint-final-inline-fragments/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-inline-fragments/oracle-build.log",
+      "sha256": "f854ae7455639abb7d1d480b4aabe2d0bdd47ed55a926c2d7940554109887632"
+    },
+    {
+      "path": "artifacts/paint-final-inline-fragments/results.json",
+      "sha256": "23098c6cd884f947b2ff3ff57ed85bd9b1e6a8e3e76f447b53d8cc413071155b"
+    },
+    {
+      "path": "artifacts/paint-final-inline-source-order.log",
+      "sha256": "c3b1717bddaacda16ad3301c0fb7935974d3d78155a182a83fc0d87a77c90be0"
+    },
+    {
+      "path": "artifacts/paint-final-inline-source-order/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-inline-source-order/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-inline-source-order/results.json",
+      "sha256": "128d3c68f95548e849a3ed249a7fa627f6752220e5fa154e3c0380baa0540140"
+    },
+    {
+      "path": "artifacts/paint-final-inner-origin-probe.log",
+      "sha256": "ecf19105bf22660fb680385546038f5ed9c4ca2b35134448eefa31d477da5ad6"
+    },
+    {
+      "path": "artifacts/paint-final-inner-origin-probe.mjs",
+      "sha256": "0d55971a5f9efbfcecfb308032b0dbf23e5eff5c68fbf9abc3f7ebbb85f5f18e"
+    },
+    {
+      "path": "artifacts/paint-final-inner-origin-probe/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-inner-origin-probe/oracle-build.log",
+      "sha256": "f854ae7455639abb7d1d480b4aabe2d0bdd47ed55a926c2d7940554109887632"
+    },
+    {
+      "path": "artifacts/paint-final-inner-origin-probe/results.json",
+      "sha256": "b16a15caaa6ec33db1335b6a325e58d6cf320d5f11feecdaf7f9387c813caf06"
+    },
+    {
+      "path": "artifacts/paint-final-input-line-height.log",
+      "sha256": "8cc972142b83ce8cb51f1c64e0f3849f5787cf5a1a61cc47e49ec14592f1608e"
+    },
+    {
+      "path": "artifacts/paint-final-input-line-height/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-input-line-height/oracle-build.log",
+      "sha256": "d0a3752e322570e705a3bf1c380d9f595a2264f9c3fe8cf2e2419f1e81ef5183"
+    },
+    {
+      "path": "artifacts/paint-final-input-line-height/results.json",
+      "sha256": "8dc4dee679d6cd53f2d5aaddf165b1db2ca02de200879f2de67d11272d95042b"
+    },
+    {
+      "path": "artifacts/paint-final-input-pointer.log",
+      "sha256": "ee6ac5f6fbf238f3558fd1ce222bb3775d55ec5708db7295ee34ea07b5a68eff"
+    },
+    {
+      "path": "artifacts/paint-final-input-pointer/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-input-pointer/oracle-build.log",
+      "sha256": "6bb997c2bcbbdff72f4e5eb5015f991997cfd5ae29f2787ca08c3ed7f8dd6bee"
+    },
+    {
+      "path": "artifacts/paint-final-input-pointer/results.json",
+      "sha256": "5860788eefcc3cdf49f2caa5dfd252ba93590818b7b8b47b210265c22403299a"
+    },
+    {
+      "path": "artifacts/paint-final-intrinsic-text.log",
+      "sha256": "ae44e259a19ff28bc90142005274936c36e3cb2850a0b9f15dfdb5cc3a97c47a"
+    },
+    {
+      "path": "artifacts/paint-final-intrinsic-text/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-intrinsic-text/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-intrinsic-text/results.json",
+      "sha256": "aa475317d8c994ba2f59d5702e5ce5ab62e5b62e72f4d51d2c4ce8a0a33912dd"
+    },
+    {
+      "path": "artifacts/paint-final-line-width-effects.log",
+      "sha256": "0fdc034852aaaddb808b77bba75fc10dfb47ba51b8c63f586482af7a6dc29f6f"
+    },
+    {
+      "path": "artifacts/paint-final-line-width-effects/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-line-width-effects/oracle-build.log",
+      "sha256": "758341027c9ade7ddd6acdd76fae4e5f400436cb5458afaa89d400236395a271"
+    },
+    {
+      "path": "artifacts/paint-final-line-width-effects/results.json",
+      "sha256": "42c5ced34bc295ce14f9c00a808264036fa417720785b686a6aae07927ce57c7"
+    },
+    {
+      "path": "artifacts/paint-final-line-width-grid.log",
+      "sha256": "b4540e75ffe6b3ef93532419632070aa452f35fd81577336dca27039c95f8f08"
+    },
+    {
+      "path": "artifacts/paint-final-line-width-grid/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-line-width-grid/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/paint-final-line-width-grid/results.json",
+      "sha256": "a5e99ec5e16905293b6027368328a40bdf0691156b81d4411caf3b06d49bc756"
+    },
+    {
+      "path": "artifacts/paint-final-middle-metrics.log",
+      "sha256": "1cf768396bbc3c86fddb5f12104299f0eaef5b0b2b01ffeabd58f7c18c4dc1fe"
+    },
+    {
+      "path": "artifacts/paint-final-middle-metrics/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-middle-metrics/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/paint-final-middle-metrics/results.json",
+      "sha256": "06df93c9f47e4a623e25f83066c0e03b1bdedf7ae76b9852a23506cc52c530ed"
+    },
+    {
+      "path": "artifacts/paint-final-nested-alignment.log",
+      "sha256": "c9da1469f4528fa7303c4941ff72230f121ab37d2b2a1d3678d9ce53d40db638"
+    },
+    {
+      "path": "artifacts/paint-final-nested-alignment/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-nested-alignment/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-nested-alignment/results.json",
+      "sha256": "0589905b0cb82ca6f35a2d9b027d43faf6030b0e1bdb81c0efd92f4f446aeef8"
+    },
+    {
+      "path": "artifacts/paint-final-npm.log",
+      "sha256": "2e5742e636a9c88a8c2820e9bc46e5c91c6782563a6510ea24c0e558cb9fc32f"
+    },
+    {
+      "path": "artifacts/paint-final-observation-manifest.json",
+      "sha256": "dd69fb318bcb00aa911d035dce055c5ee7577c66194e0675439fd1278050ee2a"
+    },
+    {
+      "path": "artifacts/paint-final-old-evidence-proof.json",
+      "sha256": "66465c7a2a54cbfa3df73dd43031043ed6435b7ee915b2e5923fc07c6d258a60"
+    },
+    {
+      "path": "artifacts/paint-final-old-evidence-proof.mjs",
+      "sha256": "f24aee6d5966080e0117bd1fc4870c0f1f710e8ad61d0e27c7afbaea65336965"
+    },
+    {
+      "path": "artifacts/paint-final-paint-decorations.log",
+      "sha256": "718aa5af29c034628d61430d7c371c6f072a8d29bbce8a76bd482d9f42a2ea6c"
+    },
+    {
+      "path": "artifacts/paint-final-paint-decorations/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-paint-decorations/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-paint-decorations/results.json",
+      "sha256": "aff0ca3857881dd1c0e7192deb57f9691da508c90447fc5864e08f4dbc206aa7"
+    },
+    {
+      "path": "artifacts/paint-final-paint-origins.log",
+      "sha256": "fec0c298e3cb74adbb4ec5784d2d062613f2739f56cba06ed08021338b3acefb"
+    },
+    {
+      "path": "artifacts/paint-final-paint-origins/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-paint-origins/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/paint-final-paint-origins/results.json",
+      "sha256": "622de5e2d2f4400a5b68c4652db2ec68f24f1aa9882635bd67a2699389d9b170"
+    },
+    {
+      "path": "artifacts/paint-final-parley-engine.log",
+      "sha256": "737a341714832e8da2bf5e7ba85b388f495b17044c64fe409a61f149cc4462d9"
+    },
+    {
+      "path": "artifacts/paint-final-parley-libm.log",
+      "sha256": "736e2582f563605dd272e5fb977840b0c0767377d27b6940c440caf75eec7157"
+    },
+    {
+      "path": "artifacts/paint-final-parley-std.log",
+      "sha256": "7c410cbd42ab64cc8465223e305597a1bb9c1c94a466a17eb2172072bd1a031a"
+    },
+    {
+      "path": "artifacts/paint-final-pointer-geometry.log",
+      "sha256": "7dfeb4b516edeb8ba61ebfdd3a1143d9e6e936308ed22b5b6afd98401b4877d7"
+    },
+    {
+      "path": "artifacts/paint-final-pointer-geometry/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-pointer-geometry/oracle-build.log",
+      "sha256": "bf5bbebb16438d00c4b353f18dc7b47673a76a542a9d17925dc7c5706c3a6d29"
+    },
+    {
+      "path": "artifacts/paint-final-pointer-geometry/results.json",
+      "sha256": "2bdde47ba2043753273cf597423f015d8839def94d4a870472514372a1e05988"
+    },
+    {
+      "path": "artifacts/paint-final-root-audit.json",
+      "sha256": "9f4203f318e7eea5e6741f6cdad97efb5000e3d09d79840991e6b22a5aa0eafc"
+    },
+    {
+      "path": "artifacts/paint-final-runner.log",
+      "sha256": "8f651e1c9b8dee2188c63e02c9f515747d0c2c5d01276cbfcd2a0b28625ea8ea"
+    },
+    {
+      "path": "artifacts/paint-final-scrolling.log",
+      "sha256": "18b7400e66d4a604af32f11ca04b9567f98b886179772f9c807068b21c64787d"
+    },
+    {
+      "path": "artifacts/paint-final-scrolling/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-scrolling/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-scrolling/results.json",
+      "sha256": "a1e39783b300d8559f511699e77bceb6332911325db994988afea1ca9cb8287a"
+    },
+    {
+      "path": "artifacts/paint-final-source-proof.json",
+      "sha256": "349d43b84fe1792837760dd7a409d4e8a57c9daef624e8cf0027600e989675ca"
+    },
+    {
+      "path": "artifacts/paint-final-table-controls.log",
+      "sha256": "0e8ab34a8ea49ccb82367288e302f7e41f7aa09a933a0604e2e26bc7c8017ba0"
+    },
+    {
+      "path": "artifacts/paint-final-table-controls/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-table-controls/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-table-controls/results.json",
+      "sha256": "788e6c63648985b1775018ae0153dc47d383eb9e52c6e4c36aab9f5e7fadc8c2"
+    },
+    {
+      "path": "artifacts/paint-final-table-document-mode.log",
+      "sha256": "5d414d8c861c5214fce8f39775d7d187b70dfb6af6f4290ba58205bdc0f46b09"
+    },
+    {
+      "path": "artifacts/paint-final-table-document-mode/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-table-document-mode/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-table-document-mode/results.json",
+      "sha256": "f9cebe47d1d03af390a2355fa16b2d7cc615036e6534851f57af276a2b71431f"
+    },
+    {
+      "path": "artifacts/paint-final-table-integration.log",
+      "sha256": "7861df495bd5491faf8c0687d1a3d7d32f6280317fcce9ff1a82352ea32a1a4b"
+    },
+    {
+      "path": "artifacts/paint-final-table-integration/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-table-integration/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-table-integration/results.json",
+      "sha256": "6101a3b3d34fe0b37dd9f7718addf91a9b2b76f8169b698a17ec52147815da31"
+    },
+    {
+      "path": "artifacts/paint-final-tables-cpu.log",
+      "sha256": "a35456634a2d5bdf1fa5cd9c699f9d4f911904f3a835b5c6242c45c2ee391d4f"
+    },
+    {
+      "path": "artifacts/paint-final-tables-cpu/report.json",
+      "sha256": "f1ea239b4e7ceb271d1308feb1752fa105eff5a758bf9919c292068a2c157a73"
+    },
+    {
+      "path": "artifacts/paint-final-tables-gpu.log",
+      "sha256": "2739ac740c1ae16ebbc55fee0fd2891e693d4ffc252a5908694cb1328ce6ce8c"
+    },
+    {
+      "path": "artifacts/paint-final-tables-gpu/report.json",
+      "sha256": "74d4f6adbb9b318e5ba14b5757a0273fc3dcb0cd5a4dd6f6b1f78b39450d70b1"
+    },
+    {
+      "path": "artifacts/paint-final-tables.log",
+      "sha256": "a049ec85a6f3335525d828c0864852e355d230568badfe098645cc86079988a9"
+    },
+    {
+      "path": "artifacts/paint-final-tables/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-tables/oracle-build.log",
+      "sha256": "2f76371da65e938ba90b4f1a788d5f7a1da6f4a8b1b466ca199aa65ecf4e0197"
+    },
+    {
+      "path": "artifacts/paint-final-tables/results.json",
+      "sha256": "7a26f31285e4f4c12f6668a951393f9611764701b0680edaaaf105a33dc26f18"
+    },
+    {
+      "path": "artifacts/paint-final-text-metric-grid.log",
+      "sha256": "b03afe93d5638a4854858c1e2169a6959deb627a17bfc7eef35778ecf88c6e72"
+    },
+    {
+      "path": "artifacts/paint-final-text-metric-grid/metadata.json",
+      "sha256": "b9cc702561fc8c66cce37c9708a392c8a74891670e495aabe3420070dd589b1c"
+    },
+    {
+      "path": "artifacts/paint-final-text-metric-grid/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/paint-final-text-metric-grid/results.json",
+      "sha256": "eb98619f63d0c470490194ae41ddb3b8f3a988a80d5ed8a3c56cb37526ebc877"
+    },
+    {
+      "path": "artifacts/paint-final-workspace.log",
+      "sha256": "76c95c0578f4708bab99f176d63e074c45c1426d2e900f0dbe66c6b1a001df85"
+    },
+    {
+      "path": "artifacts/paint-final.mjs",
+      "sha256": "bad7120f16dc8d034f0c1a6be092cd691d584c5fd0f8cff84ad40dca0a97ffe7"
+    },
+    {
+      "path": "artifacts/paint-focused-blitz-paint.log",
+      "sha256": "5e2461f6a19243c99e2672c51d0bd8dd7bc2ab20d8d29d64f1bede2a437221b1"
+    },
+    {
+      "path": "artifacts/paint-focused-mirror-proof.json",
+      "sha256": "e7f22a7959385b50c96692944586ce7e0987cc34ebe2de79ea756b118e2c3f55"
+    },
+    {
+      "path": "artifacts/paint-focused-parley.log",
+      "sha256": "9e5ff4643898608dba686fa9bb7ea2cad5e612e1720d4c362600d6614c3febb6"
+    },
+    {
+      "path": "artifacts/paint-fractional-origin-probe.log",
+      "sha256": "acaf1fdfcdb9fc870c09dc077a563e48c659d499b1d67e449ec3c65e58619d6a"
+    },
+    {
+      "path": "artifacts/paint-fractional-origin-probe/metadata.json",
+      "sha256": "df294971720e9af72d39ba3fe5a5a980eef8225ea20af5a5837b302555e23bf6"
+    },
+    {
+      "path": "artifacts/paint-fractional-origin-probe/oracle-build.log",
+      "sha256": "6825c7de6695f4407e310ef3f718135139c62eddce1cfcf42903721e5af49a6b"
+    },
+    {
+      "path": "artifacts/paint-fractional-origin-probe/results.json",
+      "sha256": "cb2654079a27e392935de3273bc48bfbd411a1a679e0ee57154fc1e44c66329e"
+    },
+    {
+      "path": "artifacts/paint-frozen-source-proof.json",
+      "sha256": "ec171349f1915c6904cb678e648a940eb0a2f60fcc32ab960a08330849081de8"
+    },
+    {
+      "path": "artifacts/paint-independent-audit.json",
+      "sha256": "696fc59fbc48c97050cee5c229368ae81466ad15e2e7eb4d4b4831b73b8de8ee"
+    },
+    {
+      "path": "artifacts/paint-line-snap-source-research.json",
+      "sha256": "76deccd296aee35c2c1bf694380914dc608c9d342bfe11fec6a17f2375113458"
+    },
+    {
+      "path": "artifacts/paint-native-origin-research.json",
+      "sha256": "ddea478c9458abc175f522cfea8b7a1da5cc11b6ceef0cfb5b4a45c33b0d1fe3"
+    },
+    {
+      "path": "artifacts/paint-native-origin-trace.json",
+      "sha256": "724c6320cd3c178d1c91505674ee7816ef10305f556d2871924a650ca73580df"
+    },
+    {
+      "path": "artifacts/paint-native-origin-trace.log",
+      "sha256": "6293ada3311796f2da4672f4b2de7af18bcca2154e33f4ed4bbfcbddbb83a5a0"
+    },
+    {
+      "path": "artifacts/paint-native-origin-trace.png",
+      "sha256": "c337dc247e14324309791048db902e7c36ecd68734e61be3ac7f5c69833e5020"
+    },
+    {
+      "path": "artifacts/paint-normal-hint-probe.log",
+      "sha256": "1c5fdfef7e6808c7407f0aa63c84cab5524ac3ab8aea6cc9912d4dee035b10bf"
+    },
+    {
+      "path": "artifacts/paint-normal-hint-probe/metadata.json",
+      "sha256": "b0dba83983a677058c52d6ba5ab3b0b29761e2a468b163e7b649137e7ede35ab"
+    },
+    {
+      "path": "artifacts/paint-normal-hint-probe/oracle-build.log",
+      "sha256": "10db3b096418d261f177d4592029042dd27dd32a6693cdc6caa1bf311f2bb807"
+    },
+    {
+      "path": "artifacts/paint-normal-hint-probe/results.json",
+      "sha256": "8b34481623d02fd92db83bc646e495429e64947b9bbce092c5e59a14a62221a2"
+    },
+    {
+      "path": "artifacts/paint-originals-proof.json",
+      "sha256": "23c6265b83b733d9d073d8760d733607d403915b162b53ab51730cb2307c6419"
+    },
+    {
+      "path": "artifacts/paint-parley-post-test-proof.json",
+      "sha256": "005bbd618d15fd391205ec8a2f452675b66fce05c2ae7826f828ba2e17ba28b4"
+    },
+    {
+      "path": "artifacts/paint-parley-source-proof.json",
+      "sha256": "e7f22a7959385b50c96692944586ce7e0987cc34ebe2de79ea756b118e2c3f55"
+    },
+    {
+      "path": "artifacts/paint-prepare-parley.mjs",
+      "sha256": "10dd9dabc6acca3a651e923bde8d73225ded281a54b267798278b69e5df0522e"
+    },
+    {
+      "path": "artifacts/paint-raw-consistency-proof.json",
+      "sha256": "3b79e9d7c7c2440683a9d93951e00a360a0ee84939efe54002abe4cf8ec3e102"
+    },
+    {
+      "path": "artifacts/paint-record-review.json",
+      "sha256": "3be50ad5157b089a1017a0e2373d0e7d9f35a600b2546ee85fac62ef12916fe1"
+    },
+    {
+      "path": "artifacts/paint-recovery-independent-proof.json",
+      "sha256": "117b6943d8c52318c995487e10eebd07653733148ff2ea4d04bd91850be2974f"
+    },
+    {
+      "path": "artifacts/paint-rejected-phase-archive.json",
+      "sha256": "b69a538114952a7113b32eb438ed375aef476b6b2fd98e24ca514a3a56d17619"
+    },
+    {
+      "path": "artifacts/paint-rejected-phase-commands.json",
+      "sha256": "60063c18be7ca35b89e80219ffb8a47617678ff84c230b1af69f5890db1c1f30"
+    },
+    {
+      "path": "artifacts/paint-rejected-phase-frozen-source-proof.json",
+      "sha256": "0a817b7e9b50ec603a67a27bcffa6c0d83c154006dd86e8a26fec72ac4296223"
+    },
+    {
+      "path": "artifacts/paint-rejected-phase-runner.log",
+      "sha256": "9c694719f1136f157b3dfebaf7e2793838150b73aa388047a0220ca96227386c"
+    },
+    {
+      "path": "artifacts/paint-restore-diagnostic.mjs",
+      "sha256": "4c6235ecfc19e60ae81c651347b7694671de6bb174421c3a60ba0b95fe4d0bc6"
+    },
+    {
+      "path": "artifacts/paint-reviewed-glyphs.log",
+      "sha256": "1e498620efdf356898ed62f5fa3c1acf386d21fbf257ac3bef02484de20b86aa"
+    },
+    {
+      "path": "artifacts/paint-reviewed-glyphs/metadata.json",
+      "sha256": "698dad86fc972d3c55f9f7257ea9807a376910d69fa05e86cca44051575d7ae6"
+    },
+    {
+      "path": "artifacts/paint-reviewed-glyphs/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/paint-reviewed-glyphs/results.json",
+      "sha256": "bfad409b0dbef888c95ebd8c42af286c625cd2b35ab92d6bf32a1fe4dbd299c3"
+    },
+    {
+      "path": "artifacts/paint-reviewed-middle-metrics.log",
+      "sha256": "1cf768396bbc3c86fddb5f12104299f0eaef5b0b2b01ffeabd58f7c18c4dc1fe"
+    },
+    {
+      "path": "artifacts/paint-reviewed-middle-metrics/metadata.json",
+      "sha256": "698dad86fc972d3c55f9f7257ea9807a376910d69fa05e86cca44051575d7ae6"
+    },
+    {
+      "path": "artifacts/paint-reviewed-middle-metrics/oracle-build.log",
+      "sha256": "e28647bfd6e7f1d7a22f35b81d1f9d17cbcac61e4ed0f69d1996495071d02257"
+    },
+    {
+      "path": "artifacts/paint-reviewed-middle-metrics/results.json",
+      "sha256": "06df93c9f47e4a623e25f83066c0e03b1bdedf7ae76b9852a23506cc52c530ed"
+    },
+    {
+      "path": "artifacts/paint-skia-origin-research.json",
+      "sha256": "f6add8bce4fc2a6a1f3a977167f0af2b00a8a2122240584336a617fa9aed21b8"
+    },
+    {
+      "path": "artifacts/paint-text-ranges-probe/browser-runtime.json",
+      "sha256": "eeeb4eb6afd9e853af0039c3660226ec11f0c3c9282ca913f5791b3b740c9f56"
+    },
+    {
+      "path": "artifacts/paint-verification-harness/audit.mjs",
+      "sha256": "707d6f04aa467edb9ab9f3b50de0c5d6a9c959168621a2eabc61226f57f072e2"
+    },
+    {
+      "path": "artifacts/paint-verification-harness/cleanup.mjs",
+      "sha256": "35b45506a39e24f71e0dde657c96a2c97580789261cf3045e88c4a4ba89b83b9"
+    },
+    {
+      "path": "artifacts/paint-verification-harness/markdown.mjs",
+      "sha256": "f84711da1f73b25912a6de7e1be0d40d05b1fee9c7aa543da816762ece9408aa"
+    },
+    {
+      "path": "artifacts/paint-verification-harness/raw-consistency.mjs",
+      "sha256": "92d26e24c44d8f782f6c56eb27a556b2756540d6616367dfb4b285eed05585fb"
+    },
+    {
+      "path": "artifacts/paint-verification-harness/record.mjs",
+      "sha256": "f89093a3accf79c6e83f9d3d2917b28c763e33b3902083e9a07a1ac90c699ade"
+    },
+    {
+      "path": "artifacts/paint-verification-harness/update-docs.mjs",
+      "sha256": "9954cc67668d2db48818d78377d33bc0a9d7d3ff37b217a726d69d3a347f628d"
+    }
+  ],
+  "observationManifest": {
+    "path": "artifacts/paint-final-observation-manifest.json",
+    "files": 41757,
+    "sha256": "dd69fb318bcb00aa911d035dce055c5ee7577c66194e0675439fd1278050ee2a"
+  },
+  "cleanup": {
+    "duplicateScreenshotCount": 16623,
+    "duplicateScreenshotBytesRemoved": 49732947,
+    "screenshotDirectories": [
+      "artifacts/paint-normal-hint-probe",
+      "artifacts/paint-ceil-origin-probe",
+      "artifacts/paint-fractional-origin-probe",
+      "artifacts/paint-anchor-origin-probe",
+      "artifacts/paint-anchor-origin-probe-2",
+      "artifacts/paint-anchor-paint-origins",
+      "artifacts/paint-anchor-paint-origins-3",
+      "artifacts/paint-reviewed-middle-metrics",
+      "artifacts/paint-reviewed-glyphs",
+      "artifacts/paint-decoration-candidate",
+      "artifacts/paint-rejected-phase-inline-fragment-effects",
+      "artifacts/paint-rejected-phase-inline-fragments",
+      "artifacts/paint-rejected-phase-inline-source-order",
+      "artifacts/paint-rejected-phase-middle-metrics",
+      "artifacts/paint-rejected-phase-nested-alignment",
+      "artifacts/paint-rejected-phase-paint-origins",
+      "artifacts/paint-rejected-phase-pointer-geometry",
+      "artifacts/paint-rejected-phase-partial-line-width-grid"
+    ],
+    "temporaryPathsRemoved": [
+      "/tmp/runic-paint-parley-tests",
+      "/tmp/runic-paint-dev-profile",
+      "/tmp/runic-paint-dev-profile-1-link"
+    ],
+    "pendingTemporaryCleanup": [],
+    "preserved": [
+      "All immutable prior evidence and recovered diagnostic hashes",
+      "All frozen canonical observations, PNGs and reports; new baseline and final inner diagnostic",
+      "Candidate JSON/HTML/logs and source research/trace",
+      "Exact-source mirror hashes and original harness manifest/lock",
+      "Existing worktrees, originals, shared target, Nix store and caches"
+    ]
+  }
+}

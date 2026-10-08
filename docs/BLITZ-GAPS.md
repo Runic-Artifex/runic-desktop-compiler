@@ -60,6 +60,16 @@ geometry states remain failed. All 3,746 exact direct pairs preserve passing
 nonpixel gates, with 10 strict pixel repairs and 7 pixel regressions. All 389
 compiled states retain their gates. Device/unquantized behavior,
 the prior x-height repairs and public interfaces are preserved.
+The [text-paint continuation](../conformance/results/chromium-text-paint-origins.md)
+repairs all seven preceding pixel regressions through private CSS fragment anchors
+in Blitz, without changing logical geometry or renderer hinting. Middle pixels
+improve 78→89/180; the new paint-origin oracle improves 38→85/108
+with 108/108 geometry and fragments. Across 3,890 exact direct pairs, 63 strict
+pixel states are repaired without a measured gate regression. All 389 compiled
+states retain their gates.
+The additive Parley primary-font metrics getter preserves existing layout policy.
+Tight child crops, sticky materialization history, layer-local/transformed anchors,
+containment/SVG and complete bidi fragment provenance remain independent gaps.
 The next patches need normalized empty-span participation and generic span-edge
 flow in Parley, then CSS binding in Blitz. Full deferred nested top/bottom
 alignment, DOM sibling heuristics, fragment lists, preserved tabs/RTL atomic

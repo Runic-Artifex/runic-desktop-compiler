@@ -19,19 +19,24 @@ the [pointer-geometry continuation](../conformance/results/chromium-pointer-geom
 the [text-provenance continuation](../conformance/results/chromium-inline-source-order.md),
 the [middle-metric continuation](../conformance/results/chromium-middle-metrics.md),
 the [nested-alignment continuation](../conformance/results/chromium-nested-alignment.md),
+the [text-paint continuation](../conformance/results/chromium-text-paint-origins.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation repairs all 60 retained nested-middle geometry
-and measured fragment failures through Parley's private per-line descendant
-alignment pass. Blitz scales atomic length shifts once into layout units.
-The 180-state middle oracle now passes 180 geometry, 120/120 measured
-fragment states, 147 hits and 78 strict pixel states. The new 72-state oracle
-passes 66 geometry, 57 fragments and 63 hits; its strict pixel gate remains
-0/72. Across 3,746 exact direct pairs this checkpoint repairs 74 geometry,
-74 fragment-list and 15 hit states without a passing nonpixel gate regression.
-Strict pixels have 10 repairs and 7 passing-to-failing transitions.
-The prior x-height repairs and all 389 compiled semantic, geometry and local pixel
-passes remain. Device defaults, unquantized layout and public APIs are preserved.
+The latest isolated continuation repairs all seven strict pixel regressions from
+the nested-alignment checkpoint through Blitz's private CSS text paint anchors.
+The 180-state middle oracle passes 180 geometry, 120/120 measured fragments,
+147 hits and 89 strict pixels. The new 108-state paint-origin oracle passes
+108 geometry, 108 fragments, 105 hits and 85 strict pixels.
+Across 3,890 exact direct pairs, 63 strict pixel states are repaired without a
+measured gate regression.
+All 389 compiled semantic, geometry and strict pixel passes remain.
+Parley's additive read-only primary-font metrics accessor supports paint without
+changing line breaking or logical baselines. Glyphs, decorations and ellipsis
+share the paint correction; selection, backgrounds, DOM geometry and hit testing
+retain layout coordinates. Renderer hinting, Device defaults and unquantized
+layout are preserved. The 72-state nested oracle remains 66 geometry, 57
+fragments, 63 hits and 0 pixels. Empty spans and broader paint/fragment gaps remain
+independent gates.
 
 Optional source metadata and private source-aware targeting remain in place.
 Pointer stays 234/234 standard and 219/234 explicit points; source ordering stays
