@@ -496,4 +496,17 @@ retained style owner before line breaking and refreshes atomic-box alignment in
 its existing box-update loop. CSS remains in Blitz/Stylo; Parley owns alignment
 and both breaker paths. Device, logical and unquantized policies remain separate
 focused gates. The [refresh oracle](../conformance/inline-shaping-refresh.mjs)
-compares style-only history with a subsequent font-triggered reshape.
+compares style-only history with a subsequent font-triggered reshape after
+restoring the initial alignment. Horizontal geometry is the browser shaping
+proxy; it does not instrument Blink's glyph/cache identity or prove resetting
+every differing stale category.
+
+Setting or clearing a style attribute now relies on the computed-style damage
+comparison, retaining snapshots, dirty marking and redraw. Changes to text-wrap
+mode require recollection. Table owners additionally compare the converted styles
+and table/border inputs captured by their box-tree snapshots, rebuilding those
+snapshots when geometry changes. Caption geometry, colors and vertical alignment
+are read live and retain layout-only invalidation. This owner-specific table rule
+keeps cached table geometry correct without forcing every alignment restyle to
+reshape text. The [verified checkpoint](../conformance/results/chromium-inline-boundaries.md)
+records the full rerun and remaining fragment/paint gaps.

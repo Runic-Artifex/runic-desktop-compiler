@@ -21,20 +21,26 @@ the [middle-metric continuation](../conformance/results/chromium-middle-metrics.
 the [nested-alignment continuation](../conformance/results/chromium-nested-alignment.md),
 the [text-paint continuation](../conformance/results/chromium-text-paint-origins.md),
 the [empty-inline continuation](../conformance/results/chromium-empty-inline.md),
+the [shaping-boundary continuation](../conformance/results/chromium-inline-boundaries.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation implements standards-mode empty-inline participation
-in Parley and Blitz. Its 108-state oracle passes every geometry, fragment and hit
-state, with strict pixels 21/108. The retained nested oracle improves to 72/72
-geometry, 63/72 fragments and 69/72 hits; pixels remain 0/72. A private shaping
-boundary stream repairs all 42 ligature-oracle geometry/list failures and retains
-42/42 hits. Baseline spans preserve compatible shaping and use full-atom anchors;
-the private stream interrupts cross-boundary ligatures for represented non-baseline
-alignment. CSS 0px and nonempty boundary intent remain open. Tight pixels change 11→6/42
-with six repairs and eleven new failures, all retained in the record.
+The latest isolated continuation adds generic caller shaping-boundary intent in
+Parley, Stylo's implicit-versus-explicit zero category and standards-mode Blitz
+binding for ordinary spans. Pure alignment restyles refresh cached layout metrics
+without reshaping; font/text and wrapping changes retain separate invalidation.
+The 150-state intent oracle improves geometry/fragments 30→129, hits 69→126 and
+strict pixels 42→46. The 132-state history oracle improves geometry/fragments
+30→72, hits 36→51 and strict pixels 49→52. Full-atom fragment ownership remains
+open. Chromium shaping retention is inferred from measured horizontal geometry,
+not browser glyph/cache instrumentation; the font follow-up first restores the
+initial alignment and does not certify every stale-category reset.
 
-Across 4,040 exact direct pairs, every previously passing retained gate is preserved.
-All 389 compiled semantic, geometry and strict pixel passes remain. The preceding
+Across 4,322 exact direct pairs, there are 141 geometry and fragment repairs,
+72 hit repairs and seven strict pixel repairs, with no new measured gate regression.
+Every previously passing retained gate and all 389 compiled semantic, geometry
+and strict pixel passes remain. The prior empty-inline oracles retain 108/108 and
+42/42 geometry/fragments/hits; the eleven earlier tight-crop regressions remain
+failures in their historical record. The preceding
 paint-anchor repairs remain: middle is 180 geometry, 120/120 measured fragments,
 147 hits and 89 pixels; paint origins are 108 geometry/fragments, 105 hits and
 85 pixels. Logical layout, renderer hinting and Device/unquantized defaults remain
@@ -43,9 +49,8 @@ OS input/IME and named review stages are explicitly recorded.
 
 Optional source metadata and private source-aware targeting remain in place.
 Pointer is 234/234 standard and 219/234 explicit points; source ordering is
-192/216 hits. Sixty margin-flow and nine marker-edge losses remain. Explicit caller
-boundary intent (including CSS vertical-align:0px and nonempty spans), generic
-span edges, deferred nested top/bottom alignment, fragment segmentation, RTL/tab
+192/216 hits. Sixty margin-flow and nine marker-edge losses remain. Generic
+horizontal span edges, deferred nested top/bottom alignment, fragment segmentation, RTL/tab
 flow, editor delivery and local paint remain open. The probe's getClientRects()
 oracle does not broaden compiler acceptance or the shipping DOM contract below.
 

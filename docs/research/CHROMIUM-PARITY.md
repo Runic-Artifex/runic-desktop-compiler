@@ -174,8 +174,18 @@ fragments 63/72 and hits 69/72. Across 4,040 exact pairs, retained passes are
 preserved; the new shaping oracle keeps eleven tight-crop pixel regressions.
 [Results](../../conformance/results/chromium-empty-inline.md).
 
-The next useful order is explicit caller shaping-boundary intent, generic span edges/
-CSS margins, then full segmentation/RTL/tab/atomic reductions, editor interaction
+The caller-boundary continuation implements generic Parley boundary intent,
+Stylo's implicit/explicit zero category and standards-mode Blitz binding. It also
+refreshes alignment metrics without reshaping on pure style changes, preserving
+the observed Chromium history. Intent geometry/fragments improve 30→129/150;
+history geometry/fragments improve 30→72/132. Across 4,322 exact pairs, there are
+141 geometry/fragment, 72 hit and seven pixel repairs with no new gate regressions.
+All 389 compiled states retain their passes. The six existing dependency failures
+and incomplete stages remain explicit.
+[Results](../../conformance/results/chromium-inline-boundaries.md).
+
+The next useful order is generic span edges/CSS margins, then full
+segmentation/RTL/tab/atomic reductions, editor interaction
 and remaining paint coverage.
 Keep native theme paint and document-mode edges separate. Float layout needs an
 explicitly enabled build; the compiler currently disables that feature. Preserve
@@ -197,7 +207,8 @@ all focus/table regressions and the newly exposed failures. Owners and gates:
 | CP-INLINE-HIT-LOCATION | Private footprint/quad plus normalized source metadata and reverse fragments repair preceding narrow-gap/nested/effects losses. Pointer is 234/234 standard and 219/234 explicit points; source ordering is 192/216 hits. The three middle metric/hit losses are repaired; sixty margin and nine marker losses remain | Preserve shaping atoms, eligible ancestors and per-line parent groups. Reduce exact layout-object siblings versus DOM heuristics, preserved tabs, narrowed RTL wraps and atomic flow. Repair metrics/margins in their owners; retain large-gap, negative viewport and exact marker samples |
 | CP-INLINE-FRAGMENT-LISTS | Blitz retains one union per line; bidi passes 0/12 list states and effects 60/102 despite 102/102 bounding geometry | Preserve bidi/culled/nested segmentation, zero-width newlines and preserved trailing spaces. Keep list order/count independent of bounding unions and pointer gates |
 | CP-INLINE-ALIGN-METRICS | Logical x-height, bottom-up line alignment and empty participation are repaired in the isolated forks. Middle is 180/180 geometry, 120/120 measured fragments and 147/180 hits; nested is 72/72 geometry, 63/72 fragments and 69/72 hits | Preserve Device/unquantized metrics, saved/default breakers and atomic scale conversion; reduce the nine nested fragment and three hit residuals plus full deferred top/bottom/fixed-point semantics; strict pixels remain separate |
-| CP-EMPTY-INLINE | Opt-in Parley anchors and standards-mode Blitz font-area fragments pass all 108 new geometry/list/hit states; private shaping boundaries pass all 42 ligature geometry/list/hit states | Retain default/reset, normalization, both breakers, real-zero versus empty-list CSSOM and full-atom controls; quirks, nonempty/0px boundary intent and broad bidi/grapheme behavior remain separate |
+| CP-EMPTY-INLINE | Opt-in Parley anchors and standards-mode Blitz font-area fragments pass all 108 geometry/list/hit states; private shaping boundaries pass all 42 ligature geometry/list/hit states. Generic caller intent now covers explicit 0px and nonempty spans | Retain default/reset, normalization, both breakers, real-zero versus empty-list CSSOM and full-atom controls; quirks and broad bidi/grapheme behavior remain separate |
+| CP-INLINE-SHAPING-INTENT | Parley normalizes caller opening/closing boundaries; Stylo retains implicit/explicit zero; Blitz supplies standards-mode CSS intent. Intent geometry/lists are 129/150 and history geometry/lists 72/132; pure alignment refresh retains shaping | Preserve internal ligatures, whitespace timing, DPR and history; close full-atom fragment ownership and generic horizontal edges separately. Browser geometry proxies do not certify glyph/cache identity or every font-triggered category reset |
 | CP-TEXT-PAINT-ANCHOR | Private Blitz CSS anchor snapping repairs all seven prior losses; new oracle 85/108 pixels, 108/108 geometry/fragments. Parley supplies primary metrics; renderer hinting stays unchanged | Retain all origin/DPR/background/mutation states and tight child crops; add sticky materialization, layer-local/transformed, containment/SVG and bidi fragment provenance reductions before broader claims |
 | CP-CONTROL-THEME | A default button label matches bounds and passes its interior crop at MAE 1.464, while its full crop is 22.076 from native lower/right bevel colors | Reduce `appearance:auto` theme paint separately from authored CSS borders and `appearance:none`; cover active/disabled/focus states and preserve custom control/table cases |
 | CP-DOCUMENT-MODE | Parser mode, fragment preservation, device rebuilds and empty root struts are repaired. Core mode geometry is now 60/60; full 132-state oracle retains float and break/newline failures | Keep mode/cache regressions; separately reduce quirks/limited-quirks `<br>` and preserved newlines (19px residual), empty/collapsed whitespace and inline border/padding. Enable floats only for a measured float scope |
@@ -221,7 +232,9 @@ The checked-in [initial verification record](../../conformance/results/chromium-
 [text provenance](../../conformance/results/chromium-inline-source-order.md),
 [middle metrics](../../conformance/results/chromium-middle-metrics.md) and
 [nested alignment](../../conformance/results/chromium-nested-alignment.md) and
-[text paint origins](../../conformance/results/chromium-text-paint-origins.md), separate
+[text paint origins](../../conformance/results/chromium-text-paint-origins.md),
+[empty inline participation](../../conformance/results/chromium-empty-inline.md) and
+[caller shaping boundaries](../../conformance/results/chromium-inline-boundaries.md), separate
 fixed worktree behavior, residual failures and shipping gates. None of
 the broader P1/P4/P7 clusters is closed merely by these patches.
 
@@ -409,23 +422,32 @@ Use the shared Cargo target/PID lock, focused checks while iterating, and the
 required compiler/workspace checks once ready. This keeps the gap-closing effort
 bounded and the modularity reviewable.
 
-## Next ordinary-inline slice: boundary intent and edge flow
+## Next ordinary-inline slice: generic edge flow and ownership
 
 Start with standards-mode ordinary inline spans needed by labels, controls and
-editor typography. Keep source ids as provenance only. Parley's private empty
-boundary stream is not sufficient to express CSS vertical-align:0px, nonempty
-style boundaries or nonzero logical edges. Before adding a public interface,
-record an ADR for explicit caller intent and ordered owner/start/end events;
-preserve the public positioned-item enum and off/default behavior.
+editor typography. Keep source ids as provenance only. Caller shaping-boundary
+intent and cached alignment refresh are now implemented under the
+[ADR](../ARCHITECTURE.md#chromium-parity-caller-shaping-boundary-intent-2026-10-08-isolated).
+Pinned Blink requests layout without reshaping for pure alignment changes; 66/66
+measured horizontal geometry/fragment comparisons preserve initial shaping proxies
+while current alignment moves boxes. This is not browser glyph/cache instrumentation.
+The later font change follows restoration of the initial alignment, so it does not
+prove clearing stale intent at every differing category.
 
-1. Add pinned Chromium reductions for baseline versus 0px/nonzero/keyword
-   alignment, cross-boundary fi and internal fi, open/end edges, collapsed
-   whitespace and nested owners. Keep glyph diagnostics, geometry, per-line
-   fragment lists, hits and tight pixels independent at DPR 1/1.25/2.
-2. Parley normalizes generic boundary/edge events, then owns itemization,
+Ordered owner/start/end flow events remain to be designed. Record a separate ADR
+before extending the public interface; preserve existing callers, defaults and
+the positioned-item enum. Start with zero-advance ownership edges for spans inside
+a shaping atom, then add margin/padding/border advances using the same order.
+
+1. Retain the 150-state intent and 132-state history oracles. Add pinned Chromium
+   reductions for full-atom ownership and fixed/negative/percentage/calc edges,
+   nested owners and collapsed/pending whitespace. Keep glyph diagnostics,
+   geometry, per-line fragment lists, hits and tight pixels independent at
+   DPR 1/1.25/2; add width and style-history mutations before freezing semantics.
+2. Parley normalizes generic flow events, then owns itemization,
    min/max-content sizing, whitespace rollback, saved opportunities, both breaker
    APIs and line positioning. Zero-boundary text retains compatible shaping.
-   Nonzero edges interrupt only the relevant boundary; no global ligature disable.
+   CSS edge intent interrupts only the relevant boundary; no global ligature disable.
 3. Blitz supplies CSS intent and logical margin/padding/border values from Stylo,
    including fixed/negative/percentage/calc constraints and style/width/scale
    invalidation. Own margins stay outside border/client rects and hit regions;
