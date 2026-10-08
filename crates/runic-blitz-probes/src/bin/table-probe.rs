@@ -288,6 +288,57 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn logical_text_metrics_survive_viewport_scale_changes() {
+        use base64::Engine;
+        let font = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
+            "../../../../fixtures/counter-svelte/assets/DejaVuSans.woff2"
+        ));
+        let mut doc = HtmlDocument::from_html(
+            &format!(
+                "<!doctype html><style>@font-face{{font-family:Test;src:url(data:font/woff2;base64,{font})}}body{{margin:0;font:16px/20px Test}}#line{{white-space:pre}}textarea{{font:16px/20px Test;width:200px;height:60px}}</style><div id='line'>Alpha\nBeta</div><textarea id='editor'>Alpha\nBeta</textarea>"
+            ),
+            DocumentConfig {
+                net_provider: Some(blitz_shell::DataUriNetProvider::shared(None)),
+                html_parser_provider: Some(std::sync::Arc::new(blitz_html::HtmlProvider)),
+                ..Default::default()
+            },
+        );
+        for scale in [1.0, 1.25, 2.0, 1.0] {
+            doc.inner_mut()
+                .set_viewport(blitz_traits::shell::Viewport::new(
+                    (640.0 * scale) as u32,
+                    (300.0 * scale) as u32,
+                    scale,
+                    blitz_traits::shell::ColorScheme::Light,
+                ));
+            for _ in 0..4 {
+                doc.inner_mut().resolve(0.0);
+            }
+            let observed = observe(&doc);
+            for (id, kind) in [("line", "inline"), ("editor", "editor")] {
+                let metrics = &observed["layoutMetrics"][id][kind];
+                assert_eq!(metrics["scale"].as_f64(), Some(scale as f64));
+                assert_eq!(
+                    metrics["first"]["baseline"].as_f64(),
+                    Some(15.0 * scale as f64)
+                );
+                assert_eq!(
+                    metrics["last"]["baseline"].as_f64(),
+                    Some(35.0 * scale as f64)
+                );
+                assert_eq!(
+                    metrics["first"]["height"].as_f64(),
+                    Some(20.0 * scale as f64)
+                );
+            }
+            assert_eq!(
+                observed["editors"]["editor"],
+                json!(["Alpha\nBeta", 0, 0, false])
+            );
+        }
+    }
+
     fn document(markup: &str) -> HtmlDocument {
         let mut doc = HtmlDocument::from_html(
             &format!(
