@@ -344,3 +344,21 @@ complete implementation of Blink's paint ink overflow. It prevents an exact gap
 boundary from reaching the next line merely because that line's text box snaps
 upward. Neither ink bounds nor provenance seams become pointer targets: ligature
 atoms stay intact, and the styled element remains the public hit target.
+
+## Chromium parity: missing primary-font x-height (2026-10-08, isolated)
+
+An additive `parley_engine::FontMetrics::synthesize_x_height` measures the hinted
+lowercase x contour when a font has no declared x-height. It owns font parsing,
+variation resolution and outline measurement; DOM layout and hit testing do not
+estimate this metric. The helper uses normal automatic hinting with symmetric
+antialiasing, returns an optional contour height, and does not mutate
+shaped-run metrics. Missing mappings, outlines or usable bounds remain unavailable.
+
+Parley's enabled logical metric policy alone requests this fallback, at the
+unscaled logical font size, then scales the result into layout coordinates.
+Declared OS/2/MVAR metrics take precedence. Device mode, disabled quantization,
+fontless fallback and the public metric structure retain their existing behavior.
+This policy matches the locked Linux Chromium web-font oracle; it does not promise
+every platform's font hinting configuration. Font metrics, span layout, hit regions
+and glyph paint remain separate modules. The middle-alignment oracle measures
+box/fragment geometry, hits and paint independently over sizes, origins and DPRs.
