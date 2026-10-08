@@ -7,6 +7,9 @@ Layers: **UA** is Blitz's user-agent stylesheet (`blitz-dom/assets/default.css`)
 The [targeted Chromium parity plan](research/CHROMIUM-PARITY.md) ranks the remaining
 work by the pinned shadcn sources and editor needs, preserving these layer
 boundaries. Isolated worktree fixes below are not integrated fork support.
+The [control-box continuation](../conformance/results/chromium-control-boxes.md)
+records the repaired UA boxes, textarea baselines/overflow, mode/strut policy and
+fontless logical selections, with explicit residual geometry/paint gates.
 
 ## Rendering and layout
 

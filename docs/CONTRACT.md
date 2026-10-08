@@ -11,6 +11,7 @@ and remaining input/platform gates prevent promoting experimental acceptance to
 that contract. See the [implementation record](../conformance/results/chromium-parity.md),
 the [font/inline continuation](../conformance/results/chromium-font-inline.md),
 the [focus continuation](../conformance/results/chromium-control-focus.md),
+the [control-box continuation](../conformance/results/chromium-control-boxes.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
 The TypeScript frontends (`frontend/`) lower every framework through one shared language layer to [IR schema 4](IR.md). Ordinary JavaScript/TypeScript code follows the JavaScript value model. M3 added component instances, props, lists, slots, element refs, checkboxes and `keydown` ([design](design/M3-COMPONENTS.md)); M4 added the event loop, effects, timers, promises and `async`/`await`, and `localStorage` ([design](design/M4-EFFECTS.md)); M5 added the DOM event model, forms, layout reads and scrolling, media queries, host services ([design](design/M5-PLATFORM.md)) and inline SVG icons. Native applications execute no JavaScript engine.

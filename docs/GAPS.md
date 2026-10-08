@@ -16,7 +16,11 @@ new failures and shipping gates. The [font/inline continuation](../conformance/r
 records the settled-text repair, remaining focus/nested-inline paint, and font
 instance coverage. The [focus continuation](../conformance/results/chromium-control-focus.md)
 closes compiled table focus/selection paint and disabled traversal while retaining
-UA control geometry, DPR 2 text and other renderer gaps.
+UA control geometry, DPR 2 text and other renderer gaps. The
+[control-box continuation](../conformance/results/chromium-control-boxes.md)
+repairs UA sizing, textarea baselines/overflow, document-mode struts and fontless
+selection positions, while retaining span bounds, input centering, native theme
+paint and shared DPR metrics as separately owned work.
 
 ## Detail
 

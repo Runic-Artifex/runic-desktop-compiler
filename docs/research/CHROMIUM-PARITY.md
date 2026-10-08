@@ -77,23 +77,44 @@ and all DPR 2 states retain failures. Compiled table carets remain transparent;
 the direct reductions use visible manual carets with a computed-style assertion.
 [Results](../../conformance/results/chromium-control-focus.md).
 
-The next useful implementation order is control box models/baselines, font
-instances and DPR 2 paint, then nested measurement isolation and its copy cost.
-Keep the already repaired focus/table cases as regressions. The gaps retain
-separate owners and acceptance gates:
+The control continuation repairs ordinary UA sizing, context-dependent textarea
+baselines/overflow and fontless editor positions. Full-document mode now belongs
+to HTML parsing and travels through Blitz style/layout; a generic Parley option
+removes only the unconditional root strut. Fragments preserve the containing
+mode, author sizing wins, and editors retain empty caret metrics. Focus geometry
+improves 144→240/252 and pixels 66→80/252 against identical inputs. The new
+264-state layout matrix passes every hit/editor/scroll check but only 84 full
+geometry checks and no full pixel checks. Initial selections are repaired in
+the 48-state refresh matrix and the older control/integration suites.
+[Results](../../conformance/results/chromium-control-boxes.md) and the
+[API contract](../ARCHITECTURE.md#chromium-parity-document-mode-and-empty-line-struts-2026-10-08-isolated)
+record the scope. Legacy CSS parsing and empty inline/forced-break behavior
+remain distinct gaps.
+
+The next useful implementation order is the text metric-grid contract and
+single-line control centering, then ordinary inline span geometry. Keep native
+theme paint and document-mode edge cases as separate reductions. Float layout
+needs an explicitly enabled build; the current compiler disables that feature.
+Keep all repaired focus/table cases as regressions. The gaps retain separate
+owners and acceptance gates:
 
 | Gap | Evidence and owner | Next acceptance gate |
 |---|---|---|
 | CP-FONT-RANGE | Registration, range-aware matching/subset fallback and weight clamping are repaired in isolated Blitz/Fontique commits; 13 Fontique tests pass. This was not the table label paint cause | Keep the direct static/variable range matrix, decide the public struct-field API/semver change, then integrate reviewed pins; broader font paint remains open |
 | CP-INTRINSIC-TEXT | Fixed: sizing queries overwrote settled Parley line positions, moving table button labels outside their boxes despite correct DOM geometry | Preserve the compiled table and reduced table/flex/grid mutation/resize pixel cases; measure the retained-layout copy cost |
 | CP-TEXT-MEASURE-COST | Retaining text during intrinsic queries adds a measured mutation cost to the 100/1,000-row release benchmark | Reuse a separate scratch measurement layout or narrower retained state in the text/layout owner; require the same cache/mutation pixel regressions and before/after median/p95 measurements |
-| CP-EDITOR-FOCUS | Fixed for compiled table CPU/GPU fixtures: selected foreground/background, auto outlines and placeholder paint; disabled focus/traversal also repaired. The 252-state direct suite retains 186 pixel failures | Preserve visible/manual caret and independent editor-state checks; extend authored selection, dark/platform themes, bidi/IME and multibox outline cases when required |
-| CP-EDITOR-INITIAL | New editor observations expose initial selection (9,9) where Chrome has (0,0) in existing UA-font/table-control reductions; values and focus match | Trace editor creation/value initialization and fallback-font layout; preserve initial/focused/blurred selection across resource completion without changing the text |
-| CP-CONTROL-UA-BOX | The retained standards UA input/textarea/button reductions fail box sizing, default button borders and textarea atomic-inline alignment; explicit boxes isolate paint without replacing these cases | Repair UA defaults and primary-font/atomic-inline baselines in Blitz layout and Parley. Compare standards/quirks, default/authored styles and table/flex/grid parents across resize/mutation; require 0.125 px geometry, hits and local MAE 3 |
+| CP-EDITOR-FOCUS | Fixed for compiled table CPU/GPU fixtures: selected foreground/background, auto outlines and placeholder paint; disabled focus/traversal also repaired. The 252-state direct suite retains 172 pixel failures | Preserve visible/manual caret and independent editor-state checks; extend authored selection, dark/platform themes, bidi/IME and multibox outline cases when required |
+| CP-EDITOR-INITIAL | Repaired in Parley: valid logical positions survive fontless layouts instead of moving to EOF. All 48 refresh states, 9 older control states and 30 integration states match | Preserve resource/style/width/scale refresh cases; bidi, OS/IME and arbitrary invalid UTF-8 cursor offsets remain separate gates |
+| CP-CONTROL-UA-BOX | Ordinary text/search/textarea/button box models and textarea context baselines/visible overflow are repaired in Blitz/Stylo. The full layout matrix is 84/264 geometry, with all hits/editor/scroll passing | Keep default/authored sizing, standards/quirks, inline/flex/grid/table and visible/hidden/clip cases; close span bounds, fixed-height input alignment and DPR metrics without loosening gates |
+| CP-CONTROL-CENTER | Fixed-height single-line inputs retain a 0.5 px alignment discrepancy at DPR 1 and 2; textarea uses a separate multiline baseline path | Reduce inner editor line-height and vertical centering across heights/padding/margins and UA/authored fonts; keep computed outer styles intact |
+| CP-TEXT-METRIC-GRID | Shared textarea baselines are 15/35 device px at DPR 1 and 31/71 at DPR 2, instead of a doubled 30/70. Ordinary glyphs share the one-device-pixel drift | Write an explicit CSS-grid ADR before adding an opt-in Parley policy; preserve public physical quantization default and compare glyph/selection/caret grids at DPR 1/1.25/2 |
+| CP-INLINE-SPAN-BOUNDS | Ordinary `#text` spans in the control matrix retain whole-line height and omit their 8px inline margin placement | Reduce inline fragment bounds and margins in Blitz/Parley across wrapping and bidi; share geometry with hits/DOM reads rather than compensating control paint |
+| CP-CONTROL-THEME | A default button label matches bounds and passes its interior crop at MAE 1.464, while its full crop is 22.076 from native lower/right bevel colors | Reduce `appearance:auto` theme paint separately from authored CSS borders and `appearance:none`; cover active/disabled/focus states and preserve custom control/table cases |
+| CP-DOCUMENT-MODE | Parser mode, fragment preservation, device rebuilds and empty root struts are repaired. Core mode geometry is 58/60; full 132-state oracle retains float and break/newline failures | Keep mode/cache regressions; separately reduce quirks/limited-quirks `<br>` and preserved newlines (19px residual), empty/collapsed whitespace and inline border/padding. Enable floats only for a measured float scope |
 | CP-NESTED-INLINE | Nested atomic inline/button reductions retain local paint failures while geometry passes; baseline measurement can promote child sizing to PerformLayout | Compare retained child line positions and baselines across table/flex/grid intrinsic passes; keep nested failures in the oracle |
 | CP-FONT-INSTANCES | Variable-font auto optical sizing/normal-line-height states retain geometry and paint failures; static single-face synthetic bold and DPR 2 paint also fail | Resolve CSS variation precedence and optical sizing in the Blitz font bridge and metrics provider, consume synthesis in paint, then compare pinned glyph regions across DPR |
 | CP-FONT-ORDER | Both source orders of overlapping static/variable CSS face declarations retain geometry/pixel failures in `font-weights.mjs` | Preserve CSS face priority at the registration/query boundary independently of generic/system Fontique family ordering; cover overlapping ranges and resource completion order without dropping subset fallback |
-| CP-INLINE-BASELINE | `table-controls.mjs` retains a 0.5 px checkable baseline discrepancy in quirks mode; its standards variant passes geometry after fixing UA line-height inheritance | Compare primary-font struts, atomic inline ascent/descent and table middle alignment; fix Parley/Blitz metrics without mode-specific coordinate adjustments |
+| CP-INLINE-BASELINE | Retained table-control geometry now passes 4/4 in standards and quirks; pixels remain 4/4, with corner hits still 2/4 | Preserve primary-font/atomic-box/table alignment reductions across fonts and mutations; corner hits remain CP-ROUNDED-HIT |
 | CP-ROUNDED-HIT | Fractional rounded buttons retain an edge hit discrepancy after the inline child-coordinate fix | Use Chromium's rounded-rectangle intersection model and consistent layout coordinates; keep corner hits independent of painting |
 | CP-EDITOR-WRAP | `controls.mjs` textarea after scrolling retains different wrapping and paint; authored input intrinsic widths are covered separately | Compare editor content widths, line advances and break opportunities; repair editor geometry rather than alter its text or font |
 | CP-RASTER | `glyphs.mjs`, `borders.mjs` and checked-radio crop retain local paint failures | Separate outline/hinting, coverage and dotted-stroke phase/count in their renderer owners; retain local MAE 3 across sizes/origins/DPR |
@@ -101,9 +122,21 @@ separate owners and acceptance gates:
 
 The checked-in [initial verification record](../../conformance/results/chromium-parity.md),
 [font/inline continuation](../../conformance/results/chromium-font-inline.md) and
-[focus continuation](../../conformance/results/chromium-control-focus.md) separate
+[focus continuation](../../conformance/results/chromium-control-focus.md), followed by
+[control boxes](../../conformance/results/chromium-control-boxes.md), separate
 fixed worktree behavior, residual failures and shipping gates. None of
 the broader P1/P4/P7 clusters is closed merely by these patches.
+
+Before a CSS-grid prototype, write an ADR defining font metric units, scale
+conversion ownership, baseline/half-leading rounding and the shared glyph,
+selection and caret raster grid, including fractional DPR. Add a distinct
+opt-in policy with the current physical mode as default. The acceptance matrix
+must cover DPR 1/1.25/2, 12/14/16/24px, fractional origins, ordinary inline text,
+input and two-line textarea, focus/caret/selection, and Arabic as well as Latin.
+The private probe already records device baselines and line heights. Keep CSS
+geometry, hits, editor state, scroll and pixels independent, preserving existing
+gates. Synthesis, optical sizing and CSS face ordering remain font-owner work;
+native theme painting cannot change general authored border semantics.
 
 | Batch | Gaps and app relevance | Owning modules | Completion evidence |
 |---|---|---|---|

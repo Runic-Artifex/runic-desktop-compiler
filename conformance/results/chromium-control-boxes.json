@@ -1,0 +1,1266 @@
+{
+  "schema": 1,
+  "date": "2026-10-08",
+  "sources": {
+    "RunicDesktopCompiler-tables": "38ee95cd59bf774c52c15d7a2dae07e79b6a89e1",
+    "blitz-tables": "57db2372e1cdf695cb261db0622df5868c42a3b4",
+    "parley-chromium-parity": "e5f3dc34c372d1b59991436730852c635cd7ca71",
+    "stylo-chromium-parity": "b2cf0bbebffd5a26c2c5e3141f2f4226e67ec2dc",
+    "vello-raster-parity": "a8efce54ab03eb9d366ff0fe0d799758597b204f"
+  },
+  "gates": {
+    "directGeometryToleranceCSSPx": 0.125,
+    "compiledGeometryToleranceCSSPx": 2,
+    "localPixelMAE": 3
+  },
+  "controlLayout": {
+    "baselineBlitz": "e6b045f9",
+    "identicalRetainedInputHashes": true,
+    "baseline": {
+      "states": 192,
+      "geometryPassed": 0,
+      "hitsPassed": 168,
+      "editorStatesPassed": 192,
+      "scrollPassed": 192,
+      "localPixelsPassed": 0,
+      "offscreenNamedCrops": 0
+    },
+    "repairedRetainedCases": {
+      "states": 192,
+      "geometryPassed": 48,
+      "hitsPassed": 192,
+      "editorStatesPassed": 192,
+      "scrollPassed": 192,
+      "localPixelsPassed": 0,
+      "offscreenNamedCrops": 0
+    },
+    "addedOverflowCases": {
+      "states": 72,
+      "geometryPassed": 36,
+      "hitsPassed": 72,
+      "editorStatesPassed": 72,
+      "scrollPassed": 72,
+      "localPixelsPassed": 0,
+      "offscreenNamedCrops": 0
+    },
+    "diagnosticsNotReplacementGates": {
+      "baseline": {
+        "controlRectPassed": 128,
+        "neighboringButtonRectPassed": 0,
+        "noGeometryDifferencesBeyondOrdinarySpan": 0
+      },
+      "repairedRetainedCases": {
+        "controlRectPassed": 160,
+        "neighboringButtonRectPassed": 104,
+        "noGeometryDifferencesBeyondOrdinarySpan": 72
+      }
+    },
+    "byContext": {
+      "inline": {
+        "states": 66,
+        "geometryPassed": 0,
+        "hitsPassed": 66,
+        "editorStatesPassed": 66,
+        "scrollPassed": 66,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "flex": {
+        "states": 66,
+        "geometryPassed": 42,
+        "hitsPassed": 66,
+        "editorStatesPassed": 66,
+        "scrollPassed": 66,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "grid": {
+        "states": 66,
+        "geometryPassed": 42,
+        "hitsPassed": 66,
+        "editorStatesPassed": 66,
+        "scrollPassed": 66,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "table": {
+        "states": 66,
+        "geometryPassed": 0,
+        "hitsPassed": 66,
+        "editorStatesPassed": 66,
+        "scrollPassed": 66,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      }
+    },
+    "byDPR": {
+      "1": {
+        "states": 132,
+        "geometryPassed": 42,
+        "hitsPassed": 132,
+        "editorStatesPassed": 132,
+        "scrollPassed": 132,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      },
+      "2": {
+        "states": 132,
+        "geometryPassed": 42,
+        "hitsPassed": 132,
+        "editorStatesPassed": 132,
+        "scrollPassed": 132,
+        "localPixelsPassed": 0,
+        "offscreenNamedCrops": 0
+      }
+    }
+  },
+  "controlFocus": {
+    "baselineBlitz": "f74a4f05",
+    "baselineEvidence": "artifacts/control-focus-before-tab",
+    "identicalInputHashes": true,
+    "baseline": {
+      "states": 252,
+      "geometryPassed": 144,
+      "hitsPassed": 252,
+      "editorStatesPassed": 252,
+      "scrollPassed": 252,
+      "localPixelsPassed": 66,
+      "offscreenNamedCrops": 0
+    },
+    "repaired": {
+      "states": 252,
+      "geometryPassed": 240,
+      "hitsPassed": 252,
+      "editorStatesPassed": 252,
+      "scrollPassed": 252,
+      "localPixelsPassed": 80,
+      "offscreenNamedCrops": 0
+    }
+  },
+  "documentMode": {
+    "core": {
+      "states": 60,
+      "geometryPassed": 58,
+      "hitsPassed": 60,
+      "editorStatesPassed": 60,
+      "scrollPassed": 60,
+      "localPixelsPassed": 32,
+      "offscreenNamedCrops": 0
+    },
+    "edges": {
+      "states": 72,
+      "geometryPassed": 32,
+      "hitsPassed": 60,
+      "editorStatesPassed": 72,
+      "scrollPassed": 72,
+      "localPixelsPassed": 32,
+      "offscreenNamedCrops": 0
+    },
+    "byMode": {
+      "standards": {
+        "states": 44,
+        "geometryPassed": 34,
+        "hitsPassed": 40,
+        "editorStatesPassed": 44,
+        "scrollPassed": 44,
+        "localPixelsPassed": 28,
+        "offscreenNamedCrops": 0
+      },
+      "quirks": {
+        "states": 44,
+        "geometryPassed": 28,
+        "hitsPassed": 40,
+        "editorStatesPassed": 44,
+        "scrollPassed": 44,
+        "localPixelsPassed": 18,
+        "offscreenNamedCrops": 0
+      },
+      "limited": {
+        "states": 44,
+        "geometryPassed": 28,
+        "hitsPassed": 40,
+        "editorStatesPassed": 44,
+        "scrollPassed": 44,
+        "localPixelsPassed": 18,
+        "offscreenNamedCrops": 0
+      }
+    },
+    "floatLayoutEnabled": false,
+    "residualGeometry": {
+      "fixedHeightInputHalfPixelStates": 2,
+      "floatFeatureStates": 24,
+      "quirksAndLimitedBreakNewlineStates": 16
+    }
+  },
+  "olderControlRegressions": {
+    "controls": {
+      "baselineBlitz": "e6b045f9",
+      "identicalInputHashes": true,
+      "baseline": {
+        "states": 9,
+        "geometryPassed": 8,
+        "hitsPassed": 8,
+        "editorStatesPassed": 8,
+        "scrollPassed": 9,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      },
+      "repaired": {
+        "states": 9,
+        "geometryPassed": 8,
+        "hitsPassed": 8,
+        "editorStatesPassed": 9,
+        "scrollPassed": 9,
+        "localPixelsPassed": 6,
+        "offscreenNamedCrops": 0
+      }
+    },
+    "table-integration": {
+      "baselineBlitz": "e6b045f9",
+      "identicalInputHashes": true,
+      "baseline": {
+        "states": 30,
+        "geometryPassed": 22,
+        "hitsPassed": 24,
+        "editorStatesPassed": 22,
+        "scrollPassed": 30,
+        "localPixelsPassed": 23,
+        "offscreenNamedCrops": 0
+      },
+      "repaired": {
+        "states": 30,
+        "geometryPassed": 22,
+        "hitsPassed": 24,
+        "editorStatesPassed": 30,
+        "scrollPassed": 30,
+        "localPixelsPassed": 23,
+        "offscreenNamedCrops": 0
+      }
+    }
+  },
+  "direct": {
+    "control-document-mode": {
+      "states": 132,
+      "geometryPassed": 90,
+      "hitsPassed": 120,
+      "editorStatesPassed": 132,
+      "scrollPassed": 132,
+      "localPixelsPassed": 64,
+      "offscreenNamedCrops": 0
+    },
+    "control-layout": {
+      "states": 264,
+      "geometryPassed": 84,
+      "hitsPassed": 264,
+      "editorStatesPassed": 264,
+      "scrollPassed": 264,
+      "localPixelsPassed": 0,
+      "offscreenNamedCrops": 0
+    },
+    "control-selection": {
+      "states": 48,
+      "geometryPassed": 48,
+      "hitsPassed": 48,
+      "editorStatesPassed": 48,
+      "scrollPassed": 48,
+      "localPixelsPassed": 8,
+      "offscreenNamedCrops": 0
+    },
+    "control-focus": {
+      "states": 252,
+      "geometryPassed": 240,
+      "hitsPassed": 252,
+      "editorStatesPassed": 252,
+      "scrollPassed": 252,
+      "localPixelsPassed": 80,
+      "offscreenNamedCrops": 0
+    },
+    "tables": {
+      "states": 77,
+      "geometryPassed": 77,
+      "hitsPassed": 77,
+      "editorStatesPassed": 77,
+      "scrollPassed": 77,
+      "localPixelsPassed": 74,
+      "offscreenNamedCrops": 0
+    },
+    "table-document-mode": {
+      "states": 12,
+      "geometryPassed": 12,
+      "hitsPassed": 12,
+      "editorStatesPassed": 12,
+      "scrollPassed": 12,
+      "localPixelsPassed": 12,
+      "offscreenNamedCrops": 0
+    },
+    "table-controls": {
+      "states": 4,
+      "geometryPassed": 4,
+      "hitsPassed": 2,
+      "editorStatesPassed": 4,
+      "scrollPassed": 4,
+      "localPixelsPassed": 4,
+      "offscreenNamedCrops": 0
+    },
+    "table-integration": {
+      "states": 30,
+      "geometryPassed": 22,
+      "hitsPassed": 24,
+      "editorStatesPassed": 30,
+      "scrollPassed": 30,
+      "localPixelsPassed": 23,
+      "offscreenNamedCrops": 0
+    },
+    "controls": {
+      "states": 9,
+      "geometryPassed": 8,
+      "hitsPassed": 8,
+      "editorStatesPassed": 9,
+      "scrollPassed": 9,
+      "localPixelsPassed": 6,
+      "offscreenNamedCrops": 0
+    },
+    "scrolling": {
+      "states": 148,
+      "geometryPassed": 148,
+      "hitsPassed": 148,
+      "editorStatesPassed": 148,
+      "scrollPassed": 148,
+      "localPixelsPassed": 148,
+      "offscreenNamedCrops": 2
+    },
+    "css-animations": {
+      "states": 40,
+      "geometryPassed": 40,
+      "hitsPassed": 40,
+      "editorStatesPassed": 40,
+      "scrollPassed": 40,
+      "localPixelsPassed": 40,
+      "offscreenNamedCrops": 0
+    },
+    "intrinsic-text": {
+      "states": 30,
+      "geometryPassed": 30,
+      "hitsPassed": 30,
+      "editorStatesPassed": 30,
+      "scrollPassed": 30,
+      "localPixelsPassed": 20,
+      "offscreenNamedCrops": 0
+    },
+    "font-weights": {
+      "states": 36,
+      "geometryPassed": 12,
+      "hitsPassed": 28,
+      "editorStatesPassed": 36,
+      "scrollPassed": 36,
+      "localPixelsPassed": 12,
+      "offscreenNamedCrops": 0
+    },
+    "glyphs": {
+      "states": 38,
+      "geometryPassed": 38,
+      "hitsPassed": 38,
+      "editorStatesPassed": 38,
+      "scrollPassed": 38,
+      "localPixelsPassed": 3,
+      "offscreenNamedCrops": 0
+    },
+    "borders": {
+      "states": 7,
+      "geometryPassed": 7,
+      "hitsPassed": 7,
+      "editorStatesPassed": 7,
+      "scrollPassed": 7,
+      "localPixelsPassed": 0,
+      "offscreenNamedCrops": 0
+    }
+  },
+  "compiled": {
+    "tables-cpu": {
+      "runs": 6,
+      "states": 96,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "failures": [],
+      "maximumRegionMAE": 1.27
+    },
+    "tables-gpu": {
+      "runs": 2,
+      "states": 32,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "failures": [],
+      "maximumRegionMAE": 2.396,
+      "gpuAdapters": [
+        "llvmpipe (LLVM 21.1.8, 256 bits)"
+      ]
+    },
+    "forms-focus": {
+      "runs": 22,
+      "states": 242,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "failures": []
+    },
+    "control-regressions": {
+      "runs": 7,
+      "states": 19,
+      "gates": {
+        "semantics": "passed",
+        "geometry": "passed",
+        "pixels": "passed"
+      },
+      "failures": [],
+      "maximumRegionMAE": 0.173
+    }
+  },
+  "commands": [
+    {
+      "name": "npm",
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 79.020815374,
+      "log": "artifacts/control-box-verified-npm.log"
+    },
+    {
+      "name": "control-document-mode",
+      "command": [
+        "node",
+        "conformance/control-document-mode.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 57.493287916,
+      "log": "artifacts/control-box-verified-control-document-mode.log"
+    },
+    {
+      "name": "control-layout",
+      "command": [
+        "node",
+        "conformance/control-layout.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 111.835126483,
+      "log": "artifacts/control-box-verified-control-layout.log"
+    },
+    {
+      "name": "control-selection",
+      "command": [
+        "node",
+        "conformance/control-selection.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 17.886191379999975,
+      "log": "artifacts/control-box-verified-control-selection.log"
+    },
+    {
+      "name": "control-focus",
+      "command": [
+        "node",
+        "conformance/control-focus.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 92.76480494899995,
+      "log": "artifacts/control-box-verified-control-focus.log"
+    },
+    {
+      "name": "tables-cpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--out",
+        "artifacts/control-box-verified-tables-cpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 62.49542222100001,
+      "log": "artifacts/control-box-verified-tables-cpu.log"
+    },
+    {
+      "name": "tables-gpu",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "tables-interactive",
+        "--pixels",
+        "--renderer",
+        "gpu",
+        "--fixture",
+        "table-svelte",
+        "--out",
+        "artifacts/control-box-verified-tables-gpu"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 26.388701428,
+      "log": "artifacts/control-box-verified-tables-gpu.log"
+    },
+    {
+      "name": "forms-focus",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "forms",
+        "forms-react",
+        "forms-vue",
+        "measure",
+        "scroll-events",
+        "focus",
+        "focus-fixup",
+        "--pixels",
+        "--out",
+        "artifacts/control-box-verified-forms-focus"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 136.661411264,
+      "log": "artifacts/control-box-verified-forms-focus.log"
+    },
+    {
+      "name": "control-regressions",
+      "command": [
+        "node",
+        "conformance/run.mjs",
+        "blitz-buttons",
+        "blitz-button-baseline",
+        "blitz-control-line-height",
+        "blitz-inline-baselines",
+        "--pixels",
+        "--out",
+        "artifacts/control-box-verified-control-regressions"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 38.34258558800001,
+      "log": "artifacts/control-box-verified-control-regressions.log"
+    },
+    {
+      "name": "tables",
+      "command": [
+        "node",
+        "conformance/tables.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 23.071444458999903,
+      "log": "artifacts/control-box-verified-tables.log"
+    },
+    {
+      "name": "table-document-mode",
+      "command": [
+        "node",
+        "conformance/table-document-mode.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 4.097819038999965,
+      "log": "artifacts/control-box-verified-table-document-mode.log"
+    },
+    {
+      "name": "table-controls",
+      "command": [
+        "node",
+        "conformance/table-controls.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 4.413786749999971,
+      "log": "artifacts/control-box-verified-table-controls.log"
+    },
+    {
+      "name": "table-integration",
+      "command": [
+        "node",
+        "conformance/table-integration.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 9.96199347300001,
+      "log": "artifacts/control-box-verified-table-integration.log"
+    },
+    {
+      "name": "controls",
+      "command": [
+        "node",
+        "conformance/controls.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 5.1732791600000345,
+      "log": "artifacts/control-box-verified-controls.log"
+    },
+    {
+      "name": "scrolling",
+      "command": [
+        "node",
+        "conformance/scrolling.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 38.22907011299999,
+      "log": "artifacts/control-box-verified-scrolling.log"
+    },
+    {
+      "name": "css-animations",
+      "command": [
+        "node",
+        "conformance/css-animations.mjs"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 7.961346398000023,
+      "log": "artifacts/control-box-verified-css-animations.log"
+    },
+    {
+      "name": "intrinsic-text",
+      "command": [
+        "node",
+        "conformance/intrinsic-text.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 12.367689463000046,
+      "log": "artifacts/control-box-verified-intrinsic-text.log"
+    },
+    {
+      "name": "font-weights",
+      "command": [
+        "node",
+        "conformance/font-weights.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 74.63735514200002,
+      "log": "artifacts/control-box-verified-font-weights.log"
+    },
+    {
+      "name": "glyphs",
+      "command": [
+        "node",
+        "conformance/glyphs.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 16.296920506999946,
+      "log": "artifacts/control-box-verified-glyphs.log"
+    },
+    {
+      "name": "borders",
+      "command": [
+        "node",
+        "conformance/borders.mjs"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "seconds": 3.0405395070000085,
+      "log": "artifacts/control-box-verified-borders.log"
+    },
+    {
+      "name": "workspace",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "--workspace"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 21.179855671999977,
+      "log": "artifacts/control-box-verified-workspace.log"
+    },
+    {
+      "name": "blitz-paint",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "blitz-paint",
+        "--lib"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 1.9471644659999292,
+      "log": "artifacts/control-box-verified-blitz-paint.log"
+    },
+    {
+      "name": "blitz-dom",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "blitz-dom",
+        "--lib"
+      ],
+      "exitCode": 101,
+      "signal": null,
+      "seconds": 3.2197431680000155,
+      "log": "artifacts/control-box-verified-blitz-dom.log"
+    },
+    {
+      "name": "blitz-html",
+      "command": [
+        "node",
+        "compiler/cargo.mjs",
+        "test",
+        "--offline",
+        "-p",
+        "blitz-html",
+        "--lib"
+      ],
+      "exitCode": 0,
+      "signal": null,
+      "seconds": 2.65073692299996,
+      "log": "artifacts/control-box-verified-blitz-html.log"
+    }
+  ],
+  "tests": {
+    "compilerPassed": 297,
+    "workspacePassed": 117,
+    "blitzPaintPassed": 8,
+    "blitzDOMPassed": 50,
+    "blitzDOMFailed": 2,
+    "blitzHTMLPassed": 3,
+    "baselineDOMFailures": [
+      "hover_styles_apply_and_clear",
+      "scroll_by_clamps_and_bubbles"
+    ],
+    "parley": {
+      "exactSourceFilesMatched": 147,
+      "hashes": {
+        "Cargo.toml": "fac96968b007d998655911d4914e73dfcf3d552073f1dfbd9ad76543b7e02267",
+        "Cargo.lock": "3db962c0e48a937d33bff15f0de1a732e5b1c24dc51503b6704b9d84c5d2f53c",
+        "SOURCE-SHA256": "8056a4aff312aa5662e34e730111d9a5167f1ca7118db35f57d65585507daab3"
+      },
+      "workspaceMembers": [
+        "fontique",
+        "parlance",
+        "parley",
+        "parley_data",
+        "parley_dev",
+        "parley_engine",
+        "parley_emoji"
+      ],
+      "originalLockSHA256": "cf2d16f766f9666f4f7e8cadf4d2404f93135ca9eab0dd478797040c432e19f1",
+      "dependencyPruning": {
+        "newPackageVersionSourceTuples": 0,
+        "removedUnusedPackages": 401
+      },
+      "featureSet": "std; default system-font feature disabled",
+      "defaultFeatureTest": "incomplete: project development shell has no fontconfig pkg-config metadata",
+      "fullUnitResult": {
+        "label": "std-final",
+        "command": [
+          "node",
+          "compiler/cargo.mjs",
+          "test",
+          "--offline",
+          "--locked",
+          "--manifest-path",
+          "/tmp/runic-control-parley-tests/Cargo.toml",
+          "-p",
+          "parley",
+          "--lib",
+          "--no-default-features",
+          "--features",
+          "std"
+        ],
+        "exitCode": 101,
+        "lineBreakSHA256": "4a40e0a4c6c7be1e8e4fc33e67b3bbf1adaa00a8766383fae384a2062ca81432",
+        "passed": 102,
+        "failed": 4,
+        "log": "artifacts/control-box-verified-parley-std-final.log"
+      },
+      "baselineWithNewTest": {
+        "passed": 99,
+        "failed": 5
+      },
+      "sourceCursorBaseline": "2edeab70",
+      "sourceCursorRepaired": "745b2f2",
+      "knownFailures": [
+        "cluster_from_position_center_alignment",
+        "cluster_from_position_end_alignment",
+        "cluster_from_position_justified_alignment",
+        "cluster_from_position_start_alignment"
+      ],
+      "knownFailureReason": "Existing tests assume system fonts and do not register a test font; they assert more than five glyphs in a fontless collection.",
+      "sourceRevision": "e5f3dc34c372d1b59991436730852c635cd7ca71",
+      "sourceDiffSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "strutRegression": [
+        {
+          "label": "strut-baseline",
+          "command": [
+            "node",
+            "compiler/cargo.mjs",
+            "test",
+            "--offline",
+            "--locked",
+            "--manifest-path",
+            "/tmp/runic-control-parley-tests/Cargo.toml",
+            "-p",
+            "parley",
+            "--lib",
+            "--no-default-features",
+            "--features",
+            "std",
+            "root_strut"
+          ],
+          "exitCode": 101,
+          "lineBreakSHA256": "bd083aeabb9683d6db550a4492f3c9dd820babf1f2a91b752ebf868520ae7d71",
+          "passed": 0,
+          "failed": 2,
+          "log": "artifacts/control-box-verified-parley-strut-baseline.log"
+        },
+        {
+          "label": "strut-repaired",
+          "command": [
+            "node",
+            "compiler/cargo.mjs",
+            "test",
+            "--offline",
+            "--locked",
+            "--manifest-path",
+            "/tmp/runic-control-parley-tests/Cargo.toml",
+            "-p",
+            "parley",
+            "--lib",
+            "--no-default-features",
+            "--features",
+            "std",
+            "root_strut"
+          ],
+          "exitCode": 0,
+          "lineBreakSHA256": "4a40e0a4c6c7be1e8e4fc33e67b3bbf1adaa00a8766383fae384a2062ca81432",
+          "passed": 2,
+          "failed": 0,
+          "log": "artifacts/control-box-verified-parley-strut-repaired.log"
+        }
+      ],
+      "initialCursorRegression": {
+        "baseline": "artifacts/control-parley-unit-baseline.log",
+        "repaired": "artifacts/control-parley-unit-repaired.log",
+        "source": "745b2f2"
+      }
+    }
+  },
+  "review": {
+    "manual": "completed",
+    "boundedReadOnly": "completed",
+    "codeReviewTool": "unavailable; incomplete"
+  },
+  "defaultButtonDiagnostic": {
+    "scope": "One diagnostic reduction; does not replace the full pixel gate",
+    "sourceBlitz": "57db2372e1cdf695cb261db0622df5868c42a3b4",
+    "case": "standards_flex_textarea_visible",
+    "deviceScaleFactor": 1,
+    "step": 0,
+    "rectBothCSSPx": [
+      120,
+      12,
+      61.4375,
+      26
+    ],
+    "fullOtherRegionMAE": 22.0756815,
+    "interiorCropDevicePx": {
+      "x": 123,
+      "y": 15,
+      "width": 55,
+      "height": 20
+    },
+    "interiorMAE": 1.464,
+    "glyphMask": {
+      "predicate": "r < 220 && g-r >= 5 && b-g >= 5",
+      "chromeAndNativeCount": 199,
+      "chromeAndNativeBoundsRelativeToButton": [
+        9,
+        6,
+        53,
+        17
+      ]
+    },
+    "nativeLowerRightBevelColor": "#222222",
+    "nativeLowerRightBevelPixelCount": 163,
+    "finding": "The label bounds match and its interior crop passes. The full button crop retains a native theme/bevel difference; default button UA/paint is the next owner to reduce, separately from generic authored CSS borders.",
+    "inputs": [
+      "artifacts/control-box-verified-control-layout/standards_flex_textarea_visible-420x160-chrome.png",
+      "artifacts/control-box-verified-control-layout/standards_flex_textarea_visible-420x160-native.png",
+      "artifacts/control-box-verified-control-layout/standards_flex_textarea_visible-420x160-native.json"
+    ]
+  },
+  "limitations": [
+    "No IR, framework adapter or painter-coordinate changes; the documented public mode/strut APIs require upstream review before integration.",
+    "Full control layout gate retains ordinary inline span bounds/margins, fixed-height input half-pixel alignment and DPR 2 metric failures.",
+    "Document-mode reductions retain float-feature and quirks trailing-break/newline gaps; legacy CSS parsing is not implemented by the mode bridge.",
+    "Default native button theme/border paint and missing/emoji font fallback remain incomplete.",
+    "Internal editor actions do not certify OS keyboard/IME delivery, bidi caret geometry or arbitrary non-boundary UTF-8 Cursor offsets.",
+    "Parley system-font default-feature unit run remains incomplete in the project shell; four std tests require system fonts and reproduce unchanged on the baseline."
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/control-box-verified-control-document-mode/results.json",
+      "sha256": "e68b2b3ed9e449b4fe4fc2cf1b00abee5e7312499b11a9ca1117f7417972a85a"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-document-mode/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-document-mode.log",
+      "sha256": "fab0cc04bfdd9051778d3cfaa2f3653627326af2092594c1615ec4e04ba4cb9a"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-layout/results.json",
+      "sha256": "4f44a9e94487ad8c628ad2f896bcf7e086c062aea70d6cf1bfe10e66ab3b5562"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-layout/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-layout.log",
+      "sha256": "b30fb696d16b09315a08fea9928615d3daa01435ada9b3803738f4975c482c27"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-selection/results.json",
+      "sha256": "1e0d21f7ce262e1396624eb1462faa322891a80868c619d3bc0eddcd88127e8d"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-selection/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-selection.log",
+      "sha256": "3d81dfe1f37e69ce9ddd8ede057fa7b1da9cef0ac700255264f22c322ded2b9e"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-focus/results.json",
+      "sha256": "4fe4f79764b6951eeea2843f1f6bf96f0d6ac34a1b268b740890fc8224e58854"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-focus/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-focus.log",
+      "sha256": "045ea646ef6b44d65a7041ff9a1de3ef92efa738a4164cd69d7f051acca6fa25"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables/results.json",
+      "sha256": "d814b32310a728797ef5590f9746da19fae059737a433bf121a16a926be537a5"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables.log",
+      "sha256": "9be53ef4685ccb865a772bb958383aaecc29302b616d2d29358067373f731d32"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-document-mode/results.json",
+      "sha256": "116859f74d93628da728de1b0d0a75520ac654a5712d52c70ad5a4d4ae91a34c"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-document-mode/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-document-mode.log",
+      "sha256": "d5b5ae398382df020234e28d8c15fc7639b3c59c87f01b8adb73e4333bdd7782"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-controls/results.json",
+      "sha256": "c71686e344701123ef719ccdf30768535d4046ff2ea125b9fceda052f99820fa"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-controls/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-controls.log",
+      "sha256": "f9c707ec0915dc04597c5a383851275686fbcc5c288b213e53c95c5120c3397a"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-integration/results.json",
+      "sha256": "19689010ac5575eb15939335d22e0e4f0ec1ff4242e0d5a411ff7f524a50e8cc"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-integration/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-table-integration.log",
+      "sha256": "783d3516eec0a89ff25f72727a209dac718713bcdc5d2769bde45482b4a45445"
+    },
+    {
+      "path": "artifacts/control-box-verified-controls/results.json",
+      "sha256": "dd5c2b828829b5c972d245a94a74b1339786f37fa94eb5f932b2938376d34233"
+    },
+    {
+      "path": "artifacts/control-box-verified-controls/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-controls.log",
+      "sha256": "cf0af4bfc63b1749b18330320d5056b4646b3030e5e236579749cba2d024a11b"
+    },
+    {
+      "path": "artifacts/control-box-verified-scrolling/results.json",
+      "sha256": "267a7031628b8eab560fa33e5241014b8edbdd99fa84802fd5389eb88a0f34fe"
+    },
+    {
+      "path": "artifacts/control-box-verified-scrolling/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-scrolling.log",
+      "sha256": "fb14f489332b03dc6f5c8e21e4930022fc6b051beaa8c0c18f3fe2b9b0ef837d"
+    },
+    {
+      "path": "artifacts/control-box-verified-css-animations/results.json",
+      "sha256": "dc690b9891527a636e3adc911dc63eff156cb4e743086a7f1bea0a9f1ea38726"
+    },
+    {
+      "path": "artifacts/control-box-verified-css-animations/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-css-animations.log",
+      "sha256": "ba499622108956ce8cc53d2e1a7711b2693283cc34c55778d54d5264b1ff691a"
+    },
+    {
+      "path": "artifacts/control-box-verified-intrinsic-text/results.json",
+      "sha256": "70bde9a1aced507aebe11eb6ee10b1f67ef6a376b24729ded71a9f2f1bc630f5"
+    },
+    {
+      "path": "artifacts/control-box-verified-intrinsic-text/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-intrinsic-text.log",
+      "sha256": "99f710ddfa98717b44997b46957e5c37a24c12093df63d79e2559ab6fdd205b5"
+    },
+    {
+      "path": "artifacts/control-box-verified-font-weights/results.json",
+      "sha256": "39ef5ab2fe6f30e4d01eb75b3fb371a09d67648e2a4bb8cba0716961c8883996"
+    },
+    {
+      "path": "artifacts/control-box-verified-font-weights/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-font-weights.log",
+      "sha256": "d4c098de90da9f9f4aa131ee6eb717c4a9e97dcdde4c30566f4db96a3b4ac414"
+    },
+    {
+      "path": "artifacts/control-box-verified-glyphs/results.json",
+      "sha256": "d302ee201be08d5b05900bce8378a6bd67d8e200d3a3d49e7e89f1cf7e40b888"
+    },
+    {
+      "path": "artifacts/control-box-verified-glyphs/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-glyphs.log",
+      "sha256": "16756b7fe524f20c3f51cfdf639b5c7ceaa3f9338edea2441db714ff050f841b"
+    },
+    {
+      "path": "artifacts/control-box-verified-borders/results.json",
+      "sha256": "68aad8e23f241fb55b85a29317ac94373408fbdfdf9ecab7fc1419a9563a40d3"
+    },
+    {
+      "path": "artifacts/control-box-verified-borders/metadata.json",
+      "sha256": "167a3b4713b2296e13130cdde2540a44c6e24a5ef0be5644620ecd996e22f8a8"
+    },
+    {
+      "path": "artifacts/control-box-verified-borders.log",
+      "sha256": "6390da8549ae25e666a59019d548d749717100159c1ad94b23192a2079f2c51a"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables-cpu/report.json",
+      "sha256": "0de8bb9f5d2c4279ac48dae4152427955178a509d5b815bf222242a7d0b37a14"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables-cpu.log",
+      "sha256": "0249d497940f224d9e419101ace95f4862022a9059a5264c416cfbd808d4a29d"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables-gpu/report.json",
+      "sha256": "fbcfaa69c841c4147d9ba2de0efbb0adcdd282e00d667fe084ae55d99041c7c0"
+    },
+    {
+      "path": "artifacts/control-box-verified-tables-gpu.log",
+      "sha256": "098fbbe9bb15506bf9d027833e8de656bbc679de156c4aa416dfbf37e03cf897"
+    },
+    {
+      "path": "artifacts/control-box-verified-forms-focus/report.json",
+      "sha256": "c31c79f6ec368fbdd45f5ac6eb01fed971cf77e2e07c53922c2be3f009c73c77"
+    },
+    {
+      "path": "artifacts/control-box-verified-forms-focus.log",
+      "sha256": "9562baee96f4a6b837fc0393237178c4a6ab38630e8e508f8d00cabf7dd905ec"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-regressions/report.json",
+      "sha256": "8c192ca8023ba54ca9c98a50ae0423e59549b817d86c76c7f76d26e82f3e92da"
+    },
+    {
+      "path": "artifacts/control-box-verified-control-regressions.log",
+      "sha256": "c3275f57e18aa9f6bb6e379cfb0cde3b3f427b5f88943016936e53c21fcb995f"
+    },
+    {
+      "path": "artifacts/control-box-verified-workspace.log",
+      "sha256": "6cfafbcf54df26014922d14c53d2ca4cb203ed6a3a94cecfdbb036c466b5e927"
+    },
+    {
+      "path": "artifacts/control-box-verified-blitz-paint.log",
+      "sha256": "5502e2a1f370157a8ea0eb8f534f48a6e669900712e573661a0dbc49ed948f07"
+    },
+    {
+      "path": "artifacts/control-box-verified-blitz-dom.log",
+      "sha256": "50fa5db2447392ed54aa2e7fc12a897cdb2bb256316d97bf0265f9317bca3fe6"
+    },
+    {
+      "path": "artifacts/control-box-verified-blitz-html.log",
+      "sha256": "ebdbbd0f08dd4224c1cc7727baeee4d79bfb2a172a067552301874372435dd70"
+    },
+    {
+      "path": "artifacts/control-box-verified-npm.log",
+      "sha256": "45771efdb849e570b3d6c3dbddd6f9b7ff7bea010b2b2c654c5a7c8bf8ec6ca5"
+    },
+    {
+      "path": "artifacts/control-box-verified-format.log",
+      "sha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+    },
+    {
+      "path": "artifacts/control-layout-baseline/results.json",
+      "sha256": "06db80d704561b2217d24c3a99ef9a7c7b0239e0a2983c0a6fdbc940445597ba"
+    },
+    {
+      "path": "artifacts/control-layout-baseline/metadata.json",
+      "sha256": "749a523bbeec8ea20a5b27a345c6ca99042125862294e190b9b0b80c1cb90457"
+    },
+    {
+      "path": "artifacts/control-layout-baseline.log",
+      "sha256": "c195f9c5f4e5064b63d5db9a21111f4ca36146f2da024cedc44c04540883321b"
+    },
+    {
+      "path": "artifacts/control-focus-before-tab/results.json",
+      "sha256": "1d19541bcfbee79bfb988e17628b17eb91a7b74c88a380ce27630657876bc2ad"
+    },
+    {
+      "path": "artifacts/control-focus-before-tab/metadata.json",
+      "sha256": "5a1708616923fe61836a61bb17339ebfa09338353ef24551ba992736dd68a358"
+    },
+    {
+      "path": "artifacts/control-box-before-controls/results.json",
+      "sha256": "2a5fb6137a137f9d232536e914a86516995b4947ea46253dc9b0e2a87183bdb6"
+    },
+    {
+      "path": "artifacts/control-box-before-controls/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/control-box-before-table-integration/results.json",
+      "sha256": "d224b81f2ef254762174fd3a45f65494f9cfd94bfe1d8b9b2e627326f30c7e8f"
+    },
+    {
+      "path": "artifacts/control-box-before-table-integration/metadata.json",
+      "sha256": "5912a863fcb6062df3481b2c2713a8c559c66559988f1c38e4249528126bd371"
+    },
+    {
+      "path": "artifacts/control-parley-unit-baseline.log",
+      "sha256": "c5def1c424de58bb295a128cd3b73d9de0d9cdcaafb246bcbe4b7e723a4e563b"
+    },
+    {
+      "path": "artifacts/control-parley-unit-repaired.log",
+      "sha256": "74059f86cae468686773fa9388f428dda4cfb0bc17928959e45459df22c884bc"
+    },
+    {
+      "path": "artifacts/control-parley-unit-final.log",
+      "sha256": "5684a225f47286e6d5b84086ae76e32d634d671ffec98e2be3ce5db968394d8c"
+    },
+    {
+      "path": "artifacts/control-parley-regression.json",
+      "sha256": "75d3c310d455c1b78751857e51ba5837872ae6ef698981bc4e6acffe0ca6e89b"
+    },
+    {
+      "path": "artifacts/control-box-parley-harness/metadata.json",
+      "sha256": "b4e2d15cc6ca07bed5c6dfdd3818d14d39b0091b03d8e76090ba308914110dd5"
+    },
+    {
+      "path": "artifacts/control-box-parley-harness/SOURCE-SHA256",
+      "sha256": "6ba47f707752c41bcf75a6b36f344474d74acb36409b3624d41f941ef3c5dd9b"
+    },
+    {
+      "path": "artifacts/control-box-parley-harness/Cargo.toml",
+      "sha256": "fac96968b007d998655911d4914e73dfcf3d552073f1dfbd9ad76543b7e02267"
+    },
+    {
+      "path": "artifacts/control-box-parley-harness/Cargo.lock",
+      "sha256": "3db962c0e48a937d33bff15f0de1a732e5b1c24dc51503b6704b9d84c5d2f53c"
+    },
+    {
+      "path": "artifacts/control-box-verified-parley-harness/metadata.json",
+      "sha256": "2c039ed8e82c5d32345a9f473d091b8393ce04dd23b52dfd031f189fedbf7edc"
+    },
+    {
+      "path": "artifacts/control-box-verified-parley-harness/SOURCE-SHA256",
+      "sha256": "8056a4aff312aa5662e34e730111d9a5167f1ca7118db35f57d65585507daab3"
+    },
+    {
+      "path": "artifacts/control-box-verified-parley-harness/SOURCE-FILES",
+      "sha256": "f2cabd08080c84852c25da5df66f3a59ac6a54230d22c2bf0bf861806a2a2e96"
+    },
+    {
+      "path": "artifacts/control-box-verified-parley-harness/Cargo.toml",
+      "sha256": "fac96968b007d998655911d4914e73dfcf3d552073f1dfbd9ad76543b7e02267"
+    },
+    {
+      "path": "artifacts/control-box-verified-parley-harness/Cargo.lock",
+      "sha256": "3db962c0e48a937d33bff15f0de1a732e5b1c24dc51503b6704b9d84c5d2f53c"
+    },
+    {
+      "path": "artifacts/control-box-verified-parley-strut-baseline.log",
+      "sha256": "c5c31f0df14af5f09210f510af395aa7a942e40e16645783d7bffeb7b8a6c64d"
+    },
+    {
+      "path": "artifacts/control-box-verified-parley-strut-repaired.log",
+      "sha256": "4cb6283fcb03914b07e4561b38d0b11d25988b0e10cbb2c87426d7348d0165a0"
+    },
+    {
+      "path": "artifacts/control-box-verified-parley-std-final.log",
+      "sha256": "db9edfa601a2dcae83b0377f83b96c13abcc6d82ef77e5fc59e7226929f3a943"
+    },
+    {
+      "path": "artifacts/control-box-verified-button-diagnostic.json",
+      "sha256": "c193bce237a2bd60d55c1b4072eae1f07faee971c37152623e26329dec6d37f6"
+    },
+    {
+      "path": "artifacts/control-box-verified-button-diagnostic.log",
+      "sha256": "a520f774f91911c4774a726d14f858d865bab5094aba2841d99bef2a8e59b6f3"
+    }
+  ]
+}
