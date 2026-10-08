@@ -442,3 +442,42 @@ Explicit caller boundary intent for that category, nonempty spans and horizontal
 edges requires a separate additive API checkpoint. No epsilon encodes that intent.
 The [verified continuation](../conformance/results/chromium-empty-inline.md) keeps
 shaping correctness and the eleven new tight-crop pixel failures separate.
+
+## Chromium parity: caller shaping-boundary intent (2026-10-08, isolated)
+
+Parley adds `TreeBuilder::push_style_span_with_shaping_boundaries(style, before,
+after)`. Each boolean requests an itemization boundary at that ordinary span's
+normalized opening or closing position. Existing span pushes request neither;
+modification scopes remain normalization-only. Requests are independent of empty
+participation and geometric alignment. Automatic span closing records the closing
+boundary too. Delayed whitespace moves an edge only when that whitespace was
+already pending at the edge; later sibling whitespace cannot move it. The final
+private stream unions these requests with existing empty non-baseline boundaries,
+sorts and deduplicates interior UTF-8 byte positions, then uses the existing
+itemizer. No source ids, synthetic characters, layout items or advances encode intent.
+
+This API prevents a shaping run or ligature from crossing a requested edge.
+The engine's existing full-text context and forced grapheme-start behavior remain;
+complete contextual isolation, Unicode grapheme/caret parity and bidi affinity
+require separate reductions. Internal ligatures on either side remain eligible.
+Both geometry and tight paint stay independently gated.
+
+Stylo retains an `ImplicitZero` baseline-shift value for the initial and
+shorthand-omitted shift, distinct from an explicitly parsed zero length. The
+existing `zero()` numeric constructor remains unchanged. A new `implicit_zero()`
+constructor supplies the initial value. This category follows normal cascade,
+inheritance, variables, value equality and style invalidation. Longhand CSSOM and
+Typed OM expose the same numeric zero; shorthand serialization distinguishes
+`baseline` from an explicit `0px`. Numeric longhand animation treats implicit
+zero as numeric zero and preserves the category only when both endpoints are
+implicit, retaining existing interpolation. CSS2 keyword/length shorthand
+animation remains a separate parity gate in Stylo's longhand model.
+
+Blitz requests both ordinary-span boundaries in standards mode when computed
+alignment differs from baseline or the shift is not implicit zero. It converts
+the implicit value to exactly zero geometric shift. `display:contents` continues
+to use modification scopes; atomic boxes retain their existing shaping boundary.
+Alignment/shift category changes recollect tree styles before layout. Paint uses
+geometric zero for its existing anchor decisions. Horizontal edge advances and
+their per-side boundary predicates remain the next generic-flow slice; no IR,
+framework, renderer or global ligature policy changes are required.
