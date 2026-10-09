@@ -525,12 +525,14 @@ same capture. No text source, shaping boundary or glyph is added by tracking.
 The additive `Line::style_span_bounds(style_index) -> Option<(f32, f32)>` returns
 one horizontal union in layout units for a tracked ordinary span on that line.
 An atom belongs in full to the normalized span containing its first code unit;
-owners beginning inside that atom retain a real zero-width fragment at its end,
+owners beginning inside that atom retain a real zero-width fragment at its logical end,
 rather than receiving a caret fraction. Descendant text and in-flow atomic boxes
 are included by the captured ranges and box ordinals. Empty spans use the existing
 empty-span participation and line association; tracking alone does not change
 their metric participation. Out-of-flow boxes reserve no width. Returned bounds
-follow visual ordering, alignment, justification and collapsed hanging whitespace.
+follow visual ordering, alignment and justification. Each atom's normalized
+whitespace policy trims collapsed hanging space while preserving child whitespace
+under a collapsing ancestor. `None` means untracked or absent from that line.
 Existing font-area bounds supply the separate block-axis geometry.
 
 The private query consumes the line's committed atoms/boxes, so rebreaking and
