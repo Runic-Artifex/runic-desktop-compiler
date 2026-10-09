@@ -1,0 +1,473 @@
+{
+  "description": "Canceled physical and implicit form submission; ownership, default-button order, blocker counting, input-type normalization, and validation bypass. Expected text is the independent driving specification; browser verification is required.",
+  "fixtures": ["form-submit-react", "form-submit-vue", "form-submit-svelte"],
+  "viewports": [[900, 760]],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "mode-physical"
+    },
+    {
+      "kind": "click",
+      "id": "submit-child"
+    },
+    {
+      "kind": "click",
+      "id": "mode-cancel"
+    },
+    {
+      "kind": "click",
+      "id": "submit-child"
+    },
+    {
+      "kind": "click",
+      "id": "mode-implicit"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-cancel-implicit"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-disabled"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-one"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-two"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-two-disabled"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-external-before"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-external-after"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-invalid"
+    },
+    {
+      "kind": "click",
+      "id": "submit-child"
+    },
+    {
+      "kind": "click",
+      "id": "mode-duplicate"
+    },
+    {
+      "kind": "click",
+      "id": "submit-child"
+    },
+    {
+      "kind": "click",
+      "id": "mode-novalidate"
+    },
+    {
+      "kind": "click",
+      "id": "submit-child"
+    },
+    {
+      "kind": "click",
+      "id": "mode-button-bypass"
+    },
+    {
+      "kind": "click",
+      "id": "submit-child"
+    },
+    {
+      "kind": "click",
+      "id": "mode-search"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-tel"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-password"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-missing-type"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    },
+    {
+      "kind": "click",
+      "id": "mode-invalid-type"
+    },
+    {
+      "kind": "focus",
+      "id": "field"
+    },
+    {
+      "kind": "press",
+      "key": "Enter"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 1,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 2,
+      "id": "log",
+      "text": "click:1:false submit:submit:true:true"
+    },
+    {
+      "step": 3,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 4,
+      "id": "log",
+      "text": "click:1:false canceled"
+    },
+    {
+      "step": 5,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 6,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 7,
+      "id": "log",
+      "text": "click:0:true submit:submit:true:true"
+    },
+    {
+      "step": 8,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 9,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 10,
+      "id": "log",
+      "text": "click:0:true canceled"
+    },
+    {
+      "step": 11,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 12,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 13,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 14,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 15,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 16,
+      "id": "log",
+      "text": "submit:submit:true:true"
+    },
+    {
+      "step": 17,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 18,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 19,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 20,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 21,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 22,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 23,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 24,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 25,
+      "id": "log",
+      "text": "external:0:true submit:submit:true:true"
+    },
+    {
+      "step": 26,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 27,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 28,
+      "id": "log",
+      "text": "external:0:true submit:submit:true:true"
+    },
+    {
+      "step": 29,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 30,
+      "id": "log",
+      "text": "click:1:false"
+    },
+    {
+      "step": 31,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 32,
+      "id": "log",
+      "text": "click:1:false"
+    },
+    {
+      "step": 33,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 34,
+      "id": "log",
+      "text": "click:1:false submit:submit:true:true"
+    },
+    {
+      "step": 35,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 36,
+      "id": "log",
+      "text": "click:1:false submit:submit:true:true"
+    },
+    {
+      "step": 37,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 38,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 39,
+      "id": "log",
+      "text": "click:0:true submit:submit:true:true"
+    },
+    {
+      "step": 40,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 41,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 42,
+      "id": "log",
+      "text": "click:0:true submit:submit:true:true"
+    },
+    {
+      "step": 43,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 44,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 45,
+      "id": "log",
+      "text": "click:0:true submit:submit:true:true"
+    },
+    {
+      "step": 46,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 47,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 48,
+      "id": "log",
+      "text": "click:0:true submit:submit:true:true"
+    },
+    {
+      "step": 49,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 50,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 51,
+      "id": "log",
+      "text": "click:0:true submit:submit:true:true"
+    }
+  ]
+}

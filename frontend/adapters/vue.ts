@@ -94,6 +94,7 @@ const TAGS = new Set([
   'h5',
   'h6',
   'button',
+  'form',
   'input',
   'main',
   'article',
@@ -139,6 +140,8 @@ const BOOLEAN_ATTRS = new Set([
   'checked',
   'autofocus',
   'multiple',
+  'novalidate',
+  'formnovalidate',
 ]);
 const MACROS = new Set([
   'defineProps',
@@ -257,17 +260,19 @@ const MOUSE_EVENTS = new Set([
 const FOCUS_EVENTS = new Set(['focus', 'blur', 'focusin', 'focusout']);
 /** The DOM interface (frontend/dom.d.ts) of an event's object, typing `$event`. */
 const eventInterface = (event: string): string =>
-  KEYBOARD_EVENTS.has(event)
-    ? 'KeyboardEvent'
-    : event === 'wheel'
-      ? 'WheelEvent'
-      : event.startsWith('pointer')
-        ? 'PointerEvent'
-        : MOUSE_EVENTS.has(event)
-          ? 'MouseEvent'
-          : FOCUS_EVENTS.has(event)
-            ? 'FocusEvent'
-            : 'Event';
+  event === 'submit'
+    ? 'SubmitEvent'
+    : KEYBOARD_EVENTS.has(event)
+      ? 'KeyboardEvent'
+      : event === 'wheel'
+        ? 'WheelEvent'
+        : event.startsWith('pointer')
+          ? 'PointerEvent'
+          : MOUSE_EVENTS.has(event)
+            ? 'MouseEvent'
+            : FOCUS_EVENTS.has(event)
+              ? 'FocusEvent'
+              : 'Event';
 /** Globals Vue templates can read (@vue/shared GLOBALS_ALLOWED); others resolve on the instance. */
 const TEMPLATE_GLOBALS = new Set(
   'Infinity,undefined,NaN,isFinite,isNaN,parseFloat,parseInt,decodeURI,decodeURIComponent,encodeURI,encodeURIComponent,Math,Number,Date,Array,Object,Boolean,String,RegExp,Map,Set,JSON,Intl,BigInt,console,Error,Symbol'.split(

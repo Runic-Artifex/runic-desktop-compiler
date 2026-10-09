@@ -22,6 +22,7 @@ pub mod date;
 pub mod dynamic;
 pub mod env;
 pub mod floating;
+pub mod forms;
 pub mod history;
 pub mod intersection;
 pub mod intl;

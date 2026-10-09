@@ -1,0 +1,54 @@
+{
+  "description": "A timer or continuous pointer origin writes state before requestSubmit; nested submit writes again before an explicitly queued microtask reads the rendered phase. Expected rendering is subject to independent browser verification.",
+  "fixtures": ["form-submit-react", "form-submit-vue", "form-submit-svelte"],
+  "viewports": [[900, 760]],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "mode-timer"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "wait",
+      "ms": 30
+    },
+    {
+      "kind": "click",
+      "id": "mode-continuous"
+    },
+    {
+      "kind": "hover",
+      "id": "move-origin"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 1,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 3,
+      "id": "log",
+      "text": "timer-before submit:submit:true:true timer-after micro:submitted"
+    },
+    {
+      "step": 4,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 5,
+      "id": "log",
+      "text": "move-before submit:submit:true:true move-after micro:submitted"
+    }
+  ]
+}

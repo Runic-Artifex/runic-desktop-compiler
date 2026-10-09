@@ -1,0 +1,32 @@
+{
+  "description": "Vue/Svelte document capture requests a second form synchronously before the first form target listener. React native document capture remains outside its supported contract.",
+  "fixtures": ["form-submit-vue", "form-submit-svelte"],
+  "viewports": [[900, 760]],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "mode-capture"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 1,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 2,
+      "id": "log",
+      "text": "before capture-before capture-secondary secondary capture-after submit:submit:true:true after"
+    }
+  ]
+}

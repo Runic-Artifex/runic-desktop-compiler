@@ -71,6 +71,7 @@ declare module 'react' {
   export type PointerEventHandler<T = Element> = EventHandler<PointerEvent<T>>;
   export type KeyboardEventHandler<T = Element> = EventHandler<KeyboardEvent<T>>;
   export type ChangeEventHandler<T = Element> = EventHandler<ChangeEvent<T>>;
+  export type FormEventHandler<T = Element> = EventHandler<FormEvent<T>>;
   export type FocusEventHandler<T = Element> = EventHandler<FocusEvent<T>>;
   /**
    * The props of DOM elements, for components forwarding rest props to one
@@ -116,6 +117,7 @@ declare namespace JSX {
     title?: string | null;
     // Event props: inline handlers take React's synthetic event types.
     onClick?: import('react').MouseEventHandler;
+    onSubmit?: import('react').FormEventHandler;
     onDoubleClick?: import('react').MouseEventHandler;
     onContextMenu?: import('react').MouseEventHandler;
     onMouseDown?: import('react').MouseEventHandler;

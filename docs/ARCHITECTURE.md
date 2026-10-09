@@ -669,3 +669,15 @@ browser/native conformance and the direct pointer oracles retain that task.
 Production rendering, framework adapters and IR schema 4 are unchanged. Hidden
 target stops and matching render-error termination remain explicitly incomplete.
 Every complete trace must compare the initial state and all generated actions.
+
+### Bounded form submission (2026-10-09)
+
+The [form submission design](design/M6-FORM-SUBMISSION.md) extends existing
+event registries within schema 4. Pure HTML ownership, activation, implicit
+submission and conservative validation decisions live in `runic-js::forms`;
+native DOM and interpreter VNode adapters collect live inputs and own dispatch.
+An owned native session releases DOM borrows before synchronous callbacks and
+uses a per-form reentrancy guard. Generated code restores nested discrete
+priority without inserting a checkpoint. Navigation, reset, undecidable
+validation and unsupported validity selectors retain diagnostics. Acceptance
+is pending; this decision alone does not extend the implemented contract.

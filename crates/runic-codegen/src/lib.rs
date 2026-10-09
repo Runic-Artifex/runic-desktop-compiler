@@ -3109,7 +3109,7 @@ pub fn generate(
          cx.payload = ev.payload(); cx.event = Some(ev.clone());\n\
          let r = f(cx);\n\
          (cx.payload, cx.event) = outer;\n\
-         if let Err(e) = r {{ eprintln!(\"runic: uncaught exception in a focus listener: {{e}}\"); }}\n\
+         if let Err(e) = r {{ eprintln!(\"runic: uncaught exception in a nested event listener: {{e}}\"); }}\n\
          }}\n\
          ev.finish();\n\
          }}\n\

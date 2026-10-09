@@ -953,6 +953,61 @@ function fullSelectors(rule) {
   );
 }
 
+const UNSUPPORTED_VALIDITY_STATES = new Set([
+  'valid',
+  'invalid',
+  'user-valid',
+  'user-invalid',
+  'in-range',
+  'out-of-range',
+]);
+
+/** Read pseudo-class identifiers, including CSS escapes, outside attribute strings. */
+function unsupportedValiditySelector(selector) {
+  const escape = /\\(?:[\da-f]{1,6}(?:\r\n|[\t\n\f\r ])?|[^\n\r\f])/iy;
+  const identifier = /(?:[-\w\u0080-\uFFFF]|\\(?:[\da-f]{1,6}(?:\r\n|[\t\n\f\r ])?|[^\n\r\f]))+/iy;
+  let quote,
+    brackets = 0;
+  for (let i = 0; i < selector.length; i++) {
+    const c = selector[i];
+    if (c === '\\') {
+      escape.lastIndex = i;
+      const match = escape.exec(selector);
+      if (match) i = escape.lastIndex - 1;
+    } else if (quote) {
+      if (c === quote) quote = undefined;
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '/' && selector[i + 1] === '*') {
+      const end = selector.indexOf('*/', i + 2);
+      i = end === -1 ? selector.length : end + 1;
+    } else if (c === '[') brackets++;
+    else if (c === ']') brackets--;
+    else if (c === ':' && brackets === 0) {
+      if (selector[i + 1] === ':') {
+        i++;
+        continue;
+      }
+      identifier.lastIndex = i + 1;
+      const match = identifier.exec(selector);
+      if (!match) continue;
+      const name = match[0]
+        .replace(/\\([\da-f]{1,6})(?:\r\n|[\t\n\f\r ])?|\\([^\n\r\f])/gi, (_, hex, literal) => {
+          const point = hex && parseInt(hex, 16);
+          return hex
+            ? String.fromCodePoint(
+                point > 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff)
+                  ? point
+                  : 0xfffd,
+              )
+            : literal;
+        })
+        .toLowerCase();
+      if (UNSUPPORTED_VALIDITY_STATES.has(name)) return name;
+      i = identifier.lastIndex - 1;
+    }
+  }
+}
+
 // The SVG children the frontends accept (docs/CONTRACT.md, inline SVG).
 const SVG_CHILDREN = new Set([
   'g',
@@ -1031,6 +1086,17 @@ function checkRules(css, file) {
         'E_CSS',
         `Unsupported selector ${rule.selector}: Blitz never matches :target`,
         { file, line: rule.source.start.line, column: rule.source.start.column },
+      );
+  });
+  // Form constraint validity and user-validity states are not maintained,
+  // including when native submission validation is disabled by novalidate.
+  css.walkRules(rule => {
+    const state = unsupportedValiditySelector(rule.selector);
+    if (state)
+      throw new Diagnostic(
+        'E_CSS',
+        `Unsupported selector ${rule.selector}: the runtime does not maintain :${state}`,
+        at(rule),
       );
   });
   // SVG children have no boxes in Blitz, so pointer hits land on their

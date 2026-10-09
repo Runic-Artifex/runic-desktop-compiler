@@ -94,6 +94,7 @@ function declaredNotNull(decl: ts.FunctionLikeDeclaration): boolean {
 /** Event interfaces `instanceof` tests (runic_js::event::EVENT_INTERFACES). */
 const EVENT_INTERFACES = [
   'Event',
+  'SubmitEvent',
   'UIEvent',
   'MouseEvent',
   'PointerEvent',

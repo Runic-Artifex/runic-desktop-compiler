@@ -566,13 +566,20 @@ fn checked(doc: &BaseDocument, node: NodeId) -> bool {
 /// attribute is owned by the first element in tree order with that ID if it
 /// is a form (else none); otherwise by its nearest ancestor form.
 fn form_owner(doc: &BaseDocument, node: NodeId) -> Option<NodeId> {
-    if let Some(id) = attr(doc, node, "form").filter(|_| in_document(doc, node)) {
-        return crate::events::tree_order(doc)
-            .into_iter()
-            .find(|&n| element(doc, n).is_some() && attr(doc, n, "id") == Some(id))
-            .filter(|&n| html_tag(doc, n) == Some("form"));
-    }
-    ancestors(doc, node).find(|&a| html_tag(doc, a) == Some("form"))
+    runic_js::forms::form_owner(
+        attr(doc, node, "form"),
+        in_document(doc, node),
+        |id| {
+            crate::events::tree_order(doc)
+                .into_iter()
+                .find(|&n| element(doc, n).is_some() && attr(doc, n, "id") == Some(id))
+                .map(|n| (n.as_u64(), html_tag(doc, n) == Some("form")))
+        },
+        ancestors(doc, node)
+            .find(|&a| html_tag(doc, a) == Some("form"))
+            .map(NodeId::as_u64),
+    )
+    .map(NodeId::from_u64)
 }
 
 /// `isTabbableRadio(node)`: unnamed, or the checked radio of its group

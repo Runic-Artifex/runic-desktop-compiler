@@ -993,6 +993,8 @@ pub enum Domain {
 pub enum EventKind {
     /// Activation: pointer click, or Enter/Space on a focused button.
     Click,
+    /// Cancelable form submission following activation or requestSubmit.
+    Submit,
     /// Text control value change; the handler receives the new value as payload.
     Input,
     /// Checkbox toggle; the handler receives the new checked state as payload.
@@ -1098,6 +1100,7 @@ impl EventKind {
     pub fn action(self) -> &'static str {
         match self {
             EventKind::Click
+            | EventKind::Submit
             | EventKind::Change
             | EventKind::Pointerdown
             | EventKind::Pointerup
@@ -1126,8 +1129,9 @@ impl EventKind {
         }
     }
 
-    pub const ALL: [EventKind; 30] = [
+    pub const ALL: [EventKind; 31] = [
         EventKind::Click,
+        EventKind::Submit,
         EventKind::Input,
         EventKind::Change,
         EventKind::Keydown,
@@ -1181,6 +1185,7 @@ impl EventKind {
     pub fn name(self) -> &'static str {
         match self {
             EventKind::Click => "click",
+            EventKind::Submit => "submit",
             EventKind::Input => "input",
             EventKind::Change => "change",
             EventKind::Keydown => "keydown",

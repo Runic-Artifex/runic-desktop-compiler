@@ -1030,7 +1030,7 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             expect(&args[0], &Element, "receiver")?;
             expect(&args[1], &s, "selector").map(|_| Maybe(Box::new(Element)))
         }
-        // Form submission is not modelled (no form element can be rendered).
+        // Bounded canceled form submission; no submitter argument (M6).
         ("element", "requestSubmit") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Element, "receiver").map(|_| Void)

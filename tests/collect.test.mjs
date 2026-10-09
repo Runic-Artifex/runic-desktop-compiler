@@ -80,6 +80,56 @@ test('CSS accepts ordinary properties and selectors but not remote assets', asyn
   );
 });
 
+test('CSS rejects unsupported validity states with stylesheet locations', async () => {
+  const states = ['valid', 'invalid', 'user-valid', 'user-invalid', 'in-range', 'out-of-range'];
+  for (const state of states) {
+    const escaped = `\\${state.charCodeAt(0).toString(16)} ${state.slice(1)}`;
+    for (const selector of [
+      `input:${state}`,
+      `form:is(:not(:has(input:${state.toUpperCase()})))`,
+      `input:${escaped}`,
+      `input:\\${state[0]}${state.slice(1)}`,
+      `input:${[...state].map(c => '\\' + c.charCodeAt(0).toString(16).padStart(6, '0')).join('')}`,
+    ]) {
+      await react(
+        'import "./s.css";function App(){return <form noValidate><input required/></form>;}',
+        async root =>
+          assert.rejects(
+            collect(root),
+            e =>
+              e instanceof Diagnostic &&
+              e.code === 'E_CSS' &&
+              e.source?.file === 's.css' &&
+              e.source.line === 2 &&
+              e.source.column === 1 &&
+              e.message.includes(`:${state}`),
+            selector,
+          ),
+        { 's.css': `p { color: red }\n${selector} { color: blue }` },
+      );
+    }
+  }
+});
+
+test('CSS validity guard distinguishes classes and literal attribute values', async () => {
+  await react(
+    'import "./s.css";function App(){return <input className="valid"/>;}',
+    root =>
+      assert.rejects(
+        collect(root),
+        e => e instanceof Diagnostic && e.code === 'E_ASSET' && e.source?.file === 's.css',
+      ),
+    // A later URL error proves selector checks accepted these spellings without
+    // invoking the native Stylo checker during this focused frontend test.
+    {
+      's.css': String.raw`.valid, .invalid, .user-valid, .user-invalid, .in-range, .out-of-range,
+      .valid-extra, .field\:valid, .\76 alid, .valid/* :invalid */, [data-state=":invalid"], [data-state=':user-invalid'],
+      :is(.valid):not(.invalid):has(.in-range) { color: blue }
+      p { background-image: url("https://example.invalid/image.png") }`,
+    },
+  );
+});
+
 test('CSS transitions and keyframe animations are accepted where the runtime reproduces them', async () => {
   const check = (css, expected, line) =>
     react(

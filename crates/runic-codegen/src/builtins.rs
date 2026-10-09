@@ -584,9 +584,10 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             "cx.dom.closest({}.0, &{}.to_rust()).map_or(Maybe::Null, |n| Maybe::Some(js::Element(n)))",
             t[0], t[1]
         ),
-        ("element", "requestSubmit") => {
-            "{ runic_runtime::unsupported(\"requestSubmit (form submission)\"); }".to_string()
-        }
+        ("element", "requestSubmit") => format!(
+            "{{ if let Some(pending) = cx.dom.request_submit({}.0) {{ let event = pending.event.clone(); let outer_priority = (cx.jobs.in_event, cx.jobs.dispatching); cx.jobs.in_event = true; cx.jobs.dispatching = true; run_nested(cx, vec![(pending.event, Event::Submit, pending.deliveries)]); (cx.jobs.in_event, cx.jobs.dispatching) = outer_priority; cx.dom.complete_submission(pending.form, &event); }} }}",
+            t[0]
+        ),
         ("element", "hasAttribute") => {
             format!("cx.dom.has_attribute({}.0, &{}.to_rust())", t[0], t[1])
         }

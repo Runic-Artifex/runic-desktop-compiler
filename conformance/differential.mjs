@@ -4,7 +4,7 @@
 // the native probe; DOM and cells must agree after every step.
 //
 //   node conformance/differential.mjs [fixture ...] [--traces N] [--length N] [--seed S] [--no-opt]
-//                                    [--timezone Zone] [--locale tag] [--out trace-evidence.json]
+//                                    [--timezone Zone] [--locale tag] [--viewport WxH] [--out trace-evidence.json]
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +25,7 @@ const { values, positionals } = parseArgs({
     traces: { type: 'string', default: '20' },
     length: { type: 'string', default: '25' },
     seed: { type: 'string', default: '1' },
+    viewport: { type: 'string', default: '800x600' },
     'no-opt': { type: 'boolean' },
     out: { type: 'string' },
     // The time zone and locale Date and Intl see (both sides).
@@ -35,6 +36,10 @@ const { values, positionals } = parseArgs({
 
 const requestedTraces = Number(values.traces);
 const requestedActions = Number(values.length);
+const viewportMatch = /^(\d+)x(\d+)$/.exec(values.viewport);
+const viewport = viewportMatch && { width: Number(viewportMatch[1]), height: Number(viewportMatch[2]) };
+if (!viewport || !Object.values(viewport).every(n => Number.isSafeInteger(n) && n > 0))
+  throw new Error('--viewport must be positive integer dimensions WxH');
 if (!Number.isSafeInteger(requestedTraces) || requestedTraces <= 0 ||
     !Number.isSafeInteger(requestedActions) || requestedActions < 0)
   throw new Error('--traces must be a positive integer and --length a nonnegative integer');
@@ -123,6 +128,7 @@ const TEXTS = ['', 'a', 'Hello', 'ünï 😀', 'x'.repeat(256), 'x'.repeat(257),
 /** The harness action delivering each event kind (as `EventKind::action`). */
 const ACTION = {
   click: 'click',
+  submit: 'click',
   change: 'click',
   pointerdown: 'click',
   pointerup: 'click',
@@ -366,7 +372,7 @@ for (const fixture of fixtures) {
     }
     const env = { timezone: values.timezone, locale: values.locale };
     // Observe the physical native target first; snapshots themselves are never rewritten.
-    const result = runProbe(binary, { actions, ...env, hiddenTargets: 'stop' });
+    const result = runProbe(binary, { actions, ...env, viewport, hiddenTargets: 'stop' });
     const replay = resolvedPointerActions(actions, result);
     const expected = interpret(ir, replay.actions, env);
     const actual = result.steps;
@@ -461,7 +467,7 @@ for (const fixture of fixtures) {
   );
 }
 const traceEvidenceJSON = JSON.stringify({ schema: 1, seed: Number(values.seed),
-  optimize: !values['no-opt'], requestedTraces, requestedActionsPerTrace: requestedActions, fixtureSummaries }, null, 2) + '\n';
+  optimize: !values['no-opt'], viewport, requestedTraces, requestedActionsPerTrace: requestedActions, fixtureSummaries }, null, 2) + '\n';
 await writeFile(evidencePath, traceEvidenceJSON, { flag: 'wx' });
 const traceEvidence = { path: path.relative(repo, evidencePath),
   sha256: createHash('sha256').update(traceEvidenceJSON).digest('hex') };
@@ -470,7 +476,7 @@ const consoleFixtures = fixtureSummaries.map(({ traces, ...fixture }) => ({ ...f
     ...trace, executedPointerActions: pointerResolutions.length,
   })),
 }));
-console.log(JSON.stringify({ fixtures: fixtures.length, requestedTraces, requestedActionsPerTrace: requestedActions,
+console.log(JSON.stringify({ fixtures: fixtures.length, viewport, requestedTraces, requestedActionsPerTrace: requestedActions,
   expectedComparedSteps: fixtures.length * requestedTraces * (requestedActions + 1),
   traceCount: fixtureSummaries.reduce((count, fixture) => count + fixture.traces.length, 0),
   complete: incomplete.length === 0 && failures === 0 && fixtureSummaries.every(fixture => fixture.complete),

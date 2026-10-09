@@ -77,6 +77,7 @@ export type AttrItem = { name: string; value: Expr } | { spread: Expr } | { atta
 /** Event kinds (docs/design/M5-PLATFORM.md). */
 export type EventKind =
   | 'click'
+  | 'submit'
   | 'input'
   | 'change'
   | 'keydown'
@@ -109,6 +110,7 @@ export type EventKind =
 
 export const EVENT_KINDS: readonly EventKind[] = [
   'click',
+  'submit',
   'input',
   'change',
   'keydown',

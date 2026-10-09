@@ -8,6 +8,8 @@ use std::collections::HashMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     Click,
+    /// Cancelable form submission following activation or requestSubmit.
+    Submit,
     Input,
     /// Checkbox toggle.
     Change,
@@ -47,8 +49,9 @@ pub enum Event {
 }
 
 impl Event {
-    pub const ALL: [Event; 30] = [
+    pub const ALL: [Event; 31] = [
         Event::Click,
+        Event::Submit,
         Event::Input,
         Event::Change,
         Event::Keydown,
@@ -102,6 +105,7 @@ impl Event {
     pub fn name(self) -> &'static str {
         match self {
             Event::Click => "click",
+            Event::Submit => "submit",
             Event::Input => "input",
             Event::Change => "change",
             Event::Keydown => "keydown",
@@ -174,6 +178,7 @@ impl Event {
     pub fn action(self) -> &'static str {
         match self {
             Event::Click
+            | Event::Submit
             | Event::Change
             | Event::Pointerdown
             | Event::Pointerup
@@ -204,6 +209,16 @@ impl Event {
 /// Listener registrations: element → (event, listener key of the app).
 #[derive(Default)]
 pub(crate) struct Listeners {
+    /// Submission guards survive validation and synchronous listener dispatch.
+    pub(crate) submitting: std::collections::HashSet<NodeId>,
+    /// Form identities survive removal for retained JS element references.
+    /// Full versioned IDs prevent a reused slot from acquiring an old type.
+    pub(crate) known_forms: std::collections::HashSet<NodeId>,
+    /// Removed forms with descendant named shadows. This conservative
+    /// snapshot retains versioned identities only and drops with the document.
+    pub(crate) detached_shadowed_forms: std::collections::HashSet<NodeId>,
+    /// Existing static document forms are recorded at the first Host attach.
+    forms_scanned: bool,
     map: HashMap<NodeId, Vec<(Event, u32)>>,
     /// Capture listeners of elements (attribute bag entries
     /// `on<event>capture`, M6 overlays).
@@ -405,6 +420,11 @@ pub struct Host {
 
 impl Host {
     pub fn attach(dom: &mut Dom) -> Host {
+        if !dom.listeners.forms_scanned {
+            let root = dom.doc.root_node().id;
+            crate::forms::remember_forms(dom.doc, dom.listeners, root);
+            dom.listeners.forms_scanned = true;
+        }
         Host {
             doc: Some(&mut *dom.doc as *mut BaseDocument),
             listeners: Some(&mut *dom.listeners as *mut Listeners),
@@ -706,6 +726,24 @@ impl Host {
         self.dom()
             .map(|dom| click_event(&dom, NodeId::from_u64(node)))
             .unwrap_or_default()
+    }
+
+    /// Prepare requestSubmit synchronously, releasing all mutable DOM and
+    /// listener borrows before the caller dispatches the owned deliveries.
+    pub fn request_submit(&self, node: u64) -> Option<crate::Submission> {
+        let submission = {
+            let dom = self.dom()?;
+            crate::forms::request(dom.doc, dom.listeners, NodeId::from_u64(node))
+        };
+        submission
+    }
+
+    /// Complete a requestSubmit session after all nested callbacks, including
+    /// callback errors. Cancellation and removal suppress the default action.
+    pub fn complete_submission(&self, form: u64, event: &runic_js::Event) {
+        if let Some(dom) = self.dom() {
+            crate::forms::complete(dom.doc, dom.listeners, NodeId::from_u64(form), event);
+        }
     }
 
     /// `element.select()`: selects all text of a text control.
@@ -1335,6 +1373,9 @@ impl Dom<'_> {
         if tag == "select" {
             self.listeners.selects.insert(id, None);
         }
+        if tag == "form" {
+            self.listeners.known_forms.insert(id);
+        }
         id
     }
 
@@ -1465,6 +1506,9 @@ impl Dom<'_> {
 
     /// Detach and free a subtree, dropping its listener registrations.
     pub fn remove(&mut self, node: NodeId) {
+        // Preserve even never-submitted forms before their native nodes are
+        // freed, including subtrees created outside the generated Dom API.
+        crate::forms::remember_removed_forms(self.doc, self.listeners, node);
         if let Some(parent) = self.doc.get_node(node).and_then(|n| n.parent) {
             self.listeners.child_mutations.push(parent);
         }

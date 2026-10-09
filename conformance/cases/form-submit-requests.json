@@ -1,0 +1,140 @@
+{
+  "description": "Synchronous no-argument requestSubmit, sequential calls, same-form suppression, cross-form nested dispatch, detached receiver and listener-driven removal. No default-button click is expected.",
+  "fixtures": ["form-submit-react", "form-submit-vue", "form-submit-svelte"],
+  "viewports": [[900, 760]],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "mode-request"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-sequential"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-recursive"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-cross"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-detached"
+    },
+    {
+      "kind": "click",
+      "id": "detach"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-remove"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 1,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 2,
+      "id": "log",
+      "text": "before submit:submit:true:true after"
+    },
+    {
+      "step": 3,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 4,
+      "id": "log",
+      "text": "before submit:submit:true:true between submit:submit:true:true after"
+    },
+    {
+      "step": 5,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 6,
+      "id": "log",
+      "text": "before submit:submit:true:true inner-before inner-after after"
+    },
+    {
+      "step": 7,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 8,
+      "id": "log",
+      "text": "before submit:submit:true:true cross-before secondary cross-after after"
+    },
+    {
+      "step": 9,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 10,
+      "id": "log",
+      "text": "detached"
+    },
+    {
+      "step": 11,
+      "id": "log",
+      "text": "detached before after"
+    },
+    {
+      "step": 12,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 13,
+      "id": "log",
+      "text": "before submit:submit:true:true removed after"
+    },
+    {
+      "step": 14,
+      "id": "log",
+      "text": "before submit:submit:true:true removed after before after"
+    }
+  ]
+}

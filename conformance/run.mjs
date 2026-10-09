@@ -4,7 +4,7 @@
 //
 //   node conformance/run.mjs [case-name ...] [--pixels] [--release] [--no-opt] [--out DIR]
 //                            [--renderer cpu|gpu] [--gpu-adapter lavapipe|system]
-//                            [--fixture NAME ...]
+//                            [--fixture NAME ...] [--retain-snapshots]
 //
 // `--renderer gpu` builds the fixtures with the GPU renderer (D12) whatever
 // runic.json selects, and the probe draws its screenshots with it: by default
@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { createBrowserHarness } from './harness/browser.mjs';
 import { buildProbe, runProbe } from './harness/native.mjs';
 import { compareTraces } from './harness/compare.mjs';
+import { checkExpectedText } from './harness/expectations.mjs';
 import { generate } from '../compiler/generate.mjs';
 import { globSync, readFileSync } from 'node:fs';
 
@@ -30,6 +31,7 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     pixels: { type: 'boolean' },
+    'retain-snapshots': { type: 'boolean' },
     release: { type: 'boolean' },
     'no-opt': { type: 'boolean' },
     out: { type: 'string' },
@@ -125,11 +127,26 @@ try {
           const trackTitle = /"document\.set-title"/.test(JSON.stringify(ir));
           const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, trackTitle, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
           const n = runProbe(binary, { viewport, actions, ...env, visibleTargets: true, gpuAdapter, out: values.pixels ? path.join(shots, 'native') : undefined });
+          if (values['retain-snapshots']) {
+            const observations = path.join('observations', `${c.name}--${path.basename(fixture)}--${viewport.width}x${viewport.height}`);
+            await mkdir(path.join(out, observations), { recursive: true });
+            run.observations = { browser: path.join(observations, 'browser.json'), native: path.join(observations, 'native.json') };
+            await writeFile(path.join(out, run.observations.browser), JSON.stringify(b, null, 2) + '\n');
+            await writeFile(path.join(out, run.observations.native), JSON.stringify(n, null, 2) + '\n');
+          }
           if (n.renderer) run.renderer = n.renderer;
           run.browser = { framework: b.framework, browserVersion: browser.browserVersion, errors: b.errors };
           run.mountUs = n.mountUs;
           const cmp = compareTraces(b.steps, n.steps, { pixels: values.pixels, pixelRegions: c.pixelRegions });
           Object.assign(run, cmp);
+          if (c.expectedText !== undefined) {
+            run.textExpectations = {
+              browser: checkExpectedText(b.steps, c.expectedText),
+              native: checkExpectedText(n.steps, c.expectedText),
+            };
+            if (!run.textExpectations.browser.passed || !run.textExpectations.native.passed)
+              run.passed.semantics = false;
+          }
           if (b.errors?.length) run.passed.semantics = false;
           // A documented known gap is reported as such, never as a pass.
           for (const [gate, reason] of Object.entries(c.knownGaps ?? {}))

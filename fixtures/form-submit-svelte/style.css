@@ -1,0 +1,88 @@
+@font-face {
+  font-family: RunicFixture;
+  src: url('./assets/DejaVuSans.woff2') format('woff2');
+  font-weight: 100 900;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: #eae6dc;
+  color: #252c28;
+  font-family: RunicFixture;
+  font-size: 16px;
+}
+body {
+  padding: 24px;
+}
+main {
+  width: 852px;
+  padding: 20px;
+  background: #faf8f1;
+  border: 1px solid #b7b7a9;
+}
+h1 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+p {
+  margin: 8px 0;
+}
+.modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.modes button {
+  width: 129px;
+  font-size: 11px;
+}
+.arena {
+  height: 180px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #52665b;
+}
+form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+button,
+input {
+  font-family: RunicFixture;
+  font-size: 14px;
+  padding: 6px 8px;
+  border: 1px solid #52665b;
+  background: #e2e8df;
+  color: #252c28;
+}
+input {
+  width: 160px;
+}
+input:focus {
+  outline: none;
+  border-color: #101010;
+}
+#move-origin {
+  display: block;
+  padding: 10px;
+  margin-top: 8px;
+  background: #dfe7f0;
+  border: 1px solid #52665b;
+}
+#log {
+  height: 98px;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}

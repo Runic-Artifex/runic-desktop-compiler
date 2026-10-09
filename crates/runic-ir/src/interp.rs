@@ -649,6 +649,7 @@ struct InstKey {
 }
 
 /// A rendered listener: the handler with its instance and argument values.
+#[derive(Clone)]
 struct ListenerRef {
     instance: usize,
     handler: usize,
@@ -719,6 +720,12 @@ pub struct Machine<'p> {
     popup: Option<(u64, Option<usize>)>,
     /// The tree of the last render (what script sees between renders).
     last_tree: Vec<VNode>,
+    /// Form identities remain known after removal, for disconnected receivers.
+    known_forms: HashSet<u64>,
+    /// Removed forms whose descendant controls could shadow requestSubmit.
+    detached_shadowed_forms: HashSet<u64>,
+    /// Same-form submission is suppressed until its listeners finish.
+    submitting_forms: HashSet<u64>,
     /// Live values of uncontrolled text inputs (no `value` prop), by element id.
     live_values: HashMap<u64, String>,
     /// Live checked state of checkboxes, by element id.
@@ -1061,6 +1068,9 @@ impl<'p> Machine<'p> {
             focused: None,
             popup: None,
             last_tree: vec![],
+            known_forms: HashSet::new(),
+            detached_shadowed_forms: HashSet::new(),
+            submitting_forms: HashSet::new(),
             live_values: HashMap::new(),
             live_checked: HashMap::new(),
             control_cache: HashMap::new(),
@@ -2982,7 +2992,12 @@ impl<'p> Machine<'p> {
                         ));
                     }
                     if !disabled {
-                        self.dispatch_nested(e.0, EventKind::Click, js::EventData::default(), true);
+                        let _ = self.dispatch_nested(
+                            e.0,
+                            EventKind::Click,
+                            js::EventData::default(),
+                            true,
+                        );
                     }
                 }
                 Val::Undefined
@@ -3071,10 +3086,11 @@ impl<'p> Machine<'p> {
                     .map_or(Val::Null, |n| Val::Element(js::Element(n)))
             }
             ("element", "requestSubmit") => {
-                return Err(Throw::new(
-                    "RunicUnsupportedError",
-                    "requestSubmit (form submission)",
-                ));
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                self.request_submit(e.0)?;
+                Val::Undefined
             }
             ("element", "hasAttribute") => {
                 let Val::Element(e) = &a[0] else {
@@ -4030,6 +4046,26 @@ impl<'p> Machine<'p> {
         for p in portals {
             tree.extend(normalize(p));
         }
+        for n in form_tree_elements(&self.last_tree) {
+            if let VNode::Element {
+                id, tag, children, ..
+            } = n
+            {
+                if tag == "form"
+                    && !is_form(&tree, *id)
+                    && form_subtree_shadows_request_submit(children)
+                {
+                    self.detached_shadowed_forms.insert(*id);
+                }
+            }
+        }
+        for n in form_tree_elements(&tree) {
+            if let VNode::Element { id, tag, .. } = n {
+                if tag == "form" {
+                    self.known_forms.insert(*id);
+                }
+            }
+        }
         // A radio button checked by this render unchecks the others of its
         // group, in render order (the later one wins, as in Chromium).
         for radio in std::mem::take(&mut self.checked_radios) {
@@ -4067,7 +4103,7 @@ impl<'p> Machine<'p> {
                     ..Default::default()
                 };
                 let elements = !self.program.schedule.commit_events_ignored;
-                self.dispatch_nested(f, kind, data, elements);
+                let _ = self.dispatch_nested(f, kind, data, elements);
             }
             self.listeners = current;
             self.capture_elements = current_capture;
@@ -4075,7 +4111,7 @@ impl<'p> Machine<'p> {
                 self.last_tree = tree.clone();
                 let elements = !self.program.schedule.commit_events_ignored;
                 for (target, kind, data) in self.focus_events(Some(f)) {
-                    self.dispatch_nested(target, kind, data, elements);
+                    let _ = self.dispatch_nested(target, kind, data, elements);
                 }
             }
         }
@@ -6513,6 +6549,7 @@ impl<'p> Machine<'p> {
         let tree = self.render()?;
         Ok(chain_nodes(&tree, target).is_some_and(|nodes| {
             nodes.iter().any(|n| matches!(n, VNode::Element { tag, attrs, .. } if matches!(tag.as_str(), "button" | "input" | "textarea" | "select") && attrs.contains_key("disabled")))
+                || nodes.iter().filter_map(|n| element_id(n)).any(|id| form_control(&tree, id).is_some_and(|c| matches!(c.tag.as_str(), "button" | "input" | "select" | "textarea") && c.disabled))
         }))
     }
 
@@ -6680,6 +6717,9 @@ impl<'p> Machine<'p> {
         let Some(nodes) = chain_nodes(&tree, target) else {
             return Ok(());
         };
+        // Click activation belongs to the original control even if a callback
+        // moves its descendant target beneath a different control.
+        let clicked_control = form_clicked_control(&tree, target);
         // A checkbox flips; a radio button is checked and its group's other
         // one unchecked (a checked radio button only gets the click).
         let (toggled, previous) = match nodes.last() {
@@ -6743,21 +6783,43 @@ impl<'p> Machine<'p> {
         // click on a labelled checkbox or button.
         if click.is_some() && !cancelled {
             let tree = self.render()?;
-            // A form's submit or reset button: its default action
-            // (navigation, resetting the controls) is not modelled.
-            if let Some(what) = form_action(&tree, target) {
-                return Err(Diagnostic::new(
-                    "E_UNSUPPORTED",
-                    format!("unsupported: {what} (a button's default action in a form)"),
-                    None,
-                ));
+            if let Some((control, snapshot)) = clicked_control
+                .and_then(|control| form_control(&tree, control).map(|c| (control, c)))
+            {
+                if snapshot.disabled {
+                    return Ok(());
+                }
+                match snapshot.activation() {
+                    js::forms::Activation::Submit => {
+                        if let Some(form) = form_owner(&tree, control) {
+                            self.submit_form(form, Some(control), s)?;
+                            return Ok(());
+                        }
+                    }
+                    js::forms::Activation::Reset => {
+                        if form_owner(&tree, control).is_some() {
+                            return Err(throw_diag(form_unsupported("form reset")));
+                        }
+                    }
+                    js::forms::Activation::UnsupportedCommand => {
+                        return Err(throw_diag(form_unsupported(
+                            "Auto button command activation",
+                        )));
+                    }
+                    js::forms::Activation::None => {}
+                }
             }
             if let Some(href) = link_of(&tree, target) {
                 self.follow_link(&tree, &href, s)?;
             } else if let Some(control) = labelled_control(&tree, target) {
-                let clickable = chain_nodes(&tree, control).and_then(|n| n.last().copied()).is_some_and(
-                    |n| matches!(n, VNode::Element { tag, checked, .. } if tag == "button" || checked.is_some()),
-                );
+                let clickable = form_control(&tree, control).is_some_and(|c| {
+                    c.tag == "button"
+                        || (c.tag == "input"
+                            && matches!(
+                                c.input_type(),
+                                "checkbox" | "radio" | "submit" | "image" | "reset" | "button"
+                            ))
+                });
                 if !self.inside_disabled(control)? {
                     if clickable {
                         self.click(control, s)?;
@@ -6767,6 +6829,96 @@ impl<'p> Machine<'p> {
             }
         }
         Ok(())
+    }
+
+    /// Start a live submission without guessing control validity from values.
+    fn begin_submission(&mut self, form: u64, submitter: Option<u64>) -> Res<bool> {
+        if !is_form(&self.last_tree, form) || self.submitting_forms.contains(&form) {
+            return Ok(false);
+        }
+        self.submitting_forms.insert(form);
+        let nested = chain_nodes(&self.last_tree, form).is_some_and(|nodes| {
+            nodes[..nodes.len() - 1]
+                .iter()
+                .any(|n| matches!(n, VNode::Element { tag, .. } if tag == "form"))
+                || match nodes.last() {
+                    Some(VNode::Element { children, .. }) => form_tree_elements(children)
+                        .iter()
+                        .any(|n| matches!(n, VNode::Element { tag, .. } if tag == "form")),
+                    _ => false,
+                }
+        });
+        if nested {
+            self.submitting_forms.remove(&form);
+            return Err(form_unsupported(
+                "submission of nested live forms (parser-specific ownership)",
+            ));
+        }
+        let controls = form_controls(&self.last_tree, form);
+        let bypass = form_has_attr(&self.last_tree, form, "novalidate")
+            || submitter.is_some_and(|s| form_has_attr(&self.last_tree, s, "formnovalidate"));
+        if !bypass {
+            if let Some(gap) = js::forms::validation_gap(&controls) {
+                self.submitting_forms.remove(&form);
+                return Err(form_unsupported(&gap));
+            }
+        }
+        Ok(true)
+    }
+
+    fn finish_submission(&self, form: u64, event: Option<&js::Event>) -> Res<()> {
+        if event.is_none_or(|e| e.default_prevented()) || !is_form(&self.last_tree, form) {
+            return Ok(());
+        }
+        Err(form_unsupported(
+            "uncanceled form submission (navigation, form data or dialog default)",
+        ))
+    }
+
+    /// Physical activation owns ordinary event checkpoints, unlike requestSubmit.
+    fn submit_form(&mut self, form: u64, submitter: Option<u64>, s: &mut Run) -> Result<()> {
+        if !self.begin_submission(form, submitter).map_err(throw_diag)? {
+            return Ok(());
+        }
+        let result = self.dispatch(form, EventKind::Submit, js::EventData::default(), None, s);
+        self.submitting_forms.remove(&form);
+        let event = result?;
+        self.render()?;
+        self.finish_submission(form, event.as_ref())
+            .map_err(throw_diag)
+    }
+
+    /// No argument means the form itself, never a default-button click.
+    fn request_submit(&mut self, form: u64) -> Res<()> {
+        if !is_form(&self.last_tree, form) {
+            return if self.detached_shadowed_forms.contains(&form) {
+                Err(form_unsupported(
+                    "requestSubmit on a disconnected form with named-property shadowing",
+                ))
+            } else if self.known_forms.contains(&form) {
+                self.host
+                    .console
+                    .push(("warn", js::forms::DISCONNECTED_SUBMISSION_WARNING.into()));
+                Ok(())
+            } else {
+                Err(form_unsupported("requestSubmit on a non-form receiver"))
+            };
+        }
+        if form_request_submit_shadowed(&self.last_tree, form) {
+            return Err(form_unsupported(
+                "requestSubmit shadowed by an owned control",
+            ));
+        }
+        if !self.begin_submission(form, None)? {
+            return Ok(());
+        }
+        let outer_dispatching = std::mem::replace(&mut self.dispatching, true);
+        let outer_in_event = std::mem::replace(&mut self.in_event, true);
+        let event = self.dispatch_nested(form, EventKind::Submit, js::EventData::default(), true);
+        self.dispatching = outer_dispatching;
+        self.in_event = outer_in_event;
+        self.submitting_forms.remove(&form);
+        self.finish_submission(form, event.as_ref())
     }
 
     /// Follow a link after its click: a fragment navigation (`popstate` at
@@ -6929,7 +7081,11 @@ impl<'p> Machine<'p> {
                     attrs,
                     ..
                 }) => (
-                    tag == "button",
+                    tag == "button"
+                        || form_control(&tree, target).is_some_and(|c| {
+                            c.tag == "input"
+                                && matches!(c.input_type(), "submit" | "image" | "reset" | "button")
+                        }),
                     tag == "input" && checked.is_some(),
                     tag == "a" && attrs.contains_key("href"),
                 ),
@@ -6938,6 +7094,22 @@ impl<'p> Machine<'p> {
         // Enter activates a button or a link (a simulated click).
         if !cancelled && (button || link) && k.key == "Enter" {
             self.click(target, s)?;
+        } else if !cancelled && k.key == "Enter" {
+            if let Some(control) = form_control(&tree, target) {
+                if let Some(form) = form_owner(&tree, target) {
+                    if control.enter_trigger() {
+                        match js::forms::implicit_submission(&form_controls(&tree, form)) {
+                            js::forms::Implicit::Nothing => {}
+                            js::forms::Implicit::Click(button) => self.click(button, s)?,
+                            js::forms::Implicit::Submit => self.submit_form(form, None, s)?,
+                        }
+                    } else if control.blocks_implicit() {
+                        return Err(throw_diag(form_unsupported(
+                            "implicit submission from this input type",
+                        )));
+                    }
+                }
+            }
         }
         let up = self.dispatch(
             target,
@@ -7023,7 +7195,7 @@ impl<'p> Machine<'p> {
     /// focus()/blur() move focus: the listeners run nested in the script.
     fn move_focus_nested(&mut self, next: Option<u64>) {
         for (target, kind, data) in self.focus_events(next) {
-            self.dispatch_nested(target, kind, data, true);
+            let _ = self.dispatch_nested(target, kind, data, true);
         }
     }
 
@@ -7036,89 +7208,108 @@ impl<'p> Machine<'p> {
         kind: EventKind,
         mut data: js::EventData,
         elements: bool,
-    ) {
-        let tree = std::mem::take(&mut self.last_tree);
-        let Some(nodes) = chain_nodes(&tree, target) else {
-            self.last_tree = tree;
-            return;
-        };
+    ) -> Option<js::Event> {
+        // Own the path and listener snapshots without hiding the live tree
+        // from callbacks or consuming the reusable listener table.
+        let tree = self.last_tree.clone();
+        let nodes = chain_nodes(&tree, target)?;
         data.kind = JsString::from(kind.name());
         data.target = js::Element(target);
         data.cancelable = kind.cancelable();
         let event = js::Event::new(data);
-        let path: Vec<&VNode> = if kind.bubbles() {
-            nodes.iter().rev().copied().collect()
-        } else {
-            vec![*nodes.last().expect("element chain")]
-        };
-        let mut calls: Vec<(usize, u64)> = vec![];
-        // Without element listeners where the framework ignores events
-        // dispatched during its DOM update.
-        let path = if elements { path } else { vec![] };
-        // The elements' capture listeners first, from the root to the target.
+        let mut calls: Vec<(ListenerRef, u64, bool)> = vec![];
         if elements {
             for n in &nodes {
                 if let VNode::Element { id, .. } = n {
                     for &(k, l) in self.capture_elements.get(id).into_iter().flatten() {
                         if k == kind {
-                            calls.push((l, *id));
+                            calls.push((self.listeners[l].clone(), *id, false));
                         }
                     }
                 }
             }
+            let path: Vec<&VNode> = if kind.bubbles() {
+                nodes.iter().rev().copied().collect()
+            } else {
+                vec![*nodes.last().expect("element chain")]
+            };
+            for n in path {
+                if let VNode::Element { id, listeners, .. } = n {
+                    for &(k, l) in listeners {
+                        if k == kind {
+                            calls.push((self.listeners[l].clone(), *id, false));
+                        }
+                    }
+                    for (_, _, f) in self
+                        .element_listeners
+                        .iter()
+                        .filter(|g| g.0 == *id && g.1 == kind)
+                    {
+                        calls.push((
+                            ListenerRef {
+                                instance: 0,
+                                handler: 0,
+                                args: vec![],
+                                closure: Some(f.clone()),
+                            },
+                            *id,
+                            true,
+                        ));
+                    }
+                }
+            }
         }
-        // The capture listeners of the window, then the document, first.
-        for window in [true, false] {
+        let capture: Vec<_> = [true, false]
+            .into_iter()
+            .flat_map(|window| {
+                self.capture_listeners
+                    .iter()
+                    .filter(move |g| g.0 == window && g.1 == kind)
+                    .map(move |g| (window, g.2.clone()))
+            })
+            .collect();
+        let bubble: Vec<_> = [false, true]
+            .into_iter()
+            .flat_map(|window| {
+                self.host_listeners
+                    .iter()
+                    .filter(move |g| g.0 == window && g.1 == kind)
+                    .map(move |g| (window, g.2.clone()))
+            })
+            .collect();
+        for (window, f) in capture {
             let current = if window {
                 js::Element::WINDOW
             } else {
                 js::Element::DOCUMENT
             };
-            let listeners: Vec<Val> = self
+            if self
                 .capture_listeners
                 .iter()
-                .filter(|g| g.0 == window && g.1 == kind)
-                .map(|g| g.2.clone())
-                .collect();
-            for f in listeners {
-                if !event.enter(current) {
-                    continue;
-                }
-                if let Err(t) = self.call_value(&f, vec![Val::Event(event.clone())]) {
+                .any(|g| g.0 == window && g.1 == kind && g.2.same(&f))
+                && event.enter(current)
+            {
+                if let Err(t) = self.call_nested_listener(&f, &event) {
                     self.uncaught.push(t);
                 }
             }
         }
-        for n in path {
-            if let VNode::Element { id, listeners, .. } = n {
-                for &(k, l) in listeners {
-                    if k == kind {
-                        calls.push((l, *id));
-                    }
-                }
-                for f in self.script_listeners(*id, kind) {
-                    calls.push((f, *id));
-                }
+        for (r, current, script) in calls {
+            if script
+                && r.closure.as_ref().is_some_and(|f| {
+                    !self
+                        .element_listeners
+                        .iter()
+                        .any(|g| g.0 == current && g.1 == kind && g.2.same(f))
+                })
+            {
+                continue;
             }
-        }
-        self.last_tree = tree;
-        for (l, current) in calls {
-            let r = std::mem::replace(
-                &mut self.listeners[l],
-                ListenerRef {
-                    instance: 0,
-                    handler: 0,
-                    args: vec![],
-                    closure: None,
-                },
-            );
             if !event.enter(js::Element(current)) {
                 continue;
             }
             let result = match &r.closure {
-                Some(f) => self
-                    .call_value(f, vec![Val::Event(event.clone())])
-                    .map(|_| ()),
+                Some(f) => self.call_nested_listener(f, &event),
                 None => self.run(r.instance, r.handler, r.args, Some(event.clone())),
             };
             if let Err(t) = result {
@@ -7126,29 +7317,38 @@ impl<'p> Machine<'p> {
             }
         }
         if kind.bubbles() {
-            for window in [false, true] {
+            for (window, f) in bubble {
                 let current = if window {
                     js::Element::WINDOW
                 } else {
                     js::Element::DOCUMENT
                 };
-                let listeners: Vec<Val> = self
+                if self
                     .host_listeners
                     .iter()
-                    .filter(|g| g.0 == window && g.1 == kind)
-                    .map(|g| g.2.clone())
-                    .collect();
-                for f in listeners {
-                    if !event.enter(current) {
-                        continue;
-                    }
-                    if let Err(t) = self.call_value(&f, vec![Val::Event(event.clone())]) {
+                    .any(|g| g.0 == window && g.1 == kind && g.2.same(&f))
+                    && event.enter(current)
+                {
+                    if let Err(t) = self.call_nested_listener(&f, &event) {
                         self.uncaught.push(t);
                     }
                 }
             }
         }
         event.finish();
+        Some(event)
+    }
+
+    fn call_nested_listener(&mut self, f: &Val, event: &js::Event) -> Res<()> {
+        let outer = (
+            std::mem::replace(&mut self.payload, payload_of(event)),
+            std::mem::replace(&mut self.event, Some(event.clone())),
+        );
+        let result = self
+            .call_value(f, vec![Val::Event(event.clone())])
+            .map(|_| ());
+        (self.payload, self.event) = outer;
+        result
     }
 
     /// Dispatch one event at the element `target` if it is rendered: the
@@ -7227,18 +7427,7 @@ impl<'p> Machine<'p> {
         }
         let refs: Vec<(ListenerRef, js::Event, u64)> = entries
             .into_iter()
-            .map(|(l, e, current)| {
-                let r = std::mem::replace(
-                    &mut self.listeners[l],
-                    ListenerRef {
-                        instance: 0,
-                        handler: 0,
-                        args: vec![],
-                        closure: None,
-                    },
-                );
-                (r, e, current)
-            })
+            .map(|(l, e, current)| (self.listeners[l].clone(), e, current))
             .collect();
         s.ran |= !refs.is_empty();
         // The capture listeners of the window, then the document, first,
@@ -7657,33 +7846,193 @@ fn payload_of(event: &js::Event) -> Option<Val> {
     }
 }
 
-/// The `href` of the innermost link (`<a href>`) around `target`.
-/// The form action activating `target` performs: a submit or reset button
-/// (or input) in a form (or naming one with `form`), the innermost
-/// button-like element of the chain deciding.
-fn form_action(tree: &[VNode], target: u64) -> Option<&'static str> {
-    let chain = chain_nodes(tree, target)?;
-    let (i, attrs, input) = chain.iter().enumerate().rev().find_map(|(i, n)| match n {
-        VNode::Element { tag, attrs, .. } if tag == "button" => Some((i, attrs, false)),
-        VNode::Element { tag, attrs, .. } if tag == "input" => Some((i, attrs, true)),
-        _ => None,
-    })?;
-    let ty = attrs.get("type").map(|t| t.to_ascii_lowercase());
-    let what = match ty.as_deref() {
-        Some("reset") => "form reset",
-        Some("submit") | Some("image") => "form submission",
-        // A button's missing or invalid type is the submit state.
-        Some("button") => return None,
-        _ if !input => "form submission",
-        _ => return None,
-    };
-    let in_form = attrs.contains_key("form")
-        || chain[..i]
-            .iter()
-            .any(|n| matches!(n, VNode::Element { tag, .. } if tag == "form"));
-    in_form.then_some(what)
+fn form_unsupported(what: &str) -> Throw {
+    Throw::new("RunicUnsupportedError", what)
 }
 
+fn form_tree_elements(tree: &[VNode]) -> Vec<&VNode> {
+    fn walk<'a>(nodes: &'a [VNode], out: &mut Vec<&'a VNode>) {
+        for n in nodes {
+            if let VNode::Element { children, .. } = n {
+                out.push(n);
+                walk(children, out);
+            }
+        }
+    }
+    let mut out = vec![];
+    walk(tree, &mut out);
+    out
+}
+
+fn is_form(tree: &[VNode], id: u64) -> bool {
+    chain_nodes(tree, id)
+        .and_then(|n| n.last().copied())
+        .is_some_and(|n| matches!(n, VNode::Element { tag, .. } if tag == "form"))
+}
+
+fn form_has_attr(tree: &[VNode], id: u64, name: &str) -> bool {
+    chain_nodes(tree, id)
+        .and_then(|n| n.last().copied())
+        .is_some_and(|n| matches!(n, VNode::Element { attrs, .. } if attrs.contains_key(name)))
+}
+
+fn form_owner(tree: &[VNode], id: u64) -> Option<u64> {
+    let nodes = chain_nodes(tree, id)?;
+    let VNode::Element { attrs, .. } = nodes.last().copied()? else {
+        return None;
+    };
+    let ancestor = nodes[..nodes.len() - 1].iter().rev().find_map(|n| match n {
+        VNode::Element { tag, id, .. } if tag == "form" => Some(*id),
+        _ => None,
+    });
+    js::forms::form_owner(
+        attrs.get("form").map(String::as_str),
+        true,
+        |name| element_by_id(tree, name).map(|id| (id, is_form(tree, id))),
+        ancestor,
+    )
+}
+
+fn form_control(tree: &[VNode], id: u64) -> Option<js::forms::Control> {
+    let nodes = chain_nodes(tree, id)?;
+    let VNode::Element { tag, attrs, .. } = nodes.last().copied()? else {
+        return None;
+    };
+    if !matches!(
+        tag.as_str(),
+        "button" | "input" | "select" | "textarea" | "fieldset" | "output" | "object"
+    ) {
+        return None;
+    }
+    let disableable_control = matches!(tag.as_str(), "button" | "input" | "select" | "textarea");
+    let disabled = ((disableable_control || tag == "fieldset") && attrs.contains_key("disabled"))
+        || (disableable_control
+            && nodes.iter().enumerate().any(|(i, n)| {
+                let VNode::Element {
+                    tag,
+                    attrs,
+                    children,
+                    ..
+                } = n
+                else {
+                    return false;
+                };
+                if tag != "fieldset" || !attrs.contains_key("disabled") || i + 1 == nodes.len() {
+                    return false;
+                }
+                let legend = children.iter().find_map(|n| match n {
+                    VNode::Element { tag, id, .. } if tag == "legend" => Some(*id),
+                    _ => None,
+                });
+                legend.is_none() || element_id(nodes[i + 1]) != legend
+            }));
+    Some(js::forms::Control {
+        id,
+        tag: tag.clone(),
+        ty: attrs.get("type").cloned(),
+        disabled,
+        readonly: attrs.contains_key("readonly"),
+        in_datalist: nodes[..nodes.len() - 1]
+            .iter()
+            .any(|n| matches!(n, VNode::Element { tag, .. } if tag == "datalist")),
+        constraints: [
+            "required",
+            "pattern",
+            "minlength",
+            "maxlength",
+            "min",
+            "max",
+            "step",
+        ]
+        .into_iter()
+        .filter(|name| attrs.contains_key(*name))
+        .map(str::to_owned)
+        .collect(),
+        command: attrs.contains_key("command"),
+        command_for: attrs.contains_key("commandfor"),
+        parent_is_select: nodes
+            .iter()
+            .rev()
+            .nth(1)
+            .is_some_and(|n| matches!(n, VNode::Element { tag, .. } if tag == "select")),
+        name: attrs.get("name").cloned(),
+        dom_id: attrs.get("id").cloned(),
+    })
+}
+
+fn form_controls(tree: &[VNode], form: u64) -> Vec<js::forms::Control> {
+    form_tree_elements(tree)
+        .into_iter()
+        .filter_map(|n| {
+            let id = element_id(n)?;
+            (form_owner(tree, id) == Some(form))
+                .then(|| form_control(tree, id))
+                .flatten()
+        })
+        .collect()
+}
+
+fn form_request_submit_shadowed(tree: &[VNode], form: u64) -> bool {
+    if form_controls(tree, form)
+        .iter()
+        .any(js::forms::Control::shadows_request_submit)
+    {
+        return true;
+    }
+    // HTMLFormElement's legacy named lookup also includes descendant images.
+    form_tree_elements(tree).into_iter().any(|n| match n {
+        VNode::Element { tag, attrs, id, .. }
+            if tag == "img"
+                && (attrs.get("name").is_some_and(|s| s == "requestSubmit")
+                    || attrs.get("id").is_some_and(|s| s == "requestSubmit")) =>
+        {
+            chain_nodes(tree, *id).is_some_and(|nodes| {
+                nodes[..nodes.len() - 1].iter().rev().find_map(|n| match n {
+                    VNode::Element { tag, id, .. } if tag == "form" => Some(*id),
+                    _ => None,
+                }) == Some(form)
+            })
+        }
+        _ => false,
+    })
+}
+
+/// A removed subtree no longer gives a reliable live form owner. Reject any
+/// descendant named control conservatively, including legacy images.
+fn form_subtree_shadows_request_submit(tree: &[VNode]) -> bool {
+    form_tree_elements(tree).into_iter().any(|n| match n {
+        VNode::Element { tag, attrs, .. } => {
+            matches!(
+                tag.as_str(),
+                "button"
+                    | "input"
+                    | "select"
+                    | "textarea"
+                    | "fieldset"
+                    | "output"
+                    | "object"
+                    | "img"
+            ) && (attrs.get("name").is_some_and(|s| s == "requestSubmit")
+                || attrs.get("id").is_some_and(|s| s == "requestSubmit"))
+        }
+        _ => false,
+    })
+}
+
+/// Snapshot the original innermost control; type and owner are resolved later.
+fn form_clicked_control(tree: &[VNode], target: u64) -> Option<u64> {
+    chain_nodes(tree, target)?
+        .iter()
+        .rev()
+        .find_map(|n| match n {
+            VNode::Element { tag, id, .. } if matches!(tag.as_str(), "button" | "input") => {
+                Some(*id)
+            }
+            _ => None,
+        })
+}
+
+/// The href of the innermost link around target.
 fn link_of(tree: &[VNode], target: u64) -> Option<String> {
     chain_nodes(tree, target)?
         .iter()
@@ -8589,6 +8938,132 @@ mod resolved_pointer_tests {
             },
         ] {
             assert!(locate(&tree(), &target).is_none());
+        }
+    }
+}
+
+#[cfg(test)]
+mod form_submission_tests {
+    use super::*;
+
+    #[test]
+    fn repeated_nested_submit_keeps_listeners_tree_and_outer_event_state() {
+        let mut program: Program = serde_json::from_value(json!({
+            "schema": 4,
+            "meta": {"title": "nested submit", "sourceHash": "test", "frontend": {}},
+            "capabilities": [], "styles": {"css": ""}, "root": 0,
+            "functions": [{
+                "name": "capture", "component": 0, "params": [], "result": "void",
+                "body": [{"op": "set", "cell": 1, "value": {
+                    "op": "builtin", "name": "element.isConnected", "type": "boolean",
+                    "args": [{"op": "builtin", "name": "event.target", "type": "element", "args": [{"op": "event"}]}]
+                }}]
+            }],
+            "components": [{
+                "name": "Test", "template": [],
+                "cells": [
+                    {"name": "calls", "type": "number", "init": {"op": "lit", "value": 0}},
+                    {"name": "visible", "type": "boolean", "init": {"op": "lit", "value": false}}
+                ],
+                "handlers": [{"event": "submit", "body": [
+                    {"op": "set", "cell": 0, "value": {"op": "add", "left": {"op": "cell", "cell": 0}, "right": {"op": "lit", "value": 1}}},
+                    {"op": "expr", "value": {"op": "builtin", "name": "event.preventDefault", "type": "void", "args": [{"op": "event"}]}}
+                ]}]
+            }]
+        })).unwrap();
+        program.schedule.flush = Flush::EventMicrotask;
+        let mut machine = Machine::new(&program).unwrap();
+        machine.last_tree = vec![VNode::Element {
+            tag: "form".into(),
+            attrs: BTreeMap::new(),
+            value: None,
+            checked: None,
+            id: 1,
+            listeners: vec![(EventKind::Submit, 0)],
+            children: vec![],
+        }];
+        machine.listeners.push(ListenerRef {
+            instance: 0,
+            handler: 0,
+            args: vec![],
+            closure: None,
+        });
+        machine.known_forms.insert(1);
+        machine.flush_pending = true;
+        machine.default_tasks.push_back(Micro::Flush);
+        machine.capture_listeners.push((
+            false,
+            EventKind::Submit,
+            Val::Closure(Rc::new(Closure {
+                function: 0,
+                captures: vec![],
+                instance: Some(0),
+                snapshot: None,
+            })),
+        ));
+        let outer = js::Event::new(js::EventData {
+            kind: "click".into(),
+            ..Default::default()
+        });
+        machine.event = Some(outer.clone());
+        machine.payload = Some(Val::Str("outer".into()));
+        for _ in 0..2 {
+            machine.request_submit(1).unwrap();
+            assert!(machine.submitting_forms.is_empty());
+            assert!(!machine.dispatching && !machine.in_event);
+            assert_eq!(
+                machine.event.as_ref().unwrap().data().kind.to_rust(),
+                "click"
+            );
+            assert!(matches!(&machine.payload, Some(Val::Str(s)) if s.to_rust() == "outer"));
+        }
+        assert!(matches!(machine.instances[0].cells[0], Val::Num(2.0)));
+        assert!(matches!(machine.instances[0].cells[1], Val::Bool(true)));
+        assert_eq!(machine.listeners.len(), 1);
+        assert!(machine.default_tasks.is_empty());
+        assert!(machine.microtasks.iter().any(|m| matches!(m, Micro::Flush)));
+        assert!(chain_nodes(&machine.last_tree, 1).is_some());
+        machine.submitting_forms.insert(1);
+        machine.request_submit(1).unwrap();
+        assert!(matches!(machine.instances[0].cells[0], Val::Num(2.0)));
+        machine.submitting_forms.remove(&1);
+        // An ordinary removed form remains a no-op receiver.
+        machine.render().unwrap();
+        machine.request_submit(1).unwrap();
+        assert!(matches!(machine.instances[0].cells[0], Val::Num(2.0)));
+        assert!(!machine.detached_shadowed_forms.contains(&1));
+        assert!(matches!(machine.host.console.last(), Some(("warn", text))
+            if text.to_rust() == js::forms::DISCONNECTED_SUBMISSION_WARNING));
+        // Removal records shadowing from the old subtree, even with an
+        // uncertain explicit owner, and includes the legacy image lookup.
+        for (form, tag, attribute) in [(2, "input", "name"), (4, "img", "id")] {
+            machine.known_forms.insert(form);
+            machine.last_tree = vec![VNode::Element {
+                tag: "form".into(),
+                attrs: BTreeMap::new(),
+                value: None,
+                checked: None,
+                id: form,
+                listeners: vec![],
+                children: vec![VNode::Element {
+                    tag: tag.into(),
+                    attrs: BTreeMap::from([
+                        (attribute.into(), "requestSubmit".into()),
+                        ("form".into(), "other-form".into()),
+                    ]),
+                    value: None,
+                    checked: None,
+                    id: form + 1,
+                    listeners: vec![],
+                    children: vec![],
+                }],
+            }];
+            machine.render().unwrap();
+            assert!(machine.detached_shadowed_forms.contains(&form));
+            let error = machine.request_submit(form).unwrap_err();
+            assert_eq!(error.name.to_rust(), "RunicUnsupportedError");
+            assert!(error.to_string().contains("named-property shadowing"));
+            assert!(machine.submitting_forms.is_empty());
         }
     }
 }

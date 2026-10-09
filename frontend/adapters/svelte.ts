@@ -150,6 +150,8 @@ const BOOLEAN_ATTRS = new Set([
   'checked',
   'autofocus',
   'multiple',
+  'novalidate',
+  'formnovalidate',
   'open',
 ]);
 

@@ -13,6 +13,7 @@ mod dom;
 mod effects;
 mod events;
 pub mod floating;
+mod forms;
 pub mod history;
 mod jobs;
 mod layout;
@@ -30,6 +31,7 @@ mod timers;
 
 pub use blitz_traits::node_id::NodeId;
 pub use dom::{ClassState, Dom, Event, FragmentNode, Host, HtmlFragment, Spread};
+pub use forms::Submission;
 pub use random::Random;
 
 /// Whether this process runs as a conformance probe (host services keep

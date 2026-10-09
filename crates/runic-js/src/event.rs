@@ -59,6 +59,7 @@ pub struct EventData {
 /// base interface.
 pub const EVENT_INTERFACES: &[(&str, &str)] = &[
     ("Event", ""),
+    ("SubmitEvent", "Event"),
     ("UIEvent", "Event"),
     ("MouseEvent", "UIEvent"),
     ("PointerEvent", "MouseEvent"),
@@ -92,6 +93,7 @@ impl EventData {
             "keydown" | "keyup" | "keypress" => "KeyboardEvent",
             "focus" | "blur" | "focusin" | "focusout" => "FocusEvent",
             "input" | "beforeinput" => "InputEvent",
+            "submit" => "SubmitEvent",
             "change" | "scroll" | "scrollend" | "load" | "error" | "select" => "Event",
             _ => return None,
         })
@@ -271,3 +273,25 @@ impl ToMapKey for Event {
     }
 }
 impl crate::Own for Event {}
+
+#[cfg(test)]
+mod submission_tests {
+    use super::*;
+
+    #[test]
+    fn native_submit_has_submit_event_inheritance_and_retains_cancellation() {
+        let event = Event::new(EventData {
+            kind: JsString::from("submit"),
+            cancelable: true,
+            ..Default::default()
+        });
+        assert_eq!(event.data().instance_of("SubmitEvent"), Some(true));
+        assert_eq!(event.data().instance_of("Event"), Some(true));
+        assert_eq!(event.data().instance_of("MouseEvent"), Some(false));
+        let held = event.clone();
+        event.prevent_default();
+        event.finish();
+        assert!(held.default_prevented());
+        assert_eq!(held.current_target(), None);
+    }
+}

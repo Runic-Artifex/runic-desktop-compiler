@@ -696,9 +696,7 @@ fn is_disabled_control(doc: &BaseDocument, id: NodeId) -> bool {
     matches!(
         tag(doc, id),
         Some("button" | "input" | "textarea" | "select")
-    ) && doc
-        .get_node(id)
-        .is_some_and(|n| n.attr("disabled".into()).is_some())
+    ) && crate::forms::disabled(doc, id)
 }
 
 /// The focused element; Blitz reports the root element when nothing is focused.
@@ -823,43 +821,6 @@ fn is_link(doc: &BaseDocument, id: NodeId) -> bool {
 }
 
 /// The link a click on `chain` (target first) follows: the innermost one.
-/// The form action activating the element of `chain` (target first)
-/// performs: a submit or reset button (or input) in a form (or naming one
-/// with `form`), the innermost button-like element deciding. Neither
-/// submission (a navigation) nor reset is modelled (M6).
-fn form_action(doc: &BaseDocument, chain: &[NodeId]) -> Option<&'static str> {
-    let i = chain
-        .iter()
-        .position(|&n| matches!(tag(doc, n), Some("button" | "input")))?;
-    let node = doc.get_node(chain[i])?;
-    let input = tag(doc, chain[i]) == Some("input");
-    let ty = node.attr("type".into()).map(|t| t.to_ascii_lowercase());
-    let what = match ty.as_deref() {
-        Some("reset") => "form reset",
-        Some("submit" | "image") => "form submission",
-        Some("button") => return None,
-        // A button's missing or invalid type is the submit state.
-        _ if !input => "form submission",
-        _ => return None,
-    };
-    let in_form = node.attr("form".into()).is_some()
-        || chain[i + 1..].iter().any(|&n| tag(doc, n) == Some("form"));
-    in_form.then_some(what)
-}
-
-/// Whether `id` is a single-line text field in a form, where Enter submits
-/// the form (implicit submission; reported, as submission is not modelled).
-fn submits_on_enter(doc: &BaseDocument, id: NodeId) -> bool {
-    tag(doc, id) == Some("input")
-        && controls::has_editor(doc, id)
-        && (doc
-            .get_node(id)
-            .is_some_and(|n| n.attr("form".into()).is_some())
-            || chain_of(doc, id)
-                .iter()
-                .any(|&n| tag(doc, n) == Some("form")))
-}
-
 fn link_of(doc: &BaseDocument, chain: &[NodeId]) -> Option<NodeId> {
     chain.iter().copied().find(|&n| is_link(doc, n))
 }
@@ -1387,6 +1348,72 @@ impl<A: App> Handler<'_, A> {
         self.fire(doc, chain, Event::Click, data)
     }
 
+    /// Submit with the same owned session and guard as requestSubmit. Host
+    /// capture and bubble listeners use the existing event dispatch machinery.
+    fn submit(&mut self, doc: &mut BaseDocument, form: NodeId, submitter: Option<NodeId>) {
+        let Some(submission) = crate::forms::begin(doc, self.listeners, form, submitter) else {
+            return;
+        };
+        self.capture(doc, Event::Submit, &submission.event, true);
+        self.dispatch(doc, &submission.deliveries);
+        self.host(doc, Event::Submit, &submission.event);
+        submission.event.finish();
+        crate::forms::complete(doc, self.listeners, form, &submission.event);
+    }
+
+    /// Re-resolve the clicked control's live type, disabled state and owner
+    /// after its listeners. Invalid explicit owners never fall back to ancestry.
+    fn activate_form_control(&mut self, doc: &mut BaseDocument, id: Option<NodeId>) -> bool {
+        let Some(id) = id.filter(|&id| {
+            doc.get_node(id)
+                .is_some_and(|node| node.flags.is_in_document())
+        }) else {
+            return false;
+        };
+        let Some(control) = crate::forms::control(doc, id) else {
+            return false;
+        };
+        use runic_js::forms::Activation;
+        let activation = control.activation();
+        if activation == Activation::None {
+            return false;
+        }
+        if control.disabled {
+            return true;
+        }
+        if activation == Activation::UnsupportedCommand {
+            crate::unsupported("Auto button command or customizable-select activation");
+            return true;
+        }
+        let Some(form) = crate::forms::owner(doc, id) else {
+            return false;
+        };
+        match activation {
+            Activation::Submit => self.submit(doc, form, Some(id)),
+            Activation::Reset => crate::unsupported("form reset (a control's default action)"),
+            Activation::None | Activation::UnsupportedCommand => unreachable!(),
+        }
+        true
+    }
+
+    /// The default button receives a real synthesized click (detail zero);
+    /// only its uncanceled, current activation can begin submission.
+    fn implicit_submit(&mut self, doc: &mut BaseDocument, form: NodeId) {
+        use runic_js::forms::Implicit;
+        match runic_js::forms::implicit_submission(&crate::forms::controls(doc, form)) {
+            Implicit::Nothing => {}
+            Implicit::Click(id) => {
+                let id = NodeId::from_u64(id);
+                let chain = chain_of(doc, id);
+                let event = self.click(doc, &chain, EventData::default());
+                if event.is_some() && !Self::cancelled(&event) {
+                    self.activate_form_control(doc, Some(id));
+                }
+            }
+            Implicit::Submit => self.submit(doc, form, None),
+        }
+    }
+
     /// Checkbox activation: the toggle, click listeners, then its `change`
     /// event unless the click was cancelled (the toggle is then reverted).
     fn activate_checkbox(&mut self, doc: &mut BaseDocument, id: NodeId, data: EventData) {
@@ -1594,6 +1621,10 @@ impl<A: App> EventHandler for Handler<'_, A> {
     ) {
         let mut guard = document.inner_mut();
         let doc: &mut BaseDocument = &mut guard;
+        // A key confirming IME composition must keep the editor's default,
+        // even if a keydown callback changes focus or composition state.
+        let composing_key = matches!(&event.data, DomEventData::KeyDown(k)
+            if k.is_composing || focused_element(doc).is_some_and(|id| controls::composing(doc, id)));
         match &event.data {
             // Boundary events wait for the move that caused them; Blitz's
             // mouse boundary events are not delivered (Chromium's order is
@@ -1739,15 +1770,32 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 return;
             }
         }
-        // Enter in a text field of a form submits it (not modelled).
+        // Supported single-line inputs use the shared implicit-submission
+        // decision after keydown listeners. Broader editor domains stay explicit.
         if let DomEventData::KeyDown(k) = &event.data {
-            if k.key == Key::Enter && focused_element(doc).is_some_and(|f| submits_on_enter(doc, f))
+            if k.key == Key::Enter
+                && !composing_key
+                && let Some(input) =
+                    focused_element(doc).filter(|&id| tag(doc, id) == Some("input"))
+                && let Some(form) = crate::forms::owner(doc, input)
+                && let Some(control) = crate::forms::control(doc, input)
             {
-                state.prevent_default();
-                crate::unsupported("form submission (Enter in a text field of a form)");
-                self.fix_focus(doc);
-                doc.shell_provider.request_redraw();
-                return;
+                if control.enter_trigger() {
+                    state.prevent_default();
+                    if !control.disabled {
+                        self.implicit_submit(doc, form);
+                    }
+                    self.fix_focus(doc);
+                    doc.shell_provider.request_redraw();
+                    return;
+                }
+                if control.blocks_implicit() || controls::has_editor(doc, input) {
+                    state.prevent_default();
+                    crate::unsupported("form submission (Enter in an unsupported input domain)");
+                    self.fix_focus(doc);
+                    doc.shell_provider.request_redraw();
+                    return;
+                }
             }
         }
         // A focused closed select changes its option with the keyboard.
@@ -1792,7 +1840,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
             }
             _ => {}
         }
-        let focused_button = focused.filter(|&f| tag(doc, f) == Some("button"));
+        let focused_button = focused.filter(|&f| crate::forms::button_like(doc, f));
         let focused_link = focused.filter(|&f| is_link(doc, f));
         let focused_checkbox = focused.filter(|&f| is_checkbox(doc, f));
         match &event.data {
@@ -1940,18 +1988,23 @@ impl<A: App> EventHandler for Handler<'_, A> {
             }
             DomEventData::Click(p) => {
                 let count = self.pointer.clicks;
+                // Activation belongs to the original innermost control,
+                // even if its listeners remove it or change its ownership.
+                let form_control = chain.iter().copied().find(|&id| {
+                    crate::forms::control(doc, id)
+                        .is_some_and(|control| matches!(control.tag.as_str(), "button" | "input"))
+                });
                 let e = self.click(doc, chain, counted(p, count));
                 // Focus moved on mousedown; Blitz's default click action would
                 // clear it again without focus events. The click's default
                 // actions of the supported elements are done here (checkboxes
                 // and labels).
                 state.prevent_default();
-                if e.is_some() && !Self::cancelled(&e) {
-                    if let Some(what) = form_action(doc, chain) {
-                        crate::unsupported(&format!(
-                            "{what} (a button's default action in a form)"
-                        ));
-                    } else if let Some(link) = link_of(doc, chain) {
+                if e.is_some()
+                    && !Self::cancelled(&e)
+                    && !self.activate_form_control(doc, form_control)
+                {
+                    if let Some(link) = link_of(doc, chain) {
                         self.follow_link(doc, link);
                     } else if let Some(control) = labelled_control(doc, chain) {
                         // Label activation is done here, as Chromium does it: a
@@ -1960,15 +2013,11 @@ impl<A: App> EventHandler for Handler<'_, A> {
                         if !is_disabled_control(doc, control) {
                             if is_checkbox(doc, control) {
                                 self.activate_checkbox(doc, control, EventData::default());
-                            } else if tag(doc, control) == Some("button") {
+                            } else if crate::forms::button_like(doc, control) {
                                 let chain = chain_of(doc, control);
                                 let e = self.click(doc, &chain, EventData::default());
                                 if e.is_some() && !Self::cancelled(&e) {
-                                    if let Some(what) = form_action(doc, &chain) {
-                                        crate::unsupported(&format!(
-                                            "{what} (a button's default action in a form)"
-                                        ));
-                                    }
+                                    self.activate_form_control(doc, Some(control));
                                 }
                             }
                             if doc
@@ -2032,11 +2081,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 let chain = chain_of(doc, button);
                 let e = self.click(doc, &chain, EventData::default());
                 if e.is_some() && !Self::cancelled(&e) {
-                    if let Some(what) = form_action(doc, &chain) {
-                        crate::unsupported(&format!(
-                            "{what} (a button's default action in a form)"
-                        ));
-                    }
+                    self.activate_form_control(doc, Some(button));
                 }
             }
             DomEventData::KeyDown(k) if focused_link.is_some() && k.key == Key::Enter => {
@@ -2079,11 +2124,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
                             let chain = chain_of(doc, target);
                             let e = self.click(doc, &chain, EventData::default());
                             if e.is_some() && !Self::cancelled(&e) {
-                                if let Some(what) = form_action(doc, &chain) {
-                                    crate::unsupported(&format!(
-                                        "{what} (a button's default action in a form)"
-                                    ));
-                                }
+                                self.activate_form_control(doc, Some(target));
                             }
                         }
                     }

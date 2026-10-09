@@ -75,6 +75,7 @@ const TAGS = new Set([
   'h5',
   'h6',
   'button',
+  'form',
   'input',
   'main',
   'article',
@@ -154,6 +155,8 @@ const ATTRS: Record<string, string> = {
   htmlFor: 'for',
   colSpan: 'colspan',
   rowSpan: 'rowspan',
+  noValidate: 'novalidate',
+  formNoValidate: 'formnovalidate',
   // (React sets it under its own name, which HTML lowercases.)
   dateTime: 'datetime',
 };
@@ -164,6 +167,7 @@ const ATTRS: Record<string, string> = {
  */
 const EVENT_PROPS: Record<string, HandlerEvent> = {
   onClick: 'click',
+  onSubmit: 'submit',
   onDoubleClick: 'dblclick',
   onContextMenu: 'contextmenu',
   onMouseDown: 'mousedown',
@@ -246,6 +250,8 @@ const BOOLEAN_ATTRS = new Set([
   'checked',
   'autofocus',
   'multiple',
+  'novalidate',
+  'formnovalidate',
 ]);
 /**
  * Rest props (attribute bags) follow React DOM's attribute rules (setProp in
@@ -463,6 +469,8 @@ interface PropsDecl {
  * the program is returned: an index into the accessing source nodes.
  */
 const REF_ACCESS = '$reactRefAccess';
+/** Source index of a DOM event instanceof expression, removed before returning IR. */
+const EVENT_INSTANCEOF = '$reactEventInstanceOf';
 /** The key marking IR nodes rendered inside a Fragment fiber (removed like REF_ACCESS). */
 const FRAGMENT = '$reactFragment';
 
@@ -579,6 +587,24 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     },
   };
   const lower = new Lowerer(program, checker, types, hooks, fail, sourceOf);
+  // `in` and `instanceof` share a native event builtin. Preserve the actual
+  // source operator for React's later listener validation, including copies
+  // made while remapping function locals. Membership tests stay unmarked.
+  const eventInstanceOf: ts.BinaryExpression[] = [];
+  const expression = lower.expr.bind(lower);
+  lower.expr = (node, context) => {
+    const value = expression(node, context);
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword &&
+      value.op === 'builtin' &&
+      value.name === 'event.instance-of'
+    ) {
+      eventInstanceOf.push(node);
+      return { ...value, [EVENT_INSTANCEOF]: eventInstanceOf.length - 1 };
+    }
+    return value;
+  };
   // Component functions are created on every render: one object per render.
   lower.hoistFunctionValues = true;
 
@@ -3368,6 +3394,13 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       runs(
         [root],
         o => {
+          const instanceOf = o[EVENT_INSTANCEOF];
+          if (typeof instanceOf === 'number')
+            fail(
+              eventInstanceOf[instanceOf],
+              'E_EVENT',
+              "React's synthetic events are not instances of DOM event interfaces; event instanceof checks in React listeners are unsupported",
+            );
           const member = eventMember(o);
           if (member === 'stopImmediatePropagation')
             rejectEvent(
@@ -3956,6 +3989,13 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
     root: rootIndex,
   };
   lower.checkStyleSpreads(ir);
+  const stripEventInstanceOf = (node: unknown) => {
+    if (Array.isArray(node)) return node.forEach(stripEventInstanceOf);
+    if (!node || typeof node !== 'object') return;
+    delete (node as Record<string, unknown>)[EVENT_INSTANCEOF];
+    for (const value of Object.values(node)) stripEventInstanceOf(value);
+  };
+  stripEventInstanceOf(ir);
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   return { ir };
 }

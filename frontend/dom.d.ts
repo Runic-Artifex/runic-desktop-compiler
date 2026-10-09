@@ -60,9 +60,7 @@ interface HTMLElement {
   readonly localName: string;
   readonly style: ElementInlineStyle;
   getAnimations(): Animation[];
-  // M6 (bits-ui's checkbox): the nearest ancestor with a tag name, and a
-  // form's submission (no form element can be rendered: reported
-  // unsupported if it ever ran).
+  // M6 (bits-ui's checkbox): the nearest ancestor with a tag name.
   closest(tagName: string): HTMLElement | null;
   // M6 (bits-ui's roving focus): the id attribute; descendants matching a
   // selector (a subset: tags, #id, .class, [attr], [attr=value], :not(),
@@ -74,6 +72,7 @@ interface HTMLElement {
   querySelector(selectors: string): HTMLElement | null;
   /** M6 overlays: whether the node is this element or one of its descendants. */
   contains(other: HTMLElement | null): boolean;
+  /** Dispatch a cancelable form submit event; no submitter argument is supported. */
   requestSubmit(): void;
   /**
    * M6 overlays (bits-ui's menu): dispatch an event created by script, of a
@@ -262,6 +261,8 @@ interface Event {
   stopImmediatePropagation(): void;
 }
 interface UIEvent extends Event {}
+/** Native form submission: only the common Event operations are covered. */
+interface SubmitEvent extends Event {}
 /** M6 overlays (bits-ui's escape layer): a copy of a keyboard event, never dispatched. */
 declare var KeyboardEvent: {
   new (type: string, init: KeyboardEvent): KeyboardEvent;
@@ -280,6 +281,7 @@ declare var FocusEvent: { prototype: FocusEvent };
 declare var WheelEvent: { prototype: WheelEvent };
 declare var UIEvent: { prototype: UIEvent };
 declare var Event: { prototype: Event };
+declare var SubmitEvent: { prototype: SubmitEvent };
 /** `x instanceof SVGElement` of element values (M6 overlays). */
 interface SVGElement extends HTMLElement {}
 declare var SVGElement: { prototype: SVGElement };
@@ -331,6 +333,7 @@ interface WheelEvent extends MouseEvent {
 // `window.listen` / `document.unlisten` built-ins).
 interface HostEventMap {
   click: MouseEvent;
+  submit: SubmitEvent;
   dblclick: MouseEvent;
   contextmenu: MouseEvent;
   mousedown: MouseEvent;
