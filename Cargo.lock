@@ -605,7 +605,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 3.0.6",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -992,7 +992,7 @@ dependencies = [
 [[package]]
 name = "fontique"
 version = "0.11.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=4105c6589c32f1456dbce0185de36838dd0276ff#4105c6589c32f1456dbce0185de36838dd0276ff"
+source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=3b16e99f1056074ad27cde084e1524d644f46069#3b16e99f1056074ad27cde084e1524d644f46069"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
@@ -2181,7 +2181,7 @@ dependencies = [
 [[package]]
 name = "parlance"
 version = "0.1.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=4105c6589c32f1456dbce0185de36838dd0276ff#4105c6589c32f1456dbce0185de36838dd0276ff"
+source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=3b16e99f1056074ad27cde084e1524d644f46069#3b16e99f1056074ad27cde084e1524d644f46069"
 dependencies = [
  "bytemuck",
 ]
@@ -2189,7 +2189,7 @@ dependencies = [
 [[package]]
 name = "parley"
 version = "0.11.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=4105c6589c32f1456dbce0185de36838dd0276ff#4105c6589c32f1456dbce0185de36838dd0276ff"
+source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=3b16e99f1056074ad27cde084e1524d644f46069#3b16e99f1056074ad27cde084e1524d644f46069"
 dependencies = [
  "fontique",
  "hashbrown 0.17.1",
@@ -2202,7 +2202,7 @@ dependencies = [
 [[package]]
 name = "parley_data"
 version = "0.11.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=4105c6589c32f1456dbce0185de36838dd0276ff#4105c6589c32f1456dbce0185de36838dd0276ff"
+source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=3b16e99f1056074ad27cde084e1524d644f46069#3b16e99f1056074ad27cde084e1524d644f46069"
 dependencies = [
  "icu_collections",
  "icu_properties",
@@ -2211,12 +2211,12 @@ dependencies = [
 [[package]]
 name = "parley_emoji"
 version = "0.11.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=4105c6589c32f1456dbce0185de36838dd0276ff#4105c6589c32f1456dbce0185de36838dd0276ff"
+source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=3b16e99f1056074ad27cde084e1524d644f46069#3b16e99f1056074ad27cde084e1524d644f46069"
 
 [[package]]
 name = "parley_engine"
 version = "0.11.0"
-source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=4105c6589c32f1456dbce0185de36838dd0276ff#4105c6589c32f1456dbce0185de36838dd0276ff"
+source = "git+file:///home/viktor/Development/RunicArtifex/parley.git?rev=3b16e99f1056074ad27cde084e1524d644f46069#3b16e99f1056074ad27cde084e1524d644f46069"
 dependencies = [
  "fontique",
  "harfrust",

@@ -90,12 +90,12 @@ debug = 0
 
 # Reviewed Parley parity source pinned to its signed integration revision.
 [patch."https://github.com/linebender/parley"]
-fontique = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
-parley = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
-parlance = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
-parley_engine = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
-parley_data = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
-parley_emoji = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
+fontique = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "3b16e99f1056074ad27cde084e1524d644f46069" }
+parley = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "3b16e99f1056074ad27cde084e1524d644f46069" }
+parlance = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "3b16e99f1056074ad27cde084e1524d644f46069" }
+parley_engine = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "3b16e99f1056074ad27cde084e1524d644f46069" }
+parley_data = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "3b16e99f1056074ad27cde084e1524d644f46069" }
+parley_emoji = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "3b16e99f1056074ad27cde084e1524d644f46069" }
 
 [profile.release]
 opt-level = "s"

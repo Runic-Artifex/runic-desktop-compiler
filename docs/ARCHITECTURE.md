@@ -683,3 +683,34 @@ uses a per-form reentrancy guard. Generated code restores nested discrete
 priority without inserting a checkpoint. Navigation, reset, undecidable
 validation and unsupported validity selectors retain diagnostics. Acceptance
 is pending; this decision alone does not extend the implemented contract.
+
+## Chromium parity: private line-flow consumers (2026-10-09)
+
+A borrowed, crate-private `LineFlow` is the entry point for committed-line
+horizontal traversal. Its glyph, content, box, cluster and selection views retain
+their existing numerical contracts. Glyph placement groups atom advances by
+style before adding the line origin; content bounds add whole atoms; empty box
+anchors and preceding-cluster offsets add runs. Point lookup keeps its run-skip
+and grapheme tests. Selection converts origin components separately to f64,
+defers intervening box width until the next cluster, and excludes leading boxes.
+These policies are deliberately separate: their rounding, glyphless and
+out-of-flow width behavior is not interchangeable.
+
+Vertical bounds, collapse trimming, exact/nearest fallback and newline selection
+indicators remain consumer decisions. Cursor rectangles continue to use cluster
+visual offsets, including the existing terminal fallback. The views borrow
+current line data without allocations or a persistent positioned cache. No
+public API, positioned-item variant, text, shaping boundary, caret stop, CSS rule
+or used-edge advance is added. This checkpoint does not repair Chromium gaps.
+
+The later effective path must define signed positions around whole atoms and
+boxes, then supply all horizontal consumers together. Activate it when any
+individual used opening/closing edge is nonzero, including opposing edges whose
+sum is zero; preserve these legacy views when all individual components are zero.
+Authored ordering, logical consumption and committed visual placement remain
+separate. Both breakers and intrinsic traversal need their own logical state;
+saved opportunities and external replay must restore the edge cursor, active
+owners and committed placement lengths. CSS resolution and decoration ownership
+stay in Blitz. The existing three browser drivers supply wrap, controlling
+min-content and immediate forced-break targets; internal overflow recovery and
+cache execution still need instrumented tests.
