@@ -770,9 +770,9 @@ for preserved failed-attempt lineage, exact gates and incomplete stages.
 
 ## Chromium parity: CSS intent at each inline side (2026-10-09)
 
-Before accepting used horizontal span edges, Blitz requests shaping boundaries
-independently at an ordinary inline owner's start and end in standards mode.
-Each request uses the owner's writing mode and the individual computed margin,
+Blitz has a private, tested calculation of shaping intent independently at an
+ordinary inline owner's start and end. It is dormant until used horizontal span
+edges are integrated. The calculation uses the owner's writing mode and computed margin,
 padding and effective border at that side. Opposing components do not cancel
 the request. Exact zero lengths/percentages and auto margins preserve shaping;
 nonzero percentages and retained calc expressions request a seam even when their
@@ -782,18 +782,24 @@ sides. This follows the pinned
 [Blink before/after-box predicates](https://raw.githubusercontent.com/chromium/chromium/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/inline_node.cc)
 and its [Length zero predicate](https://raw.githubusercontent.com/chromium/chromium/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/platform/geometry/length.h).
 
-The binding remains private and passes two booleans to Parley's existing builder
-API. CSS computed intent is separate from future resolved advances; there is no
-new value API, numeric spacing, intrinsic traversal or activated scheduler.
-Box-side restyles retain cached shaping, as do alignment-only changes. The
-requests apply when a paragraph is constructed or recollected for other reasons.
+The binding remains private. Production construction retains its verified
+explicit-alignment-only predicate; the new box-side calculation is not called.
+CSS computed intent is separate from future resolved advances; there is no new
+value API, numeric spacing, intrinsic traversal or activated scheduler.
+Margin and alignment-only restyles retain cached shaping. Effective-border
+presence transitions require a separate cache-policy audit.
 The edge-history oracle shows that forcing recollection for a margin transition
 breaks Chromium's retained ligature ownership. Future used-edge attachment must
 therefore handle nonzero edges inside cached whole atoms; construction-time
 seams do not justify rejecting those histories. Quirks mode retains its previous
-request policy. Conservative seams for unresolved
-anchor margins do not implement anchor positioning. Requested seams may change
-shaping and grapheme grouping; browser rectangles do not certify internal atoms,
-font fallback, cache identity or keyboard/IME delivery. The additive combining,
-regional-indicator and pending-whitespace cases retain those limits. Acceptance
-is pending until the affected existing and new cases have been compared.
+request policy. Conservative intent for unresolved anchor margins does not
+implement anchor positioning. The construction-only prototype was also rejected:
+it changed grapheme ownership without numeric spacing, causing three relative-hit
+and five crop-pixel regressions over 5,090 states. The apparent 27 hit repairs
+changed rectangle-relative sampling rather than repairing point-hit geometry.
+The construction caller is restored; the calculation and four tests remain as
+preparation. Future activation must include numeric placement and all ownership,
+paint, hit and editing consumers together. Browser rectangles do not certify
+internal atoms, font fallback, cache identity or keyboard/IME delivery. The new
+combining, regional-indicator and pending-whitespace cases retain those limits.
+Verification of the restored behavior is pending.
