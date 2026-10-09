@@ -510,3 +510,43 @@ are read live and retain layout-only invalidation. This owner-specific table rul
 keeps cached table geometry correct without forcing every alignment restyle to
 reshape text. The [verified checkpoint](../conformance/results/chromium-inline-boundaries.md)
 records the full rerun and remaining fragment/paint gaps.
+
+## Chromium parity: ordinary span ownership (2026-10-09, isolated)
+
+The first span-edge checkpoint retains generic normalized owner ranges without
+adding advances. Parley's tree builder adds opt-in
+`set_style_span_tracking(bool)`, disabled on every new builder. When enabled,
+ordinary spans retain opening/closing UTF-8 positions, their style index and both
+atomic-box ordinals. Modification scopes remain transparent. Closing positions
+follow already-pending whitespace independently of shaping-boundary requests;
+later whitespace cannot move an earlier closing edge. Automatic closing uses the
+same capture. No text source, shaping boundary or glyph is added by tracking.
+
+The additive `Line::style_span_bounds(style_index) -> Option<(f32, f32)>` returns
+one horizontal union in layout units for a tracked ordinary span on that line.
+An atom belongs in full to the normalized span containing its first code unit;
+owners beginning inside that atom retain a real zero-width fragment at its end,
+rather than receiving a caret fraction. Descendant text and in-flow atomic boxes
+are included by the captured ranges and box ordinals. Empty spans use the existing
+empty-span participation and line association; tracking alone does not change
+their metric participation. Out-of-flow boxes reserve no width. Returned bounds
+follow visual ordering, alignment, justification and collapsed hanging whitespace.
+Existing font-area bounds supply the separate block-axis geometry.
+
+The private query consumes the line's committed atoms/boxes, so rebreaking and
+saved-state replay use the same final ownership without a second layout cursor.
+Default layouts and callers without tracking retain their current behavior.
+Canonical text, source ranges, shaping allocations and the public positioned-item
+enum remain unchanged. Blitz enables tracking for standards-mode ordinary inline
+contexts and uses owned bounds for their CSSOM fragments; CSS and DOM ancestry
+remain in Blitz. This does not claim complete bidi fragment segmentation or
+Unicode caret parity.
+
+Nonzero margin/padding/border advances require a subsequent interface checkpoint.
+They must participate in intrinsic sizing, soft-break rollback, both breakers and
+every visual/caret offset consumer. Opening, closing and empty-pair wrap affinity
+must be frozen before implementation. Shaping intent remains separate from used
+advance, especially for calculated/percentage edges. Parent inline progression,
+slice/clone and intrinsic percentage resolution are CSS binding decisions.
+The [span-edge oracle](../conformance/inline-span-edges.mjs) retains those failures
+while independently measuring zero-advance ownership and font refresh.
