@@ -126,7 +126,7 @@ const EVENT_MEMBER_INTERFACES: Record<string, string> = {
 };
 
 /** Events element listeners added by script receive (`element.listen`). */
-const ELEMENT_SCRIPT_EVENTS = ['scroll', 'pointermove', 'pointerenter', 'pointerleave'];
+const ELEMENT_SCRIPT_EVENTS = ['scroll', 'pointermove', 'pointerenter', 'pointerleave', 'submit'];
 
 export type Binding =
   | { kind: 'local'; owner: FnBuilder; local: number }

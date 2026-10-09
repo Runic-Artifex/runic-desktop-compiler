@@ -653,7 +653,9 @@ compare observable `event.target` or subsequent `relatedTarget` correctly.
 For differential traces, the native probe records the normalized live element
 hit at the unchanged action point before dispatch. Its identity is an element-only
 child path relative to the mount container, accompanied by tag/id assertions and
-the point. The reference CLI validates that metadata and passes a reference-only
+the point. Browser/native probes using `--visible-targets` retain the same
+metadata so their authored traces can also be checked by the interpreter.
+The reference CLI validates that metadata and passes a reference-only
 `Target::ElementPath`. Target lookup translates it to the existing child-index
 path on `fire_action`'s own live tree, without an extra render, and runs the normal
 event model. Original

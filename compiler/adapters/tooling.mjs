@@ -21,12 +21,9 @@ async function resolvedPackage(entry, name) {
       throw new Diagnostic('E_FRONTEND_VERSION', 'Cannot locate package metadata for ' + name);
   }
 }
-function svelteScripts(compiler, root, code, id) {
-  if (!id.endsWith('.svelte')) return [{ code, offset: 0 }];
+function parseSvelte(compiler, root, code, id) {
   try {
-    return Object.values(compiler.parse(code, { filename: id, modern: true }))
-      .filter(n => n?.type === 'Script')
-      .map(n => ({ code: code.slice(n.content.start, n.content.end), offset: n.content.start }));
+    return compiler.parse(code, { filename: id, modern: true });
   } catch (e) {
     throw new Diagnostic('E_PARSE', e.message, {
       file: path.relative(root, id),
@@ -34,6 +31,12 @@ function svelteScripts(compiler, root, code, id) {
       column: (e.start?.column ?? 0) + 1,
     });
   }
+}
+function svelteScripts(compiler, root, code, id) {
+  if (!id.endsWith('.svelte')) return [{ code, offset: 0 }];
+  return Object.values(parseSvelte(compiler, root, code, id))
+    .filter(n => n?.type === 'Script')
+    .map(n => ({ code: code.slice(n.content.start, n.content.end), offset: n.content.start }));
 }
 /** The checked version of Tailwind CSS (runic.json `"tailwind": true`). */
 export const tailwindVersion = '4.3.3';
@@ -163,6 +166,11 @@ async function frameworkTooling(root, config) {
       packages: { svelte: version, '@sveltejs/vite-plugin-svelte': pluginVersion },
       extensions: ['.svelte'],
       scripts: (code, id) => svelteScripts(compiler, root, code, id),
+      authoredStyles: (code, id) => {
+        if (!id.endsWith('.svelte')) return [];
+        const style = parseSvelte(compiler, root, code, id).css;
+        return style ? [{ code: style.content.styles, offset: style.content.start }] : [];
+      },
       // vite-plugin-svelte's virtual module of a component's `<style>`: the component file.
       componentStyle: id =>
         /\.svelte\?svelte&type=style&lang\.css$/.test(id) ? id.split('?')[0] : undefined,
@@ -171,6 +179,11 @@ async function frameworkTooling(root, config) {
   const compiler = require('@vue/compiler-sfc');
   if (compiler.version !== version)
     throw new Diagnostic('E_FRONTEND_VERSION', 'Vue runtime and SFC compiler versions must match');
+  const descriptor = (code, id) => {
+    const parsed = compiler.parse(code, { filename: id });
+    if (parsed.errors.length) throw new Diagnostic('E_PARSE', String(parsed.errors[0]));
+    return parsed.descriptor;
+  };
   return {
     name,
     version,
@@ -181,11 +194,29 @@ async function frameworkTooling(root, config) {
     extensions: ['.vue'],
     scripts: (code, id) => {
       if (!id.endsWith('.vue')) return [{ code, offset: 0 }];
-      const parsed = compiler.parse(code, { filename: id });
-      if (parsed.errors.length) throw new Diagnostic('E_PARSE', String(parsed.errors[0]));
-      return [parsed.descriptor.script, parsed.descriptor.scriptSetup]
+      const parsed = descriptor(code, id);
+      return [parsed.script, parsed.scriptSetup]
         .filter(Boolean)
         .map(s => ({ code: s.content, offset: s.loc.start.offset }));
+    },
+    authoredStyles: (code, id) => {
+      if (id.endsWith('.vue'))
+        return descriptor(code, id).styles.map(s => ({
+          code: s.content,
+          offset: s.loc.start.offset,
+        }));
+      const [owner, query] = id.split('?');
+      const params = new URLSearchParams(query);
+      // plugin-vue loads an external CSS style request as its original file
+      // text; this pre-transform hook runs before its scoped rewrite.
+      if (
+        path.extname(owner) === '.css' &&
+        params.has('vue') &&
+        params.get('type') === 'style' &&
+        params.has('src')
+      )
+        return [{ code, owner, offset: 0 }];
+      return [];
     },
   };
 }

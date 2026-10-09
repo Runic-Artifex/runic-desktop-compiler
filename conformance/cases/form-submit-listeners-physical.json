@@ -1,0 +1,146 @@
+{
+  "description": "Physical submit-button activation with document listener mutation: fresh callback replacement and same-callback re-registration skip the active bubble stage and run on the next submit; a bubble callback added during capture runs on the same event. Every form submit is canceled; no request caller before/after entries are expected.",
+  "fixtures": ["form-submit-listeners-vue", "form-submit-listeners-svelte"],
+  "viewports": [[800, 600]],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "mode-capture"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "mode-readd"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 0,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 1,
+      "id": "log",
+      "text": "capture target first replace"
+    },
+    {
+      "step": 1,
+      "id": "counts",
+      "text": "first:1 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 2,
+      "id": "log",
+      "text": "capture target first replace capture target first fresh"
+    },
+    {
+      "step": 2,
+      "id": "counts",
+      "text": "first:2 late:0 fresh:1 added:0"
+    },
+    {
+      "step": 3,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 3,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 4,
+      "id": "log",
+      "text": "capture install target first late added"
+    },
+    {
+      "step": 4,
+      "id": "counts",
+      "text": "first:1 late:1 fresh:0 added:1"
+    },
+    {
+      "step": 5,
+      "id": "log",
+      "text": "capture install target first late added capture target first late added"
+    },
+    {
+      "step": 5,
+      "id": "counts",
+      "text": "first:2 late:2 fresh:0 added:2"
+    },
+    {
+      "step": 0,
+      "id": "mode",
+      "text": "replace"
+    },
+    {
+      "step": 3,
+      "id": "mode",
+      "text": "capture"
+    },
+    {
+      "step": 6,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 6,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 7,
+      "id": "log",
+      "text": "capture target first readd"
+    },
+    {
+      "step": 7,
+      "id": "counts",
+      "text": "first:1 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 8,
+      "id": "log",
+      "text": "capture target first readd capture target first late"
+    },
+    {
+      "step": 8,
+      "id": "counts",
+      "text": "first:2 late:1 fresh:0 added:0"
+    },
+    {
+      "step": 6,
+      "id": "mode",
+      "text": "readd"
+    }
+  ]
+}

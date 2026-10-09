@@ -1,0 +1,306 @@
+{
+  "description": "FORM element-phase listener mutation with real request and physical submissions. Document capture adds a FORM bubble callback for the same event; the first FORM script listener replaces a later registration with fresh or same user callback, excluding it from the active stage and admitting it on the next submit. The template FORM listener cancels every submit. Exact drafts require independent browser verification.",
+  "fixtures": ["form-submit-element-listeners-vue", "form-submit-element-listeners-svelte"],
+  "viewports": [[800, 600]],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "mode-replace"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-replace"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "mode-capture"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-capture"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "mode-readd"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-readd"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 0,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 0,
+      "id": "mode",
+      "text": "replace"
+    },
+    {
+      "step": 1,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 1,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 1,
+      "id": "mode",
+      "text": "replace"
+    },
+    {
+      "step": 2,
+      "id": "log",
+      "text": "before capture target first replace after"
+    },
+    {
+      "step": 2,
+      "id": "counts",
+      "text": "first:1 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 3,
+      "id": "log",
+      "text": "before capture target first replace after before capture target first fresh after"
+    },
+    {
+      "step": 3,
+      "id": "counts",
+      "text": "first:2 late:0 fresh:1 added:0"
+    },
+    {
+      "step": 4,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 4,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 4,
+      "id": "mode",
+      "text": "replace"
+    },
+    {
+      "step": 5,
+      "id": "log",
+      "text": "capture target first replace"
+    },
+    {
+      "step": 5,
+      "id": "counts",
+      "text": "first:1 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 6,
+      "id": "log",
+      "text": "capture target first replace capture target first fresh"
+    },
+    {
+      "step": 6,
+      "id": "counts",
+      "text": "first:2 late:0 fresh:1 added:0"
+    },
+    {
+      "step": 7,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 7,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 7,
+      "id": "mode",
+      "text": "capture"
+    },
+    {
+      "step": 8,
+      "id": "log",
+      "text": "before capture install target first late added after"
+    },
+    {
+      "step": 8,
+      "id": "counts",
+      "text": "first:1 late:1 fresh:0 added:1"
+    },
+    {
+      "step": 9,
+      "id": "log",
+      "text": "before capture install target first late added after before capture target first late added after"
+    },
+    {
+      "step": 9,
+      "id": "counts",
+      "text": "first:2 late:2 fresh:0 added:2"
+    },
+    {
+      "step": 10,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 10,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 10,
+      "id": "mode",
+      "text": "capture"
+    },
+    {
+      "step": 11,
+      "id": "log",
+      "text": "capture install target first late added"
+    },
+    {
+      "step": 11,
+      "id": "counts",
+      "text": "first:1 late:1 fresh:0 added:1"
+    },
+    {
+      "step": 12,
+      "id": "log",
+      "text": "capture install target first late added capture target first late added"
+    },
+    {
+      "step": 12,
+      "id": "counts",
+      "text": "first:2 late:2 fresh:0 added:2"
+    },
+    {
+      "step": 13,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 13,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 13,
+      "id": "mode",
+      "text": "readd"
+    },
+    {
+      "step": 14,
+      "id": "log",
+      "text": "before capture target first readd after"
+    },
+    {
+      "step": 14,
+      "id": "counts",
+      "text": "first:1 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 15,
+      "id": "log",
+      "text": "before capture target first readd after before capture target first late after"
+    },
+    {
+      "step": 15,
+      "id": "counts",
+      "text": "first:2 late:1 fresh:0 added:0"
+    },
+    {
+      "step": 16,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 16,
+      "id": "counts",
+      "text": "first:0 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 16,
+      "id": "mode",
+      "text": "readd"
+    },
+    {
+      "step": 17,
+      "id": "log",
+      "text": "capture target first readd"
+    },
+    {
+      "step": 17,
+      "id": "counts",
+      "text": "first:1 late:0 fresh:0 added:0"
+    },
+    {
+      "step": 18,
+      "id": "log",
+      "text": "capture target first readd capture target first late"
+    },
+    {
+      "step": 18,
+      "id": "counts",
+      "text": "first:2 late:1 fresh:0 added:0"
+    }
+  ]
+}

@@ -768,7 +768,7 @@ impl Gen<'_> {
              #[allow(unused_variables)]\nfn nodes_s{id}(s: &S{id}, out: &mut Vec<NodeId>) {{\n{nodes}}}\n\
              #[allow(unused_variables)]\nfn walk_s{id}(s: &S{id}, parent: usize, out: &mut Vec<(Rc<dyn Inst>, usize)>) {{\n{instances}}}\n\
              fn first_s{id}(s: &S{id}) -> Option<NodeId> {{ {first} }}\n\
-             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); let events = commit_events(dom.focus_loss(&ns)); if !events.is_empty() {{ run_nested(cx, events); }} dispose_s{id}(s, cx); for n in ns {{ dom.remove(n); }} }}\n{extra}\n",
+             fn remove_s{id}(s: &S{id}, cx: &mut Cx, dom: &mut Dom) {{ let mut ns = Vec::new(); nodes_s{id}(s, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dispose_s{id}(s, cx); for n in ns {{ dom.remove(n); }} }}\n{extra}\n",
             extra = o.extra,
             mount = o.mount,
             update = o.update,
@@ -1647,7 +1647,7 @@ impl Gen<'_> {
                      let mut err = None;\n\
                      for (j, (bk, tt, b, _)) in next.into_iter().enumerate().rev() {{\n\
                      let b = match b {{\n\
-                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); let events = commit_events(dom.focus_loss(&ns)); if !events.is_empty() {{ run_nested(cx, events); }} dom.insert_all({up}, &ns, anchor); }} if let Err(e) = update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor) {{ err.get_or_insert(e); }} Some(b) }}\n\
+                     Some(mut b) => {{ if !keep[j] {{ let mut ns = Vec::new(); nodes_s{bd}(&b, &mut ns); let events = dom.focus_loss(&ns); if !events.is_empty() {{ run_commit_nested(cx, events); }} dom.insert_all({up}, &ns, anchor); }} if let Err(e) = update_s{bd}(&mut b, cx, dom, inst, &tt, true, {up}, anchor) {{ err.get_or_insert(e); }} Some(b) }}\n\
                      None => match mount_s{bd}(cx, dom, inst, &tt, {up}, anchor) {{ Ok(b) => Some(b), Err(e) => {{ err.get_or_insert(e); None }} }},\n\
                      }};\n\
                      if let Some(b) = b {{ if let Some(f) = first_s{bd}(&b) {{ anchor = Some(f); }} out.push((bk, tt, b)); }}\n\
@@ -3094,35 +3094,68 @@ pub fn generate(
          /// exceptions are reported, not propagated.\n\
          /// Focus events dispatched during the DOM update: without element\n\
          /// listeners where the framework ignores them during its commit.\n\
-         #[allow(unused_mut)]\n\
-         fn commit_events(mut events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) -> Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)> {{ if {commit_ignored} {{ for e in events.iter_mut() {{ e.2.clear(); }} }} events }}\n\
-         fn run_nested(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) {{\n\
-         for (ev, kind, deliveries) in events {{\n\
-         let mut calls: Vec<(u32, u64)> = Vec::new();\n\
-         for (window, current) in [(true, js::Element::WINDOW), (false, js::Element::DOCUMENT)] {{ for h in cx.capture_host.iter().filter(|h| h.0 == window && h.1 == kind) {{ calls.push((h.3, current.0)); }} }}\n\
-         calls.extend(deliveries.iter().map(|d| (d.listener, d.current)));\n\
-         if kind.bubbles() {{ for (window, current) in [(false, js::Element::DOCUMENT), (true, js::Element::WINDOW)] {{ for h in cx.host.iter().filter(|h| h.0 == window && h.1 == kind) {{ calls.push((h.3, current.0)); }} }} }}\n\
-         for (key, current) in calls {{\n\
-         let Some(f) = cx.listeners.get(key as usize).cloned().flatten() else {{ continue }};\n\
-         if !ev.enter(js::Element(current)) {{ continue; }}\n\
+         /// Snapshot one target/phase only when dispatch reaches it. Registration\n\
+         /// keys, generations and owned callbacks keep removal and slot reuse distinct.\n\
+         fn nested_keys(cx: &Cx, current: u64, kind: Event, capture: bool) -> Vec<u32> {{\n\
+         if current == js::Element::WINDOW.0 || current == js::Element::DOCUMENT.0 {{\n\
+         let window = current == js::Element::WINDOW.0;\n\
+         let registry = if capture {{ &cx.capture_host }} else {{ &cx.host }};\n\
+         registry.iter().filter(|h| h.0 == window && h.1 == kind).map(|h| h.3).collect()\n\
+         }} else {{ cx.dom.nested_event_listeners(current, kind, capture) }}\n\
+         }}\n\
+         fn listener_snapshot(cx: &Cx, current: u64, kind: Event, capture: bool) -> Vec<(u32, u64, Lst)> {{\n\
+         nested_keys(cx, current, kind, capture).into_iter().filter_map(|key| Some((key, *cx.listener_generations.get(key as usize)?, cx.listeners.get(key as usize)?.clone()?))).collect()\n\
+         }}\n\
+         fn listener_live(cx: &Cx, key: u32, generation: u64, f: &Lst, current: u64, kind: Event, capture: bool) -> bool {{\n\
+         nested_keys(cx, current, kind, capture).contains(&key) && cx.listener_generations.get(key as usize) == Some(&generation) && cx.listeners.get(key as usize).and_then(|f| f.as_ref()).is_some_and(|live| Rc::ptr_eq(live, f))\n\
+         }}\n\
+         fn call_event_listener(cx: &mut Cx, ev: &js::Event, f: &Lst, current: u64) -> JsResult<()> {{\n\
+         if !ev.enter(js::Element(current)) {{ return Ok(()); }}\n\
          let outer = (cx.payload.take(), cx.event.take());\n\
          cx.payload = ev.payload(); cx.event = Some(ev.clone());\n\
-         let r = f(cx);\n\
+         let result = f(cx);\n\
          (cx.payload, cx.event) = outer;\n\
-         if let Err(e) = r {{ eprintln!(\"runic: uncaught exception in a nested event listener: {{e}}\"); }}\n\
+         result\n\
          }}\n\
+         fn run_nested_call(cx: &mut Cx, ev: &js::Event, key: u32, generation: u64, f: Lst, current: u64) {{\n\
+         if cx.listener_generations.get(key as usize) != Some(&generation) || !cx.listeners.get(key as usize).and_then(|f| f.as_ref()).is_some_and(|live| Rc::ptr_eq(live, &f)) {{ return; }}\n\
+         if let Err(e) = call_event_listener(cx, ev, &f, current) {{ eprintln!(\"runic: uncaught exception in a nested event listener: {{e}}\"); }}\n\
+         }}\n\
+         fn run_nested_stage(cx: &mut Cx, ev: &js::Event, kind: Event, current: u64, capture: bool) {{\n\
+         let calls = listener_snapshot(cx, current, kind, capture);\n\
+         for (key, generation, f) in calls {{\n\
+         if listener_live(cx, key, generation, &f, current, kind, capture) {{ run_nested_call(cx, ev, key, generation, f, current); }}\n\
+         }}\n\
+         }}\n\
+         fn run_commit_nested(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) {{ run_nested_inner(cx, events, !COMMIT_EVENTS_IGNORED); }}\n\
+         fn run_nested(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>) {{ run_nested_inner(cx, events, true); }}\n\
+         const COMMIT_EVENTS_IGNORED: bool = {commit_ignored};\n\
+         fn run_nested_inner(cx: &mut Cx, events: Vec<(js::Event, Event, Vec<runic_runtime::Delivery>)>, elements: bool) {{\n\
+         for (ev, kind, deliveries) in events {{\n\
+         let path = cx.dom.nested_event_path(ev.data().target.0);\n\
+         // Window sentinel events keep their existing explicit-delivery route.\n\
+         let fallback: Vec<_> = if path.is_empty() && elements {{ deliveries.iter().filter_map(|d| Some((d.listener, *cx.listener_generations.get(d.listener as usize)?, cx.listeners.get(d.listener as usize)?.clone()?, d.current))).collect() }} else {{ Vec::new() }};\n\
+         for current in [js::Element::WINDOW.0, js::Element::DOCUMENT.0] {{ run_nested_stage(cx, &ev, kind, current, true); }}\n\
+         if elements {{\n\
+         if path.is_empty() {{ for (key, generation, f, current) in fallback {{ run_nested_call(cx, &ev, key, generation, f, current); }} }}\n\
+         else {{\n\
+         for &current in path.iter().rev() {{ run_nested_stage(cx, &ev, kind, current, true); }}\n\
+         for &current in path.iter().take(if kind.bubbles() {{ path.len() }} else {{ 1 }}) {{ run_nested_stage(cx, &ev, kind, current, false); }}\n\
+         }}\n\
+         }}\n\
+         if kind.bubbles() {{ for current in [js::Element::DOCUMENT.0, js::Element::WINDOW.0] {{ run_nested_stage(cx, &ev, kind, current, false); }} }}\n\
          ev.finish();\n\
          }}\n\
          }}\n\
          /// A timer callback (`setTimeout`/`setInterval`, or an animation frame receiving the time).\n\
          #[derive(Clone)]\npub enum TimerCb {{ Plain(Rc<dyn Fn(&mut Cx) -> JsResult<()>>), Frame(Rc<dyn Fn(&mut Cx, f64) -> JsResult<()>>) }}\n\
-         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub custom_host: Vec<(u64, JsString, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, pub running_fx: Vec<(Rc<dyn Inst>, usize)>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{live}{globals}}}\n\
+         pub struct Cx {{ pub force_sync: bool, pub payload: Option<JsString>, pub event: Option<js::Event>, pub root: runic_runtime::css::Root, pub body: runic_runtime::css::Root, pub media: runic_runtime::css::MediaEnv, pub host: Vec<(bool, Event, usize, u32)>, pub element_host: Vec<(u64, Event, usize, u32)>, pub custom_host: Vec<(u64, JsString, usize, u32)>, pub viewport_host: Vec<(Event, usize, u32)>, pub capture_host: Vec<(bool, Event, usize, u32)>, pub media_host: Vec<(js::MediaQueryList, usize, u32)>, pub listeners: Vec<Option<Lst>>, pub listener_generations: Vec<u64>, pub free: Vec<u32>, pub dom: runic_runtime::Host, pub timers: runic_runtime::Timers<TimerCb>, pub jobs: runic_runtime::Jobs<Lst>, pub stable: std::collections::HashMap<usize, Rc<dyn std::any::Any>>, pub tracking: Option<Vec<runic_runtime::Dep<Cx>>>, pub flush_promise: Option<js::JsPromise<(), Lst>>, pub storage: runic_runtime::Storage, pub random: runic_runtime::Random, pub host_tasks: std::collections::VecDeque<HostTask>, pub reading_previous: bool, pub rh: bool, pub defer: bool, pub updated: std::collections::HashMap<usize, bool>, pub destroyed: Vec<Rc<dyn Inst>>, pub uids: u64, pub creating: Vec<Rc<dyn Inst>>, pub via: Vec<Rc<Contexts>>, pub attach_queue: Vec<(usize, NodeId, Rc<dyn std::any::Any>, Rc<RefCell<AttState>>)>, pub detached: Vec<Lst>, pub mounted: Vec<Rc<RefCell<MountState>>>, pub roots: Vec<RootFx>, pub root_stack: Vec<usize>, pub in_effect: bool, pub running_fx: Vec<(Rc<dyn Inst>, usize)>, {resize_fields}{io_fields}{mo_fields}{anim_fields}{live}{globals}}}\n\
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          /// Effects track the heap objects they read only where references are owned (proxied state, signal fields).\nconst OWNED_ONLY: bool = {owned_only_v};\n\
          /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n\
          impl Cx {{\n\
-         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), custom_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{live_init}{globals_init}}} }}\n\
-         fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); k }} None => {{ self.listeners.push(Some(f)); (self.listeners.len() - 1) as u32 }} }} }}\n\
+         fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), custom_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), listener_generations: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{live_init}{globals_init}}} }}\n\
+         fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); self.listener_generations[k as usize] += 1; k }} None => {{ self.listeners.push(Some(f)); self.listener_generations.push(0); (self.listeners.len() - 1) as u32 }} }} }}\n\
          }}\n"
     );
     out.push_str(HOST_SERVICES);
@@ -3376,6 +3409,54 @@ pub fn generate(
          if let Err(e) = r {{ first.get_or_insert(e.to_string()); }}\n}}\n\
          {restore_controlled}\
          first.map_or(Ok(()), Err)\n}}\n\
+         /// Physical form submission keeps the existing task grouping while\n\
+         /// selecting each target/phase's registrations only when it is reached.\n\
+         fn dispatch_element_path(&mut self, dom: &mut Dom, path: &[u64], kind: Event, event: &js::Event) -> Result<(), String> {{\n\
+         let stages: Vec<_> = path.iter().rev().map(|&current| (current, true)).chain(path.iter().take(if kind.bubbles() {{ path.len() }} else {{ 1 }}).map(|&current| (current, false))).collect();\n\
+         let mut first = None;\n\
+         if {per_listener} {{\n\
+         for (current, capture) in stages {{\n\
+         self.cx.dom = runic_runtime::Host::attach(dom);\n\
+         let calls = listener_snapshot(&self.cx, current, kind, capture);\n\
+         self.cx.dom = Default::default();\n\
+         for (key, generation, f) in calls {{\n\
+         self.cx.dom = runic_runtime::Host::attach(dom);\n\
+         let live = listener_live(&self.cx, key, generation, &f, current, kind, capture);\n\
+         self.cx.dom = Default::default();\n\
+         if !live {{ continue; }}\n\
+         let result = self.task(dom, true, |cx| {{\n\
+         if !listener_live(cx, key, generation, &f, current, kind, capture) {{ return Ok(()); }}\n\
+         call_event_listener(cx, event, &f, current)\n\
+         }});\n\
+         if let Err(e) = result {{ first.get_or_insert(e.to_string()); }}\n\
+         }}\n\
+         }}\n\
+         }} else {{\n\
+         self.cx.dom = runic_runtime::Host::attach(dom);\n\
+         let has_calls = stages.iter().any(|&(current, capture)| !nested_keys(&self.cx, current, kind, capture).is_empty());\n\
+         self.cx.dom = Default::default();\n\
+         if has_calls {{\n\
+         let result = self.task(dom, true, |cx| {{\n\
+         let mut error = None;\n\
+         for (current, capture) in stages {{\n\
+         let calls = listener_snapshot(cx, current, kind, capture);\n\
+         for (key, generation, f) in calls {{\n\
+         if !listener_live(cx, key, generation, &f, current, kind, capture) {{ continue; }}\n\
+         if let Err(e) = call_event_listener(cx, event, &f, current) {{\n\
+         if e.name.to_rust() == \"RunicDomainError\" {{ return Err(e); }}\n\
+         error.get_or_insert(e);\n\
+         }}\n\
+         }}\n\
+         }}\n\
+         error.map_or(Ok(()), Err)\n\
+         }});\n\
+         if let Err(e) = result {{ first.get_or_insert(e.to_string()); }}\n\
+         }}\n\
+         }}\n\
+         {restore_controlled}\n\
+         first.map_or(Ok(()), Err)\n\
+         }}\n\
+         fn listener_generation(&self, listener: u32) -> u64 {{ self.cx.listener_generations.get(listener as usize).copied().unwrap_or(0) }}\n\
          fn host_listeners(&self, window: bool, event: Event) -> Vec<u32> {{ self.cx.host.iter().filter(|h| h.0 == window && h.1 == event).map(|h| h.3).collect() }}\n\
          fn viewport_listeners(&self, event: Event) -> Vec<u32> {{ self.cx.viewport_host.iter().filter(|h| h.0 == event).map(|h| h.2).collect() }}\n\
          fn capture_listeners(&self, window: bool, event: Event) -> Vec<u32> {{ self.cx.capture_host.iter().filter(|h| h.0 == window && h.1 == event).map(|h| h.3).collect() }}\n\
@@ -3442,7 +3523,7 @@ pub fn generate(
         hash = rust_str(ir_hash),
         template_attrs = template_attrs,
         restore = if p.restore_focus {
-            "{ let events = commit_events(dom.restore_focus()); if !events.is_empty() { run_nested(&mut self.cx, events); } }\n"
+            "{ let events = dom.restore_focus(); if !events.is_empty() { run_commit_nested(&mut self.cx, events); } }\n"
         } else {
             ""
         },

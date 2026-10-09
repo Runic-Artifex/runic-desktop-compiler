@@ -508,7 +508,7 @@ fn centre<A: App>(native: &mut Native<A>, id: NodeId, action: &Value) -> (f32, f
     ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32)
 }
 
-/// The real hit before a differential pointer action mutates the document.
+/// The real hit before a captured pointer action mutates the document.
 /// Identity is an element-only path through physical DOM children from the
 /// mount container; IDs and tags are assertion metadata, not node identity.
 fn pointer_target<A: App>(native: &mut Native<A>, action: &Value) -> Option<Value> {
@@ -955,7 +955,7 @@ pub(crate) fn run<A: App>() {
             ));
             break;
         }
-        let pointer_target = if stop_hidden {
+        let pointer_target = if stop_hidden || STRICT_TARGETS.with(|s| s.get()) {
             pointer_target(&mut native, &action)
         } else {
             None

@@ -706,6 +706,7 @@ export async function createBrowserHarness() {
         const origin = new URL(server.url).origin;
         const LEVELS = { log: 'log', info: 'info', warning: 'warn', error: 'error', debug: 'debug' };
         let lines = [];
+        let browserDiagnostics = [];
         // Uncaught exceptions are harness errors, except unhandled promise
         // rejections: Chromium reports them on the console as `Uncaught (in
         // promise) Error: message` (the error's lines without its stack) in
@@ -726,7 +727,12 @@ export async function createBrowserHarness() {
           errors.push({ kind: 'revoked', message: `a reported rejection was handled: ${e.reason}` }),
         );
         page.on('console', m => {
-          if (appSource(m.location().url, origin))
+          // CDP Log.entryAdded may surface as Playwright console events.
+          // Verbose is an engine severity, not a Runtime.consoleAPICalled type.
+          // Retain it as evidence without attributing it to an app console call.
+          if (m.type() === 'verbose')
+            browserDiagnostics.push({ type: m.type(), text: m.text(), location: m.location() });
+          else if (appSource(m.location().url, origin))
             lines.push({ level: LEVELS[m.type()] ?? m.type(), text: textJson(m.text()) });
           else if (m.type() === 'error') errors.push({ kind: 'console', message: m.text() });
         });
@@ -767,6 +773,8 @@ export async function createBrowserHarness() {
             ...(await page.evaluate(pageLocation, trackTitle)),
           });
           lines = [];
+          if (browserDiagnostics.length) snapshot.browserDiagnostics = browserDiagnostics;
+          browserDiagnostics = [];
           if (host) snapshot.host = host;
           timing.snapshotMs = performance.now() - t;
           const screenshotPath = path.join(folder, `step-${String(index).padStart(3, '0')}.png`);

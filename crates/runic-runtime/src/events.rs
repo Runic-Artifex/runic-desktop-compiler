@@ -1070,7 +1070,18 @@ impl<A: App> Handler<'_, A> {
             } else {
                 Element::DOCUMENT
             };
-            for listener in self.app.capture_listeners(window, kind) {
+            let listeners: Vec<_> = self
+                .app
+                .capture_listeners(window, kind)
+                .into_iter()
+                .map(|listener| (listener, self.app.listener_generation(listener)))
+                .collect();
+            for (listener, generation) in listeners {
+                if self.app.listener_generation(listener) != generation
+                    || !self.app.capture_listeners(window, kind).contains(&listener)
+                {
+                    continue;
+                }
                 let delivery = Delivery {
                     listener,
                     event: event.clone(),
@@ -1088,7 +1099,18 @@ impl<A: App> Handler<'_, A> {
             } else {
                 Element::DOCUMENT
             };
-            for listener in self.app.host_listeners(window, kind) {
+            let listeners: Vec<_> = self
+                .app
+                .host_listeners(window, kind)
+                .into_iter()
+                .map(|listener| (listener, self.app.listener_generation(listener)))
+                .collect();
+            for (listener, generation) in listeners {
+                if self.app.listener_generation(listener) != generation
+                    || !self.app.host_listeners(window, kind).contains(&listener)
+                {
+                    continue;
+                }
                 let delivery = Delivery {
                     listener,
                     event: event.clone(),
@@ -1354,8 +1376,30 @@ impl<A: App> Handler<'_, A> {
         let Some(submission) = crate::forms::begin(doc, self.listeners, form, submitter) else {
             return;
         };
+        let path: Vec<_> = element_chain(doc, form)
+            .into_iter()
+            .map(NodeId::as_u64)
+            .collect();
         self.capture(doc, Event::Submit, &submission.event, true);
-        self.dispatch(doc, &submission.deliveries);
+        let mut dom = Dom {
+            doc,
+            listeners: self.listeners,
+        };
+        let outcome =
+            match self
+                .app
+                .dispatch_element_path(&mut dom, &path, Event::Submit, &submission.event)
+            {
+                Ok(()) => "submit element path".to_owned(),
+                Err(reason) => format!("submit element path rejected: {reason}"),
+            };
+        if let Some(blurred) = self.listeners.blurred.take() {
+            *self.nav_start = Some(blurred);
+        }
+        if let Some(start) = self.listeners.set_navigation.take() {
+            *self.nav_start = start;
+        }
+        self.log.push(outcome);
         self.host(doc, Event::Submit, &submission.event);
         submission.event.finish();
         crate::forms::complete(doc, self.listeners, form, &submission.event);

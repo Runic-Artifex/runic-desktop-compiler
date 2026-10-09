@@ -232,6 +232,26 @@ pub trait App: 'static {
     /// error the task's writes are rolled back and controlled inputs are
     /// re-synchronised.
     fn dispatch(&mut self, dom: &mut Dom, deliveries: &[Delivery]) -> Result<(), String>;
+    /// Identity of a listener registration occupying a reusable slot. Physical
+    /// host dispatch snapshots this before callbacks can remove/reuse the slot.
+    fn listener_generation(&self, listener: u32) -> u64 {
+        let _ = listener;
+        0
+    }
+    /// Deliver one physical event over its frozen element path, consulting
+    /// registrations when each target/phase is reached. Generated apps retain
+    /// their schedule's event-versus-listener checkpoints here.
+    fn dispatch_element_path(
+        &mut self,
+        dom: &mut Dom,
+        path: &[u64],
+        kind: Event,
+        event: &runic_js::Event,
+    ) -> Result<(), String> {
+        let _ = (dom, path, kind, event);
+        unsupported("physical element-path dispatch in an app without a generated dispatcher");
+        Err("physical element-path dispatch requires a generated dispatcher".into())
+    }
     /// Listener keys of the document (`window: false`) or the window for
     /// `event`, in registration order.
     fn host_listeners(&self, window: bool, event: Event) -> Vec<u32> {

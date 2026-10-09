@@ -37,6 +37,23 @@ The runtime submission session owns the form identity, shared Event and copied
 deliveries. A per-form guard lasts through validation and listener dispatch;
 same-form nested submission is suppressed and another form may submit. Native
 Host collection releases its mutable DOM/listener borrow before callbacks.
+Nested dispatch freezes the event's element path before callbacks, then copies
+the registrations separately when each target and phase is reached. Removing a
+registration prevents its invocation; removing and re-adding the same callback
+creates a new registration. Additions for a later target or phase can run during
+the same event. Internal registration generations distinguish recycled listener
+slots, without changing schema 4. The runtime's owned path/registration reads
+release all DOM borrows before generated callbacks run. Commit-time focus events
+retain the existing schedule's explicit element-listener exclusion.
+Physical host callbacks retain their existing task/checkpoint boundaries while
+using the same registration identities; removed/recycled slots cannot substitute
+a new callback in an already snapshotted host phase.
+For physical submission, the generated app also dispatches the frozen element
+path through its ordinary task runner. Event-checkpoint schedules keep all
+element phases in one task; listener-checkpoint schedules keep a task for each
+callback. Each phase still snapshots its registrations only when reached.
+The runtime's internal `App::dispatch_element_path` interface separates this
+selection from scheduling; it introduces no framework branch or IR construct.
 Completion releases the guard on every path, then checks cancellation and live
 form state. A known disconnected receiver dispatches no event and retains
 Chromium's disconnected-form console warning. Removed form identities also
@@ -73,3 +90,5 @@ Normative references: [form submission and implicit submission](https://html.spe
 [requestSubmit](https://html.spec.whatwg.org/multipage/forms.html#dom-form-requestsubmit),
 [input states](https://html.spec.whatwg.org/multipage/input.html#the-input-element),
 [button Auto state](https://html.spec.whatwg.org/multipage/form-elements.html#the-button-element).
+Listener timing follows the DOM Standard's
+[event listener invocation](https://dom.spec.whatwg.org/#concept-event-listener-inner-invoke).

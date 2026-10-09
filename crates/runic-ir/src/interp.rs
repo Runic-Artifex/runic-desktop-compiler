@@ -758,14 +758,17 @@ pub struct Machine<'p> {
     /// What media queries see (the probe's default viewport and preferences).
     media: runic_css::MediaEnv,
     /// Document and window listeners in registration order: (window, kind, listener).
-    host_listeners: Vec<(bool, EventKind, Val)>,
+    host_listeners: Vec<(bool, EventKind, Val, u64)>,
     /// Capture listeners of the document and the window (M6 overlays:
     /// `on(document, "focusin", f, { capture: true })`), called before the
     /// event's path.
-    capture_listeners: Vec<(bool, EventKind, Val)>,
+    capture_listeners: Vec<(bool, EventKind, Val, u64)>,
     /// Element listeners added by script (M6 overlays), after the
     /// template's listeners of their element.
-    element_listeners: Vec<(u64, EventKind, Val)>,
+    element_listeners: Vec<(u64, EventKind, Val, u64)>,
+    /// Monotonic identity of each script listener registration, even when
+    /// the same callback is removed and added again during dispatch.
+    listener_registration: u64,
     /// Listeners of events of non-native types added by script (M6
     /// overlays), by element and type, in registration order.
     custom_listeners: Vec<(u64, JsString, Val)>,
@@ -1085,6 +1088,7 @@ impl<'p> Machine<'p> {
             host_listeners: vec![],
             capture_listeners: vec![],
             element_listeners: vec![],
+            listener_registration: 0,
             custom_listeners: vec![],
             viewport_listeners: vec![],
             media_lists: vec![],
@@ -3198,7 +3202,10 @@ impl<'p> Machine<'p> {
                     .iter()
                     .position(|g| g.0 == e.0 && g.1 == kind && g.2.same(&f));
                 match (m, at) {
-                    ("listen", None) => self.element_listeners.push((e.0, kind, f)),
+                    ("listen", None) => {
+                        let registration = self.next_listener_registration();
+                        self.element_listeners.push((e.0, kind, f, registration));
+                    }
                     ("unlisten", Some(i)) => {
                         self.element_listeners.remove(i);
                     }
@@ -3437,7 +3444,10 @@ impl<'p> Machine<'p> {
                     .iter()
                     .position(|g| g.0 == window && g.1 == kind && g.2.same(&f));
                 match (m, at) {
-                    ("listen-capture", None) => self.capture_listeners.push((window, kind, f)),
+                    ("listen-capture", None) => {
+                        let registration = self.next_listener_registration();
+                        self.capture_listeners.push((window, kind, f, registration));
+                    }
                     ("unlisten-capture", Some(i)) => {
                         self.capture_listeners.remove(i);
                     }
@@ -3455,7 +3465,10 @@ impl<'p> Machine<'p> {
                     .position(|g| g.0 == window && g.1 == kind && g.2.same(&f));
                 match (m, at) {
                     // Adding a registered listener again does nothing.
-                    ("listen", None) => self.host_listeners.push((window, kind, f)),
+                    ("listen", None) => {
+                        let registration = self.next_listener_registration();
+                        self.host_listeners.push((window, kind, f, registration));
+                    }
                     ("unlisten", Some(i)) => {
                         self.host_listeners.remove(i);
                     }
@@ -6880,7 +6893,7 @@ impl<'p> Machine<'p> {
         if !self.begin_submission(form, submitter).map_err(throw_diag)? {
             return Ok(());
         }
-        let result = self.dispatch(form, EventKind::Submit, js::EventData::default(), None, s);
+        let result = self.dispatch_submit_path(form, s);
         self.submitting_forms.remove(&form);
         let event = result?;
         self.render()?;
@@ -7199,9 +7212,161 @@ impl<'p> Machine<'p> {
         }
     }
 
-    /// Dispatch an event nested in the running script, on the tree as last
-    /// rendered: its listeners run at once, without a task or microtask
-    /// checkpoint; their exceptions are reported, not propagated.
+    fn next_listener_registration(&mut self) -> u64 {
+        self.listener_registration += 1;
+        self.listener_registration
+    }
+
+    /// Invoke one host target/phase from its current listener list. A removed
+    /// registration stays removed even when the same callback is added again.
+    fn dispatch_host_nested_stage(
+        &mut self,
+        window: bool,
+        capture: bool,
+        kind: EventKind,
+        event: &js::Event,
+    ) {
+        let registry = if capture {
+            &self.capture_listeners
+        } else {
+            &self.host_listeners
+        };
+        let calls: Vec<_> = registry
+            .iter()
+            .filter(|g| g.0 == window && g.1 == kind)
+            .map(|g| (g.2.clone(), g.3))
+            .collect();
+        for (f, registration) in calls {
+            let registry = if capture {
+                &self.capture_listeners
+            } else {
+                &self.host_listeners
+            };
+            let live = registry.iter().any(|g| g.3 == registration);
+            let current = if window {
+                js::Element::WINDOW
+            } else {
+                js::Element::DOCUMENT
+            };
+            if !live || !event.enter(current) {
+                continue;
+            }
+            if let Err(t) = self.call_nested_listener(&f, event) {
+                self.uncaught.push(t);
+            }
+        }
+    }
+
+    /// Own one element's current phase listeners, without retaining a tree or
+    /// registration-table borrow while application callbacks run.
+    fn nested_element_listeners(
+        &self,
+        current: u64,
+        kind: EventKind,
+        capture: bool,
+    ) -> Vec<(ListenerRef, Option<u64>)> {
+        let mut calls = vec![];
+        if capture {
+            for &(k, l) in self.capture_elements.get(&current).into_iter().flatten() {
+                if k == kind {
+                    calls.push((self.listeners[l].clone(), None));
+                }
+            }
+        } else {
+            if let Some(VNode::Element { listeners, .. }) =
+                chain_nodes(&self.last_tree, current).and_then(|nodes| nodes.last().copied())
+            {
+                for &(k, l) in listeners {
+                    if k == kind {
+                        calls.push((self.listeners[l].clone(), None));
+                    }
+                }
+            }
+            for (_, _, f, registration) in self
+                .element_listeners
+                .iter()
+                .filter(|g| g.0 == current && g.1 == kind)
+            {
+                calls.push((
+                    ListenerRef {
+                        instance: 0,
+                        handler: 0,
+                        args: vec![],
+                        closure: Some(f.clone()),
+                    },
+                    Some(*registration),
+                ));
+            }
+        }
+        calls
+    }
+
+    fn element_listener_live(
+        &self,
+        current: u64,
+        capture: bool,
+        kind: EventKind,
+        r: &ListenerRef,
+        registration: Option<u64>,
+    ) -> bool {
+        if let Some(registration) = registration {
+            self.element_listeners.iter().any(|g| g.3 == registration)
+        } else {
+            self.nested_element_listeners(current, kind, capture)
+                .iter()
+                .any(|(now, id)| {
+                    id.is_none()
+                        && now.instance == r.instance
+                        && now.handler == r.handler
+                        && now.args.len() == r.args.len()
+                        && now.args.iter().zip(&r.args).all(|(a, b)| a.same(b))
+                        && match (&now.closure, &r.closure) {
+                            (Some(a), Some(b)) => a.same(b),
+                            (None, None) => true,
+                            _ => false,
+                        }
+                })
+        }
+    }
+
+    fn call_element_listener(&mut self, r: &ListenerRef, event: &js::Event) -> Res<()> {
+        match &r.closure {
+            Some(f) => self.call_nested_listener(f, event),
+            None => self.run(r.instance, r.handler, r.args.clone(), Some(event.clone())),
+        }
+    }
+
+    fn element_listener_source(&self, r: &ListenerRef) -> Option<Source> {
+        self.program.components[self.instances[r.instance].component]
+            .handlers
+            .get(r.handler)
+            .filter(|_| r.closure.is_none())
+            .and_then(|h| h.source.clone())
+    }
+
+    fn dispatch_element_nested_stage(
+        &mut self,
+        current: u64,
+        capture: bool,
+        kind: EventKind,
+        event: &js::Event,
+    ) {
+        let calls = self.nested_element_listeners(current, kind, capture);
+        for (r, registration) in calls {
+            let live = self.element_listener_live(current, capture, kind, &r, registration);
+            if !live || !event.enter(js::Element(current)) {
+                continue;
+            }
+            let result = self.call_element_listener(&r, event);
+            if let Err(t) = result {
+                self.uncaught.push(t);
+            }
+        }
+    }
+
+    /// Dispatch nested in the running script, with an owned event path and
+    /// a fresh snapshot when each target/phase is reached. No task or microtask
+    /// checkpoint is inserted; callback exceptions are reported.
     fn dispatch_nested(
         &mut self,
         target: u64,
@@ -7209,130 +7374,32 @@ impl<'p> Machine<'p> {
         mut data: js::EventData,
         elements: bool,
     ) -> Option<js::Event> {
-        // Own the path and listener snapshots without hiding the live tree
-        // from callbacks or consuming the reusable listener table.
-        let tree = self.last_tree.clone();
-        let nodes = chain_nodes(&tree, target)?;
+        let path: Vec<u64> = chain_nodes(&self.last_tree, target)?
+            .iter()
+            .filter_map(|n| element_id(n))
+            .collect();
         data.kind = JsString::from(kind.name());
         data.target = js::Element(target);
         data.cancelable = kind.cancelable();
         let event = js::Event::new(data);
-        let mut calls: Vec<(ListenerRef, u64, bool)> = vec![];
+        for window in [true, false] {
+            self.dispatch_host_nested_stage(window, true, kind, &event);
+        }
         if elements {
-            for n in &nodes {
-                if let VNode::Element { id, .. } = n {
-                    for &(k, l) in self.capture_elements.get(id).into_iter().flatten() {
-                        if k == kind {
-                            calls.push((self.listeners[l].clone(), *id, false));
-                        }
-                    }
-                }
+            for &current in &path {
+                self.dispatch_element_nested_stage(current, true, kind, &event);
             }
-            let path: Vec<&VNode> = if kind.bubbles() {
-                nodes.iter().rev().copied().collect()
-            } else {
-                vec![*nodes.last().expect("element chain")]
-            };
-            for n in path {
-                if let VNode::Element { id, listeners, .. } = n {
-                    for &(k, l) in listeners {
-                        if k == kind {
-                            calls.push((self.listeners[l].clone(), *id, false));
-                        }
-                    }
-                    for (_, _, f) in self
-                        .element_listeners
-                        .iter()
-                        .filter(|g| g.0 == *id && g.1 == kind)
-                    {
-                        calls.push((
-                            ListenerRef {
-                                instance: 0,
-                                handler: 0,
-                                args: vec![],
-                                closure: Some(f.clone()),
-                            },
-                            *id,
-                            true,
-                        ));
-                    }
-                }
-            }
-        }
-        let capture: Vec<_> = [true, false]
-            .into_iter()
-            .flat_map(|window| {
-                self.capture_listeners
-                    .iter()
-                    .filter(move |g| g.0 == window && g.1 == kind)
-                    .map(move |g| (window, g.2.clone()))
-            })
-            .collect();
-        let bubble: Vec<_> = [false, true]
-            .into_iter()
-            .flat_map(|window| {
-                self.host_listeners
-                    .iter()
-                    .filter(move |g| g.0 == window && g.1 == kind)
-                    .map(move |g| (window, g.2.clone()))
-            })
-            .collect();
-        for (window, f) in capture {
-            let current = if window {
-                js::Element::WINDOW
-            } else {
-                js::Element::DOCUMENT
-            };
-            if self
-                .capture_listeners
+            for &current in path
                 .iter()
-                .any(|g| g.0 == window && g.1 == kind && g.2.same(&f))
-                && event.enter(current)
+                .rev()
+                .take(if kind.bubbles() { path.len() } else { 1 })
             {
-                if let Err(t) = self.call_nested_listener(&f, &event) {
-                    self.uncaught.push(t);
-                }
-            }
-        }
-        for (r, current, script) in calls {
-            if script
-                && r.closure.as_ref().is_some_and(|f| {
-                    !self
-                        .element_listeners
-                        .iter()
-                        .any(|g| g.0 == current && g.1 == kind && g.2.same(f))
-                })
-            {
-                continue;
-            }
-            if !event.enter(js::Element(current)) {
-                continue;
-            }
-            let result = match &r.closure {
-                Some(f) => self.call_nested_listener(f, &event),
-                None => self.run(r.instance, r.handler, r.args, Some(event.clone())),
-            };
-            if let Err(t) = result {
-                self.uncaught.push(t);
+                self.dispatch_element_nested_stage(current, false, kind, &event);
             }
         }
         if kind.bubbles() {
-            for (window, f) in bubble {
-                let current = if window {
-                    js::Element::WINDOW
-                } else {
-                    js::Element::DOCUMENT
-                };
-                if self
-                    .host_listeners
-                    .iter()
-                    .any(|g| g.0 == window && g.1 == kind && g.2.same(&f))
-                    && event.enter(current)
-                {
-                    if let Err(t) = self.call_nested_listener(&f, &event) {
-                        self.uncaught.push(t);
-                    }
-                }
+            for window in [false, true] {
+                self.dispatch_host_nested_stage(window, false, kind, &event);
             }
         }
         event.finish();
@@ -7349,6 +7416,96 @@ impl<'p> Machine<'p> {
             .map(|_| ());
         (self.payload, self.event) = outer;
         result
+    }
+
+    /// Only physical form submission uses phase-local element snapshots here.
+    /// Other physical events retain their existing dispatch path and checkpoints.
+    fn dispatch_submit_path(&mut self, target: u64, s: &mut Run) -> Result<Option<js::Event>> {
+        let tree = self.render()?;
+        let Some(nodes) = chain_nodes(&tree, target) else {
+            return Ok(None);
+        };
+        let path: Vec<_> = nodes.iter().rev().filter_map(|n| element_id(n)).collect();
+        let kind = EventKind::Submit;
+        let event = js::Event::new(js::EventData {
+            kind: kind.name().into(),
+            target: js::Element(target),
+            cancelable: kind.cancelable(),
+            ..Default::default()
+        });
+        let stages: Vec<_> = path
+            .iter()
+            .rev()
+            .map(|&current| (current, true))
+            .chain(path.iter().map(|&current| (current, false)))
+            .collect();
+        self.dispatch_capture(kind, &event, true, s);
+        if self.program.schedule.checkpoint == Checkpoint::Listener {
+            for (current, capture) in stages {
+                // A callback/checkpoint may change later targets, but this
+                // invocation keeps its original owned registration snapshot.
+                let calls = self.nested_element_listeners(current, kind, capture);
+                for (r, registration) in calls {
+                    if !self.element_listener_live(current, capture, kind, &r, registration) {
+                        continue;
+                    }
+                    let source = self.element_listener_source(&r);
+                    let result = self.task(source.as_ref(), true, |m| {
+                        if !m.element_listener_live(current, capture, kind, &r, registration)
+                            || !event.enter(js::Element(current))
+                        {
+                            return Ok(());
+                        }
+                        s.ran = true;
+                        m.call_element_listener(&r, &event)
+                    });
+                    if let Err(d) = result {
+                        s.error.get_or_insert(d);
+                    }
+                }
+            }
+        } else {
+            let source = stages
+                .iter()
+                .flat_map(|&(current, capture)| {
+                    self.nested_element_listeners(current, kind, capture)
+                })
+                .find_map(|(r, _)| self.element_listener_source(&r));
+            let has_calls = stages.iter().any(|&(current, capture)| {
+                !self
+                    .nested_element_listeners(current, kind, capture)
+                    .is_empty()
+            });
+            if has_calls {
+                let result = self.task(source.as_ref(), true, |m| {
+                    let mut error = None;
+                    for (current, capture) in stages {
+                        let calls = m.nested_element_listeners(current, kind, capture);
+                        for (r, registration) in calls {
+                            if !m.element_listener_live(current, capture, kind, &r, registration)
+                                || !event.enter(js::Element(current))
+                            {
+                                continue;
+                            }
+                            s.ran = true;
+                            if let Err(t) = m.call_element_listener(&r, &event) {
+                                if t.name.to_rust() == "RunicDomainError" {
+                                    return Err(t);
+                                }
+                                error.get_or_insert(t);
+                            }
+                        }
+                    }
+                    error.map_or(Ok(()), Err)
+                });
+                if let Err(d) = result {
+                    s.error.get_or_insert(d);
+                }
+            }
+        }
+        self.dispatch_globals(kind, &event, s);
+        event.finish();
+        Ok(Some(event))
     }
 
     /// Dispatch one event at the element `target` if it is rendered: the
@@ -7658,17 +7815,14 @@ impl<'p> Machine<'p> {
             } else {
                 js::Element::DOCUMENT
             };
-            let listeners: Vec<Val> = self
+            let listeners: Vec<(Val, u64)> = self
                 .capture_listeners
                 .iter()
                 .filter(|g| g.0 == window && g.1 == kind)
-                .map(|g| g.2.clone())
+                .map(|g| (g.2.clone(), g.3))
                 .collect();
-            for f in listeners {
-                let live = self
-                    .capture_listeners
-                    .iter()
-                    .any(|g| g.0 == window && g.1 == kind && g.2.same(&f));
+            for (f, registration) in listeners {
+                let live = self.capture_listeners.iter().any(|g| g.3 == registration);
                 if !live || !event.enter(current) {
                     continue;
                 }
@@ -7689,17 +7843,14 @@ impl<'p> Machine<'p> {
             } else {
                 js::Element::DOCUMENT
             };
-            let listeners: Vec<Val> = self
+            let listeners: Vec<(Val, u64)> = self
                 .host_listeners
                 .iter()
                 .filter(|g| g.0 == window && g.1 == kind)
-                .map(|g| g.2.clone())
+                .map(|g| (g.2.clone(), g.3))
                 .collect();
-            for f in listeners {
-                let live = self
-                    .host_listeners
-                    .iter()
-                    .any(|g| g.0 == window && g.1 == kind && g.2.same(&f));
+            for (f, registration) in listeners {
+                let live = self.host_listeners.iter().any(|g| g.3 == registration);
                 if !live || !event.enter(current) {
                     continue;
                 }
@@ -8946,6 +9097,331 @@ mod resolved_pointer_tests {
 mod form_submission_tests {
     use super::*;
 
+    fn listener_program(functions: serde_json::Value, target_digit: Option<u32>) -> Program {
+        let mut body = vec![];
+        if let Some(digit) = target_digit {
+            body.push(trace(digit));
+        }
+        body.push(json!({"op": "expr", "value": {"op": "builtin", "name": "event.preventDefault", "type": "void", "args": [{"op": "event"}]}}));
+        serde_json::from_value(json!({
+            "schema": 4,
+            "meta": {"title": "listener stages", "sourceHash": "test", "frontend": {}},
+            "capabilities": [], "styles": {"css": ""}, "root": 0,
+            "functions": functions,
+            "components": [{"name": "Test", "template": [], "cells": [
+                {"name": "trace", "type": "number", "init": {"op": "lit", "value": 0}},
+                {"name": "changed", "type": "boolean", "init": {"op": "lit", "value": false}}
+            ], "handlers": [{"event": "submit", "body": body}]}]
+        }))
+        .unwrap()
+    }
+
+    fn trace(digit: u32) -> serde_json::Value {
+        json!({"op": "set", "cell": 0, "value": {"op": "add", "left": {
+            "op": "mul", "left": {"op": "cell", "cell": 0}, "right": {"op": "lit", "value": 10}
+        }, "right": {"op": "lit", "value": digit}}})
+    }
+
+    fn registration(method: &str, function: usize) -> serde_json::Value {
+        json!({"op": "expr", "value": {"op": "builtin", "name": method, "type": "void", "args": [
+            {"op": "lit", "value": "submit"}, {"op": "closure", "function": function, "captures": [], "stable": true}
+        ]}})
+    }
+
+    fn listener_function(name: &str, body: Vec<serde_json::Value>) -> serde_json::Value {
+        json!({"name": name, "component": 0, "params": [], "result": "void", "body": body})
+    }
+
+    fn install_form(machine: &mut Machine<'_>) {
+        machine.last_tree = vec![VNode::Element {
+            tag: "form".into(),
+            attrs: BTreeMap::new(),
+            value: None,
+            checked: None,
+            id: 1,
+            listeners: vec![(EventKind::Submit, 0)],
+            children: vec![],
+        }];
+        machine.listeners.push(ListenerRef {
+            instance: 0,
+            handler: 0,
+            args: vec![],
+            closure: None,
+        });
+        machine.known_forms.insert(1);
+        // Keep callback identity stable independently of registration identity.
+        for function in 0..machine.program.functions.len() {
+            machine.stable_fns.insert(
+                (Some(0), function),
+                Val::Closure(Rc::new(Closure {
+                    function,
+                    captures: vec![],
+                    instance: Some(0),
+                    snapshot: None,
+                })),
+            );
+        }
+    }
+
+    fn install_host_listener(machine: &mut Machine<'_>, function: usize, capture: bool) {
+        let f = machine.stable_fns[&(Some(0), function)].clone();
+        machine
+            .builtin(
+                if capture {
+                    "document.listen-capture"
+                } else {
+                    "document.listen"
+                },
+                vec![Val::Str("submit".into()), f],
+                &[],
+                &Type::Void,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn capture_added_bubble_listener_participates_in_the_same_submit() {
+        let program = listener_program(
+            json!([
+                listener_function(
+                    "capture",
+                    vec![trace(1), registration("document.listen", 2)]
+                ),
+                listener_function("existing bubble", vec![trace(3)]),
+                listener_function("added bubble", vec![trace(4)])
+            ]),
+            Some(2),
+        );
+        let mut machine = Machine::new(&program).unwrap();
+        install_form(&mut machine);
+        install_host_listener(&mut machine, 0, true);
+        install_host_listener(&mut machine, 1, false);
+        machine.request_submit(1).unwrap();
+        assert!(matches!(machine.instances[0].cells[0], Val::Num(1234.0)));
+        assert!(machine.submitting_forms.is_empty());
+        assert!(machine.uncaught.is_empty());
+    }
+
+    fn invoke_listener_test_submit(machine: &mut Machine<'_>, physical: bool) {
+        if physical {
+            let event = js::Event::new(js::EventData {
+                kind: "submit".into(),
+                target: js::Element(1),
+                cancelable: true,
+                ..Default::default()
+            });
+            let mut run = Run::default();
+            machine.dispatch_globals(EventKind::Submit, &event, &mut run);
+            event.finish();
+            assert!(run.error.is_none());
+        } else {
+            machine.request_submit(1).unwrap();
+        }
+    }
+
+    #[test]
+    fn removed_and_replaced_nested_and_physical_host_registrations_wait_for_the_next_submit() {
+        for physical in [false, true] {
+            for replacement in [1, 2] {
+                let program = listener_program(
+                    json!([
+                        listener_function(
+                            "first",
+                            vec![
+                                trace(1),
+                                json!({"op": "if", "test": {
+                    "op": "not", "arg": {"op": "cell", "cell": 1}
+                }, "then": [
+                    {"op": "set", "cell": 1, "value": {"op": "lit", "value": true}},
+                    registration("document.unlisten", 1), registration("document.listen", replacement)
+                ], "else": []})
+                            ]
+                        ),
+                        listener_function("removed", vec![trace(2)]),
+                        listener_function("fresh", vec![trace(3)])
+                    ]),
+                    None,
+                );
+                let mut machine = Machine::new(&program).unwrap();
+                install_form(&mut machine);
+                install_host_listener(&mut machine, 0, false);
+                install_host_listener(&mut machine, 1, false);
+                let old_registration = machine.host_listeners[1].3;
+                invoke_listener_test_submit(&mut machine, physical);
+                assert!(matches!(machine.instances[0].cells[0], Val::Num(1.0)));
+                assert_ne!(machine.host_listeners[1].3, old_registration);
+                invoke_listener_test_submit(&mut machine, physical);
+                let expected = if replacement == 1 { 112.0 } else { 113.0 };
+                assert!(matches!(machine.instances[0].cells[0], Val::Num(n) if n == expected));
+                assert!(machine.submitting_forms.is_empty());
+                assert!(machine.uncaught.is_empty());
+            }
+        }
+    }
+
+    fn element_registration(method: &str, function: usize) -> serde_json::Value {
+        json!({"op": "expr", "value": {"op": "builtin", "name": method, "type": "void", "args": [
+            {"op": "builtin", "name": "event.target", "type": "element", "args": [{"op": "local", "local": 0}]},
+            {"op": "lit", "value": "submit"}, {"op": "closure", "function": function, "captures": [], "stable": true}
+        ]}})
+    }
+
+    fn element_listener_function(name: &str, body: Vec<serde_json::Value>) -> serde_json::Value {
+        let mut function = listener_function(name, body);
+        function["params"] = json!([{"name": "event", "type": "event"}]);
+        function
+    }
+
+    fn live_form_program(functions: serde_json::Value, checkpoint: Checkpoint) -> Program {
+        let mut program = listener_program(functions, Some(2));
+        program.schedule.checkpoint = checkpoint;
+        program.components[0].template = serde_json::from_value(json!([{
+            "kind": "element", "tag": "form", "attrs": [{"name": "id", "value": {"op": "lit", "value": "form"}}],
+            "listeners": [{"event": "submit", "handler": 0}], "children": []
+        }])).unwrap();
+        program
+    }
+
+    fn install_live_form(machine: &mut Machine<'_>) -> u64 {
+        machine.render().unwrap();
+        for function in 0..machine.program.functions.len() {
+            machine.stable_fns.insert(
+                (Some(0), function),
+                Val::Closure(Rc::new(Closure {
+                    function,
+                    captures: vec![],
+                    instance: Some(0),
+                    snapshot: None,
+                })),
+            );
+        }
+        element_by_id(&machine.last_tree, "form").unwrap()
+    }
+
+    fn install_element_listener(machine: &mut Machine<'_>, form: u64, function: usize) {
+        let f = machine.stable_fns[&(Some(0), function)].clone();
+        machine
+            .builtin(
+                "element.listen",
+                vec![
+                    Val::Element(js::Element(form)),
+                    Val::Str("submit".into()),
+                    f,
+                ],
+                &[],
+                &Type::Void,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn physical_capture_added_form_listener_preserves_callback_checkpoint_policy() {
+        for checkpoint in [Checkpoint::Event, Checkpoint::Listener] {
+            let mut program = live_form_program(
+                json!([
+                    element_listener_function(
+                        "capture",
+                        vec![trace(1), element_registration("element.listen", 1)]
+                    ),
+                    element_listener_function("added form listener", vec![trace(3)]),
+                    listener_function("queued job", vec![trace(9)])
+                ]),
+                checkpoint,
+            );
+            program.components[0].handlers[0].body.insert(1, serde_json::from_value(json!({
+                "op": "expr", "value": {"op": "builtin", "name": "microtask.queue", "type": "void", "args": [
+                    {"op": "closure", "function": 2, "captures": [], "stable": true}
+                ]}
+            })).unwrap());
+            let mut machine = Machine::new(&program).unwrap();
+            let form = install_live_form(&mut machine);
+            install_host_listener(&mut machine, 0, true);
+            let mut run = Run::default();
+            machine.submit_form(form, None, &mut run).unwrap();
+            let expected = if checkpoint == Checkpoint::Event {
+                1239.0
+            } else {
+                1293.0
+            };
+            assert!(matches!(machine.instances[0].cells[0], Val::Num(n) if n == expected));
+            assert!(run.error.is_none());
+            assert!(machine.submitting_forms.is_empty());
+        }
+    }
+
+    #[test]
+    fn physical_form_removed_and_readded_listeners_wait_for_next_target_invocation() {
+        for checkpoint in [Checkpoint::Event, Checkpoint::Listener] {
+            for replacement in [1, 2] {
+                let program = live_form_program(
+                    json!([
+                        element_listener_function(
+                            "first",
+                            vec![
+                                trace(3),
+                                json!({"op": "if", "test": {
+                        "op": "not", "arg": {"op": "cell", "cell": 1}
+                    }, "then": [
+                        {"op": "set", "cell": 1, "value": {"op": "lit", "value": true}},
+                        element_registration("element.unlisten", 1), element_registration("element.listen", replacement)
+                    ], "else": []})
+                            ]
+                        ),
+                        element_listener_function("removed", vec![trace(4)]),
+                        element_listener_function("fresh", vec![trace(5)])
+                    ]),
+                    checkpoint,
+                );
+                let mut machine = Machine::new(&program).unwrap();
+                let form = install_live_form(&mut machine);
+                install_element_listener(&mut machine, form, 0);
+                install_element_listener(&mut machine, form, 1);
+                let mut run = Run::default();
+                machine.submit_form(form, None, &mut run).unwrap();
+                assert!(matches!(machine.instances[0].cells[0], Val::Num(23.0)));
+                machine.submit_form(form, None, &mut run).unwrap();
+                let expected = if replacement == 1 { 23234.0 } else { 23235.0 };
+                assert!(matches!(machine.instances[0].cells[0], Val::Num(n) if n == expected));
+                assert!(run.error.is_none());
+                assert!(machine.submitting_forms.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn empty_physical_form_path_does_not_insert_an_element_checkpoint() {
+        for checkpoint in [Checkpoint::Event, Checkpoint::Listener] {
+            let mut program = live_form_program(
+                json!([listener_function("queued job", vec![trace(9)])]),
+                checkpoint,
+            );
+            let Node::Element { listeners, .. } = &mut program.components[0].template[0] else {
+                unreachable!()
+            };
+            listeners.clear();
+            let mut machine = Machine::new(&program).unwrap();
+            let form = install_live_form(&mut machine);
+            let f = machine.stable_fns[&(Some(0), 0)].clone();
+            machine
+                .builtin("microtask.queue", vec![f], &[], &Type::Void)
+                .unwrap();
+            let tasks = machine.tasks_run;
+            let mut run = Run::default();
+            assert!(
+                machine
+                    .dispatch_submit_path(form, &mut run)
+                    .unwrap()
+                    .is_some()
+            );
+            assert_eq!(machine.tasks_run, tasks);
+            assert!(matches!(machine.instances[0].cells[0], Val::Num(0.0)));
+            assert!(!machine.microtasks.is_empty());
+            machine.checkpoint();
+            assert!(matches!(machine.instances[0].cells[0], Val::Num(9.0)));
+            assert!(run.error.is_none());
+        }
+    }
+
     #[test]
     fn repeated_nested_submit_keeps_listeners_tree_and_outer_event_state() {
         let mut program: Program = serde_json::from_value(json!({
@@ -9000,6 +9476,7 @@ mod form_submission_tests {
                 instance: Some(0),
                 snapshot: None,
             })),
+            0,
         ));
         let outer = js::Event::new(js::EventData {
             kind: "click".into(),

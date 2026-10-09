@@ -746,6 +746,35 @@ impl Host {
         }
     }
 
+    /// Freeze the element path for a synchronous nested event. The target is
+    /// first; callbacks may subsequently change the tree without changing it.
+    /// Window/document events have no element path.
+    pub fn nested_event_path(&self, target: u64) -> Vec<u64> {
+        if target == runic_js::Element::WINDOW.0 || target == runic_js::Element::DOCUMENT.0 {
+            return Vec::new();
+        }
+        self.dom().map_or_else(Vec::new, |dom| {
+            crate::events::element_chain(dom.doc, NodeId::from_u64(target))
+                .into_iter()
+                .map(NodeId::as_u64)
+                .collect()
+        })
+    }
+
+    /// Copy the registrations when a nested event reaches one target and
+    /// phase. The DOM borrow ends before any callback; later phases can see
+    /// registrations made by earlier callbacks.
+    pub fn nested_event_listeners(&self, current: u64, kind: Event, capture: bool) -> Vec<u32> {
+        self.dom().map_or_else(Vec::new, |dom| {
+            let current = NodeId::from_u64(current);
+            if capture {
+                dom.listeners.all_capture(current, kind).collect()
+            } else {
+                dom.listeners.all(current, kind).collect()
+            }
+        })
+    }
+
     /// `element.select()`: selects all text of a text control.
     pub fn select_text(&self, node: u64) {
         if let Some(dom) = self.dom() {

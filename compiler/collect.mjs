@@ -276,12 +276,28 @@ async function globCalls(ctx, root, id, code) {
 // collected too, with the package they belong to.
 export function collectionPlugin(root, modules, tooling, onDiagnostic, componentStyles) {
   let packageModules = 0;
+  const checkAuthoredStyles = (code, id) => {
+    // Framework tooling identifies original style text and its source. Check
+    // before scoping/minification removes selectors or changes positions.
+    // Padding retains inline blocks' component line and column numbers.
+    for (const style of tooling.authoredStyles?.(code, id) ?? []) {
+      const original = code.slice(0, style.offset).replace(/[^\r\n]/g, ' ') + style.code;
+      const owner = style.owner ?? id;
+      const css = postcss.parse(original, { from: owner });
+      const label = path.relative(root, owner);
+      if (tooling.tailwind) checkValiditySelectors(css, label);
+      else checkRules(css, label);
+    }
+  };
   return {
     name: 'runic-input-graph',
     enforce: 'pre',
     async transform(code, id) {
       try {
         if (id.includes('?')) {
+          // External component styles can arrive as query modules. Tooling
+          // identifies their authored source without relabeling it as an SFC.
+          checkAuthoredStyles(code, id);
           // A component's own stylesheet (Svelte `<style>`), checked with the
           // CSS modules below.
           const owner = tooling.componentStyle?.(id);
@@ -322,6 +338,7 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic, component
           );
         const imports = [];
         if (path.extname(id) !== '.css') {
+          checkAuthoredStyles(code, id);
           for (const script of tooling.scripts?.(code, id) ?? [{ code, offset: 0 }]) {
             const original = code.slice(0, script.offset).replace(/[^\n]/g, ' ') + script.code;
             const ast = ts.createSourceFile(
@@ -1090,15 +1107,7 @@ function checkRules(css, file) {
   });
   // Form constraint validity and user-validity states are not maintained,
   // including when native submission validation is disabled by novalidate.
-  css.walkRules(rule => {
-    const state = unsupportedValiditySelector(rule.selector);
-    if (state)
-      throw new Diagnostic(
-        'E_CSS',
-        `Unsupported selector ${rule.selector}: the runtime does not maintain :${state}`,
-        at(rule),
-      );
-  });
+  checkValiditySelectors(css, file);
   // SVG children have no boxes in Blitz, so pointer hits land on their
   // <svg> and :hover/:active never match them; Chromium hit-tests the shapes
   // (docs/BLITZ-GAPS.md, hit testing inside SVG). Selectors naming an SVG
@@ -1207,6 +1216,18 @@ function checkRules(css, file) {
           line: decl.source.start.line,
           column: decl.source.start.column,
         },
+      );
+  });
+}
+
+function checkValiditySelectors(css, file) {
+  css.walkRules(rule => {
+    const state = unsupportedValiditySelector(rule.selector);
+    if (state)
+      throw new Diagnostic(
+        'E_CSS',
+        `Unsupported selector ${rule.selector}: the runtime does not maintain :${state}`,
+        { file, line: rule.source.start.line, column: rule.source.start.column },
       );
   });
 }

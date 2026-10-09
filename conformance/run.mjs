@@ -24,6 +24,7 @@ import { compareTraces } from './harness/compare.mjs';
 import { checkExpectedText } from './harness/expectations.mjs';
 import { generate } from '../compiler/generate.mjs';
 import { globSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
@@ -91,6 +92,21 @@ async function prepare(dir) {
 }
 const runs = [];
 let incomplete = false;
+// Bind retained observations to the generated inputs and executable actually
+// consumed by this capture. A later cache rebuild must not replace provenance.
+function captureBuild(binary) {
+  const directory = path.dirname(binary);
+  const files = [
+    'runic-app', 'ir.json', 'build.json', 'Cargo.toml', 'Cargo.lock',
+    'src/main.rs', 'src/app.rs',
+    ...globSync('assets/**/*', { cwd: directory, nodir: true }).sort(),
+  ].map(name => {
+    const file = path.join(directory, name), bytes = readFileSync(file);
+    return { path: path.relative(repo, file), bytes: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex') };
+  });
+  return { schema: 1, files, metadata: JSON.parse(readFileSync(path.join(directory, 'build.json'), 'utf8')) };
+}
 try {
   for (const c of cases) {
     const viewports = (c.viewports ?? [[800, 600], [420, 600]]).map(([width, height]) => ({ width, height }));
@@ -126,8 +142,12 @@ try {
           // document.title is a host effect of programs that set it (M6).
           const trackTitle = /"document\.set-title"/.test(JSON.stringify(ir));
           const b = await browser.run(dir, { viewport, actions, ...env, clock: fakeClock, trackTitle, out: values.pixels ? path.join(shots, 'browser') : path.join(out, 'tmp') });
+          const capturedBuild = values['retain-snapshots'] ? captureBuild(binary) : undefined;
           const n = runProbe(binary, { viewport, actions, ...env, visibleTargets: true, gpuAdapter, out: values.pixels ? path.join(shots, 'native') : undefined });
           if (values['retain-snapshots']) {
+            if (JSON.stringify(capturedBuild) !== JSON.stringify(captureBuild(binary)))
+              throw new Error('Native executable or generated inputs changed during capture');
+            run.nativeBuild = capturedBuild;
             const observations = path.join('observations', `${c.name}--${path.basename(fixture)}--${viewport.width}x${viewport.height}`);
             await mkdir(path.join(out, observations), { recursive: true });
             run.observations = { browser: path.join(observations, 'browser.json'), native: path.join(observations, 'native.json') };
