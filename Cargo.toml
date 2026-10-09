@@ -16,13 +16,13 @@ rust-version = "1.98"
 license = "MIT"
 
 [workspace.dependencies]
-blitz-dom = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "e8dd36c6694be78902599320ab1653564627d128", default-features = false, features = ["woff"] }
-blitz-html = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "e8dd36c6694be78902599320ab1653564627d128", default-features = false }
-blitz-shell = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "e8dd36c6694be78902599320ab1653564627d128", default-features = false, features = ["data-uri"] }
+blitz-dom = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "f7d0a01e8bc8794ff8576951395e34734fd0296e", default-features = false, features = ["woff"] }
+blitz-html = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "f7d0a01e8bc8794ff8576951395e34734fd0296e", default-features = false }
+blitz-shell = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "f7d0a01e8bc8794ff8576951395e34734fd0296e", default-features = false, features = ["data-uri"] }
 # Element state bits for checkbox state changes (the version Blitz uses).
 style_dom = { version = "=0.22.0", package = "stylo_dom" }
-blitz-traits = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "e8dd36c6694be78902599320ab1653564627d128", default-features = false }
-blitz-paint = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "e8dd36c6694be78902599320ab1653564627d128", default-features = false }
+blitz-traits = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "f7d0a01e8bc8794ff8576951395e34734fd0296e", default-features = false }
+blitz-paint = { git = "file:///home/viktor/Development/RunicArtifex/blitz", rev = "f7d0a01e8bc8794ff8576951395e34734fd0296e", default-features = false }
 anyrender = "=0.14.0"
 kurbo = "=0.13.1"
 peniko = "=0.6.1"
@@ -55,31 +55,30 @@ runic-css = { path = "crates/runic-css" }
 # style change cancels a CSS animation. Every crate of each repository in the
 # graph is patched, so that crates.io and git copies are never mixed.
 [patch.crates-io]
-# Isolated raster-parity worktree at the existing Vello base 2a06f3e9.
-# Replace local paths with reviewed pins before integration.
-vello_cpu = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/vello_cpu" }
-vello_common = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/vello_common" }
-glifo = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/glifo" }
-vello = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/research/vello_research" }
-vello_encoding = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/research/vello_encoding" }
-vello_shaders = { path = "/home/viktor/Development/RunicArtifex/vello-raster-parity/research/vello_shaders" }
+# Reviewed raster-parity source pinned to its signed integration revision.
+vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "a8efce54ab03eb9d366ff0fe0d799758597b204f" }
+vello_common = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "a8efce54ab03eb9d366ff0fe0d799758597b204f" }
+glifo = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "a8efce54ab03eb9d366ff0fe0d799758597b204f" }
+vello = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "a8efce54ab03eb9d366ff0fe0d799758597b204f" }
+vello_encoding = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "a8efce54ab03eb9d366ff0fe0d799758597b204f" }
+vello_shaders = { git = "file:///home/viktor/Development/RunicArtifex/vello", rev = "a8efce54ab03eb9d366ff0fe0d799758597b204f" }
 anyrender = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 anyrender_vello_cpu = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 anyrender_vello = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 anyrender_svg = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 softbuffer_window_renderer = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
 wgpu_context = { git = "file:///home/viktor/Development/RunicArtifex/anyrender", rev = "22b336b19938c911179e391ad19b34309493978c" }
-stylo = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/style" }
-stylo_atoms = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/stylo_atoms" }
-stylo_derive = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/style_derive" }
-stylo_dom = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/stylo_dom" }
-stylo_malloc_size_of = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/malloc_size_of" }
-stylo_static_prefs = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/stylo_static_prefs" }
-stylo_traits = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/style_traits" }
-selectors = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/selectors" }
-servo_arc = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/servo_arc" }
-to_shmem = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/to_shmem" }
-to_shmem_derive = { path = "/home/viktor/Development/RunicArtifex/stylo-chromium-parity/to_shmem_derive" }
+stylo = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+stylo_atoms = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+stylo_derive = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+stylo_dom = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+stylo_malloc_size_of = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+stylo_static_prefs = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+stylo_traits = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+selectors = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+servo_arc = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+to_shmem = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
+to_shmem_derive = { git = "file:///home/viktor/Development/RunicArtifex/stylo", rev = "568059da762e9ecfdd4c7d1b11474da82f37339c" }
 
 # The Taffy fork (docs/BLITZ-GAPS.md): Blitz's Taffy revision plus a
 # percentage flex basis against an indefinite main size used as `content`.
@@ -89,14 +88,14 @@ taffy = { git = "file:///home/viktor/Development/RunicArtifex/taffy", rev = "e7b
 [profile.dev]
 debug = 0
 
-# Same Parley revision, isolated weight-range matching repair.
+# Reviewed Parley parity source pinned to its signed integration revision.
 [patch."https://github.com/linebender/parley"]
-fontique = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/fontique" }
-parley = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parley" }
-parlance = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parlance" }
-parley_engine = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parley_engine" }
-parley_data = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parley_data" }
-parley_emoji = { path = "/home/viktor/Development/RunicArtifex/parley-chromium-parity/parley_emoji" }
+fontique = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
+parley = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
+parlance = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
+parley_engine = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
+parley_data = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
+parley_emoji = { git = "file:///home/viktor/Development/RunicArtifex/parley.git", rev = "4105c6589c32f1456dbce0185de36838dd0276ff" }
 
 [profile.release]
 opt-level = "s"
@@ -104,12 +103,3 @@ strip = true
 debug = 0
 codegen-units = 1
 panic = "abort"
-
-[patch."file:///home/viktor/Development/RunicArtifex/blitz"]
-blitz-dom = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-dom" }
-blitz-html = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-html" }
-blitz-shell = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-shell" }
-blitz-traits = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-traits" }
-blitz-paint = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/blitz-paint" }
-stylo_taffy = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/stylo_taffy" }
-debug_timer = { path = "/home/viktor/Development/RunicArtifex/blitz-tables/packages/debug_timer" }

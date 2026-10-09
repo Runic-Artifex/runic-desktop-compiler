@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { pixelMAE } from './compare.mjs';
+import { collectRenderingSources } from './sources.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 // Hold the same PID lock as native compiler builds while building and observing
 // the probe: another worktree's claim can otherwise remove this binary mid-run.
@@ -39,32 +40,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
       deviceScaleFactor: 1,
     });
     const sha256 = data => createHash('sha256').update(data).digest('hex');
-    const repositories = new Set([root]);
-    const manifest = await readFile(path.join(root, 'Cargo.toml'), 'utf8');
-    for (const [, dependencyPath] of manifest.matchAll(/path\s*=\s*"([^"]+)"/g)) {
-      const resolved = path.resolve(root, dependencyPath);
-      const result = spawnSync('git', ['-C', resolved, 'rev-parse', '--show-toplevel'], {
-        encoding: 'utf8',
-      });
-      if (result.status === 0) repositories.add(result.stdout.trim());
-    }
-    const source = [];
-    for (const repository of [...repositories].sort()) {
-      const git = args => spawnSync('git', ['-C', repository, ...args], { encoding: 'utf8' });
-      const files = git(['ls-files', '--others', '--exclude-standard', '-z'])
-        .stdout.split('\0')
-        .filter(Boolean)
-        .sort();
-      const untracked = [];
-      for (const file of files)
-        untracked.push([file, sha256(await readFile(path.join(repository, file)))]);
-      source.push({
-        repository,
-        revision: git(['rev-parse', 'HEAD']).stdout.trim(),
-        diffSHA256: sha256(git(['diff', 'HEAD', '--binary']).stdout),
-        untracked,
-      });
-    }
+    const { source, resolvedGitSources } = await collectRenderingSources(root);
     await writeFile(
       path.join(out, 'metadata.json'),
       JSON.stringify(
@@ -80,6 +56,7 @@ export async function runRenderingCases(cases, actions = {}, outName = 'tables',
           geometryTolerance: 0.125,
           pixelMAEThreshold: 3,
           source,
+          resolvedGitSources,
         },
         null,
         2,
