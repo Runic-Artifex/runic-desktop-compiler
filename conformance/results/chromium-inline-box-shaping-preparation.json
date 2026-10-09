@@ -1,0 +1,804 @@
+{
+  "schema": 1,
+  "date": "2026-10-09",
+  "scope": "Dormant per-side inline box shaping helper preparation and 18 canonical cases; production behavior unchanged.",
+  "testedSource": {
+    "/home/viktor/Development/RunicDesktopCompiler": "a57751800f1bf67d1c8f0b4f8ddd6dae05c27bb1",
+    "/home/viktor/Development/RunicArtifex/blitz": "7be80352270c0c5860373a3f2cbf92017962bb32",
+    "/home/viktor/Development/RunicArtifex/parley": "5f982ec9770186095902af37564e46711db7e1b9",
+    "/home/viktor/Development/RunicArtifex/stylo": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+    "/home/viktor/Development/RunicArtifex/vello": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+    "/home/viktor/Development/RunicArtifex/anyrender": "22b336b19938c911179e391ad19b34309493978c",
+    "/home/viktor/Development/RunicArtifex/taffy": "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb"
+  },
+  "recordCommit": "Documentation/results-only successor; no further runtime source changes.",
+  "implementation": {
+    "helperActivated": false,
+    "activePredicateUnchanged": true,
+    "constructionDamageAndInlineUnchanged": true,
+    "newTests": 4,
+    "focusedStyloTests": 14,
+    "canonicalCases": 18,
+    "canonicalStates": 270
+  },
+  "direct": {
+    "evidenceValid": true,
+    "complete": true,
+    "strictOraclePassed": false,
+    "matrices": 36,
+    "states": 5090,
+    "parentStates": 4820,
+    "additiveStates": 270,
+    "unchangedNativeObservationStates": 5090,
+    "unchangedWholeNativePNGStates": 5090,
+    "allNativePNGBytesUnchanged": true,
+    "comparedNativePNGFiles": 21037,
+    "comparedNativeJSONFiles": 1864,
+    "nativeByteComparisonManifest": {
+      "path": "artifacts/inline-box-shaping-preparation/native-byte-comparison-manifest.json",
+      "sha256": "92c0821e4c348d9a8887f61c230b9a488ad6b47867bbc37dce4333187c2a0a96",
+      "bytes": 9513637
+    },
+    "absoluteFailureStates": 3740,
+    "gates": {
+      "geometry": {
+        "eligible": 5090,
+        "absent": 0,
+        "passPass": 4146,
+        "failFail": 944,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "wholePixels": {
+        "eligible": 5090,
+        "absent": 0,
+        "passPass": 5018,
+        "failFail": 72,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "cropPixels": {
+        "eligible": 5090,
+        "absent": 0,
+        "passPass": 2909,
+        "failFail": 2181,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "localPixels": {
+        "eligible": 4809,
+        "absent": 281,
+        "passPass": 1247,
+        "failFail": 3562,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "pixels": {
+        "eligible": 5090,
+        "absent": 0,
+        "passPass": 1477,
+        "failFail": 3613,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "hits": {
+        "eligible": 5090,
+        "absent": 0,
+        "passPass": 4543,
+        "failFail": 547,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "pointHits": {
+        "eligible": 714,
+        "absent": 4376,
+        "passPass": 516,
+        "failFail": 198,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "clientRects": {
+        "eligible": 2331,
+        "absent": 2759,
+        "passPass": 1317,
+        "failFail": 1014,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "editors": {
+        "eligible": 1958,
+        "absent": 3132,
+        "passPass": 1925,
+        "failFail": 33,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "scroll": {
+        "eligible": 284,
+        "absent": 4806,
+        "passPass": 236,
+        "failFail": 48,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "lineWidths": {
+        "eligible": 252,
+        "absent": 4838,
+        "passPass": 252,
+        "failFail": 0,
+        "repairs": 0,
+        "regressions": 0
+      }
+    }
+  },
+  "compiled": {
+    "evidenceValid": true,
+    "jobs": [
+      {
+        "name": "hover-opt",
+        "runs": 12,
+        "states": 90,
+        "actions": 78,
+        "PNGs": 180,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "hover-no-opt",
+        "runs": 12,
+        "states": 90,
+        "actions": 78,
+        "PNGs": 180,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-tables-cpu",
+        "runs": 6,
+        "states": 96,
+        "actions": 90,
+        "PNGs": 192,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-tables-gpu",
+        "runs": 2,
+        "states": 32,
+        "actions": 30,
+        "PNGs": 64,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-forms-focus",
+        "runs": 22,
+        "states": 242,
+        "actions": 220,
+        "PNGs": 484,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-control-regressions",
+        "runs": 7,
+        "states": 19,
+        "actions": 12,
+        "PNGs": 38,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      }
+    ],
+    "runs": 61,
+    "states": 569,
+    "actions": 508,
+    "PNGs": 1138
+  },
+  "units": [
+    {
+      "name": "npm",
+      "log": "artifacts/inline-box-shaping-preparation/npm.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 344,
+        "failed": 0,
+        "tests": 344,
+        "skipped": 0,
+        "cancelled": 0
+      },
+      "passed": true
+    },
+    {
+      "name": "workspace",
+      "log": "artifacts/inline-box-shaping-preparation/workspace.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 143,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-dom",
+      "log": "artifacts/inline-box-shaping-preparation/blitz-dom.log",
+      "exitCode": 101,
+      "counts": {
+        "passed": 80,
+        "failed": 2,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [
+        "document::hover_invalidation_tests::hover_styles_apply_and_clear",
+        "node::element::tests::scroll_by_clamps_and_bubbles"
+      ],
+      "passed": false,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-paint",
+      "log": "artifacts/inline-box-shaping-preparation/blitz-paint.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-html",
+      "log": "artifacts/inline-box-shaping-preparation/blitz-html.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "formatting",
+      "log": "artifacts/inline-box-shaping-preparation/formatting.log",
+      "exitCode": 0,
+      "passed": true
+    },
+    {
+      "name": "blitz-formatting",
+      "log": "artifacts/inline-box-shaping-preparation/blitz-formatting.log",
+      "exitCode": 0,
+      "passed": true
+    }
+  ],
+  "historicalParley": {
+    "fresh": false,
+    "passed": false,
+    "repository": "/home/viktor/Development/RunicArtifex/parley",
+    "pin": "5f982ec9770186095902af37564e46711db7e1b9",
+    "checkpoint": "artifacts/normalized-span-controls",
+    "committedRecord": {
+      "path": "conformance/results/chromium-inline-normalized-controls.json",
+      "sha256": "e87e5d649e6e02036f716fc33124e1c9df4aa2185ba5ce038f05ebd448da090e",
+      "matchesGitHEAD": true
+    },
+    "report": {
+      "path": "artifacts/normalized-span-controls/compiled-audit.json",
+      "sha256": "1f65bb85970e7c4aecdddea4540b04ea05c3dd882c8df688b203eba8fe79f9f0"
+    },
+    "counts": {
+      "passed": 206,
+      "failed": 4,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 0
+    },
+    "failures": [
+      "layout::cluster::tests::cluster_from_position_center_alignment",
+      "layout::cluster::tests::cluster_from_position_end_alignment",
+      "layout::cluster::tests::cluster_from_position_justified_alignment",
+      "layout::cluster::tests::cluster_from_position_start_alignment"
+    ]
+  },
+  "rejectedTrials": {
+    "forcedRecollection": {
+      "geometryRegressions": 6,
+      "aggregatePixelRegressions": 3,
+      "completedUnitStages": 7,
+      "completedDirectMatrices": 8,
+      "states": 1155,
+      "completedCompiledCommands": 0,
+      "disposition": "Recollection hook and its three tests reverted; interrupted attempt excluded.",
+      "relocationEntries": 11903
+    },
+    "partialConstructionActivation": {
+      "testedSource": {
+        "/home/viktor/Development/RunicDesktopCompiler": "ce2a6856884aaf80c09b3734943f4c503e9fe584",
+        "/home/viktor/Development/RunicArtifex/blitz": "acfd2a07ae80d2f64f794bb4f54332c27f286984",
+        "/home/viktor/Development/RunicArtifex/parley": "5f982ec9770186095902af37564e46711db7e1b9",
+        "/home/viktor/Development/RunicArtifex/stylo": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+        "/home/viktor/Development/RunicArtifex/vello": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+        "/home/viktor/Development/RunicArtifex/anyrender": "22b336b19938c911179e391ad19b34309493978c",
+        "/home/viktor/Development/RunicArtifex/taffy": "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb"
+      },
+      "hitRepairs": 27,
+      "hitRegressions": 3,
+      "cropRegressions": 5,
+      "geometryRepairs": 0,
+      "pointHitRepairs": 0,
+      "interpretation": "Rect-relative sampling and owner attribution changed; hit repairs do not prove paint or numeric advance parity.",
+      "disposition": "Rejected; production construction and active alignment predicate restored."
+    }
+  },
+  "orchestration": {
+    "stages": 49,
+    "unit": 7,
+    "direct": 36,
+    "compiled": 6,
+    "freshSourceGuardBeforeAndAfterEveryStage": true,
+    "checkouts": "One maintained checkout per repository and existing shared native target."
+  },
+  "next": {
+    "status": "Reviewed implementation draft; value API and scheduler are not frozen.",
+    "firstTargets": "60 margin hit failures and 84 standards control states missing an ordinary 8px text margin.",
+    "integration": "Generic used values, interior-control attachment, both breakers, intrinsics, rollback/replay and all effective geometry/paint/editing consumers together.",
+    "openDecisions": [
+      "Public slice/navigation identity",
+      "Inactive scope and clear/reset semantics",
+      "Alignment/justification placement generations",
+      "Signed overlap and editing order",
+      "Owner content/border fragment handoff",
+      "Empty-owner reachability and overflow quantities",
+      "Percentage basis and cache generations"
+    ],
+    "borderOracle": {
+      "cases": 9,
+      "states": 162,
+      "status": "Draft inputs only; unexecuted and excluded from acceptance counts."
+    }
+  },
+  "limitations": [
+    "No runtime shaping-seam or ordinary-inline used-edge parity repair accepted; helper remains dormant.",
+    "Direct strict failures and absent gates remain open; all 11 reported gates, including cropPixels and aggregate pixels, have zero repairs and regressions.",
+    "Blitz DOM has 80 passes and two historical failures and remains unpassed; Parley 206 passes and four failures are historical, not freshly rerun.",
+    "No internal atom/glyph/cache identity, OS keyboard/pointer/IME, regional-indicator fallback-font parity, system-font parity or named /code-review completion claim.",
+    "Future activation requires placement, ownership, paint, hit testing and editing together, including nonzero edges inside cached whole atoms."
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/inline-box-shaping-preparation/prepare-record.mjs",
+      "sha256": "f582123d349f74d65246b84cf967d766b77be2591ee12307da1604a74642230d",
+      "bytes": 27362
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/pins.json",
+      "sha256": "ce840120f14e3d544f6bb5ae4a51fd13945005d40b6b51a85d8a5248adee1670",
+      "bytes": 661
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/source-proof.json",
+      "sha256": "0e9fb5228a90fe6c8a4a983b094c68b1a3537f98bc0643fe8d85df0fd5294c75",
+      "bytes": 530740
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/source-after.json",
+      "sha256": "412b702e019d174d2607a9ee30d57782211fb2b4cccde6395eed3623e4632ad1",
+      "bytes": 500180
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/final-cargo-metadata.json",
+      "sha256": "7adc80acbc6cf09c817dea79c4aeaa7e3e7f76c9dce7d26b246883d405c744e0",
+      "bytes": 1874795
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/lock-proof.json",
+      "sha256": "8e2418189ac93f4b249867147d35b64d7b2fa97dd47e286a17bc67acf2dd1e08",
+      "bytes": 718
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/prepare-source.mjs",
+      "sha256": "d5e8027b15f26a90d5397849c5c0582c9aaa3e464942e576cc72c234a9645f1c",
+      "bytes": 2893
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/source-prepare.log",
+      "sha256": "983d86aef86845f83cfee315a57b4405cc6e872b9ea547e6d76d99c8ce5893c2",
+      "bytes": 746
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/final-source-review.md",
+      "sha256": "2791ad78ccd28f84dee2ba5afa330f38eaf6809f956b3e5991e7bedfd5074494",
+      "bytes": 5769
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/run.mjs",
+      "sha256": "aa1b5588ee557c1c64d32f79c09707c4f626c4f1c92a4a03bba69ecdfec4d233",
+      "bytes": 3604
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/runner-proof.json",
+      "sha256": "2ced966dc18b51b5096a51050eba9a505e68c5ccba46baae0a7b0a2e7966e465",
+      "bytes": 145
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/full-run.log",
+      "sha256": "f140658d255be97c75af11926bdcd5b0ea22a7f9b5f39337169e7b7453cf5141",
+      "bytes": 4298
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/commands.json",
+      "sha256": "fbe8a9cd9c52919d6b0eddb5378b64a31aacbe6f64de9fa3c9ca0716ab8bc274",
+      "bytes": 110692
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/unit-stages.json",
+      "sha256": "e0c9a1c69409d872b5bc8a19d4c7e404a43c0703e849880e676f9f725b66c4ea",
+      "bytes": 5352
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/direct-commands.json",
+      "sha256": "073fe157e00c49bee765ceda9ff4a6d7f31a6fc1a13ae3d4a75d5927623865f4",
+      "bytes": 32699
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/compiled-commands.json",
+      "sha256": "6b58a4e4fd09bad0e5611f3dc90ac8eea2f7a4fb29b62bde0b3519fe4bba86fc",
+      "bytes": 72647
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/matrix-plan.json",
+      "sha256": "44a507cd2fa94333d563216c489098e1381f67a70a472836711b5c45fb2b8cac",
+      "bytes": 9560
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/compiled-plan.json",
+      "sha256": "85ae8ae900ef3b6d5fdbdbd456a885d82b7197db19093c38890e9ca03b34eddf",
+      "bytes": 76781
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/full-driver-proof.json",
+      "sha256": "ff2d89519ad688ef1d624c05487bbea3397a7bf582c79b1764c05c26dc7c7bff",
+      "bytes": 20789
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/harness-transform-proof.json",
+      "sha256": "d85032a8714cf19de1fb4acc40f25cd3cce14e025d90351dd0dd3b0598ac50c5",
+      "bytes": 29505
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/audit-shaping.mjs",
+      "sha256": "8a8941566d3487faf638cffd68940f0735fd1ff73fefa3842bfb4145133cb130",
+      "bytes": 43497
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/audit-compiled.mjs",
+      "sha256": "b391388a1c136cee659e1209aee93a3d082d40c210fa991d70b78a8bcc3a6f81",
+      "bytes": 27514
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/frozen-shaping-inputs.json",
+      "sha256": "ce97daf8aede0fbaaacd49d07c2ba4c4bdffed467f4dfb4c2ae0ca8183391700",
+      "bytes": 6929336
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/independent-shaping-audit.json",
+      "sha256": "5b7cad545817c1311662100912ccdfcee7c1fefe5a4276bd84a7bf45a54096c2",
+      "bytes": 28629544
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/compiled-audit.json",
+      "sha256": "8b1c6ab6281e295fbbb702b73070b273c2cc7a64696345054d0cd161f8bca313",
+      "bytes": 23727
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/compiled-observation-manifest.json",
+      "sha256": "4649cca29f29b43c378a405cafac592c40b404c65e81ec54198f8fa2f4a97894",
+      "bytes": 377603
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/audit-freeze.log",
+      "sha256": "6af9dbcee7ee9b2f18e9069fce711bb7d6a7128f8906c68210b2b4ddbc350ffa",
+      "bytes": 143
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/audit-verify.log",
+      "sha256": "ec8b0a6c6caf120915da4ed0dcf864c34d8d9c53cfa38af06cb544099f1b3492",
+      "bytes": 1229
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/audit-compiled.log",
+      "sha256": "0c4609262951397ae9c3053e9cc06b796d78f839853a3f89752cf6f1fd0e5ae0",
+      "bytes": 286
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focused.mjs",
+      "sha256": "a6f12dc1884e75722d2795c5bee10f27e6f8d919a17bc542f2c0df802427f509",
+      "bytes": 2044
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focused-commands.json",
+      "sha256": "182ac63712692140fd4786fc06463850fccaa2878818409783c6d74950576c02",
+      "bytes": 2066
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focused-run.log",
+      "sha256": "8d4c271d4c1c6989e320ad066b7c734f4e860d48d8f4cb0e289dc5ad576ceb54",
+      "bytes": 1699
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focus-stylo.log",
+      "sha256": "b3eab49a0cba2bceecb2b46e8c038df3f2cd0ebc3bb38ee76378ef30dabab111",
+      "bytes": 1854
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focus-shaping-history.mjs",
+      "sha256": "fb916453cad1da08a71b19a734fa918ca97b9a7eb001538ef4e13c2f94e4e53d",
+      "bytes": 4775
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focus-shaping-history.log",
+      "sha256": "80a0aac4336194b47195d1be3d183a5c9fd34af8bfdbed646919256f5f77fef5",
+      "bytes": 20858
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focus-negative-margin.mjs",
+      "sha256": "43298ea4ffa282fd13c814181789f6d2f385949c1fc1e5c244c5d20f21d7f625",
+      "bytes": 5026
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focus-negative-margin.log",
+      "sha256": "ef737be6c4db8073f0bc8f37ada7b6245b5f0a6ace62890f9218e5705e310e9d",
+      "bytes": 6809
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/focused-audit.json",
+      "sha256": "55c16d42834b4ca899f0a3e8bb80b11a421960e2ac006d6f7979a41d0705bb16",
+      "bytes": 296
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/cargo-metadata.log",
+      "sha256": "e8b11eafea9af140c17bc611d941d595e0e7094901bb7c54329ab83d01b92381",
+      "bytes": 81
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/integrated-edge-plan.md",
+      "sha256": "f9257aea7acf3ef77ce402809fc9fabe935eefbddb765193f1f37782da273a06",
+      "bytes": 9056
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/used-edge-plan-review.md",
+      "sha256": "01caa070764ef11e0ee92f495ab0e62d6eec0021f4ec0effe6fbab276a47afdc",
+      "bytes": 17033
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/border-cache-candidates.mjs",
+      "sha256": "0111f7e4279838d1112f0488ccea114316c6dc28dd29b0f45969bf3ac1473d9c",
+      "bytes": 5082
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/border-cache-candidates.json",
+      "sha256": "01f7039a50187c869bc25b555d7cd2c6df7294ed23333b8e17f895e8fab39f8a",
+      "bytes": 11340
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/dom-failure-diagnosis.md",
+      "sha256": "fa0a100d3212a8d558e2f369416380a087c89a71840aa54d101e695bd56f04a4",
+      "bytes": 4772
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/early-compatibility-watch.mjs",
+      "sha256": "0ee9914d8bc3232509dc1af0cf27feb1886d0b8bf44ce46fd4d41e6f143eb8fe",
+      "bytes": 9268
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/early-compatibility.json",
+      "sha256": "0f96e853734981130b4101b2ae71645b1ac6e7c86a73ad2b1973db305cb3da20",
+      "bytes": 26128
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/early-compatibility.log",
+      "sha256": "015577ccf8616e41f0647633afe6eb96009b4ae31a1f1be0403dc9c6e0b17a62",
+      "bytes": 5973
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/record-preflight-review.md",
+      "sha256": "c66de782c18d6e887dc950290c807a38214bc94ac5b7f6d208569b0cebb8fc96",
+      "bytes": 5541
+    },
+    {
+      "path": "artifacts/signed-span-flow/pins.json",
+      "sha256": "096b23eb8445b0c895f24521ad4627e982dd18a75da9290726adafcc185d631a",
+      "bytes": 661
+    },
+    {
+      "path": "artifacts/signed-span-flow/source-proof.json",
+      "sha256": "74f20302297788d59fda44f9d909c91fa544e2025064df6f50db885df197940e",
+      "bytes": 530740
+    },
+    {
+      "path": "artifacts/signed-span-flow/source-after.json",
+      "sha256": "836b46d8aa907c2da9f76f4046fe443df9b58accaf477cd379e5b209857ff19d",
+      "bytes": 500180
+    },
+    {
+      "path": "artifacts/signed-span-flow/final-cargo-metadata.json",
+      "sha256": "b6bd76083ff88041e7790e1d7cef48d207d871982615a78f7329da42f90d99f9",
+      "bytes": 1874795
+    },
+    {
+      "path": "artifacts/signed-span-flow/lock-proof.json",
+      "sha256": "0957ea3e8c1b1f50c821e14b92b7cfb53fd22196192626f6dea9402936539f68",
+      "bytes": 718
+    },
+    {
+      "path": "artifacts/signed-span-flow/independent-shaping-audit.json",
+      "sha256": "42547abb656f34d5d0f83ed247e83deef8cc89382f58e1fa7887c7aee0a894f9",
+      "bytes": 28449209
+    },
+    {
+      "path": "artifacts/signed-span-flow/compiled-audit.json",
+      "sha256": "88195099e6588b21b9ac2afdf9e11e17a554f7e58b34f2c2661a07e94b55b491",
+      "bytes": 23430
+    },
+    {
+      "path": "artifacts/signed-span-flow/audit-shaping.mjs",
+      "sha256": "c35616e4c6429df17f136b4d701e3da1b955c7052c620fdbb80200223359b5a2",
+      "bytes": 43413
+    },
+    {
+      "path": "artifacts/signed-span-flow/audit-compiled.mjs",
+      "sha256": "d6c17562b7067c1fd4558dcd9885b667df7867e2a6d4663c13f2111ecdd4ee8c",
+      "bytes": 27293
+    },
+    {
+      "path": "artifacts/signed-span-flow/audit-verify.log",
+      "sha256": "5fc180bd986dd9082f8c22154d290fb452f0462cea6926e924c1d7cc7a6a02e1",
+      "bytes": 1230
+    },
+    {
+      "path": "artifacts/signed-span-flow/audit-compiled.log",
+      "sha256": "5321ee51e9fe43cd32976c7237bc9fc073e5697d7f72031e688e3cee34ec8116",
+      "bytes": 258
+    },
+    {
+      "path": "artifacts/signed-span-flow/regression-diagnosis.json",
+      "sha256": "d349f35a38b295b2af9a6fc0f6c59ddd68fe7a776a5225e6ed08715cee754b99",
+      "bytes": 235206
+    },
+    {
+      "path": "artifacts/signed-span-flow/regression-diagnosis.md",
+      "sha256": "ea7754a83b5ae7b2555416179ce1cd70b470954642f88c78e478e4100e049222",
+      "bytes": 2167
+    },
+    {
+      "path": "artifacts/signed-span-flow/shaping-cache-ri-diagnosis.md",
+      "sha256": "01d0242b76d73c0eaf009d0e543641bfc84cd906a9f0a0df12d32a405e6417f6",
+      "bytes": 8253
+    },
+    {
+      "path": "artifacts/signed-span-flow/shaping-source-review.md",
+      "sha256": "e4aab101cf5847ad0e0e6e0025bf589ea52e660ce5ea8f7021e09bcf83451f2e",
+      "bytes": 4832
+    },
+    {
+      "path": "artifacts/signed-span-flow/shaping-source-review-v2.md",
+      "sha256": "be7b2717f3eaa255db72d815cd7fd161d2c612e26470e0a356cc92cddd448a81",
+      "bytes": 4455
+    },
+    {
+      "path": "artifacts/signed-span-flow/shaping-source-review-v3.md",
+      "sha256": "c610e5cc5f03f89bf5d93869685a07f90e01aed1227dc3afc649b720c5b2b2ee",
+      "bytes": 3547
+    },
+    {
+      "path": "artifacts/signed-span-flow/shaping-source-review-v4.md",
+      "sha256": "1682ceef984d77c34b637bf85cae4c80d9cdfcfbb02cf86af4eafd470a2844dc",
+      "bytes": 5332
+    },
+    {
+      "path": "artifacts/signed-span-flow/canonical-promotion-proof.json",
+      "sha256": "6d28abd40c166b45079e88b095fef925039a13b09804818ecb60f954a625253f",
+      "bytes": 826
+    },
+    {
+      "path": "artifacts/signed-span-flow/oracle-candidates.mjs",
+      "sha256": "812976b3a83a0c3830387718cb0dad157f3f768c05378fc72304d5393518ba3d",
+      "bytes": 8835
+    },
+    {
+      "path": "artifacts/signed-span-flow/oracle-scope.json",
+      "sha256": "76515e2e6ea3d998d5b41e11bce3fee1ae7d17bcc670abf1af3b507c53112250",
+      "bytes": 6817
+    },
+    {
+      "path": "artifacts/signed-span-flow/oracle-before.log",
+      "sha256": "0ce18e0869ed608341c79290e9a01d2293312afa57d7f3d4cbab5f8ecedd5219",
+      "bytes": 185153
+    },
+    {
+      "path": "artifacts/signed-span-flow/oracle/metadata.json",
+      "sha256": "41d9c44b7e69d0fd77dc338eb860fa9bf9d2c016185d44b7c395f66f9e3b7d39",
+      "bytes": 15852
+    },
+    {
+      "path": "artifacts/signed-span-flow/oracle/results.json",
+      "sha256": "e8fc2d86d7ba361f048e2a22855fc4a530807ef5b88c03497f597a0a3b0d6903",
+      "bytes": 325860
+    },
+    {
+      "path": "artifacts/signed-span-flow/attempt-1-relocation.json",
+      "sha256": "ed5fea2ccd3ad01070d6dce43b3acf1e06b67831984fab02e7e4bd62d907b0eb",
+      "bytes": 4491461
+    },
+    {
+      "path": "artifacts/signed-span-flow/relocate-first.mjs",
+      "sha256": "99f298d4b612da4b8e12511ce1e13f16ece0f3ad2d6d293ef3ce1e8768400fec",
+      "bytes": 2010
+    },
+    {
+      "path": "artifacts/signed-span-flow/audit-compiled-v1-recollect.mjs",
+      "sha256": "5a0306afc28433ff63b9f02e90f29caeb5b8689fdfb73ef2e745baeb22415ba1",
+      "bytes": 27220
+    },
+    {
+      "path": "artifacts/signed-span-flow/attempt-1-recollect/commands.json",
+      "sha256": "b0887f343ab828d34a7dc6d0001e8dc9b2679032fd474268f96e1290b9fa94e4",
+      "bytes": 12050
+    },
+    {
+      "path": "artifacts/signed-span-flow/attempt-1-recollect/full-run.log",
+      "sha256": "c406972d8dfa22e02febf42670de39521e7cfd03e6bb0e1f3a11b80cf5772c72",
+      "bytes": 1278
+    },
+    {
+      "path": "artifacts/signed-span-flow/attempt-1-recollect/pins.json",
+      "sha256": "576b8fd9b81df70b20f885be81741da183f10fcbd8650ebf3f91cd92c9c30c2d",
+      "bytes": 661
+    },
+    {
+      "path": "artifacts/signed-span-flow/attempt-1-recollect/source-proof.json",
+      "sha256": "c797e33361e48038d3100d766a4230581c9e6b087c7e89ac2a7df5a6bef570cb",
+      "bytes": 530740
+    },
+    {
+      "path": "artifacts/signed-span-flow/attempt-1-recollect/frozen-shaping-inputs.json",
+      "sha256": "d04224497d8603969d8102032ff9165d21cb79cf23100b90a3d6791d52d6d507",
+      "bytes": 6928720
+    },
+    {
+      "path": "conformance/inline-shaping-edges.mjs",
+      "sha256": "3cdd864709a07623a6462f96520e37c1d29376bce01692f913ccf33f347021be",
+      "bytes": 4727
+    },
+    {
+      "path": "artifacts/inline-box-shaping-preparation/native-byte-comparison-manifest.json",
+      "sha256": "92c0821e4c348d9a8887f61c230b9a488ad6b47867bbc37dce4333187c2a0a96",
+      "bytes": 9513637
+    }
+  ]
+}

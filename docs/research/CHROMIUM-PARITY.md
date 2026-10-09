@@ -491,8 +491,12 @@ adds glyph, cluster and first/last-line selection views plus four legacy-formula
 tests. All 4,820 direct states remain identical, and 569 compiled states pass.
 The [normalized-control continuation](../../conformance/results/chromium-inline-normalized-controls.md)
 now captures private normalized box sites and authored edge/box order; all 4,820
-direct states remain identical and 569 compiled states pass. These are private
-compatibility layers; all consumers and both breakers still
+direct states remain identical and 569 compiled states pass. The
+[box-shaping preparation](../../conformance/results/chromium-inline-box-shaping-preparation.md)
+adds a dormant per-side computed-intent helper and four tests, plus 18 canonical
+cases / 270 states. All 5,090 direct states are unchanged and 569 compiled states
+pass. Its construction-only activation and forced recollection prototypes were
+rejected for regressions. These are private compatibility layers; all consumers and both breakers still
 need a defined effective used-edge path. The additive
 [27-state driver](../../conformance/inline-edge-drivers.mjs) now changes negative
 margin wrapping and controlling min-content width, and captures immediate `br`
@@ -522,6 +526,14 @@ uninstrumented.
    Prove zero-edge behavior unchanged. A breaker-only
    cursor patch would leave those consumers inconsistent. Breaker/intrinsic and
    effective visual/editing changes must pass one acceptance checkpoint together.
+   Before delegation, root must settle public run-slice enumeration and
+   ClusterPath/navigation identity, activation and clear/reset scope, placement
+   freshness under repeated alignment/justification, and signed overlap/tie
+   behavior for pointer hits and editing. Freeze owner content versus border
+   fragments and their consumer handoff; include empty-owner sizing, paint/hit
+   enumeration and early culls. Keep available-slot coordinates separate from
+   occupied extents, terminal advance and scroll overflow. Public interfaces
+   need an ADR; the current design remains unfrozen.
 3. Implement fixed signed advances in Parley and bind standards CSS edges in
    Blitz. Opening and closing sums remain separate. Own margins are excluded
    from border/client rectangles and hits; ancestor bounds include descendant
@@ -532,18 +544,31 @@ uninstrumented.
    anchors need not coincide with original shaping seams. Explicit itemization
    seams can split combining/flag graphemes. Freeze nonzero interior-control
    behavior and compare those seam cases with pinned Chromium before exposing
-   value attachment. Current metadata replay does not prove signed rollback.
+   value attachment. Cached margin histories can put nonzero edges inside an
+   existing whole atom; construction seams do not remove that requirement.
+   Activate computed intent and numeric placement only with all consumers ready.
+   Current metadata replay does not prove signed rollback.
 4. Add negative/percentage/calc/auto, intrinsic sizing, and layout-only mutation.
-   An indefinite percentage basis resolves to zero while retaining the fixed
-   calc contribution and authored shaping intent. Include refreshed edge values
-   and content-width invalidation in intrinsic layout clones/restoration and
+   Specify percentage resolution for each known/unknown-width sizing phase,
+   including fixed calc contributions and retained authored intent. Do not feed
+   a span's intrinsic result back into its own percentage basis. Include refreshed
+   edge values and content-width invalidation in intrinsic layout clones/restoration and
    saved-break replay; keep shape retention independently measured. Reuse the
    controlling min-content driver in cache/refresh acceptance; instrument the
    measured intrinsic branch rather than duplicating the browser reduction.
+   Bind width caches and retained line plans to the resolved-value/basis
+   generation, including early ComputeSize returns and later PerformLayout hits.
+   Border-presence changes need a separate cache-policy reduction: pinned Blink's
+   [reshape gate](https://raw.githubusercontent.com/chromium/chromium/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/style/computed_style.cc)
+   checks aggregate effective border presence, while construction intent is
+   per-side. Margin/alignment history must continue to retain shaped atoms.
 5. Implement and gate wrapped slice/clone fragments, decoration paint and hit
    geometry. Match the pinned browser's default behavior: ideal clone end-edge
    reservation is behind a test-only Blink feature. Do not silently adopt it as
-   the default reference. Re-run the 306 edge states and all retained matrices.
+   the default reference. Re-run the 306 edge, 165 affinity, 27 driving and 270
+   shaping-history states first, then all retained matrices. The RI cases have
+   unmatched fallback fonts; keep their failed gates and distinguish real
+   geometry/point/paint repairs from changed rectangle-relative hit sampling.
 
 Completion targets stay concrete: the 60 retained margin hit failures and 84
 standards control states with an omitted 8px text margin, followed by the 48

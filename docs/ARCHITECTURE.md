@@ -802,4 +802,13 @@ preparation. Future activation must include numeric placement and all ownership,
 paint, hit and editing consumers together. Browser rectangles do not certify
 internal atoms, font fallback, cache identity or keyboard/IME delivery. The new
 combining, regional-indicator and pending-whitespace cases retain those limits.
-Verification of the restored behavior is pending.
+Verification completed at compiler `a577518`, Blitz `7be80352` and unchanged
+Parley `5f982ec`. Four new helper tests pass (14 focused tests total). The 18
+canonical cases add 270 states; all 5,090 direct states retain exact native
+JSON and whole/crop/local PNG bytes. All 11 gates have zero repairs and zero
+regressions, with 3,740 overlapping strict-failure states still open. Independent
+audits validate the direct evidence and all 61 compiled runs / 569 states.
+Compiler/workspace pass 344/143 tests; Blitz DOM passes 80 with its two historical
+failures and remains unpassed. Parley's 206 passes and four failures are retained
+historical evidence, not a fresh rerun. This record successor changes docs/results
+only. See the [preparation record](../conformance/results/chromium-inline-box-shaping-preparation.md).

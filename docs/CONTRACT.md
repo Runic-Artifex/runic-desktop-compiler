@@ -39,10 +39,26 @@ the [authored-edge continuation](../conformance/results/chromium-inline-authored
 the [private-flow continuation](../conformance/results/chromium-inline-flow-views.md),
 the [line-consumer continuation](../conformance/results/chromium-inline-line-flow.md),
 the [normalized-control continuation](../conformance/results/chromium-inline-normalized-controls.md),
+the [box-shaping preparation](../conformance/results/chromium-inline-box-shaping-preparation.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest checkpoint captures private normalized box sites and authored edge/box
-order. `a [OOF]b` and `a[OOF] b` both yield `a b` and public box index 1, but
+The latest checkpoint retains a private per-side box shaping-intent calculation
+and four tests as dormant preparation. Production construction, damage, inline
+layout and the active alignment-only predicate are restored to their accepted
+baseline. Eighteen canonical cases add 270 states; all 5,090 direct states retain
+exact native JSON and whole/crop/local PNG bytes, with zero repairs or regressions
+across all 11 gates. Strict parity remains failed in 3,740 overlapping states.
+All 61 compiled runs / 569 states pass, including hover, forms and CPU/selected GPU
+tables; both independent evidence audits pass. All 14 focused helper tests and
+344/143 compiler/workspace tests pass. Blitz DOM passes 80 with two historical
+failures and remains unpassed; unchanged Parley's 206 passes and four failures
+are historical, not freshly rerun. The regressive recollection and construction
+prototypes were rejected. Used numeric edges, placement and their consumers must
+be integrated together before activating the helper; no runtime parity repair
+is accepted by this preparation checkpoint.
+
+The preceding normalized-control checkpoint captures private box sites and
+authored edge/box order. `a [OOF]b` and `a[OOF] b` both yield `a b` and public box index 1, but
 captured box anchors 2 and 1. Pending-whitespace retention/discard and equal-site
 owner order are retained without changing shaping or bidi identity. Twelve
 focused tests pass, including two new tests. All 4,820 direct states remain

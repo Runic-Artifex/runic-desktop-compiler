@@ -95,6 +95,15 @@ states are unchanged and 569 compiled states pass. The
 [normalized-control continuation](../conformance/results/chromium-inline-normalized-controls.md)
 also captures private normalized box sites and authored edge/box order, with
 unchanged rendering; it adds no used advances or physical placement.
+The [box-shaping preparation](../conformance/results/chromium-inline-box-shaping-preparation.md)
+retains an independent per-side computed-intent helper and four tests, with no
+production caller. The construction-only prototype caused three hit and five
+crop regressions; forcing recollection caused six geometry and three aggregate
+pixel regressions. Both were rejected. Eighteen canonical cases add 270 states;
+all 5,090 direct states are unchanged across all 11 gates, and all 569 compiled
+states pass. This is preparation and compatibility verification, with no accepted
+runtime repair. Nonzero edges inside cached whole atoms remain a required input
+to the later used-edge implementation.
 The next patches need generic
 nonzero span-edge flow in Parley and CSS binding in Blitz; geometry alone cannot certify
 shaping/cache identity. Full deferred nested top/bottom
