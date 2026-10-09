@@ -1,0 +1,1930 @@
+{
+  "schema": 1,
+  "date": "2026-10-09",
+  "sources": [
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz-tables",
+      "revision": "f7d0a01e8bc8794ff8576951395e34734fd0296e",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/parley-chromium-parity",
+      "revision": "10478f6ccd2d3c85d67cefdceb869b71666609c4",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo-chromium-parity",
+      "revision": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello-raster-parity",
+      "revision": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+      "signature": "G",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler-tables",
+      "revision": "344959dfe7a200c38baabc770b7c537ed0b456ad",
+      "signature": "G",
+      "status": ""
+    }
+  ],
+  "originals": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "9db69638e224859e799c3e27787a2a7fd17df3b6",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "e8dd36c6694be78902599320ab1653564627d128",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "260e70fa2b175a593f44d2de4399d3c3e13e72cc",
+      "status": ""
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "2a06f3e9b4db30951156034ab384f7af6d8a32d0",
+      "status": ""
+    }
+  ],
+  "oneExperimentWorktreePerRepository": true,
+  "auditComplete": true,
+  "zeroRegressionGate": true,
+  "finalValid": true,
+  "environment": {
+    "chromium": "153.0.8010.12",
+    "fontSHA256": "a75044e4dab293c1ac7f8eba9f20df03f183f41b9319054f43b955959981632a",
+    "cargoLockSHA256": "1364b4e71332172936c2bb2ceb57bd13f1d5127e63f994f06ef1061a9735bca6",
+    "flakeLockSHA256": "ed928e945c79e3d7f19d37b13a05f0d97b98440b38661d97bf77844e40606431"
+  },
+  "gates": {
+    "directGeometryToleranceCSSPx": 0.125,
+    "compiledGeometryToleranceCSSPx": 2,
+    "lineWidthToleranceCSSPx": 0.02,
+    "strictPixelsMAE": 3,
+    "localCropsRequired": true,
+    "unmeasuredNullCropsValidated": true
+  },
+  "implementation": {
+    "owner": "Parley private authored span-edge metadata.",
+    "scope": "Normalized authored open/close order, scopes, endpoints and all-box identity; no used advances or rendering consumer changes.",
+    "modularity": "Private metadata crosses Parley builder/normalization/LayoutData lifecycle only; breaking, replay, alignment and Blitz consumers remain unchanged.",
+    "irChanged": false,
+    "backendChanged": false,
+    "rendererChanged": false,
+    "renderingConsumersChanged": false,
+    "usedAdvancesImplemented": false
+  },
+  "newOracles": {
+    "inline-flow-affinity": {
+      "baseline": "artifacts/flow-baseline",
+      "final": "artifacts/flow-final-inline-flow-affinity",
+      "states": 165,
+      "matched": 165,
+      "before": {
+        "geometry": {
+          "measured": 165,
+          "passed": 9
+        },
+        "hits": {
+          "measured": 165,
+          "passed": 60
+        },
+        "pointHits": {
+          "measured": 165,
+          "passed": 51
+        },
+        "clientRects": {
+          "measured": 165,
+          "passed": 6
+        },
+        "editors": {
+          "measured": 0,
+          "passed": 0
+        },
+        "scroll": {
+          "measured": 0,
+          "passed": 0
+        },
+        "lineWidths": {
+          "measured": 0,
+          "passed": 0
+        },
+        "pixels": {
+          "measured": 165,
+          "passed": 0
+        }
+      },
+      "after": {
+        "geometry": {
+          "measured": 165,
+          "passed": 9
+        },
+        "hits": {
+          "measured": 165,
+          "passed": 60
+        },
+        "pointHits": {
+          "measured": 165,
+          "passed": 51
+        },
+        "clientRects": {
+          "measured": 165,
+          "passed": 6
+        },
+        "editors": {
+          "measured": 0,
+          "passed": 0
+        },
+        "scroll": {
+          "measured": 0,
+          "passed": 0
+        },
+        "lineWidths": {
+          "measured": 0,
+          "passed": 0
+        },
+        "pixels": {
+          "measured": 165,
+          "passed": 0
+        }
+      },
+      "unmeasuredLocalRegions": {
+        "before": 0,
+        "after": 0
+      },
+      "fullyMeasuredPixelPasses": {
+        "before": 0,
+        "after": 0
+      },
+      "transitions": {
+        "geometry": {
+          "eligible": 165,
+          "retainedPasses": 9,
+          "repairs": 0,
+          "regressions": 0,
+          "remainingFailures": 156
+        },
+        "hits": {
+          "eligible": 165,
+          "retainedPasses": 60,
+          "repairs": 0,
+          "regressions": 0,
+          "remainingFailures": 105
+        },
+        "pointHits": {
+          "eligible": 165,
+          "retainedPasses": 51,
+          "repairs": 0,
+          "regressions": 0,
+          "remainingFailures": 114
+        },
+        "clientRects": {
+          "eligible": 165,
+          "retainedPasses": 6,
+          "repairs": 0,
+          "regressions": 0,
+          "remainingFailures": 159
+        },
+        "editors": {
+          "eligible": 0,
+          "retainedPasses": 0,
+          "repairs": 0,
+          "regressions": 0,
+          "remainingFailures": 0
+        },
+        "scroll": {
+          "eligible": 0,
+          "retainedPasses": 0,
+          "repairs": 0,
+          "regressions": 0,
+          "remainingFailures": 0
+        },
+        "lineWidths": {
+          "eligible": 0,
+          "retainedPasses": 0,
+          "repairs": 0,
+          "regressions": 0,
+          "remainingFailures": 0
+        },
+        "pixels": {
+          "eligible": 165,
+          "retainedPasses": 0,
+          "repairs": 0,
+          "regressions": 0,
+          "remainingFailures": 165
+        }
+      }
+    }
+  },
+  "retainedOracles": {
+    "middle-metrics": {
+      "states": 180,
+      "matched": 180,
+      "changes": {}
+    },
+    "nested-alignment": {
+      "states": 72,
+      "matched": 72,
+      "changes": {}
+    },
+    "empty-inline": {
+      "states": 108,
+      "matched": 108,
+      "changes": {}
+    },
+    "empty-inline-shaping": {
+      "states": 42,
+      "matched": 42,
+      "changes": {}
+    },
+    "inline-shaping-intent": {
+      "states": 150,
+      "matched": 150,
+      "changes": {}
+    },
+    "inline-shaping-refresh": {
+      "states": 132,
+      "matched": 132,
+      "changes": {}
+    },
+    "inline-span-edges": {
+      "states": 306,
+      "matched": 306,
+      "changes": {}
+    },
+    "paint-origins": {
+      "states": 108,
+      "matched": 108,
+      "changes": {}
+    },
+    "paint-decorations": {
+      "states": 36,
+      "matched": 36,
+      "changes": {}
+    },
+    "inline-source-order": {
+      "states": 216,
+      "matched": 216,
+      "changes": {}
+    },
+    "pointer-geometry": {
+      "states": 234,
+      "matched": 234,
+      "changes": {}
+    },
+    "inline-fragments": {
+      "states": 363,
+      "matched": 363,
+      "changes": {}
+    },
+    "inline-fragment-effects": {
+      "states": 102,
+      "matched": 102,
+      "changes": {}
+    },
+    "line-width-grid": {
+      "states": 176,
+      "matched": 176,
+      "changes": {}
+    },
+    "line-width-effects": {
+      "states": 76,
+      "matched": 76,
+      "changes": {}
+    },
+    "text-metric-grid": {
+      "states": 432,
+      "matched": 432,
+      "changes": {}
+    },
+    "input-line-height": {
+      "states": 504,
+      "matched": 504,
+      "changes": {}
+    },
+    "input-pointer": {
+      "states": 264,
+      "matched": 264,
+      "changes": {}
+    },
+    "control-document-mode": {
+      "states": 132,
+      "matched": 132,
+      "changes": {}
+    },
+    "control-layout": {
+      "states": 264,
+      "matched": 264,
+      "changes": {}
+    },
+    "control-selection": {
+      "states": 48,
+      "matched": 48,
+      "changes": {}
+    },
+    "control-focus": {
+      "states": 252,
+      "matched": 252,
+      "changes": {}
+    },
+    "tables": {
+      "states": 77,
+      "matched": 77,
+      "changes": {}
+    },
+    "table-document-mode": {
+      "states": 12,
+      "matched": 12,
+      "changes": {}
+    },
+    "table-controls": {
+      "states": 4,
+      "matched": 4,
+      "changes": {}
+    },
+    "table-integration": {
+      "states": 30,
+      "matched": 30,
+      "changes": {}
+    },
+    "controls": {
+      "states": 9,
+      "matched": 9,
+      "changes": {}
+    },
+    "scrolling": {
+      "states": 148,
+      "matched": 148,
+      "changes": {}
+    },
+    "css-animations": {
+      "states": 40,
+      "matched": 40,
+      "changes": {}
+    },
+    "intrinsic-text": {
+      "states": 30,
+      "matched": 30,
+      "changes": {}
+    },
+    "font-weights": {
+      "states": 36,
+      "matched": 36,
+      "changes": {}
+    },
+    "glyphs": {
+      "states": 38,
+      "matched": 38,
+      "changes": {}
+    },
+    "borders": {
+      "states": 7,
+      "matched": 7,
+      "changes": {}
+    }
+  },
+  "totals": {
+    "matrices": 34,
+    "states": 4793,
+    "matched": 4793,
+    "retainedMatched": 4628,
+    "gates": {
+      "geometry": {
+        "eligible": 4793,
+        "retainedPasses": 4056,
+        "repairs": 0,
+        "regressions": 0,
+        "remainingFailures": 737
+      },
+      "hits": {
+        "eligible": 4793,
+        "retainedPasses": 4324,
+        "repairs": 0,
+        "regressions": 0,
+        "remainingFailures": 469
+      },
+      "pointHits": {
+        "eligible": 417,
+        "retainedPasses": 288,
+        "repairs": 0,
+        "regressions": 0,
+        "remainingFailures": 129
+      },
+      "clientRects": {
+        "eligible": 2034,
+        "retainedPasses": 1227,
+        "repairs": 0,
+        "regressions": 0,
+        "remainingFailures": 807
+      },
+      "editors": {
+        "eligible": 1958,
+        "retainedPasses": 1925,
+        "repairs": 0,
+        "regressions": 0,
+        "remainingFailures": 33
+      },
+      "scroll": {
+        "eligible": 284,
+        "retainedPasses": 236,
+        "repairs": 0,
+        "regressions": 0,
+        "remainingFailures": 48
+      },
+      "lineWidths": {
+        "eligible": 252,
+        "retainedPasses": 252,
+        "repairs": 0,
+        "regressions": 0,
+        "remainingFailures": 0
+      },
+      "pixels": {
+        "eligible": 4793,
+        "retainedPasses": 1429,
+        "repairs": 0,
+        "regressions": 0,
+        "remainingFailures": 3364
+      }
+    }
+  },
+  "regressions": [],
+  "pixelRegressions": {
+    "strictAggregateStates": [],
+    "metricRegressionRows": 0,
+    "localAggregateRegressions": 0,
+    "localRegionGates": {
+      "table": {
+        "eligible": 4178,
+        "absent": 0,
+        "passPass": 1601,
+        "repair": 0,
+        "failFail": 2577,
+        "regression": 0,
+        "beforePass": 1601,
+        "afterPass": 1601
+      },
+      "text": {
+        "eligible": 975,
+        "absent": 0,
+        "passPass": 167,
+        "repair": 0,
+        "failFail": 808,
+        "regression": 0,
+        "beforePass": 167,
+        "afterPass": 167
+      },
+      "outer": {
+        "eligible": 72,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 71,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "inner": {
+        "eligible": 606,
+        "absent": 42,
+        "passPass": 288,
+        "repair": 0,
+        "failFail": 318,
+        "regression": 0,
+        "beforePass": 288,
+        "afterPass": 288
+      },
+      "owner": {
+        "eligible": 461,
+        "absent": 10,
+        "passPass": 92,
+        "repair": 0,
+        "failFail": 369,
+        "regression": 0,
+        "beforePass": 92,
+        "afterPass": 92
+      },
+      "child": {
+        "eligible": 335,
+        "absent": 1,
+        "passPass": 11,
+        "repair": 0,
+        "failFail": 324,
+        "regression": 0,
+        "beforePass": 11,
+        "afterPass": 11
+      },
+      "before": {
+        "eligible": 20,
+        "absent": 1,
+        "passPass": 11,
+        "repair": 0,
+        "failFail": 9,
+        "regression": 0,
+        "beforePass": 11,
+        "afterPass": 11
+      },
+      "after": {
+        "eligible": 20,
+        "absent": 1,
+        "passPass": 11,
+        "repair": 0,
+        "failFail": 9,
+        "regression": 0,
+        "beforePass": 11,
+        "afterPass": 11
+      },
+      "atomic": {
+        "eligible": 42,
+        "absent": 0,
+        "passPass": 36,
+        "repair": 0,
+        "failFail": 6,
+        "regression": 0,
+        "beforePass": 36,
+        "afterPass": 36
+      },
+      "oof": {
+        "eligible": 9,
+        "absent": 0,
+        "passPass": 0,
+        "repair": 0,
+        "failFail": 9,
+        "regression": 0,
+        "beforePass": 0,
+        "afterPass": 0
+      },
+      "parent": {
+        "eligible": 144,
+        "absent": 0,
+        "passPass": 112,
+        "repair": 0,
+        "failFail": 32,
+        "regression": 0,
+        "beforePass": 112,
+        "afterPass": 112
+      },
+      "target": {
+        "eligible": 134,
+        "absent": 2,
+        "passPass": 122,
+        "repair": 0,
+        "failFail": 12,
+        "regression": 0,
+        "beforePass": 122,
+        "afterPass": 122
+      },
+      "plain": {
+        "eligible": 176,
+        "absent": 0,
+        "passPass": 176,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 176,
+        "afterPass": 176
+      },
+      "input": {
+        "eligible": 177,
+        "absent": 0,
+        "passPass": 33,
+        "repair": 0,
+        "failFail": 144,
+        "regression": 0,
+        "beforePass": 33,
+        "afterPass": 33
+      },
+      "textarea": {
+        "eligible": 176,
+        "absent": 0,
+        "passPass": 73,
+        "repair": 0,
+        "failFail": 103,
+        "regression": 0,
+        "beforePass": 73,
+        "afterPass": 73
+      },
+      "button": {
+        "eligible": 198,
+        "absent": 8,
+        "passPass": 111,
+        "repair": 0,
+        "failFail": 87,
+        "regression": 0,
+        "beforePass": 111,
+        "afterPass": 111
+      },
+      "box": {
+        "eligible": 76,
+        "absent": 0,
+        "passPass": 76,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 76,
+        "afterPass": 76
+      },
+      "control": {
+        "eligible": 1848,
+        "absent": 0,
+        "passPass": 745,
+        "repair": 0,
+        "failFail": 1103,
+        "regression": 0,
+        "beforePass": 745,
+        "afterPass": 745
+      },
+      "other": {
+        "eligible": 264,
+        "absent": 0,
+        "passPass": 0,
+        "repair": 0,
+        "failFail": 264,
+        "regression": 0,
+        "beforePass": 0,
+        "afterPass": 0
+      },
+      "pane": {
+        "eligible": 4,
+        "absent": 0,
+        "passPass": 4,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 4,
+        "afterPass": 4
+      },
+      "caption": {
+        "eligible": 4,
+        "absent": 0,
+        "passPass": 4,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 4,
+        "afterPass": 4
+      },
+      "span": {
+        "eligible": 4,
+        "absent": 0,
+        "passPass": 4,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 4,
+        "afterPass": 4
+      },
+      "checked": {
+        "eligible": 3,
+        "absent": 0,
+        "passPass": 2,
+        "repair": 0,
+        "failFail": 1,
+        "regression": 0,
+        "beforePass": 2,
+        "afterPass": 2
+      },
+      "unchecked": {
+        "eligible": 3,
+        "absent": 0,
+        "passPass": 3,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 3,
+        "afterPass": 3
+      },
+      "side": {
+        "eligible": 1,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "size10": {
+        "eligible": 1,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "size20": {
+        "eligible": 1,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "size30": {
+        "eligible": 1,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "width": {
+        "eligible": 1,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "zero": {
+        "eligible": 1,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "default": {
+        "eligible": 1,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "area": {
+        "eligible": 2,
+        "absent": 0,
+        "passPass": 1,
+        "repair": 0,
+        "failFail": 1,
+        "regression": 0,
+        "beforePass": 1,
+        "afterPass": 1
+      },
+      "sticky": {
+        "eligible": 20,
+        "absent": 0,
+        "passPass": 20,
+        "repair": 0,
+        "failFail": 0,
+        "regression": 0,
+        "beforePass": 20,
+        "afterPass": 20
+      },
+      "weight-0": {
+        "eligible": 36,
+        "absent": 0,
+        "passPass": 28,
+        "repair": 0,
+        "failFail": 8,
+        "regression": 0,
+        "beforePass": 28,
+        "afterPass": 28
+      },
+      "weight-1": {
+        "eligible": 36,
+        "absent": 0,
+        "passPass": 28,
+        "repair": 0,
+        "failFail": 8,
+        "regression": 0,
+        "beforePass": 28,
+        "afterPass": 28
+      },
+      "weight-2": {
+        "eligible": 36,
+        "absent": 0,
+        "passPass": 20,
+        "repair": 0,
+        "failFail": 16,
+        "regression": 0,
+        "beforePass": 20,
+        "afterPass": 20
+      },
+      "weight-3": {
+        "eligible": 32,
+        "absent": 0,
+        "passPass": 16,
+        "repair": 0,
+        "failFail": 16,
+        "regression": 0,
+        "beforePass": 16,
+        "afterPass": 16
+      },
+      "weight-4": {
+        "eligible": 32,
+        "absent": 0,
+        "passPass": 12,
+        "repair": 0,
+        "failFail": 20,
+        "regression": 0,
+        "beforePass": 12,
+        "afterPass": 12
+      },
+      "weight-5": {
+        "eligible": 32,
+        "absent": 0,
+        "passPass": 20,
+        "repair": 0,
+        "failFail": 12,
+        "regression": 0,
+        "beforePass": 20,
+        "afterPass": 20
+      },
+      "weight-6": {
+        "eligible": 32,
+        "absent": 0,
+        "passPass": 20,
+        "repair": 0,
+        "failFail": 12,
+        "regression": 0,
+        "beforePass": 20,
+        "afterPass": 20
+      }
+    },
+    "details": [],
+    "interpretation": "Strict local crop failures remain failures even when the native whole screenshot is unchanged."
+  },
+  "nativePaintComparison": {
+    "pairs": 4793,
+    "wholePNGEqual": 4793,
+    "wholePNGChanged": 0,
+    "wholePNGMissing": 0
+  },
+  "verification": {
+    "commands": 47,
+    "directMatrices": 34,
+    "rawStates": 9586,
+    "rawValid": true,
+    "completeValid": true,
+    "sourceValid": true,
+    "independentComplete": true,
+    "strictOraclePassed": false,
+    "compiled": {
+      "expectedReports": 4,
+      "expectedStates": 389,
+      "reports": 4,
+      "states": 389,
+      "issues": [],
+      "valid": true
+    },
+    "units": {
+      "npm": {
+        "passed": 297,
+        "failed": 0,
+        "exitCode": 0
+      },
+      "workspace": {
+        "passed": 122,
+        "failed": 0,
+        "exitCode": 0
+      },
+      "blitz-dom": {
+        "passed": 76,
+        "failed": 2,
+        "exitCode": 101,
+        "knownFailures": [
+          "document::hover_invalidation_tests::hover_styles_apply_and_clear",
+          "node::element::tests::scroll_by_clamps_and_bubbles"
+        ]
+      },
+      "blitz-paint": {
+        "passed": 13,
+        "failed": 0,
+        "exitCode": 0
+      },
+      "blitz-html": {
+        "passed": 3,
+        "failed": 0,
+        "exitCode": 0
+      },
+      "parley-std": {
+        "passed": 191,
+        "failed": 4,
+        "exitCode": 101,
+        "knownFailures": [
+          "layout::cluster::tests::cluster_from_position_center_alignment",
+          "layout::cluster::tests::cluster_from_position_end_alignment",
+          "layout::cluster::tests::cluster_from_position_justified_alignment",
+          "layout::cluster::tests::cluster_from_position_start_alignment"
+        ]
+      },
+      "parley-libm": {
+        "checked": true,
+        "exitCode": 0
+      },
+      "parley-engine": {
+        "passed": 39,
+        "failed": 0,
+        "exitCode": 0
+      },
+      "stylo-baseline-shift": {
+        "passed": 16,
+        "failed": 0,
+        "exitCode": 0
+      }
+    },
+    "knownFailures": 6,
+    "failedUnitStages": [
+      "blitz-dom",
+      "parley-std"
+    ],
+    "parleyMirrorFiles": 146,
+    "oldIntegrity": {
+      "records": 11,
+      "evidenceRefs": 2042,
+      "observationRefs": 375782,
+      "uniqueFiles": 293286,
+      "valid": true
+    }
+  },
+  "baselineMeasurements": {
+    "states": 165,
+    "geometry": 9,
+    "fragments": 6,
+    "hits": 60,
+    "pointHits": 51,
+    "strictPixels": 0
+  },
+  "sourceReview": {
+    "path": "artifacts/flow-implementation-review.json",
+    "sha256": "03c845a90ba54d01b82811263e8334313633ef488f6ec811c2afc42940d5c462",
+    "fingerprints": 12,
+    "identityValid": true
+  },
+  "oracleObservation": {
+    "path": "artifacts/flow-oracle-observation-proof.json",
+    "sha256": "ef6d65c0f43d8645c488f11253dc3b27594173b14da30fe5ed9fce1a012e4df8",
+    "fingerprints": 125,
+    "baselineOnly": true
+  },
+  "runnerCorrection": {
+    "path": "artifacts/flow-runner-correction-proof.json",
+    "sha256": "09f6b566dcb088558c3038d11a485cabba42a976b0ee98c2f241987aa571d826",
+    "retainedStages": 3
+  },
+  "focusedChecks": {
+    "initialEnvironmentFailure": {
+      "log": "artifacts/flow-focused-1.log",
+      "missingSharedTargetEnvironment": true,
+      "compilationOccurred": false,
+      "passed": false
+    },
+    "corrected": {
+      "log": "artifacts/flow-focused-2.log",
+      "passed": 10,
+      "failed": 0
+    }
+  },
+  "exploratoryBrowser": {
+    "path": "artifacts/flow-preview-exploration.json",
+    "sha256": "d89126f26046fb55fdb82e39dc2d0dfab5873f4e770ceb68e2fc50c277833fb2",
+    "browser": "T3 Chrome 152",
+    "includedInAcceptance": false
+  },
+  "nextWork": {
+    "path": "artifacts/flow-next-steps.json",
+    "sha256": "00cca7a6e5ba0f8e9c24920c97cf328403953f5bfd0a849c61bceec8ebfe9dcf",
+    "requiresSeparateInterfaceCheckpoint": true
+  },
+  "incompleteStages": [
+    "Blitz DOM suite retains two failed tests; Parley std suite retains four failed tests",
+    "Parley system-font/default-feature tests",
+    "OS keyboard, pointer and IME delivery",
+    "Unavailable named /code-review stage"
+  ],
+  "remainingGaps": [
+    "Consume the private ordered-edge metadata to implement nonzero margin/padding/border advances and wrap/forced-break affinity.",
+    "Remaining strict local pixel failures and broader complex-script/grapheme/bidi ownership.",
+    "Quirks, generated pseudos, preserved tabs, RTL/atomic flow and editor delivery."
+  ],
+  "verificationLimits": [
+    "Pixel measurements come from the frozen capture harness; audits validate finite thresholds, required crops and empty null unions without independently recomputing PNG MAEs.",
+    "The new negative-margin case changes placement without changing wrapping; the min-content mutation leaves the controlling width unchanged. These cases do not certify overflow recovery or min-content width invalidation.",
+    "Browser style prerequisites check initial states only; observed placement does not instrument Blink cache identity or internal branch execution."
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/flow-audit-guard-check.mjs",
+      "sha256": "754c583dbe7c4b901948d95eea06466badd5293254fc469a8e144f2b865f2cc1"
+    },
+    {
+      "path": "artifacts/flow-audit-guard-proof.json",
+      "sha256": "548120b48dd117e3ecec5731b28fccfe0ba2c4b70ee8a375010d63b7bb923750"
+    },
+    {
+      "path": "artifacts/flow-audit-guard-source-proof.json",
+      "sha256": "8a66f2fb32dfb5ae0069910b2d5e3b643f0054aaf57b43739dbc342a5580bedd"
+    },
+    {
+      "path": "artifacts/flow-baseline-measurement-proof.json",
+      "sha256": "31332ecbf8366ebd012446235a63156098b2cff37163f4aea8f848b204a0ede2"
+    },
+    {
+      "path": "artifacts/flow-baseline-proof.json",
+      "sha256": "37f910ea2285fdd21279e046072c37a2d3a4e8b05d0bea2c23001b1c3ffbff11"
+    },
+    {
+      "path": "artifacts/flow-baseline-source-start.json",
+      "sha256": "f47a61b5d22d282703ce51fda459e966d77a583224bd9baf959612d718ccb17d"
+    },
+    {
+      "path": "artifacts/flow-baseline.log",
+      "sha256": "3d35bbd5a503fb142451eb5dfb336e460b83ea7e7b4ed3f11812188bf496be61"
+    },
+    {
+      "path": "artifacts/flow-cleanup-proof.json",
+      "sha256": "16d320d7d02998d6ee0e1cead0bd6af1955a4879a20c692998af13d97856688b"
+    },
+    {
+      "path": "artifacts/flow-cleanup.mjs",
+      "sha256": "4d94f11e75a586e2d3784826f8282ef60fd1101de4dddb60c6fa0bb447d35fca"
+    },
+    {
+      "path": "artifacts/flow-close-record.mjs",
+      "sha256": "faf7793043ccff4edd2fb00ecd9e9ab3aab586f8eae7fd6c14615265e0e23c81"
+    },
+    {
+      "path": "artifacts/flow-comment-application-proof.json",
+      "sha256": "949671e23d25a8d417ab2ae73d8c2ee91d3865f32f273abfa65cea63ca9198d8"
+    },
+    {
+      "path": "artifacts/flow-comment-token-proof.json",
+      "sha256": "c042cca542c8d54bc3f8a96e3e8d239751c7234136e8936eddef352b0ac9fe9a"
+    },
+    {
+      "path": "artifacts/flow-configured-local-coverage-proof.json",
+      "sha256": "6f3a6d59bea597eb71808ed3917374814e64dd22ea1ec272486f121826d4dcce"
+    },
+    {
+      "path": "artifacts/flow-configured-local-coverage.mjs",
+      "sha256": "c1e9b8730b8b7eb5cae39f2596fc622306858482371e006726340d036b005d86"
+    },
+    {
+      "path": "artifacts/flow-documentation-review.json",
+      "sha256": "3d0f0ad6f7b7f591b54b9c3712d467f9103e7934575889a3599494956c0bfd2e"
+    },
+    {
+      "path": "artifacts/flow-final-blitz-dom.log",
+      "sha256": "2b75dbc3d1018d18f8b0c65fe046ae2b3004573632e0daa268e115bba07ccbf0"
+    },
+    {
+      "path": "artifacts/flow-final-blitz-html.log",
+      "sha256": "878b2b375527b74ce8881ca09819de9cc3b5cedb0ae69aa443bd8e0029b8755e"
+    },
+    {
+      "path": "artifacts/flow-final-blitz-paint.log",
+      "sha256": "21edf59260d7f3b73ba782e5059eef4d7c10d2a654c9d254abd3a1aae2c1c61e"
+    },
+    {
+      "path": "artifacts/flow-final-borders.log",
+      "sha256": "3c76d0aadb5f8ed67b35d70133992367b39d794abb01984ad7aecc2a1cd47c05"
+    },
+    {
+      "path": "artifacts/flow-final-borders/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-borders/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-borders/results.json",
+      "sha256": "6da530ca4059ff528aa305eebd7af1a69c23cb67d81503544b2c267fc9519bc5"
+    },
+    {
+      "path": "artifacts/flow-final-commands.json",
+      "sha256": "b4557fb792a6e592d3dc1e38f8058d8f3c3e2819875ea4d809505ab6e80c391e"
+    },
+    {
+      "path": "artifacts/flow-final-control-document-mode.log",
+      "sha256": "9234aead5c2a8ae9228f2b1d3a789844853627fddf4e0b6a5653dfc1e262dee9"
+    },
+    {
+      "path": "artifacts/flow-final-control-document-mode/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-control-document-mode/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-control-document-mode/results.json",
+      "sha256": "cb6237d559ddc1eb42f18d14ecc0208e3812def6f60c5a976b8e1b75cb388321"
+    },
+    {
+      "path": "artifacts/flow-final-control-focus.log",
+      "sha256": "29d0412cffc31dd9c8596e1b0c2736281fd213839430ebb772cc60123107dc94"
+    },
+    {
+      "path": "artifacts/flow-final-control-focus/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-control-focus/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-control-focus/results.json",
+      "sha256": "a664a1c71c7665799a62c7a20bb89cb226a9e947a9c6af00490f964e45c3eca7"
+    },
+    {
+      "path": "artifacts/flow-final-control-layout.log",
+      "sha256": "2a7dd1546face8845ceb9c29e8505a98efa68fa97dbf7e6708f7ba152a1c10c0"
+    },
+    {
+      "path": "artifacts/flow-final-control-layout/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-control-layout/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-control-layout/results.json",
+      "sha256": "7c22806a3f16605866e4f123ae8368a1c9fe4de25f60103399abc000b3fbc315"
+    },
+    {
+      "path": "artifacts/flow-final-control-regressions.log",
+      "sha256": "32862faa947b8ae09cbc6e5bb4daa220daabbd25ba81e72911ee6afd8723ee65"
+    },
+    {
+      "path": "artifacts/flow-final-control-regressions/report.json",
+      "sha256": "dbf77a9698fe10945ee908ecf6f0ca78218879cb4f7b551e813bf9e5e63874ba"
+    },
+    {
+      "path": "artifacts/flow-final-control-selection.log",
+      "sha256": "0e2a0590fd5d1f9925e9627190c5d785ea47699dbbefb1d44dd608d20eb9e7a2"
+    },
+    {
+      "path": "artifacts/flow-final-control-selection/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-control-selection/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-control-selection/results.json",
+      "sha256": "7c22f49513a651dd7e027a8f8b99203cbe880017ad47dd327e7013f0b777ae54"
+    },
+    {
+      "path": "artifacts/flow-final-controls.log",
+      "sha256": "7d8c8cbdba5504b511b967e50dcbc6f5d0d1580f56f8505b6ca14d5def74ddde"
+    },
+    {
+      "path": "artifacts/flow-final-controls/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-controls/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-controls/results.json",
+      "sha256": "6ea5bd937e36b383a256846db69116fbdd9a1849685d21070c1088f604efd62e"
+    },
+    {
+      "path": "artifacts/flow-final-css-animations.log",
+      "sha256": "8d470f7de7ea055aefa58ed10f30d5dd51076cf1c9c0b1ca2d2a746e35590f7f"
+    },
+    {
+      "path": "artifacts/flow-final-css-animations/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-css-animations/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-css-animations/results.json",
+      "sha256": "f7041adbe59eb89c596a08c333f196740b94db2aeab53798f2133cf547a6425b"
+    },
+    {
+      "path": "artifacts/flow-final-empty-inline-shaping.log",
+      "sha256": "7eb00aa03a042f184df1089ed051c368deaf649da3f989dca34b8057cec5b771"
+    },
+    {
+      "path": "artifacts/flow-final-empty-inline-shaping/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-empty-inline-shaping/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-empty-inline-shaping/results.json",
+      "sha256": "c6359c23c11c14d567efbb73ba7e4258339dcd874397e8c7fa8f8efd900238fd"
+    },
+    {
+      "path": "artifacts/flow-final-empty-inline.log",
+      "sha256": "0e08c81b0750a5fc7e8a40f4aa11a0a9dfd6114dc9aac7209266a77355f2ca15"
+    },
+    {
+      "path": "artifacts/flow-final-empty-inline/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-empty-inline/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-empty-inline/results.json",
+      "sha256": "b50fb1cdc0fc119e70eb0aff730020a4ae8dc7e4164979c14b8ff9a5c3989952"
+    },
+    {
+      "path": "artifacts/flow-final-font-weights.log",
+      "sha256": "bdffaf223dffeae428620c1ba03ff30bb63b8d5610d761190c7e5784a182d6a7"
+    },
+    {
+      "path": "artifacts/flow-final-font-weights/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-font-weights/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/flow-final-font-weights/results.json",
+      "sha256": "6368af28c4d7389a1808443c797a981f562bd074a845334826418bd845919dd8"
+    },
+    {
+      "path": "artifacts/flow-final-forms-focus.log",
+      "sha256": "170bcf385957816d246ad13ab57817fda0f7b8e0df44a8576439ef3881762e1a"
+    },
+    {
+      "path": "artifacts/flow-final-forms-focus/report.json",
+      "sha256": "8d10112b83fce000f0466befce4726892560ea15aa551fac62dd3e7113f89064"
+    },
+    {
+      "path": "artifacts/flow-final-glyphs.log",
+      "sha256": "1e498620efdf356898ed62f5fa3c1acf386d21fbf257ac3bef02484de20b86aa"
+    },
+    {
+      "path": "artifacts/flow-final-glyphs/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-glyphs/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-glyphs/results.json",
+      "sha256": "bfad409b0dbef888c95ebd8c42af286c625cd2b35ab92d6bf32a1fe4dbd299c3"
+    },
+    {
+      "path": "artifacts/flow-final-independent-audit.json",
+      "sha256": "0e8ffc3c5741430ac73ce5e9edb56c973119d3fba651496eb6a2ecfecaf37c06"
+    },
+    {
+      "path": "artifacts/flow-final-inline-flow-affinity.log",
+      "sha256": "3d35bbd5a503fb142451eb5dfb336e460b83ea7e7b4ed3f11812188bf496be61"
+    },
+    {
+      "path": "artifacts/flow-final-inline-flow-affinity/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-inline-flow-affinity/oracle-build.log",
+      "sha256": "6bb997c2bcbbdff72f4e5eb5015f991997cfd5ae29f2787ca08c3ed7f8dd6bee"
+    },
+    {
+      "path": "artifacts/flow-final-inline-flow-affinity/results.json",
+      "sha256": "dc398ea9cdf8ae4953edc7388593afec0bf52fe34847d24c1ea416fb09dc177c"
+    },
+    {
+      "path": "artifacts/flow-final-inline-fragment-effects.log",
+      "sha256": "02246b772cc8df43ddb3c99849c0adf6d7eeae2d9a2c616db7740ef7e109f58a"
+    },
+    {
+      "path": "artifacts/flow-final-inline-fragment-effects/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-inline-fragment-effects/oracle-build.log",
+      "sha256": "70cd0b0fd3514f59225764687c8374ea637cb3e268f67cb0df037ac252bd16fb"
+    },
+    {
+      "path": "artifacts/flow-final-inline-fragment-effects/results.json",
+      "sha256": "10c63b4459bafac93ac6a528c31c59b576b0407f2eebdcf7c5ab1d2c0c70fe23"
+    },
+    {
+      "path": "artifacts/flow-final-inline-fragments.log",
+      "sha256": "be7e31dc90ba3236085716e4e0ee7ee4f9c48ea4349cc2619052fe98ff63c841"
+    },
+    {
+      "path": "artifacts/flow-final-inline-fragments/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-inline-fragments/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/flow-final-inline-fragments/results.json",
+      "sha256": "23098c6cd884f947b2ff3ff57ed85bd9b1e6a8e3e76f447b53d8cc413071155b"
+    },
+    {
+      "path": "artifacts/flow-final-inline-shaping-intent.log",
+      "sha256": "f958bfb93078b2b170745920b593f9e9ce05b7407fa179b87c1fe64a34ba08ac"
+    },
+    {
+      "path": "artifacts/flow-final-inline-shaping-intent/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-inline-shaping-intent/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-inline-shaping-intent/results.json",
+      "sha256": "2130afc18856e7b8fe354bc2d0473d6a7c4ce59392586bff66f2d2644d83f8b5"
+    },
+    {
+      "path": "artifacts/flow-final-inline-shaping-refresh.log",
+      "sha256": "f22d0845f3de8b581ac3b0d973e13b34cf36e2f2cc01b5ab2d50ba8a34aa2d40"
+    },
+    {
+      "path": "artifacts/flow-final-inline-shaping-refresh/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-inline-shaping-refresh/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-inline-shaping-refresh/results.json",
+      "sha256": "fd4c984236670e5ae0dfd7a574c48451f14098d7005c051d62c1c53d0305d8c2"
+    },
+    {
+      "path": "artifacts/flow-final-inline-source-order.log",
+      "sha256": "c3b1717bddaacda16ad3301c0fb7935974d3d78155a182a83fc0d87a77c90be0"
+    },
+    {
+      "path": "artifacts/flow-final-inline-source-order/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-inline-source-order/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-inline-source-order/results.json",
+      "sha256": "128d3c68f95548e849a3ed249a7fa627f6752220e5fa154e3c0380baa0540140"
+    },
+    {
+      "path": "artifacts/flow-final-inline-span-edges.log",
+      "sha256": "64c42a302bfa9384f138a49737cb71a08e35353dc13684beaefa91e7688fcdbc"
+    },
+    {
+      "path": "artifacts/flow-final-inline-span-edges/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-inline-span-edges/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-inline-span-edges/results.json",
+      "sha256": "4e24fc6fc19ae1937ca88f05229847aed982bf739837dbf914c64c993ea71dc2"
+    },
+    {
+      "path": "artifacts/flow-final-input-line-height.log",
+      "sha256": "8cc972142b83ce8cb51f1c64e0f3849f5787cf5a1a61cc47e49ec14592f1608e"
+    },
+    {
+      "path": "artifacts/flow-final-input-line-height/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-input-line-height/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/flow-final-input-line-height/results.json",
+      "sha256": "8dc4dee679d6cd53f2d5aaddf165b1db2ca02de200879f2de67d11272d95042b"
+    },
+    {
+      "path": "artifacts/flow-final-input-pointer.log",
+      "sha256": "ee6ac5f6fbf238f3558fd1ce222bb3775d55ec5708db7295ee34ea07b5a68eff"
+    },
+    {
+      "path": "artifacts/flow-final-input-pointer/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-input-pointer/oracle-build.log",
+      "sha256": "758341027c9ade7ddd6acdd76fae4e5f400436cb5458afaa89d400236395a271"
+    },
+    {
+      "path": "artifacts/flow-final-input-pointer/results.json",
+      "sha256": "5860788eefcc3cdf49f2caa5dfd252ba93590818b7b8b47b210265c22403299a"
+    },
+    {
+      "path": "artifacts/flow-final-intrinsic-text.log",
+      "sha256": "5997911fa9089443455f37b8cf38297e3e08919b18d505705a87ce1fd0c46920"
+    },
+    {
+      "path": "artifacts/flow-final-intrinsic-text/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-intrinsic-text/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-intrinsic-text/results.json",
+      "sha256": "a9cfeeb2cf9e90173ae18b9c140aba0cdb68ce49aeaaaee17ae0585bd383dec8"
+    },
+    {
+      "path": "artifacts/flow-final-line-width-effects.log",
+      "sha256": "0fdc034852aaaddb808b77bba75fc10dfb47ba51b8c63f586482af7a6dc29f6f"
+    },
+    {
+      "path": "artifacts/flow-final-line-width-effects/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-line-width-effects/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/flow-final-line-width-effects/results.json",
+      "sha256": "42c5ced34bc295ce14f9c00a808264036fa417720785b686a6aae07927ce57c7"
+    },
+    {
+      "path": "artifacts/flow-final-line-width-grid.log",
+      "sha256": "b4540e75ffe6b3ef93532419632070aa452f35fd81577336dca27039c95f8f08"
+    },
+    {
+      "path": "artifacts/flow-final-line-width-grid/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-line-width-grid/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-line-width-grid/results.json",
+      "sha256": "a5e99ec5e16905293b6027368328a40bdf0691156b81d4411caf3b06d49bc756"
+    },
+    {
+      "path": "artifacts/flow-final-middle-metrics.log",
+      "sha256": "1cf768396bbc3c86fddb5f12104299f0eaef5b0b2b01ffeabd58f7c18c4dc1fe"
+    },
+    {
+      "path": "artifacts/flow-final-middle-metrics/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-middle-metrics/oracle-build.log",
+      "sha256": "88e8ac5377f7539864628c212a8b9ed7f4ec3d3d8d20022abb87137154f3fda2"
+    },
+    {
+      "path": "artifacts/flow-final-middle-metrics/results.json",
+      "sha256": "06df93c9f47e4a623e25f83066c0e03b1bdedf7ae76b9852a23506cc52c530ed"
+    },
+    {
+      "path": "artifacts/flow-final-nested-alignment.log",
+      "sha256": "b719824c93796b22e78756d7fb50f7546b0ba72fa9fb3951bc0652d26fdef896"
+    },
+    {
+      "path": "artifacts/flow-final-nested-alignment/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-nested-alignment/oracle-build.log",
+      "sha256": "d0a3752e322570e705a3bf1c380d9f595a2264f9c3fe8cf2e2419f1e81ef5183"
+    },
+    {
+      "path": "artifacts/flow-final-nested-alignment/results.json",
+      "sha256": "62a9d22941ba2f723e6a68882a8388254ce7341174d8e6e77bd68b2fe22aa3ec"
+    },
+    {
+      "path": "artifacts/flow-final-npm.log",
+      "sha256": "e9c1d05d0dab845cc0650fc85843ea3e07a4db72d3ad14b02c3a819bb5abc03e"
+    },
+    {
+      "path": "artifacts/flow-final-paint-decorations.log",
+      "sha256": "718aa5af29c034628d61430d7c371c6f072a8d29bbce8a76bd482d9f42a2ea6c"
+    },
+    {
+      "path": "artifacts/flow-final-paint-decorations/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-paint-decorations/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-paint-decorations/results.json",
+      "sha256": "aff0ca3857881dd1c0e7192deb57f9691da508c90447fc5864e08f4dbc206aa7"
+    },
+    {
+      "path": "artifacts/flow-final-paint-origins.log",
+      "sha256": "fec0c298e3cb74adbb4ec5784d2d062613f2739f56cba06ed08021338b3acefb"
+    },
+    {
+      "path": "artifacts/flow-final-paint-origins/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-paint-origins/oracle-build.log",
+      "sha256": "f854ae7455639abb7d1d480b4aabe2d0bdd47ed55a926c2d7940554109887632"
+    },
+    {
+      "path": "artifacts/flow-final-paint-origins/results.json",
+      "sha256": "622de5e2d2f4400a5b68c4652db2ec68f24f1aa9882635bd67a2699389d9b170"
+    },
+    {
+      "path": "artifacts/flow-final-parley-engine.log",
+      "sha256": "630128af70f14796bc1966e325ecdcb701f578dd4f8bf597f764fdc15e8b32bb"
+    },
+    {
+      "path": "artifacts/flow-final-parley-libm.log",
+      "sha256": "a78ecfb99cdcb1962db4f816a606a24510db1db465966b2056135f63a343011a"
+    },
+    {
+      "path": "artifacts/flow-final-parley-std.log",
+      "sha256": "b436cadaccc60490fc65b10e4e2b7b4cc39f0c6de701090640c01a008b56285f"
+    },
+    {
+      "path": "artifacts/flow-final-pointer-geometry.log",
+      "sha256": "7dfeb4b516edeb8ba61ebfdd3a1143d9e6e936308ed22b5b6afd98401b4877d7"
+    },
+    {
+      "path": "artifacts/flow-final-pointer-geometry/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-pointer-geometry/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-pointer-geometry/results.json",
+      "sha256": "2bdde47ba2043753273cf597423f015d8839def94d4a870472514372a1e05988"
+    },
+    {
+      "path": "artifacts/flow-final-resume.log",
+      "sha256": "8980393023f4b6a70ca7796583ecb2d3901dad5fc97c806d7a8d8aae51ebc11e"
+    },
+    {
+      "path": "artifacts/flow-final-root-audit.json",
+      "sha256": "95260d3d43eef438d8441452535753a8b76a360f93796cc90e1db379afaf04c2"
+    },
+    {
+      "path": "artifacts/flow-final-root-audit.log",
+      "sha256": "c91fef81dbb8c5f383ddb47260a270fd35ffb31751ab05a165f4f7f5ea498ba5"
+    },
+    {
+      "path": "artifacts/flow-final-run.log",
+      "sha256": "2db6385411dbcccc0663d6c8959fabbf6d9153bc7966de9fd4a4e031fb46a815"
+    },
+    {
+      "path": "artifacts/flow-final-run.mjs",
+      "sha256": "ebeaea1b5d0955e9458e9aba207d2e4e0c7dbb75864278707c7f93597c23203f"
+    },
+    {
+      "path": "artifacts/flow-final-scrolling.log",
+      "sha256": "18b7400e66d4a604af32f11ca04b9567f98b886179772f9c807068b21c64787d"
+    },
+    {
+      "path": "artifacts/flow-final-scrolling/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-scrolling/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-scrolling/results.json",
+      "sha256": "a1e39783b300d8559f511699e77bceb6332911325db994988afea1ca9cb8287a"
+    },
+    {
+      "path": "artifacts/flow-final-stylo-baseline-shift.log",
+      "sha256": "cb0e278b962179a9bed2531122d422d864ced3f0b7d2f3d93f55a47915b2bb45"
+    },
+    {
+      "path": "artifacts/flow-final-table-controls.log",
+      "sha256": "0e8ab34a8ea49ccb82367288e302f7e41f7aa09a933a0604e2e26bc7c8017ba0"
+    },
+    {
+      "path": "artifacts/flow-final-table-controls/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-table-controls/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-table-controls/results.json",
+      "sha256": "788e6c63648985b1775018ae0153dc47d383eb9e52c6e4c36aab9f5e7fadc8c2"
+    },
+    {
+      "path": "artifacts/flow-final-table-document-mode.log",
+      "sha256": "5d414d8c861c5214fce8f39775d7d187b70dfb6af6f4290ba58205bdc0f46b09"
+    },
+    {
+      "path": "artifacts/flow-final-table-document-mode/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-table-document-mode/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/flow-final-table-document-mode/results.json",
+      "sha256": "f9cebe47d1d03af390a2355fa16b2d7cc615036e6534851f57af276a2b71431f"
+    },
+    {
+      "path": "artifacts/flow-final-table-integration.log",
+      "sha256": "7861df495bd5491faf8c0687d1a3d7d32f6280317fcce9ff1a82352ea32a1a4b"
+    },
+    {
+      "path": "artifacts/flow-final-table-integration/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-table-integration/oracle-build.log",
+      "sha256": "c4b3dea7af7e6f3089ba6392152c49fc68b839a2155c5fe9b3d7a6f9cf3fbc4c"
+    },
+    {
+      "path": "artifacts/flow-final-table-integration/results.json",
+      "sha256": "6101a3b3d34fe0b37dd9f7718addf91a9b2b76f8169b698a17ec52147815da31"
+    },
+    {
+      "path": "artifacts/flow-final-tables-cpu.log",
+      "sha256": "792b4d85e0c5e2b3b6256dda50cb92d13d29c6516545563ca79c156e0f3a7bca"
+    },
+    {
+      "path": "artifacts/flow-final-tables-cpu/report.json",
+      "sha256": "fd5c7b65c743688c814d5227ed1b46a25820bed756b012f5d6c92676af3d260e"
+    },
+    {
+      "path": "artifacts/flow-final-tables-gpu.log",
+      "sha256": "5c492469fe097e4c0e909cee1789729076cb46d0514f0b3c74a6521d3bbefe80"
+    },
+    {
+      "path": "artifacts/flow-final-tables-gpu/report.json",
+      "sha256": "48dc931fa53e0921f85c88e553c190829ae012a93ab6e4469e1fa1005440e200"
+    },
+    {
+      "path": "artifacts/flow-final-tables.log",
+      "sha256": "a049ec85a6f3335525d828c0864852e355d230568badfe098645cc86079988a9"
+    },
+    {
+      "path": "artifacts/flow-final-tables/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-tables/oracle-build.log",
+      "sha256": "758341027c9ade7ddd6acdd76fae4e5f400436cb5458afaa89d400236395a271"
+    },
+    {
+      "path": "artifacts/flow-final-tables/results.json",
+      "sha256": "7a26f31285e4f4c12f6668a951393f9611764701b0680edaaaf105a33dc26f18"
+    },
+    {
+      "path": "artifacts/flow-final-text-metric-grid.log",
+      "sha256": "b03afe93d5638a4854858c1e2169a6959deb627a17bfc7eef35778ecf88c6e72"
+    },
+    {
+      "path": "artifacts/flow-final-text-metric-grid/metadata.json",
+      "sha256": "8afeede3f9fb9a9c4f53de11e2bbf51bec37fe20d7e5921fb8f3804a34ddee2e"
+    },
+    {
+      "path": "artifacts/flow-final-text-metric-grid/oracle-build.log",
+      "sha256": "7d1d53507f1590a972b3e3fe11ad975d477beea4643b189b2ab27f9edea484d7"
+    },
+    {
+      "path": "artifacts/flow-final-text-metric-grid/results.json",
+      "sha256": "eb98619f63d0c470490194ae41ddb3b8f3a988a80d5ed8a3c56cb37526ebc877"
+    },
+    {
+      "path": "artifacts/flow-final-workspace.log",
+      "sha256": "288f4a67399c636b5f5859857876dfe0521cbdcc91c6d4d658b49493cb2397f2"
+    },
+    {
+      "path": "artifacts/flow-focused-1.log",
+      "sha256": "2e0077ee60e82be59c804115efffe6af8f4052867d9483bf677e3588ce8a18ce"
+    },
+    {
+      "path": "artifacts/flow-focused-2.log",
+      "sha256": "72585a763641910638a4921cacc80653533394f306f23bcec888fd139bef9d92"
+    },
+    {
+      "path": "artifacts/flow-focused-mirror-cleanup-proof.json",
+      "sha256": "047be4f2b0964fab65f3a7039b8c70fb7ac96bcfa2a2600b1c3527457f8b65ac"
+    },
+    {
+      "path": "artifacts/flow-focused-source-proof.json",
+      "sha256": "f23272239cf7f943a4074b1e5a4273c9b6c21f7b479a0a06207db9da3785b89c"
+    },
+    {
+      "path": "artifacts/flow-freeze.mjs",
+      "sha256": "09d6d727e069c15d55fd19b0dee9411d920274b666fd0a5c2faac012565d203e"
+    },
+    {
+      "path": "artifacts/flow-frozen-source-proof.json",
+      "sha256": "51b9c63bbe116e599daa3675907af4b62f111006a58e50760e07dd142a68739d"
+    },
+    {
+      "path": "artifacts/flow-harness-resolution-review.json",
+      "sha256": "320a425dd68cd40fa564ce336fbf14da99d4c899aed2b9249fc6ad732a904755"
+    },
+    {
+      "path": "artifacts/flow-harness-review.json",
+      "sha256": "e528db903dc65c0682924c99f354b6223a7e52048a369514756dda19e896671e"
+    },
+    {
+      "path": "artifacts/flow-implementation-review-before-correction.json",
+      "sha256": "39929c6123daf0245bbf10ba0c8cfd4c45d075348a25f1235ef3b6996827d648"
+    },
+    {
+      "path": "artifacts/flow-implementation-review.json",
+      "sha256": "03c845a90ba54d01b82811263e8334313633ef488f6ec811c2afc42940d5c462"
+    },
+    {
+      "path": "artifacts/flow-independent-audit.log",
+      "sha256": "ee877a1e15c382047d78f53ba817d1ee3b243431de92ce322bc39da8a1b709a8"
+    },
+    {
+      "path": "artifacts/flow-next-steps.json",
+      "sha256": "00cca7a6e5ba0f8e9c24920c97cf328403953f5bfd0a849c61bceec8ebfe9dcf"
+    },
+    {
+      "path": "artifacts/flow-observation-completeness-proof.json",
+      "sha256": "29440b3abc16b363732f37fa2a17d96347e262ad7d82743c8845755a8da8a888"
+    },
+    {
+      "path": "artifacts/flow-observation-completeness.log",
+      "sha256": "5bf39d9783021296447db7e643bcb2c8c13cca59cc98c09de3ab2e1653bc2dd5"
+    },
+    {
+      "path": "artifacts/flow-old-integrity-proof.json",
+      "sha256": "1c2815cd6a27a139f9a6582f556c217ebaf8ab1e135105c84b42ff65468a817e"
+    },
+    {
+      "path": "artifacts/flow-old-integrity.log",
+      "sha256": "71b5a252e423a5de6d9ea7de3b3aff460912ba4eb533094876941713f08dec87"
+    },
+    {
+      "path": "artifacts/flow-oracle-comment-corrections.json",
+      "sha256": "9d4a694865524cc63dc2650c6b5fa3b601151e9d80a2807e7a9ae30c1dfe41da"
+    },
+    {
+      "path": "artifacts/flow-oracle-design.json",
+      "sha256": "84f7c055757636fb16a21abe9b42fd40cf34e156c2efa6545812d52f84830fd3"
+    },
+    {
+      "path": "artifacts/flow-oracle-observation-proof.json",
+      "sha256": "ef6d65c0f43d8645c488f11253dc3b27594173b14da30fe5ed9fce1a012e4df8"
+    },
+    {
+      "path": "artifacts/flow-oracle-review.json",
+      "sha256": "7df7e36da2f41c8c92a7011ae722fdfe4c9565879fcd6bf2cf192d3da820a65b"
+    },
+    {
+      "path": "artifacts/flow-originals-proof.json",
+      "sha256": "757905f7894134ce951b49662b49a2b2c366ec21fe40a49b2e24d6cb7a0e4145"
+    },
+    {
+      "path": "artifacts/flow-parley-post-test-proof.json",
+      "sha256": "66aa657ce30a2498d10cca21f9d77209f0083f781980ca95f64a849bb14342c0"
+    },
+    {
+      "path": "artifacts/flow-parley-source-proof.json",
+      "sha256": "32116b2871b4f5a87ffed6aeddfe5f0f23d52795d19e27c33d439d6c85c39e4a"
+    },
+    {
+      "path": "artifacts/flow-prepare.mjs",
+      "sha256": "854f2734cd94ab82a6b403848d2eb56f7e31b51ef2987177d09c6c2935057843"
+    },
+    {
+      "path": "artifacts/flow-preview-exploration.json",
+      "sha256": "d89126f26046fb55fdb82e39dc2d0dfab5873f4e770ceb68e2fc50c277833fb2"
+    },
+    {
+      "path": "artifacts/flow-raw-consistency-proof.json",
+      "sha256": "7aba4db71c9f1ca12b5aef8c453a1bef9dd400fd95e9257425a057b86609ee12"
+    },
+    {
+      "path": "artifacts/flow-raw-consistency.log",
+      "sha256": "98ca6b7a1aa13eff29c8f4d310d6ae29c687ac75280c20964f28188868075672"
+    },
+    {
+      "path": "artifacts/flow-record-at-independent-review.json",
+      "sha256": "0495e0d7adcb2ad4575ccf1448e87a6937b08bca87e13b3cb9c79638b412eb56"
+    },
+    {
+      "path": "artifacts/flow-record-before-log-hash-correction.json",
+      "sha256": "22bac607a58a2ce6eaed1e8d0d7d6ed472ad5ed997554baee2bcd917b6f2594c"
+    },
+    {
+      "path": "artifacts/flow-record-extension-proof.json",
+      "sha256": "8a358b97ee470c24be6ad9e8afc786ff99cd9684a8f0130e374c07d633d482b9"
+    },
+    {
+      "path": "artifacts/flow-record-log-hash-correction-proof.json",
+      "sha256": "fbd9b0abe265ec6d9fef2cf65e7593945c61a72f650930af0f19abd9990026bb"
+    },
+    {
+      "path": "artifacts/flow-record-review.json",
+      "sha256": "ead38c38bcab6b7d697af6624c1f7423c59dd140976428c9cb071299ab556c26"
+    },
+    {
+      "path": "artifacts/flow-record.log",
+      "sha256": "b4a020208a372131c09273bb6ffbec7de2fa692af290c3227150e0fd668eb21a"
+    },
+    {
+      "path": "artifacts/flow-record.mjs",
+      "sha256": "d0b3c2227ede4a95d6c2f5fbdeed4c36561762a50e40d8672dc13b9ddfb5f984"
+    },
+    {
+      "path": "artifacts/flow-review-correction-proof.json",
+      "sha256": "5e7ddc583cfd5b29c7f5c8059f51b640e64db78f8773ee78cee7fbfed21c3fc3"
+    },
+    {
+      "path": "artifacts/flow-review-source-proof.json",
+      "sha256": "95d0374154a19defb12f989b90cb30e7cf371eb0ca49ad76191157b7ff3bc251"
+    },
+    {
+      "path": "artifacts/flow-root-audit-at-guard-check.mjs",
+      "sha256": "0485571dc44074cc4f4b35c3eddf9c876fde784192b6f563eb20034f65c62021"
+    },
+    {
+      "path": "artifacts/flow-root-audit.mjs",
+      "sha256": "26075832cb5d262b42cc608835da7b6de0d7ea544181c106ca39751f717e6b2c"
+    },
+    {
+      "path": "artifacts/flow-runner-correction-proof.json",
+      "sha256": "09f6b566dcb088558c3038d11a485cabba42a976b0ee98c2f241987aa571d826"
+    },
+    {
+      "path": "artifacts/flow-unit-summary-proof.json",
+      "sha256": "592ea02d64568ef43e0e784559e803ee6033b094d5ca0e0264ae1abc9d308ee9"
+    },
+    {
+      "path": "artifacts/flow-unit-summary.log",
+      "sha256": "f65b320fb69820de3ab5c6001ffcf4ffb54d91e2f1fe0b66c37eb5f68b4a1d51"
+    },
+    {
+      "path": "artifacts/flow-verification-harness/acceptance.mjs",
+      "sha256": "0b5f211e2f9a7cbe3b4a10a289dbf43a058c8334ef59f402072b4b43cb86b643"
+    },
+    {
+      "path": "artifacts/flow-verification-harness/common.mjs",
+      "sha256": "e5670892e386ff58c2c58d0a5c696d69799056c340f42f764c08090c66193e24"
+    },
+    {
+      "path": "artifacts/flow-verification-harness/evidence-paths.mjs",
+      "sha256": "130dccf9a3b4d6be8ed846f25449b81c6a8a8ba398fa391c0dfd3e9bd19c2cc5"
+    },
+    {
+      "path": "artifacts/flow-verification-harness/independent-audit.mjs",
+      "sha256": "987e73ff04cb4be7104f02f495f030cc0b45283b806db80192ffaff072ed1d29"
+    },
+    {
+      "path": "artifacts/flow-verification-harness/observation-completeness.mjs",
+      "sha256": "c1247f1b0411d715ff7d1de5158931fb81611b2919869a05aa920a55d0ca0f27"
+    },
+    {
+      "path": "artifacts/flow-verification-harness/old-integrity.mjs",
+      "sha256": "408dba61fab4a181523f1ff5a75db1880b42d07ad22da2599cc8373492eccc22"
+    },
+    {
+      "path": "artifacts/flow-verification-harness/raw-consistency.mjs",
+      "sha256": "a55f8b4105d732c256a78542c41ad77b1ccf71972e48553425b90c0c6bdae281"
+    },
+    {
+      "path": "artifacts/flow-verification-harness/unit-summary.mjs",
+      "sha256": "1fdf0bacc313190572376cb82d8ecd76b532e13b15ba2ce5153865e8188b2fdb"
+    }
+  ],
+  "observationManifest": {
+    "path": "artifacts/flow-final-observation-manifest.json",
+    "files": 96935,
+    "sha256": "a4016850133db3172677045f3608dd404cbeeeecf00c2a582186f04e6568c38b"
+  }
+}

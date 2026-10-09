@@ -18,8 +18,9 @@ const box = (id, content = '', style = '') =>
 const span = (content = '', style = '') => box('owner', content, style);
 const atomic =
   '<i id="atomic" data-client-rects style="display:inline-block;width:9.125px;height:12.375px;background:#567"></i>';
-// Deliberately retain auto offsets: its static position observes the source-order
-// checkpoint amid pending whitespace, while the box adds no inline advance.
+// Auto offsets expose one fixed source checkpoint before BB. In the narrow
+// state it stays on the first line while BB wraps; widening shifts x by
+// 7.625px. This does not certify arbitrary OOF reordering or space ownership.
 const oof =
   '<i id="oof" data-client-rects style="position:absolute;width:9.125px;height:12.375px;background:#765"></i>';
 const ownerStyle = value => ({ kind: 'style', selector: '#owner', value: `${ordinary};${value}` });
@@ -47,12 +48,14 @@ function add(name, content, options = {}) {
 // fitting; a real closing remains with the preceding word and its end advance.
 add('opening_wrap_text', `AA ${span('BB CC', opening)} DD`);
 add('closing_wrap_text', `AA ${span('BB', closing)} CC DD`);
-// A trailing empty or space-only open/close pair need not follow a next word.
+// At the locked Chromium pin, trailing space-only and empty owners have
+// identical fragments and hits in all states. This observes collapse
+// equivalence without a distinct surviving-space affinity branch.
 add('opening_trailing_empty', `AA BB ${span('', opening)}`);
 add('opening_trailing_space_only', `AA BB ${span(' \t ', opening)}`);
 
-// The preceding AAAA provisionally overflows after AA. A signed start margin can
-// restore fit before B is laid out; removing it must replay the earlier break.
+// At the locked Chromium pin, this margin moves B by 26.375px while all
+// states remain two lines. This case does not demonstrate overflow recovery.
 const recovery = 'margin-left:-26.375px;background:#def';
 add('negative_open_restores_overflow', `AA AAAA${span('B', recovery)}`, {
   base: base.replace('width:84.375px', 'width:100.375px'),
@@ -93,17 +96,18 @@ add('pending_atomic_before_open', `AA ${atomic}${span(' BB', opening)} CC`);
 add('pending_atomic_inside_close', `AA${span(`BB ${atomic} `, closing)}CC DD`);
 add('pending_oof_inside_open_close', `AA ${span(` ${oof}BB `, both)}CC DD`);
 
-// A preserved newline and br keep immediately following close tags on the
-// forced-break line. The next word observes whether the end edge migrated.
+// Preserved newline closes on its first fragment. With br followed by an
+// empty child, the outer closing decoration appears on a continuation.
+// This pair does not establish immediate-close affinity after br.
 add('forced_newline_close', `AA${span('BB\n', both)}CC DD`, {
   base: `${base};white-space:pre-wrap`,
   requirements: [{ selector: '#table', property: 'whiteSpace', value: 'pre-wrap' }],
 });
 add('forced_br_close', `AA${span(`BB<br>${box('child')}`, both)}CC DD`);
 
-// CSS direction on an ordinary inline does not establish a bidi embedding.
-// ASCII words and asymmetric physical edges distinguish parent flow direction
-// from owner direction without certifying mixed-bidi visual-order behavior.
+// Own direction changes first/last fragment-side placement. Parent direction
+// also changes paragraph alignment. These ASCII cases with unicode-bidi:normal
+// do not certify mixed-bidi visual edge ownership.
 const directionBase = `${base};direction:ltr`;
 add('parent_vs_owner_direction', `AA ${span('BB CC', `${both};direction:rtl`)} DD`, {
   base: directionBase,
@@ -118,8 +122,10 @@ add('parent_vs_owner_direction', `AA ${span('BB CC', `${both};direction:rtl`)} D
   ],
 });
 
-// Intrinsic queries must replay signed start/end events through their own break
-// construction. Owner mutations must invalidate both intrinsic and final layout.
+// At the locked Chromium pin, CCC keeps min-content at 50.28125px while the
+// opening-margin mutation moves the first owner fragment. Max-content changes
+// 206.8125 -> 221.0625px and restores; this does not prove cache identity or a
+// driving min-content width invalidation.
 const intrinsic =
   'margin-left:-7.125px;padding-left:3.375px;margin-right:11.125px;padding-right:2.375px;border-right:1.125px solid #567;background:#def';
 for (const width of ['min-content', 'max-content']) {

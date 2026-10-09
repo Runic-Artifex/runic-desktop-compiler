@@ -577,11 +577,14 @@ edge stream unchanged. There is no new public API, text, source range,
 shaping boundary, character quota item or advance in this checkpoint.
 
 The separate [flow-affinity oracle](../conformance/inline-flow-affinity.mjs)
-freezes opening/closing wrap behavior, signed-overflow recovery, coincident empty
-edges, pending whitespace around atomic and out-of-flow items, forced breaks,
+records opening/closing wraps, negative displacement, coincident empty edges,
+pending whitespace around atomic and out-of-flow items, forced breaks,
 parent versus ordinary-inline direction, intrinsic queries and layout mutations.
-Its browser observations are the target for subsequent edge consumption, not a
-claim that recording the events renders margins, padding or borders.
+Its current negative-margin and min-content cases do not change wrapping or the
+controlling intrinsic width. Driving reductions remain necessary before those
+behaviors can be certified. Own direction changes asymmetric fragment placement;
+the next mapping must retain box direction and containing progression separately.
+These browser observations are targets for subsequent edge consumption.
 
 The next interface must consume this stream around whole atoms and boxes in both
 breakers and intrinsic measurement, saving cursor and active owners in rollback
@@ -589,6 +592,11 @@ state. A private visual flow cursor must then supply paint, span/empty geometry,
 cluster offsets, caret and selection consistently. Preserve today's distinct
 glyphless-spacing and out-of-flow-width behavior until an explicitly opted-in
 edge path defines and verifies their replacement. CSS edge resolution, authored
-shaping intent and parent direction stay in Blitz; Parley receives generic used
+shaping intent and direction mapping stay in Blitz; Parley receives generic used
 advances. Slice/clone fragmentation and decoration painting follow after the
 zero-advance cursor checks and signed-advance fitting checks.
+
+The [verified checkpoint](../conformance/results/chromium-inline-authored-edges.md)
+adds ten focused tests and retains all 4,793 direct results and native whole PNGs
+unchanged, with all 389 compiled states passing. No used advances or rendering
+consumer changes are implemented by the private stream.

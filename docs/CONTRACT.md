@@ -23,9 +23,22 @@ the [text-paint continuation](../conformance/results/chromium-text-paint-origins
 the [empty-inline continuation](../conformance/results/chromium-empty-inline.md),
 the [shaping-boundary continuation](../conformance/results/chromium-inline-boundaries.md),
 the [ownership continuation](../conformance/results/chromium-inline-ownership.md),
+the [authored-edge continuation](../conformance/results/chromium-inline-authored-edges.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation adds opt-in normalized ordinary-span ownership
+The latest isolated continuation records private authored opening/closing edge
+order in Parley under the existing span-tracking opt-in. Normalized endpoints,
+style identity and all-box ordinals survive cloning and saved replay; reuse clears
+them. Ten new focused tests pass. It adds no used horizontal advances or rendering
+consumer changes. Across 34 matrices and 4,793 exact pairs, every result and
+native whole PNG is unchanged: zero repairs and zero regressions. All 389 compiled
+states pass. Both audits are complete and the zero-regression gate passes;
+absolute parity failures and the six known dependency unit failures remain.
+The new 165-state oracle passes 9 geometry, 6 fragment, 60 rectangle-relative hit,
+51 explicit-point hit and zero strict pixel states. It supplies bounded targets
+for the next shared-offset and signed-advance interface.
+
+The preceding ownership continuation adds opt-in normalized ordinary-span ownership
 in Parley and standards-mode CSSOM binding in Blitz. Whole shaping atoms belong
 to their first owner; continuation-only spans retain real zero-width fragments.
 The 150-state intent and 132-state alignment-history oracles now pass all geometry
@@ -35,7 +48,8 @@ advances remain open. Caller shaping intent and cached alignment refresh remain
 in place. Browser geometry does not instrument glyph/cache identity or certify
 every stale-category reset.
 
-Across 4,628 exact direct pairs, there are 156 geometry/fragment and 159 hit repairs
+That ownership checkpoint has 4,628 exact direct pairs, with 156 geometry/fragment
+and 159 hit repairs
 with no regressions in those gates. All 389 compiled states pass semantics,
 geometry and strict pixels. Strict pixel gates repair 39 states and regress in
 two new edge states after corrected geometry tightens their crops; all 4,628
