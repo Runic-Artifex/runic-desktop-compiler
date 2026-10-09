@@ -1,6 +1,6 @@
 // <form> (M6 overlays, shadcn's dialog-demo wraps its dialog in one): it renders;
-// submission and reset are not modelled and are reported where a button's
-// activation would perform them (the runtime also reports Enter in a text field).
+// canceled submission is modelled; uncanceled defaults and reset are reported
+// where button activation would perform them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -65,14 +65,22 @@ test('a form renders; its buttons of type button act as elsewhere', async () => 
   });
 });
 
-test('submission and reset by a button are reported unsupported', async () => {
+test('uncanceled submission defaults and reset by a button remain unsupported', async () => {
   for (const id of ['submit', 'inner', 'reset'])
     await withApp({ 'App.svelte': APP }, async root => {
       const { ir } = await lowered(root);
       const steps = interpret(ir, [{ kind: 'click', id }]);
-      assert.match(
-        JSON.stringify(steps[1].outcome),
-        id === 'reset' ? /unsupported: form reset/ : /unsupported: form submission/,
+      assert.deepEqual(
+        steps[1].outcome,
+        {
+          rejected: {
+            code: 'E_THROW',
+            message:
+              id === 'reset'
+                ? 'RunicUnsupportedError: form reset'
+                : 'RunicUnsupportedError: uncanceled form submission (navigation, form data or dialog default)',
+          },
+        },
         id,
       );
     });
