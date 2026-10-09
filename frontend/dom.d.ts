@@ -304,6 +304,8 @@ interface KeyboardEvent extends UIEvent {
   readonly keyCode: number;
 }
 interface MouseEvent extends UIEvent {
+  /** The other element of a boundary transition, or null when there is none. */
+  readonly relatedTarget: HTMLElement | null;
   readonly clientX: number;
   readonly clientY: number;
   readonly button: number;
@@ -334,9 +336,13 @@ interface HostEventMap {
   mousedown: MouseEvent;
   mouseup: MouseEvent;
   mousemove: MouseEvent;
+  mouseover: MouseEvent;
+  mouseout: MouseEvent;
   pointerdown: PointerEvent;
   pointerup: PointerEvent;
   pointermove: PointerEvent;
+  pointerover: PointerEvent;
+  pointerout: PointerEvent;
   keydown: KeyboardEvent;
   keyup: KeyboardEvent;
   input: Event;

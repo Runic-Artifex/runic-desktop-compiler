@@ -1012,6 +1012,12 @@ pub enum EventKind {
     Mousemove,
     Mouseenter,
     Mouseleave,
+    /// The pointer moved onto / off the element or a descendant (bubbling;
+    /// with the boundary events, M6).
+    Pointerover,
+    Pointerout,
+    Mouseover,
+    Mouseout,
     Wheel,
     /// Focus moved to / away from the element (not bubbling).
     Focus,
@@ -1104,7 +1110,11 @@ impl EventKind {
             | EventKind::Pointerleave
             | EventKind::Mousemove
             | EventKind::Mouseenter
-            | EventKind::Mouseleave => "hover",
+            | EventKind::Mouseleave
+            | EventKind::Pointerover
+            | EventKind::Pointerout
+            | EventKind::Mouseover
+            | EventKind::Mouseout => "hover",
             EventKind::Input => "input",
             EventKind::Keydown | EventKind::Keyup => "keydown",
             EventKind::Wheel | EventKind::Scroll => "wheel",
@@ -1116,7 +1126,7 @@ impl EventKind {
         }
     }
 
-    pub const ALL: [EventKind; 26] = [
+    pub const ALL: [EventKind; 30] = [
         EventKind::Click,
         EventKind::Input,
         EventKind::Change,
@@ -1134,6 +1144,10 @@ impl EventKind {
         EventKind::Mousemove,
         EventKind::Mouseenter,
         EventKind::Mouseleave,
+        EventKind::Pointerover,
+        EventKind::Pointerout,
+        EventKind::Mouseover,
+        EventKind::Mouseout,
         EventKind::Wheel,
         EventKind::Focus,
         EventKind::Blur,
@@ -1183,6 +1197,10 @@ impl EventKind {
             EventKind::Mousemove => "mousemove",
             EventKind::Mouseenter => "mouseenter",
             EventKind::Mouseleave => "mouseleave",
+            EventKind::Pointerover => "pointerover",
+            EventKind::Pointerout => "pointerout",
+            EventKind::Mouseover => "mouseover",
+            EventKind::Mouseout => "mouseout",
             EventKind::Wheel => "wheel",
             EventKind::Focus => "focus",
             EventKind::Blur => "blur",

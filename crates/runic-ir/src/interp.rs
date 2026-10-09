@@ -6530,18 +6530,53 @@ impl<'p> Machine<'p> {
             .filter(|&id| chain_nodes(&tree, id).is_some())
             .collect();
         let entered = &new[common..];
-        for (leave, enter) in [
-            (EventKind::Pointerleave, EventKind::Pointerenter),
-            (EventKind::Mouseleave, EventKind::Mouseenter),
+        let data = |related: Option<u64>, button: f64| js::EventData {
+            related: related.map(js::Element),
+            button,
+            ..Default::default()
+        };
+        // The targets change: `out` at the old one (if still in the tree)
+        // and `over` at the new one, around the leave and enter events (UI
+        // Events order: pointer events, then mouse events).
+        let moved = old.last() != new.last();
+        let out_at = old
+            .last()
+            .copied()
+            .filter(|&id| moved && chain_nodes(&tree, id).is_some());
+        let over_at = new.last().copied().filter(|_| moved);
+        for (out, leave, over, enter) in [
+            (
+                EventKind::Pointerout,
+                EventKind::Pointerleave,
+                EventKind::Pointerover,
+                EventKind::Pointerenter,
+            ),
+            (
+                EventKind::Mouseout,
+                EventKind::Mouseleave,
+                EventKind::Mouseover,
+                EventKind::Mouseenter,
+            ),
         ] {
+            let button = if leave == EventKind::Pointerleave {
+                -1.
+            } else {
+                0.
+            };
+            if let Some(id) = out_at {
+                self.dispatch(id, out, data(new.last().copied(), button), None, s)?;
+            }
             for &id in &left {
-                self.dispatch(id, leave, Default::default(), None, s)?;
+                self.dispatch(id, leave, data(new.last().copied(), button), None, s)?;
+            }
+            if let Some(id) = over_at {
+                self.dispatch(id, over, data(old.last().copied(), button), None, s)?;
             }
             for &id in entered {
-                self.dispatch(id, enter, Default::default(), None, s)?;
+                self.dispatch(id, enter, data(old.last().copied(), button), None, s)?;
             }
         }
-        self.dispatch(target, EventKind::Pointermove, Default::default(), None, s)?;
+        self.dispatch(target, EventKind::Pointermove, data(None, -1.), None, s)?;
         self.dispatch(target, EventKind::Mousemove, Default::default(), None, s)?;
         Ok(())
     }

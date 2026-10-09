@@ -1,0 +1,12 @@
+{
+  "description": "Bubbling boundary events (M6 breadth sweep, P2): pointerover, pointerout, mouseover and mouseout at the old and new targets around the enter and leave events in Chromium's order, bubbling from a child to its list; moves between items, into a child, out of the list and back",
+  "fixtures": ["hover-events-svelte", "hover-events-react", "hover-events-vue"],
+  "actions": [
+    { "kind": "hover", "id": "item-a" },
+    { "kind": "hover", "id": "label-a" },
+    { "kind": "hover", "id": "item-b" },
+    { "kind": "hover", "id": "title" },
+    { "kind": "hover", "id": "label-c" },
+    { "kind": "hover", "id": "list", "position": { "x": 2, "y": 2 } }
+  ]
+}

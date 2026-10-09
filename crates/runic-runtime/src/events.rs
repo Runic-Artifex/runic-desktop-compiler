@@ -29,6 +29,10 @@ pub(crate) struct Pointer {
     /// dispatched in Chromium's order before the move that caused them.
     left: Vec<NodeId>,
     entered: Vec<NodeId>,
+    /// The old and new targets of the move (Blitz's `pointerout` and
+    /// `pointerover`), for the bubbling boundary events (M6).
+    out: Option<NodeId>,
+    over: Option<NodeId>,
     /// A cancelled `pointerdown` suppresses mouse events until `mouseup`.
     suppress_mouse: bool,
     /// Click count of the last primary press, and when and where it was.
@@ -758,6 +762,13 @@ fn chain_of(doc: &BaseDocument, id: NodeId) -> Vec<NodeId> {
     out
 }
 
+/// Boundary events target an element, even when hit testing returns its text.
+fn boundary_target(doc: &BaseDocument, id: Option<NodeId>) -> Option<NodeId> {
+    let id = doc.nearest_non_anonymous_ancestor(id?)?;
+    let id = Some(id).filter(|&id| doc.get_node(id).is_some_and(|n| n.flags.is_in_document()))?;
+    chain_of(doc, id).first().copied()
+}
+
 /// The parsed `tabindex` attribute.
 fn tab_index(doc: &BaseDocument, id: NodeId) -> Option<i32> {
     doc.get_node(id)?
@@ -1481,31 +1492,63 @@ impl<A: App> Handler<'_, A> {
     }
 
     /// The boundary events of a pointer move, in Chromium's order: pointer
-    /// events (leaving innermost first, entering outermost first), then
-    /// mouse events. Elements no longer in the document get none.
-    fn boundary(&mut self, doc: &mut BaseDocument, p: &BlitzPointerEvent) {
+    /// events (`out` at the old target, leaving innermost first, `over` at
+    /// the new target, entering outermost first), then mouse events.
+    /// Elements no longer in the document get none.
+    fn boundary(&mut self, doc: &mut BaseDocument, p: &BlitzPointerEvent, button_changed: bool) {
         let mut left = std::mem::take(&mut self.pointer.left);
         left.reverse();
         let entered = std::mem::take(&mut self.pointer.entered);
+        let out = boundary_target(doc, self.pointer.out.take());
+        let over = boundary_target(doc, self.pointer.over.take());
+        let moved = out != over;
         let live = |doc: &BaseDocument, n: NodeId| {
             is_element(doc, n) && doc.get_node(n).is_some_and(|n| n.flags.is_in_document())
         };
+        let data = |related: Option<NodeId>, pointer: bool| EventData {
+            related: related.map(|n| Element(n.as_u64())),
+            button: if pointer && !button_changed {
+                -1.
+            } else {
+                p.button as u8 as f64
+            },
+            ..pointer_data(p)
+        };
         let mouse = p.is_mouse();
-        for (leave, enter) in [
-            (Event::Pointerleave, Event::Pointerenter),
-            (Event::Mouseleave, Event::Mouseenter),
+        for (out_kind, leave, over_kind, enter) in [
+            (
+                Event::Pointerout,
+                Event::Pointerleave,
+                Event::Pointerover,
+                Event::Pointerenter,
+            ),
+            (
+                Event::Mouseout,
+                Event::Mouseleave,
+                Event::Mouseover,
+                Event::Mouseenter,
+            ),
         ] {
             if leave == Event::Mouseleave && !mouse {
                 break;
             }
+            let pointer = leave == Event::Pointerleave;
+            if let Some(n) = out.filter(|&n| moved && live(doc, n)) {
+                let chain = chain_of(doc, n);
+                self.fire(doc, &chain, out_kind, data(over, pointer));
+            }
             for &n in &left {
                 if live(doc, n) {
-                    self.fire(doc, &[n], leave, pointer_data(p));
+                    self.fire(doc, &[n], leave, data(over, pointer));
                 }
+            }
+            if let Some(n) = over.filter(|&n| moved && live(doc, n)) {
+                let chain = chain_of(doc, n);
+                self.fire(doc, &chain, over_kind, data(out, pointer));
             }
             for &n in &entered {
                 if live(doc, n) {
-                    self.fire(doc, &[n], enter, pointer_data(p));
+                    self.fire(doc, &[n], enter, data(out, pointer));
                 }
             }
         }
@@ -1552,9 +1595,9 @@ impl<A: App> EventHandler for Handler<'_, A> {
         let mut guard = document.inner_mut();
         let doc: &mut BaseDocument = &mut guard;
         match &event.data {
-            // Boundary events wait for the move that caused them; the
-            // pointer's own `over`/`out` events and Blitz's mouse boundary
-            // events are not delivered (Chromium's order is rebuilt).
+            // Boundary events wait for the move that caused them; Blitz's
+            // mouse boundary events are not delivered (Chromium's order is
+            // rebuilt from the pointer's).
             DomEventData::PointerLeave(_) => {
                 self.pointer.left.push(event.target);
                 return;
@@ -1569,9 +1612,15 @@ impl<A: App> EventHandler for Handler<'_, A> {
                 self.pointer.entered.push(event.target);
                 return;
             }
-            DomEventData::PointerOver(_)
-            | DomEventData::PointerOut(_)
-            | DomEventData::MouseOver(_)
+            DomEventData::PointerOut(_) => {
+                self.pointer.out = Some(event.target);
+                return;
+            }
+            DomEventData::PointerOver(_) => {
+                self.pointer.over = Some(event.target);
+                return;
+            }
+            DomEventData::MouseOver(_)
             | DomEventData::MouseOut(_)
             | DomEventData::MouseEnter(_)
             | DomEventData::MouseLeave(_)
@@ -1748,11 +1797,15 @@ impl<A: App> EventHandler for Handler<'_, A> {
         let focused_checkbox = focused.filter(|&f| is_checkbox(doc, f));
         match &event.data {
             DomEventData::PointerMove(p) => {
-                self.boundary(doc, p);
-                self.fire(doc, chain, Event::Pointermove, pointer_data(p));
+                self.boundary(doc, p, false);
+                let data = EventData {
+                    button: -1.,
+                    ..pointer_data(p)
+                };
+                self.fire(doc, chain, Event::Pointermove, data);
             }
             DomEventData::PointerDown(p) => {
-                self.boundary(doc, p);
+                self.boundary(doc, p, true);
                 self.pointer.suppress_mouse = false;
                 // Cancelling pointerdown suppresses the mouse events up to
                 // mouseup and mousedown's default actions (focus stays:
@@ -1762,7 +1815,7 @@ impl<A: App> EventHandler for Handler<'_, A> {
             }
             DomEventData::PointerUp(p) => {
                 self.pointer.closed_popup = false;
-                self.boundary(doc, p);
+                self.boundary(doc, p, true);
                 self.fire(doc, chain, Event::Pointerup, pointer_data(p));
             }
             DomEventData::MouseMove(p) => {
@@ -2048,5 +2101,45 @@ impl<A: App> EventHandler for Handler<'_, A> {
         }
         self.fix_focus(doc);
         doc.shell_provider.request_redraw();
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+    use blitz_dom::DocumentConfig;
+
+    #[test]
+    fn text_and_padding_share_live_element_boundary_targets() {
+        let mut doc = BaseDocument::new(DocumentConfig::default());
+        let mut listeners = Listeners::default();
+        let mut dom = Dom {
+            doc: &mut doc,
+            listeners: &mut listeners,
+        };
+        let root = dom.doc.root_node().id;
+        let html = dom.element("html");
+        let body = dom.element("body");
+        dom.append(root, html);
+        dom.append(html, body);
+        let a = dom.element("div");
+        let b = dom.element("div");
+        dom.append(body, a);
+        dom.append(body, b);
+        let first = dom.text("Alpha");
+        let second = dom.text("Omega");
+        dom.append(a, first);
+        dom.append(a, second);
+        let detached = dom.element("div");
+        assert_eq!(boundary_target(dom.doc, Some(first)), Some(a));
+        assert_eq!(boundary_target(dom.doc, Some(second)), Some(a));
+        assert_eq!(boundary_target(dom.doc, Some(a)), Some(a));
+        assert_eq!(boundary_target(dom.doc, Some(b)), Some(b));
+        assert_eq!(boundary_target(dom.doc, None), None);
+        assert_eq!(boundary_target(dom.doc, Some(detached)), None);
+        dom.remove(a);
+        assert_eq!(boundary_target(dom.doc, Some(first)), None);
+        assert_eq!(boundary_target(dom.doc, Some(a)), None);
+        assert_eq!(boundary_target(dom.doc, Some(b)), Some(b));
     }
 }

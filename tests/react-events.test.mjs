@@ -197,8 +197,8 @@ test('React rejects event semantics it cannot model, with locations', async () =
     ],
     // Unsupported event props and handler forms.
     [
-      'export function App() { return <div onMouseOver={() => {}}>a</div>; }',
-      /onMouseOver is unsupported/,
+      'export function App() { return <div onTouchStart={() => {}}>a</div>; }',
+      /onTouchStart is unsupported/,
     ],
     [
       'export function App() { function h(a: number, b: number) {} return <button onClick={h}>a</button>; }',
@@ -247,6 +247,15 @@ test('React rejects event semantics it cannot model, with locations', async () =
     [
       'export function App() { const [c, setC] = useState(false); return <div onClick={e => e.preventDefault()}><input type="checkbox" checked={c} onChange={e => setC(e.target.checked)} /></div>; }',
       /cancel the click on a checkbox/,
+    ],
+    // React dispatches enter and leave from the out event: with over or out props, the order differs.
+    [
+      "export function App() { const [s, setS] = useState(''); return <ul onMouseOver={() => setS(s + 'o')}><li onMouseEnter={() => setS(s + 'e')}>{s}</li></ul>; }",
+      /onMouseEnter and onMouseLeave with onMouseOver or onMouseOut/,
+    ],
+    [
+      "export function App() { const [s, setS] = useState(''); return <ul onPointerOut={() => setS(s + 'o')}><li onPointerLeave={() => setS(s + 'l')}>{s}</li></ul>; }",
+      /onPointerEnter and onPointerLeave with onPointerOver or onPointerOut/,
     ],
     // Synthetic events have no stopImmediatePropagation; currentTarget is null after the listener.
     [

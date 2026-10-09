@@ -26,6 +26,11 @@ pub enum Event {
     Mousemove,
     Mouseenter,
     Mouseleave,
+    /// Bubbling boundary events (M6).
+    Pointerover,
+    Pointerout,
+    Mouseover,
+    Mouseout,
     Wheel,
     Focus,
     Blur,
@@ -42,7 +47,7 @@ pub enum Event {
 }
 
 impl Event {
-    pub const ALL: [Event; 26] = [
+    pub const ALL: [Event; 30] = [
         Event::Click,
         Event::Input,
         Event::Change,
@@ -60,6 +65,10 @@ impl Event {
         Event::Mousemove,
         Event::Mouseenter,
         Event::Mouseleave,
+        Event::Pointerover,
+        Event::Pointerout,
+        Event::Mouseover,
+        Event::Mouseout,
         Event::Wheel,
         Event::Focus,
         Event::Blur,
@@ -109,6 +118,10 @@ impl Event {
             Event::Mousemove => "mousemove",
             Event::Mouseenter => "mouseenter",
             Event::Mouseleave => "mouseleave",
+            Event::Pointerover => "pointerover",
+            Event::Pointerout => "pointerout",
+            Event::Mouseover => "mouseover",
+            Event::Mouseout => "mouseout",
             Event::Wheel => "wheel",
             Event::Focus => "focus",
             Event::Blur => "blur",
@@ -173,7 +186,11 @@ impl Event {
             | Event::Pointerleave
             | Event::Mousemove
             | Event::Mouseenter
-            | Event::Mouseleave => "hover",
+            | Event::Mouseleave
+            | Event::Pointerover
+            | Event::Pointerout
+            | Event::Mouseover
+            | Event::Mouseout => "hover",
             Event::Input => "input",
             Event::Keydown | Event::Keyup => "keydown",
             Event::Wheel | Event::Scroll => "wheel",

@@ -93,6 +93,10 @@ export type EventKind =
   | 'mousemove'
   | 'mouseenter'
   | 'mouseleave'
+  | 'pointerover'
+  | 'pointerout'
+  | 'mouseover'
+  | 'mouseout'
   | 'wheel'
   | 'focus'
   | 'blur'
@@ -121,6 +125,10 @@ export const EVENT_KINDS: readonly EventKind[] = [
   'mousemove',
   'mouseenter',
   'mouseleave',
+  'pointerover',
+  'pointerout',
+  'mouseover',
+  'mouseout',
   'wheel',
   'focus',
   'blur',

@@ -171,11 +171,15 @@ const EVENT_PROPS: Record<string, HandlerEvent> = {
   onMouseMove: 'mousemove',
   onMouseEnter: 'mouseenter',
   onMouseLeave: 'mouseleave',
+  onMouseOver: 'mouseover',
+  onMouseOut: 'mouseout',
   onPointerDown: 'pointerdown',
   onPointerUp: 'pointerup',
   onPointerMove: 'pointermove',
   onPointerEnter: 'pointerenter',
   onPointerLeave: 'pointerleave',
+  onPointerOver: 'pointerover',
+  onPointerOut: 'pointerout',
   onKeyDown: 'keydown',
   onKeyUp: 'keyup',
   // React DOM listens for focusin and focusout: onFocus and onBlur bubble.
@@ -204,6 +208,10 @@ const CONTINUOUS = new Set<HandlerEvent>([
   'pointermove',
   'pointerenter',
   'pointerleave',
+  'mouseover',
+  'mouseout',
+  'pointerover',
+  'pointerout',
 ]);
 /**
  * Inline style properties that change only how an element is painted, not
@@ -3338,6 +3346,21 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       }
     };
     components.forEach((c, k) => selects(k, c.template));
+    // React dispatches its enter and leave events from the native `out` event
+    // (EnterLeaveEventPlugin), after the out handlers and before the over
+    // handlers; the browser fires them after `out` and after `over`. The
+    // IR binds them to the native enter and leave events, so a program with
+    // over or out props of the same family could tell the order apart.
+    for (const family of ['Mouse', 'Pointer'] as const) {
+      const kind = (e: string) => (family.toLowerCase() + e) as HandlerEvent;
+      const enterLeave = listening.find(l => [kind('enter'), kind('leave')].includes(l.h.event));
+      const overOut = listening.some(l => [kind('over'), kind('out')].includes(l.h.event));
+      if (enterLeave && overOut)
+        rejectEvent(
+          enterLeave.h.source,
+          `on${family}Enter and on${family}Leave with on${family}Over or on${family}Out: React dispatches enter and leave from the ${kind('out')} event, before the over handlers, unlike the browser; one program using both is not supported`,
+        );
+    }
     for (const { h, root } of listening) {
       const prop = propOf(h.event);
       let micro = false;

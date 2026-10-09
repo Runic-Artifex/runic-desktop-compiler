@@ -248,6 +248,10 @@ const MOUSE_EVENTS = new Set([
   'mousemove',
   'mouseenter',
   'mouseleave',
+  'mouseover',
+  'mouseout',
+  'pointerover',
+  'pointerout',
   'wheel',
 ]);
 const FOCUS_EVENTS = new Set(['focus', 'blur', 'focusin', 'focusout']);

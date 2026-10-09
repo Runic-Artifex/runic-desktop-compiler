@@ -112,9 +112,13 @@ const ACTION = {
   pointermove: 'hover',
   pointerenter: 'hover',
   pointerleave: 'hover',
+  pointerover: 'hover',
+  pointerout: 'hover',
   mousemove: 'hover',
   mouseenter: 'hover',
   mouseleave: 'hover',
+  mouseover: 'hover',
+  mouseout: 'hover',
   input: 'input',
   keydown: 'keydown',
   keyup: 'keydown',
@@ -129,9 +133,17 @@ function eventKinds(ir) {
   const kinds = new Set();
   const walk = nodes => {
     for (const n of nodes ?? []) {
-      // Selects are chosen (a click would open a popup over other targets).
-      if (n.tag === 'select' && n.listeners?.length) kinds.add('choose');
-      else for (const l of n.listeners ?? []) kinds.add(ACTION[l.event]);
+      // Select edits are chosen (a click would open a popup over other targets);
+      // boundary and movement listeners still need real hover actions.
+      for (const l of n.listeners ?? []) {
+        const action = Object.hasOwn(ACTION, l.event) ? ACTION[l.event] : undefined;
+        if (action === undefined) {
+          const error = new Error(`No differential action is mapped for event ${JSON.stringify(l.event)}`);
+          error.code = 'E_DIFFERENTIAL_ACTION';
+          throw error;
+        }
+        kinds.add(n.tag === 'select' && action !== 'hover' ? 'choose' : action);
+      }
       if (n.tag === 'option')
         for (const a of n.attrs ?? []) if (a.name === 'value' && a.value.op === 'lit') optionValues.add(a.value.value);
       for (const k of ['children', 'then', 'else', 'body', 'fallback']) walk(n[k]);
@@ -185,7 +197,15 @@ for (const fixture of fixtures) {
     console.log(`${fixture.padEnd(20)} incomplete (reads layout: ${layout})`);
     continue;
   }
-  const kinds = eventKinds(migrate(ir));
+  let kinds;
+  try {
+    kinds = eventKinds(migrate(ir));
+  } catch (error) {
+    if (error.code !== 'E_DIFFERENTIAL_ACTION') throw error;
+    incomplete.push(fixture);
+    console.log(`${fixture.padEnd(20)} incomplete (${error.message})`);
+    continue;
+  }
   // Programs using the session history also get the user's back and forward.
   if (/"name":"(history|location)\./.test(JSON.stringify(ir))) kinds.add('back').add('forward');
   const out = path.join(repo, '.cache/conformance/diff-bin', path.basename(fixture) + (values['no-opt'] ? '-no-opt' : ''));

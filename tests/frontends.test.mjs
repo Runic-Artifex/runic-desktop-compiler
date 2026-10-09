@@ -589,7 +589,7 @@ test('React rejects uncovered behaviour with locations', async () => {
     ],
     // React throws for style strings.
     ['function App(){return <p style="color:red">a</p>;}', 'E_JSX'],
-    ['function App(){return <p onMouseOver={()=>1}>a</p>;}', 'E_EVENT'],
+    ['function App(){return <p onTouchStart={()=>1}>a</p>;}', 'E_EVENT'],
     // Host services while rendering (M5): the console, randomness.
     [
       'const helper=x=>{console.log(x);return x;};const App=()=> <p>{helper(1)}</p>;',

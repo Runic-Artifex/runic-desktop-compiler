@@ -1,0 +1,13 @@
+{
+  "description": "Hover target identity and related targets: direct text to its own padding and back, then nested labels, outside title and list padding; boundary diagnostics preserve listener currentTarget.",
+  "fixtures": ["hover-events-svelte", "hover-events-react", "hover-events-vue"],
+  "actions": [
+    { "kind": "hover", "id": "direct", "position": { "x": 32, "y": 26 } },
+    { "kind": "hover", "id": "direct", "position": { "x": 2, "y": 2 } },
+    { "kind": "hover", "id": "direct", "position": { "x": 32, "y": 26 } },
+    { "kind": "hover", "id": "label-a" },
+    { "kind": "hover", "id": "label-b" },
+    { "kind": "hover", "id": "title" },
+    { "kind": "hover", "id": "list", "position": { "x": 2, "y": 2 } }
+  ]
+}

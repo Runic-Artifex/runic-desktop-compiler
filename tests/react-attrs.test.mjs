@@ -272,9 +272,9 @@ test('React rest props and ref props reject what they cannot lower, with locatio
       /onChange in the rest props/,
     ],
     [
-      `${BUTTON}export function App() { return <Button onMouseOver={() => {}}>a</Button>; }`,
+      `${BUTTON}export function App() { return <Button onTouchStart={() => {}}>a</Button>; }`,
       'E_EVENT',
-      /onMouseOver is unsupported/,
+      /onTouchStart is unsupported/,
     ],
     [
       `function Box({ ...rest }: HTMLAttributes<HTMLButtonElement>) { return <button onClick={() => {}} {...rest}>a</button>; }\nexport function App() { return <Box onClick={() => {}} />; }`,

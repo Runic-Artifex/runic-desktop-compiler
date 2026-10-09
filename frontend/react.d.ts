@@ -123,11 +123,15 @@ declare namespace JSX {
     onMouseMove?: import('react').MouseEventHandler;
     onMouseEnter?: import('react').MouseEventHandler;
     onMouseLeave?: import('react').MouseEventHandler;
+    onMouseOver?: import('react').MouseEventHandler;
+    onMouseOut?: import('react').MouseEventHandler;
     onPointerDown?: import('react').PointerEventHandler;
     onPointerUp?: import('react').PointerEventHandler;
     onPointerMove?: import('react').PointerEventHandler;
     onPointerEnter?: import('react').PointerEventHandler;
     onPointerLeave?: import('react').PointerEventHandler;
+    onPointerOver?: import('react').PointerEventHandler;
+    onPointerOut?: import('react').PointerEventHandler;
     onKeyDown?: import('react').KeyboardEventHandler;
     onKeyUp?: import('react').KeyboardEventHandler;
     onFocus?: import('react').FocusEventHandler;
