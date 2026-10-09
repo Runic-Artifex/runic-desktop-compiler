@@ -1,0 +1,333 @@
+{
+  "schema": 1,
+  "date": "2026-10-09",
+  "scope": "Canonical integration and hover acceptance; no claim of whole Chromium parity or completed form submission.",
+  "sources": [
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/anyrender",
+      "revision": "22b336b19938c911179e391ad19b34309493978c",
+      "signature": "G",
+      "origin": "file:///home/viktor/Development/RunicArtifex/anyrender"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "f7d0a01e8bc8794ff8576951395e34734fd0296e",
+      "signature": "G",
+      "origin": "file:///home/viktor/Development/RunicArtifex/blitz"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/parley",
+      "revision": "4105c6589c32f1456dbce0185de36838dd0276ff",
+      "signature": "G",
+      "origin": "file:///home/viktor/Development/RunicArtifex/parley.git"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+      "signature": "G",
+      "origin": "file:///home/viktor/Development/RunicArtifex/stylo"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/taffy",
+      "revision": "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb",
+      "signature": "G",
+      "origin": "file:///home/viktor/Development/RunicArtifex/taffy"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+      "signature": "G",
+      "origin": "file:///home/viktor/Development/RunicArtifex/vello"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "4d9413301006878a9ae02dceaacc65f4133e13d9",
+      "signature": "G",
+      "origin": null
+    }
+  ],
+  "sourceFiles": {
+    "Cargo.toml": "8aae40210246f4160c81b51dcae17e681d0b8f9585112a57322dce1d70488b54",
+    "Cargo.lock": "fe3c8ea945bfb9b55da3fb24b5870a7ecfbbcf177662a19575f1567ee6995219",
+    "package.json": "cbf3b9ab8c7d1188fae8eeee85fbb9e4c2436ec31e14b51982d8133dea58115b",
+    "package-lock.json": "7fe916f42ab4bb204ec14dd31d4c483b9824a700b5eec83fb77fc9d1c41121e3",
+    "flake.nix": "949fb72c21cfbcd0699b9740f2705b552cd60381bc9f76e6ac1d628a7583dfcf",
+    "flake.lock": "ed928e945c79e3d7f19d37b13a05f0d97b98440b38661d97bf77844e40606431",
+    "conformance/harness/rendering.mjs": "87468c33db64c2a836a5d53f7723944911318d4d76224bbde508aeffc5b0faf3",
+    "conformance/harness/sources.mjs": "4d346297e02086e4dafcab46900de73b3712c01c0d6f29edc6c4045ac66132f5"
+  },
+  "oneWorkingCheckoutPerRepository": true,
+  "acceptance": {
+    "auditComplete": true,
+    "zeroRegressionGate": true,
+    "finalValid": true,
+    "strictOraclePassed": false,
+    "rootIndependentAudit": true
+  },
+  "units": {
+    "compiler": {
+      "tests": 316,
+      "failed": 0,
+      "skipped": 0
+    },
+    "workspace": {
+      "tests": 128,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0
+    }
+  },
+  "compiled": {
+    "hover": [
+      {
+        "name": "hover-opt",
+        "kind": "hover",
+        "path": "artifacts/integration-verification-v2/hover-opt/report.json",
+        "runs": 12,
+        "states": 90,
+        "screenshotCompleteness": {
+          "expected": 180,
+          "actual": 180,
+          "unique": 180,
+          "valid": true
+        },
+        "problems": [],
+        "passed": true
+      },
+      {
+        "name": "hover-no-opt",
+        "kind": "hover",
+        "path": "artifacts/integration-verification-v2/hover-no-opt/report.json",
+        "runs": 12,
+        "states": 90,
+        "screenshotCompleteness": {
+          "expected": 180,
+          "actual": 180,
+          "unique": 180,
+          "valid": true
+        },
+        "problems": [],
+        "passed": true
+      }
+    ],
+    "retainedRegressions": [
+      {
+        "name": "regression-tables-cpu",
+        "kind": "regression",
+        "path": "artifacts/integration-verification-v2/regression-tables-cpu/report.json",
+        "runs": 6,
+        "states": 96,
+        "screenshotCompleteness": {
+          "expected": 192,
+          "actual": 192,
+          "unique": 192,
+          "valid": true
+        },
+        "problems": [],
+        "passed": true
+      },
+      {
+        "name": "regression-tables-gpu",
+        "kind": "regression",
+        "path": "artifacts/integration-verification-v2/regression-tables-gpu/report.json",
+        "runs": 2,
+        "states": 32,
+        "screenshotCompleteness": {
+          "expected": 64,
+          "actual": 64,
+          "unique": 64,
+          "valid": true
+        },
+        "problems": [],
+        "passed": true
+      },
+      {
+        "name": "regression-forms-focus",
+        "kind": "regression",
+        "path": "artifacts/integration-verification-v2/regression-forms-focus/report.json",
+        "runs": 22,
+        "states": 242,
+        "screenshotCompleteness": {
+          "expected": 484,
+          "actual": 484,
+          "unique": 484,
+          "valid": true
+        },
+        "problems": [],
+        "passed": true
+      },
+      {
+        "name": "regression-control-regressions",
+        "kind": "regression",
+        "path": "artifacts/integration-verification-v2/regression-control-regressions/report.json",
+        "runs": 7,
+        "states": 19,
+        "screenshotCompleteness": {
+          "expected": 38,
+          "actual": 38,
+          "unique": 38,
+          "valid": true
+        },
+        "problems": [],
+        "passed": true
+      }
+    ],
+    "states": 569,
+    "requiredPNGs": 1138,
+    "formSubmissionAndResetVerified": false
+  },
+  "differential": {
+    "modes": [
+      {
+        "mode": "opt",
+        "actions": 1500,
+        "states": 1560,
+        "seededActionsIndependentlyRecomputed": true,
+        "traceSHA256": "7729c9149991c26f1b4dd3b16b089e0d8ebf9443c924d1f7c8ab45c4daf7b841"
+      },
+      {
+        "mode": "no-opt",
+        "actions": 1500,
+        "states": 1560,
+        "seededActionsIndependentlyRecomputed": true,
+        "traceSHA256": "5354d9b17e7cf7c4d8e94d9ee755bafa1eebff1a099bf62cc0d43bf7433c556c"
+      }
+    ],
+    "states": 3120,
+    "originalActions": 3000,
+    "scope": "Event semantics and compiler behavior. Real native pre-action element endpoints are replayed through validated structural paths; independent browser/native and direct probes retain responsibility for hit correctness.",
+    "complete": true
+  },
+  "direct": {
+    "matrices": [
+      {
+        "name": "direct-tables",
+        "states": 77,
+        "matched": 77,
+        "resultJSONEqual": true,
+        "nativeJSONEqual": 77,
+        "nativePNGEqual": 77,
+        "referenceJSONEqual": 77,
+        "referencePNGEqual": 77,
+        "strictPixelPasses": 74,
+        "geometryPasses": 77,
+        "localNullRegions": 0,
+        "knownStrictFailureExit": 1,
+        "stagePassed": false,
+        "invariantPassed": true
+      },
+      {
+        "name": "direct-inline-edge-drivers",
+        "states": 27,
+        "matched": 27,
+        "resultJSONEqual": true,
+        "nativeJSONEqual": 27,
+        "nativePNGEqual": 27,
+        "referenceJSONEqual": 27,
+        "referencePNGEqual": 27,
+        "strictPixelPasses": 0,
+        "geometryPasses": 3,
+        "localNullRegions": 0,
+        "knownStrictFailureExit": 1,
+        "stagePassed": false,
+        "invariantPassed": true
+      }
+    ],
+    "pairs": 104,
+    "rawStateAndPNGBytesUnchanged": true,
+    "strictOraclePassed": false
+  },
+  "lockGraph": {
+    "packages": 468,
+    "pathToGitPackages": 30,
+    "versionsChecksumsAndNormalizedEdgesUnchanged": true,
+    "proofPath": "artifacts/integration-source-pins/lock-proof.json",
+    "proofSHA256": "835432843e8b14a32bf675d9c095ba3a1cae52bc5e7512b657671df7a089b273",
+    "beforeLockSHA256": "1364b4e71332172936c2bb2ceb57bd13f1d5127e63f994f06ef1061a9735bca6",
+    "afterLockSHA256": "fe3c8ea945bfb9b55da3fb24b5870a7ecfbbcf177662a19575f1567ee6995219"
+  },
+  "consolidation": {
+    "removedWorktrees": [
+      "/home/viktor/Development/RunicDesktopCompiler-tables",
+      "/home/viktor/Development/RunicDesktopCompiler/.claude/worktrees/m4",
+      "/home/viktor/Development/RunicDesktopCompiler/.claude/worktrees/submit",
+      "/home/viktor/Development/RunicArtifex/blitz-tables",
+      "/home/viktor/Development/RunicArtifex/stylo-chromium-parity",
+      "/home/viktor/Development/RunicArtifex/vello-raster-parity"
+    ],
+    "removedELFBinaries": 367,
+    "removedELFBytes": 34497605120,
+    "removedCodegenCacheBytes": 6033591264,
+    "preservedConformance": {
+      "files": 2929,
+      "bytes": 391293399,
+      "sha256": "896a60d7a1eba4c17de092d43e6254f9fe5fb929d663042660b09b8db8897aee"
+    },
+    "preservedGeneratedFixtureFiles": 18,
+    "opusSubmissionHelper": "Original unfinished work is preserved at signed archival commit 844bc27fa8d2c72302b6b86614140f871ce8173c; it is not integrated or accepted.",
+    "branchesPreserved": true
+  },
+  "evidence": [
+    {
+      "path": "artifacts/integration-verification-v2/audit.json",
+      "sha256": "f6b625e8ac2f81b9e035f24a1f5871037a65494e02311c69518f12c56392fd58"
+    },
+    {
+      "path": "artifacts/integration-v2-root-audit.json",
+      "sha256": "092f0b464373d22a6dba2e415654eb3ffd692c05decc3c338e3e05e0b487af5b"
+    },
+    {
+      "path": "artifacts/integration-verification-v2/observation-manifest.json",
+      "sha256": "b0e90fc5cf9007dfc71acd6d888d86a5878eccd75740a700b96a7856e226aa0c"
+    },
+    {
+      "path": "artifacts/integration-migration-proof.json",
+      "sha256": "600fe2c2acf500d6c3cf21da47da004e166b2ba6ec4517ff62afc00d222bd530"
+    },
+    {
+      "path": "artifacts/integration-source-checkouts-proof.json",
+      "sha256": "3e9682bf93c36636f63ed7009ca56a18b2da9eefd76a3a3bdc96a714a4354346"
+    },
+    {
+      "path": "artifacts/cursor-opus-preserved-proof.json",
+      "sha256": "9fe9f5bf640fe8c7ff622b8d1383ee60e9dd344de2b5d0dea035d4f9225003d2"
+    },
+    {
+      "path": "artifacts/integration-generated-fixtures-archive-proof.json",
+      "sha256": "092f437c4524a5454d5eec9929d2a4f8f681de67eeb4079ee1d7f063b56867cc"
+    },
+    {
+      "path": "artifacts/consolidation-preserved/opus-generated-fixtures/archive-manifest.json",
+      "sha256": "822c349551778e85632d26f39b418d5dc02840f4a20411b5113958dfc2d47ed8"
+    },
+    {
+      "path": "artifacts/integration-cleanup-execution-proof.json",
+      "sha256": "0c01e9581d25a3e0e288194107cd1617e95a1a2ac5fe5fee8194501a4ed16f5d"
+    },
+    {
+      "path": "artifacts/integration-source-pins/lock-proof.json",
+      "sha256": "835432843e8b14a32bf675d9c095ba3a1cae52bc5e7512b657671df7a089b273"
+    }
+  ],
+  "observationFiles": 2787,
+  "historicalFailures": {
+    "initialMissingDevDependencies": "Retained in artifacts/integration-npm.log; full offline development dependency installation corrected discovery.",
+    "oldDifferentialTargetMismatch": "Retained v1 failure and reduction; corrected by exact pre-action hit endpoint replay and fatal/incomplete trace validation, without rewriting states or changing physical inputs.",
+    "directStrictFailures": "Both direct jobs retain exit 1: tables 77/77 geometry and 74/77 strict pixels; authored-edge drivers 3/27 geometry and 0/27 strict pixels.",
+    "dependencySuites": "Six previously recorded failures remain: two Blitz hover/scroll tests and four Parley fontless cluster tests. These suites are unpassed."
+  },
+  "limitations": [
+    "Differential endpoint selection is delegated to native layout; browser/native checks own hit correctness.",
+    "Direct strict failures and six retained dependency-suite failures remain unpassed.",
+    "System/default-font, OS input/IME and named /code-review stages remain incomplete.",
+    "Only two direct matrices were freshly captured during this integration; all 35 prior fork matrices (4,820 pairs) retain identical fork source revisions. Their historical failures remain open.",
+    "Recorded PNG error measurements were audited but not independently recomputed.",
+    "Measured hover covers mouse event delivery, text/padding coalescing, related targets and cause-aware buttons; touch, pen, OS delivery and broader mutation/propagation cases remain open.",
+    "Compiler sticky/fill guards and runtime ordinary-inline getClientRects guards remain; renderer capability alone does not lift them."
+  ],
+  "next": [
+    "Implement end-to-end canceled form submission through shared HTML decisions and native/interpreter adapters, covering activation, implicit Enter and requestSubmit().",
+    "Implement ordinary-inline authored edge advances with shared used positions for layout, paint, hit testing and editing; preserve private Parley flow modularity.",
+    "Expand useful font/DPR/selection/sticky/scroll and OS input coverage, then reevaluate public guards against independent browser evidence."
+  ]
+}

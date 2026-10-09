@@ -15,6 +15,27 @@ gate; an ordinary rounded dotted-border control also fails paint and corner hits
 Keep those as separate renderer gaps; do not call the renderer complete or
 enable compiler tables on this evidence alone. [Results](../../conformance/results/blitz-tables.md).
 
+## Consolidated checkpoint (2026-10-09)
+
+The [consolidation record](../../conformance/results/chromium-consolidation.md)
+verifies compiler `4d94133` with exact Git pins for Blitz `f7d0a01`, Parley
+`4105c65`, Stylo `568059d` and Vello `a8efce5`. Table tags and the four hover
+over/out events are integrated. Compiler and workspace checks pass 316 and 128
+tests. Optimized/unoptimized hover cases pass 180 states; 389 retained compiled
+states pass. Differential endpoint replay compares 3,120 complete states at real
+native-selected endpoints; browser/native cases retain independent hit checking.
+The fresh table and edge-driver matrices pair 104 states unchanged, retaining
+three table-suite primitive strict-pixel failures and 27 driver strict-pixel
+failures. The historical private-flow checkpoint keeps all 4,820 states across
+35 matrices byte-identical; those matrices are not all recaptured by consolidation.
+Six known fork unit failures, OS/device delivery, default/system-font parity and
+the named review stage remain incomplete. Sticky/fill compiler guards and public
+ordinary-inline `getClientRects()` rejection remain.
+
+Form submission/reset is the next compiler/runtime checkpoint. Generic nonzero
+inline edges follow the retained ordinary-inline plan below. Historical isolated
+checkpoints, source revisions, counts and ADRs remain unchanged.
+
 ## Module boundaries
 
 | Owner | Responsibilities | Boundary to preserve |
@@ -34,7 +55,7 @@ without a JS engine (D7).
 
 ## Ordered batches
 
-### Isolated implementation checkpoint (2026-10-08)
+### Historical isolated implementation checkpoint (2026-10-08)
 
 The experiment now implements the shared scrolling layer in Blitz, responsive
 table integration, native-control sizing/baselines/paint, and the Stylo animation
@@ -344,7 +365,7 @@ web APIs until the corpus or editor demonstrates a need.
 
 ## Batch 1: table integration gate
 
-Extend the existing pure HTML oracle before removing the rejection:
+Extend the existing pure HTML oracle for behavior beyond the accepted bounded table surface:
 
 1. Put auto/fixed tables in flex/grid parents at 420 and 800px, with a horizontal
    scroller and a nested scroll pane. Include long translated headers, RTL labels,
@@ -370,20 +391,21 @@ Extend the existing pure HTML oracle before removing the rejection:
    the same toolchain/source baseline. Current alignment/baseline work performs
    extra cell layout passes. Optimize only measured costs and rerun the oracle.
 
-Before integration, offer the owner-specific patches upstream (D11), replay them
-on the current Runic pins, replace local absolute path patches with reproducible
-pins, and run affected framework conformance on CPU and selected lavapipe GPU
-cases. The CPU Glifo result does not certify the research Vello GPU text path.
-Only then update the contract and remove verified element/attribute rejections.
+The consolidation checkpoint replaces local paths with exact Git pins and
+verifies affected framework cases on CPU and selected lavapipe GPU tables. D11
+upstream work remains separate; integration is not upstream acceptance. Preserve
+that gate for each later table extension and measure the remaining large-row
+performance/WPT domains. The CPU Glifo result does not certify general GPU text.
 The interpreter currently lacks layout/style/mutable DOM: differential checks
 cover its modeled value/event behavior and must report the remaining stage as
 incomplete.
 
 ## Batch 2: shared scroll coordinates
 
-Implement sticky constraints from the nearest scroll container and containing
-block, with one shared representation of visual offsets consumed by paint, hit
-testing and DOM geometry. A paint-only offset would leave floating-ui, pointer
+The pinned Blitz fork implements bounded horizontal-writing sticky constraints
+with shared visual offsets consumed by paint, hit testing and DOM geometry.
+Expand and accept the compiler surface only with the remaining scroll/transform/
+clip reductions. A paint-only offset would leave floating-ui, pointer
 targets and `getBoundingClientRect()` inconsistent. Preserve normal-flow sizing.
 Cover top/bottom and left/right constraints, RTL, nested scrollers, containing
 block limits, clips, resize and dynamic row heights. Add absolute descendants to

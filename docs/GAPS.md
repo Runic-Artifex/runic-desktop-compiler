@@ -8,11 +8,14 @@ Everything the compiler, runtime and verification do not cover yet, with the rea
 
 The [targeted Chromium parity plan](research/CHROMIUM-PARITY.md) turns the renderer
 subset of this register into ordered work with module owners and verification
-gates. The [table worktree experiment](research/BLITZ-TABLES.md) fixes the original
-table-layout gaps locally. The isolated branch accepts table tags for compiled
-integration tests; the integrated compiler still rejects them. The
-[implementation record](../conformance/results/chromium-parity.md) retains the
-new failures and shipping gates. The [font/inline continuation](../conformance/results/chromium-font-inline.md)
+gates. The [consolidation checkpoint](../conformance/results/chromium-consolidation.md)
+integrates the reviewed table/parity forks through exact Git pins and the four
+hover over/out events. All ten table tags are accepted in React, Vue and Svelte;
+complete CSS tables, the remaining renderer/platform failures and form
+submission/reset remain open. The historical
+[table worktree experiment](research/BLITZ-TABLES.md) and
+[implementation record](../conformance/results/chromium-parity.md) retain their
+own failures and acceptance gates. The [font/inline continuation](../conformance/results/chromium-font-inline.md)
 records the settled-text repair, remaining focus/nested-inline paint, and font
 instance coverage. The [focus continuation](../conformance/results/chromium-control-focus.md)
 closes compiled table focus/selection paint and disabled traversal while retaining
@@ -25,12 +28,13 @@ The [text-metric continuation](../conformance/results/chromium-text-metrics.md)
 repairs logical font metric scaling and single-line inner-editor geometry, and
 shares signed offsets with pointer selection. Its new oracles retain fractional-DPR
 box, glyph-placement, selected-text click and RTL alignment failures. This remains
-isolated implementation evidence, not integrated compatibility.
+historical isolated implementation evidence; the consolidation record defines the current bounded integrated surface.
 The [line-width continuation](../conformance/results/chromium-line-widths.md)
 closes the retained fractional-DPR control-box geometry gap with an opt-in Stylo
 policy. Text, input-height and pointer geometry pass 432/432, 504/504 and 264/264;
-pixel and pointer-state residuals remain independently open. Shipping support is
-unchanged.
+pixel and pointer-state residuals remain independently open. Its owner-specific
+policies are now pinned by the consolidation checkpoint; this does not lift the
+compiler sticky/fill or ordinary-inline `getClientRects()` guards.
 
 ## Detail
 
@@ -54,7 +58,7 @@ A cluster is one implementation effort that removes many rows. Ranked by what th
 | V1 | **Unions** reached by several members | Slider, multiple Select, mixed Accordion/ToggleGroup programs, `string \| number` props | No sum type in the IR; specialisation per member not started | Per-member compilation (decided 2026-10-05) or IR unions | [LANGUAGE](gaps/LANGUAGE.md#value-model-and-types-v1-v2) |
 | F3, F4 | **React and Vue surfaces**: React has four hooks (no context, memo, forwardRef, custom hooks); Vue lacks `reactive`, provide/inject, `v-show`, `v-html`, styles, `Transition` | The shadcn/ui and shadcn-vue halves of the north star | Svelte leads (D14); React and Vue stopped at M5 | Per API; Radix and reka-ui need most of them | [FRAMEWORKS](gaps/FRAMEWORKS.md#react-f3) |
 | F1 | **Svelte**: `use:`, transitions, stores, `{#await}`, `<svelte:boundary>`, scoped styles, more bindings, snippets with parameters | Site components (actions, transitions), the editor (scoped styles) | Added as cases needed them | Per feature | [FRAMEWORKS](gaps/FRAMEWORKS.md#svelte-f1) |
-| P4 | **CSS and rendering**: `position: sticky`, `:target`, `capitalize`, fill modes, Stylo-dropped declarations | Site header, sidebar and table of contents (sticky) | Blitz/Stylo gaps | Fork patches | [PLATFORM](gaps/PLATFORM.md#css-and-rendering-p4), [BLITZ-GAPS](BLITZ-GAPS.md) |
+| P4 | **CSS and rendering**: `position: sticky`, `:target`, `capitalize`, fill modes, Stylo-dropped declarations | Site header, sidebar and table of contents (sticky) | Remaining engine gaps and compiler/runtime guards; pinning sticky/fill repairs does not lift acceptance | Per guarded surface and retained failure | [PLATFORM](gaps/PLATFORM.md#css-and-rendering-p4), [BLITZ-GAPS](BLITZ-GAPS.md) |
 | P7 | **Images and system fonts** | Avatars, cards, the site's assets; any `system-ui` text | The runtime loads no images; only embedded fonts | Embedded image assets and `<img>` | [PLATFORM](gaps/PLATFORM.md#images-and-fonts-p7) |
 | P2 | **Events and forms**: no `submit`/`reset`, drag, touch, clipboard, animation events; form submission not modelled; few input types | Forms examples (with zod/formsnap), the editor's forms | Each event needs its dispatch modelled | Per event | [PLATFORM](gaps/PLATFORM.md#events-and-forms-p2) |
 | P3 | **Script DOM**: no comment anchors, so script reordering blocks later framework inserts; selector subset; few node APIs | Command (clear, no matches), libraries that move or create nodes | The runtime places blocks without anchors | Comment anchors (Blitz has `create_comment_node`), then general DOM mutation; Stylo's selector matching | [PLATFORM](gaps/PLATFORM.md#script-dom-p3) |
