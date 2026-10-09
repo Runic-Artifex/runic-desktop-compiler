@@ -91,7 +91,11 @@ authored edge order are implemented in the pinned Parley/Blitz forks. Private
 [line-flow consumer views](../conformance/results/chromium-inline-line-flow.md)
 now include glyph, cluster and first/last-line selection traversal, preserving
 their distinct arithmetic policies without used-edge advances. All 4,820 direct
-states are unchanged and 569 compiled states pass. The next patches need generic
+states are unchanged and 569 compiled states pass. The
+[normalized-control continuation](../conformance/results/chromium-inline-normalized-controls.md)
+also captures private normalized box sites and authored edge/box order, with
+unchanged rendering; it adds no used advances or physical placement.
+The next patches need generic
 nonzero span-edge flow in Parley and CSS binding in Blitz; geometry alone cannot certify
 shaping/cache identity. Full deferred nested top/bottom
 alignment, DOM sibling heuristics, fragment lists, preserved tabs/RTL atomic

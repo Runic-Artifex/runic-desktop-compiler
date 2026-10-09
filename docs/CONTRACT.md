@@ -38,9 +38,21 @@ the [ownership continuation](../conformance/results/chromium-inline-ownership.md
 the [authored-edge continuation](../conformance/results/chromium-inline-authored-edges.md),
 the [private-flow continuation](../conformance/results/chromium-inline-flow-views.md),
 the [line-consumer continuation](../conformance/results/chromium-inline-line-flow.md),
+the [normalized-control continuation](../conformance/results/chromium-inline-normalized-controls.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest line-consumer checkpoint adds a private borrowed Parley `LineFlow`
+The latest checkpoint captures private normalized box sites and authored edge/box
+order. `a [OOF]b` and `a[OOF] b` both yield `a b` and public box index 1, but
+captured box anchors 2 and 1. Pending-whitespace retention/discard and equal-site
+owner order are retained without changing shaping or bidi identity. Twelve
+focused tests pass, including two new tests. All 4,820 direct states remain
+byte-identical to the preceding accepted checkpoint, and all 569 compiled states
+pass. Both independent evidence audits pass; Chromium repairs remain zero.
+There are no used values, physical placement or public API changes. Parley std
+passes 206 with four historical failures; Blitz DOM retains its two historical
+failures. Those suites remain unpassed.
+
+The preceding line-consumer checkpoint adds a private borrowed Parley `LineFlow`
 facade for glyph placement, cluster lookup/offset and first/last-line selection,
 alongside the existing content/box views. Four new legacy-formula tests pass.
 Their distinct rounding, glyphless and out-of-flow policies remain intact; no

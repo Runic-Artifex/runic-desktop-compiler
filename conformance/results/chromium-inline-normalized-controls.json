@@ -1,0 +1,1250 @@
+{
+  "schema": 1,
+  "date": "2026-10-09",
+  "scope": "Private captured normalized box sites and authored edge/box control order; no used advances or Chromium repairs.",
+  "testedSource": {
+    "/home/viktor/Development/RunicDesktopCompiler": "3469b893cda2110996b2dca766aeb57e9f198ff6",
+    "/home/viktor/Development/RunicArtifex/blitz": "4a6f257f5cf6f7f8c56df4c5d34a4ad6ac1cdaf4",
+    "/home/viktor/Development/RunicArtifex/parley": "5f982ec9770186095902af37564e46711db7e1b9",
+    "/home/viktor/Development/RunicArtifex/stylo": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+    "/home/viktor/Development/RunicArtifex/vello": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+    "/home/viktor/Development/RunicArtifex/anyrender": "22b336b19938c911179e391ad19b34309493978c",
+    "/home/viktor/Development/RunicArtifex/taffy": "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb"
+  },
+  "recordCommit": "Docs/results-only successor to tested 3469b893cda2110996b2dca766aeb57e9f198ff6; successor not natively rebuilt.",
+  "implementation": {
+    "private": true,
+    "newTests": 2,
+    "focusedTests": 12,
+    "OOFWhitespaceHistoryCases": 18,
+    "mixedPendingBoxes": 6,
+    "capturedNormalizedBoxSites": true,
+    "authoredControlOrder": true,
+    "publicAPIChanged": false,
+    "usedEdgeAdvances": false,
+    "CSSBinding": false,
+    "physicalPlacement": false,
+    "arbitraryPostBuildBoxIndexOrKindMutationCovered": false
+  },
+  "direct": {
+    "complete": true,
+    "evidenceValid": true,
+    "strictOraclePassed": false,
+    "method": "Exact raw result/native JSON/whole native PNG/browser reference JSON/whole browser PNG bytes and unchanged original eligible gates; no independent direct MAE recomputation.",
+    "matrices": 35,
+    "states": 4820,
+    "parentMatrices": 35,
+    "freshBeforeMatrices": 0,
+    "parentCheckpoint": {
+      "parley": "3b16e99f1056074ad27cde084e1524d644f46069",
+      "compilerRuntime": "c820f87c287d9ae6c6e7778d1f19230fd07c63ef",
+      "compilerRecorded": "bc9982eb53acecd25add3a7718343df0e0f84e4c",
+      "documentationOnlyFiles": [
+        "conformance/results/chromium-inline-line-flow.json",
+        "conformance/results/chromium-inline-line-flow.md",
+        "docs/ARCHITECTURE.md",
+        "docs/BLITZ-GAPS.md",
+        "docs/CONTRACT.md",
+        "docs/research/CHROMIUM-PARITY.md"
+      ],
+      "acceptedAudit": {
+        "path": "artifacts/line-flow-consumers-final/independent-audit.json",
+        "sha256": "fb4d3a75de1dba6b75b1801e8bc9a0d57d326309fc4f6159cc5278c6f271dcd2"
+      }
+    },
+    "gates": {
+      "geometry": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 4059,
+        "failFail": 761,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "wholePixels": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 4748,
+        "failFail": 72,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "cropPixels": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 2791,
+        "failFail": 2029,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "localPixels": {
+        "eligible": 4539,
+        "absent": 281,
+        "passPass": 1199,
+        "failFail": 3340,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "pixels": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 1429,
+        "failFail": 3391,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "hits": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 4348,
+        "failFail": 472,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "pointHits": {
+        "eligible": 444,
+        "absent": 4376,
+        "passPass": 306,
+        "failFail": 138,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "clientRects": {
+        "eligible": 2061,
+        "absent": 2759,
+        "passPass": 1230,
+        "failFail": 831,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "editors": {
+        "eligible": 1958,
+        "absent": 2862,
+        "passPass": 1925,
+        "failFail": 33,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "scroll": {
+        "eligible": 284,
+        "absent": 4536,
+        "passPass": 236,
+        "failFail": 48,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "lineWidths": {
+        "eligible": 252,
+        "absent": 4568,
+        "passPass": 252,
+        "failFail": 0,
+        "repairs": 0,
+        "regressions": 0
+      }
+    },
+    "absoluteFailureStates": 3518,
+    "zeroEdgeSubset": {
+      "definition": "ownership_* steps 0/1 plus margin_zero step 0, all three DPRs; excludes later nonzero margin mutations",
+      "expected": 75,
+      "states": 75,
+      "gates": {
+        "geometry": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 75,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "wholePixels": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 75,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "cropPixels": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 75,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "localPixels": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 49,
+          "failFail": 26,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "pixels": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 49,
+          "failFail": 26,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "hits": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 69,
+          "failFail": 6,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "pointHits": {
+          "eligible": 0,
+          "absent": 75,
+          "passPass": 0,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "clientRects": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 75,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "editors": {
+          "eligible": 0,
+          "absent": 75,
+          "passPass": 0,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "scroll": {
+          "eligible": 0,
+          "absent": 75,
+          "passPass": 0,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "lineWidths": {
+          "eligible": 0,
+          "absent": 75,
+          "passPass": 0,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        }
+      }
+    },
+    "matrixSummaries": [
+      {
+        "name": "middle-metrics",
+        "states": 180,
+        "baseline": "artifacts/line-flow-consumers-final/after-middle-metrics",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 103,
+        "exactResults": 180,
+        "exactNativeJSON": 180,
+        "exactWholeNativePNG": 180,
+        "exactBrowserReferenceJSON": 180,
+        "exactWholeBrowserPNG": 180
+      },
+      {
+        "name": "nested-alignment",
+        "states": 72,
+        "baseline": "artifacts/line-flow-consumers-final/after-nested-alignment",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 72,
+        "exactResults": 72,
+        "exactNativeJSON": 72,
+        "exactWholeNativePNG": 72,
+        "exactBrowserReferenceJSON": 72,
+        "exactWholeBrowserPNG": 72
+      },
+      {
+        "name": "empty-inline",
+        "states": 108,
+        "baseline": "artifacts/line-flow-consumers-final/after-empty-inline",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 87,
+        "exactResults": 108,
+        "exactNativeJSON": 108,
+        "exactWholeNativePNG": 108,
+        "exactBrowserReferenceJSON": 108,
+        "exactWholeBrowserPNG": 108
+      },
+      {
+        "name": "empty-inline-shaping",
+        "states": 42,
+        "baseline": "artifacts/line-flow-consumers-final/after-empty-inline-shaping",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 36,
+        "exactResults": 42,
+        "exactNativeJSON": 42,
+        "exactWholeNativePNG": 42,
+        "exactBrowserReferenceJSON": 42,
+        "exactWholeBrowserPNG": 42
+      },
+      {
+        "name": "inline-shaping-intent",
+        "states": 150,
+        "baseline": "artifacts/line-flow-consumers-final/after-inline-shaping-intent",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 99,
+        "exactResults": 150,
+        "exactNativeJSON": 150,
+        "exactWholeNativePNG": 150,
+        "exactBrowserReferenceJSON": 150,
+        "exactWholeBrowserPNG": 150
+      },
+      {
+        "name": "inline-shaping-refresh",
+        "states": 132,
+        "baseline": "artifacts/line-flow-consumers-final/after-inline-shaping-refresh",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 60,
+        "exactResults": 132,
+        "exactNativeJSON": 132,
+        "exactWholeNativePNG": 132,
+        "exactBrowserReferenceJSON": 132,
+        "exactWholeBrowserPNG": 132
+      },
+      {
+        "name": "inline-span-edges",
+        "states": 306,
+        "baseline": "artifacts/line-flow-consumers-final/after-inline-span-edges",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 248,
+        "exactResults": 306,
+        "exactNativeJSON": 306,
+        "exactWholeNativePNG": 306,
+        "exactBrowserReferenceJSON": 306,
+        "exactWholeBrowserPNG": 306
+      },
+      {
+        "name": "inline-flow-affinity",
+        "states": 165,
+        "baseline": "artifacts/line-flow-consumers-final/after-inline-flow-affinity",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 165,
+        "exactResults": 165,
+        "exactNativeJSON": 165,
+        "exactWholeNativePNG": 165,
+        "exactBrowserReferenceJSON": 165,
+        "exactWholeBrowserPNG": 165
+      },
+      {
+        "name": "inline-edge-drivers",
+        "states": 27,
+        "baseline": "artifacts/line-flow-consumers-final/after-inline-edge-drivers",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 27,
+        "exactResults": 27,
+        "exactNativeJSON": 27,
+        "exactWholeNativePNG": 27,
+        "exactBrowserReferenceJSON": 27,
+        "exactWholeBrowserPNG": 27
+      },
+      {
+        "name": "paint-origins",
+        "states": 108,
+        "baseline": "artifacts/line-flow-consumers-final/after-paint-origins",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 25,
+        "exactResults": 108,
+        "exactNativeJSON": 108,
+        "exactWholeNativePNG": 108,
+        "exactBrowserReferenceJSON": 108,
+        "exactWholeBrowserPNG": 108
+      },
+      {
+        "name": "paint-decorations",
+        "states": 36,
+        "baseline": "artifacts/line-flow-consumers-final/after-paint-decorations",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 29,
+        "exactResults": 36,
+        "exactNativeJSON": 36,
+        "exactWholeNativePNG": 36,
+        "exactBrowserReferenceJSON": 36,
+        "exactWholeBrowserPNG": 36
+      },
+      {
+        "name": "inline-source-order",
+        "states": 216,
+        "baseline": "artifacts/line-flow-consumers-final/after-inline-source-order",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 216,
+        "exactResults": 216,
+        "exactNativeJSON": 216,
+        "exactWholeNativePNG": 216,
+        "exactBrowserReferenceJSON": 216,
+        "exactWholeBrowserPNG": 216
+      },
+      {
+        "name": "pointer-geometry",
+        "states": 234,
+        "baseline": "artifacts/line-flow-consumers-final/after-pointer-geometry",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 183,
+        "exactResults": 234,
+        "exactNativeJSON": 234,
+        "exactWholeNativePNG": 234,
+        "exactBrowserReferenceJSON": 234,
+        "exactWholeBrowserPNG": 234
+      },
+      {
+        "name": "inline-fragments",
+        "states": 363,
+        "baseline": "artifacts/line-flow-consumers-final/after-inline-fragments",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 363,
+        "exactResults": 363,
+        "exactNativeJSON": 363,
+        "exactWholeNativePNG": 363,
+        "exactBrowserReferenceJSON": 363,
+        "exactWholeBrowserPNG": 363
+      },
+      {
+        "name": "inline-fragment-effects",
+        "states": 102,
+        "baseline": "artifacts/line-flow-consumers-final/after-inline-fragment-effects",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 102,
+        "exactResults": 102,
+        "exactNativeJSON": 102,
+        "exactWholeNativePNG": 102,
+        "exactBrowserReferenceJSON": 102,
+        "exactWholeBrowserPNG": 102
+      },
+      {
+        "name": "line-width-grid",
+        "states": 176,
+        "baseline": "artifacts/line-flow-consumers-final/after-line-width-grid",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 146,
+        "exactResults": 176,
+        "exactNativeJSON": 176,
+        "exactWholeNativePNG": 176,
+        "exactBrowserReferenceJSON": 176,
+        "exactWholeBrowserPNG": 176
+      },
+      {
+        "name": "line-width-effects",
+        "states": 76,
+        "baseline": "artifacts/line-flow-consumers-final/after-line-width-effects",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 31,
+        "exactResults": 76,
+        "exactNativeJSON": 76,
+        "exactWholeNativePNG": 76,
+        "exactBrowserReferenceJSON": 76,
+        "exactWholeBrowserPNG": 76
+      },
+      {
+        "name": "text-metric-grid",
+        "states": 432,
+        "baseline": "artifacts/line-flow-consumers-final/after-text-metric-grid",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 384,
+        "exactResults": 432,
+        "exactNativeJSON": 432,
+        "exactWholeNativePNG": 432,
+        "exactBrowserReferenceJSON": 432,
+        "exactWholeBrowserPNG": 432
+      },
+      {
+        "name": "input-line-height",
+        "states": 504,
+        "baseline": "artifacts/line-flow-consumers-final/after-input-line-height",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 370,
+        "exactResults": 504,
+        "exactNativeJSON": 504,
+        "exactWholeNativePNG": 504,
+        "exactBrowserReferenceJSON": 504,
+        "exactWholeBrowserPNG": 504
+      },
+      {
+        "name": "input-pointer",
+        "states": 264,
+        "baseline": "artifacts/line-flow-consumers-final/after-input-pointer",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 251,
+        "exactResults": 264,
+        "exactNativeJSON": 264,
+        "exactWholeNativePNG": 264,
+        "exactBrowserReferenceJSON": 264,
+        "exactWholeBrowserPNG": 264
+      },
+      {
+        "name": "control-document-mode",
+        "states": 132,
+        "baseline": "artifacts/line-flow-consumers-final/after-control-document-mode",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 48,
+        "exactResults": 132,
+        "exactNativeJSON": 132,
+        "exactWholeNativePNG": 132,
+        "exactBrowserReferenceJSON": 132,
+        "exactWholeBrowserPNG": 132
+      },
+      {
+        "name": "control-layout",
+        "states": 264,
+        "baseline": "artifacts/line-flow-consumers-final/after-control-layout",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 264,
+        "exactResults": 264,
+        "exactNativeJSON": 264,
+        "exactWholeNativePNG": 264,
+        "exactBrowserReferenceJSON": 264,
+        "exactWholeBrowserPNG": 264
+      },
+      {
+        "name": "control-selection",
+        "states": 48,
+        "baseline": "artifacts/line-flow-consumers-final/after-control-selection",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 36,
+        "exactResults": 48,
+        "exactNativeJSON": 48,
+        "exactWholeNativePNG": 48,
+        "exactBrowserReferenceJSON": 48,
+        "exactWholeBrowserPNG": 48
+      },
+      {
+        "name": "control-focus",
+        "states": 252,
+        "baseline": "artifacts/line-flow-consumers-final/after-control-focus",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 88,
+        "exactResults": 252,
+        "exactNativeJSON": 252,
+        "exactWholeNativePNG": 252,
+        "exactBrowserReferenceJSON": 252,
+        "exactWholeBrowserPNG": 252
+      },
+      {
+        "name": "tables",
+        "states": 77,
+        "baseline": "artifacts/line-flow-consumers-final/after-tables",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 3,
+        "exactResults": 77,
+        "exactNativeJSON": 77,
+        "exactWholeNativePNG": 77,
+        "exactBrowserReferenceJSON": 77,
+        "exactWholeBrowserPNG": 77
+      },
+      {
+        "name": "table-document-mode",
+        "states": 12,
+        "baseline": "artifacts/line-flow-consumers-final/after-table-document-mode",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 0,
+        "absoluteFailures": 0,
+        "exactResults": 12,
+        "exactNativeJSON": 12,
+        "exactWholeNativePNG": 12,
+        "exactBrowserReferenceJSON": 12,
+        "exactWholeBrowserPNG": 12
+      },
+      {
+        "name": "table-controls",
+        "states": 4,
+        "baseline": "artifacts/line-flow-consumers-final/after-table-controls",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 0,
+        "absoluteFailures": 0,
+        "exactResults": 4,
+        "exactNativeJSON": 4,
+        "exactWholeNativePNG": 4,
+        "exactBrowserReferenceJSON": 4,
+        "exactWholeBrowserPNG": 4
+      },
+      {
+        "name": "table-integration",
+        "states": 30,
+        "baseline": "artifacts/line-flow-consumers-final/after-table-integration",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 8,
+        "exactResults": 30,
+        "exactNativeJSON": 30,
+        "exactWholeNativePNG": 30,
+        "exactBrowserReferenceJSON": 30,
+        "exactWholeBrowserPNG": 30
+      },
+      {
+        "name": "controls",
+        "states": 9,
+        "baseline": "artifacts/line-flow-consumers-final/after-controls",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 3,
+        "exactResults": 9,
+        "exactNativeJSON": 9,
+        "exactWholeNativePNG": 9,
+        "exactBrowserReferenceJSON": 9,
+        "exactWholeBrowserPNG": 9
+      },
+      {
+        "name": "scrolling",
+        "states": 148,
+        "baseline": "artifacts/line-flow-consumers-final/after-scrolling",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 0,
+        "absoluteFailures": 0,
+        "exactResults": 148,
+        "exactNativeJSON": 148,
+        "exactWholeNativePNG": 148,
+        "exactBrowserReferenceJSON": 148,
+        "exactWholeBrowserPNG": 148
+      },
+      {
+        "name": "css-animations",
+        "states": 40,
+        "baseline": "artifacts/line-flow-consumers-final/after-css-animations",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 0,
+        "absoluteFailures": 0,
+        "exactResults": 40,
+        "exactNativeJSON": 40,
+        "exactWholeNativePNG": 40,
+        "exactBrowserReferenceJSON": 40,
+        "exactWholeBrowserPNG": 40
+      },
+      {
+        "name": "intrinsic-text",
+        "states": 30,
+        "baseline": "artifacts/line-flow-consumers-final/after-intrinsic-text",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 10,
+        "exactResults": 30,
+        "exactNativeJSON": 30,
+        "exactWholeNativePNG": 30,
+        "exactBrowserReferenceJSON": 30,
+        "exactWholeBrowserPNG": 30
+      },
+      {
+        "name": "font-weights",
+        "states": 36,
+        "baseline": "artifacts/line-flow-consumers-final/after-font-weights",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 20,
+        "exactResults": 36,
+        "exactNativeJSON": 36,
+        "exactWholeNativePNG": 36,
+        "exactBrowserReferenceJSON": 36,
+        "exactWholeBrowserPNG": 36
+      },
+      {
+        "name": "glyphs",
+        "states": 38,
+        "baseline": "artifacts/line-flow-consumers-final/after-glyphs",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 34,
+        "exactResults": 38,
+        "exactNativeJSON": 38,
+        "exactWholeNativePNG": 38,
+        "exactBrowserReferenceJSON": 38,
+        "exactWholeBrowserPNG": 38
+      },
+      {
+        "name": "borders",
+        "states": 7,
+        "baseline": "artifacts/line-flow-consumers-final/after-borders",
+        "baselineKind": "accepted-parent-checkpoint",
+        "exitCode": 1,
+        "absoluteFailures": 7,
+        "exactResults": 7,
+        "exactNativeJSON": 7,
+        "exactWholeNativePNG": 7,
+        "exactBrowserReferenceJSON": 7,
+        "exactWholeBrowserPNG": 7
+      }
+    ]
+  },
+  "compiled": {
+    "valid": true,
+    "totals": {
+      "jobs": 6,
+      "runs": 61,
+      "states": 569,
+      "actions": 508,
+      "PNGs": 1138
+    },
+    "jobs": [
+      {
+        "name": "hover-opt",
+        "runs": 12,
+        "states": 90,
+        "actions": 78,
+        "PNGs": 180,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "hover-no-opt",
+        "runs": 12,
+        "states": 90,
+        "actions": 78,
+        "PNGs": 180,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-tables-cpu",
+        "runs": 6,
+        "states": 96,
+        "actions": 90,
+        "PNGs": 192,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-tables-gpu",
+        "runs": 2,
+        "states": 32,
+        "actions": 30,
+        "PNGs": 64,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-forms-focus",
+        "runs": 22,
+        "states": 242,
+        "actions": 220,
+        "PNGs": 484,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-control-regressions",
+        "runs": 7,
+        "states": 19,
+        "actions": 12,
+        "PNGs": 38,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      }
+    ],
+    "tolerances": {
+      "geometry": 2,
+      "pixelMAE": 3
+    },
+    "comparison": {
+      "rawJSON": true,
+      "wholePNG": true,
+      "authoredRegions": true
+    }
+  },
+  "units": [
+    {
+      "name": "npm",
+      "log": "artifacts/normalized-span-controls/npm.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 344,
+        "failed": 0,
+        "tests": 344,
+        "skipped": 0,
+        "cancelled": 0
+      },
+      "passed": true
+    },
+    {
+      "name": "workspace",
+      "log": "artifacts/normalized-span-controls/workspace.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 143,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-dom",
+      "log": "artifacts/normalized-span-controls/blitz-dom.log",
+      "exitCode": 101,
+      "counts": {
+        "passed": 76,
+        "failed": 2,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [
+        "document::hover_invalidation_tests::hover_styles_apply_and_clear",
+        "node::element::tests::scroll_by_clamps_and_bubbles"
+      ],
+      "passed": false,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-paint",
+      "log": "artifacts/normalized-span-controls/blitz-paint.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-html",
+      "log": "artifacts/normalized-span-controls/blitz-html.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "parley-std",
+      "log": "artifacts/normalized-span-controls/parley-std.log",
+      "exitCode": 101,
+      "counts": {
+        "passed": 206,
+        "failed": 4,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [
+        "layout::cluster::tests::cluster_from_position_center_alignment",
+        "layout::cluster::tests::cluster_from_position_end_alignment",
+        "layout::cluster::tests::cluster_from_position_justified_alignment",
+        "layout::cluster::tests::cluster_from_position_start_alignment"
+      ],
+      "passed": false,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "parley-libm",
+      "log": "artifacts/normalized-span-controls/parley-libm.log",
+      "exitCode": 0,
+      "passed": true
+    },
+    {
+      "name": "formatting",
+      "log": "artifacts/normalized-span-controls/formatting.log",
+      "exitCode": 0,
+      "passed": true
+    }
+  ],
+  "dependencyFailuresRemainUnpassed": true,
+  "mirror": {
+    "sourceFiles": 152,
+    "preparedRevision": "3b16e99f1056074ad27cde084e1524d644f46069",
+    "preparedBeforeSigning": true,
+    "sourceBytesAuthenticatedAgainstSignedRevision": "5f982ec9770186095902af37564e46711db7e1b9",
+    "removedAfterAudits": true,
+    "historicalDisposableManifestReferences": 154,
+    "cleanup": {
+      "path": "/tmp/runic-normalized-span-controls-tests",
+      "removed": true,
+      "sourceFiles": 152,
+      "harnessFiles": 2,
+      "bytes": 4290993,
+      "sourceRevision": "5f982ec9770186095902af37564e46711db7e1b9",
+      "sourceAndMirrorHashesRechecked": true,
+      "bothAuditsCompletedBeforeRemoval": true,
+      "historicalManifestReferences": 154,
+      "canonicalCheckoutAndSharedTargetRetained": true
+    }
+  },
+  "orchestration": {
+    "freshAuthoritativeStages": 49,
+    "initialWrapperRejectedBeforeDirectOrCompiledCaptures": true,
+    "initialNpmCompleted": true,
+    "initialWorkspaceInterrupted": true,
+    "interruptedAttemptExcludedFromFinalCounts": true,
+    "fontOutputReferencesCorrected": 3,
+    "otherWrappersOutputReferences": 1,
+    "draftEvidenceRelocationsAuthenticated": true,
+    "initialFocusedMirrorSourceDriftDetectedAndCorrectedBeforeSigning": true
+  },
+  "integration": {
+    "maintainedDevelopmentCheckoutsPerRepository": 1,
+    "excludes": [
+      "Cargo source caches",
+      "Parley bare authority repository"
+    ],
+    "newAgentCheckouts": false,
+    "newCargoTargets": false,
+    "parleyLockSourceEntriesChanged": 6,
+    "normalizedOtherLockBytesUnchanged": true
+  },
+  "limitations": [
+    "Zero Chromium repairs and zero regressions; strict direct parity remains failed.",
+    "Captured sites are authored normalization identity, not effective physical placement.",
+    "Metadata replay does not prove future signed scheduler rollback or custom-box scheduling.",
+    "No atomic-width mutation, default-feature/system-font parity or OS keyboard/pointer/IME delivery claim.",
+    "Historical placeholder reduction not rerun; six dependency failures remain unpassed.",
+    "Named /code-review unavailable and incomplete; independent source review completed.",
+    "Direct MAEs were checked as recorded gates and exact evidence bytes, not independently recomputed.",
+    "The removed mirror has 154 historical references in the compiled observation manifest."
+  ],
+  "next": {
+    "status": "planning-only-not-implemented",
+    "capturedControlSites": true,
+    "source": {
+      "compiler": "3469b893cda2110996b2dca766aeb57e9f198ff6",
+      "parley": "5f982ec9770186095902af37564e46711db7e1b9"
+    },
+    "scope": "Next activated signed flow; current controls have no used values.",
+    "decisions": [
+      "Use captured authored control anchors, never infer box chronology from final InlineBox.index.",
+      "Keep logical consumption identity separate from committed visual attachment and numeric positions.",
+      "Merge normalized controls with whole atoms retaining shaped run/cluster ranges, original item identities and bidi levels.",
+      "Retain typed interior markers for edges and boxes; freeze their nonzero behavior with explicit tests before advancement.",
+      "Do not assume contiguous original item ranges describe activated committed lines.",
+      "Separate signed outside components excluded from own bounds from owned border/padding components; keep owner direction distinct from parent progression and run bidi.",
+      "Activate whenever any individual component is nonzero, including net-zero opposing values; retain exact legacy all-zero policy.",
+      "Both width/quota breakers, intrinsic traversal, saved regular/emergency opportunities and external replay share logical event consumption.",
+      "Commit structural sites, not permanent absolute positioned caches; alignment/justification remain live.",
+      "All effective paint, content/empty fragments, cluster/hit, terminal caret and first/middle/last selection consumers must be wired at one acceptance checkpoint.",
+      "Do not use signed cursor x == 0 as an empty-line predicate in activated flow; cancellation and negative excursions require explicit occupied-content state."
+    ],
+    "requiredProofs": [
+      "Actual provisional overflow recovered by negative opening, asserting both inequalities.",
+      "Used edge fragment controls min-content and restoration invalidates cached widths.",
+      "Pending-space OOF and CustomOOF scheduling with exact-once custom yield/resume.",
+      "Regular/emergency/external/quota rollback restores edge cursor, owner stack, schedule and placement arena.",
+      "Forced newline immediate close versus intervening opening/empty child/box.",
+      "Whole-atom interior markers and RTL original identity retention.",
+      "Own margin exclusion, descendant edge inclusion, empty span border bounds and opposing nonzero activation.",
+      "Nonempty content with net zero advance, edge-only empty owners and negative excursions keep correct overflow/empty-line behavior."
+    ],
+    "layerBoundary": {
+      "Parley": "Generic layout units and whole-atom flow.",
+      "Blitz": "CSS resolution, box direction, ownership and shared CSSOM/hit border geometry."
+    },
+    "existingBrowserDrivers": [
+      "conformance/inline-edge-drivers.mjs",
+      "conformance/inline-span-edges.mjs",
+      "conformance/inline-flow-affinity.mjs"
+    ],
+    "newBrowserDriversNotAdded": true,
+    "shapingPolicyOpen": {
+      "acceptedPolicy": false,
+      "facts": [
+        "Unrequested fi, combining and Arabic continuation span edges may be atom-interior.",
+        "Requested normalized per-side seams force itemization and can split a combining/flag grapheme; no preservation claim across such seams.",
+        "Original box indices force itemization, but shifted normalized OOF anchors do not automatically become seams.",
+        "Existing Parley layout building has no source-located error channel for atom-intersecting numeric attachments."
+      ],
+      "requiredProofs": [
+        "Requested combining and flag seams compared against the pinned Chromium behavior.",
+        "Pending-space OOF anchor before a combining continuation, with original box and bidi identity retained.",
+        "Explicit nonzero interior-control policy before exposing any value attachment API."
+      ]
+    },
+    "ordinaryMarginBinding": {
+      "implemented": false,
+      "targetStandardsStates": 84,
+      "retainedMissingPixels": 8,
+      "quirksStatesSeparate": 48,
+      "owner": "Existing ordinary #text span; not TreeBuilder root style 0",
+      "facts": [
+        "Inline/table roots are #table/#cell; ordinary #text is separately pushed and brush-owned.",
+        "Flex/grid #text outer margin is already handled by Taffy, and atomic button margins are already in box widths.",
+        "Horizontal pointer ownership and text background/decorative paint currently use separate unions from CSSOM style-span bounds."
+      ],
+      "acceptance": "Fixed signed ordinary-span flow with all effective consumers, both breakers/intrinsic/replay, and exact zero-path compatibility in one checkpoint."
+    }
+  },
+  "evidence": [
+    {
+      "path": "artifacts/normalized-span-controls/pins.json",
+      "sha256": "e662a0aadf358dcc976e59f9abba2917b948c40876df416eeb6749b462232c9e",
+      "bytes": 661
+    },
+    {
+      "path": "artifacts/normalized-span-controls/source-proof.json",
+      "sha256": "8cd2878686bcbdd2233435d2e5e79a10e430db6ae34cf98ac1b74967d6383a37",
+      "bytes": 530078
+    },
+    {
+      "path": "artifacts/normalized-span-controls/source-after.json",
+      "sha256": "ac04e0d342c7bde48fd320c95d7f17e5143db154ac1fb05528f2916693ffe5f4",
+      "bytes": 499554
+    },
+    {
+      "path": "artifacts/normalized-span-controls/final-cargo-metadata.json",
+      "sha256": "4a27ed61183b905a1a87d8789ea188f8e30251d8cc4268daf6100ebe31bdc6e3",
+      "bytes": 1874795
+    },
+    {
+      "path": "artifacts/normalized-span-controls/lock-proof.json",
+      "sha256": "e453fa3ddc5e3cd2a1f502c0cd50e6b658acd758aac78779f070cdd442dab20e",
+      "bytes": 406
+    },
+    {
+      "path": "artifacts/normalized-span-controls/run.mjs",
+      "sha256": "4618f6bce4ec4ca8de6d6ec395895b0d4c9b9b791b7c695ae9e11cacc204ee70",
+      "bytes": 4144
+    },
+    {
+      "path": "artifacts/normalized-span-controls/run.log",
+      "sha256": "94584311880989d37d539bf5bcd32e694e1cd4b8267eca9b183794cd17a8f5d2",
+      "bytes": 4277
+    },
+    {
+      "path": "artifacts/normalized-span-controls/commands.json",
+      "sha256": "08954514e67cc9ef33b8c6c095c5f468bfc7a9ca1d557c915625310bcd4b010b",
+      "bytes": 109470
+    },
+    {
+      "path": "artifacts/normalized-span-controls/unit-stages.json",
+      "sha256": "9d0c54fd86c05b64dbad33be2735ac1676e54d6ebeb65c028e2e8095767301d1",
+      "bytes": 6234
+    },
+    {
+      "path": "artifacts/normalized-span-controls/direct-commands.json",
+      "sha256": "17a138d3c73fdc14f82c9d032f539f829f78c6c06bc5f80000fcc833c35bc745",
+      "bytes": 30776
+    },
+    {
+      "path": "artifacts/normalized-span-controls/compiled-commands.json",
+      "sha256": "d64a414cf9716899b41604a786ed352f4bb0907df2dc7f49c881662ea116e0b0",
+      "bytes": 72466
+    },
+    {
+      "path": "artifacts/normalized-span-controls/matrix-plan.json",
+      "sha256": "46dbec9f0010b034c802bbb7bf7aa70a06f529c58125a2a62e1f4b06b8b5a63f",
+      "bytes": 9133
+    },
+    {
+      "path": "artifacts/normalized-span-controls/compiled-plan.json",
+      "sha256": "8910da07d7e617675d1d13e1e91683ce8d2f4b1494c40272a55b3838da419c30",
+      "bytes": 76709
+    },
+    {
+      "path": "artifacts/normalized-span-controls/full-driver-proof.json",
+      "sha256": "ee71fdf03545c0b9476e2183b2f26143ca5fefcd5b0369f96b380d6cc8fb108d",
+      "bytes": 12658
+    },
+    {
+      "path": "artifacts/normalized-span-controls/prepare-drivers.mjs",
+      "sha256": "a924ef25a32389ab976a257d286043a29787205613e4a1fbf7cfbad872d4330c",
+      "bytes": 978
+    },
+    {
+      "path": "artifacts/normalized-span-controls/audit.mjs",
+      "sha256": "0e55d4aa4c4f1d672472ddb5980cf248dda555b7276aef5d043f88574d99b099",
+      "bytes": 37848
+    },
+    {
+      "path": "artifacts/normalized-span-controls/audit-compiled.mjs",
+      "sha256": "e6e0267cff33ffc8e609b851e267eb919fbb9516e6dfc0daf335f83d1a1d3b73",
+      "bytes": 25295
+    },
+    {
+      "path": "artifacts/normalized-span-controls/audit-helper-contract.json",
+      "sha256": "0c8c2975e77fd2de67b7cfbb87f181399b0fa8c38295ef0194d688116cb1b3f2",
+      "bytes": 4730
+    },
+    {
+      "path": "artifacts/normalized-span-controls/frozen-audit-inputs.json",
+      "sha256": "57e79cb73124088c273be0a41df4cb6ad96aafd426924502f78c6dcbf069102c",
+      "bytes": 6642052
+    },
+    {
+      "path": "artifacts/normalized-span-controls/independent-audit.json",
+      "sha256": "ff70db2fa64feb5d39926c0528c020c39a45a8a3d0cfc58ba365442e1c294aaa",
+      "bytes": 9274027
+    },
+    {
+      "path": "artifacts/normalized-span-controls/compiled-audit.json",
+      "sha256": "1f65bb85970e7c4aecdddea4540b04ea05c3dd882c8df688b203eba8fe79f9f0",
+      "bytes": 22771
+    },
+    {
+      "path": "artifacts/normalized-span-controls/compiled-observation-manifest.json",
+      "sha256": "667fe7988a7817cc41495645cebe19e0b008c088ba6844e68408c975af1a8f8e",
+      "bytes": 418951
+    },
+    {
+      "path": "artifacts/normalized-span-controls/parley-source-proof.json",
+      "sha256": "d1275842755c9e815825da37ee6a2c575b2446f9b71a03f96e1c8fac5e638cdc",
+      "bytes": 19701
+    },
+    {
+      "path": "artifacts/normalized-span-controls/parley-focused.log",
+      "sha256": "56c96566d7ab814c980d830bffbd3adc22bc8a91b5cd9b8d73b13010ae96e0ae",
+      "bytes": 2142
+    },
+    {
+      "path": "artifacts/normalized-span-controls/mirror-cleanup.json",
+      "sha256": "fd6bea3b999229b40e3682385b4ec9f76609247ff537ad55dee164b7c0865d27",
+      "bytes": 381
+    },
+    {
+      "path": "artifacts/normalized-span-controls/next-effective-flow-notes.json",
+      "sha256": "7bb5733cbadf3129aac9c3c55ddcab227fb7d3da56a14e8a047689ab591dabac",
+      "bytes": 4615
+    },
+    {
+      "path": "artifacts/normalized-span-controls/driver-correction-proof.json",
+      "sha256": "38c2cf17a34ffd9dddab27570e6baec6bb9f2e26173ae586029df47cb11a1695",
+      "bytes": 719
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-relocation-proof.json",
+      "sha256": "8e650832cb455faeddc71f3831aa3f0f2975b58f2edb58f6d937b609934c0889",
+      "bytes": 2667
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-first-commands.json",
+      "sha256": "0ccd390987ad07e4cb21afdd7007d6c8cfabcdfa3f77ef6b7bf901e2b9f52e66",
+      "bytes": 646
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-first-unit-stages.json",
+      "sha256": "0ccd390987ad07e4cb21afdd7007d6c8cfabcdfa3f77ef6b7bf901e2b9f52e66",
+      "bytes": 646
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-first-source-proof.json",
+      "sha256": "8cd2878686bcbdd2233435d2e5e79a10e430db6ae34cf98ac1b74967d6383a37",
+      "bytes": 530078
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-first-full-driver-proof.json",
+      "sha256": "8b0fe0202a294b497b0c4092b80582186530ac58e47f307a2c320c9b7850bbca",
+      "bytes": 12658
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-first-run.log",
+      "sha256": "06feefaeae2405cfdf4b2cb273adba4470c75e5148c7d9ef6223684c199ed427",
+      "bytes": 73
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-first-npm.log",
+      "sha256": "d6988aba05c8a503372c605ebba9d050caece45e8013f5f71cfeafe9281136f5",
+      "bytes": 30620
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-first-workspace.log",
+      "sha256": "f3e1c5d16fccf4b3e9306c0209174c8e68fd77fbb5a1f235e1dcd05b405b6546",
+      "bytes": 16134
+    },
+    {
+      "path": "artifacts/normalized-span-controls/draft-first-audit-freeze.log",
+      "sha256": "156df572f386e83921eb6462ae5937dbef811e2db63f2383e2d2f9a84dba139e",
+      "bytes": 545
+    },
+    {
+      "path": "artifacts/normalized-span-controls/audit-v1-freeze-failed.mjs",
+      "sha256": "cda14be26856c9270b11e7935a0cd5ea9f6f93a2498a1c4591e273aa7e2087db",
+      "bytes": 36135
+    },
+    {
+      "path": "artifacts/normalized-span-controls/audit-helper-contract-v1-freeze-failed.json",
+      "sha256": "e7edbef6da2240c2166cbbadcc1b01afa8503b50159051ac1921488a61a53117",
+      "bytes": 3833
+    },
+    {
+      "path": "artifacts/normalized-span-controls/prepare-drivers-v1-failed.mjs",
+      "sha256": "30e3058aedf4ea9a83076b48bae8b3ff22c41e109cc07b8cec1fbc5acdb10c5b",
+      "bytes": 914
+    },
+    {
+      "path": "artifacts/normalized-span-controls/prepare-drivers-v2-failed.mjs",
+      "sha256": "2e08f858d185a85407fec512e4606220683aa06d8930cc4d92797ab5e9b9ca76",
+      "bytes": 964
+    },
+    {
+      "path": "artifacts/normalized-span-controls/parley-source-proof-v1.json",
+      "sha256": "ea531a818a29c050d38b1282c9b847cfa466c3c2cb1b9d276f9430f70941ae09",
+      "bytes": 19701
+    },
+    {
+      "path": "artifacts/normalized-span-controls/parley-focused-v1.log",
+      "sha256": "d9347809ef491c4eee9f4f28995bf8f68bc5aa3cbfe6135c44a092a1831f3354",
+      "bytes": 2142
+    },
+    {
+      "path": "artifacts/normalized-span-controls/cleanup-mirror.mjs",
+      "sha256": "d83857156c333a341e1267b75f576c2f53dc1542b9d76f571ca8f0b0ed2efe3d",
+      "bytes": 2190
+    },
+    {
+      "path": "artifacts/normalized-span-controls/prepare-record.mjs",
+      "sha256": "3e2b6dd4d3c5c5965f709bee22786fc1358b602400b8868081770ffd32b2eb9a",
+      "bytes": 11644
+    },
+    {
+      "path": "artifacts/normalized-span-controls/audit-verify.log",
+      "sha256": "5f60593e58908fdd970641131807d118d927821653fd4786a011ebded2389d20",
+      "bytes": 2402
+    },
+    {
+      "path": "artifacts/normalized-span-controls/audit-compiled.log",
+      "sha256": "0165b053a80d80bcc849c5b5b067bc16f54cbaf8465cdedb09a8f0fb72905af9",
+      "bytes": 274
+    }
+  ]
+}

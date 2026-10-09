@@ -489,7 +489,10 @@ merging their arithmetic policies. The verified
 [line-consumer continuation](../../conformance/results/chromium-inline-line-flow.md)
 adds glyph, cluster and first/last-line selection views plus four legacy-formula
 tests. All 4,820 direct states remain identical, and 569 compiled states pass.
-These are private compatibility layers; all consumers and both breakers still
+The [normalized-control continuation](../../conformance/results/chromium-inline-normalized-controls.md)
+now captures private normalized box sites and authored edge/box order; all 4,820
+direct states remain identical and 569 compiled states pass. These are private
+compatibility layers; all consumers and both breakers still
 need a defined effective used-edge path. The additive
 [27-state driver](../../conformance/inline-edge-drivers.mjs) now changes negative
 margin wrapping and controlling min-content width, and captures immediate `br`
@@ -499,11 +502,13 @@ uninstrumented.
 
 1. Private normalized event order is retained and tested. Freeze an activated
    logical scheduler independently from committed visual placements. In the
-   retained `"a b"` pending-space/OOF reduction, the opening is at byte 2 before
-   box ordinal 0, but the box is at byte 1 and the closing at byte 2 after it.
-   Neither a byte gate nor a box-ordinal gate alone preserves ownership and
-   spacing. Leave the all-individually-zero path unchanged. Freeze consumption and
-   wrap affinity with reductions: pending
+   retained `a [OOF]b` reduction, the opening is at byte 2 before box ordinal 0,
+   whose public index remains 1 but captured normalized site is 2; the closing
+   follows at byte 2. `a[OOF] b` yields the same normalized `a b` and public index
+   1, but captures box site 1. Use these captured sites and authored box counts,
+   never inferred chronology or byte sorting. Keep logical consumption separate
+   from visual attachment. Leave the all-individually-zero path unchanged. Freeze
+   consumption and wrap affinity with reductions: pending
    spaces, equal-position empty/nested owners, atomic and out-of-flow ordinals,
    forced breaks, opening lookahead and closing-edge break opportunities. Byte
    positions alone cannot define that order. Saved opportunities must restore
@@ -523,6 +528,11 @@ uninstrumented.
    advances. Measure box direction and containing progression separately: own
    direction changes asymmetric fragment placement under an unchanged parent.
    Shaping intent is per edge and independent of the numeric used advance.
+   Unrequested span edges can lie inside ligature/combining atoms; shifted box
+   anchors need not coincide with original shaping seams. Explicit itemization
+   seams can split combining/flag graphemes. Freeze nonzero interior-control
+   behavior and compare those seam cases with pinned Chromium before exposing
+   value attachment. Current metadata replay does not prove signed rollback.
 4. Add negative/percentage/calc/auto, intrinsic sizing, and layout-only mutation.
    An indefinite percentage basis resolves to zero while retaining the fixed
    calc contribution and authored shaping intent. Include refreshed edge values
@@ -541,6 +551,16 @@ quirks control states under a separately measured policy. Full bidi fragment
 segmentation, grapheme/caret behavior, tabs, font/raster parity and OS editor
 delivery remain separate work. Profile per-owner atom scans before adding a
 cache; correctness and style/width/scale invalidation must precede optimization.
+
+The omitted 8px margin belongs to the existing ordinary `#text` span in inline
+and table layouts, whose containing inline root is `#table` or `#cell`. Bind
+generic values at ordinary-span creation; applying them to every root style
+would duplicate margins already handled by Taffy in flex/grid. Atomic button
+margins are already part of box width. CSSOM, pointer horizontal fragments and
+background/decoration paint currently use separate bounds; effective ordinary
+edge ownership must reach all of them at the integrated acceptance checkpoint.
+Use focused internal checks during implementation, then run the retained full
+matrix once the integrated change is ready.
 
 This follows pinned Blink's [open/end edge flow](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/line_breaker.cc#3937),
 [intrinsic line breaking](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/inline_node.cc#1986)

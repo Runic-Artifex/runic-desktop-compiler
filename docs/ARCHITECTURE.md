@@ -754,4 +754,16 @@ geometry. Effective committed content must use explicit run-slice/box identities
 rather than the legacy contiguous-item assumption. Signed logical consumption,
 structural visual placements, both breakers, intrinsic sizing and all effective
 paint/editing consumers must be accepted together. CSS and owner direction stay
-in Blitz; generic layout-unit values stay in Parley. Verification is pending.
+in Blitz; generic layout-unit values stay in Parley.
+
+Verification completed at compiler `3469b89`, Parley `5f982ec` and unchanged
+Blitz `4a6f257`. Twelve focused tests pass, including two new normalization/order
+tests. All 4,820 direct states remain byte-identical to the accepted parent;
+all 569 compiled states pass. Independent audits validate both evidence sets.
+Compiler/workspace pass 344/143 tests; Parley std passes 206 with four historical
+failures and Blitz DOM passes 76 with two historical failures, leaving those
+suites unpassed. Paint/HTML pass 13/3; libm and formatting pass. The test mirror
+was removed after audit consumption and hash revalidation. This record successor
+is docs/results-only. See the
+[result record](../conformance/results/chromium-inline-normalized-controls.md)
+for preserved failed-attempt lineage, exact gates and incomplete stages.
