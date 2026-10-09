@@ -642,3 +642,30 @@ passes nine focused tests and preserves all 4,820 direct results, native state
 JSONs and whole screenshots, with 389 compiled states passing. The new browser
 drivers supply the three reductions without proving internal recovery or cache
 execution. Used span-edge advances remain a subsequent interface checkpoint.
+
+## Differential pointer endpoints (2026-10-09)
+
+The reference interpreter has no layout. A listener-selected row and the element
+at the row's center can differ: the hover reduction selects `item-b`, while the
+real native pointer hits its `label-b` child. Delivering directly to the row cannot
+compare observable `event.target` or subsequent `relatedTarget` correctly.
+
+For differential traces, the native probe records the normalized live element
+hit at the unchanged action point before dispatch. Its identity is an element-only
+child path relative to the mount container, accompanied by tag/id assertions and
+the point. The reference CLI validates that metadata and passes a reference-only
+`Target::ElementPath`. Target lookup translates it to the existing child-index
+path on `fire_action`'s own live tree, without an extra render, and runs the normal
+event model. Original
+actions and resolved reference actions remain evidence. Missing, unavailable,
+shifted or shortened observations make coverage incomplete or failed. Reference
+snapshots, comparisons and tolerances are unchanged. Probe capture and native
+dispatch continue through real Blitz hit testing; no synthetic event bypass is
+introduced.
+
+This delegates endpoint selection to the native layout for compiler/interpreter
+event-semantic comparison. It does not independently verify native hit testing;
+browser/native conformance and the direct pointer oracles retain that task.
+Production rendering, framework adapters and IR schema 4 are unchanged. Hidden
+target stops and matching render-error termination remain explicitly incomplete.
+Every complete trace must compare the initial state and all generated actions.

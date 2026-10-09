@@ -3,7 +3,7 @@
 //! real Blitz UI events, and prints a trace in the browser harness's snapshot
 //! format (`conformance/harness/browser.mjs`).
 
-use crate::events::{Native, tree_order};
+use crate::events::{Native, element_chain, tree_order};
 use crate::{App, controls, shell};
 use anyrender::ImageRenderer;
 use blitz_dom::{BaseDocument, Document};
@@ -508,6 +508,103 @@ fn centre<A: App>(native: &mut Native<A>, id: NodeId, action: &Value) -> (f32, f
     ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32)
 }
 
+/// The real hit before a differential pointer action mutates the document.
+/// Identity is an element-only path through physical DOM children from the
+/// mount container; IDs and tags are assertion metadata, not node identity.
+fn pointer_target<A: App>(native: &mut Native<A>, action: &Value) -> Option<Value> {
+    let kind = action["kind"].as_str()?;
+    if !matches!(
+        kind,
+        "click" | "dblclick" | "contextmenu" | "hover" | "wheel"
+    ) {
+        return None;
+    }
+    let selected = match action["nth"].as_u64() {
+        Some(n) => nth(native, kind, n),
+        None => action["id"]
+            .as_str()
+            .and_then(|id| native.doc.get_element_by_id(id)),
+    };
+    let Some(selected) = selected else {
+        return Some(json!({"kind": "none"}));
+    };
+    let unavailable = |reason: &str| Some(json!({"kind": "unavailable", "reason": reason}));
+    if crate::layout::client_rect(&native.doc, selected).is_none() {
+        return unavailable("selected element has no client rectangle");
+    }
+    let (x, y) = centre(native, selected, action);
+    let Some(hit) = native.doc.hit(x, y) else {
+        return unavailable("pointer point has no hit");
+    };
+    let Some(normalized) = native.doc.nearest_non_anonymous_ancestor(hit.node_id) else {
+        return unavailable("pointer hit has no non-anonymous ancestor");
+    };
+    let chain: Vec<NodeId> = element_chain(&native.doc, normalized)
+        .into_iter()
+        .filter(|&id| {
+            native
+                .doc
+                .get_node(id)
+                .is_some_and(|node| node.is_element())
+        })
+        .collect();
+    let Some(&element) = chain.first() else {
+        return unavailable("pointer hit has no element ancestor");
+    };
+    let Some(container) = native.listeners.container else {
+        return unavailable("mount container is unavailable");
+    };
+    let Some(at_container) = chain.iter().position(|&id| id == container) else {
+        return unavailable("pointer hit is outside the mount container");
+    };
+    if at_container == 0 {
+        return unavailable("pointer hit is the mount container, outside the interpreter tree");
+    }
+    let chain = &chain[..=at_container];
+    if chain.iter().any(|&id| {
+        !native
+            .doc
+            .get_node(id)
+            .is_some_and(|node| node.flags.is_in_document())
+    }) {
+        return unavailable("pointer element path is not live");
+    }
+    let mut path = Vec::new();
+    for pair in chain.windows(2) {
+        let Some(parent) = native.doc.get_node(pair[1]) else {
+            return unavailable("pointer element parent is unavailable");
+        };
+        let ordinal = parent
+            .children
+            .iter()
+            .filter(|&&id| {
+                native
+                    .doc
+                    .get_node(id)
+                    .is_some_and(|node| node.is_element())
+            })
+            .position(|&id| id == pair[0]);
+        let Some(ordinal) = ordinal else {
+            return unavailable("pointer element is absent from its physical parent children");
+        };
+        path.push(ordinal);
+    }
+    path.reverse();
+    let Some(node) = native.doc.get_node(element) else {
+        return unavailable("pointer element is unavailable");
+    };
+    let Some(data) = node.element_data() else {
+        return unavailable("pointer element data is unavailable");
+    };
+    Some(json!({
+        "kind": "element",
+        "elementPath": path,
+        "tag": data.name.local.to_string(),
+        "id": node.attr("id".into()),
+        "point": {"x": x, "y": y},
+    }))
+}
+
 /// A button press and release at `(x, y)` with click count `count`.
 fn press_button<A: App>(
     native: &mut Native<A>,
@@ -811,7 +908,11 @@ pub(crate) fn run<A: App>() {
         .any(|w| w[0] == "--hidden-targets" && w[1] == "stop");
     let mut stopped = None;
     let mut steps = vec![];
-    let mut observe = |native: &mut Native<A>, action: Value, index: usize, action_us: f64| {
+    let mut observe = |native: &mut Native<A>,
+                       action: Value,
+                       index: usize,
+                       action_us: f64,
+                       pointer_target: Option<Value>| {
         // The viewport as resize actions left it.
         let (width, height) = native.doc.viewport().window_size;
         // The harness measures the page with layout reads, which force a
@@ -822,6 +923,9 @@ pub(crate) fn run<A: App>() {
         crate::effects::report_filter_deviations(&native.doc);
         let mut step = snapshot(native, width, height);
         step["action"] = action;
+        if let Some(target) = pointer_target {
+            step["pointerTarget"] = target;
+        }
         step["outcomes"] = json!(std::mem::take(&mut native.log));
         step["timing"] = json!({"actionUs": action_us});
         if let Some(dir) = &out {
@@ -836,7 +940,7 @@ pub(crate) fn run<A: App>() {
     // notifications of the mount arrive in them, M6).
     native.frame();
     native.frame();
-    observe(&mut native, Value::Null, 0, 0.0);
+    observe(&mut native, Value::Null, 0, 0.0, None);
     for (i, action) in actions
         .as_array()
         .cloned()
@@ -851,6 +955,11 @@ pub(crate) fn run<A: App>() {
             ));
             break;
         }
+        let pointer_target = if stop_hidden {
+            pointer_target(&mut native, &action)
+        } else {
+            None
+        };
         let t = Instant::now();
         if action["kind"] == "reload" {
             // A new app instance on the same (in-memory) localStorage,
@@ -869,7 +978,7 @@ pub(crate) fn run<A: App>() {
         native.frame();
         native.frame();
         let us = t.elapsed().as_secs_f64() * 1e6;
-        observe(&mut native, action, i + 1, us);
+        observe(&mut native, action, i + 1, us, pointer_target);
     }
     let mut trace = json!({"irHash": A::IR_HASH, "mountUs": mount_us, "steps": steps});
     // Drop the image renderer now: a GPU renderer's destructor uses

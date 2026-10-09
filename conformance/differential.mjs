@@ -4,11 +4,13 @@
 // the native probe; DOM and cells must agree after every step.
 //
 //   node conformance/differential.mjs [fixture ...] [--traces N] [--length N] [--seed S] [--no-opt]
-//                                    [--timezone Zone] [--locale tag]
+//                                    [--timezone Zone] [--locale tag] [--out trace-evidence.json]
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile, access, mkdir, stat, lstat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { constants } from 'node:fs';
 import { collect } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
 import { interpret, migrate } from '../compiler/codegen.mjs';
@@ -24,11 +26,30 @@ const { values, positionals } = parseArgs({
     length: { type: 'string', default: '25' },
     seed: { type: 'string', default: '1' },
     'no-opt': { type: 'boolean' },
+    out: { type: 'string' },
     // The time zone and locale Date and Intl see (both sides).
     timezone: { type: 'string', default: 'UTC' },
     locale: { type: 'string', default: 'en-US' },
   },
 });
+
+const requestedTraces = Number(values.traces);
+const requestedActions = Number(values.length);
+if (!Number.isSafeInteger(requestedTraces) || requestedTraces <= 0 ||
+    !Number.isSafeInteger(requestedActions) || requestedActions < 0)
+  throw new Error('--traces must be a positive integer and --length a nonnegative integer');
+const evidencePath = path.resolve(repo, values.out ?? path.join('artifacts',
+  `differential-traces-${new Date().toISOString().replace(/[:.]/g, '-')}-${process.pid}-${values['no-opt'] ? 'no-opt' : 'opt'}.json`));
+if (values.out === undefined) await mkdir(path.dirname(evidencePath), { recursive: true });
+if (!(await stat(path.dirname(evidencePath))).isDirectory())
+  throw new Error('Trace evidence parent is not a directory: ' + path.dirname(evidencePath));
+await access(path.dirname(evidencePath), constants.W_OK);
+try {
+  await lstat(evidencePath);
+  throw new Error('Refusing to overwrite differential trace evidence: ' + evidencePath);
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+}
 
 /** Built-ins that read or change the native layout (runic_ir::builtins::needs_layout). */
 const LAYOUT_ELEMENT = new Set([
@@ -174,6 +195,100 @@ function semantic(node) {
   return rest;
 }
 
+/** Compare action identities independently of JSON object key order. */
+function sameTraceAction(a, b) {
+  const stable = value => Array.isArray(value) ? value.map(stable) :
+    value !== null && typeof value === 'object' ?
+      Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])])) : value;
+  return JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+}
+
+/** Replay the native physical pointer endpoint in the layout-free interpreter.
+ * Only executed actions with their original identity can provide a replay path.
+ * Unexecuted stopped suffixes retain the original actions and stay incomplete. */
+function resolvedPointerActions(actions, result) {
+  const replayActions = actions.map(action => ({ ...action }));
+  const resolutions = [], issues = [], incomplete = [];
+  if (!Array.isArray(result?.steps)) {
+    issues.push({ kind: 'invalid-native-trace' });
+    return { actions: replayActions, resolutions, issues, incomplete, complete: false };
+  }
+  for (const [stepIndex, step] of result.steps.entries()) {
+    if (!sameTraceAction(step?.action, stepIndex === 0 ? null : actions[stepIndex - 1]))
+      issues.push({ kind: 'native-step-action-mismatch', step: stepIndex });
+  }
+  // A shifted or malformed trace cannot dictate any interpreter action.
+  if (issues.length) return { actions: replayActions, resolutions, issues, incomplete, complete: false };
+  for (const [index, action] of actions.entries()) {
+    const step = result.steps[index + 1];
+    if (!step || !['click', 'dblclick', 'contextmenu', 'hover', 'wheel'].includes(action.kind)) continue;
+    const target = step.pointerTarget;
+    resolutions.push({ step: index + 1, target: target ?? null });
+    if (target?.kind === 'none') continue;
+    if (target?.kind !== 'element' || !Array.isArray(target.elementPath) || !target.elementPath.length ||
+        !target.elementPath.every(ordinal => Number.isSafeInteger(ordinal) && ordinal >= 0) ||
+        typeof target.tag !== 'string' || !target.tag.length ||
+        !(target.id === null || typeof target.id === 'string') ||
+        !target.point || !['x', 'y'].every(axis => typeof target.point[axis] === 'number' && Number.isFinite(target.point[axis]))) {
+      incomplete.push({ kind: 'unavailable-pointer-resolution', step: index + 1,
+        reason: target?.reason ?? (target ? 'malformed pointer target metadata' : 'missing pointer target metadata') });
+      continue;
+    }
+    replayActions[index] = { ...action, elementPath: [...target.elementPath],
+      targetTag: target.tag, targetId: target.id };
+  }
+  return { actions: replayActions, resolutions, issues, incomplete,
+    complete: issues.length === 0 && incomplete.length === 0 };
+}
+
+/** Validate physical trace coverage before comparing a prefix. Native stops name
+ * the first undelivered action; a render error can shorten only its own terminal
+ * trace, with the same error present on the other side at that step. */
+function traceCoverage(actions, expected, result, replayActions = actions) {
+  const requestedSteps = actions.length + 1;
+  const actual = result?.steps;
+  const issues = [];
+  if (!Array.isArray(expected)) issues.push({ kind: 'invalid-interpreter-trace' });
+  if (!Array.isArray(actual)) issues.push({ kind: 'invalid-native-trace' });
+  const expectedSteps = Array.isArray(expected) ? expected.length : null;
+  const actualSteps = Array.isArray(actual) ? actual.length : null;
+  const stopped = result?.stopped ?? null;
+  const stopAction = typeof stopped === 'string' ? Number(stopped.match(/^action (\d+) targets /)?.[1]) : NaN;
+  const validStop = stopped !== null && Number.isInteger(stopAction) &&
+    stopAction >= 1 && stopAction <= actions.length && actualSteps === stopAction;
+  if (stopped !== null && !validStop) issues.push({ kind: 'invalid-native-stop', stopped, stopAction, actualSteps });
+  const matchingError = index => {
+    const want = expected?.[index]?.state?.dom?.error;
+    const errors = actual?.[index]?.renderErrors;
+    return typeof want === 'string' && Array.isArray(errors) && errors.length > 0 &&
+      errors.every(error => typeof error === 'string') && want.replace(/^E_THROW /, '') === errors[0];
+  };
+  for (const [side, rows] of [['interpreter', expected], ['native', actual]]) {
+    if (!Array.isArray(rows)) continue;
+    for (const [index, step] of rows.entries()) {
+      const dom = side === 'interpreter' ? step?.state?.dom : step?.dom;
+      if (!step || typeof step !== 'object' || dom === null || typeof dom !== 'object')
+        issues.push({ kind: 'invalid-step-shape', side, index });
+      if (!sameTraceAction(step?.action, index === 0 ? null : (side === 'interpreter' ? replayActions : actions)[index - 1]))
+        issues.push({ kind: 'step-action-mismatch', side, index });
+      if (side === 'native' && Object.hasOwn(step ?? {}, 'renderErrors') &&
+          (!Array.isArray(step.renderErrors) || step.renderErrors.length === 0 ||
+           step.renderErrors.some(error => typeof error !== 'string')))
+        issues.push({ kind: 'invalid-render-error', side, index });
+    }
+    const terminalRenderError = rows.length > 0 && matchingError(rows.length - 1);
+    if (rows.length === 0 || rows.length > requestedSteps ||
+        (rows.length < requestedSteps && !terminalRenderError && !(side === 'native' && validStop)))
+      issues.push({ kind: 'unreported-trace-length', side, requestedSteps, actualSteps: rows.length });
+  }
+  return { requestedSteps, expectedSteps, actualSteps, stopped, validStop,
+    comparableSteps: issues.length ? 0 : Math.min(expectedSteps, actualSteps),
+    issues, complete: issues.length === 0 && stopped === null &&
+      expectedSteps === requestedSteps && actualSteps === requestedSteps &&
+      !expected.some(step => step?.state?.dom?.error !== undefined) &&
+      !actual.some(step => step?.renderErrors !== undefined) };
+}
+
 const fixtures = positionals.length
   ? positionals
   : (await readdir(path.join(repo, 'fixtures'), { withFileTypes: true }))
@@ -186,7 +301,10 @@ let partial = 0;
 let renderErrors = 0;
 let steps = 0;
 const incomplete = [];
+const fixtureSummaries = [];
 for (const fixture of fixtures) {
+  const fixtureSummary = { fixture, requestedTraces, requestedActionsPerTrace: requestedActions, traces: [], comparedSteps: 0, complete: false };
+  fixtureSummaries.push(fixtureSummary);
   const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
   const { ir } = await lower(await collect(dir));
   // The interpreter has no layout: such programs are compared against the
@@ -194,6 +312,7 @@ for (const fixture of fixtures) {
   const layout = layoutBuiltin(ir);
   if (layout) {
     incomplete.push(fixture);
+    fixtureSummary.reason = 'reads layout: ' + layout;
     console.log(`${fixture.padEnd(20)} incomplete (reads layout: ${layout})`);
     continue;
   }
@@ -203,6 +322,7 @@ for (const fixture of fixtures) {
   } catch (error) {
     if (error.code !== 'E_DIFFERENTIAL_ACTION') throw error;
     incomplete.push(fixture);
+    fixtureSummary.reason = error.message;
     console.log(`${fixture.padEnd(20)} incomplete (${error.message})`);
     continue;
   }
@@ -229,9 +349,9 @@ for (const fixture of fixtures) {
   let fixtureFailures = 0;
   let fixturePartial = 0;
   let fixtureRenderErrors = 0;
-  for (let t = 0; t < Number(values.traces); t++) {
+  for (let t = 0; t < requestedTraces; t++) {
     const actions = [];
-    for (let i = 0; i < Number(values.length) && weights.length; i++) {
+    for (let i = 0; i < requestedActions && weights.length; i++) {
       let r = random() * total;
       const [kind] = weights.find(([, w]) => (r -= w) < 0) ?? weights.at(-1);
       const nth = Math.floor(random() * 1000);
@@ -245,19 +365,41 @@ for (const fixture of fixtures) {
       else actions.push({ kind, nth });
     }
     const env = { timezone: values.timezone, locale: values.locale };
-    const expected = interpret(ir, actions, env);
+    // Observe the physical native target first; snapshots themselves are never rewritten.
     const result = runProbe(binary, { actions, ...env, hiddenTargets: 'stop' });
+    const replay = resolvedPointerActions(actions, result);
+    const expected = interpret(ir, replay.actions, env);
     const actual = result.steps;
+    const coverage = traceCoverage(actions, expected, result, replay.actions);
+    const traceSummary = { index: t, requestedActions, generatedActions: actions.length,
+      requestedSteps: requestedActions + 1, generatedSteps: coverage.requestedSteps,
+      expectedSteps: coverage.expectedSteps, actualSteps: coverage.actualSteps,
+      comparedSteps: 0, stopped: coverage.stopped, renderError: null, failures: 0,
+      coverageIssues: coverage.issues, pointerResolutionIssues: replay.issues,
+      incompletePointerResolutions: replay.incomplete,
+      nativeActions: actions, interpreterActions: replay.actions, pointerResolutions: replay.resolutions, complete: false };
+    fixtureSummary.traces.push(traceSummary);
+    if (coverage.issues.length) {
+      if (fixtureFailures <= 3) console.log(`MISMATCH ${fixture} trace ${t} coverage ${JSON.stringify(coverage)}`);
+      fixtureFailures += coverage.issues.length;
+      traceSummary.failures += coverage.issues.length;
+    }
+    if (replay.issues.length) {
+      fixtureFailures += replay.issues.length;
+      traceSummary.failures += replay.issues.length;
+    }
     // A trace ends before a pointer action whose target is not fully visible
     // (scrolled out or covered): without layout, the interpreter would
     // deliver it to the target, the native pointer to what covers it.
-    if (result.stopped) {
+    if (coverage.validStop) {
       partial++;
       fixturePartial++;
       if (partial <= 3) console.log(`  ${fixture} trace ${t} ends early: ${result.stopped}`);
     }
-    for (let i = 0; i < Math.min(expected.length, actual.length); i++) {
+    for (let i = 0; i < coverage.comparableSteps; i++) {
       steps++;
+      traceSummary.comparedSteps++;
+      fixtureSummary.comparedSteps++;
       // A throw while rendering (a duplicate key) ends the trace: the
       // interpreter's snapshot is the error, the probe reports it for the
       // step. Both must report the same throw; what follows has no
@@ -268,10 +410,12 @@ for (const fixture of fixtures) {
         const got = actual[i].renderErrors?.[0];
         if (want === undefined || want !== got) {
           fixtureFailures++;
+          traceSummary.failures++;
           if (fixtureFailures <= 3)
             console.log(`MISMATCH ${fixture} trace ${t} step ${i} ${JSON.stringify(actions[i - 1] ?? null)}\n  interp render error ${JSON.stringify(interpError ?? null)}\n  native render errors ${JSON.stringify(actual[i].renderErrors ?? [])}`);
         } else {
           fixtureRenderErrors++;
+          traceSummary.renderError = { index: i, error: got };
         }
         break;
       }
@@ -295,17 +439,41 @@ for (const fixture of fixtures) {
       };
       if (JSON.stringify(want) !== JSON.stringify(got)) {
         fixtureFailures++;
+        traceSummary.failures++;
         if (fixtureFailures <= 3)
           console.log(`MISMATCH ${fixture} trace ${t} step ${i} ${JSON.stringify(actions[i - 1] ?? null)}\n  interp ${JSON.stringify(want).slice(0, process.env.DIFF_FULL ? undefined : 600)}\n  native ${JSON.stringify(got).slice(0, process.env.DIFF_FULL ? undefined : 600)}`);
         break;
       }
     }
+    traceSummary.complete = coverage.complete && replay.complete && actions.length === requestedActions &&
+      traceSummary.failures === 0 && traceSummary.renderError === null &&
+      traceSummary.comparedSteps === traceSummary.requestedSteps;
   }
+  fixtureSummary.complete = fixtureSummary.traces.length === requestedTraces &&
+    fixtureSummary.traces.every(trace => trace.complete);
+  fixtureSummary.failures = fixtureFailures;
+  fixtureSummary.partialTraces = fixturePartial;
+  fixtureSummary.renderErrorTraces = fixtureRenderErrors;
   failures += fixtureFailures;
   renderErrors += fixtureRenderErrors;
   console.log(
-    `${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : 'ok'} (${values.traces} traces x ${values.length} actions${fixturePartial ? `; ${fixturePartial} ended early at a hidden pointer target` : ''}${fixtureRenderErrors ? `; ${fixtureRenderErrors} ended at the same render error` : ''})`,
+    `${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : fixtureSummary.complete ? 'ok' : 'incomplete'} (${values.traces} traces x ${values.length} actions${fixturePartial ? `; ${fixturePartial} ended early at a hidden pointer target` : ''}${fixtureRenderErrors ? `; ${fixtureRenderErrors} ended at the same render error` : ''})`,
   );
 }
-console.log(JSON.stringify({ fixtures: fixtures.length, steps, failures, incomplete, partialTraces: partial, renderErrorTraces: renderErrors, seed: Number(values.seed), optimize: !values['no-opt'] }));
+const traceEvidenceJSON = JSON.stringify({ schema: 1, seed: Number(values.seed),
+  optimize: !values['no-opt'], requestedTraces, requestedActionsPerTrace: requestedActions, fixtureSummaries }, null, 2) + '\n';
+await writeFile(evidencePath, traceEvidenceJSON, { flag: 'wx' });
+const traceEvidence = { path: path.relative(repo, evidencePath),
+  sha256: createHash('sha256').update(traceEvidenceJSON).digest('hex') };
+const consoleFixtures = fixtureSummaries.map(({ traces, ...fixture }) => ({ ...fixture,
+  traces: traces.map(({ nativeActions, interpreterActions, pointerResolutions, ...trace }) => ({
+    ...trace, executedPointerActions: pointerResolutions.length,
+  })),
+}));
+console.log(JSON.stringify({ fixtures: fixtures.length, requestedTraces, requestedActionsPerTrace: requestedActions,
+  expectedComparedSteps: fixtures.length * requestedTraces * (requestedActions + 1),
+  traceCount: fixtureSummaries.reduce((count, fixture) => count + fixture.traces.length, 0),
+  complete: incomplete.length === 0 && failures === 0 && fixtureSummaries.every(fixture => fixture.complete),
+  steps, failures, incomplete, partialTraces: partial, renderErrorTraces: renderErrors,
+  seed: Number(values.seed), optimize: !values['no-opt'], traceEvidence, fixtureSummaries: consoleFixtures }));
 process.exitCode = failures ? 1 : 0;

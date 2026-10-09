@@ -6331,6 +6331,11 @@ impl<'p> Machine<'p> {
                     format!("No element #{id} is rendered"),
                     None,
                 )),
+                Target::ElementPath { .. } => Err(Diagnostic::new(
+                    "E_TARGET_PATH",
+                    "resolved pointer target differs from the interpreter's live tree",
+                    None,
+                )),
                 Target::Nth(..) | Target::Path(_) => Ok(false),
             };
         };
@@ -8226,6 +8231,13 @@ pub enum Target<'a> {
     Id(&'a str),
     Nth(&'a str, usize),
     Path(&'a [usize]),
+    /// A probe's element-only path, asserted against this action's own live
+    /// tree. This delegates endpoint selection, never event behavior or state.
+    ElementPath {
+        ordinals: &'a [usize],
+        tag: &'a str,
+        id: Option<&'a str>,
+    },
 }
 
 /// Child-index path of the target element.
@@ -8248,6 +8260,25 @@ fn locate(tree: &[VNode], target: &Target<'_>) -> Option<Vec<usize>> {
     }
     let mut path = vec![];
     match target {
+        Target::ElementPath { ordinals, tag, id } => {
+            if ordinals.is_empty() { return None; }
+            let mut nodes = tree;
+            for (at, &ordinal) in ordinals.iter().enumerate() {
+                let (index, node) = nodes.iter().enumerate()
+                    .filter(|(_, n)| matches!(n, VNode::Element { .. }))
+                    .nth(ordinal)?;
+                path.push(index);
+                let VNode::Element { tag: actual_tag, attrs, children, .. } = node else {
+                    unreachable!("filtered elements")
+                };
+                if at + 1 == ordinals.len() &&
+                    (actual_tag != tag || attrs.get("id").map(String::as_str) != *id) {
+                    return None;
+                }
+                nodes = children;
+            }
+            Some(path)
+        }
         Target::Path(p) => {
             let nodes = path_nodes_checked(tree, p)?;
             matches!(nodes.last(), Some(VNode::Element { .. })).then(|| p.to_vec())
@@ -8467,4 +8498,97 @@ fn set_tree_checked(nodes: &mut [VNode], id: u64, on: bool) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod resolved_pointer_tests {
+    use super::*;
+
+    fn element(tag: &str, id: Option<&str>, children: Vec<VNode>) -> VNode {
+        VNode::Element {
+            tag: tag.into(),
+            attrs: id.into_iter().map(|id| ("id".into(), id.into())).collect(),
+            value: None,
+            checked: None,
+            id: 0,
+            listeners: vec![],
+            children,
+        }
+    }
+
+    fn tree() -> Vec<VNode> {
+        vec![
+            VNode::Text(" ".into()),
+            element(
+                "ul",
+                Some("list"),
+                vec![
+                    VNode::Text("".into()),
+                    element(
+                        "li",
+                        Some("item"),
+                        vec![
+                            VNode::Text("text ".into()),
+                            element("span", Some("label"), vec![]),
+                        ],
+                    ),
+                ],
+            ),
+            element("p", None, vec![]),
+        ]
+    }
+
+    #[test]
+    fn element_ordinals_ignore_text_and_keep_existing_raw_path_semantics() {
+        assert_eq!(
+            locate(
+                &tree(),
+                &Target::ElementPath {
+                    ordinals: &[0, 0, 0],
+                    tag: "span",
+                    id: Some("label")
+                }
+            ),
+            Some(vec![1, 1, 1])
+        );
+        assert_eq!(
+            locate(
+                &tree(),
+                &Target::ElementPath {
+                    ordinals: &[1],
+                    tag: "p",
+                    id: None
+                }
+            ),
+            Some(vec![2])
+        );
+    }
+
+    #[test]
+    fn a_stale_identity_or_missing_element_never_resolves() {
+        for target in [
+            Target::ElementPath {
+                ordinals: &[0, 0, 0],
+                tag: "li",
+                id: Some("label"),
+            },
+            Target::ElementPath {
+                ordinals: &[0, 0, 0],
+                tag: "span",
+                id: Some("other"),
+            },
+            Target::ElementPath {
+                ordinals: &[0, 0, 1],
+                tag: "span",
+                id: Some("label"),
+            },
+            Target::ElementPath {
+                ordinals: &[],
+                tag: "ul",
+                id: Some("list"),
+            },
+        ] {
+            assert!(locate(&tree(), &target).is_none());
+        }
+    }
 }

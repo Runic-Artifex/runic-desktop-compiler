@@ -45,6 +45,37 @@ fn count(nodes: &[Node]) -> usize {
         .sum()
 }
 
+/// Validate a probe endpoint without rendering. The interpreter resolves it
+/// on fire_action's existing pre-action tree, avoiding an additional render.
+fn element_target(
+    action: &serde_json::Value,
+) -> Result<(Vec<usize>, &str, Option<&str>), Diagnostic> {
+    let invalid = || Diagnostic::new("E_TARGET_PATH", "invalid resolved pointer target", None);
+    let ordinals = action["elementPath"].as_array().ok_or_else(invalid)?;
+    if ordinals.is_empty() {
+        return Err(invalid());
+    }
+    let tag = action["targetTag"]
+        .as_str()
+        .filter(|tag| !tag.is_empty())
+        .ok_or_else(invalid)?;
+    let id = match &action["targetId"] {
+        serde_json::Value::Null if action.get("targetId").is_some() => None,
+        serde_json::Value::String(id) => Some(id.as_str()),
+        _ => return Err(invalid()),
+    };
+    let ordinals = ordinals
+        .iter()
+        .map(|ordinal| {
+            ordinal
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or_else(invalid)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((ordinals, tag, id))
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (Some(command), Some(file)) = (args.first(), args.get(1)) else {
@@ -256,9 +287,21 @@ fn main() {
                         None,
                     )),
                 };
-                let target = match (action["id"].as_str(), action["nth"].as_u64()) {
-                    (Some(id), _) => Target::Id(id),
-                    (None, Some(n)) => Target::Nth(kind, n as usize),
+                let resolved_target = action
+                    .get("elementPath")
+                    .map(|_| element_target(&action).unwrap_or_else(|d| fail(d)));
+                let target = match (
+                    resolved_target.as_ref(),
+                    action["id"].as_str(),
+                    action["nth"].as_u64(),
+                ) {
+                    (Some((ordinals, tag, id)), _, _) => Target::ElementPath {
+                        ordinals,
+                        tag,
+                        id: *id,
+                    },
+                    (None, Some(id), _) => Target::Id(id),
+                    (None, None, Some(n)) => Target::Nth(kind, n as usize),
                     _ => fail(Diagnostic::new("E_INPUT", "action without target", None)),
                 };
                 let wheel = format!(
@@ -273,6 +316,13 @@ fn main() {
                     _ => None,
                 };
                 let result = m.fire(target, kind, data);
+                if let Err(d) = &result
+                    && d.code == "E_TARGET_PATH"
+                {
+                    // Endpoint assertions are harness failures, not an ignored
+                    // action whose unchanged state could look like agreement.
+                    fail(d.clone());
+                }
                 let outcome = match result {
                     Ok(true) => json!("handled"),
                     Ok(false) => json!("ignored"),
@@ -287,5 +337,42 @@ fn main() {
             format!("unknown command {other}"),
             None,
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pointer_metadata_keeps_element_ordinals_and_nullable_identity() {
+        let action = json!({"elementPath":[0,0,0],"targetTag":"span","targetId":"label"});
+        assert_eq!(
+            element_target(&action).unwrap(),
+            (vec![0, 0, 0], "span", Some("label"))
+        );
+        let action = json!({"elementPath":[1],"targetTag":"p","targetId":null});
+        assert_eq!(element_target(&action).unwrap(), (vec![1], "p", None));
+    }
+    #[test]
+    fn pointer_metadata_requires_tag_and_id_assertions() {
+        for action in [
+            json!({"elementPath":[0],"targetId":null}),
+            json!({"elementPath":[0],"targetTag":"","targetId":null}),
+            json!({"elementPath":[0],"targetTag":"ul"}),
+            json!({"elementPath":[0],"targetTag":"ul","targetId":3}),
+        ] {
+            assert!(element_target(&action).is_err());
+        }
+    }
+    #[test]
+    fn pointer_metadata_rejects_invalid_ordinals() {
+        for action in [
+            json!({"elementPath":[],"targetTag":"ul","targetId":"list"}),
+            json!({"elementPath":[-1],"targetTag":"ul","targetId":"list"}),
+            json!({"elementPath":[0.5],"targetTag":"ul","targetId":"list"}),
+            json!({"elementPath":0,"targetTag":"ul","targetId":"list"}),
+        ] {
+            assert!(element_target(&action).is_err());
+        }
     }
 }
