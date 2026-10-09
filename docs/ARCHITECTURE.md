@@ -720,3 +720,38 @@ authenticates the signed Parley source and four new legacy-formula tests. All
 4,820 direct states remain unchanged and 569 compiled states pass. The direct
 audit retains every strict failure, with three fresh before matrices and 32
 historical baselines. This verifies the private extraction, not used-edge flow.
+
+## Chromium parity: normalized span control sites (2026-10-09)
+
+Ordinary-span flow needs the normalization history of boxes as well as edges.
+For `a [out-of-flow box]b`, the normalized text is `a b`, and the existing
+public box index is byte 1. An opening/closing owner recorded while that space
+was pending has normalized byte 2. In contrast, `a[out-of-flow box] b` also has
+text `a b` and public box byte 1, but its box precedes the space. Neither final
+text nor the existing box index recovers this distinction.
+
+The tree normalizer therefore captures a separate private box anchor. A box
+recorded while whitespace is pending joins that sequence's pending anchors;
+retention shifts it by one byte, and discard leaves it in place. In-flow boxes
+already flush pending whitespace before capture. Capture follows the complete
+builder history, including late tracking toggles; the final ordinary-span
+tracking flag controls materialization. A private `SpanControl` stream merges
+edge ordinals and global box identities in authored order using `boxes_before`,
+never by byte sorting. Equal-site nested and sibling controls stay distinct.
+The captured box sites and edge references survive layout cloning and are
+cleared by layout/context reuse and ranged builds. Public `InlineBox::index`,
+shaping seams, bidi identity, normalized text and source provenance stay intact.
+The sites describe immutable authored normalization, not arbitrary later public
+index/kind mutations.
+
+This checkpoint captures control sites only. It introduces no used values,
+line fitting, intrinsic advance, physical box movement, caret stop or public
+API. Its acceptance must prove legacy output unchanged. The later activated
+scheduler must merge these controls with whole atom identities and retain typed
+interior markers: a normalized site can fall inside an atom shaped against the
+original box index. It must not split an atom or manufacture fractional owner
+geometry. Effective committed content must use explicit run-slice/box identities
+rather than the legacy contiguous-item assumption. Signed logical consumption,
+structural visual placements, both breakers, intrinsic sizing and all effective
+paint/editing consumers must be accepted together. CSS and owner direction stay
+in Blitz; generic layout-unit values stay in Parley. Verification is pending.
