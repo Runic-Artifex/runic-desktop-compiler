@@ -6,7 +6,7 @@ import { runRenderingCases } from './harness/rendering.mjs';
 const sources = {
   static: new URL('../fixtures/counter-svelte/assets/DejaVuSans.woff2', import.meta.url),
   variable: new URL(
-    '../../RunicArtifex/parley-chromium-parity/parley_dev/assets/fonts/roboto_fonts/RobotoFlex-VariableFont.ttf',
+    '../../RunicArtifex/parley/parley_dev/assets/fonts/roboto_fonts/RobotoFlex-VariableFont.ttf',
     import.meta.url,
   ),
 };
