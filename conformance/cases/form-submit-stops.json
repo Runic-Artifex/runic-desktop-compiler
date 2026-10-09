@@ -1,0 +1,552 @@
+{
+  "description": "Submit propagation stops in admitted DOM listeners: window/document capture allow same-invocation continuation; document immediate stop skips its second capture callback; ancestor bubble stop allows its second callback but suppresses later invocations. Each stop is followed by unstopped submission on the same mounted form, through both physical and nested request paths. Capture cancels every default and queues a microtask; physical and nested ordering are explicit. Element capture listener admission remains unsupported and is not claimed. Browser independently verifies draft expectations.",
+  "fixtures": ["form-submit-stops-vue"],
+  "viewports": [[800, 600]],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "mode-window-stop"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "unstopped"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "mode-window-stop"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "unstopped"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-document-stop"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "unstopped"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "mode-document-stop"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "unstopped"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-document-immediate"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "unstopped"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "mode-document-immediate"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "unstopped"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "mode-ancestor-stop"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "unstopped"
+    },
+    {
+      "kind": "click",
+      "id": "physical"
+    },
+    {
+      "kind": "click",
+      "id": "mode-ancestor-stop"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    },
+    {
+      "kind": "click",
+      "id": "unstopped"
+    },
+    {
+      "kind": "click",
+      "id": "request"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 0,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 0,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 0,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 1,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 1,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 1,
+      "id": "mode",
+      "text": "window-stop"
+    },
+    {
+      "step": 2,
+      "id": "log",
+      "text": "wc1 micro wc2"
+    },
+    {
+      "step": 2,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 3,
+      "id": "log",
+      "text": "wc1 micro wc2 clear"
+    },
+    {
+      "step": 3,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 3,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 4,
+      "id": "log",
+      "text": "wc1 micro wc2 clear wc1 micro wc2 dc1 dc2 fb fs ib1 ib2 ob db wb"
+    },
+    {
+      "step": 4,
+      "id": "count",
+      "text": "submits:2"
+    },
+    {
+      "step": 5,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 5,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 5,
+      "id": "mode",
+      "text": "window-stop"
+    },
+    {
+      "step": 6,
+      "id": "log",
+      "text": "before wc1 wc2 after micro"
+    },
+    {
+      "step": 6,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 7,
+      "id": "log",
+      "text": "before wc1 wc2 after micro clear"
+    },
+    {
+      "step": 7,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 7,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 8,
+      "id": "log",
+      "text": "before wc1 wc2 after micro clear before wc1 wc2 dc1 dc2 fb fs ib1 ib2 ob db wb after micro"
+    },
+    {
+      "step": 8,
+      "id": "count",
+      "text": "submits:2"
+    },
+    {
+      "step": 9,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 9,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 9,
+      "id": "mode",
+      "text": "document-stop"
+    },
+    {
+      "step": 10,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1 dc2"
+    },
+    {
+      "step": 10,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 11,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1 dc2 clear"
+    },
+    {
+      "step": 11,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 11,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 12,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1 dc2 clear wc1 micro wc2 dc1 dc2 fb fs ib1 ib2 ob db wb"
+    },
+    {
+      "step": 12,
+      "id": "count",
+      "text": "submits:2"
+    },
+    {
+      "step": 13,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 13,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 13,
+      "id": "mode",
+      "text": "document-stop"
+    },
+    {
+      "step": 14,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 dc2 after micro"
+    },
+    {
+      "step": 14,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 15,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 dc2 after micro clear"
+    },
+    {
+      "step": 15,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 15,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 16,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 dc2 after micro clear before wc1 wc2 dc1 dc2 fb fs ib1 ib2 ob db wb after micro"
+    },
+    {
+      "step": 16,
+      "id": "count",
+      "text": "submits:2"
+    },
+    {
+      "step": 17,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 17,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 17,
+      "id": "mode",
+      "text": "document-immediate"
+    },
+    {
+      "step": 18,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1"
+    },
+    {
+      "step": 18,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 19,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1 clear"
+    },
+    {
+      "step": 19,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 19,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 20,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1 clear wc1 micro wc2 dc1 dc2 fb fs ib1 ib2 ob db wb"
+    },
+    {
+      "step": 20,
+      "id": "count",
+      "text": "submits:2"
+    },
+    {
+      "step": 21,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 21,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 21,
+      "id": "mode",
+      "text": "document-immediate"
+    },
+    {
+      "step": 22,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 after micro"
+    },
+    {
+      "step": 22,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 23,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 after micro clear"
+    },
+    {
+      "step": 23,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 23,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 24,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 after micro clear before wc1 wc2 dc1 dc2 fb fs ib1 ib2 ob db wb after micro"
+    },
+    {
+      "step": 24,
+      "id": "count",
+      "text": "submits:2"
+    },
+    {
+      "step": 25,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 25,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 25,
+      "id": "mode",
+      "text": "ancestor-stop"
+    },
+    {
+      "step": 26,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1 dc2 fb fs ib1 ib2"
+    },
+    {
+      "step": 26,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 27,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1 dc2 fb fs ib1 ib2 clear"
+    },
+    {
+      "step": 27,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 27,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 28,
+      "id": "log",
+      "text": "wc1 micro wc2 dc1 dc2 fb fs ib1 ib2 clear wc1 micro wc2 dc1 dc2 fb fs ib1 ib2 ob db wb"
+    },
+    {
+      "step": 28,
+      "id": "count",
+      "text": "submits:2"
+    },
+    {
+      "step": 29,
+      "id": "log",
+      "text": "ready"
+    },
+    {
+      "step": 29,
+      "id": "count",
+      "text": "submits:0"
+    },
+    {
+      "step": 29,
+      "id": "mode",
+      "text": "ancestor-stop"
+    },
+    {
+      "step": 30,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 dc2 fb fs ib1 ib2 after micro"
+    },
+    {
+      "step": 30,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 31,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 dc2 fb fs ib1 ib2 after micro clear"
+    },
+    {
+      "step": 31,
+      "id": "count",
+      "text": "submits:1"
+    },
+    {
+      "step": 31,
+      "id": "mode",
+      "text": "open"
+    },
+    {
+      "step": 32,
+      "id": "log",
+      "text": "before wc1 wc2 dc1 dc2 fb fs ib1 ib2 after micro clear before wc1 wc2 dc1 dc2 fb fs ib1 ib2 ob db wb after micro"
+    },
+    {
+      "step": 32,
+      "id": "count",
+      "text": "submits:2"
+    }
+  ]
+}
