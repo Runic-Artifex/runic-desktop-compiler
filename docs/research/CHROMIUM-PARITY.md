@@ -504,6 +504,20 @@ closing decoration at locked Chromium 153. These observations supply the three
 requested reductions; internal overflow recovery and cache branches remain
 uninstrumented.
 
+The [explicit-commit continuation](../../conformance/results/chromium-inline-explicit-commit.md)
+separates the committed-item producer from the legacy first/last-run adapter.
+Repeated whole-atom slices retain original run/box identities and have tested
+byte coverage, bidi order, cluster paths and navigation. Eight tests pass in
+debug and release; 1,074 states in six focused matrices remain byte-identical
+with zero gate changes and 968 strict-failing states. The broader 5,090-state
+and compiled matrices were not rerun. Durable cache/border-history drivers now
+cover 15 cases / 306 states, and a fresh percentage-basis baseline covers seven
+cases / 84 states. The cached fi/combining tail evidence distinguishes signed
+cursor movement from zero-width owner attribution; border and font histories
+retain different ownership outcomes. Supplemental T3 Chrome152 Range/caret
+observations remain separate from locked153 acceptance. Numeric edges and all
+effective consumers still need the integrated implementation below.
+
 1. Private normalized event order is retained and tested. Freeze an activated
    logical scheduler independently from committed visual placements. In the
    retained `a [OOF]b` reduction, the opening is at byte 2 before box ordinal 0,
@@ -526,8 +540,9 @@ uninstrumented.
    Prove zero-edge behavior unchanged. A breaker-only
    cursor patch would leave those consumers inconsistent. Breaker/intrinsic and
    effective visual/editing changes must pass one acceptance checkpoint together.
-   Before delegation, root must settle public run-slice enumeration and
-   ClusterPath/navigation identity, activation and clear/reset scope, placement
+   The private producer's repeated-slice identity is implemented and tested.
+   Before delegation, root must still settle active navigation geometry,
+   activation and clear/reset scope, placement
    freshness under repeated alignment/justification, and signed overlap/tie
    behavior for pointer hits and editing. Freeze owner content versus border
    fragments and their consumer handoff; include empty-owner sizing, paint/hit

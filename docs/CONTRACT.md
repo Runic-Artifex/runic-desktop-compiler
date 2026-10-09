@@ -40,9 +40,22 @@ the [private-flow continuation](../conformance/results/chromium-inline-flow-view
 the [line-consumer continuation](../conformance/results/chromium-inline-line-flow.md),
 the [normalized-control continuation](../conformance/results/chromium-inline-normalized-controls.md),
 the [box-shaping preparation](../conformance/results/chromium-inline-box-shaping-preparation.md),
+the [explicit-commit continuation](../conformance/results/chromium-inline-explicit-commit.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest checkpoint retains a private per-side box shaping-intent calculation
+The latest checkpoint extracts a private committed-item producer that supports
+repeated whole-atom slices of one original run, preserving original identities,
+normalized bytes and existing bidi reordering. Current breakers retain their
+legacy grouping and arithmetic. Eight new tests pass in debug and release;
+1,074 states in six focused matrices preserve exact native JSON/PNG bytes and
+all eleven gate results. The 968 strict-failing states remain failed. Compiler
+and workspace tests pass 344/143; the fresh Parley suite passes 214 with its four
+known failures and remains unpassed. The full 5,090-state and compiled matrices
+were not rerun at these pins. No public API, numeric edge or runtime parity repair
+is added. Fifteen cache/border-history cases (306 states) are promoted unchanged;
+an 84-state percentage-basis capture supplies further driving evidence.
+
+The preceding checkpoint retains a private per-side box shaping-intent calculation
 and four tests as dormant preparation. Production construction, damage, inline
 layout and the active alignment-only predicate are restored to their accepted
 baseline. Eighteen canonical cases add 270 states; all 5,090 direct states retain

@@ -104,6 +104,16 @@ all 5,090 direct states are unchanged across all 11 gates, and all 569 compiled
 states pass. This is preparation and compatibility verification, with no accepted
 runtime repair. Nonzero edges inside cached whole atoms remain a required input
 to the later used-edge implementation.
+The [explicit-commit continuation](../conformance/results/chromium-inline-explicit-commit.md)
+now supports repeated atom-aligned slices of an original shaped run in the private
+producer, with eight debug/release tests for identity, bidi and navigation.
+Current breakers still use their legacy grouping. Six focused matrices / 1,074
+states preserve exact native JSON/PNG bytes and eleven gate results; 968 strict
+failures remain. The full 5,090-state and compiled matrices were not rerun.
+Fifteen cache/border-history cases add durable 306-state drivers, and seven
+percentage-basis cases supply an 84-state before capture. Numeric fitting,
+placement, fragments, editing, percentage resolution and cache coherence remain
+an integrated implementation requirement; the shaping helper remains dormant.
 The next patches need generic
 nonzero span-edge flow in Parley and CSS binding in Blitz; geometry alone cannot certify
 shaping/cache identity. Full deferred nested top/bottom

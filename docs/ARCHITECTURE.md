@@ -822,8 +822,8 @@ byte coverage and bidi level from the original shaped text before the existing
 line bidi reorder. Repeated slices keep separate visual line-item ordinals;
 `Run::index`, `Line::len` and `ClusterPath` continue to address those committed
 items. They do not identify glyph groups or original shaped runs. Numeric
-controls have no line-item ordinal or new caret stop, and paths retain their
-existing lifetime across layout mutations.
+controls have no line-item ordinal or new caret stop. Paths address the current
+layout; this creates no persistence guarantee across rebreaking.
 
 The current breakers still supply the legacy contiguous-item adapter, including
 its first/last narrowing and consumed-run skip. This preserves item grouping,
@@ -832,3 +832,13 @@ on their existing path. The extraction enables a future scheduler to supply
 multiple slices of one original run; it does not activate numeric edges or
 change public API, horizontal positioning, fitting, intrinsics or cache policy.
 These remain one integrated acceptance requirement.
+
+At compiler `ec99eb6` and Parley `2ada2ec`, eight new producer/navigation tests
+pass in debug and release. All 1,074 states in six focused direct matrices retain
+exact native JSON and whole/crop/local PNG bytes, with zero changes across eleven
+gates; 968 overlapping strict failures remain. This is bounded compatibility
+verification, not numeric-edge acceptance. The 15 cache/border-history cases
+(306 states) are promoted without changing authored inputs. Seven additional
+percentage-basis cases supply an 84-state driving baseline. The full 5,090-state
+and compiled matrices were not rerun; their earlier records remain historical.
+See the [explicit-commit record](../conformance/results/chromium-inline-explicit-commit.md).

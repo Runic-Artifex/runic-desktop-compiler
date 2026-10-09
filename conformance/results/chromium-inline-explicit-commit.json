@@ -1,0 +1,505 @@
+{
+  "schema": 1,
+  "date": "2026-10-10",
+  "title": "Private explicit inline commit slices",
+  "status": "Bounded behavior-preservation checkpoint; no runtime Chromium repair",
+  "sources": {
+    "/home/viktor/Development/RunicDesktopCompiler": "ec99eb61e78a93937b170b7c3011ea4e413f15c2",
+    "/home/viktor/Development/RunicArtifex/blitz": "7be80352270c0c5860373a3f2cbf92017962bb32",
+    "/home/viktor/Development/RunicArtifex/parley": "2ada2ec752f8c363d93f773b382a5d412208d9e4",
+    "/home/viktor/Development/RunicArtifex/stylo": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+    "/home/viktor/Development/RunicArtifex/vello": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+    "/home/viktor/Development/RunicArtifex/anyrender": "22b336b19938c911179e391ad19b34309493978c",
+    "/home/viktor/Development/RunicArtifex/taffy": "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb"
+  },
+  "implementation": {
+    "parleyCommit": "2ada2ec752f8c363d93f773b382a5d412208d9e4",
+    "compilerPinCommit": "ec99eb61e78a93937b170b7c3011ea4e413f15c2",
+    "privateProducer": "Original-run whole-atom slices and original box ordinals; normalized byte coverage and original text bidi levels; repeated committed visual ordinals.",
+    "productionAdapter": "Legacy first/last narrowing and consumed-run filtering. Hanging, bidi reorder, state resets, terminal synthesis and horizontal arithmetic preserved.",
+    "activatedNumericEdges": false,
+    "publicAPIChanged": false,
+    "runtimeParityRepairs": 0
+  },
+  "verification": {
+    "compiler": {
+      "passed": 344,
+      "failed": 0
+    },
+    "workspace": {
+      "passed": 143,
+      "failed": 0
+    },
+    "newParleyTests": {
+      "debug": 8,
+      "release": 8,
+      "failed": 0
+    },
+    "parleyStd": {
+      "passed": 214,
+      "failed": 4,
+      "suitePassed": false,
+      "failureIdentities": [
+        "layout::cluster::tests::cluster_from_position_center_alignment",
+        "layout::cluster::tests::cluster_from_position_end_alignment",
+        "layout::cluster::tests::cluster_from_position_justified_alignment",
+        "layout::cluster::tests::cluster_from_position_start_alignment"
+      ]
+    },
+    "parleyLibm": "check passed; two existing flow dead-code warnings retained",
+    "direct": {
+      "matrices": 6,
+      "cases": 84,
+      "states": 1074,
+      "nativeExecutions": 252,
+      "comparedFiles": 10926,
+      "nativeJSONs": 252,
+      "nativeWholePNGs": 1074,
+      "nativeCropPNGs": 1074,
+      "nativeLocalPNGs": 2523,
+      "exactNativeBytesPreserved": true,
+      "exactBrowserBytesPreserved": true,
+      "compatibilityUnchanged": true,
+      "absoluteParityPassed": false,
+      "overlappingStrictFailureStates": 968,
+      "gates": {
+        "geometry": {
+          "failures": 729,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "pixelMAE": {
+          "failures": 39,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "tablePixelMAE": {
+          "failures": 592,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "localPixelMAEs": {
+          "failures": 908,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "pixels": {
+          "failures": 908,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "hitDifferences": {
+          "failures": 498,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "pointHitDifferences": {
+          "failures": 270,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "editorDifferences": {
+          "failures": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "scrollDifferences": {
+          "failures": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "lineWidthDifferences": {
+          "failures": 306,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "clientRectDifferences": {
+          "failures": 732,
+          "repairs": 0,
+          "regressions": 0
+        }
+      },
+      "families": [
+        {
+          "name": "inline-span-edges",
+          "cases": 30,
+          "states": 306,
+          "strictFailureStates": 248
+        },
+        {
+          "name": "inline-flow-affinity",
+          "cases": 18,
+          "states": 165,
+          "strictFailureStates": 165
+        },
+        {
+          "name": "inline-edge-drivers",
+          "cases": 3,
+          "states": 27,
+          "strictFailureStates": 27
+        },
+        {
+          "name": "inline-shaping-edges",
+          "cases": 18,
+          "states": 270,
+          "strictFailureStates": 222
+        },
+        {
+          "name": "interior-candidates",
+          "cases": 6,
+          "states": 144,
+          "strictFailureStates": 144
+        },
+        {
+          "name": "border-cache-candidates",
+          "cases": 9,
+          "states": 162,
+          "strictFailureStates": 162
+        }
+      ]
+    },
+    "independentEvidenceReview": "All 10,926 comparison pairs, results, guards, provenance and logs authenticated; no blockers.",
+    "promotedCases": [
+      {
+        "path": "conformance/inline-cached-edges.mjs",
+        "cases": 6,
+        "states": 144,
+        "authoredValuesUnchanged": true
+      },
+      {
+        "path": "conformance/inline-border-history.mjs",
+        "cases": 9,
+        "states": 162,
+        "authoredValuesUnchanged": true
+      }
+    ],
+    "basisDrivingCapture": {
+      "cases": 7,
+      "states": 84,
+      "exitCode": 1,
+      "relativeAcceptance": false,
+      "namespace": "artifacts/inline-used-edge-design/basis-before"
+    }
+  },
+  "limitations": [
+    "Numeric ordinary edges, fitting, intrinsics, placement, fragments, active hits/editing and percentage/cache coherence remain unimplemented together.",
+    "968 failures describe a targeted gap subset, not an overall Chromium parity percentage. Unmeasured point/editor/scroll gates are not coverage claims.",
+    "Pixel metrics are authenticated from unchanged result bytes and exact screenshot comparisons; MAE was not independently recomputed during the evidence audits.",
+    "The preceding full 5,090-state direct and 569-state compiled matrices were not rerun at these pins; their earlier results remain historical.",
+    "Four fresh Parley cluster-position tests remain failed. Unchanged Blitz dependency suites and their two known failures were not rerun.",
+    "Canonical offline Parley workspace metadata failed on unrelated tango-bench Git resolution. Tests used the retained selected-member harness, with all 154 source files authenticated and its disposable fixture removed.",
+    "An initial new-test fixture assumption failed (7 passed, 1 failed); corrected true box-induced run topology passes 8 debug/release tests. First evidence is retained.",
+    "Default none-outline computed-width browser3/native0 failures remain in fresh cases. No marker, reference or tolerance was removed.",
+    "T3 Chrome152 Range/caret observations are supplemental, separate from locked Chromium153/native acceptance. No atom/cache identity or OS keyboard/IME claim follows.",
+    "Named /code-review is unavailable and remains incomplete. Independent reviews are separately identified.",
+    "This successor promotes equivalent case wrappers and updates docs/results; it does not change the tested runtime implementation."
+  ],
+  "next": "Freeze generic values/reset, whole-atom control attachment, occupancy/rollback, active placement/editing and fragment/percentage/cache handoff; integrate both breakers, intrinsics and all consumers before activation.",
+  "evidence": [
+    {
+      "path": "artifacts/explicit-inline-commit/audit.json",
+      "sha256": "c4890ec8df15ac2bacb7e4843e37c0cd7e91ac4bd3011137ee307aa7fca1176a",
+      "bytes": 794983
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/comparison-manifest.json",
+      "sha256": "5585824f2cfbfcc1fbc39be3623278a9cb9974ad0af1bc41295e473ee4428e4e",
+      "bytes": 4124196
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/audit.log",
+      "sha256": "6e139da9bc1a39501dbf29e9679cef5d61c7bdb18a63877dfcf405e4776e0d06",
+      "bytes": 415
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/pins.json",
+      "sha256": "5bca33446909f4b3eb868039c58eebf957c8dab5ded624ed75539c0797829c4d",
+      "bytes": 661
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/source-proof.json",
+      "sha256": "4066bbebd9456215b02aa7b9f463886832eb0370ab9974483fa685806e76274b",
+      "bytes": 500621
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/source-after.json",
+      "sha256": "4066bbebd9456215b02aa7b9f463886832eb0370ab9974483fa685806e76274b",
+      "bytes": 500621
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/commands.json",
+      "sha256": "9353ea07a253fc2f9e1c88984d5233d4e8a4244e0e76e58e45f32c4ac6871bef",
+      "bytes": 8134
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/earlier-unit-stages.json",
+      "sha256": "a6d2b2769fdce1796d30434dd576f23606e35bfa95b1d0fd9d62d3903af579d8",
+      "bytes": 4449
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/matrix-plan.json",
+      "sha256": "d83b789298fc4218a9f14e1d229eb63d0ec2a7096e2eeea7a0c8581a6bac4dcd",
+      "bytes": 4733
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/transform-proof.json",
+      "sha256": "530144750837c70d0dfc1f349061fe59dff05276ea4ef0832328cf0185aa61ea",
+      "bytes": 4905
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/baseline-manifest.json",
+      "sha256": "26b0cde02648bcb69ee9a961994fb64d257cc44a5ff1d4f77193651a0382c627",
+      "bytes": 2757467
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/execution-helper-proof.json",
+      "sha256": "aaeb521ec26993713d890ded20b3d802ef2a555edbdafea1114065a1dbbb8ff2",
+      "bytes": 834
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/run.mjs",
+      "sha256": "5e08ecf102ec509d3901cda7963b5b7db4598694a8ed1d96bceb9d21bf026176",
+      "bytes": 3551
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/common.mjs",
+      "sha256": "e84e5b881e9ffddb0b5cfba1422a9e4fbe2da5455ba10691d8c6c7d18640f8b7",
+      "bytes": 5528
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/prepare-drivers.mjs",
+      "sha256": "6d06c793cbf6ad71178339ca9a2dc904bd0067ebaeb0a69fe13f6c54f511cbdb",
+      "bytes": 6440
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/audit.mjs",
+      "sha256": "b681f35ed37360977284b1b3822aa65e8d487bf51447cbf2080ebecdc6291c22",
+      "bytes": 15125
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/parley-source-proof.json",
+      "sha256": "8b89ef21f46cde2e3dabf6669ad95c51c359db9f5c5199cd224e7b32847402e1",
+      "bytes": 20330
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/parley-final-source-proof.json",
+      "sha256": "eb3f7d9920261711ac03f1822bc087cfd82a76516437ab5025479c17856dda2d",
+      "bytes": 20559
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/parley-signed-source-proof.json",
+      "sha256": "d669dd92222c2a3d463a4b8fab958b46c0d9dd5ab62975b59a74216d0015f763",
+      "bytes": 19752
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/mirror-cleanup.json",
+      "sha256": "0722b94b9cf11b1f1b853994049f1647a48162ae86ced070b1dd759a8571f34e",
+      "bytes": 731
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/parley-focused.log",
+      "sha256": "d115facc1e10476b716862a455bddca3d39dbfcd2511846c91d5bb9fba20667b",
+      "bytes": 3136
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/parley-focused-final.log",
+      "sha256": "428e568b3eac100cf32ca8089e048fae3a0cf554f16ff817731516aff2d9c510",
+      "bytes": 1183
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/parley-focused-release.log",
+      "sha256": "e84ec43c64d1bb4679a55fdba49619b172bddaa301989b4cd80ab2c9fa9166a8",
+      "bytes": 3749
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/parley-std.log",
+      "sha256": "22410019cfc7caa909733f75bc3748bcd881bb32e62932c83474a82e47e948af",
+      "bytes": 25609
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/parley-libm.log",
+      "sha256": "96731f256d04cb24365e27e3ddfd99e3bef3856b1d2f8327d0d20d3e22984d9e",
+      "bytes": 1556
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/npm.log",
+      "sha256": "04304f1c8fd683eba47419dd5da280b08cd7d977bcc2d96c24790bf6257dea0a",
+      "bytes": 30640
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/unit-workspace.log",
+      "sha256": "51cb24180691830b13342726e0b775714ca8c59e6431147c6a90aa230c8e80de",
+      "bytes": 16387
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/unit-formatting.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/promotion-proof.json",
+      "sha256": "35a16412044a26d2c0c8552298bab6a934d662523f8e30589be69aa073010a91",
+      "bytes": 968
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/promotion-format-proof.json",
+      "sha256": "6d01d63de50ee62bbfc9148b2eba4e88c46cc50049f9ba50b10ffe236418cf90",
+      "bytes": 1162
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/promote-cases.mjs",
+      "sha256": "d261c6eeafdbb2c2a53536105839a9207003f93b0fa0df7c00b9ac061e4c29b2",
+      "bytes": 2960
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/early-source-compatibility.md",
+      "sha256": "c776bf16349857c071d0059d71f459ad8c776d4eeb86765799c12b78b749f79a",
+      "bytes": 4002
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/early-source-compatibility.json",
+      "sha256": "eab2b86a5f213026f478cefc21ddb4cb5506765fb5a697630da238f121d32e28",
+      "bytes": 1179733
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/final-evidence-review.md",
+      "sha256": "ca300aae5d3d6b77abcd49d2ee3135137075fd5a69d81b444dbec156e20217bf",
+      "bytes": 4947
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/final-evidence-review.json",
+      "sha256": "8c0efe9b8c543b8864ef4d6c6d7fcf7bd7c8cb5e2b832676fe218ab0d3808fd8",
+      "bytes": 7640321
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/prepare-record.mjs",
+      "sha256": "ab3f689588922200d8e936fb6c08efc954de242addb11fef67292b3a0ce23d51",
+      "bytes": 11943
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/direct-inline-span-edges.log",
+      "sha256": "64c42a302bfa9384f138a49737cb71a08e35353dc13684beaefa91e7688fcdbc",
+      "bytes": 216523
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/direct-inline-flow-affinity.log",
+      "sha256": "3d35bbd5a503fb142451eb5dfb336e460b83ea7e7b4ed3f11812188bf496be61",
+      "bytes": 171755
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/direct-inline-edge-drivers.log",
+      "sha256": "b010f603cf7f49268776221623596ef6035498d91f81dfaf2c440b2cd9a3a276",
+      "bytes": 22574
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/direct-inline-shaping-edges.log",
+      "sha256": "0ce18e0869ed608341c79290e9a01d2293312afa57d7f3d4cbab5f8ecedd5219",
+      "bytes": 185153
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/direct-interior-candidates.log",
+      "sha256": "7ac31296c7ac61980da792e482150cdb1a5db809f5951bb06d4c9004546e5e83",
+      "bytes": 136530
+    },
+    {
+      "path": "artifacts/explicit-inline-commit/direct-border-cache-candidates.log",
+      "sha256": "0da16839a06134ad0299b41fb72dcb9f94e24bc791927f02d8f1158f801b4e5f",
+      "bytes": 127701
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/fresh-attachment-observations.md",
+      "sha256": "8bc84b3f9863fc65ddb42024a0a4bb385b5f8fb8c9aca3920c42bfdace73330a",
+      "bytes": 10383
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/fresh-attachment-observations.json",
+      "sha256": "04f950016958ca63763bceef5ab1d3b6c6d844ccfb8a88b46308ac4b4b7674cc",
+      "bytes": 696423
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/navigation-contract-audit.md",
+      "sha256": "df1e84d59736c8e8ece11f7ce38f5d171f12160af6b73211f9a1c486e8afcd13",
+      "bytes": 22187
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-cache-audit.md",
+      "sha256": "e3b4db7afb3fecd5e3b228676542687f29b22224479ad87d650a41e807f538d8",
+      "bytes": 25186
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/t3-range-observations.md",
+      "sha256": "16570e216bffc20c90a88dc50407e7a8c39d83b817ea15297967453c260f7a9d",
+      "bytes": 9080
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/t3-range-observations.json",
+      "sha256": "47cb0a00a403557f6c522562c3c55ef74bfc5ce0ddb2bf9ddc19c276b4713fa6",
+      "bytes": 438560
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/range-observer.mjs",
+      "sha256": "5c07af7663e5967b8cb144c4bdac397767d4578bdac1809b6a265c19c50d9943",
+      "bytes": 2688
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/utf8-server.py",
+      "sha256": "361a80b06eda1ed6c1686460a768351f17d598ba5e3dd54744fc4646abf00bc5",
+      "bytes": 431
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/next-contract.md",
+      "sha256": "7eac384190f20b3ae570a7e2dec1f1270657da091436230e274a56650ebe8f30",
+      "bytes": 3854
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-candidates.mjs",
+      "sha256": "5856695b4faaeab3f04c103d3f5def31408633800feabda1fe53769bafe7f888",
+      "bytes": 4956
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-candidates.json",
+      "sha256": "f91a878fc140e1614ff6248f3e544ea19bf4dfb454d7be61e9451caef394a175",
+      "bytes": 9438
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-command.json",
+      "sha256": "d1fae17d86ae49aaaaa92dc83f15bf6f1533c14d73fc8189b67c80cbeefa07e6",
+      "bytes": 318
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-input-proof.json",
+      "sha256": "130a76f76433f239f6173c85bf39fda9e069ef63eca0d3de98ce120c912e972e",
+      "bytes": 1138
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-source-before.json",
+      "sha256": "4066bbebd9456215b02aa7b9f463886832eb0370ab9974483fa685806e76274b",
+      "bytes": 500621
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-source-after.json",
+      "sha256": "4066bbebd9456215b02aa7b9f463886832eb0370ab9974483fa685806e76274b",
+      "bytes": 500621
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-observations.md",
+      "sha256": "ecc0953c0e972ba12c3162cb979d91902e7ff2b30225073d42f2b690c3c64c14",
+      "bytes": 12554
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-observations.json",
+      "sha256": "d18e93a180c955b39a04cf19b09b83aa93c14b55dbe9abf029b10eaa2c45a4d4",
+      "bytes": 209813
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-before/metadata.json",
+      "sha256": "33ad346621460aebfd075256b2eee58bea2f0955270b8858d8b5c0ae258e3466",
+      "bytes": 15852
+    },
+    {
+      "path": "artifacts/inline-used-edge-design/basis-before/results.json",
+      "sha256": "78049313133c757483d4c0cb265c9f1cdbebb4dc91aa10f91373b511a1543ce9",
+      "bytes": 342984
+    }
+  ]
+}
