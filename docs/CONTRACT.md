@@ -22,23 +22,25 @@ the [nested-alignment continuation](../conformance/results/chromium-nested-align
 the [text-paint continuation](../conformance/results/chromium-text-paint-origins.md),
 the [empty-inline continuation](../conformance/results/chromium-empty-inline.md),
 the [shaping-boundary continuation](../conformance/results/chromium-inline-boundaries.md),
+the [ownership continuation](../conformance/results/chromium-inline-ownership.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation adds generic caller shaping-boundary intent in
-Parley, Stylo's implicit-versus-explicit zero category and standards-mode Blitz
-binding for ordinary spans. Pure alignment restyles refresh cached layout metrics
-without reshaping; font/text and wrapping changes retain separate invalidation.
-The 150-state intent oracle improves geometry/fragments 30→129, hits 69→126 and
-strict pixels 42→46. The 132-state history oracle improves geometry/fragments
-30→72, hits 36→51 and strict pixels 49→52. Full-atom fragment ownership remains
-open. Chromium shaping retention is inferred from measured horizontal geometry,
-not browser glyph/cache instrumentation; the font follow-up first restores the
-initial alignment and does not certify every stale-category reset.
+The latest isolated continuation adds opt-in normalized ordinary-span ownership
+in Parley and standards-mode CSSOM binding in Blitz. Whole shaping atoms belong
+to their first owner; continuation-only spans retain real zero-width fragments.
+The 150-state intent and 132-state alignment-history oracles now pass all geometry
+and fragment states, with 147 and 111 hit passes. The new 306-state edge oracle
+passes 141 geometry/fragment, 159 hit and 64 strict pixel states; nonzero horizontal
+advances remain open. Caller shaping intent and cached alignment refresh remain
+in place. Browser geometry does not instrument glyph/cache identity or certify
+every stale-category reset.
 
-Across 4,322 exact direct pairs, there are 141 geometry and fragment repairs,
-72 hit repairs and seven strict pixel repairs, with no new measured gate regression.
-Every previously passing retained gate and all 389 compiled semantic, geometry
-and strict pixel passes remain. The prior empty-inline oracles retain 108/108 and
+Across 4,628 exact direct pairs, there are 156 geometry/fragment and 159 hit repairs
+with no regressions in those gates. All 389 compiled states pass semantics,
+geometry and strict pixels. Strict pixel gates repair 39 states and regress in
+two new edge states after corrected geometry tightens their crops; all 4,628
+native whole screenshots are byte-identical. The audit is complete, but its
+zero-regression gate fails. The prior empty-inline oracles retain 108/108 and
 42/42 geometry/fragments/hits; the eleven earlier tight-crop regressions remain
 failures in their historical record. The preceding
 paint-anchor repairs remain: middle is 180 geometry, 120/120 measured fragments,
