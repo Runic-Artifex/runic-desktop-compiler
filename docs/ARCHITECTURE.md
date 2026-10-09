@@ -714,3 +714,9 @@ owners and committed placement lengths. CSS resolution and decoration ownership
 stay in Blitz. The existing three browser drivers supply wrap, controlling
 min-content and immediate forced-break targets; internal overflow recovery and
 cache execution still need instrumented tests.
+
+The [verified checkpoint](../conformance/results/chromium-inline-line-flow.md)
+authenticates the signed Parley source and four new legacy-formula tests. All
+4,820 direct states remain unchanged and 569 compiled states pass. The direct
+audit retains every strict failure, with three fresh before matrices and 32
+historical baselines. This verifies the private extraction, not used-edge flow.

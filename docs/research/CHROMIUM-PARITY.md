@@ -485,16 +485,24 @@ source provenance and the public positioned-item enum.
 
 The [private-flow checkpoint](../../conformance/results/chromium-inline-flow-views.md)
 extracts ordinary-span atom traversal and empty-anchor box traversal without
-merging their arithmetic policies. Nine focused tests pass, and all 4,820 direct
-results and native screenshots remain identical. Paint, cluster/caret, selection
-and breaker cursors still need a defined effective used-edge path. The additive
+merging their arithmetic policies. The verified
+[line-consumer continuation](../../conformance/results/chromium-inline-line-flow.md)
+adds glyph, cluster and first/last-line selection views plus four legacy-formula
+tests. All 4,820 direct states remain identical, and 569 compiled states pass.
+These are private compatibility layers; all consumers and both breakers still
+need a defined effective used-edge path. The additive
 [27-state driver](../../conformance/inline-edge-drivers.mjs) now changes negative
 margin wrapping and controlling min-content width, and captures immediate `br`
 closing decoration at locked Chromium 153. These observations supply the three
 requested reductions; internal overflow recovery and cache branches remain
 uninstrumented.
 
-1. Private normalized event order is retained and tested. Freeze consumption and
+1. Private normalized event order is retained and tested. Freeze an activated
+   logical scheduler independently from committed visual placements. In the
+   retained `"a b"` pending-space/OOF reduction, the opening is at byte 2 before
+   box ordinal 0, but the box is at byte 1 and the closing at byte 2 after it.
+   Neither a byte gate nor a box-ordinal gate alone preserves ownership and
+   spacing. Leave the all-individually-zero path unchanged. Freeze consumption and
    wrap affinity with reductions: pending
    spaces, equal-position empty/nested owners, atomic and out-of-flow ordinals,
    forced breaks, opening lookahead and closing-edge break opportunities. Byte
@@ -507,7 +515,8 @@ uninstrumented.
    before adding advances. Freeze compatibility policies for glyphless spacing,
    out-of-flow width, grouping and f32/f64 accumulation; today's consumers differ.
    Prove zero-edge behavior unchanged. A breaker-only
-   cursor patch would leave those consumers inconsistent.
+   cursor patch would leave those consumers inconsistent. Breaker/intrinsic and
+   effective visual/editing changes must pass one acceptance checkpoint together.
 3. Implement fixed signed advances in Parley and bind standards CSS edges in
    Blitz. Opening and closing sums remain separate. Own margins are excluded
    from border/client rectangles and hits; ancestor bounds include descendant

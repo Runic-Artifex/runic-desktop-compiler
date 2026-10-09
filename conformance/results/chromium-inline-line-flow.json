@@ -1,0 +1,921 @@
+{
+  "schema": 1,
+  "date": "2026-10-09",
+  "scope": "Private committed-line glyph/cluster/selection consumer extraction; no used edge advances or Chromium repairs.",
+  "testedSource": {
+    "/home/viktor/Development/RunicDesktopCompiler": "c820f87c287d9ae6c6e7778d1f19230fd07c63ef",
+    "/home/viktor/Development/RunicArtifex/blitz": "4a6f257f5cf6f7f8c56df4c5d34a4ad6ac1cdaf4",
+    "/home/viktor/Development/RunicArtifex/parley": "3b16e99f1056074ad27cde084e1524d644f46069",
+    "/home/viktor/Development/RunicArtifex/stylo": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+    "/home/viktor/Development/RunicArtifex/vello": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+    "/home/viktor/Development/RunicArtifex/anyrender": "22b336b19938c911179e391ad19b34309493978c",
+    "/home/viktor/Development/RunicArtifex/taffy": "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb"
+  },
+  "recordCommit": "Docs/results-only successor to tested c820f87c287d9ae6c6e7778d1f19230fd07c63ef; successor not natively rebuilt.",
+  "implementation": {
+    "private": true,
+    "newLegacyFormulaTests": 4,
+    "publicAPIChanged": false,
+    "usedEdgeAdvances": false,
+    "CSSBinding": false
+  },
+  "direct": {
+    "complete": true,
+    "evidenceValid": true,
+    "strictOraclePassed": false,
+    "method": "Exact raw evidence bytes and unchanged recorded gate outcomes; no independent MAE recomputation.",
+    "matrices": 35,
+    "states": 4820,
+    "freshBeforeMatrices": 3,
+    "historicalBeforeMatrices": 32,
+    "freshBeforeStates": 498,
+    "baselineDocumentationException": {
+      "valid": true,
+      "diffSHA256": "d1cc0437167179d39c1ae50b0769594d85d9b74bc3d1d21b968e8f6b50a3c9e7",
+      "files": [
+        "docs/ARCHITECTURE.md",
+        "docs/research/CHROMIUM-PARITY.md"
+      ],
+      "runtimeSourcesUnchanged": true,
+      "compilerRevision": "b8ae62237b0b1aeef44652a1f2aae42a9cc89779"
+    },
+    "gates": {
+      "geometry": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 4059,
+        "failFail": 761,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "wholePixels": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 4748,
+        "failFail": 72,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "cropPixels": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 2791,
+        "failFail": 2029,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "localPixels": {
+        "eligible": 4539,
+        "absent": 281,
+        "passPass": 1199,
+        "failFail": 3340,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "pixels": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 1429,
+        "failFail": 3391,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "hits": {
+        "eligible": 4820,
+        "absent": 0,
+        "passPass": 4348,
+        "failFail": 472,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "pointHits": {
+        "eligible": 444,
+        "absent": 4376,
+        "passPass": 306,
+        "failFail": 138,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "clientRects": {
+        "eligible": 2061,
+        "absent": 2759,
+        "passPass": 1230,
+        "failFail": 831,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "editors": {
+        "eligible": 1958,
+        "absent": 2862,
+        "passPass": 1925,
+        "failFail": 33,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "scroll": {
+        "eligible": 284,
+        "absent": 4536,
+        "passPass": 236,
+        "failFail": 48,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "lineWidths": {
+        "eligible": 252,
+        "absent": 4568,
+        "passPass": 252,
+        "failFail": 0,
+        "repairs": 0,
+        "regressions": 0
+      }
+    },
+    "absoluteFailureStates": 3518,
+    "zeroEdgeSubset": {
+      "definition": "ownership_* steps 0/1 plus margin_zero step 0, all three DPRs; excludes later nonzero margin mutations",
+      "expected": 75,
+      "states": 75,
+      "gates": {
+        "geometry": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 75,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "wholePixels": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 75,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "cropPixels": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 75,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "localPixels": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 49,
+          "failFail": 26,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "pixels": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 49,
+          "failFail": 26,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "hits": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 69,
+          "failFail": 6,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "pointHits": {
+          "eligible": 0,
+          "absent": 75,
+          "passPass": 0,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "clientRects": {
+          "eligible": 75,
+          "absent": 0,
+          "passPass": 75,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "editors": {
+          "eligible": 0,
+          "absent": 75,
+          "passPass": 0,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "scroll": {
+          "eligible": 0,
+          "absent": 75,
+          "passPass": 0,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        },
+        "lineWidths": {
+          "eligible": 0,
+          "absent": 75,
+          "passPass": 0,
+          "failFail": 0,
+          "repairs": 0,
+          "regressions": 0
+        }
+      }
+    },
+    "evidenceFiles": 36434,
+    "limits": [
+      "Only three before matrices are fresh. Other 32 use explicitly retained historical baselines, whose recorded compiler/lock identities differ from the new canonical run.",
+      "Actions are authenticated from frozen authored configurations and exact driver equivalence; observation files do not log dispatched actions.",
+      "Point coverage counts only nonempty browser/native point arrays, never empty instrumentation keys.",
+      "Recorded MAE values are checked and compared, not independently recomputed.",
+      "This audit covers direct matrices; compiler suites, consumer tests, std/libm and compiled cases are separate root gates."
+    ],
+    "matrixSummary": [
+      {
+        "name": "middle-metrics",
+        "baseline": "artifacts/cursor-final-middle-metrics",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-middle-metrics",
+        "states": 180
+      },
+      {
+        "name": "nested-alignment",
+        "baseline": "artifacts/cursor-final-nested-alignment",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-nested-alignment",
+        "states": 72
+      },
+      {
+        "name": "empty-inline",
+        "baseline": "artifacts/cursor-final-empty-inline",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-empty-inline",
+        "states": 108
+      },
+      {
+        "name": "empty-inline-shaping",
+        "baseline": "artifacts/cursor-final-empty-inline-shaping",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-empty-inline-shaping",
+        "states": 42
+      },
+      {
+        "name": "inline-shaping-intent",
+        "baseline": "artifacts/cursor-final-inline-shaping-intent",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-inline-shaping-intent",
+        "states": 150
+      },
+      {
+        "name": "inline-shaping-refresh",
+        "baseline": "artifacts/cursor-final-inline-shaping-refresh",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-inline-shaping-refresh",
+        "states": 132
+      },
+      {
+        "name": "inline-span-edges",
+        "baseline": "artifacts/line-flow-views/before-inline-span-edges",
+        "baselineKind": "fresh-before",
+        "final": "artifacts/line-flow-consumers-final/after-inline-span-edges",
+        "states": 306
+      },
+      {
+        "name": "inline-flow-affinity",
+        "baseline": "artifacts/line-flow-views/before-inline-flow-affinity",
+        "baselineKind": "fresh-before",
+        "final": "artifacts/line-flow-consumers-final/after-inline-flow-affinity",
+        "states": 165
+      },
+      {
+        "name": "inline-edge-drivers",
+        "baseline": "artifacts/line-flow-views/before-inline-edge-drivers",
+        "baselineKind": "fresh-before",
+        "final": "artifacts/line-flow-consumers-final/after-inline-edge-drivers",
+        "states": 27
+      },
+      {
+        "name": "paint-origins",
+        "baseline": "artifacts/cursor-final-paint-origins",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-paint-origins",
+        "states": 108
+      },
+      {
+        "name": "paint-decorations",
+        "baseline": "artifacts/cursor-final-paint-decorations",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-paint-decorations",
+        "states": 36
+      },
+      {
+        "name": "inline-source-order",
+        "baseline": "artifacts/cursor-final-inline-source-order",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-inline-source-order",
+        "states": 216
+      },
+      {
+        "name": "pointer-geometry",
+        "baseline": "artifacts/cursor-final-pointer-geometry",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-pointer-geometry",
+        "states": 234
+      },
+      {
+        "name": "inline-fragments",
+        "baseline": "artifacts/cursor-final-inline-fragments",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-inline-fragments",
+        "states": 363
+      },
+      {
+        "name": "inline-fragment-effects",
+        "baseline": "artifacts/cursor-final-inline-fragment-effects",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-inline-fragment-effects",
+        "states": 102
+      },
+      {
+        "name": "line-width-grid",
+        "baseline": "artifacts/cursor-final-line-width-grid",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-line-width-grid",
+        "states": 176
+      },
+      {
+        "name": "line-width-effects",
+        "baseline": "artifacts/cursor-final-line-width-effects",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-line-width-effects",
+        "states": 76
+      },
+      {
+        "name": "text-metric-grid",
+        "baseline": "artifacts/cursor-final-text-metric-grid",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-text-metric-grid",
+        "states": 432
+      },
+      {
+        "name": "input-line-height",
+        "baseline": "artifacts/cursor-final-input-line-height",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-input-line-height",
+        "states": 504
+      },
+      {
+        "name": "input-pointer",
+        "baseline": "artifacts/cursor-final-input-pointer",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-input-pointer",
+        "states": 264
+      },
+      {
+        "name": "control-document-mode",
+        "baseline": "artifacts/cursor-final-control-document-mode",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-control-document-mode",
+        "states": 132
+      },
+      {
+        "name": "control-layout",
+        "baseline": "artifacts/cursor-final-control-layout",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-control-layout",
+        "states": 264
+      },
+      {
+        "name": "control-selection",
+        "baseline": "artifacts/cursor-final-control-selection",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-control-selection",
+        "states": 48
+      },
+      {
+        "name": "control-focus",
+        "baseline": "artifacts/cursor-final-control-focus",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-control-focus",
+        "states": 252
+      },
+      {
+        "name": "tables",
+        "baseline": "artifacts/cursor-final-tables",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-tables",
+        "states": 77
+      },
+      {
+        "name": "table-document-mode",
+        "baseline": "artifacts/cursor-final-table-document-mode",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-table-document-mode",
+        "states": 12
+      },
+      {
+        "name": "table-controls",
+        "baseline": "artifacts/cursor-final-table-controls",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-table-controls",
+        "states": 4
+      },
+      {
+        "name": "table-integration",
+        "baseline": "artifacts/cursor-final-table-integration",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-table-integration",
+        "states": 30
+      },
+      {
+        "name": "controls",
+        "baseline": "artifacts/cursor-final-controls",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-controls",
+        "states": 9
+      },
+      {
+        "name": "scrolling",
+        "baseline": "artifacts/cursor-final-scrolling",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-scrolling",
+        "states": 148
+      },
+      {
+        "name": "css-animations",
+        "baseline": "artifacts/cursor-final-css-animations",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-css-animations",
+        "states": 40
+      },
+      {
+        "name": "intrinsic-text",
+        "baseline": "artifacts/cursor-final-intrinsic-text",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-intrinsic-text",
+        "states": 30
+      },
+      {
+        "name": "font-weights",
+        "baseline": "artifacts/cursor-final-font-weights",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-font-weights",
+        "states": 36
+      },
+      {
+        "name": "glyphs",
+        "baseline": "artifacts/cursor-final-glyphs",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-glyphs",
+        "states": 38
+      },
+      {
+        "name": "borders",
+        "baseline": "artifacts/cursor-final-borders",
+        "baselineKind": "historical-retained",
+        "final": "artifacts/line-flow-consumers-final/after-borders",
+        "states": 7
+      }
+    ]
+  },
+  "compiled": {
+    "valid": true,
+    "totals": {
+      "jobs": 6,
+      "runs": 61,
+      "states": 569,
+      "actions": 508,
+      "PNGs": 1138
+    },
+    "jobs": [
+      {
+        "name": "hover-opt",
+        "runs": 12,
+        "states": 90,
+        "actions": 78,
+        "PNGs": 180,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "hover-no-opt",
+        "runs": 12,
+        "states": 90,
+        "actions": 78,
+        "PNGs": 180,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-tables-cpu",
+        "runs": 6,
+        "states": 96,
+        "actions": 90,
+        "PNGs": 192,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-tables-gpu",
+        "runs": 2,
+        "states": 32,
+        "actions": 30,
+        "PNGs": 64,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-forms-focus",
+        "runs": 22,
+        "states": 242,
+        "actions": 220,
+        "PNGs": 484,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      },
+      {
+        "name": "regression-control-regressions",
+        "runs": 7,
+        "states": 19,
+        "actions": 12,
+        "PNGs": 38,
+        "expectedChecks": 0,
+        "browserAndNativeCompared": true,
+        "wholePNGsIndependentlyDecoded": true,
+        "passed": true
+      }
+    ],
+    "tolerances": {
+      "geometry": 2,
+      "pixelMAE": 3
+    },
+    "comparison": {
+      "rawJSON": true,
+      "wholePNG": true,
+      "authoredRegions": true
+    },
+    "sourceGuard": {
+      "perStageFreshSnapshotBeforeAndAfter": true,
+      "driverHashesBeforeAndAfterEveryStage": true,
+      "journalDescriptorsAuthenticateFrozenWrapper": true,
+      "finalAggregateSourceAfter": true
+    },
+    "observationManifest": {
+      "path": "artifacts/line-flow-consumers-final/compiled-observation-manifest.json",
+      "sha256": "0862dbf6f26d7bad1477f515e70ec2fbb31ca0ea579b58e5249cf11a9d9dd19b",
+      "files": 1679
+    },
+    "limits": [
+      "This six-command regression matrix does not rerun or pass the direct table/local-crop strict oracle. Historical direct failures remain open.",
+      "Known dependency-suite failures remain unpassed; their exact identities and counts are independently checked, not promoted to passed.",
+      "No OS keyboard/pointer/IME, system-font parity or named /code-review completion claim.",
+      "Failed/interrupted first attempts remain in their unique output directories; this auditor never retries or overwrites them."
+    ]
+  },
+  "units": [
+    {
+      "name": "npm",
+      "log": "artifacts/line-flow-consumers-final/npm.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 344,
+        "failed": 0,
+        "tests": 344,
+        "skipped": 0,
+        "cancelled": 0
+      },
+      "passed": true
+    },
+    {
+      "name": "workspace",
+      "log": "artifacts/line-flow-consumers-final/workspace.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 143,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-dom",
+      "log": "artifacts/line-flow-consumers-final/blitz-dom.log",
+      "exitCode": 101,
+      "counts": {
+        "passed": 76,
+        "failed": 2,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [
+        "document::hover_invalidation_tests::hover_styles_apply_and_clear",
+        "node::element::tests::scroll_by_clamps_and_bubbles"
+      ],
+      "passed": false,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-paint",
+      "log": "artifacts/line-flow-consumers-final/blitz-paint.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "blitz-html",
+      "log": "artifacts/line-flow-consumers-final/blitz-html.log",
+      "exitCode": 0,
+      "counts": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [],
+      "passed": true,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "parley-std",
+      "log": "artifacts/line-flow-consumers-final/parley-std.log",
+      "exitCode": 101,
+      "counts": {
+        "passed": 204,
+        "failed": 4,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      "failures": [
+        "layout::cluster::tests::cluster_from_position_center_alignment",
+        "layout::cluster::tests::cluster_from_position_end_alignment",
+        "layout::cluster::tests::cluster_from_position_justified_alignment",
+        "layout::cluster::tests::cluster_from_position_start_alignment"
+      ],
+      "passed": false,
+      "knownFailureIdentityGate": true
+    },
+    {
+      "name": "parley-libm",
+      "log": "artifacts/line-flow-consumers-final/parley-libm.log",
+      "exitCode": 0,
+      "passed": true
+    }
+  ],
+  "formatting": {
+    "passed": true,
+    "log": "artifacts/line-flow-consumers-final/cargo-fmt.log"
+  },
+  "dependencyFailuresRemainUnpassed": true,
+  "mirror": {
+    "authenticatedSourceFiles": 152,
+    "disposableManifestReferences": 154,
+    "removedAfterAudits": true,
+    "proof": "artifacts/line-flow-consumers-final/mirror-cleanup-proof.json",
+    "manifestHashesAreHistorical": true
+  },
+  "orchestration": {
+    "firstRunnerStoppedAfterOneSuccessfulCompiledJob": true,
+    "cause": "Expected case-count object selected as exit-code list; .includes call failed.",
+    "resumedOnlyMissingJobs": 5,
+    "completedEntryRetained": true,
+    "aggregateJournalAppended": true,
+    "productionSourceUnchanged": true
+  },
+  "integration": {
+    "maintainedCheckoutPerRepo": 1,
+    "perAgentCheckoutCreated": false,
+    "exceptions": [
+      "Cargo Git caches",
+      "Parley bare authority repository"
+    ],
+    "normalizedParleyLockSourceEntries": 6,
+    "unrelatedLockEdgeRestored": true,
+    "canonicalFontHarnessPath": true,
+    "fontBytesUnchanged": true
+  },
+  "limitations": [
+    "Geometry and pixel failure counts overlap.",
+    "Zero-edge subset has no explicit point hit coverage.",
+    "No direct PNG MAE recomputation.",
+    "System-font/default-feature parity, OS input delivery and named /code-review incomplete.",
+    "Separate historical placeholder reduction not rerun.",
+    "Draft attempts and failed helpers not counted as passing final runs."
+  ],
+  "next": {
+    "status": "planning-only-not-implemented",
+    "design": "artifacts/line-flow-consumers-final/next-edge-consumption-notes.json",
+    "singleAcceptanceCheckpointForBreakerIntrinsicAndEffectiveConsumers": true,
+    "CSSOwnershipLayer": "Blitz",
+    "genericFlowLayer": "Parley"
+  },
+  "evidence": [
+    {
+      "path": "artifacts/line-flow-consumers-final/source-proof.json",
+      "sha256": "9e01c2dd0129a9b596a2829d52f66d8efa1cf83372a8ca66bb1f44ca01ab0374",
+      "bytes": 529641
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/source-after.json",
+      "sha256": "72a778fb655a6fbacf1f5328b4c6f38aa5fd25b0847413e3d97d4a9e1f0b6899",
+      "bytes": 499141
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/run.mjs",
+      "sha256": "b9825db2e289bee52d5b84166474aa27c202c76c6cce451b25de755e37320b4d",
+      "bytes": 3840
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/resume-compiled.mjs",
+      "sha256": "10aab07d22aeec5567f2d0d8ff12137ddd03b583de1b77cabba86cbdb78dabc9",
+      "bytes": 2778
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/resume-proof.json",
+      "sha256": "cb6cc1c7ee17aad672063ebf157a8c1e863a68f4dc59b06b7e1ef5296cba40be",
+      "bytes": 1239
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/commands.json",
+      "sha256": "654af90750108b61b081e19ea8f4fbce449816484a46f47dfd6032b28f886e6a",
+      "bytes": 106436
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/direct-commands.json",
+      "sha256": "325e25e574cf939479b30b48c233524b3ffb361569790f5fbeee46231f9a0860",
+      "bytes": 33943
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/compiled-commands.json",
+      "sha256": "cf73b666f3f6d4d4503ea26526d31f3418905071a513596cbf8dd6713b351637",
+      "bytes": 72496
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/matrix-plan.json",
+      "sha256": "55ae2c965c99fb4dc698f74ac130cd318de7cb12f1023ba647c2a7b49aeb2a0e",
+      "bytes": 8533
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/compiled-plan.json",
+      "sha256": "5685275e58fa0d66130f7ddd534edd6546de00709a3527b718c95f875fb87689",
+      "bytes": 76721
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/full-driver-proof.json",
+      "sha256": "211efe7cce0f873856d0118fa5d7150d488bed1e87369d47f7ca987ede075c65",
+      "bytes": 12637
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/audit.mjs",
+      "sha256": "7d25aca0a52fd585751cc176bdaf5030638cdf4f4acacae61b22036e64039ba0",
+      "bytes": 33551
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/frozen-audit-inputs.json",
+      "sha256": "aeeca62303a4d5917bb7f8423a71b456c92cac2745ccf86acab3bfc7a3ea5f33",
+      "bytes": 5783664
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/independent-audit.json",
+      "sha256": "fb4d3a75de1dba6b75b1801e8bc9a0d57d326309fc4f6159cc5278c6f271dcd2",
+      "bytes": 8466666
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/audit-verify.log",
+      "sha256": "741e4f6b3184f247f57b33a5464c353ab70adbbac0e8f1ae913810c4d4f6769e",
+      "bytes": 2424
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/audit-compiled.mjs",
+      "sha256": "ccefa21a715565c339e7e0b0a30beb23fa3051b3306f33b6373938c319f0ccb3",
+      "bytes": 23344
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/compiled-audit.json",
+      "sha256": "f354f9999f19dee359d83b8c520eae14663dbec675bba2154adea00e2e74e090",
+      "bytes": 24098
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/compiled-observation-manifest.json",
+      "sha256": "0862dbf6f26d7bad1477f515e70ec2fbb31ca0ea579b58e5249cf11a9d9dd19b",
+      "bytes": 418360
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/audit-compiled.log",
+      "sha256": "5bda26802b38a193da45b628fd12c290becfd02414bad38e873b735df9afa79a",
+      "bytes": 276
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/unit-summary.json",
+      "sha256": "d1aa602c61b73b5950086b56b32bbe3fb6778518ff2425acd0212cbfecb9ee25",
+      "bytes": 1693
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/unit-stages.json",
+      "sha256": "01265e07d23b366db329caad08f90dad86ab47f4e8f50e5a95ceec9e037a9f74",
+      "bytes": 3624
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/parley-source-proof.json",
+      "sha256": "2ed9a0801e4df706dac6b79fdd4a5a09a831e7508111cc2a4b46da1922e37b9d",
+      "bytes": 19864
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/parley-std.log",
+      "sha256": "c2dd845438dbdce9b1208a6b5d9be84d6ccdac7030500035e7ada2ffb74af33b",
+      "bytes": 24041
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/parley-libm.log",
+      "sha256": "64308a172ca6b63255dfcd433c3dcea1953bd7bac3a4fe74cf4814bbbdb0dba8",
+      "bytes": 1520
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/npm.log",
+      "sha256": "caead3447cf918dea306eaa4e4932c958c44675515e4762783e2c637bf511ca2",
+      "bytes": 30608
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/workspace.log",
+      "sha256": "cec22903ec2db2974de0187fbfcb6a45ef16febee27bae1fe7b7dd1ed9d802b8",
+      "bytes": 14625
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/blitz-dom.log",
+      "sha256": "27a4326a7fda0d609b3f61fbc9eed78d3c06325c3b223e58eafe6dd6ed29900e",
+      "bytes": 8021
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/blitz-paint.log",
+      "sha256": "a23c2f3af72ed18faf05f73fe1576589cc4d958cbb7eff8c8a8f9bb4ea40b01e",
+      "bytes": 1351
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/blitz-html.log",
+      "sha256": "535363c2bbf4e83ebc87eaba7440c825b144619037f4e700b8de04b1c99f356e",
+      "bytes": 588
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/cargo-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/lock-proof.json",
+      "sha256": "b847164d01edb8ba5a7d59b6ef3cdaea9e2a1ca9430b1b02486dbbcf9f3f144d",
+      "bytes": 423
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/font-path-proof.json",
+      "sha256": "226d824af4b269659aab5b173ce805bceb8c0ca9b96be29d0c055ea7136b9023",
+      "bytes": 389
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/before-affinity-docs-only.patch",
+      "sha256": "d1cc0437167179d39c1ae50b0769594d85d9b74bc3d1d21b968e8f6b50a3c9e7",
+      "bytes": 8777
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/before-affinity-docs-proof.json",
+      "sha256": "eb5b96540a2c41926a9eb84533945891756a7c488a2c4fa081944110cb5f924c",
+      "bytes": 290
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/mirror-cleanup-proof.json",
+      "sha256": "999de690fa205de8c0d50735f967ffe148edcc2141595ad19a81695d3a4fe934",
+      "bytes": 536
+    },
+    {
+      "path": "artifacts/line-flow-consumers-final/next-edge-consumption-notes.json",
+      "sha256": "b55fa6dcfa0f8ec419b203d249e540a6bd07999e100aa76dc0d26150dcb2eaec",
+      "bytes": 3848
+    }
+  ]
+}

@@ -88,9 +88,11 @@ pairs preserve passing retained gates; all 389 compiled states retain their gate
 
 Caller shaping-boundary intent, normalized zero-advance ownership and private
 authored edge order are implemented in the pinned Parley/Blitz forks. Private
-content/box views preserve their distinct arithmetic policies without used-edge
-advances or new paint/editing consumers. The next patches need generic nonzero
-span-edge flow in Parley and CSS binding in Blitz; geometry alone cannot certify
+[line-flow consumer views](../conformance/results/chromium-inline-line-flow.md)
+now include glyph, cluster and first/last-line selection traversal, preserving
+their distinct arithmetic policies without used-edge advances. All 4,820 direct
+states are unchanged and 569 compiled states pass. The next patches need generic
+nonzero span-edge flow in Parley and CSS binding in Blitz; geometry alone cannot certify
 shaping/cache identity. Full deferred nested top/bottom
 alignment, DOM sibling heuristics, fragment lists, preserved tabs/RTL atomic
 flow, odd-height/negative-origin hits and local glyph paint retain independent

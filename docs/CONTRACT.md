@@ -37,20 +37,26 @@ the [shaping-boundary continuation](../conformance/results/chromium-inline-bound
 the [ownership continuation](../conformance/results/chromium-inline-ownership.md),
 the [authored-edge continuation](../conformance/results/chromium-inline-authored-edges.md),
 the [private-flow continuation](../conformance/results/chromium-inline-flow-views.md),
+the [line-consumer continuation](../conformance/results/chromium-inline-line-flow.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The final isolated extraction checkpoint adds private committed-line content and box
-views in Parley. Ordinary-span bounds and empty-anchor positions preserve their
-distinct arithmetic policies; nine focused compatibility tests pass. The private
-authored-edge stream remains metadata only. Across 35 matrices and 4,820 exact
-pairs, every result, native state JSON and whole PNG is unchanged: zero repairs
-and zero regressions. All 389 compiled states pass. Both audits and the extraction
-gate pass; absolute parity failures and six dependency unit failures remain.
-The new 27-state driver changes negative-margin wrapping and controlling
-min-content width and captures immediate `br` closing decoration. It passes
+The latest line-consumer checkpoint adds a private borrowed Parley `LineFlow`
+facade for glyph placement, cluster lookup/offset and first/last-line selection,
+alongside the existing content/box views. Four new legacy-formula tests pass.
+Their distinct rounding, glyphless and out-of-flow policies remain intact; no
+used horizontal edges, public API or CSS binding is added. Across 35 matrices
+and 4,820 states, result/native JSON and whole native/browser PNG bytes are
+unchanged: zero repairs and zero regressions. Three before matrices are fresh;
+32 use retained historical baselines. All 569 compiled regression states pass,
+including both hover optimization modes and selected GPU tables. Both independent
+audits pass their evidence checks; absolute Chromium failures and six dependency
+unit failures remain. Compiler/workspace suites pass 344/143 tests.
+
+The existing 27-state driver changes negative-margin wrapping and controlling
+min-content width and captures immediate `br` closing decoration. It retains
 3 geometry/fragment, 24 rectangle-relative hit, 18 explicit-point hit and zero
-strict pixel states. Used horizontal edges, shared effective positions for the
-remaining consumers and internal recovery/cache instrumentation remain open.
+strict pixel passes. Signed edge scheduling, breaker rollback, intrinsic sizing,
+shared effective positions and internal recovery/cache proofs remain open.
 
 The preceding ownership continuation adds opt-in normalized ordinary-span ownership
 in Parley and standards-mode CSSOM binding in Blitz. Whole shaping atoms belong
