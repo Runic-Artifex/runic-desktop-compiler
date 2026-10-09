@@ -24,19 +24,21 @@ the [empty-inline continuation](../conformance/results/chromium-empty-inline.md)
 the [shaping-boundary continuation](../conformance/results/chromium-inline-boundaries.md),
 the [ownership continuation](../conformance/results/chromium-inline-ownership.md),
 the [authored-edge continuation](../conformance/results/chromium-inline-authored-edges.md),
+the [private-flow continuation](../conformance/results/chromium-inline-flow-views.md),
 and [targeted plan](research/CHROMIUM-PARITY.md).
 
-The latest isolated continuation records private authored opening/closing edge
-order in Parley under the existing span-tracking opt-in. Normalized endpoints,
-style identity and all-box ordinals survive cloning and saved replay; reuse clears
-them. Ten new focused tests pass. It adds no used horizontal advances or rendering
-consumer changes. Across 34 matrices and 4,793 exact pairs, every result and
-native whole PNG is unchanged: zero repairs and zero regressions. All 389 compiled
-states pass. Both audits are complete and the zero-regression gate passes;
-absolute parity failures and the six known dependency unit failures remain.
-The new 165-state oracle passes 9 geometry, 6 fragment, 60 rectangle-relative hit,
-51 explicit-point hit and zero strict pixel states. It supplies bounded targets
-for the next shared-offset and signed-advance interface.
+The latest isolated continuation adds private committed-line content and box
+views in Parley. Ordinary-span bounds and empty-anchor positions preserve their
+distinct arithmetic policies; nine focused compatibility tests pass. The private
+authored-edge stream remains metadata only. Across 35 matrices and 4,820 exact
+pairs, every result, native state JSON and whole PNG is unchanged: zero repairs
+and zero regressions. All 389 compiled states pass. Both audits and the extraction
+gate pass; absolute parity failures and six dependency unit failures remain.
+The new 27-state driver changes negative-margin wrapping and controlling
+min-content width and captures immediate `br` closing decoration. It passes
+3 geometry/fragment, 24 rectangle-relative hit, 18 explicit-point hit and zero
+strict pixel states. Used horizontal edges, shared effective positions for the
+remaining consumers and internal recovery/cache instrumentation remain open.
 
 The preceding ownership continuation adds opt-in normalized ordinary-span ownership
 in Parley and standards-mode CSSOM binding in Blitz. Whole shaping atoms belong

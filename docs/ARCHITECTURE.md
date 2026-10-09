@@ -636,3 +636,9 @@ immediate `br` close. Candidate outputs require observation at the locked browse
 revision; they do not instrument provisional overflow or cache identity. Existing
 oracles remain unchanged. Opus's stopped thread was inspected before delegation;
 its unfinished compiler/runtime hover and form-submission work remains separate.
+
+The [verified extraction](../conformance/results/chromium-inline-flow-views.md)
+passes nine focused tests and preserves all 4,820 direct results, native state
+JSONs and whole screenshots, with 389 compiled states passing. The new browser
+drivers supply the three reductions without proving internal recovery or cache
+execution. Used span-edge advances remain a subsequent interface checkpoint.

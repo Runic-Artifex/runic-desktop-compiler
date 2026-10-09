@@ -446,6 +446,17 @@ under their respective ADRs. Nonzero edges need a separate interface checkpoint.
 CSS resolution in Stylo/Blitz and generic text flow in Parley; preserve defaults,
 source provenance and the public positioned-item enum.
 
+The [private-flow checkpoint](../../conformance/results/chromium-inline-flow-views.md)
+extracts ordinary-span atom traversal and empty-anchor box traversal without
+merging their arithmetic policies. Nine focused tests pass, and all 4,820 direct
+results and native screenshots remain identical. Paint, cluster/caret, selection
+and breaker cursors still need a defined effective used-edge path. The additive
+[27-state driver](../../conformance/inline-edge-drivers.mjs) now changes negative
+margin wrapping and controlling min-content width, and captures immediate `br`
+closing decoration at locked Chromium 153. These observations supply the three
+requested reductions; internal overflow recovery and cache branches remain
+uninstrumented.
+
 1. Private normalized event order is retained and tested. Freeze consumption and
    wrap affinity with reductions: pending
    spaces, equal-position empty/nested owners, atomic and out-of-flow ordinals,
