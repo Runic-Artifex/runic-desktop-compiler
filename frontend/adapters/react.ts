@@ -591,9 +591,26 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
   // source operator for React's later listener validation, including copies
   // made while remapping function locals. Membership tests stay unmarked.
   const eventInstanceOf: ts.BinaryExpression[] = [];
+  const elementSubmitRegistrations = new Set<ts.CallExpression>();
+  const registersElementSubmit = (value: Expr): boolean => {
+    if (value.op === 'builtin')
+      return (
+        value.name === 'element.listen' &&
+        value.args[1]?.op === 'lit' &&
+        value.args[1].value === 'submit'
+      );
+    if (value.op === 'with') return registersElementSubmit(value.body);
+    if (value.op === 'cond')
+      return registersElementSubmit(value.then) || registersElementSubmit(value.else);
+    return false;
+  };
   const expression = lower.expr.bind(lower);
   lower.expr = (node, context) => {
     const value = expression(node, context);
+    // Keep the original registration call for diagnostics, including calls
+    // wrapped by optional chaining. Host listeners have distinct builtins.
+    if (ts.isCallExpression(node) && registersElementSubmit(value))
+      elementSubmitRegistrations.add(node);
     if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword &&
@@ -3355,6 +3372,16 @@ export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
       ),
       ...bagListeners.map(l => ({ h: l, root: bagRoot(l) })),
     ];
+    // React 19.3 delegates submit to the root container. A native listener
+    // on an element runs before synthetic onSubmit, and can stop the event
+    // before it reaches React. The IR binds template handlers on the element.
+    const nativeSubmit = elementSubmitRegistrations.values().next().value;
+    if (nativeSubmit && listening.some(l => l.h.event === 'submit'))
+      fail(
+        nativeSubmit,
+        'E_EVENT',
+        'Native element submit listeners together with onSubmit are unsupported: React delegates onSubmit to its root, after native element listeners, while the runtime runs template handlers on the element first',
+      );
     // Change listeners of selects (the others are on checkboxes and radio buttons).
     const selectChanges = new Set<unknown>();
     const selects = (k: number, nodes: Node[]) => {

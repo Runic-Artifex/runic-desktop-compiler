@@ -244,3 +244,152 @@ test('React membership tests and independent native listeners remain admitted wi
     },
   );
 });
+
+test('React rejects mixed native element submit and onSubmit at the registration call', async () => {
+  const source = `import {useEffect,useRef} from 'react';
+export function App(){
+  const form=useRef<HTMLElement|null>(null);
+  useEffect(()=>{
+    const node=form.current;
+    if(!node)return;
+    function native(e:SubmitEvent){e.preventDefault();e.stopPropagation();}
+    node.addEventListener('submit',native);
+    return ()=>node.removeEventListener('submit',native);
+  },[]);
+  return <form ref={form} noValidate onSubmit={e=>e.preventDefault()}><button>Save</button></form>;
+}`;
+  await app('react', source, graph =>
+    assert.rejects(lowerReact(graph), error => {
+      assert.ok(error instanceof Diagnostic);
+      assert.equal(error.code, 'E_EVENT');
+      assert.match(error.message, /React delegates onSubmit.*after native element listeners/);
+      assert.deepEqual(error.source, { file: 'App.tsx', line: 8, column: 5 });
+      return true;
+    }),
+  );
+});
+
+test('React mixed submit detection includes optional ref calls and helper registrations', async () => {
+  for (const [helper, registration, line, column] of [
+    ['', "    form.current?.addEventListener('submit',native);", 7, 5],
+    [
+      "function install(node:HTMLElement,listener:(e:SubmitEvent)=>void){\n  node.addEventListener('submit',listener);\n}\n",
+      '    const node=form.current; if(node)install(node,native);',
+      3,
+      3,
+    ],
+  ]) {
+    const source = `import {useEffect,useRef} from 'react';
+${helper}export function App(){
+  const form=useRef<HTMLElement|null>(null);
+  useEffect(()=>{
+    function native(e:SubmitEvent){e.preventDefault();e.stopPropagation();}
+
+${registration}
+  },[]);
+  return <form ref={form} noValidate onSubmit={e=>e.preventDefault()}><button>Save</button></form>;
+}`;
+    await app('react', source, graph =>
+      assert.rejects(lowerReact(graph), error => {
+        assert.ok(error instanceof Diagnostic);
+        assert.equal(error.code, 'E_EVENT');
+        assert.match(error.message, /Native element submit listeners together with onSubmit/);
+        assert.deepEqual(error.source, { file: 'App.tsx', line, column });
+        return true;
+      }),
+    );
+  }
+});
+
+test('React mixed native submit rejection includes synthetic handlers passed in rest props', async () => {
+  const source = `import {useEffect} from 'react';
+import type {HTMLAttributes} from 'react';
+function Form({...rest}:HTMLAttributes){return <form {...rest}><button>Save</button></form>;}
+export function App(){
+  useEffect(()=>{
+    const node=document.getElementById('form');
+    if(!node)return;
+    function native(e:SubmitEvent){e.preventDefault();e.stopPropagation();}
+    node.addEventListener('submit',native);
+    return ()=>node.removeEventListener('submit',native);
+  },[]);
+  return <Form id="form" onSubmit={e=>e.preventDefault()}/>;
+}`;
+  await app('react', source, graph =>
+    assert.rejects(lowerReact(graph), error => {
+      assert.ok(error instanceof Diagnostic);
+      assert.equal(error.code, 'E_EVENT');
+      assert.match(error.message, /Native element submit listeners together with onSubmit/);
+      assert.deepEqual(error.source, { file: 'App.tsx', line: 9, column: 5 });
+      return true;
+    }),
+  );
+});
+
+test('React native element submit listeners remain admitted without synthetic submit handlers', async () => {
+  await app(
+    'react',
+    `import {useEffect,useRef} from 'react';
+export function App(){
+  const form=useRef<HTMLElement|null>(null);
+  useEffect(()=>{
+    const node=form.current;
+    if(!node)return;
+    function native(e:SubmitEvent){e.preventDefault();e.stopPropagation();}
+    node.addEventListener('submit',native);
+    return ()=>node.removeEventListener('submit',native);
+  },[]);
+  return <form ref={form} noValidate><button>Save</button></form>;
+}`,
+    async graph => {
+      const { ir } = await lowerReact(graph);
+      assert.equal(handlers(ir).filter(handler => handler.event === 'submit').length, 0);
+      assert.ok(builtins(ir).includes('element.listen'));
+      assert.ok(builtins(ir).includes('element.unlisten'));
+      assert.ok(builtins(ir).includes('event.stopPropagation'));
+    },
+  );
+});
+
+test('React window and document submit listeners stay admitted alongside onSubmit', async () => {
+  for (const host of ['window', 'document'])
+    await app(
+      'react',
+      `import {useEffect} from 'react';
+export function App(){
+  useEffect(()=>{
+    function native(e:SubmitEvent){e.preventDefault();}
+    ${host}.addEventListener('submit',native);
+    return ()=>${host}.removeEventListener('submit',native);
+  },[]);
+  return <form noValidate onSubmit={e=>e.preventDefault()}><button>Save</button></form>;
+}`,
+      async graph => {
+        const { ir } = await lowerReact(graph);
+        assert.equal(handlers(ir).filter(handler => handler.event === 'submit').length, 1);
+        assert.ok(builtins(ir).includes(`${host}.listen`));
+        assert.ok(builtins(ir).includes(`${host}.unlisten`));
+      },
+    );
+});
+
+test('React removal-only element submit calls do not trigger mixed listener rejection', async () => {
+  await app(
+    'react',
+    `import {useEffect,useRef} from 'react';
+export function App(){
+  const form=useRef<HTMLElement|null>(null);
+  useEffect(()=>{
+    function native(e:SubmitEvent){e.preventDefault();}
+    form.current?.removeEventListener('submit',native);
+  },[]);
+  return <form ref={form} noValidate onSubmit={e=>e.preventDefault()}><button>Save</button></form>;
+}`,
+    async graph => {
+      const { ir } = await lowerReact(graph);
+      assert.equal(handlers(ir).filter(handler => handler.event === 'submit').length, 1);
+      assert.ok(builtins(ir).includes('element.unlisten'));
+      assert.ok(!builtins(ir).includes('element.listen'));
+    },
+  );
+});
