@@ -1,6 +1,9 @@
 # Bounded form submission
 
-Owner decision, 2026-10-09. Implementation and acceptance are pending.
+Owner decision, 2026-10-09. Bounded acceptance is recorded at
+[form-submit](../../conformance/results/form-submit.md), with full baseline
+acceptance at `e7a6275` and a separately verified React adapter restriction at
+`6db523e`. Unsupported defaults and incomplete stages below remain open.
 
 The first checkpoint implements canceled bubbling/cancelable `submit` events
 through physical submit-control activation, Enter in supported single-line
@@ -72,16 +75,27 @@ form-data construction and dialog submission. Reset stays unsupported.
 button. Its listeners run synchronously before the caller continues, with no
 inserted task or microtask checkpoint. Nested submit has discrete update priority
 even inside a timer or continuous handler, restored afterward. The interpreter
-must keep its live tree visible during all callbacks and use reusable owned
-listener snapshots; its existing nested dispatcher empties the tree and consumes
-listeners and cannot be reused unchanged.
+keeps its live VNode tree visible during callbacks and uses
+owned registration snapshots. The earlier tree-taking nested dispatcher has
+been replaced; physical dispatch shares selection rules while retaining its
+framework-scheduled task and microtask checkpoints.
 
-SubmitEvent's base interface is Event. Only common Event operations and
-`instanceof` are included; `submitter`, React `nativeEvent`, argumented
+SubmitEvent's base interface is Event. Native submit listeners include common
+Event operations and `instanceof SubmitEvent`/`Event`; React synthetic handlers
+retain their common operations and reject DOM-event `instanceof`. `submitter`,
+React `nativeEvent`, argumented
 `requestSubmit`, programmatic control `click()`, custom validity and validation
 UI retain diagnostics. Named controls that shadow `requestSubmit`, non-form
 receivers, command-invoker Auto buttons, nested/parser-specific forms and
 unimplemented validity CSS observables require explicit boundaries.
+
+React delegates `onSubmit` to its root, after native element listeners. The IR
+binds template handlers on the element, which changes observable ordering when
+the two are combined. The React adapter conservatively rejects native element
+submit registrations whenever the program has a synthetic submit handler,
+including rest forwarding. The diagnostic points to the registration call.
+Element-only, removal-only and native window/document listeners stay admitted;
+the shared IR and backend remain free of framework-specific dispatch branches.
 
 Acceptance requires equivalent React/Vue/Svelte fixtures covering physical and
 implicit activation, canceled clicks, disabled default/no-button blockers,

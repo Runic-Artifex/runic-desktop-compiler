@@ -32,9 +32,24 @@ Six known fork unit failures, OS/device delivery, default/system-font parity and
 the named review stage remain incomplete. Sticky/fill compiler guards and public
 ordinary-inline `getClientRects()` rejection remain.
 
-Form submission/reset is the next compiler/runtime checkpoint. Generic nonzero
-inline edges follow the retained ordinary-inline plan below. Historical isolated
-checkpoints, source revisions, counts and ADRs remain unchanged.
+The later [bounded forms checkpoint](../../conformance/results/form-submit.md)
+implements canceled physical/implicit submission and synchronous no-argument
+requests across React, Vue and Svelte. It retains explicit boundaries around
+validation, reset, data construction and uncanceled defaults. The final React
+adapter rejects mixed native-element and synthetic submit listeners because
+React's delegated order differs from element-bound handlers. Its final checks
+and the earlier full baseline have separate source provenance.
+
+The next useful renderer slice is generic nonzero inline edges, following the
+ordinary-inline plan below: shared signed used positions must reach wrapping,
+intrinsic widths, glyphs, fragments, hits, carets and selections together. Freeze
+the remaining consumption interface first, then implement fixed edges before
+percentage/calc/auto and mutation invalidation. Keep all zero-edge results
+unchanged and retain the independent strict rendering failures. In parallel,
+prepare shared form validity, data and reset decisions with authored browser
+cases; navigation capability follows those decisions. Font/DPR/local raster and
+OS input gates remain separate. Prior isolated checkpoints, source revisions,
+counts and ADRs remain unchanged.
 
 ## Module boundaries
 

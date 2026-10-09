@@ -9,10 +9,11 @@ Everything the compiler, runtime and verification do not cover yet, with the rea
 The [targeted Chromium parity plan](research/CHROMIUM-PARITY.md) turns the renderer
 subset of this register into ordered work with module owners and verification
 gates. The [consolidation checkpoint](../conformance/results/chromium-consolidation.md)
-integrates the reviewed table/parity forks through exact Git pins and the four
-hover over/out events. All ten table tags are accepted in React, Vue and Svelte;
-complete CSS tables, the remaining renderer/platform failures and form
-submission/reset remain open. The historical
+integrated the reviewed table/parity forks through exact Git pins and the four
+hover over/out events. The later [bounded forms checkpoint](../conformance/results/form-submit.md)
+adds canceled physical/implicit submit and no-argument requests with independent
+evidence. Complete CSS tables, remaining renderer/platform failures, reset,
+validation and uncanceled submission defaults remain open. The historical
 [table worktree experiment](research/BLITZ-TABLES.md) and
 [implementation record](../conformance/results/chromium-parity.md) retain their
 own failures and acceptance gates. The [font/inline continuation](../conformance/results/chromium-font-inline.md)
@@ -52,7 +53,7 @@ A cluster is one implementation effort that removes many rows. Ranked by what th
 
 | # | Cluster | Blocks | Why it is open | What it would take | Detail |
 |---|---|---|---|---|---|
-| P1 | **Elements**: 67 tags (the inert text-level ones added by the M6 sweep); no `img`, `table`, `details`, `dialog`, `q`, `progress`, …; React and Vue also lack `a` and `form`; SVG shapes only | Every docs page and most examples | Elements were added as cases needed them | Inert elements in bulk with one conformance case per group; interactive ones with their behaviour | [PLATFORM](gaps/PLATFORM.md#elements-p1) |
+| P1 | **Elements**: 77 shared IR/Svelte tags and 71 React/Vue tags; all three include `form` and ten table tags; no `img`, `details`, `dialog`, `q`, `progress`, …; React/Vue still lack `a`, `dl`, `dt`, `dd`, `figure`, `figcaption`; SVG shapes only | Every docs page and most examples | Uncovered element behavior remains rejected | Inert elements with group conformance; interactive elements with their behavior | [PLATFORM](gaps/PLATFORM.md#elements-p1) |
 | L1 | **Packages**: only bits-ui (source) and ten packs | All React and Vue examples (Radix, reka-ui, lucide-react/-vue, cva, vueuse); the site shell (tabler icons, svelte-sonner, mode-watcher, zod, @internationalized/date, layerchart) | Each package is compiled from source or packed individually | Source compilation per package, which meets V1/V2/L4 | [LIBRARIES](gaps/LIBRARIES.md#packages-without-a-pack-or-source-entry-l1) |
 | V2 | **Untyped values**: `any`/`unknown` that no rule types | Most library code; demo data | D16 requires a static type for every value; package code is typed by pattern-specific rules (L4) | More rules per library, or a dynamic value tier ([review](research/APPROACH-REVIEW.md)); the tier's spike (opt-in `dynamicValues`, [design and results](design/M6-DYNAMIC-VALUES.md)) compiles bits-ui's Pagination with no new rule; adopted as an opt-in (D16 amended); open: its own gaps and React/Vue | [LANGUAGE](gaps/LANGUAGE.md#value-model-and-types-v1-v2), [dynamic values](gaps/LANGUAGE.md#dynamic-values-opt-in-spike) |
 | V1 | **Unions** reached by several members | Slider, multiple Select, mixed Accordion/ToggleGroup programs, `string \| number` props | No sum type in the IR; specialisation per member not started | Per-member compilation (decided 2026-10-05) or IR unions | [LANGUAGE](gaps/LANGUAGE.md#value-model-and-types-v1-v2) |
@@ -60,7 +61,7 @@ A cluster is one implementation effort that removes many rows. Ranked by what th
 | F1 | **Svelte**: `use:`, transitions, stores, `{#await}`, `<svelte:boundary>`, scoped styles, more bindings, snippets with parameters | Site components (actions, transitions), the editor (scoped styles) | Added as cases needed them | Per feature | [FRAMEWORKS](gaps/FRAMEWORKS.md#svelte-f1) |
 | P4 | **CSS and rendering**: `position: sticky`, `:target`, `capitalize`, fill modes, Stylo-dropped declarations | Site header, sidebar and table of contents (sticky) | Remaining engine gaps and compiler/runtime guards; pinning sticky/fill repairs does not lift acceptance | Per guarded surface and retained failure | [PLATFORM](gaps/PLATFORM.md#css-and-rendering-p4), [BLITZ-GAPS](BLITZ-GAPS.md) |
 | P7 | **Images and system fonts** | Avatars, cards, the site's assets; any `system-ui` text | The runtime loads no images; only embedded fonts | Embedded image assets and `<img>` | [PLATFORM](gaps/PLATFORM.md#images-and-fonts-p7) |
-| P2 | **Events and forms**: no `submit`/`reset`, drag, touch, clipboard, animation events; form submission not modelled; few input types | Forms examples (with zod/formsnap), the editor's forms | Each event needs its dispatch modelled | Per event | [PLATFORM](gaps/PLATFORM.md#events-and-forms-p2) |
+| P2 | **Events and forms**: canceled physical/implicit submit and no-argument requests are bounded; reset, FormData/serialization, constraint validity/UI, uncanceled navigation/dialog defaults, React native-element/synthetic-submit combinations, broader submit interfaces and input types, drag/touch/clipboard/animation events remain open | Forms examples (with zod/formsnap), the editor's forms | Each remaining event/default needs an explicit model and independent acceptance | Shared form decisions and staged event selection, framework scheduling preserved; per remaining event/default | [PLATFORM](gaps/PLATFORM.md#events-and-forms-p2) |
 | P3 | **Script DOM**: no comment anchors, so script reordering blocks later framework inserts; selector subset; few node APIs | Command (clear, no matches), libraries that move or create nodes | The runtime places blocks without anchors | Comment anchors (Blitz has `create_comment_node`), then general DOM mutation; Stylo's selector matching | [PLATFORM](gaps/PLATFORM.md#script-dom-p3) |
 | F2 | **SvelteKit**: mdsvex, most `$app` APIs, server code, iframes | The whole site beyond the generated docs pages | Static SPA subset by design (M6) | M7 | [FRAMEWORKS](gaps/FRAMEWORKS.md#sveltekit-f2) |
 | P6 | **Intl**: five verified locales, few options | The Translations Editor (arbitrary language tags, DisplayNames, PluralRules) | Only Chromium-verified data | Vectors per locale | [PLATFORM](gaps/PLATFORM.md#intl-p6) |

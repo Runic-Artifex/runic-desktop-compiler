@@ -7,8 +7,10 @@ Layers: **UA** is Blitz's user-agent stylesheet (`blitz-dom/assets/default.css`)
 The [targeted Chromium parity plan](research/CHROMIUM-PARITY.md) ranks the remaining
 work by the pinned shadcn sources and editor needs, preserving these layer
 boundaries. The [consolidation checkpoint](../conformance/results/chromium-consolidation.md)
-pins Blitz `f7d0a01`, Parley `4105c65`, Stylo `568059d` and Vello `a8efce5` in the
-canonical compiler. The continuations below retain their historical counts and
+pinned Blitz `f7d0a01`, Parley `4105c65`, Stylo `568059d` and Vello `a8efce5` in that
+historical compiler checkpoint. The later [bounded forms record](../conformance/results/form-submit.md)
+identifies its own final signed sources and the input-type classification patch.
+The continuations below retain their historical counts and
 failures. Integration certifies the measured surface; absolute local-pixel, inline,
 editor and platform gaps remain open. Compiler sticky/fill guards and public
 ordinary-inline `getClientRects()` rejection remain in place.

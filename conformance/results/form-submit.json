@@ -1,0 +1,278 @@
+{
+  "schema": 1,
+  "date": "2026-10-09",
+  "scope": "Bounded canceled form submission; no claim of whole Chromium parity",
+  "baselineCompiler": "e7a627555ba9d4cc8dc9e307c64c61c9ccf13eba",
+  "finalTestedCode": "6db523ec6733f99b528141856913a6cbf0b94811",
+  "recordCommit": "Documentation-only successor of finalTestedCode; native checks belong to the stated code revisions",
+  "browser": "153.0.8010.12",
+  "repositories": [
+    {
+      "repository": "/home/viktor/Development/RunicDesktopCompiler",
+      "revision": "6db523ec6733f99b528141856913a6cbf0b94811",
+      "signature": "G",
+      "workingCheckout": "/home/viktor/Development/RunicDesktopCompiler",
+      "resolvedCargoCheckout": "/home/viktor/Development/RunicDesktopCompiler",
+      "origin": null
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/blitz",
+      "revision": "4a6f257f5cf6f7f8c56df4c5d34a4ad6ac1cdaf4",
+      "signature": "G",
+      "workingCheckout": "/home/viktor/Development/RunicArtifex/blitz",
+      "resolvedCargoCheckout": "/home/viktor/.cargo/git/checkouts/blitz-d85b4e950e4573bf/4a6f257",
+      "origin": "file:///home/viktor/Development/RunicArtifex/blitz"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/parley",
+      "revision": "4105c6589c32f1456dbce0185de36838dd0276ff",
+      "signature": "G",
+      "workingCheckout": "/home/viktor/Development/RunicArtifex/parley",
+      "resolvedCargoCheckout": "/home/viktor/.cargo/git/checkouts/parley-d72426b6d0b30fab/4105c65",
+      "origin": "file:///home/viktor/Development/RunicArtifex/parley.git"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/stylo",
+      "revision": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+      "signature": "G",
+      "workingCheckout": "/home/viktor/Development/RunicArtifex/stylo",
+      "resolvedCargoCheckout": "/home/viktor/.cargo/git/checkouts/stylo-c9bda6ec28fa3a61/568059d",
+      "origin": "file:///home/viktor/Development/RunicArtifex/stylo"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/vello",
+      "revision": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+      "signature": "G",
+      "workingCheckout": "/home/viktor/Development/RunicArtifex/vello",
+      "resolvedCargoCheckout": "/home/viktor/.cargo/git/checkouts/vello-75f52d83dc0de0ff/a8efce5",
+      "origin": "file:///home/viktor/Development/RunicArtifex/vello"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/anyrender",
+      "revision": "22b336b19938c911179e391ad19b34309493978c",
+      "signature": "G",
+      "workingCheckout": "/home/viktor/Development/RunicArtifex/anyrender",
+      "resolvedCargoCheckout": "/home/viktor/.cargo/git/checkouts/anyrender-daa627af064b50f0/22b336b",
+      "origin": "file:///home/viktor/Development/RunicArtifex/anyrender"
+    },
+    {
+      "repository": "/home/viktor/Development/RunicArtifex/taffy",
+      "revision": "e7be3d5b2f58e3af868d90d18be6b96e89e1d8fb",
+      "signature": "G",
+      "workingCheckout": "/home/viktor/Development/RunicArtifex/taffy",
+      "resolvedCargoCheckout": "/home/viktor/.cargo/git/checkouts/taffy-6c9467c7932a4860/e7be3d5",
+      "origin": "file:///home/viktor/Development/RunicArtifex/taffy"
+    }
+  ],
+  "oneWorkingCheckoutPerRepository": true,
+  "checkoutScope": "One maintained development checkout per repository; immutable Cargo dependency caches and Parley bare reference repository are excluded",
+  "acceptance": {
+    "boundedCanceledSubmission": true,
+    "fullChromiumParity": false,
+    "legacyImageRuntimeGuardComplete": false,
+    "namedCodeReviewComplete": false
+  },
+  "baseline": {
+    "sourceInventorySHA256": "c1419706414b1ce82302cf2cb2a7908a53e452f9fc7aefd4adfa8bb4edbe9949",
+    "compilerTests": 338,
+    "workspaceTests": 143,
+    "main": {
+      "runs": 22,
+      "statePairs": 450,
+      "expectedChecksPerSide": 444,
+      "PNGs": 900
+    },
+    "listeners": {
+      "runs": 12,
+      "statePairs": 148,
+      "expectedChecksPerSide": 348,
+      "PNGs": 296
+    },
+    "propagationStops": {
+      "runs": 2,
+      "statePairs": 66,
+      "expectedChecksPerSide": 166,
+      "PNGs": 132
+    },
+    "consoleRejections": {
+      "runs": 28,
+      "statePairs": 196,
+      "PNGs": 392
+    },
+    "randomDifferential": {
+      "traces": 120,
+      "states": 3120,
+      "originalPhysicalPointerActions": 3000
+    },
+    "authoredDifferential": {
+      "runs": 28,
+      "states": 286,
+      "expectedChecksPerSide": 480
+    },
+    "regressions": {
+      "runs": 61,
+      "statePairs": 569,
+      "originalActions": 508,
+      "PNGs": 1138
+    },
+    "negatives": {
+      "runtimeModePairs": 24,
+      "prerequisiteModePairs": 10,
+      "frontendRejections": 1,
+      "actualDriverExit": 2,
+      "status": "completed-diagnostic-candidates-with-legacy-runtime-incomplete"
+    }
+  },
+  "inputClassification": {
+    "schema": 1,
+    "newTests": {
+      "passed": 6,
+      "failed": 0
+    },
+    "completeFile": {
+      "passed": 12,
+      "failed": 1,
+      "exitCode": 101,
+      "log": "artifacts/form-submit-input-type-pin/input-type-tests.log"
+    },
+    "baseline": {
+      "revision": "f7d0a01e8bc8794ff8576951395e34734fd0296e",
+      "failedTest": "placeholder_text_is_dimmer_than_the_value_by_default",
+      "passed": 0,
+      "failed": 1,
+      "filtered": 6,
+      "exitCode": 101,
+      "log": "artifacts/form-submit-input-type-pin/placeholder-baseline-tests.log"
+    },
+    "temporaryTestRemoved": true,
+    "finalInputsRestored": true,
+    "testSourceSHA256": "22c4117ee0d18ef67117add8198d0d70bc5688318b6e27f49afb6e19fcee16f1",
+    "note": "Six new tests pass; the complete-file and pre-patch runs reproduce one distinct open placeholder assertion. The six older dependency-suite failures were not rerun."
+  },
+  "finalGuard": {
+    "sourceInventorySHA256": "ae11a29a17c5a82392e8776129ab514b536e739f6493a78f0a46dde3edbefc2d",
+    "changedFiles": [
+      "frontend/adapters/react.ts",
+      "tests/form-submit-frontend.test.mjs"
+    ],
+    "policy": "Program-wide rejection of native element submit registrations combined with any synthetic submit handler, including rest props; native-only elements, window/document and removal-only calls preserved",
+    "compilerTests": 344,
+    "workspaceTests": 143,
+    "IR": {
+      "fixtures": 8,
+      "modeRecords": 16,
+      "exactJSONBytes": true,
+      "backendOptimization": "Fresh opt/no-opt compiled React checks; ordinary frontend IR itself is mode-independent"
+    },
+    "compiledReact": {
+      "runs": 6,
+      "statePairs": 146,
+      "expectedChecksPerSide": 144,
+      "PNGs": 292
+    },
+    "sourceLocatedDiagnostic": {
+      "actualCLIExit": 1,
+      "code": "E_EVENT",
+      "file": "App.tsx",
+      "line": 13,
+      "column": 5
+    },
+    "audit": {
+      "path": "artifacts/form-submit-react-guard/audit.json",
+      "sha256": "26f063fb44997fdfe179853d4cbc6c33e19ba025af4b97929313fb1fb83580d5"
+    }
+  },
+  "immutableFailedAttempts": [
+    "artifacts/form-submit-acceptance",
+    "artifacts/form-submit-acceptance-v2",
+    "artifacts/form-submit-acceptance-v3"
+  ],
+  "limitations": [
+    "Baseline captures are not relabeled as final-guard source reruns; final admitted-fixture IR and unchanged backend bridge the two layers.",
+    "Validation/UI, reset, FormData/serialization, navigation/dialog defaults, broader submit interfaces, named shadows and nested/parser ownership remain unsupported or rejected.",
+    "Legacy-image frontend rejection does not prove the native/interpreter runtime guard. Native fatal runs have no trace JSON; failed-step native target identity and full native prefixes are unproven.",
+    "Compiled pixel/geometry gates do not certify the independent strict rendering oracles; those historical failures were not rerun or repaired here.",
+    "Six historical dependency-suite failures and one separate placeholder baseline assertion remain unpassed, not seven current workspace failures.",
+    "Default/system-font, OS keyboard/IME delivery and the unavailable named /code-review stage remain incomplete; independent reviews/audits are separate.",
+    "The React mixed-submit restriction is conservative across the program; it does not prove same-form reachability or general delegated listener parity."
+  ],
+  "next": [
+    "Shared signed used-edge flow across wrapping, intrinsic layout, paint, fragments, hits, caret and selection; preserve zero-edge defaults and modular ownership.",
+    "Independent local raster and font/DPR gates, preserving measured strict failures.",
+    "Shared form validity, data construction and reset decisions with authored end-to-end cases before navigation capability."
+  ],
+  "evidence": [
+    {
+      "path": "artifacts/form-submit-acceptance-v4/audit.json",
+      "sha256": "d8a801ef1d4a610eb2ef05fc6fc6253b27003af0f23ec9450111f6c16f2f6d2e"
+    },
+    {
+      "path": "artifacts/form-submit-acceptance-v4/observation-manifest.json",
+      "sha256": "3ff467da09e53206eca98efe51585490c06894453c007b1cb0183db232b1a132"
+    },
+    {
+      "path": "artifacts/form-submit-listener-acceptance/audit.json",
+      "sha256": "832ecaaffecfb34024b94f7b200bbb2a7f81bb73a39efb1c9e32ef6b9487b856"
+    },
+    {
+      "path": "artifacts/form-submit-listener-acceptance/observation-manifest.json",
+      "sha256": "f3395057ad2bf5a05f67fd7f7ba0ef7eeae1a4b8e2624a04387ed63cbb3fccde"
+    },
+    {
+      "path": "artifacts/form-submit-authored-differential/report.json",
+      "sha256": "932e48ee1beea05d62d4a0f9fed30612e77b44e665dd6a883f128fc5bfc844f0"
+    },
+    {
+      "path": "artifacts/form-submit-authored-differential/manifest.json",
+      "sha256": "a6b22ba044bac3332175477c3ae39cf07ce26ee4546cd3b91808b9ef07f3d14b"
+    },
+    {
+      "path": "artifacts/form-submit-supplemental/audit.json",
+      "sha256": "5d34cef138e4a91b9cf0592c326a69c8a1cf3f7c92ce60e26a8dfc67b44c3e15"
+    },
+    {
+      "path": "artifacts/form-submit-supplemental/observation-manifest.json",
+      "sha256": "4877c4d14701742cde549f2ab9739c20dd821e2aee3724d12230080b1541f753"
+    },
+    {
+      "path": "artifacts/form-submit-negative-plan-run-2026-10-09T16-13-19-034Z-1686424/report.json",
+      "sha256": "5c3eebcfd19dbea1eb4523ce7b584de677106f82896f1b0321e4f18ee865ee02"
+    },
+    {
+      "path": "artifacts/form-submit-regressions/audit.json",
+      "sha256": "94a00974005f6b1a549a974530f553bd3f53163a6ac38fa6fac489d20529f93e"
+    },
+    {
+      "path": "artifacts/form-submit-regressions/observation-manifest.json",
+      "sha256": "02b95f73f3d018709510034294c047bf370b88ccd66f56f60b8a28ffed8afe6a"
+    },
+    {
+      "path": "artifacts/form-submit-react-order-proof/proof.json",
+      "sha256": "50855396640e7ee8c74d076d48d837bb630abeb4674a8dd7cf4e7b594363add5"
+    },
+    {
+      "path": "artifacts/form-submit-react-guard/audit.json",
+      "sha256": "26f063fb44997fdfe179853d4cbc6c33e19ba025af4b97929313fb1fb83580d5"
+    },
+    {
+      "path": "artifacts/form-submit-react-guard/ir-proof.json",
+      "sha256": "874944da8b2e7c7de9cca14b19c85f94e7f66dd45ddf383bd683c83d88c81699"
+    },
+    {
+      "path": "artifacts/form-submit-react-guard/commands.json",
+      "sha256": "be9917f411c2cdc8fa37b8b7eac525cd67253a2dd1a44b0f873855bf5080df02"
+    },
+    {
+      "path": "artifacts/form-submit-react-guard/observation-manifest.json",
+      "sha256": "a07db1408fede8728a694b8335609d617b7cb989158ee54183155f6d18947309"
+    },
+    {
+      "path": "artifacts/form-submit-input-type-pin/focused-test-proof.json",
+      "sha256": "7b35dab5a3e81b58e50136773c21d0cce19a11a207f52af938ce38872c138aa7"
+    },
+    {
+      "path": "artifacts/form-submit-input-type-pin/restored-edges-proof.json",
+      "sha256": "1bf76b4413b9e7c8c41d8ae998264e6b4fd3950b784df5b344fa2bb5e80e5bda"
+    }
+  ]
+}

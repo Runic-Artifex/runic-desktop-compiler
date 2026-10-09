@@ -1,0 +1,29 @@
+# Bounded canceled form submission — 2026-10-09
+
+React, Vue and Svelte dispatch canceled physical/implicit submit and synchronous no-argument requestSubmit through shared form decisions and common Event operations. Native SubmitEvent/Event instanceof and script bubbling submit listeners are included; React synthetic handlers retain their interface restrictions. The final React adapter rejects native element submit registrations combined with any synthetic submit handler, including rest forwarding: React root delegation runs after native element listeners, whereas template handlers run on the element in the runtime. The restriction is conservative across the program; element-only registrations, removal-only element calls and native window/document registrations remain admitted. This accepts a bounded canceled-submission domain, not whole Chromium parity.
+
+Full baseline acceptance used signed compiler `e7a627555ba9d4cc8dc9e307c64c61c9ccf13eba` and locked Chromium 153.0.8010.12. [Machine provenance](form-submit.json) records the resolved dependencies and evidence hashes. The [historical consolidation record](chromium-consolidation.md) remains unchanged.
+
+Final signed compiler `6db523ec6733f99b528141856913a6cbf0b94811` adds the React adapter restriction and six frontend tests, with no IR, backend or renderer changes. All 344 compiler tests and 143 workspace tests pass. Fresh React checks pass 146 browser/native state pairs, 144 exact checks per side and 292 PNGs across both modes. The normal CLI rejects the ordering reduction with E_EVENT at App.tsx:13:5 (expected exit 1). Independent audit passed.
+
+All eight admitted fixtures retain exact JSON bytes, IR hashes and source hashes across 16 mode records; proof SHA-256 `874944da8b2e7c7de9cca14b19c85f94e7f66dd45ddf383bd683c83d88c81699`. Frontend IR is mode-independent; the fresh React checks exercise both backend optimization modes. This evidence connects the final adapter to the baseline without relabeling earlier captures as final-source reruns.
+
+| Baseline check | Observed result |
+|---|---|
+| Compiler suites / Rust workspace | 338 compiler tests; 143 workspace tests; exit 0 for both (includes the nine focused form units) |
+| Main browser/native, opt and no-opt | 450 state pairs; 444 exact checks per side; 900 PNGs; audit passed |
+| Listener mutation browser/native, both modes | 148 state pairs; 348 checks per side; 296 PNGs; audit passed |
+| Random differential, both modes | 120 traces, 3,120 states, 3,000 pointer actions; complete and passed |
+| Authored differential replay, both modes | 286 states; 480 checks each for native and interpreter; audit passed; separate from random totals |
+| Submit propagation stops, both modes | Vue fixture: 66 state pairs; 166 checks per side; 132 PNGs; audit passed |
+| Console/rejection attribution, both modes | 196 state pairs; 392 PNGs; audit passed; engine verbose diagnostics retained separately from app console calls |
+| Six compiled regression commands | 569 state pairs; 1,138 PNGs; audit passed; original CPU/GPU and opt/no-opt scope retained |
+| Negative diagnostics / prerequisite traces | 24 runtime mode pairs; 10 positive prerequisite mode pairs; one frontend-only legacy-image rejection; driver exit 2 because direct native/interpreter legacy-image guard coverage remains incomplete |
+
+Physical submits preserve event-versus-listener checkpoints. At each submit target/phase entry, propagation stops suppress later invocations; stopPropagation permits remaining callbacks in the current invocation, while immediate stop suppresses them too. Skipped callbacks start no task/checkpoint. Nested requests insert no checkpoint, restore update priority and suppress same-form reentry; canceled completion releases the guard. Authored stops are followed by an unstopped submission on the same form. The Vue stops fixture uses admitted host capture and ancestor bubble listeners; no new element capture API is admitted or certified here. Script listener options, Vue capture modifiers and direct Svelte capture attributes remain rejected; Svelte rest/event-prop forwarding has a distinct capture admission path.
+
+Invalid explicit owners never fall back. Disabled defaults and readonly/disabled implicit blockers remain significant. Validation bypass uses form novalidate or only the actual initiating submitter's formnovalidate; requestSubmit borrows no default-button bypass and emits no default-button click. Authored/scoped CSS validity guards preserve component coordinates, including Vue external stylesheet coordinates. Reset, FormData/serialization, navigation/dialog completion, broader validity/UI/interfaces, named shadows and nested/parser ownership remain rejected or unsupported. Legacy-image source rejection does not prove its runtime guard.
+
+The six historical dependency-suite failures remain unpassed and were not rerun here. Separately, the pinned Blitz input-type run passed all six new tests; its complete-file run retained the placeholder failure (12 passed, 1 failed, exit 101). A pre-patch reduction reproduced that assertion (0 passed, 1 failed, 6 filtered, exit 101). This is one separately reproduced open placeholder failure, not seven current workspace failures. Direct strict rendering oracles were not rerun or newly passed; historical failures remain open despite the compiled pixel checks above. OS input/IME, default/system fonts and the unavailable named /code-review stage remain incomplete. Independent static review and evidence audits are distinct from that named stage.
+
+Next work stays modular: shared used-edge/intrinsic breaking with objective drivers; engine-owned geometry/raster/font gates; shared form validity, data and reset decisions. Generic mutable listener or parser/named-property parity needs its own physical and nested coverage.
