@@ -600,3 +600,39 @@ The [verified checkpoint](../conformance/results/chromium-inline-authored-edges.
 adds ten focused tests and retains all 4,793 direct results and native whole PNGs
 unchanged, with all 389 compiled states passing. No used advances or rendering
 consumer changes are implemented by the private stream.
+
+## Chromium parity: private visual content flow (2026-10-09, isolated)
+
+The next private seam extracts committed-line content traversal into Parley,
+without consuming used span-edge advances yet. A clonable `ContentFlow` iterator
+retains each whole shaping atom's run and line-item identity, visual origin,
+glyph count and positioned advance. It also yields atomic boxes with their global
+box ordinal, visual origin and in-flow advance. Its f32 cursor starts from
+`inline_min_coord + offset`, advances once per whole atom, gives glyphless atoms
+zero positioned advance, and reserves width only for in-flow boxes. These are
+the existing ordinary-span bounds rules; collapse trimming and ownership remain
+in the span-bound consumer.
+
+Empty-anchor box sites retain a separate clonable `BoxFlow` view. It advances
+once per run using `Run::advance`, and once per in-flow box, with the same origin.
+The view exposes box ordinal and bidi side independently of byte position.
+The empty-anchor consumer keeps its cluster preference and collapse clamping.
+Do not replace this run-grouped calculation with atom-grouped sums: floating
+point grouping and glyphless behavior can differ.
+
+Both views read current committed lines, alignment and justification on demand;
+they add no persistent positioned cache, public API, CSS rule, shaping item,
+caret stop or renderer change. Ordinary authored-edge tracking continues to
+retain metadata only. Paint, cluster/caret and selection retain their current
+calculations, including their existing origin, out-of-flow width and f32/f64
+differences. A subsequent effective used-edge path must define its canonical
+positions explicitly and preserve legacy behavior when every individual used
+edge is zero. A net-zero sum is insufficient because opposing edges move
+interior positions.
+
+The additive [driving oracle](../conformance/inline-edge-drivers.mjs) measures
+negative-margin wrap changes, a controlling min-content edge mutation and an
+immediate `br` close. Candidate outputs require observation at the locked browser
+revision; they do not instrument provisional overflow or cache identity. Existing
+oracles remain unchanged. Opus's stopped thread was inspected before delegation;
+its unfinished compiler/runtime hover and form-submission work remains separate.
