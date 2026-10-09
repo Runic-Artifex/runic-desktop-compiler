@@ -785,10 +785,13 @@ and its [Length zero predicate](https://raw.githubusercontent.com/chromium/chrom
 The binding remains private and passes two booleans to Parley's existing builder
 API. CSS computed intent is separate from future resolved advances; there is no
 new value API, numeric spacing, intrinsic traversal or activated scheduler.
-Box-side intent transitions recollect an ordinary in-flow inline paragraph;
-changes between values with the same per-side intent retain cached shaping.
-Alignment-only changes keep the existing live-alignment policy. Quirks mode
-retains its previous request policy. Conservative seams for unresolved
+Box-side restyles retain cached shaping, as do alignment-only changes. The
+requests apply when a paragraph is constructed or recollected for other reasons.
+The edge-history oracle shows that forcing recollection for a margin transition
+breaks Chromium's retained ligature ownership. Future used-edge attachment must
+therefore handle nonzero edges inside cached whole atoms; construction-time
+seams do not justify rejecting those histories. Quirks mode retains its previous
+request policy. Conservative seams for unresolved
 anchor margins do not implement anchor positioning. Requested seams may change
 shaping and grapheme grouping; browser rectangles do not certify internal atoms,
 font fallback, cache identity or keyboard/IME delivery. The additive combining,
