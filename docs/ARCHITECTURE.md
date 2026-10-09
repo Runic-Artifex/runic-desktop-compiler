@@ -572,8 +572,8 @@ late enable/disable retains the existing ownership API's behavior. Existing
 whitespace normalization supplies endpoint positions; automatic closing follows
 the same capture. Modification scopes remain transparent. Both tree-builder
 output paths transfer the stream into the layout; layout cloning preserves it
-and layout reuse clears it. Breaking, alignment and saved-state replay read the
-same immutable normalized input. There is no new public API, text, source range,
+and layout reuse clears it. Breaking, alignment and saved-state replay leave the
+edge stream unchanged. There is no new public API, text, source range,
 shaping boundary, character quota item or advance in this checkpoint.
 
 The separate [flow-affinity oracle](../conformance/inline-flow-affinity.mjs)
