@@ -812,3 +812,23 @@ Compiler/workspace pass 344/143 tests; Blitz DOM passes 80 with its two historic
 failures and remains unpassed. Parley's 206 passes and four failures are retained
 historical evidence, not a fresh rerun. This record successor changes docs/results
 only. See the [preparation record](../conformance/results/chromium-inline-box-shaping-preparation.md).
+
+### Ordinary inline edges: explicit committed slices
+
+The private Parley commit producer accepts logical text slices with original
+shaped-run identity and global whole-atom cluster endpoints, or an original box
+ordinal with its existing bidi level. It derives each text slice's normalized
+byte coverage and bidi level from the original shaped text before the existing
+line bidi reorder. Repeated slices keep separate visual line-item ordinals;
+`Run::index`, `Line::len` and `ClusterPath` continue to address those committed
+items. They do not identify glyph groups or original shaped runs. Numeric
+controls have no line-item ordinal or new caret stop, and paths retain their
+existing lifetime across layout mutations.
+
+The current breakers still supply the legacy contiguous-item adapter, including
+its first/last narrowing and consumed-run skip. This preserves item grouping,
+source coverage and consumer arithmetic. Terminal-newline synthetic runs remain
+on their existing path. The extraction enables a future scheduler to supply
+multiple slices of one original run; it does not activate numeric edges or
+change public API, horizontal positioning, fitting, intrinsics or cache policy.
+These remain one integrated acceptance requirement.
