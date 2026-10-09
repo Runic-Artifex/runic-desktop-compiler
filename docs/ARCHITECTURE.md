@@ -552,3 +552,43 @@ advance, especially for calculated/percentage edges. Parent inline progression,
 slice/clone and intrinsic percentage resolution are CSS binding decisions.
 The [span-edge oracle](../conformance/inline-span-edges.mjs) retains those failures
 while independently measuring zero-advance ownership and font refresh.
+
+## Chromium parity: ordered inline span edges (2026-10-09, isolated)
+
+Before adding horizontal advances, Parley retains a private ordered edge stream
+under the existing ordinary-span tracking opt-in. Each edge carries its opening
+or closing kind, resolved ordinary style index, normalized UTF-8 position and
+the count of atomic boxes preceding that authored edge. The vector follows
+authored tree order: nested empty spans open parent-first and close child-first;
+adjacent empty siblings close before the next sibling opens. Sorting endpoints
+by text position or pairing every opening immediately with its closing loses
+this order. Box ordinals remain independent of text positions, including both
+out-of-flow kinds, because pending whitespace can move a span anchor past an
+out-of-flow box's text position without moving its authored box order.
+
+Opening and closing ordinals are captured with the tree irrespective of when
+tracking is enabled. The final tracking setting controls materialization, so
+late enable/disable retains the existing ownership API's behavior. Existing
+whitespace normalization supplies endpoint positions; automatic closing follows
+the same capture. Modification scopes remain transparent. Both tree-builder
+output paths transfer the stream into the layout; layout cloning preserves it
+and layout reuse clears it. Breaking, alignment and saved-state replay read the
+same immutable normalized input. There is no new public API, text, source range,
+shaping boundary, character quota item or advance in this checkpoint.
+
+The separate [flow-affinity oracle](../conformance/inline-flow-affinity.mjs)
+freezes opening/closing wrap behavior, signed-overflow recovery, coincident empty
+edges, pending whitespace around atomic and out-of-flow items, forced breaks,
+parent versus ordinary-inline direction, intrinsic queries and layout mutations.
+Its browser observations are the target for subsequent edge consumption, not a
+claim that recording the events renders margins, padding or borders.
+
+The next interface must consume this stream around whole atoms and boxes in both
+breakers and intrinsic measurement, saving cursor and active owners in rollback
+state. A private visual flow cursor must then supply paint, span/empty geometry,
+cluster offsets, caret and selection consistently. Preserve today's distinct
+glyphless-spacing and out-of-flow-width behavior until an explicitly opted-in
+edge path defines and verifies their replacement. CSS edge resolution, authored
+shaping intent and parent direction stay in Blitz; Parley receives generic used
+advances. Slice/clone fragmentation and decoration painting follow after the
+zero-advance cursor checks and signed-advance fitting checks.
