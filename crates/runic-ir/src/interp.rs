@@ -7226,6 +7226,9 @@ impl<'p> Machine<'p> {
         kind: EventKind,
         event: &js::Event,
     ) {
+        if kind == EventKind::Submit && event.propagation_stopped() {
+            return;
+        }
         let registry = if capture {
             &self.capture_listeners
         } else {
@@ -7351,6 +7354,9 @@ impl<'p> Machine<'p> {
         kind: EventKind,
         event: &js::Event,
     ) {
+        if kind == EventKind::Submit && event.propagation_stopped() {
+            return;
+        }
         let calls = self.nested_element_listeners(current, kind, capture);
         for (r, registration) in calls {
             let live = self.element_listener_live(current, capture, kind, &r, registration);
@@ -7440,13 +7446,25 @@ impl<'p> Machine<'p> {
             .chain(path.iter().map(|&current| (current, false)))
             .collect();
         self.dispatch_capture(kind, &event, true, s);
+        // The host capture invocation may finish its same-target listeners,
+        // but stopping there never reaches that host target's later bubble
+        // invocation after the element path.
+        if event.propagation_stopped() {
+            event.finish();
+            return Ok(Some(event));
+        }
         if self.program.schedule.checkpoint == Checkpoint::Listener {
             for (current, capture) in stages {
+                if event.propagation_stopped() {
+                    break;
+                }
                 // A callback/checkpoint may change later targets, but this
                 // invocation keeps its original owned registration snapshot.
                 let calls = self.nested_element_listeners(current, kind, capture);
                 for (r, registration) in calls {
-                    if !self.element_listener_live(current, capture, kind, &r, registration) {
+                    if !self.element_listener_live(current, capture, kind, &r, registration)
+                        || !event.can_enter(js::Element(current))
+                    {
                         continue;
                     }
                     let source = self.element_listener_source(&r);
@@ -7471,15 +7489,20 @@ impl<'p> Machine<'p> {
                     self.nested_element_listeners(current, kind, capture)
                 })
                 .find_map(|(r, _)| self.element_listener_source(&r));
-            let has_calls = stages.iter().any(|&(current, capture)| {
-                !self
-                    .nested_element_listeners(current, kind, capture)
-                    .is_empty()
-            });
+            let has_calls = !event.propagation_stopped()
+                && stages.iter().any(|&(current, capture)| {
+                    event.can_enter(js::Element(current))
+                        && !self
+                            .nested_element_listeners(current, kind, capture)
+                            .is_empty()
+                });
             if has_calls {
                 let result = self.task(source.as_ref(), true, |m| {
                     let mut error = None;
                     for (current, capture) in stages {
+                        if event.propagation_stopped() {
+                            break;
+                        }
                         let calls = m.nested_element_listeners(current, kind, capture);
                         for (r, registration) in calls {
                             if !m.element_listener_live(current, capture, kind, &r, registration)
@@ -7807,6 +7830,9 @@ impl<'p> Machine<'p> {
         s: &mut Run,
     ) {
         for window in [true, false] {
+            if kind == EventKind::Submit && event.propagation_stopped() {
+                break;
+            }
             if !window && !document {
                 continue;
             }
@@ -7838,6 +7864,9 @@ impl<'p> Machine<'p> {
 
     fn dispatch_globals(&mut self, kind: EventKind, event: &js::Event, s: &mut Run) {
         for window in [false, true] {
+            if kind == EventKind::Submit && event.propagation_stopped() {
+                break;
+            }
             let current = if window {
                 js::Element::WINDOW
             } else {
@@ -9316,7 +9345,7 @@ mod form_submission_tests {
 
     #[test]
     fn physical_capture_added_form_listener_preserves_callback_checkpoint_policy() {
-        for checkpoint in [Checkpoint::Event, Checkpoint::Listener] {
+        for checkpoint in [Checkpoint::Dispatch, Checkpoint::Listener] {
             let mut program = live_form_program(
                 json!([
                     element_listener_function(
@@ -9338,7 +9367,7 @@ mod form_submission_tests {
             install_host_listener(&mut machine, 0, true);
             let mut run = Run::default();
             machine.submit_form(form, None, &mut run).unwrap();
-            let expected = if checkpoint == Checkpoint::Event {
+            let expected = if checkpoint == Checkpoint::Dispatch {
                 1239.0
             } else {
                 1293.0
@@ -9351,7 +9380,7 @@ mod form_submission_tests {
 
     #[test]
     fn physical_form_removed_and_readded_listeners_wait_for_next_target_invocation() {
-        for checkpoint in [Checkpoint::Event, Checkpoint::Listener] {
+        for checkpoint in [Checkpoint::Dispatch, Checkpoint::Listener] {
             for replacement in [1, 2] {
                 let program = live_form_program(
                     json!([
@@ -9390,7 +9419,7 @@ mod form_submission_tests {
 
     #[test]
     fn empty_physical_form_path_does_not_insert_an_element_checkpoint() {
-        for checkpoint in [Checkpoint::Event, Checkpoint::Listener] {
+        for checkpoint in [Checkpoint::Dispatch, Checkpoint::Listener] {
             let mut program = live_form_program(
                 json!([listener_function("queued job", vec![trace(9)])]),
                 checkpoint,
@@ -9419,6 +9448,159 @@ mod form_submission_tests {
             machine.checkpoint();
             assert!(matches!(machine.instances[0].cells[0], Val::Num(9.0)));
             assert!(run.error.is_none());
+        }
+    }
+
+    fn propagation_program(checkpoint: Checkpoint, stop: &str) -> Program {
+        let event_op = |name: &str| {
+            json!({"op": "expr", "value": {
+                "op": "builtin", "name": name, "type": "void", "args": [{"op": "local", "local": 0}]
+            }})
+        };
+        live_form_program(
+            json!([
+                element_listener_function(
+                    "capture",
+                    vec![
+                        trace(1),
+                        json!({
+                            "op": "expr", "value": {"op": "builtin", "name": "microtask.queue", "type": "void", "args": [
+                                {"op": "closure", "function": 1, "captures": [], "stable": true}
+                            ]}
+                        }),
+                        event_op("event.preventDefault"),
+                        event_op(stop),
+                        trace(2)
+                    ]
+                ),
+                listener_function("queued job", vec![trace(9)]),
+                element_listener_function("suppressed document and form listener", vec![trace(3)]),
+                element_listener_function("suppressed window listener", vec![trace(4)]),
+                element_listener_function("same-phase capture continuation", vec![trace(3)])
+            ]),
+            checkpoint,
+        )
+    }
+
+    fn install_propagation_listeners(machine: &mut Machine<'_>, form: u64, capture: bool) {
+        if capture {
+            install_host_listener(machine, 0, true);
+            install_host_listener(machine, 4, true);
+        }
+        install_host_listener(machine, 2, false);
+        install_element_listener(machine, form, 2);
+        let f = machine.stable_fns[&(Some(0), 3)].clone();
+        machine
+            .builtin(
+                "window.listen",
+                vec![Val::Str("submit".into()), f],
+                &[],
+                &Type::Void,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn physical_capture_stops_do_not_create_suppressed_tasks_or_checkpoints() {
+        for checkpoint in [Checkpoint::Dispatch, Checkpoint::Listener] {
+            for stop in ["event.stopPropagation", "event.stopImmediatePropagation"] {
+                let program = propagation_program(checkpoint, stop);
+                let mut machine = Machine::new(&program).unwrap();
+                let form = install_live_form(&mut machine);
+                install_propagation_listeners(&mut machine, form, true);
+                let tasks = machine.tasks_run;
+                let mut run = Run::default();
+                machine.submit_form(form, None, &mut run).unwrap();
+                let immediate = stop == "event.stopImmediatePropagation";
+                assert_eq!(
+                    machine.tasks_run - tasks,
+                    if immediate { 1 } else { 2 },
+                    "only allowed same-phase capture callbacks are tasks"
+                );
+                let expected = if immediate { 129.0 } else { 1293.0 };
+                assert!(
+                    matches!(machine.instances[0].cells[0], Val::Num(n) if n == expected),
+                    "queued job follows first capture callback; later phases never run"
+                );
+                assert!(machine.microtasks.is_empty());
+                assert!(machine.submitting_forms.is_empty());
+                assert!(run.error.is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn nested_capture_stops_preserve_same_phase_callbacks_without_a_checkpoint() {
+        for checkpoint in [Checkpoint::Dispatch, Checkpoint::Listener] {
+            for stop in ["event.stopPropagation", "event.stopImmediatePropagation"] {
+                let program = propagation_program(checkpoint, stop);
+                let mut machine = Machine::new(&program).unwrap();
+                let form = install_live_form(&mut machine);
+                install_propagation_listeners(&mut machine, form, true);
+                let tasks = machine.tasks_run;
+                machine.request_submit(form).unwrap();
+                let immediate = stop == "event.stopImmediatePropagation";
+                let synchronous = if immediate { 12.0 } else { 123.0 };
+                assert!(matches!(machine.instances[0].cells[0], Val::Num(n) if n == synchronous));
+                assert_eq!(
+                    machine.tasks_run, tasks,
+                    "requestSubmit inserts no task/checkpoint"
+                );
+                assert!(!machine.microtasks.is_empty());
+                assert!(machine.submitting_forms.is_empty());
+                assert!(!machine.in_event && !machine.dispatching);
+                assert!(machine.event.is_none());
+                machine.checkpoint();
+                let expected = if immediate { 129.0 } else { 1239.0 };
+                assert!(matches!(machine.instances[0].cells[0], Val::Num(n) if n == expected));
+                assert!(machine.uncaught.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn stopped_element_capture_never_reenters_the_target_or_ancestor_bubble_phase() {
+        // Exercise internal element-capture invocation boundaries without
+        // extending frontend admission of capture registrations.
+        for checkpoint in [Checkpoint::Dispatch, Checkpoint::Listener] {
+            for stop in ["event.stopPropagation", "event.stopImmediatePropagation"] {
+                for at_target in [false, true] {
+                    for physical in [false, true] {
+                        let mut program = propagation_program(checkpoint, stop);
+                        let capture = json!({"op": "attrs", "items": [{"name": "onsubmitcapture", "value": {
+                            "op": "closure", "function": 0, "captures": [], "stable": true
+                        }}]});
+                        let mut form =
+                            serde_json::to_value(&program.components[0].template[0]).unwrap();
+                        if at_target {
+                            form["spread"] = capture;
+                        } else {
+                            form = json!({"kind": "element", "tag": "div", "spread": capture,
+                                "listeners": [{"event": "submit", "handler": 0}], "children": [form]});
+                        }
+                        program.components[0].template =
+                            vec![serde_json::from_value(form).unwrap()];
+                        let mut machine = Machine::new(&program).unwrap();
+                        let form = install_live_form(&mut machine);
+                        install_propagation_listeners(&mut machine, form, false);
+                        let tasks = machine.tasks_run;
+                        let mut run = Run::default();
+                        if physical {
+                            machine.submit_form(form, None, &mut run).unwrap();
+                            assert_eq!(machine.tasks_run - tasks, 1);
+                        } else {
+                            machine.request_submit(form).unwrap();
+                            assert_eq!(machine.tasks_run, tasks);
+                            assert!(matches!(machine.instances[0].cells[0], Val::Num(12.0)));
+                            machine.checkpoint();
+                        }
+                        assert!(matches!(machine.instances[0].cells[0], Val::Num(129.0)));
+                        assert!(machine.submitting_forms.is_empty());
+                        assert!(run.error.is_none());
+                        assert!(machine.uncaught.is_empty());
+                    }
+                }
+            }
         }
     }
 

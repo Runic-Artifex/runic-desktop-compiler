@@ -3122,6 +3122,7 @@ pub fn generate(
          if let Err(e) = call_event_listener(cx, ev, &f, current) {{ eprintln!(\"runic: uncaught exception in a nested event listener: {{e}}\"); }}\n\
          }}\n\
          fn run_nested_stage(cx: &mut Cx, ev: &js::Event, kind: Event, current: u64, capture: bool) {{\n\
+         if kind == Event::Submit && ev.propagation_stopped() {{ return; }}\n\
          let calls = listener_snapshot(cx, current, kind, capture);\n\
          for (key, generation, f) in calls {{\n\
          if listener_live(cx, key, generation, &f, current, kind, capture) {{ run_nested_call(cx, ev, key, generation, f, current); }}\n\
@@ -3416,6 +3417,7 @@ pub fn generate(
          let mut first = None;\n\
          if {per_listener} {{\n\
          for (current, capture) in stages {{\n\
+         if kind == Event::Submit && event.propagation_stopped() {{ break; }}\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          let calls = listener_snapshot(&self.cx, current, kind, capture);\n\
          self.cx.dom = Default::default();\n\
@@ -3423,7 +3425,7 @@ pub fn generate(
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          let live = listener_live(&self.cx, key, generation, &f, current, kind, capture);\n\
          self.cx.dom = Default::default();\n\
-         if !live {{ continue; }}\n\
+         if !live || !event.can_enter(js::Element(current)) {{ continue; }}\n\
          let result = self.task(dom, true, |cx| {{\n\
          if !listener_live(cx, key, generation, &f, current, kind, capture) {{ return Ok(()); }}\n\
          call_event_listener(cx, event, &f, current)\n\
@@ -3433,12 +3435,13 @@ pub fn generate(
          }}\n\
          }} else {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
-         let has_calls = stages.iter().any(|&(current, capture)| !nested_keys(&self.cx, current, kind, capture).is_empty());\n\
+         let has_calls = !(kind == Event::Submit && event.propagation_stopped()) && stages.iter().any(|&(current, capture)| event.can_enter(js::Element(current)) && !listener_snapshot(&self.cx, current, kind, capture).is_empty());\n\
          self.cx.dom = Default::default();\n\
          if has_calls {{\n\
          let result = self.task(dom, true, |cx| {{\n\
          let mut error = None;\n\
          for (current, capture) in stages {{\n\
+         if kind == Event::Submit && event.propagation_stopped() {{ break; }}\n\
          let calls = listener_snapshot(cx, current, kind, capture);\n\
          for (key, generation, f) in calls {{\n\
          if !listener_live(cx, key, generation, &f, current, kind, capture) {{ continue; }}\n\

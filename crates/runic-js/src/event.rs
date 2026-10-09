@@ -181,13 +181,17 @@ impl Event {
             .get()
             .then(|| Element(self.0.current.get()))
     }
+    /// Whether a listener can run, without changing the current target or
+    /// starting a task/checkpoint for a suppressed callback.
+    pub fn can_enter(&self, current: Element) -> bool {
+        !self.0.stopped_immediately.get()
+            && (!self.0.stopped.get() || self.0.current.get() == current.0)
+    }
     /// Before a listener on `current` runs: whether it runs (propagation was
     /// not stopped at an earlier element, nor immediately), making
     /// `current` the current target.
     pub fn enter(&self, current: Element) -> bool {
-        if self.0.stopped_immediately.get()
-            || (self.0.stopped.get() && self.0.current.get() != current.0)
-        {
+        if !self.can_enter(current) {
             return false;
         }
         self.0.current.set(current.0);

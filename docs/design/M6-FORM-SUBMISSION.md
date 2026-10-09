@@ -52,6 +52,12 @@ For physical submission, the generated app also dispatches the frozen element
 path through its ordinary task runner. Event-checkpoint schedules keep all
 element phases in one task; listener-checkpoint schedules keep a task for each
 callback. Each phase still snapshots its registrations only when reached.
+Submit dispatch checks the propagation flag at each target/phase entry, as in
+the DOM invocation algorithm. `stopPropagation()` permits remaining listeners
+in that invocation, but skips later phases even on the same target;
+`stopImmediatePropagation()` also skips those remaining listeners. Suppressed
+callbacks start no task or microtask checkpoint. Cancellation and completion
+still run, so stopping propagation does not retain the form's submission guard.
 The runtime's internal `App::dispatch_element_path` interface separates this
 selection from scheduling; it introduces no framework branch or IR construct.
 Completion releases the guard on every path, then checks cancellation and live
@@ -91,4 +97,5 @@ Normative references: [form submission and implicit submission](https://html.spe
 [input states](https://html.spec.whatwg.org/multipage/input.html#the-input-element),
 [button Auto state](https://html.spec.whatwg.org/multipage/form-elements.html#the-button-element).
 Listener timing follows the DOM Standard's
+[target/phase invocation](https://dom.spec.whatwg.org/#concept-event-listener-invoke) and
 [event listener invocation](https://dom.spec.whatwg.org/#concept-event-listener-inner-invoke).

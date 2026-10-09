@@ -1065,6 +1065,12 @@ impl<A: App> Handler<'_, A> {
             if !window && !document {
                 continue;
             }
+            // A new target/phase invocation is skipped after propagation was
+            // stopped. Remaining listeners within the current invocation still
+            // run unless stopImmediatePropagation was used.
+            if kind == Event::Submit && event.propagation_stopped() {
+                break;
+            }
             let current = if window {
                 Element::WINDOW
             } else {
@@ -1079,6 +1085,7 @@ impl<A: App> Handler<'_, A> {
             for (listener, generation) in listeners {
                 if self.app.listener_generation(listener) != generation
                     || !self.app.capture_listeners(window, kind).contains(&listener)
+                    || !event.can_enter(current)
                 {
                     continue;
                 }
@@ -1094,6 +1101,9 @@ impl<A: App> Handler<'_, A> {
 
     fn host(&mut self, doc: &mut BaseDocument, kind: Event, event: &runic_js::Event) {
         for window in [false, true] {
+            if kind == Event::Submit && event.propagation_stopped() {
+                break;
+            }
             let current = if window {
                 Element::WINDOW
             } else {
@@ -1108,6 +1118,7 @@ impl<A: App> Handler<'_, A> {
             for (listener, generation) in listeners {
                 if self.app.listener_generation(listener) != generation
                     || !self.app.host_listeners(window, kind).contains(&listener)
+                    || !event.can_enter(current)
                 {
                     continue;
                 }
@@ -1381,18 +1392,21 @@ impl<A: App> Handler<'_, A> {
             .map(NodeId::as_u64)
             .collect();
         self.capture(doc, Event::Submit, &submission.event, true);
-        let mut dom = Dom {
-            doc,
-            listeners: self.listeners,
-        };
-        let outcome =
+        let outcome = if submission.event.propagation_stopped() {
+            "submit propagation stopped during capture".to_owned()
+        } else {
+            let mut dom = Dom {
+                doc,
+                listeners: self.listeners,
+            };
             match self
                 .app
                 .dispatch_element_path(&mut dom, &path, Event::Submit, &submission.event)
             {
                 Ok(()) => "submit element path".to_owned(),
                 Err(reason) => format!("submit element path rejected: {reason}"),
-            };
+            }
+        };
         if let Some(blurred) = self.listeners.blurred.take() {
             *self.nav_start = Some(blurred);
         }
