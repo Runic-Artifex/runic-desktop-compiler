@@ -16,7 +16,7 @@ Clusters (see [GAPS](../GAPS.md#clusters)): **V1** unions, **V2** untyped values
 | `let x;` without a type or initialiser (where no assignment types it) | E_TYPE_UNSUPPORTED | No type | Assignment-based inference (exists for null-initialised lets and match results) | language.ts:3290 |
 | Always-`null` values; `never` (untyped empty arrays) | E_TYPE_UNSUPPORTED | No useful type | Inference from uses | types.ts:231,233 |
 | `bigint`, `symbol` (incl. `Symbol` keys; the site has 4, the editor 2) | E_TYPE_UNSUPPORTED | Not in the value model | New value kinds | types.ts:239 |
-| Unbound type parameters, conditional and indexed types, other intersections | E_TYPE_UNSUPPORTED | "Unsupported type T" | Wider type mapping | types.ts:296 |
+| Unbound type parameters, conditional and indexed types, other intersections (a primitive with properties: branded `string & { brand: … }`; `string & {}` is covered) | E_TYPE_UNSUPPORTED | "Unsupported type T" | Wider type mapping | types.ts:296 |
 | Tuples with optional or rest items; heterogeneous tuples' length, iteration, spreads, string conversion, `JSON.stringify`, `Object.*` | E_TYPE_UNSUPPORTED / E_IR | JavaScript treats them as arrays | Tuple operations | types.ts:637; validate.rs:637-652; CONTRACT |
 | Overloaded function values; `Promise<Promise<T>>`; `matchAll` iterators and Intl objects as values; `Error` (non-lib) and `HTMLElement` values | E_TYPE_UNSUPPORTED / E_REGEXP / E_INTL | Not modelled | Per kind | types.ts:657,688,702,717,724 |
 | Computed-key read of a record whose fields differ in type; an object spread whose key presence is untracked | E_MEMBER / E_OBJECT | Typed records | A dynamic tier, or per-key cond (exists for same-typed fields) | language.ts:2086,3683,3691 |
@@ -80,6 +80,7 @@ With `runic.json` `"dynamicValues": true` ([design](../design/M6-DYNAMIC-VALUES.
 | Instances cloned, spread, stringified, `Object.*` | E_CLASS | Not plain data | — | classes.ts:3798 |
 | Static reactive fields (Svelte rejects them); static fields in component-script classes; assigning statics | E_CLASS | — | — | classes.ts:931,1537-1576,3203 |
 | A derived field of a component-script class read in another component | E_CLASS | "declare the class in a .svelte.ts module" | — | classes.ts:3015 |
+| An inherited field declared again other than as covered (with an initialiser of a type the base field does not take, a rune on either side, a parameter property, a name with an accessor or method in the chain, or a base constructor that uses `this` before it is set again) | E_CLASS | The field would differ in type or kind, or its base value is observable | Per case: one record of both types, accessor overrides | classes.ts (`fieldOverride`, `constructorSteps`) |
 | `this` in callbacks during construction, before `super()`, in function expressions; field-order hazards | E_CLASS | Observable construction order | — | classes.ts:2324-2792 |
 
 ## Async (V5)

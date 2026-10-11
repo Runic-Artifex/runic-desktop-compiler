@@ -231,6 +231,8 @@ export class TypeMapper {
       const fn = this.map(f, at);
       if (typeof fn === 'object' && 'fn' in fn) return fn.fn.result;
     }
+    const primitive = this.emptyIntersected(t);
+    if (primitive) return this.map(primitive, at);
     if (t.flags & (F.Number | F.NumberLiteral)) return 'number';
     if (t.flags & (F.String | F.StringLiteral | F.TemplateLiteral)) return 'string';
     if (t.flags & (F.Boolean | F.BooleanLiteral)) return 'boolean';
@@ -350,6 +352,31 @@ export class TypeMapper {
       return { record: this.record(t, at) };
     }
     return this.fail(at, 'E_TYPE_UNSUPPORTED', `Unsupported type ${this.checker.typeToString(t)}`);
+  }
+
+  /**
+   * The primitive of an intersection of one primitive type with empty object
+   * types (`string & {}`, the idiom that keeps a union's literals visible to
+   * editors): it holds exactly the primitive's values, as every value but
+   * null and undefined is assignable to `{}`. Undefined for any other type;
+   * a branded or otherwise non-empty intersection is not one.
+   */
+  private emptyIntersected(t: ts.Type): ts.Type | undefined {
+    if (!t.isIntersection()) return undefined;
+    const F = ts.TypeFlags;
+    const primitive = F.StringLike | F.NumberLike | F.BooleanLike;
+    const prims = t.types.filter(p => p.flags & primitive);
+    if (prims.length !== 1) return undefined;
+    const empty = t.types.every(
+      p =>
+        p === prims[0] ||
+        (p.flags & F.Object &&
+          !this.checker.getPropertiesOfType(p).length &&
+          !p.getCallSignatures().length &&
+          !p.getConstructSignatures().length &&
+          !this.checker.getIndexInfosOfType(p).length),
+    );
+    return empty ? prims[0] : undefined;
   }
 
   /**
@@ -516,8 +543,10 @@ export class TypeMapper {
   /** Unions being mapped (recursion guard). */
   private readonly unions = new Set<ts.Type>();
 
-  private union(parts: ts.Type[], at: ts.Node): Type {
+  private union(members: ts.Type[], at: ts.Node): Type {
     const F = ts.TypeFlags;
+    // (`"text" | (string & {})`, svelte/elements' HTMLInputTypeAttribute: string.)
+    const parts = members.map(p => this.emptyIntersected(p) ?? p);
     const nullish = parts.filter(p => p.flags & (F.Null | F.Undefined | F.Void));
     const rest = parts.filter(p => !(p.flags & (F.Null | F.Undefined | F.Void)));
     let base: Type;

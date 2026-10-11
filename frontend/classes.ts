@@ -150,6 +150,13 @@ export interface ClassInfo {
    * declared types.
    */
   redeclared?: ts.PropertyDeclaration[];
+  /**
+   * Plain data fields of its base classes that it declares again with an
+   * initialiser (bits-ui's SliderMultiRootState `getAllThumbs = () => …`):
+   * the base's field, assigned the initialiser in its place among this
+   * class's field initialisers (`fieldOverride`).
+   */
+  overrides?: ts.PropertyDeclaration[];
 }
 
 const RUNES = /^\$(state|derived)(\.|$)/;
@@ -663,6 +670,55 @@ export class Classes {
     return false;
   }
 
+  /**
+   * Whether the field declaration `decl` of the class `info` (extending
+   * `base`), with an initialiser, declares again a plain data field of a
+   * base class that can take its value: no rune initialises either, no
+   * class of the chain has an accessor or method of the name, and the base
+   * field's type accepts the initialiser's. JavaScript then defines the
+   * field again after super(…) returns ([[Define]]), which, on an own
+   * writable data property, is setting it ([[Set]]): the base's field,
+   * assigned at that point.
+   */
+  private fieldOverride(decl: ts.PropertyDeclaration, info: ClassInfo, base: ClassInfo): boolean {
+    const checker = this.lower.checker;
+    const name = memberName(decl.name);
+    const init = decl.initializer!;
+    const inner = skipParens(init);
+    if (
+      this.rune(init) ||
+      (ts.isCallExpression(inner) && RUNES.test(inner.expression.getText())) ||
+      decl.questionToken ||
+      decl.exclamationToken ||
+      info.members.has(name)
+    )
+      return false;
+    let field: Field | undefined;
+    for (let b: ClassInfo | undefined = base; b; b = b.base) {
+      if (b.members.has(name)) return false;
+      field ??= b.own.find(f => f.name === name);
+    }
+    // (A host field holds its host object, not its initialiser's value.)
+    if (
+      !field ||
+      field.param ||
+      field.rune ||
+      (field.decl && this.hostFieldOf(field.decl)) ||
+      this.hostFieldOf(decl)
+    )
+      return false;
+    let declared: ts.Type;
+    if (field.decl) declared = this.declaredType(field.decl);
+    else {
+      const id = ts.isPropertyAccessExpression(field.node) ? field.node.name : field.node;
+      const sym = checker.getSymbolAtLocation(id);
+      if (!sym) return false;
+      declared = checker.getTypeOfSymbolAtLocation(sym, field.node);
+    }
+    if (declared.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return false;
+    return checker.isTypeAssignableTo(checker.getTypeAtLocation(init), declared);
+  }
+
   private subclassDecls(sym: ts.Symbol): ts.ClassDeclaration[] {
     if (!this.subclassIndex) {
       const index = new Map<ts.Symbol, ts.ClassDeclaration[]>();
@@ -870,6 +926,15 @@ export class Classes {
         this.reassigned(f.name, ctor)
       ) {
         (info.redeclared ??= []).push(f.decl);
+        return;
+      }
+      if (
+        inheritedField(f.name) &&
+        !f.param &&
+        f.decl?.initializer &&
+        this.fieldOverride(f.decl, info, base!)
+      ) {
+        (info.overrides ??= []).push(f.decl);
         return;
       }
       if (inheritedField(f.name) && (f.param || f.decl))
@@ -2270,18 +2335,26 @@ export class Classes {
           if (binding?.kind !== 'local') return this.fail(f.param, 'Unresolved parameter property');
           assign(f, local(binding.local), f.param);
         }
-      for (const f of x.own)
-        if (f.decl?.initializer) {
-          // Derived fields are functions of the instance, computed when read.
-          if (isDerived(f)) continue;
-          assign(
-            f,
-            f.rune
-              ? runeValue(f, 'initialiser')
-              : this.early(f.decl.initializer, b, info, temps, 'initialiser'),
-            f.decl,
-          );
+      // (In declaration order, a base's field declared again among them.)
+      for (const m of x.decl.members) {
+        if (!ts.isPropertyDeclaration(m) || !m.initializer) continue;
+        if (x.overrides?.includes(m)) {
+          const f = this.fieldNamed(info, memberName(m.name))!;
+          assign(f, this.early(m.initializer, b, info, temps, 'initialiser'), m);
+          continue;
         }
+        const f = x.own.find(o => o.decl === m);
+        if (!f) continue;
+        // Derived fields are functions of the instance, computed when read.
+        if (isDerived(f)) continue;
+        assign(
+          f,
+          f.rune
+            ? runeValue(f, 'initialiser')
+            : this.early(m.initializer, b, info, temps, 'initialiser'),
+          m,
+        );
+      }
       const statements = after(x);
       let i = 0;
       for (; i < statements.length; i++) {
@@ -2319,15 +2392,22 @@ export class Classes {
     const later = chain.slice(k);
     if (broke) {
       const unobserved = this.fieldsUnobserved(broke.rest, later, info);
-      for (const y of later)
+      for (const y of later) {
         if (y.own.length && !unobserved)
           this.fail(
             y.own[0].node,
             `${y.name} declares fields, but the constructor of its base class ${broke.cls.name} uses this before they exist (JavaScript initialises them after super(…) returns); move that code out of the constructor, or the fields into ${broke.cls.name}`,
           );
-        else
-          for (const f of y.own)
-            if (!isDerived(f)) assign(f, lower.expr(f.decl!.initializer!, b), f.decl!);
+        // (A base's field declared again holds the base's value until then,
+        // which that code may read.)
+        for (const d of y.overrides ?? [])
+          this.fail(
+            d,
+            `${y.name} declares the field ${memberName(d.name)} of a base class again, but the constructor of its base class ${broke.cls.name} uses this before it is set (JavaScript sets it after super(…) returns); assign it in the constructor instead`,
+          );
+        for (const f of y.own)
+          if (!isDerived(f)) assign(f, lower.expr(f.decl!.initializer!, b), f.decl!);
+      }
     }
     let rest = [...(broke?.rest ?? []), ...later.flatMap(y => [...after(y)])];
     // Methods bound into their fields later in the constructor
