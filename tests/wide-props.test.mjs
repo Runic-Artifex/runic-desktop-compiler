@@ -110,3 +110,89 @@ test('a primitive intersected with {} is the primitive, also in a union', async 
     'App.svelte:3:7',
   );
 });
+
+const FIELD = `<script lang="ts">
+  import type { HTMLInputAttributes } from 'svelte/elements';
+  let { value = $bindable(), ...rest }: HTMLInputAttributes = $props();
+</script>
+
+<input bind:value {...rest} />
+`;
+
+test('a prop typed any that is only bound to a child prop takes its type', async () => {
+  await withApp(
+    {
+      'Field.svelte': FIELD,
+      'Wrapper.svelte': `<script lang="ts">
+  import type { ComponentProps } from 'svelte';
+  import Field from './Field.svelte';
+  let { value = $bindable(), ...props }: ComponentProps<typeof Field> = $props();
+</script>
+
+<Field bind:value {...props} />
+<p id="echo">{value ?? 'none'}</p>
+`,
+      'App.svelte': `<script lang="ts">
+  import Wrapper from './Wrapper.svelte';
+</script>
+
+<Wrapper id="w" />
+`,
+    },
+    async root => {
+      const { ir } = await lower(await collect(root));
+      const [start, typed] = interpret(ir, [{ kind: 'input', id: 'w', value: 'hey' }]);
+      assert.equal(text(byId(start.state.dom, 'echo')), 'none');
+      assert.equal(text(byId(typed.state.dom, 'echo')), 'hey');
+    },
+  );
+  // Also bound to an element: rejected, as before.
+  await rejects(
+    {
+      'Field.svelte': FIELD,
+      'Wrapper.svelte': `<script lang="ts">
+  import Field from './Field.svelte';
+  let { value = $bindable() }: { value?: any } = $props();
+</script>
+
+<Field bind:value />
+<input type="number" bind:value />
+`,
+      'App.svelte': `<script lang="ts">
+  import Wrapper from './Wrapper.svelte';
+</script>
+
+<Wrapper />
+`,
+    },
+    'E_TYPE_UNION',
+    'Wrapper.svelte:3:9',
+  );
+  // Bound to a child prop that never holds undefined (Svelte rejects
+  // binding undefined to a prop with a fallback): rejected.
+  await rejects(
+    {
+      'Num.svelte': `<script lang="ts">
+  let { value = $bindable(0) }: { value?: number } = $props();
+</script>
+
+<p>{value}</p>
+`,
+      'Wrapper.svelte': `<script lang="ts">
+  import Num from './Num.svelte';
+  let { value = $bindable() }: { value?: any } = $props();
+</script>
+
+<Num bind:value />
+`,
+      'App.svelte': `<script lang="ts">
+  import Wrapper from './Wrapper.svelte';
+</script>
+
+<Wrapper />
+`,
+    },
+    'E_TYPE_UNION',
+    'Wrapper.svelte:3:9',
+  );
+});

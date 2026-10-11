@@ -24,6 +24,7 @@ Part of the [gap register](../GAPS.md). Locations as of commit `9add179` (2026-1
 | Scoped component styles | E_TEMPLATE | Lowering does not add Svelte's scoping class (editor: 7 uses) | Emit the hash class and the scoped CSS | svelte.ts:589 |
 | Top-level component statements other than declarations, effects, onMount/onDestroy | E_STATEMENT | — | Run once at creation | svelte.ts:3293,3538 |
 | Nested prop destructuring; snippet props with defaults; discriminated-union props whose types differ (see V1) | E_PROPS / E_TYPE_UNION | — | — | svelte.ts:3108-3127,3155 |
+| A prop typed wider than the value model that its component assigns or binds other than as covered (text-input `bind:value`; `bind:` to child props of one nullable type, without a default or a passed value) | E_TYPE_UNION | Its values do not all come from its sites | Typing from the writes per kind | svelte.ts (`typeOfBinds`, `typeOfChildBinds`) |
 | `svelte/events` `on()` with `passive: true` and a handler that reads the event; capture on elements; custom event types with options | E_EVENT | — | — | svelte.ts:1832-2069 |
 | Generic components whose type parameters have no default | E_TEMPLATE | One instantiation per program | Per-instantiation components | svelte.ts:175 |
 | Imperative `mount`: targets other than `<body>`, `anchor`/`events`/`intro`, snippets with parameters, outro options | E_MOUNT / run time | Owner updates would interleave | — | svelte.ts:2111-2249; codegen lib.rs:854 |

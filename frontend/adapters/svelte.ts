@@ -3023,6 +3023,62 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     };
 
     /**
+     * A prop typed wider than the value model that no site passes a value
+     * and that has no default, bound only by `bind:K={name}` on components
+     * this one renders (shadcn-svelte's InputGroup.Input `bind:value` to
+     * Input's `value`): the bound child prop's cell type, which the child,
+     * lowered first, has decided. Each bind reads and writes the child's
+     * prop, so the prop holds only values of that type, and its initial
+     * undefined must be one (the type is nullable). Binds in branches that
+     * cannot render are left out, as for `typeOfBinds`. Undefined unless
+     * there is at least one such bind and every bind of the prop is one, of
+     * the same type.
+     */
+    const typeOfChildBinds = (sym: ts.Symbol, el: ts.BindingElement): Type | undefined => {
+      const passed = domains.siteTypes(sym);
+      if (!passed?.length || passed.some(t => t !== undefined)) return undefined;
+      if (
+        el.initializer &&
+        !(
+          runeName(el.initializer) === '$bindable' &&
+          !(el.initializer as ts.CallExpression).arguments.length
+        )
+      )
+        return undefined;
+      const name = (el.name as ts.Identifier).text;
+      let ok = true;
+      let found: Type | undefined;
+      const visit = (node: unknown) => {
+        if (!ok || !node || typeof node !== 'object') return;
+        if (Array.isArray(node)) return node.forEach(visit);
+        const n = node as SNode;
+        if (n.type === 'IfBlock') {
+          const known = decidedTest(u, n.test);
+          if (known !== false) visit(n.consequent);
+          if (known !== true) visit(n.alternate);
+          return;
+        }
+        for (const a of n.attributes ?? [])
+          if (
+            a.type === 'BindDirective' &&
+            a.expression?.type === 'Identifier' &&
+            a.expression.name === name
+          ) {
+            const file = n.type === 'Component' ? u.children.get(n.name) : undefined;
+            const child = file !== undefined ? units.get(file) : undefined;
+            const target = child && components[child.index];
+            const cell = target?.cells.find(c => c.prop === a.name);
+            if (!cell || cell.prop === '...' || maybeInner(cell.type) === undefined) ok = false;
+            else if (found && JSON.stringify(found) !== JSON.stringify(cell.type)) ok = false;
+            else found = cell.type;
+          }
+        for (const [k, v] of Object.entries(n)) if (k !== 'parent' && k !== 'attributes') visit(v);
+      };
+      visit(u.ast.fragment);
+      return ok ? found : undefined;
+    };
+
+    /**
      * The member of a discriminated union props type that every instance of
      * the component takes: bits-ui's ToggleGroup and Accordion take
      * `type: "single"` with `value?: string` or `type: "multiple"` with
@@ -3155,7 +3211,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           // `class?: ClassValue`) takes the type of the values its sites pass.
           const values = domains.values(sym);
           const t =
-            (values && typeOfValues(values)) ?? typeOfSites(sym, el) ?? typeOfBinds(sym, el);
+            (values && typeOfValues(values)) ??
+            typeOfSites(sym, el) ??
+            typeOfBinds(sym, el) ??
+            typeOfChildBinds(sym, el);
           if (!t) {
             if (mixed)
               tsFail(
