@@ -1,4 +1,4 @@
-// Bridge to the Rust backend (crates/runic-codegen): it validates schema 4 IR
+// Bridge to the Rust backend (crates/runic-codegen): it validates schema 5 IR
 // (migrating older schemas), runs the reference interpreter and generates the
 // application crate.
 import { spawnSync } from 'node:child_process';
@@ -65,9 +65,9 @@ function withIR(ir, f) {
   const dir = mkdtempSync(path.join(tmpdir(), 'runic-ir-'));
   try {
     const file = path.join(dir, 'ir.json');
-    // Schema 4 has no irHash field (the hash is passed separately).
+    // Schemas 4 and 5 have no irHash field (the hash is passed separately).
     const { irHash, ...body } = ir;
-    writeFileSync(file, JSON.stringify(ir.schema === 4 ? body : ir));
+    writeFileSync(file, JSON.stringify(ir.schema >= 4 ? body : ir));
     return f(file, dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -116,7 +116,7 @@ export function generate(ir, optimize = true) {
   });
 }
 
-/** The schema 4 form of `ir` (migrated and validated by the Rust backend). */
+/** The schema 5 form of `ir` (migrated and validated by the Rust backend). */
 export function migrate(ir) {
   return withIR(ir, file => JSON.parse(run(['migrate', file])));
 }

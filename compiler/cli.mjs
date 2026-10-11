@@ -40,7 +40,7 @@ export async function buildApp(app, options = {}) {
     graph.config = { ...graph.config, renderer: options.renderer };
   }
   const { ir } = await lower(graph);
-  if (!ir.styles.assets.some(a => a.mime === 'font/woff2'))
+  if (!ir.assets.some(a => a.mime === 'font/woff2'))
     throw new Diagnostic(
       'E_FONT',
       'Native builds require a local bundled WOFF2 font referenced by CSS; system font fallback is outside the contract',

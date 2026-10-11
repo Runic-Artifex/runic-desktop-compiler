@@ -1,4 +1,4 @@
-//! Rust code generation from validated Runic IR (schema 4).
+//! Rust code generation from validated Runic IR (schema 5).
 //!
 //! The generated module implements `runic_runtime::App`:
 //! - records become structs behind `JsRef` (reference identity);

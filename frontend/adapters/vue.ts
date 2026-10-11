@@ -4912,7 +4912,7 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
   if (components.some(c => c.handlers.some(h => h.event === 'input')))
     capabilities.push('text-input');
   const ir: Program = {
-    schema: 4,
+    schema: 5,
     meta: {
       title: graph.config.title,
       sourceHash: graph.hash,
@@ -4929,9 +4929,11 @@ export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
     capabilities,
     styles: {
       css: graph.css,
-      assets: graph.assets,
       ...(graph.styleGuards ? { guards: graph.styleGuards } : {}),
     },
+    assets: graph.assets,
+    // Nothing resolves image URLs yet (docs/design/M6-IMAGES.md).
+    images: [],
     records: types.records,
     functions: lower.functions,
     globals: lower.globals,
