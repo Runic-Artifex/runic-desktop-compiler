@@ -865,8 +865,16 @@ test('inheritance: unsupported forms are rejected where they are written', async
     'E_CLASS',
     at(4, 24),
   );
-  // A redeclared field.
-  await rejects(`class A { n = 1; }\nclass B extends A {\n  n = 2;\n}\n${go}`, 'E_CLASS', at(4, 3));
+  // A field declared again as a parameter property.
+  await rejects(
+    `import { B } from './b';\nlet out = $state('');\nfunction go() { out = String(new B(2).n); }`,
+    'E_CLASS',
+    'b.ts:3:15',
+    {
+      'b.ts':
+        'class A { n = 1; }\nexport class B extends A {\n  constructor(public n: number) { super(); }\n}\n',
+    },
+  );
   // A component-script class extending a module class.
   await rejects(`import { A } from './a';\nclass B extends A {}\n${go}`, 'E_CLASS', at(3, 17), {
     'a.ts': 'export class A { n = 1; }\n',
@@ -888,6 +896,62 @@ test('inheritance: unsupported forms are rejected where they are written', async
     `class A { m(): number { return 1; } }\nclass B extends A { m(): number { return 2; } }\nlet out = $state('');\nfunction go() { const a: A = new B(); const f = a.m.bind(a); out = String(f()); }`,
     'E_CLASS',
     at(5, 49),
+  );
+});
+
+test('inheritance: a base field declared again with an initialiser is set in construction order', async () => {
+  // JavaScript defines the field again after super(…) returns, in its place
+  // among the subclass's initialisers; the base's own initialisers and
+  // methods see the base's value until then.
+  const out = await run(
+    `class A {
+       n = 1;
+       seen = this.n * 100;
+       f = (): string => 'A' + this.n;
+       g(): string { return this.f(); }
+     }
+     class B extends A {
+       m = this.n + 1;
+       n = 5;
+       k = this.n * 10;
+       f = (): string => 'B' + this.n;
+     }
+     class C extends B {
+       n = 7;
+     }
+     let out = $state('');
+     function go() {
+       const b = new B();
+       const c = new C();
+       const a: A = c;
+       out = \`\${b.seen} \${b.m} \${b.n} \${b.k} \${b.g()} \${new A().g()} \${c.n} \${c.k} \${a.g()}\`;
+     }`,
+  );
+  assert.deepEqual(out, ['', '100 2 5 50 B5 A1 7 50 B7']);
+  const at = (line, column) => `App.svelte:${line}:${column}`;
+  const go = `let out = $state('');\nfunction go() { out = String(new B().n); }`;
+  // An initialiser of a type the base field does not take.
+  await rejects(
+    `class A { n = 1; }\nclass B extends A {\n  n = 'two';\n}\n${go}`,
+    'E_CLASS',
+    at(4, 3),
+  );
+  // A reactive base field (an accessor in Svelte's output) or initialiser.
+  await rejects(
+    `class A { n = $state(1); }\nclass B extends A {\n  n = 2;\n}\n${go}`,
+    'E_CLASS',
+    at(4, 3),
+  );
+  await rejects(
+    `class A { n = 1; }\nclass B extends A {\n  n = $state(2);\n}\n${go}`,
+    'E_CLASS',
+    at(4, 3),
+  );
+  // A base constructor that uses this before the field is set again.
+  await rejects(
+    `class A {\n  n = 1;\n  constructor() { this.bump(); }\n  bump(): void { this.n += 1; }\n}\nclass B extends A {\n  n = 5;\n}\n${go}`,
+    'E_CLASS',
+    at(8, 3),
   );
 });
 

@@ -80,6 +80,7 @@ With `runic.json` `"dynamicValues": true` ([design](../design/M6-DYNAMIC-VALUES.
 | Instances cloned, spread, stringified, `Object.*` | E_CLASS | Not plain data | — | classes.ts:3798 |
 | Static reactive fields (Svelte rejects them); static fields in component-script classes; assigning statics | E_CLASS | — | — | classes.ts:931,1537-1576,3203 |
 | A derived field of a component-script class read in another component | E_CLASS | "declare the class in a .svelte.ts module" | — | classes.ts:3015 |
+| An inherited field declared again other than as covered (with an initialiser of a type the base field does not take, a rune on either side, a parameter property, a name with an accessor or method in the chain, or a base constructor that uses `this` before it is set again) | E_CLASS | The field would differ in type or kind, or its base value is observable | Per case: one record of both types, accessor overrides | classes.ts (`fieldOverride`, `constructorSteps`) |
 | `this` in callbacks during construction, before `super()`, in function expressions; field-order hazards | E_CLASS | Observable construction order | — | classes.ts:2324-2792 |
 
 ## Async (V5)
