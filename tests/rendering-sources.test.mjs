@@ -242,6 +242,37 @@ test('missing anchors, mixed revisions, unknown sources and unresolved graph fai
   }
 });
 
+test('Runic-Artifex GitHub origins resolve to the local fork checkout that pushes to them', async () => {
+  const f = await fixture();
+  try {
+    const blitz = f.repositories.get('blitz');
+    const github = structuredClone(f.metadata);
+    for (const pkg of github.packages)
+      if (pkg.source)
+        pkg.source = pkg.source.replace(blitz.origin, 'https://github.com/Runic-Artifex/blitz');
+    const options = { ...f, metadata: github, forksDir: f.directory };
+    await assert.rejects(collectRenderingSources(f.root, options), /remote origin|No such remote/);
+    git(blitz.canonical, ['remote', 'add', 'origin', 'git@github.com:Runic-Artifex/blitz.git']);
+    const result = await collectRenderingSources(f.root, options);
+    const group = result.source.find(
+      source => source.origin === 'https://github.com/Runic-Artifex/blitz',
+    );
+    assert.equal(group.repository, blitz.canonical);
+    assert.equal(group.revision, blitz.revision);
+    git(blitz.canonical, ['remote', 'set-url', 'origin', 'git@github.com:Someone/blitz.git']);
+    await assert.rejects(collectRenderingSources(f.root, options), /does not push to/);
+    const foreign = structuredClone(github);
+    for (const pkg of foreign.packages)
+      if (pkg.source) pkg.source = pkg.source.replace('Runic-Artifex/blitz', 'DioxusLabs/blitz');
+    await assert.rejects(
+      collectRenderingSources(f.root, { ...options, metadata: foreign }),
+      /Unreviewed Git origin/,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
 test('executor invokes locked offline full metadata in rendering root', async () => {
   const f = await fixture();
   try {

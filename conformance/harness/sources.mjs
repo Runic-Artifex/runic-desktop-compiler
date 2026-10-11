@@ -72,6 +72,21 @@ export async function collectRenderingSources(root, options = {}) {
   };
   const rootOf = async manifest =>
     (await git(path.dirname(manifest), ['rev-parse', '--show-toplevel'])).trim();
+  // A reviewed origin is a local file:// repository, or a Runic-Artifex GitHub fork
+  // whose local checkout (RUNIC_FORKS_DIR, default ../RunicArtifex) pushes to it.
+  const forks = options.forksDir ?? process.env.RUNIC_FORKS_DIR ??
+    path.resolve(root, '..', 'RunicArtifex');
+  const reviewedCheckout = async url => {
+    if (url.protocol === 'file:') return fileURLToPath(url);
+    const fork = /^\/Runic-Artifex\/([A-Za-z0-9_.-]+)$/.exec(url.pathname);
+    if (url.protocol !== 'https:' || url.host !== 'github.com' || !fork || fork[1].endsWith('.git'))
+      throw new Error(`Unreviewed Git origin ${url.href}`);
+    const checkout = path.join(forks, fork[1]);
+    const remote = (await git(checkout, ['remote', 'get-url', 'origin'])).trim();
+    if (!new RegExp(`[:/]Runic-Artifex/${fork[1]}(?:\\.git)?$`).test(remote))
+      throw new Error(`Checkout ${checkout} does not push to ${url.href} (origin ${remote})`);
+    return checkout;
+  };
   const verifySignature = async (repository, revision) => {
     const signature = (await git(repository, ['log', '-1', '--format=%G?', revision])).trim();
     if (signature !== 'G') throw new Error(`Commit ${revision} in ${repository} has signature ${signature}`);
@@ -99,9 +114,8 @@ export async function collectRenderingSources(root, options = {}) {
       if (state.revision !== revision)
         throw new Error(`Resolved revision ${revision} differs from physical HEAD ${state.revision}`);
       url.hash = ''; url.search = '';
-      if (url.protocol !== 'file:') throw new Error(`Unreviewed Git origin ${url.href}`);
       origin = url.href;
-      const canonical = fileURLToPath(url);
+      const canonical = await reviewedCheckout(url);
       const bare = (await git(canonical, ['rev-parse', '--is-bare-repository'])).trim() === 'true';
       repository = bare ? canonical.replace(/\.git$/, '') :
         (await git(canonical, ['rev-parse', '--show-toplevel'])).trim();
