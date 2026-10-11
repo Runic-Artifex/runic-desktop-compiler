@@ -1,0 +1,961 @@
+{
+ "generated": "node conformance/triage.mjs --jobs 4",
+ "compiler": "fd37b1c",
+ "corpus": {
+  "name": "shadcn-svelte",
+  "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
+  "examples": "docs/src/lib/registry/examples",
+  "outOfScope": "examples/create/ (served by /preview/[item])",
+  "unmodified": "git status of the checkout is clean before and after the run"
+ },
+ "iconTransform": {
+  "source": ".cache/corpus/shadcn-svelte/packages/cli/src/utils/transformers/transform-icons.ts",
+  "sha256": "8a4e8f2d44cac19989fa4a4174fca37b7ff62d27a13ae3ff07750db3fdf12935",
+  "iconLibrary": "lucide"
+ },
+ "theme": {
+  "from": "fixtures/bits-dialog-svelte/src/app.css",
+  "removed": [
+   "@source not inline(\"transition-all\");",
+   "@source not inline(\"fill-foreground\");"
+  ],
+  "sha256": "a4cc6f010dc3db9bc434914cede6c02c578ae9b568c45902863185a28df6ab87"
+ },
+ "totals": {
+  "examples": 404,
+  "lowered": 173,
+  "rejected": 231,
+  "harnessError": 0,
+  "internalError": 0,
+  "withClosureMisses": 0,
+  "withTransformedFiles": 158
+ },
+ "lowered": [
+  "accordion-basic",
+  "accordion-borders",
+  "accordion-card",
+  "accordion-demo",
+  "accordion-disabled",
+  "accordion-multiple",
+  "alert-action",
+  "alert-basic",
+  "alert-colors",
+  "alert-demo",
+  "alert-destructive",
+  "alert-dialog-basic",
+  "alert-dialog-demo",
+  "alert-dialog-destructive",
+  "alert-dialog-media",
+  "alert-dialog-small",
+  "alert-dialog-small-media",
+  "attachment-sizes",
+  "badge-colors",
+  "badge-demo",
+  "badge-icon",
+  "badge-link",
+  "badge-variants",
+  "button-default",
+  "button-demo",
+  "button-destructive",
+  "button-ghost",
+  "button-group-input-demo",
+  "button-group-input-group-demo",
+  "button-group-orientation-demo",
+  "button-group-popover-demo",
+  "button-group-select-demo",
+  "button-group-separator-demo",
+  "button-group-size-demo",
+  "button-group-split-demo",
+  "button-icon",
+  "button-link",
+  "button-outline",
+  "button-rounded",
+  "button-secondary",
+  "button-size",
+  "card-demo",
+  "card-edge-to-edge",
+  "card-small",
+  "collapsible-basic",
+  "collapsible-demo",
+  "command-demo",
+  "dialog-close-button",
+  "dialog-demo",
+  "dialog-no-close-button",
+  "dropdown-menu-basic",
+  "dropdown-menu-demo",
+  "dropdown-menu-destructive",
+  "dropdown-menu-dialog",
+  "dropdown-menu-icons",
+  "dropdown-menu-shortcuts",
+  "dropdown-menu-submenu",
+  "empty-input-group-demo",
+  "field-switch",
+  "input-badge",
+  "input-basic",
+  "input-button-group",
+  "input-demo",
+  "input-disabled",
+  "input-field",
+  "input-fieldgroup",
+  "input-form",
+  "input-grid",
+  "input-group-block-end",
+  "input-group-block-start",
+  "input-group-custom-input-demo",
+  "input-group-demo",
+  "input-group-dropdown-demo",
+  "input-group-icon-demo",
+  "input-group-inline-end",
+  "input-group-inline-start",
+  "input-group-kbd",
+  "input-group-label-demo",
+  "input-group-text-demo",
+  "input-group-tooltip-demo",
+  "input-inline",
+  "input-input-group",
+  "input-invalid",
+  "input-required",
+  "kbd-button-demo",
+  "kbd-demo",
+  "kbd-group-demo",
+  "kbd-input-group-demo",
+  "kbd-tooltip-demo",
+  "label-demo",
+  "popover-basic",
+  "popover-demo",
+  "popover-form",
+  "progress-demo",
+  "progress-label",
+  "radio-group-choice-card",
+  "radio-group-demo",
+  "radio-group-description",
+  "radio-group-disabled",
+  "scroll-fade-edge",
+  "scroll-fade-horizontal",
+  "scroll-fade-rtl",
+  "select-demo",
+  "select-disabled",
+  "select-scrollable",
+  "separator-demo",
+  "separator-list",
+  "separator-menu",
+  "separator-vertical",
+  "sheet-demo",
+  "sheet-no-close-button",
+  "shimmer-angle",
+  "shimmer-color",
+  "shimmer-demo",
+  "shimmer-duration",
+  "shimmer-none",
+  "shimmer-once",
+  "shimmer-rtl",
+  "shimmer-spread",
+  "skeleton-avatar",
+  "skeleton-card",
+  "skeleton-demo",
+  "skeleton-form",
+  "skeleton-text",
+  "spinner-custom-demo",
+  "switch-choice-card",
+  "switch-demo",
+  "switch-description",
+  "switch-disabled",
+  "switch-invalid",
+  "switch-sizes",
+  "table-actions",
+  "table-demo",
+  "table-footer",
+  "tabs-demo",
+  "tabs-disabled",
+  "tabs-icons",
+  "tabs-line",
+  "tabs-vertical",
+  "textarea-button",
+  "textarea-demo",
+  "textarea-disabled",
+  "textarea-field",
+  "textarea-invalid",
+  "toggle-demo",
+  "toggle-disabled",
+  "toggle-group-demo",
+  "toggle-group-disabled",
+  "toggle-group-font-weight-selector",
+  "toggle-group-outline",
+  "toggle-group-vertical",
+  "toggle-lg",
+  "toggle-outline",
+  "toggle-sizes",
+  "toggle-sm",
+  "toggle-with-text",
+  "tooltip-demo",
+  "tooltip-disabled",
+  "tooltip-keyboard",
+  "typography-blockquote",
+  "typography-demo",
+  "typography-h1",
+  "typography-h2",
+  "typography-h3",
+  "typography-h4",
+  "typography-inline-code",
+  "typography-large",
+  "typography-lead",
+  "typography-list",
+  "typography-muted",
+  "typography-p",
+  "typography-small",
+  "typography-table"
+ ],
+ "clusters": [
+  {
+   "code": "E_TEMPLATE",
+   "count": 18,
+   "message": "<img> is outside the supported elements",
+   "location": "docs/src/lib/registry/examples/aspect-ratio-demo.svelte:7",
+   "examples": [
+    "aspect-ratio-demo",
+    "aspect-ratio-portrait",
+    "aspect-ratio-square",
+    "avatar-badge",
+    "avatar-badge-icon",
+    "avatar-basic",
+    "avatar-demo",
+    "avatar-dropdown",
+    "avatar-group",
+    "avatar-group-count",
+    "avatar-group-count-icon",
+    "avatar-size",
+    "card-image",
+    "dropdown-menu-avatar",
+    "empty-avatar-demo",
+    "empty-avatar-group-demo",
+    "message-avatar",
+    "message-demo"
+   ]
+  },
+  {
+   "code": "E_CLASS",
+   "count": 15,
+   "message": "CalendarDate is a library class; its instances are unsupported (only classes compiled from source are)",
+   "location": "node_modules/bits-ui/dist/internal/date-time/utils.js:20",
+   "examples": [
+    "calendar-basic",
+    "calendar-booked-dates",
+    "calendar-caption",
+    "calendar-custom-days",
+    "calendar-demo",
+    "calendar-presets",
+    "calendar-range",
+    "calendar-time",
+    "date-picker-basic",
+    "date-picker-demo",
+    "date-picker-dob",
+    "date-picker-input",
+    "date-picker-range",
+    "date-picker-time",
+    "range-calendar-demo"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 12,
+   "message": "<fieldset> is outside the supported elements",
+   "location": "docs/src/lib/registry/ui/field/field-set.svelte:13",
+   "examples": [
+    "checkbox-group",
+    "field-checkbox",
+    "field-choice-card",
+    "field-demo",
+    "field-field-group-demo",
+    "field-field-set-demo",
+    "field-input",
+    "field-radio",
+    "field-responsive-layout-demo",
+    "field-textarea",
+    "radio-group-fieldset",
+    "radio-group-invalid"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 12,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/ui/item/item.svelte:46",
+   "examples": [
+    "item-avatar-demo",
+    "item-demo",
+    "item-dropdown-demo",
+    "item-group-demo",
+    "item-header-demo",
+    "item-icon-demo",
+    "item-image-demo",
+    "item-link-demo",
+    "item-size-demo",
+    "item-variants-demo",
+    "spinner-demo",
+    "spinner-item-demo"
+   ]
+  },
+  {
+   "code": "E_PACK",
+   "count": 11,
+   "message": "@lucide/svelte@1.52.0 pack: spread attributes on Loader2Icon are not covered",
+   "location": "docs/src/lib/registry/ui/spinner/spinner.svelte:20",
+   "examples": [
+    "attachment-demo",
+    "attachment-states",
+    "badge-spinner",
+    "button-loading",
+    "input-group-spinner-demo",
+    "spinner-badge-demo",
+    "spinner-button-demo",
+    "spinner-color-demo",
+    "spinner-empty-demo",
+    "spinner-input-group-demo",
+    "spinner-size-demo"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 11,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/ui/bubble/bubble-content.svelte:15",
+   "examples": [
+    "bubble-alignment",
+    "bubble-collapsible",
+    "bubble-demo",
+    "bubble-group-demo",
+    "bubble-popover",
+    "bubble-tooltip",
+    "bubble-variants",
+    "message-actions",
+    "message-attachment",
+    "message-group",
+    "message-header-footer"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 10,
+   "message": "Union HTMLElement | Measurable is outside the value model: values of several members reach it (HTMLElement at node_modules/bits-ui/dist/bits/utilities/floating-layer/use-floating-layer.svelte.js:31, Measurable at node_modules/bits-ui/dist/bits/utilities/floating-layer/use-floating-layer.svelte.js:262); compiling per member is not supported yet",
+   "location": "node_modules/bits-ui/dist/bits/utilities/floating-layer/use-floating-layer.svelte.js:24",
+   "examples": [
+    "context-menu-basic",
+    "context-menu-checkboxes",
+    "context-menu-demo",
+    "context-menu-destructive",
+    "context-menu-groups",
+    "context-menu-icons",
+    "context-menu-radio",
+    "context-menu-shortcuts",
+    "context-menu-sides",
+    "context-menu-submenu"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 9,
+   "message": "The type of onComplete ((...args: any[]) => void) is outside the value model, so it takes the values its sites pass, but the prop onComplete takes an open value at an instantiation site (src/lib/registry/ui/input-otp/input-otp.svelte:13:1)",
+   "location": "node_modules/bits-ui/dist/bits/pin-input/components/pin-input.svelte:19",
+   "examples": [
+    "input-otp-alphanumeric",
+    "input-otp-controlled",
+    "input-otp-demo",
+    "input-otp-disabled",
+    "input-otp-form",
+    "input-otp-four-digits",
+    "input-otp-invalid",
+    "input-otp-pattern",
+    "input-otp-separator"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 8,
+   "message": "Cannot resolve svelte-sonner",
+   "location": "docs/src/lib/registry/examples/bubble-link-button.svelte:2",
+   "examples": [
+    "bubble-link-button",
+    "bubble-reactions",
+    "drawer-demo",
+    "marker-link-button",
+    "sonner-demo",
+    "sonner-description",
+    "sonner-position",
+    "sonner-types"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 8,
+   "message": "Cannot resolve vaul-svelte",
+   "location": "docs/src/lib/registry/ui/drawer/drawer-trigger.svelte:2",
+   "examples": [
+    "breadcrumb-responsive",
+    "drawer-dialog",
+    "drawer-direction",
+    "drawer-nested",
+    "drawer-non-modal",
+    "drawer-scrollable-content",
+    "drawer-sides",
+    "drawer-snap-points"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 8,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/ui/marker/marker.svelte:37",
+   "examples": [
+    "marker-border",
+    "marker-demo",
+    "marker-icon",
+    "marker-separator",
+    "marker-shimmer",
+    "marker-status",
+    "marker-variants",
+    "shimmer-marker"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 7,
+   "message": "Cannot resolve @tabler/icons-svelte/icons/check",
+   "location": "docs/src/lib/registry/examples/button-group-dropdown-menu-demo.svelte:8",
+   "examples": [
+    "button-group-dropdown-menu-demo",
+    "button-with-icon",
+    "empty-background-demo",
+    "empty-demo",
+    "empty-outline-demo",
+    "input-group-button-demo",
+    "input-group-textarea-demo"
+   ]
+  },
+  {
+   "code": "E_CSS_PROPERTY",
+   "count": 6,
+   "message": "Unsupported CSS declaration text-transform: capitalize: Blitz lays text out in upper or lower case only (uppercase, lowercase and none are supported)",
+   "location": "stylesheet generated by Tailwind CSS:1239",
+   "examples": [
+    "hover-card-sides",
+    "popover-alignments",
+    "sheet-side",
+    "toggle-group-sizes",
+    "toggle-group-spacing",
+    "tooltip-sides"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 6,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/ui/breadcrumb/breadcrumb-link.svelte:14",
+   "examples": [
+    "breadcrumb-basic",
+    "breadcrumb-demo",
+    "breadcrumb-dropdown",
+    "breadcrumb-ellipsis",
+    "breadcrumb-link",
+    "breadcrumb-separator"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 5,
+   "message": "Cannot resolve embla-carousel-svelte",
+   "location": "docs/src/lib/registry/ui/carousel/carousel-content.svelte:2",
+   "examples": [
+    "carousel-api",
+    "carousel-demo",
+    "carousel-orientation",
+    "carousel-size",
+    "carousel-spacing"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 5,
+   "message": "Union false | true | \"\" is outside the value model: values of several members reach it (false at node_modules/bits-ui/dist/bits/menubar/menubar.svelte.js:60, true at node_modules/bits-ui/dist/bits/menubar/menubar.svelte.js:60); compiling per member is not supported yet",
+   "location": "node_modules/bits-ui/dist/bits/menubar/menubar.svelte.js:60",
+   "examples": [
+    "menubar-checkbox",
+    "menubar-demo",
+    "menubar-icons",
+    "menubar-radio",
+    "menubar-submenu"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 5,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "node_modules/bits-ui/dist/bits/checkbox/components/checkbox.svelte:18",
+   "examples": [
+    "checkbox-basic",
+    "checkbox-demo",
+    "checkbox-description",
+    "checkbox-disabled",
+    "checkbox-invalid"
+   ]
+  },
+  {
+   "code": "E_UNRESOLVED",
+   "count": 5,
+   "message": "children is not a supported binding here",
+   "location": "docs/src/lib/registry/ui/command/command-dialog.svelte:40",
+   "examples": [
+    "command-basic",
+    "command-dialog",
+    "command-groups",
+    "command-scrollable",
+    "command-shortcuts"
+   ]
+  },
+  {
+   "code": "E_CLASS",
+   "count": 4,
+   "message": "SliderSingleRootState declares fields, but the constructor of its base class SliderBaseRootState uses this before they exist (JavaScript initialises them after super(…) returns); move that code out of the constructor, or the fields into SliderBaseRootState",
+   "location": "node_modules/bits-ui/dist/bits/slider/slider.svelte.js:111",
+   "examples": [
+    "progress-controlled",
+    "slider-demo",
+    "slider-disabled",
+    "slider-vertical"
+   ]
+  },
+  {
+   "code": "E_PACK",
+   "count": 4,
+   "message": "runed@0.35.1 pack: context Menu.Group | Menu.RadioGroup is set with values of different types",
+   "location": "node_modules/bits-ui/dist/bits/menu/menu.svelte.js:1350",
+   "examples": [
+    "button-group-demo",
+    "dropdown-menu-complex",
+    "dropdown-menu-radio-group",
+    "dropdown-menu-radio-icons"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 4,
+   "message": "Cannot resolve d3-scale",
+   "location": "docs/src/lib/registry/examples/chart-bar-axis-tick-demo.svelte:2",
+   "examples": [
+    "chart-bar-axis-tick-demo",
+    "chart-bar-demo",
+    "chart-bar-legend-demo",
+    "chart-bar-tooltip-demo"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 4,
+   "message": "The type of value (any) is outside the value model, so it takes the values its sites pass, but the prop value is assigned by its component, so its values do not all come from its instantiation sites",
+   "location": "docs/src/lib/registry/ui/native-select/native-select.svelte:12",
+   "examples": [
+    "native-select-demo",
+    "native-select-disabled",
+    "native-select-groups",
+    "native-select-invalid"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 4,
+   "message": "This value has type never; add a type annotation (e.g. an empty array needs its element type)",
+   "location": "node_modules/bits-ui/dist/bits/slider/components/slider.svelte:49",
+   "examples": [
+    "field-slider",
+    "slider-controlled",
+    "slider-multiple",
+    "slider-range"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 3,
+   "message": "Cannot resolve paneforge",
+   "location": "docs/src/lib/registry/ui/resizable/index.ts:1",
+   "examples": [
+    "resizable-demo",
+    "resizable-handle",
+    "resizable-vertical"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 3,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "node_modules/bits-ui/dist/bits/pagination/pagination.svelte.js:248",
+   "examples": [
+    "pagination-demo",
+    "pagination-icons-only",
+    "pagination-simple"
+   ]
+  },
+  {
+   "code": "E_MEMBER",
+   "count": 2,
+   "message": "Unsupported property opts on maybe",
+   "location": "node_modules/bits-ui/dist/bits/menu/menu.svelte.js:1236",
+   "examples": [
+    "dropdown-menu-checkboxes",
+    "dropdown-menu-checkboxes-icons"
+   ]
+  },
+  {
+   "code": "E_PACK",
+   "count": 2,
+   "message": "runed@0.35.1 pack covers Context, watch (watch.pre), ElementSize and Previous, not IsMounted",
+   "location": "node_modules/bits-ui/dist/bits/scroll-area/components/scroll-area-scrollbar-x.svelte:2",
+   "examples": [
+    "scroll-area-demo",
+    "scroll-area-horizontal"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 2,
+   "message": "Cannot resolve mode-watcher",
+   "location": "docs/src/lib/registry/examples/dark-mode-dropdown-menu.svelte:4",
+   "examples": [
+    "dark-mode-dropdown-menu",
+    "dark-mode-light-switch"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 2,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/ui/attachment/attachment-trigger.svelte:16",
+   "examples": [
+    "attachment-image",
+    "attachment-trigger"
+   ]
+  },
+  {
+   "code": "E_CSS_PROPERTY",
+   "count": 1,
+   "message": "Unsupported CSS declaration position: sticky: Blitz lays sticky boxes out as relative ones and does not keep them in view while scrolling",
+   "location": "stylesheet generated by Tailwind CSS:1183",
+   "examples": [
+    "dialog-sticky-footer"
+   ]
+  },
+  {
+   "code": "E_IR",
+   "count": 1,
+   "message": "Conditional branches boolean | undefined and record#190[] | undefined | undefined",
+   "location": null,
+   "examples": [
+    "select-invalid"
+   ]
+  },
+  {
+   "code": "E_IR",
+   "count": 1,
+   "message": "Expected record#20[], found record#53[]",
+   "location": "docs/src/lib/registry/examples/select-groups.svelte:19",
+   "examples": [
+    "select-groups"
+   ]
+  },
+  {
+   "code": "E_IR",
+   "count": 1,
+   "message": "Expected record#9[], found record#8[]",
+   "location": null,
+   "examples": [
+    "field-select"
+   ]
+  },
+  {
+   "code": "E_PACK",
+   "count": 1,
+   "message": "cn@0.3.0 pack: a value of type ClassValue | null | undefined is not covered: the arguments of calls evaluated at build time must be compile-time constants or range over string literals, booleans, null and undefined, and the prop class takes an open value at an instantiation site (src/lib/registry/examples/card-spacing.svelte:47:2)",
+   "location": "docs/src/lib/registry/ui/card/card.svelte:18",
+   "examples": [
+    "card-spacing"
+   ]
+  },
+  {
+   "code": "E_PACK",
+   "count": 1,
+   "message": "svelte-toolbelt@0.10.6 pack: DOMContext covers setTimeout, clearTimeout and getActiveElement, not getDocument()",
+   "location": "node_modules/bits-ui/dist/bits/link-preview/link-preview.svelte.js:49",
+   "examples": [
+    "hover-card-demo"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 1,
+   "message": "Cannot resolve @tanstack/svelte-table",
+   "location": "docs/src/lib/registry/examples/data-table-demo.svelte:3",
+   "examples": [
+    "data-table-demo"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 1,
+   "message": "Cannot resolve $app/environment",
+   "location": "docs/src/lib/registry/examples/combobox-responsive.svelte:2",
+   "examples": [
+    "combobox-responsive"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 1,
+   "message": "Cannot resolve chrono-node",
+   "location": "docs/src/lib/registry/examples/date-picker-natural-language.svelte:4",
+   "examples": [
+    "date-picker-natural-language"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 1,
+   "message": "Cannot resolve embla-carousel-autoplay",
+   "location": "docs/src/lib/registry/examples/carousel-plugin.svelte:2",
+   "examples": [
+    "carousel-plugin"
+   ]
+  },
+  {
+   "code": "E_RESOLVE",
+   "count": 1,
+   "message": "Cannot resolve zod",
+   "location": "docs/src/lib/registry/examples/form-demo.svelte:2",
+   "examples": [
+    "form-demo"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "{#each} requires an array",
+   "location": "docs/src/lib/registry/examples/dialog-scrollable-content.svelte:14",
+   "examples": [
+    "dialog-scrollable-content"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "{#each} requires an array",
+   "location": "docs/src/lib/registry/examples/skeleton-table.svelte:6",
+   "examples": [
+    "skeleton-table"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "<defs> is outside the supported elements",
+   "location": "docs/src/lib/registry/examples/chart-tooltip-demo.svelte:24",
+   "examples": [
+    "chart-tooltip-demo"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "bind:value needs an assignable string value",
+   "location": "docs/src/lib/registry/ui/input/input.svelte:45",
+   "examples": [
+    "collapsible-settings"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "Icon is neither an imported component nor a component value of the program that the tag's props fit",
+   "location": "docs/src/lib/registry/examples/attachment-group.svelte:39",
+   "examples": [
+    "attachment-group"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "Icon is neither an imported component nor a component value of the program that the tag's props fit",
+   "location": "docs/src/lib/registry/examples/combobox-popover.svelte:78",
+   "examples": [
+    "combobox-popover"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "onclick is both on the element and possibly in the spread attributes",
+   "location": "docs/src/lib/registry/ui/input-group/input-group-addon.svelte:36",
+   "examples": [
+    "button-group-nested-demo"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "Snippets declared in a template take no parameters (snippets with parameters are supported as children of a component tag)",
+   "location": "docs/src/lib/registry/examples/collapsible-file-tree.svelte:61",
+   "examples": [
+    "collapsible-file-tree"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "Snippets declared in a template take no parameters (snippets with parameters are supported as children of a component tag)",
+   "location": "docs/src/lib/registry/examples/navigation-menu-demo.svelte:46",
+   "examples": [
+    "navigation-menu-demo"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 1,
+   "message": "The <a> may link to \"#\": links are supported to fragments of this document (#name) that name no element, with a finite set of values",
+   "location": "docs/src/lib/registry/ui/button/button.svelte:63",
+   "examples": [
+    "button-as-link"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 1,
+   "message": "The type of files (any) is outside the value model, so it takes the values its sites pass, but the prop files is assigned by its component, so its values do not all come from its instantiation sites",
+   "location": "docs/src/lib/registry/ui/input/input.svelte:16",
+   "examples": [
+    "input-file"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 1,
+   "message": "The type of name (any) is outside the value model, so it takes the values its sites pass, but the prop name takes an open value at an instantiation site (src/lib/registry/ui/checkbox/checkbox.svelte:16:1)",
+   "location": "node_modules/bits-ui/dist/bits/checkbox/components/checkbox.svelte:18",
+   "examples": [
+    "checkbox-table"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 1,
+   "message": "Union false | true | \"false\" | \"true\" is outside the value model: values of several members reach it (false at src/lib/registry/examples/combobox-custom.svelte:1, true at src/lib/registry/examples/combobox-custom.svelte:1); compiling per member is not supported yet",
+   "location": "docs/src/lib/registry/ui/item/item.svelte:46",
+   "examples": [
+    "combobox-custom"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "A value that is always null has no useful type",
+   "location": "docs/src/lib/registry/examples/combobox-basic.svelte:12",
+   "examples": [
+    "combobox-basic"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "A value that is always null has no useful type",
+   "location": "docs/src/lib/registry/examples/combobox-demo.svelte:12",
+   "examples": [
+    "combobox-demo"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "A value that is always null has no useful type",
+   "location": "docs/src/lib/registry/examples/combobox-disabled.svelte:12",
+   "examples": [
+    "combobox-disabled"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "A value that is always null has no useful type",
+   "location": "docs/src/lib/registry/examples/combobox-dropdown-menu.svelte:24",
+   "examples": [
+    "combobox-dropdown-menu"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "A value that is always null has no useful type",
+   "location": "docs/src/lib/registry/examples/combobox-groups.svelte:46",
+   "examples": [
+    "combobox-groups"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "A value that is always null has no useful type",
+   "location": "docs/src/lib/registry/examples/combobox-invalid.svelte:12",
+   "examples": [
+    "combobox-invalid"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "A value that is always null has no useful type",
+   "location": "docs/src/lib/registry/examples/combobox-popup.svelte:33",
+   "examples": [
+    "combobox-popup"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/examples/scroll-fade-demo.svelte:2",
+   "examples": [
+    "scroll-fade-demo"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/examples/scroll-fade-none.svelte:2",
+   "examples": [
+    "scroll-fade-none"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/examples/scroll-fade-overflow.svelte:2",
+   "examples": [
+    "scroll-fade-overflow"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/examples/scroll-fade-size.svelte:2",
+   "examples": [
+    "scroll-fade-size"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "docs/src/lib/registry/ui/button-group/button-group-text.svelte:15",
+   "examples": [
+    "input-group-button-group-demo"
+   ]
+  }
+ ]
+}
