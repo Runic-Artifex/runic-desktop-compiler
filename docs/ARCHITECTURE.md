@@ -684,6 +684,24 @@ priority without inserting a checkpoint. Navigation, reset, undecidable
 validation and unsupported validity selectors retain diagnostics. Acceptance
 is pending; this decision alone does not extend the implemented contract.
 
+### Images as pinned assets (2026-10-12)
+
+The [image design](design/M6-IMAGES.md) changes the IR for every frontend, so
+it bumps the schema with a migration. `styles.assets` becomes a top-level
+`assets` list with a MIME allowlist (`font/woff2`, PNG, JPEG, WebP, GIF, and SVG
+when the `svg` feature is selected) and size limits of 4 MiB per image and
+32 MiB per program. A new `images` table maps each reachable URL to an asset or
+to a pinned HTTP status. Migration moves font assets unchanged. Remote bytes
+enter only through the explicit `runic images` operation, which writes
+`runic.images.json` and `images/<sha256>.<ext>` next to the app. Builds stay
+offline and fail with `E_ASSET` on a missing, extra or altered record, or on a
+`src` whose values are not a finite, build-time-known set. The runtime serves
+embedded bytes through its `NetProvider` and never opens a socket. Image
+`load`/`error` dispatch is a Blitz fork patch, and `new Image()` becomes a host
+object resolved through the same table. Lazy loading, multi-candidate `srcset`
+and `<picture>` stay rejected. Acceptance is pending; this decision alone does
+not extend the implemented contract.
+
 ## Chromium parity: private line-flow consumers (2026-10-09)
 
 A borrowed, crate-private `LineFlow` is the entry point for committed-line
