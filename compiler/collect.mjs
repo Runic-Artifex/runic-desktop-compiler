@@ -1179,11 +1179,11 @@ function checkRules(css, file) {
         `Unsupported CSS declaration content: ${decl.value}: Blitz generates strings only (quotes, counters, attr() and images are not supported)`,
         { file, line: decl.source.start.line, column: decl.source.start.column },
       );
-    // Blitz transforms text to upper and lower case only (docs/BLITZ-GAPS.md).
-    if (decl.prop === 'text-transform' && /capitalize|full-width|full-size-kana/.test(decl.value))
+    // Blitz transforms the case of text only (docs/BLITZ-GAPS.md).
+    if (decl.prop === 'text-transform' && /full-width|full-size-kana/.test(decl.value))
       throw new Diagnostic(
         'E_CSS_PROPERTY',
-        `Unsupported CSS declaration text-transform: ${decl.value}: Blitz lays text out in upper or lower case only (uppercase, lowercase and none are supported)`,
+        `Unsupported CSS declaration text-transform: ${decl.value}: Blitz transforms the case of text only (none, capitalize, uppercase and lowercase are supported)`,
         { file, line: decl.source.start.line, column: decl.source.start.column },
       );
     if (SVG_PAINT_CSS.test(decl.prop) && mayHoldUrl(decl.value, values))

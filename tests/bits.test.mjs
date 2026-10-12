@@ -616,19 +616,30 @@ test('svelte contexts with string keys, getter objects, bound optional props, ca
     },
     async root => assert.rejects(lowered(root), failWith('E_TEMPLATE', 'App.svelte', /undefined/)),
   );
-  // Blitz transforms text to upper and lower case only.
+  // Blitz lays text out capitalized (Chromium's word starts and titlecase),
+  // upper and lower case, but not in full-width or full-size kana forms.
   await withApp(
     {
       'style.css': '.c { text-transform: capitalize; }\n',
       'App.svelte': '<p class="c">a</p>\n',
     },
-    async root =>
-      assert.rejects(lowered(root), e => {
-        assert.equal(e.code, 'E_CSS_PROPERTY');
-        assert.match(e.message, /capitalize/);
-        return true;
-      }),
+    async root => {
+      await lowered(root);
+    },
   );
+  for (const value of ['full-width', 'capitalize full-size-kana'])
+    await withApp(
+      {
+        'style.css': `.c { text-transform: ${value}; }\n`,
+        'App.svelte': '<p class="c">a</p>\n',
+      },
+      async root =>
+        assert.rejects(lowered(root), e => {
+          assert.equal(e.code, 'E_CSS_PROPERTY');
+          assert.match(e.message, /full-(width|size-kana)/);
+          return true;
+        }),
+    );
 });
 
 test("svelte's hasContext in modules: whether the instance or a parent set the key", async () => {

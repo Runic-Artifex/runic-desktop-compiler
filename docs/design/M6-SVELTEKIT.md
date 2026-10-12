@@ -207,7 +207,7 @@ Every page also renders all of its own previews (`<ComponentPreview name>`). For
 | toggle | 5 | demo, outline, with-text, disabled | sizes |
 | tabs | 5 | demo, line, vertical, disabled | icons |
 | avatar | 9 | none | all 9 (every avatar demo uses `Avatar.Image`, rejected; `avatar-dropdown` is an overlay) |
-| toggle-group | 7 | demo, outline, spacing (without its `capitalize` labels), vertical | sizes, disabled, font-weight-selector |
+| toggle-group | 7 | demo, outline, spacing, vertical | sizes, disabled, font-weight-selector |
 | accordion | 6 | demo, multiple, disabled, borders | basic, card |
 | collapsible | 4 | demo | basic, settings, file-tree |
 
