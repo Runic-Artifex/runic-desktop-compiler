@@ -49,15 +49,12 @@
 //   tailwindcss (the repository's, at the site's lockfile versions). The
 //   packages the stylesheet imports are copied into the host's node_modules/,
 //   so the font files are inside the application (the collector's asset
-//   rule). Every byte of app.css is the site's except its code-block rules:
-//   the rules all of whose selectors need an attribute rehype-pretty-code
-//   writes on highlighted code (`[data-line]`, `[data-rehype-pretty-code-
-//   figure]`, …), which style the docs' code blocks and ComponentPreview's
-//   code panel only. No file of a host names those attributes (checked per
-//   host; the code panel, which hideCode removes, is skipped), so they style
-//   nothing there; they are left out and listed (stylesheet.leftOut), because
-//   the collector rejects two of their declarations (`content:
-//   counter(line)`, `position: sticky`) for the whole stylesheet;
+//   rule). Every byte of app.css is the site's. Rules the compiler would
+//   reject that no element of a host can match (the code-block rules for
+//   the attributes rehype-pretty-code writes on the docs' highlighted code,
+//   `[data-line]`, …; the `step` utility) are left out by the compiler on
+//   proof (docs/CONTRACT.md, rules no element can match) and listed with
+//   each result (skippedRules; census.skippedRules says why);
 // - <html lang> and <body>'s attributes from docs/src/app.html (classes
 //   `theme-blue style-vega … font-sans text-foreground antialiased`) and its
 //   `<div style="display: contents">` container;
@@ -116,7 +113,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registerHooks } from 'node:module';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import postcss from 'postcss';
 import {
   readFileSync,
   writeFileSync,
@@ -155,9 +151,14 @@ if (values.one) {
     const graph = await collect(values.one);
     // Pinning images is the explicit networked step (`runic images`), never
     // part of the census: the URLs a lowered example needs are recorded.
-    const { imageUrls = [] } = await lower(graph, { images: false });
+    const { imageUrls = [], skippedRules = [] } = await lower(graph, { images: false });
     const urls = [...new Set(imageUrls.map(u => u.url))].sort();
-    result = { status: 'lowered', ...(urls.length ? { imageUrls: urls } : {}) };
+    result = {
+      status: 'lowered',
+      ...(urls.length ? { imageUrls: urls } : {}),
+      // Rules the compiler left out because no element can match them.
+      ...(skippedRules.length ? { skippedRules } : {}),
+    };
   } catch (e) {
     result =
       e instanceof Diagnostic
@@ -387,40 +388,8 @@ if (cssImports.join() !== expectedImports.join())
   throw new Error(`${siteCss} imports ${cssImports.join(', ')}; the hosts expect ${expectedImports}`);
 const vegaFile = path.join(lib, 'registry/styles/style-vega.css');
 siteText(path.relative(checkout, vegaFile));
-/**
- * The site's code-block styles: the attributes rehype-pretty-code writes on
- * the highlighted code of the docs' markdown and of ComponentPreview's code
- * panel. A rule of the stylesheet all of whose selectors need one of them
- * styles that code only; the example's view contains none (each host checks
- * that none of its files names these attributes), so those rules are left
- * out of the host's copy, each recorded. Every other byte is the site's.
- */
-const codeAttributes = [
-  'data-rehype-pretty-code-figure',
-  'data-rehype-pretty-code-title',
-  'data-line-numbers',
-  'data-line',
-  'data-highlighted-line',
-  'data-highlighted-chars',
-  'data-language',
-];
-const codeAttribute = new RegExp(`(${codeAttributes.map(escapeRe).join('|')})(?![\\w-])`);
-const leftOutRules = [];
-const hostCss = (() => {
-  const root = postcss.parse(siteCssText, { from: siteCss });
-  root.walkRules(rule => {
-    if (rule.parent?.type === 'rule') return;
-    const needs = sel =>
-      [...sel.matchAll(/\[\s*(data-[\w-]+)/g)].some(m => codeAttributes.includes(m[1]));
-    if (!rule.selectors.every(needs)) return;
-    leftOutRules.push({
-      line: rule.source.start.line,
-      selector: rule.selector.replace(/\s+/g, ' '),
-    });
-    rule.remove();
-  });
-  return root.toString();
-})();
+// The host's stylesheet is the site's, byte for byte.
+const hostCss = siteCssText;
 
 // The versions docs/ locks (pnpm-lock.yaml, importer `docs`) and, for the
 // packages the hosts copy, their integrity.
@@ -908,21 +877,6 @@ async function copyLib(dir, name, tooltip) {
     if (shaFile(path.join(lib, f)) !== shaFile(copy))
       throw new Error(`copied ${f} differs from the corpus`);
   }
-  // The code-block rules left out of the stylesheet style none of the host's
-  // elements (ComponentPreview's code panel, which hideCode leaves out, names
-  // them in its classes).
-  for (const f of globSync('src/**/*.{svelte,ts,js}', { cwd: dir })) {
-    let text = readFileSync(path.join(dir, f), 'utf8');
-    if (f === 'src/lib/components/component-preview-tabs.svelte') {
-      const panel = text.lastIndexOf('{#if !hideCode}');
-      const end = text.lastIndexOf('{/if}');
-      if (panel < 0 || end < panel || !/^\{\/if\}\s*<\/div>\s*$/.test(text.slice(end)))
-        throw new Error(`${f}: the code panel is not the last block`);
-      text = text.slice(0, panel) + text.slice(end + 5);
-    }
-    const m = codeAttribute.exec(text);
-    if (m) throw new Error(`${f} names ${m[1]}, which the site's left-out code-block rules style`);
-  }
   return {
     files: rel.length,
     missing,
@@ -1150,6 +1104,24 @@ for (const r of results)
     const k = `${m.from} -> ${m.spec}`;
     (misses[k] ??= { ...m, examples: [] }).examples.push(r.example);
   }
+// The rules left out (results' skippedRules), by selector: where, the
+// rejections they would have been (one per rejected declaration), why no
+// element can match them, in which examples.
+const skippedRules = {};
+for (const r of results)
+  for (const k of r.skippedRules ?? []) {
+    const e = (skippedRules[k.selector] ??= {
+      file: k.file,
+      line: k.line,
+      code: k.code,
+      messages: [],
+      reasons: [],
+      examples: [],
+    });
+    if (!e.messages.includes(k.message)) e.messages.push(k.message);
+    if (!e.reasons.includes(k.reason)) e.reasons.push(k.reason);
+    if (!e.examples.includes(r.example)) e.examples.push(r.example);
+  }
 const census = {
   generated: 'node conformance/triage.mjs',
   ...(values['dynamic-values'] ? { dynamicValues: true } : {}),
@@ -1169,11 +1141,8 @@ const census = {
       stylesheet: {
         from: siteCss,
         sha256: sha(hostCss),
-        leftOut: {
-          why: "rules all of whose selectors need an attribute rehype-pretty-code writes on the docs' highlighted code (the markdown's code blocks and ComponentPreview's code panel); no file of a host names one (checked per host)",
-          attributes: codeAttributes,
-          rules: leftOutRules,
-        },
+        unchanged:
+          "byte-identical to the site's; rules the compiler would reject that no element of a host can match are left out by the compiler (each result's skippedRules, census.skippedRules)",
       },
       body: bodyAttributes,
       html: htmlAttributes,
@@ -1208,13 +1177,16 @@ const census = {
     internalError: results.filter(r => r.status === 'internalError').length,
     withClosureMisses: results.filter(r => r.closureMisses?.length).length,
     withTransformedFiles: results.filter(r => r.iconTransform?.transformed.length).length,
+    withSkippedRules: results.filter(r => r.skippedRules?.length).length,
   },
   seconds: Math.round((Date.now() - t0) / 1000),
   clusters: Object.values(clusters).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),
   errors: Object.values(errors).sort((a, b) => b.count - a.count || a.key.localeCompare(b.key)),
   closureMisses: Object.values(misses),
-  results: results.map(({ stack, crash, ...r }) => ({
+  skippedRules,
+  results: results.map(({ stack, crash, skippedRules, ...r }) => ({
     ...r,
+    ...(skippedRules ? { skippedRules: [...new Set(skippedRules.map(k => k.selector))] } : {}),
     ...(crash ? { crash } : {}),
     ...(stack ? { stack } : {}),
   })),
