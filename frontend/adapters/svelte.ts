@@ -1131,8 +1131,11 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           s += '}\n';
         } else if (n.type === 'EachBlock') {
           s += 'for (const ';
-          u.starts.set(n.context, s.length);
-          copy(n.context.start, n.context.end);
+          // `{#each items, i}` and `{#each items}` bind no item (context null).
+          if (n.context) {
+            u.starts.set(n.context, s.length);
+            copy(n.context.start, n.context.end);
+          } else s += '__runicEachItem';
           s += ' of ';
           inline(n.expression);
           s += ') {\n';
@@ -4278,16 +4281,17 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       const items = value(itemsNode);
       const itemType = arrayElement(lower.irType(items, tb));
       if (!itemType) return fail('E_TEMPLATE', '{#each} requires an array', loc(n));
-      let pattern = nodeAt(n.context);
-      if (ts.isVariableDeclaration(pattern)) pattern = pattern.name;
-      const item = tb.local(ts.isIdentifier(pattern) ? pattern.text : '$item', itemType);
-      if (ts.isIdentifier(pattern))
+      // `{#each items, i}` / `{#each items}`: no item binding.
+      let pattern = n.context ? nodeAt(n.context) : undefined;
+      if (pattern && ts.isVariableDeclaration(pattern)) pattern = pattern.name;
+      const item = tb.local(pattern && ts.isIdentifier(pattern) ? pattern.text : '$item', itemType);
+      if (pattern && ts.isIdentifier(pattern))
         lower.bindings.set(checker.getSymbolAtLocation(pattern)!, {
           kind: 'local',
           owner: tb,
           local: item,
         });
-      else {
+      else if (pattern) {
         // `{#each items as { id, name: label, inner: { x } }}`: fields of the item.
         const destructure = (p: ts.BindingName, type: Type, path: number[]) => {
           if (!ts.isObjectBindingPattern(p) || typeof type !== 'object' || !('record' in type))
