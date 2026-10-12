@@ -1,6 +1,6 @@
 {
  "generated": "node conformance/triage.mjs --jobs 4",
- "compiler": "fd37b1c",
+ "compiler": "52018cc",
  "corpus": {
   "name": "shadcn-svelte",
   "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
@@ -9,7 +9,7 @@
   "unmodified": "git status of the checkout is clean before and after the run"
  },
  "iconTransform": {
-  "source": ".cache/corpus/shadcn-svelte/packages/cli/src/utils/transformers/transform-icons.ts",
+  "source": "../../../.cache/corpus/shadcn-svelte/packages/cli/src/utils/transformers/transform-icons.ts",
   "sha256": "8a4e8f2d44cac19989fa4a4174fca37b7ff62d27a13ae3ff07750db3fdf12935",
   "iconLibrary": "lucide"
  },
@@ -23,8 +23,8 @@
  },
  "totals": {
   "examples": 404,
-  "lowered": 173,
-  "rejected": 231,
+  "lowered": 209,
+  "rejected": 195,
   "harnessError": 0,
   "internalError": 0,
   "withClosureMisses": 0,
@@ -49,11 +49,21 @@
   "alert-dialog-small",
   "alert-dialog-small-media",
   "attachment-sizes",
+  "attachment-states",
+  "attachment-trigger",
   "badge-colors",
   "badge-demo",
   "badge-icon",
   "badge-link",
+  "badge-spinner",
   "badge-variants",
+  "bubble-alignment",
+  "bubble-collapsible",
+  "bubble-demo",
+  "bubble-group-demo",
+  "bubble-popover",
+  "bubble-tooltip",
+  "bubble-variants",
   "button-default",
   "button-demo",
   "button-destructive",
@@ -68,6 +78,7 @@
   "button-group-split-demo",
   "button-icon",
   "button-link",
+  "button-loading",
   "button-outline",
   "button-rounded",
   "button-secondary",
@@ -101,6 +112,7 @@
   "input-grid",
   "input-group-block-end",
   "input-group-block-start",
+  "input-group-button-group-demo",
   "input-group-custom-input-demo",
   "input-group-demo",
   "input-group-dropdown-demo",
@@ -109,18 +121,33 @@
   "input-group-inline-start",
   "input-group-kbd",
   "input-group-label-demo",
+  "input-group-spinner-demo",
   "input-group-text-demo",
   "input-group-tooltip-demo",
   "input-inline",
   "input-input-group",
   "input-invalid",
   "input-required",
+  "item-demo",
+  "item-icon-demo",
+  "item-link-demo",
+  "item-size-demo",
+  "item-variants-demo",
   "kbd-button-demo",
   "kbd-demo",
   "kbd-group-demo",
   "kbd-input-group-demo",
   "kbd-tooltip-demo",
   "label-demo",
+  "marker-border",
+  "marker-demo",
+  "marker-icon",
+  "marker-separator",
+  "marker-shimmer",
+  "marker-status",
+  "marker-variants",
+  "message-actions",
+  "message-header-footer",
   "popover-basic",
   "popover-demo",
   "popover-form",
@@ -146,6 +173,7 @@
   "shimmer-color",
   "shimmer-demo",
   "shimmer-duration",
+  "shimmer-marker",
   "shimmer-none",
   "shimmer-once",
   "shimmer-rtl",
@@ -155,7 +183,15 @@
   "skeleton-demo",
   "skeleton-form",
   "skeleton-text",
+  "spinner-badge-demo",
+  "spinner-button-demo",
+  "spinner-color-demo",
   "spinner-custom-demo",
+  "spinner-demo",
+  "spinner-empty-demo",
+  "spinner-input-group-demo",
+  "spinner-item-demo",
+  "spinner-size-demo",
   "switch-choice-card",
   "switch-demo",
   "switch-description",
@@ -208,13 +244,15 @@
  "clusters": [
   {
    "code": "E_TEMPLATE",
-   "count": 18,
+   "count": 27,
    "message": "<img> is outside the supported elements",
    "location": "docs/src/lib/registry/examples/aspect-ratio-demo.svelte:7",
    "examples": [
     "aspect-ratio-demo",
     "aspect-ratio-portrait",
     "aspect-ratio-square",
+    "attachment-demo",
+    "attachment-image",
     "avatar-badge",
     "avatar-badge-icon",
     "avatar-basic",
@@ -228,8 +266,15 @@
     "dropdown-menu-avatar",
     "empty-avatar-demo",
     "empty-avatar-group-demo",
+    "item-avatar-demo",
+    "item-dropdown-demo",
+    "item-group-demo",
+    "item-header-demo",
+    "item-image-demo",
+    "message-attachment",
     "message-avatar",
-    "message-demo"
+    "message-demo",
+    "message-group"
    ]
   },
   {
@@ -273,64 +318,6 @@
     "field-textarea",
     "radio-group-fieldset",
     "radio-group-invalid"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 12,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/ui/item/item.svelte:46",
-   "examples": [
-    "item-avatar-demo",
-    "item-demo",
-    "item-dropdown-demo",
-    "item-group-demo",
-    "item-header-demo",
-    "item-icon-demo",
-    "item-image-demo",
-    "item-link-demo",
-    "item-size-demo",
-    "item-variants-demo",
-    "spinner-demo",
-    "spinner-item-demo"
-   ]
-  },
-  {
-   "code": "E_PACK",
-   "count": 11,
-   "message": "@lucide/svelte@1.52.0 pack: spread attributes on Loader2Icon are not covered",
-   "location": "docs/src/lib/registry/ui/spinner/spinner.svelte:20",
-   "examples": [
-    "attachment-demo",
-    "attachment-states",
-    "badge-spinner",
-    "button-loading",
-    "input-group-spinner-demo",
-    "spinner-badge-demo",
-    "spinner-button-demo",
-    "spinner-color-demo",
-    "spinner-empty-demo",
-    "spinner-input-group-demo",
-    "spinner-size-demo"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 11,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/ui/bubble/bubble-content.svelte:15",
-   "examples": [
-    "bubble-alignment",
-    "bubble-collapsible",
-    "bubble-demo",
-    "bubble-group-demo",
-    "bubble-popover",
-    "bubble-tooltip",
-    "bubble-variants",
-    "message-actions",
-    "message-attachment",
-    "message-group",
-    "message-header-footer"
    ]
   },
   {
@@ -401,22 +388,6 @@
    ]
   },
   {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 8,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/ui/marker/marker.svelte:37",
-   "examples": [
-    "marker-border",
-    "marker-demo",
-    "marker-icon",
-    "marker-separator",
-    "marker-shimmer",
-    "marker-status",
-    "marker-variants",
-    "shimmer-marker"
-   ]
-  },
-  {
    "code": "E_RESOLVE",
    "count": 7,
    "message": "Cannot resolve @tabler/icons-svelte/icons/check",
@@ -446,10 +417,10 @@
    ]
   },
   {
-   "code": "E_TYPE_UNSUPPORTED",
+   "code": "E_TEMPLATE",
    "count": 6,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/ui/breadcrumb/breadcrumb-link.svelte:14",
+   "message": "A link whose href may come from spread attributes is not supported; pass href explicitly",
+   "location": "docs/src/lib/registry/ui/breadcrumb/breadcrumb-link.svelte:28",
    "examples": [
     "breadcrumb-basic",
     "breadcrumb-demo",
@@ -621,16 +592,6 @@
    "examples": [
     "dark-mode-dropdown-menu",
     "dark-mode-light-switch"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 2,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/ui/attachment/attachment-trigger.svelte:16",
-   "examples": [
-    "attachment-image",
-    "attachment-trigger"
    ]
   },
   {
@@ -841,21 +802,21 @@
    ]
   },
   {
-   "code": "E_TYPE_UNION",
-   "count": 1,
-   "message": "Union false | true | \"false\" | \"true\" is outside the value model: values of several members reach it (false at src/lib/registry/examples/combobox-custom.svelte:1, true at src/lib/registry/examples/combobox-custom.svelte:1); compiling per member is not supported yet",
-   "location": "docs/src/lib/registry/ui/item/item.svelte:46",
-   "examples": [
-    "combobox-custom"
-   ]
-  },
-  {
    "code": "E_TYPE_UNSUPPORTED",
    "count": 1,
    "message": "A value that is always null has no useful type",
    "location": "docs/src/lib/registry/examples/combobox-basic.svelte:12",
    "examples": [
     "combobox-basic"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 1,
+   "message": "A value that is always null has no useful type",
+   "location": "docs/src/lib/registry/examples/combobox-custom.svelte:36",
+   "examples": [
+    "combobox-custom"
    ]
   },
   {
@@ -946,15 +907,6 @@
    "location": "docs/src/lib/registry/examples/scroll-fade-size.svelte:2",
    "examples": [
     "scroll-fade-size"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/ui/button-group/button-group-text.svelte:15",
-   "examples": [
-    "input-group-button-group-demo"
    ]
   }
  ]
