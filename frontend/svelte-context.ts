@@ -1,6 +1,6 @@
-// svelte's setContext and getContext with string literal keys, imported in
-// modules (a component's `<script module>`: shadcn-svelte's toggle group
-// shares its variant through `setContext("toggleGroup", props)`).
+// svelte's setContext, getContext and hasContext with string literal keys,
+// imported in modules (a component's `<script module>`: shadcn-svelte's
+// toggle group shares its variant through `setContext("toggleGroup", props)`).
 //
 // A string key is one context program-wide (the IR key `string:<key>`,
 // apart from runed's Context keys). Its value type is what the program
@@ -10,17 +10,20 @@
 // no parent set one Svelte returns undefined: a call TypeScript types as
 // nullable gives undefined there, one it types as the value
 // (`getContext<Required<…>>`) throws RunicUnsupportedError, since the value
-// type cannot hold undefined. Other keys (symbols, objects, computed
+// type cannot hold undefined. `hasContext(key)` is whether getContext finds a
+// value (rejected where the value type can hold undefined, which hasContext
+// tells apart from no value). Other keys (symbols, objects, computed
 // strings), other svelte exports and the instance-script imports are
 // rejected.
 import ts from 'typescript';
 import type { Expr, Type } from './ir.ts';
 import { skipParens, type Binding, type FnBuilder, type Lowerer } from './language.ts';
 
-const EXPORTS = ['setContext', 'getContext'];
+const EXPORTS = ['setContext', 'getContext', 'hasContext'];
+const CALLS = { setContext, getContext, hasContext } as const;
 
 /**
- * Bind `import { setContext, getContext } from 'svelte'` in a module; the
+ * Bind `import { setContext, getContext, hasContext } from 'svelte'` in a module; the
  * names in `elsewhere` are bound by the caller.
  */
 export function svelteContextImport(
@@ -31,7 +34,7 @@ export function svelteContextImport(
   const clause = stmt.importClause;
   const named = clause?.namedBindings;
   if (!clause || clause.name || !named || !ts.isNamedImports(named))
-    lower.fail(stmt, 'E_CAPABILITY', 'Import setContext and getContext from svelte by name');
+    lower.fail(stmt, 'E_CAPABILITY', `Import ${EXPORTS.join(', ')} from svelte by name`);
   for (const el of (named as ts.NamedImports).elements) {
     if (el.isTypeOnly) continue;
     const imported = (el.propertyName ?? el.name).text;
@@ -47,7 +50,7 @@ export function svelteContextImport(
     const binding: Binding = {
       kind: 'pack',
       label: `svelte's ${imported}`,
-      call: imported === 'setContext' ? setContext : getContext,
+      call: CALLS[imported as keyof typeof CALLS],
     };
     lower.bindings.set(sym!, binding);
   }
@@ -66,6 +69,11 @@ const setTypes = new WeakMap<Lowerer, Map<string, Type | null>>();
 
 /** The type every `setContext(key, v)` of the program sets. */
 function valueType(key: string, at: ts.Node, lower: Lowerer): Type {
+  return setType(key, lower) ?? lower.fail(at, 'E_CAPABILITY', `The context "${key}" is never set`);
+}
+
+/** The type every `setContext(key, v)` of the program sets; null where none does. */
+function setType(key: string, lower: Lowerer): Type | null {
   let known = setTypes.get(lower);
   if (!known) setTypes.set(lower, (known = new Map()));
   if (!known.has(key)) {
@@ -96,7 +104,7 @@ function valueType(key: string, at: ts.Node, lower: Lowerer): Type {
     }
     known.set(key, type ?? null);
   }
-  return known.get(key) ?? lower.fail(at, 'E_CAPABILITY', `The context "${key}" is never set`);
+  return known.get(key) ?? null;
 }
 
 /** Whether `id` names svelte's export `name`. */
@@ -174,6 +182,43 @@ function getContext(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr
   }
   void b;
   return { op: 'call', function: fn, args: [] };
+}
+
+/**
+ * `hasContext(key)`: whether the instance or a parent set the key. Svelte
+ * looks the key up in the same map as getContext, so it is whether
+ * getContext finds a value, where the set value type cannot hold undefined
+ * (a set undefined is a value to hasContext). A key nothing in the program
+ * sets is never there.
+ */
+function hasContext(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
+  if (node.arguments.length !== 1) lower.fail(node, 'E_CAPABILITY', 'hasContext takes a key');
+  const key = keyOf(node, lower, 'hasContext');
+  const t = setType(key, lower);
+  void b;
+  if (t === null) return { op: 'lit', value: false };
+  if (typeof t === 'object' && 'maybe' in t)
+    lower.fail(
+      node,
+      'E_CAPABILITY',
+      `hasContext("${key}"): the context is set with values that may be undefined, which hasContext tells apart from no value`,
+    );
+  return {
+    op: 'not',
+    arg: {
+      op: 'builtin',
+      name: 'maybe.is-undefined',
+      args: [
+        {
+          op: 'builtin',
+          name: 'context.get',
+          args: [{ op: 'lit', value: `string:${key}` }],
+          type: { maybe: t },
+        },
+      ],
+      type: 'boolean',
+    },
+  };
 }
 
 /** The functions reading a context whose value must be present, by key (per program). */

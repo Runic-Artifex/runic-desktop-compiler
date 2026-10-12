@@ -4,20 +4,19 @@ Part of the [gap register](../GAPS.md). Locations as of commit `9add179` (2026-1
 
 ## Packages without a pack or source entry (L1)
 
-A package import is `E_DEPENDENCY` unless a mapping pack covers it or it is compiled from source (`frontend/sources.ts`: bits-ui 2.19.2 only). Exact versions only (`E_SOURCE_VERSION`, `E_PACK_VERSION`).
+A package import is `E_DEPENDENCY` unless a mapping pack covers it or it is compiled from source (`frontend/sources.ts`: bits-ui 2.19.2 and svelte-sonner 1.2.1). A package compiled from source must declare `"sideEffects": false`; one that does not is rejected with that reason (`E_DEPENDENCY`). Exact versions only (`E_SOURCE_VERSION`, `E_PACK_VERSION`).
 
 | Package | Imports in the shadcn-svelte site (scan) | Needed by | Notes |
 |---|---|---|---|
-| `@tabler/icons-svelte` | 119 | site icons | Icon pack like lucide's |
-| `layerchart`, `d3-scale`, `d3-shape` | 100, 75, 47 | charts | Large; SVG text and gradients (P1) |
+| `layerchart`, `d3-scale`, `d3-shape` | 100, 75, 47 | charts | Large; SVG text and gradients (P1). Installed since 2026-10-12: the chart-bar examples stop before lowering at `E_CSS_ORDER` (split stylesheet order), a diagnostic without a source location |
 | `@internationalized/date` | 63 | calendar, date pickers | Planned M6 pack |
 | `@tanstack/svelte-table` | 26 | data table | |
-| `svelte-sonner` | 21 | toasts, site shell | |
+| `svelte-sonner` 1.2.1 (source) | 21 | toasts, site shell | Compiled from source since 2026-10-12; the sonner examples stop at `Object.assign(basicToast, {…})` typed `any` (toast-state.svelte.js:290, V2). Its nested runed is 0.28.0, which has no pack (runed's pack is 0.35.1) |
 | `shadcn-svelte` (workspace) | 16 | site | |
-| `mode-watcher` | 14 | site shell | cookies/localStorage, media queries |
+| `mode-watcher` 1.1.0 | 14 | site shell | Not `"sideEffects": false`, so a pack (or proof that its module effects are inert); cookies/localStorage, media queries; nested runed and svelte-toolbelt at versions the packs do not pin |
 | `zod` | 10 | forms | probes `eval`; compile its jitless path |
-| `vaul-svelte`, `formsnap`, `paneforge`, `sveltekit-superforms` | 9, 8, 6, 5 | drawer, forms, resizable | |
-| `@hugeicons/*`, `@dnd-kit*`, `embla*`, `chrono-node`, `little-date`, `package-manager-detector`, `lodash`, `qrcode`, `@shadcn-svelte/parity` | 7, 8, 3, 2, 2, 3, … | various | `shiki` is generation-only |
+| `vaul-svelte` 1.0.0-next.7, `formsnap`, `paneforge` 1.0.2, `sveltekit-superforms` | 9, 8, 6, 5 | drawer, forms, resizable | vaul-svelte and paneforge do not declare `"sideEffects": false` (so not compiled from source as published), and vaul-svelte ships no declarations for `use-drawer-content`/`use-drawer-root`; their nested runed and svelte-toolbelt versions differ from the packs' pins. sveltekit-superforms (form-demo) imports `$app/stores` (`E_KIT_IMPORT`, F2) |
+| `@hugeicons/*`, `@dnd-kit*`, `embla*` (the carousel; it is also blocked by its `Symbol` context key and `use:`, F1), `chrono-node`, `little-date`, `package-manager-detector`, `lodash`, `qrcode`, `@shadcn-svelte/parity` | 7, 8, 3, 2, 2, 3, … | various | `shiki` is generation-only |
 | bits-ui 2.19.5 (the editor's version) | — | Translations Editor | Add the version |
 | Site pins not matched by packs: `@lucide/svelte` 1.27.0, runed 0.37.1, tailwind-variants 3.3.0, tailwind-merge 3.6.0 | — | the site as pinned | Checked identities and vectors (M7 prerequisite) |
 | React: Radix UI, lucide-react, class-variance-authority, `react-hook-form`, … | — | shadcn/ui examples (M7) | Nothing started |

@@ -26,6 +26,7 @@ import { pathToFileURL } from 'node:url';
 import { Diagnostic } from '../collect.mjs';
 import { at, manifestOf, readSvelteConfig } from './kit.mjs';
 import { preprocessed } from '../generate.mjs';
+import { svelteRunes } from './tooling.mjs';
 
 const [root, out] = process.argv.slice(2);
 const runic = JSON.parse(readFileSync(path.join(root, 'runic.json'), 'utf8'));
@@ -101,7 +102,10 @@ async function main() {
     logLevel: 'error',
     appType: 'custom',
     server: { middlewareMode: true, hmr: false, watch: null },
-    plugins: [plugin, svelte({ configFile: false, compilerOptions: { runes: true, dev: false } })],
+    plugins: [
+      plugin,
+      svelte({ configFile: false, compilerOptions: { runes: svelteRunes, dev: false } }),
+    ],
   });
   const load = async file => server.ssrLoadModule(path.resolve(root, file));
   const modules = new Map();

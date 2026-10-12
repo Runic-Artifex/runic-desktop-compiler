@@ -24,6 +24,8 @@ export interface SourcePackage {
 export const SOURCE_PACKAGES: readonly SourcePackage[] = [
   // The north star's component library (the shadcn-svelte site's lockfile pin).
   { name: 'bits-ui', version: '2.19.2' },
+  // Toasts (shadcn-svelte's Sonner; the site's lockfile pin).
+  { name: 'svelte-sonner', version: '1.2.1' },
 ];
 
 /** Whether `name@version` is compiled from source. */

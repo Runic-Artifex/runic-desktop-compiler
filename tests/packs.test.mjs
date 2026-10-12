@@ -564,3 +564,207 @@ test('packages without a pack, other versions and uncovered shapes are rejected 
     );
   assert.deepEqual(wrong, []);
 });
+
+// @tabler/icons-svelte 3.40.0: legacy-mode components the pack expands. The
+// oracle is the real package: its icon files and Icon.svelte compiled by
+// Svelte (in the legacy mode Svelte infers for them) and rendered by
+// svelte/server with the same props.
+const TABLER = 'node_modules/@tabler/icons-svelte/dist';
+
+/** The <svg> of `icon` rendered by the package with `props`: attributes and children. */
+async function tablerRendered(icon, props) {
+  const { compile } = await import('svelte/compiler');
+  const { render } = await import('svelte/server');
+  await mkdir('.cache/tests', { recursive: true });
+  const dir = await mkdtemp(path.resolve('.cache/tests/tabler-'));
+  try {
+    const build = (file, out, from, to) => {
+      const r = compile(readFileSync(file, 'utf8'), { filename: file, generate: 'server' });
+      assert.equal(r.metadata.runes, false, `${file} is legacy-mode Svelte`);
+      return writeFile(path.join(dir, out), r.js.code.replace(from, to));
+    };
+    await build(
+      `${TABLER}/Icon.svelte`,
+      'Icon.js',
+      "'./defaultAttributes'",
+      "'./defaultAttributes.js'",
+    );
+    await cp(`${TABLER}/defaultAttributes.js`, path.join(dir, 'defaultAttributes.js'));
+    await build(`${TABLER}/icons/${icon}.svelte`, 'icon.js', "'../Icon.svelte'", "'./Icon.js'");
+    const C = (await import(path.join(dir, 'icon.js'))).default;
+    const html = render(C, { props }).body.replace(/<!--[^]*?-->/g, '');
+    const tags = [...html.matchAll(/<([a-z]+)((?:\s+[a-zA-Z:-]+="[^"]*")*)\s*\/?>/g)].map(m => ({
+      tag: m[1],
+      attrs: Object.fromEntries(
+        [...m[2].matchAll(/([a-zA-Z:-]+)="([^"]*)"/g)].map(a => [a[1], a[2]]),
+      ),
+    }));
+    return { attrs: tags[0].attrs, children: tags.slice(1) };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test('tabler icons expand to the inline SVG the package renders', async () => {
+  const source = `<script lang="ts">
+  import IconCheck from '@tabler/icons-svelte/icons/check';
+  import IconStar from '@tabler/icons-svelte/icons/star';
+  import IconStarFilled from '@tabler/icons-svelte/icons/star-filled';
+  import IconBrandJavascript from '@tabler/icons-svelte/icons/brand-javascript';
+  let on = $state(false);
+</script>
+<button id="go" onclick={() => (on = !on)}>go</button>
+<IconCheck id="a" />
+<IconStar id="b" data-favorite={on} class={on ? 'fill-blue-600' : 'size-4'} />
+<IconStarFilled id="c" size={16} color="red" stroke={3} />
+<IconBrandJavascript id="d" size="20" stroke={1.5} color={on ? 'blue' : 'green'} data-icon="inline-start" role="img" aria-label="JS" stroke-linecap="square" />
+`;
+  const sites = on => ({
+    a: ['check', { id: 'a' }],
+    b: ['star', { id: 'b', 'data-favorite': on, class: on ? 'fill-blue-600' : 'size-4' }],
+    c: ['star-filled', { id: 'c', size: 16, color: 'red', stroke: 3 }],
+    d: [
+      'brand-javascript',
+      {
+        id: 'd',
+        size: '20',
+        stroke: 1.5,
+        color: on ? 'blue' : 'green',
+        'data-icon': 'inline-start',
+        role: 'img',
+        'aria-label': 'JS',
+        'stroke-linecap': 'square',
+      },
+    ],
+  });
+  await withApp('svelte', source, async root => {
+    const { ir } = await lowered(root);
+    assert.deepEqual(
+      ir.meta.mappings.map(m => m.id),
+      ['@tabler/icons-svelte@3.40.0'],
+    );
+    const steps = interpret(ir, [{ kind: 'click', id: 'go' }]);
+    for (const [s, on] of [
+      [0, false],
+      [1, true],
+    ])
+      for (const [id, [icon, props]] of Object.entries(sites(on))) {
+        const expected = await tablerRendered(icon, props);
+        const svg = byId(steps[s], id);
+        assert.equal(svg.tag, 'svg');
+        assert.deepEqual(svg.attrs, expected.attrs, `${id} (${on})`);
+        assert.deepEqual(
+          svg.children.map(c => ({ tag: c.tag, attrs: c.attrs })),
+          expected.children,
+          `${id} children`,
+        );
+      }
+    // The class is the package's template string: a trailing space without one.
+    assert.equal(byId(steps[0], 'a').attrs.class, 'tabler-icon tabler-icon-check ');
+  });
+});
+
+test("the tabler pack's defaults are the package's defaultAttributes.js", async () => {
+  const { DEFAULT_ATTRIBUTES } = await import('../frontend/packs/tabler-icons-svelte-3.40.0.ts');
+  const real = (await import(path.resolve(`${TABLER}/defaultAttributes.js`))).default;
+  for (const type of ['outline', 'filled'])
+    assert.deepEqual(
+      DEFAULT_ATTRIBUTES[type],
+      Object.entries(real[type]).map(([k, v]) => [k, String(v)]),
+    );
+});
+
+test('tabler icon uses outside the covered shape are rejected with a location', async () => {
+  const svelte = (script, markup) => `<script lang="ts">\n${script}\n</script>\n${markup}\n`;
+  const check = "import IconCheck from '@tabler/icons-svelte/icons/check';";
+  const cases = [
+    [svelte("import { IconCheck } from '@tabler/icons-svelte';", '<IconCheck />'), /icons\/<name>/],
+    [svelte(check, '<IconCheck width={10} />'), /replaces width on outline icons \(give size\)/],
+    [svelte(check, '<IconCheck stroke-width="3" />'), /give stroke/],
+    [
+      svelte("import S from '@tabler/icons-svelte/icons/star-filled';", '<S fill="red" />'),
+      /replaces fill on filled icons \(give color\)/,
+    ],
+    [svelte(check, '<IconCheck type="filled" />'), /the type prop is not covered/],
+    [svelte(check, '<IconCheck name="x" />'), /the name prop is not covered/],
+    [svelte(`${check}\nconst p = { id: 'x' };`, '<IconCheck {...p} />'), /spread attributes/],
+    [svelte(check, '<IconCheck onclick={() => {}} />'), /listeners/],
+    [svelte(check, '<IconCheck>text</IconCheck>'), /content inside IconCheck is not covered/],
+    [svelte(check, '<IconCheck tabindex={0} />'), /outside the inline SVG allow-list/],
+    [
+      svelte(`${check}\nlet s = $state<number | undefined>(undefined);`, '<IconCheck size={s} />'),
+      /undefined picks the default/,
+    ],
+  ];
+  const wrong = [];
+  for (const [source, pattern] of cases)
+    await withApp('svelte', source, (root, file) =>
+      lowered(root).then(
+        () => wrong.push(`accepted: ${source}`),
+        e =>
+          e instanceof Diagnostic &&
+          e.code === 'E_PACK' &&
+          e.source?.file === file &&
+          e.source.line > 0 &&
+          pattern.test(e.message)
+            ? undefined
+            : wrong.push(`${source}\n  → ${e.code} ${JSON.stringify(e.source)} ${e.message}`),
+      ),
+    );
+  assert.deepEqual(wrong, []);
+});
+
+test('legacy-mode components of a package compiled from source lower only where runes mode means the same', async () => {
+  // A stand-in for a source package (the listed name and version) whose
+  // component has no runes, so Svelte infers legacy mode for it as the
+  // site's build does. One meaning the same in runes mode lowers (bits-ui's
+  // hidden inputs); legacy features are rejected where they stand.
+  const cases = [
+    ['<script>\n  const label = "x";\n</script>\n<p>{label}</p>\n', null],
+    [
+      '<script>\n  export let label = "x";\n</script>\n<p>{label}</p>\n',
+      [2, /legacy_export_invalid/],
+    ],
+    ['<script>\n  let label = "x";\n</script>\n<p>{label}</p>\n', [2, /a `let` declaration/]],
+    ['<p>\n  <slot />\n</p>\n', [2, /slot_element_deprecated/]],
+    ['<p>{$$props.label}</p>\n', [1, /legacy_props_invalid/]],
+  ];
+  for (const [source, rejected] of cases) await legacyCase(source, rejected);
+});
+
+async function legacyCase(source, rejected) {
+  const files = {
+    'node_modules/bits-ui/package.json': JSON.stringify({
+      name: 'bits-ui',
+      version: '2.19.2',
+      type: 'module',
+      sideEffects: false,
+      exports: { '.': { types: './dist/index.d.ts', svelte: './dist/index.js' } },
+    }),
+    'node_modules/bits-ui/dist/index.js': "export { default as Legacy } from './legacy.svelte';\n",
+    'node_modules/bits-ui/dist/index.d.ts':
+      "export { default as Legacy } from './legacy.svelte';\n",
+    'node_modules/bits-ui/dist/legacy.svelte': source,
+    'node_modules/bits-ui/dist/legacy.svelte.d.ts':
+      "import { SvelteComponent } from 'svelte';\nexport default class Legacy extends SvelteComponent<{}> {}\n",
+  };
+  await withApp(
+    'svelte',
+    `<script lang="ts">\n  import { Legacy } from 'bits-ui';\n</script>\n<Legacy />\n`,
+    root =>
+      rejected
+        ? lowered(root).then(
+            () => assert.fail(`accepted ${JSON.stringify(source)}`),
+            e => {
+              failWith(
+                'E_SVELTE_LEGACY',
+                'node_modules/bits-ui/dist/legacy.svelte',
+                rejected[1],
+              )(e);
+              assert.equal(e.source.line, rejected[0], e.message);
+            },
+          )
+        : lowered(root),
+    files,
+  );
+}
