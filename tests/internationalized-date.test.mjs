@@ -333,6 +333,22 @@ test('dates and values the port does not cover are reported unsupported, not app
     assert.equal(new real.CalendarDate(1, 1, 1).subtract({ days: 1 }).era, 'BC');
   }));
 
+test('a local day ending in a gap across midnight is reported, its neighbours are not', () =>
+  // Samoa skipped 2011-12-30: the package's local conversion of that day
+  // starts from the time it runs, the port's from the epoch.
+  inZone('Pacific/Apia', () => {
+    const at = day => new port.CalendarDateTime(2011, 12, day, 12);
+    assert.throws(
+      () => at(30).toDate('Pacific/Apia'),
+      e => e instanceof Unsupported && /daylight-saving gap that crosses midnight/.test(e.message),
+    );
+    for (const day of [29, 31])
+      assert.equal(
+        at(day).toDate('Pacific/Apia').getTime(),
+        new real.CalendarDateTime(2011, 12, day, 12).toDate('Pacific/Apia').getTime(),
+      );
+  }));
+
 const flat = nodes => nodes.flatMap(n => (typeof n === 'string' ? [] : [n, ...flat(n.children)]));
 const textOf = n => (n.children ?? []).map(c => (typeof c === 'string' ? c : textOf(c))).join('');
 

@@ -1039,10 +1039,18 @@ function toAbsolute(
     // matters only where the start's local time of day falls in a gap of
     // the target day that crosses midnight, so that setFullYear moves into
     // the next day: there the package's result depends on when it runs.
-    // The port starts from the epoch, which reads no clock. UTC,
-    // Europe/Berlin and America/New_York have no such gap.)
-    const d = new Date(0);
+    // The port starts from the epoch, which reads no clock, and reports a
+    // target day whose end falls in a gap: exactly the days where some
+    // start moves. UTC, Europe/Berlin and America/New_York have none.)
     const year = getExtendedYear(dateTime.era, dateTime.year);
+    const end = new Date(0);
+    end.setFullYear(year, dateTime.month - 1, dateTime.day);
+    end.setHours(23, 59, 59, 999);
+    if (end.getDate() !== dateTime.day)
+      throw unsupported(
+        'a local date whose day ends in a daylight-saving gap that crosses midnight',
+      );
+    const d = new Date(0);
     d.setFullYear(year, dateTime.month - 1, dateTime.day);
     d.setHours(dateTime.hour, dateTime.minute, dateTime.second, dateTime.millisecond);
     return d.getTime();
