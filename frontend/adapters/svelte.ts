@@ -2892,6 +2892,48 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   // mount(App, { target }) passes no props.
   sites.push({ component: units.get(rootFile!)!.index, values: new Map() });
   /**
+   * Reject a site that passes `key` through the rest props `spread` (followed
+   * through rest props passed on) objects of other fields than the declared
+   * prop's type `want` (an array of `{ value, label }` where items with an
+   * optional `disabled` are expected): the same objects in JavaScript, not
+   * values of the prop's type here, as for a prop passed directly
+   * (`otherRecords`). Records widened to the prop's (`widenRecord`) are its
+   * records. Values TypeScript does not type stay checked at run time
+   * (`attrs.get`).
+   */
+  const checkSpreadRecords = (
+    spread: ts.Expression,
+    key: string,
+    want: Type,
+    prop: string,
+    seen: Set<number>,
+  ): void => {
+    const own = ts.isIdentifier(spread) ? checker.getSymbolAtLocation(spread) : undefined;
+    const component = own && restComponent.get(own);
+    if (component === undefined || seen.has(component)) return;
+    seen.add(component);
+    const wanted = lower.types.widened(maybeInner(want) ?? want);
+    for (const site of sites) {
+      if (site.component !== component) continue;
+      for (let p = site.values.get(key); p; p = 'open' in p ? p.before : undefined) {
+        if ('expr' in p) {
+          const t =
+            lower.types.overridden(p.expr) ??
+            lower.types.tryMap(checker.getTypeAtLocation(p.expr), p.expr);
+          const have = t && lower.types.widened(maybeInner(t) ?? t);
+          if (have && otherRecords(have, wanted, lower.types.records))
+            lower.fail(
+              p.expr,
+              'E_PROPS',
+              `${key} reaches ${prop} through rest props with objects of other fields than its type's (${shownRecords(have, lower.types.records)} for ${shownRecords(wanted, lower.types.records)})`,
+            );
+          break;
+        }
+        if ('open' in p && p.spread) checkSpreadRecords(p.spread, key, want, prop, seen);
+      }
+    }
+  };
+  /**
    * Whether the bag `spread` holds `key` with a value that is not nullish at
    * every instance: it is a component's rest props and each of that
    * component's sites passes `key` (an attribute of a non-nullable type, or
@@ -2945,8 +2987,18 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   // boolean }[]`) take the prop's type, as TypeScript types the literal
   // written in place (`Lowerer.widens`): arrays and objects keep their
   // identity, so the site cannot convert them. Sites passing one constant
-  // to props of different types leave it its own.
+  // to props of different types leave it its own. A constant computed from
+  // other values (shadcn-svelte's select-scrollable: `const items =
+  // timezones.flatMap((group) => group.options)`) holds objects its own
+  // literals made elsewhere: their record becomes the prop's throughout the
+  // program (`TypeMapper.widenRecord`), where it fits.
   const passedTypes = new Map<ts.Symbol, Type | null>();
+  const widenings: [number, number][] = [];
+  const recordPairs = (own: Type, want: Type) => {
+    if (typeof own !== 'object' || typeof want !== 'object') return;
+    if ('array' in own && 'array' in want) recordPairs(own.array, want.array);
+    else if ('record' in own && 'record' in want) widenings.push([own.record, want.record]);
+  };
   for (const u of order)
     walkTemplate(u.ast.fragment, n => {
       if (n.type !== 'Component' || u.packs.has(n.name)) return;
@@ -2965,11 +3017,14 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         )
           continue;
         const init = skipParens(decl.initializer);
-        if (!ts.isArrayLiteralExpression(init) && !ts.isObjectLiteralExpression(init)) continue;
         const ctx = checker.getContextualType(at);
         const want = ctx && lower.types.tryMap(checker.getNonNullableType(ctx), at);
         const own = lower.types.tryMap(checker.getTypeAtLocation(id), id);
         if (!want || !own || !lower.widens(own, want)) continue;
+        if (!ts.isArrayLiteralExpression(init) && !ts.isObjectLiteralExpression(init)) {
+          recordPairs(own, want);
+          continue;
+        }
         const known = passedTypes.get(sym!);
         passedTypes.set(
           sym!,
@@ -2978,6 +3033,9 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       }
     });
   for (const [sym, t] of passedTypes) if (t) lower.types.override(sym, t);
+  // (A record that does not fit, or would become two records, stays: the
+  // site is then rejected where the value reaches the prop, `otherRecords`.)
+  for (const [from, to] of widenings) lower.types.widenRecord(from, to);
   domains.spreadValues = (spread, key) => shapes.values(spread, key);
 
   /** The fragments links may navigate to (checked against the element ids below). */
@@ -4888,8 +4946,15 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             // Plain records of other fields (an array of `{ value, label }`
             // where items with an optional `disabled` are expected): the
             // same objects in JavaScript, not values of the prop's type here.
+            // (Records widened to the prop's are its records, `widenRecord`.)
             const have = lower.irType(v, tb);
-            if (otherRecords(have, want, lower.types.records))
+            if (
+              otherRecords(
+                lower.types.widened(have),
+                lower.types.widened(want),
+                lower.types.records,
+              )
+            )
               fail(
                 'E_PROPS',
                 `${n.name}'s prop ${a.name} is passed objects of other fields than its type's (${shownRecords(have, lower.types.records)} for ${shownRecords(want, lower.types.records)})`,
@@ -5003,6 +5068,13 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             acc = coerceInit(w.explicit, lower.irType(w.explicit, tb), want, lower.types.records);
             continue;
           }
+          checkSpreadRecords(
+            spreads[w.spread].expr,
+            key,
+            want,
+            `${n.name}'s prop ${key}`,
+            new Set(),
+          );
           const bagValue = lower.bagValue(spreads[w.spread].expr, tb);
           const name: Expr = { op: 'lit', value: key };
           acc = {
@@ -5761,6 +5833,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     schedule: { cleanupReadsPrevious: true },
     ...(fragments.list.length ? { fragments: fragments.list } : {}),
   };
+  lower.widenRecords(ir);
   lower.checkStyleSpreads(ir);
   // A bound optional prop the child writes: only present values (`some`),
   // which the parent's variable of the present type can hold.

@@ -145,6 +145,113 @@ export class TypeMapper {
     this.overrides.set(symbol, type);
   }
 
+  /**
+   * Plain records that take a record of more optional fields throughout the
+   * program (`widenRecord`), by record: what they become.
+   */
+  readonly widenedRecords = new Map<number, number>();
+
+  /**
+   * Make plain record `from` record `to` throughout the program, where
+   * `to` has `from`'s fields (names and types) first, in its order, and
+   * only optional ones after them: the values of `from` are then values of
+   * `to` whose other fields are undefined, read at the same field indices.
+   * (A constant computed from other values, passed to a prop declared with
+   * records of more optional fields: shadcn-svelte's select-scrollable,
+   * `timezones.flatMap((group) => group.options)` passed as `items`; the
+   * objects are the same in JavaScript, so the site cannot convert them.)
+   * The IR is rewritten when it is complete (`widenProgram`). False where
+   * the records do not fit, or `from` already becomes another record.
+   */
+  widenRecord(from: number, to: number): boolean {
+    const target = this.widenedTo(to);
+    if (from === target) return true;
+    const a = this.records[from];
+    const w = this.records[target];
+    if (
+      a.class ||
+      w.class ||
+      this.accessors.has(from) ||
+      this.accessors.has(target) ||
+      this.isTuple(from) ||
+      this.isTuple(target) ||
+      a.fields.length > w.fields.length ||
+      a.fields.some(
+        (f, i) =>
+          w.fields[i].name !== f.name ||
+          JSON.stringify(w.fields[i].type) !== JSON.stringify(f.type),
+      ) ||
+      w.fields.slice(a.fields.length).some(f => !(typeof f.type === 'object' && 'maybe' in f.type))
+    )
+      return false;
+    const known = this.widenedRecords.get(from);
+    if (known !== undefined) return this.widenedTo(known) === target;
+    // (A record never becomes one that becomes it.)
+    if (this.widenedTo(target) === from) return false;
+    this.widenedRecords.set(from, target);
+    return true;
+  }
+
+  /** The record `r` becomes (`widenRecord`), or `r`. */
+  widenedTo(r: number): number {
+    const seen = new Set<number>();
+    while (this.widenedRecords.has(r) && !seen.has(r)) {
+      seen.add(r);
+      r = this.widenedRecords.get(r)!;
+    }
+    return r;
+  }
+
+  /** Type `t` with the records it names widened (`widenRecord`). */
+  widened(t: Type): Type {
+    if (!this.widenedRecords.size || typeof t !== 'object') return t;
+    return JSON.parse(
+      JSON.stringify(t, (k, v) =>
+        k === 'record' && typeof v === 'number' ? this.widenedTo(v) : v,
+      ),
+    );
+  }
+
+  /**
+   * Rewrite a complete program for the records widened (`widenRecord`):
+   * every type naming one names its target, and every literal of one is a
+   * literal of the target whose other fields are undefined. (Field reads
+   * keep their indices: the fields come first in the target.) The records
+   * themselves stay, unused.
+   */
+  widenProgram(ir: unknown, absent: (e: { op: 'undefined'; type: Type }) => void): void {
+    if (!this.widenedRecords.size) return;
+    const seen = new Set<object>();
+    const visit = (v: unknown) => {
+      if (!v || typeof v !== 'object' || seen.has(v)) return;
+      seen.add(v);
+      if (Array.isArray(v)) {
+        for (const x of v) visit(x);
+        return;
+      }
+      const o = v as { op?: string; record?: unknown; fields?: unknown[] };
+      if (typeof o.record === 'number' && this.widenedRecords.has(o.record)) {
+        const from = o.record;
+        const to = this.widenedTo(from);
+        if (o.op === 'record' && Array.isArray(o.fields)) {
+          // (Keys the objects lack: undefined only where the key is absent.)
+          for (const f of this.records[to].fields.slice(o.fields.length)) {
+            const e = { op: 'undefined' as const, type: this.widened(f.type) };
+            absent(e);
+            o.fields.push(e);
+          }
+        } else if (o.op !== undefined || Object.keys(o).length !== 1)
+          // (Only types `{ record }` and record literals name plain records.)
+          throw new Error(
+            `widenProgram: record ${from} named by ${JSON.stringify(o).slice(0, 80)}`,
+          );
+        o.record = to;
+      }
+      for (const x of Object.values(o)) visit(x);
+    };
+    visit(ir);
+  }
+
   of(node: ts.Node): Type {
     const o = this.overridden(node);
     if (o) return o;
