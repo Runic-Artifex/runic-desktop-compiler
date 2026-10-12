@@ -1,7 +1,7 @@
 // The shared cargo target directory: one build at a time, and never one that
 // links another working tree's build of this workspace's crates.
 import { spawnSync } from 'node:child_process';
-import { open, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Diagnostic } from './collect.mjs';
 import { repository, targetDir } from './codegen.mjs';
@@ -13,6 +13,8 @@ import { repository, targetDir } from './codegen.mjs';
  */
 export async function withSharedTarget(fn) {
   const lockPath = path.join(targetDir, '.runic-build.lock');
+  // (A fresh clone or a cleaned target has no directory yet.)
+  await mkdir(targetDir, { recursive: true });
   const lock = await acquire(lockPath, Number(process.env.RUNIC_BUILD_WAIT_MS ?? 30 * 60_000));
   try {
     await claim();
