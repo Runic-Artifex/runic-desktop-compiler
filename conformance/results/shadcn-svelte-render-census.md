@@ -1,18 +1,45 @@
 # shadcn-svelte render census (2026-10-12)
 
-The 260 shadcn-svelte `3ef557c` component examples that lower at compiler `868db79` ([example census](shadcn-svelte-census.md)) were each built natively and their first settled frame compared with Chromium 153.0.8010.12 at 800x600. This was done by [`conformance/render-census.mjs`](../render-census.mjs) with the harness's capture, probe, comparison, gates and tolerances. No interactions were run. The compiler, frontend and crates are those of `868db79`; the run's script is at `771d3a4`. Per-example statuses and clusters are in [shadcn-svelte-render-census.json](shadcn-svelte-render-census.json).
+The 253 shadcn-svelte `3ef557c` component examples that lower at compiler `cb93d23` ([example census](shadcn-svelte-census.md)) were each built natively and their first settled frame compared with Chromium 153.0.8010.12 at 800x600. Each example ran in a host that renders it as the site's docs pages do (below). This was done by [`conformance/render-census.mjs`](../render-census.mjs) with the harness's capture, probe, comparison, gates and tolerances. No interactions were run. The run is at `6519107`, which is `cb93d23` plus the example census's results. Per-example statuses and clusters are in [shadcn-svelte-render-census.json](shadcn-svelte-render-census.json).
 
-| Status | Examples |
-|---|---|
-| matches | **186** |
-| differs | 19 |
-| reportsUnsupported | 45 |
-| incomplete | 10 |
-| buildFailed, nativeFailed, notLowered | 0 |
+| Status | Examples | First run (260 examples, fixture theme) |
+|---|---|---|
+| matches | **194** | 186 |
+| differs | 11 | 19 |
+| reportsUnsupported | 48 | 45 |
+| incomplete | 0 | 10 |
+| buildFailed, nativeFailed, notLowered | 0 | 0 |
 
-All 260 still lower and all 260 build.
+All 253 still lower and all 253 build. Every `cn-*` class an example uses now has its rule (the site's stylesheet), so the first run's split by theme coverage is gone: all 253 examples count under `themeStylesAllClasses` in the JSON.
 
 Rerun with `RUNIC_TARGET_DIR=<main tree>/target node conformance/render-census.mjs --jobs 2`. That command uses the default output directory, `artifacts/render-census/`. `--resume` continues an interrupted run, and `--keep-shots <example>` keeps screenshots and traces for diagnosis.
+
+## The site's example view
+
+The census hosts ([`conformance/triage.mjs`](../triage.mjs)) reproduce the site's example view from corpus files:
+
+- `ComponentPreview` sits inside the 11 elements and providers the docs layouts give it.
+- `<html lang="en">` and `<body>` carry `app.html`'s attributes, including `class="group/body theme-blue style-vega … font-sans text-foreground antialiased …"`.
+- The stylesheet is the site's `docs/src/app.css`. The host stylesheet's sha256 is `ffa919d47ca5138920351f87faf55b9a94fb8f803479b5be981a9918471e420f`. It imports tailwindcss, tw-animate-css and shadcn-svelte's `tailwind.css`, and the site's style-vega and theme files.
+- The fonts are Geist Variable 5.2.8 and Geist Mono Variable 5.2.7, embedded as WOFF2 from the site's lockfile versions.
+
+The example census's [`host.siteView`](shadcn-svelte-census.json) lists every file with its sha256, and what the view leaves out and why:
+
+- 13 code-block rules for attributes that only rehype-pretty-code writes, which no host file names (checked per host);
+- the page's other content and the code panel;
+- ModeWatcher and the Toaster, which do not lower;
+- Sidebar.Provider, which reaches `MediaQuery`;
+- the two Tooltip.Provider ancestors, for examples that do not reach the tooltip: without a tooltip in the program its state does not lower.
+
+Two measurement rules changed with the site's view:
+
+- **404 pin.** The site serves no `/avatars/10.png` (`docs/static/avatars/` has 01–05.png). message-avatar and message-demo load it. It is pinned as `{"url": "/avatars/10.png", "status": 404}` in each host's `runic.images.json` and answered with that status on both sides: Chromium from the record, the app from its image table. Both show the avatar's fallback. Chromium's console line for the failed load is a browser diagnostic, as for a remote 404 pin, not an app console line.
+- **Font smoothing.** The body's `antialiased` (`-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale`) is accepted as equivalent. Both renderers draw grayscale coverage only, which is what these values ask for, and Chromium 153 on this machine draws byte-identical pixels with and without them ([M6-CSS](../../docs/research/M6-CSS.md#properties)). Other smoothing values are still reported. Without this, every example stopped at mount on that report.
+
+Images otherwise come from two sources (the user authorised fetching them for this census):
+
+- remote URLs were pinned with `runic images`, one fetch per URL;
+- root-relative paths were copied from the site's `docs/static/`.
 
 ## Protocol
 
@@ -29,73 +56,64 @@ The gates apply to both states.
 | Geometry | Every element with an id is within 2 px per coordinate. |
 | Pixels | The mean absolute error is at most 3/255 over the viewport, and also over the `#demo` region (the element the host mounts the example in). |
 
-The `#demo` region check uses the same tolerance as the viewport check. It is the census's stand-in for a case's pixel regions: a small example cannot pass on the empty page around it.
+The `#demo` region check uses the same tolerance as the viewport check. It is the census's stand-in for a case's pixel regions: a small example cannot pass on the empty page around it. The gates and tolerances are the first run's. Among the matches, the largest `#demo` region error is 2.487/255 and the median is 0.077/255.
 
-Images come from two sources (the user authorised fetching them for this census):
+## Changes against the first run
 
-- remote URLs were pinned with `runic images`, one fetch per URL;
-- root-relative paths were copied from the site's `docs/static/`.
+| Examples | First run → now | Examples and cause |
+|---|---|---|
+| 167 | matches → matches | |
+| 36 | reportsUnsupported → reportsUnsupported | The same report, except for six examples. shimmer-angle, -duration, -none, -rtl and -spread go from `E_FONT` (monospace) to the `.shimmer` report. bubble-variants goes from `E_FONT` to the inline-border report. |
+| 11 | differs → matches | accordion-basic, -borders and -card. Their `--bits-accordion-content-height` is now equal on both sides; in the first run Chromium's value was one line short. That fits the first run's hypothesis, a measurement taken before the web font loaded: the hosts now load the site's fonts. Also avatar-demo, avatar-dropdown, avatar-group, avatar-group-count, avatar-group-count-icon, avatar-size and dropdown-menu-avatar: `cn-avatar` now sizes the avatar, so the percentage-sized image no longer meets the layout gap. Also table-footer. |
+| 8 | incomplete → matches | bubble-tooltip, input-group-label-demo, input-group-tooltip-demo, kbd-tooltip-demo, tooltip-disabled, tooltip-keyboard and tooltip-sides now have the site's Tooltip.Provider. message-avatar has the 404 pin. |
+| 7 | reportsUnsupported → matches | command-dialog, input-group-kbd, kbd-button-demo, kbd-demo, kbd-group-demo, kbd-input-group-demo and typography-inline-code: `E_FONT` for monospace text is gone with Geist Mono |
+| 11 | matches → reportsUnsupported | alert-action, alert-basic, alert-colors, alert-demo and alert-destructive: style-vega's `.cn-alert-description` has `text-wrap: balance`. marker-demo, marker-shimmer, shimmer-color, shimmer-demo, shimmer-marker and shimmer-once: shadcn-svelte's `.shimmer` utility has `-webkit-text-fill-color: var(--shimmer-text-fill, transparent)`. The first run's matches had no rule for these classes. |
+| 7 | matches (6), differs (1) → no longer lowered | attachment-sizes, attachment-states, attachment-trigger, message-attachment, scroll-fade-horizontal and scroll-fade-rtl stop at the scroll-driven animations of the `scroll-fade-*` utilities. card-small stops at the `step` utility's `content: counter(step)`, which no element can match ([example census](shadcn-svelte-census.md)). |
+| 1 | reportsUnsupported → no longer lowered | scroll-fade-edge, for the same reason as the scroll-fade examples |
+| 2 | matches → differs | field-responsive-layout-demo and input-group-button-group-demo: input geometry (below) |
+| 1 | incomplete → differs | button-group-input-group-demo: button geometry (below) |
+| 1 | reportsUnsupported → differs | button-group-select-demo: button geometry (below) |
+| 1 | incomplete → reportsUnsupported | message-demo: the 404 pin lets it run, and it stops at the `.shimmer` report |
+| 1 | not lowered → matches | field-select, lowered since the first run |
+| 7 | differs → differs | card-demo, input-disabled, input-fieldgroup, input-form and input-group-icon-demo: the `<input type=email>` selection. select-scrollable: `RunicAttrsError`. table-demo: column widths. |
 
-**Caveat: the theme.** The census hosts use the bits-dialog fixture's theme. Of the 421 `cn-*` classes in style-vega.css, it styles 39 (Button, Dialog, Field, Input and Label). A match therefore means the app renders the same stylesheet as Chromium does, not that it looks like the site.
-
-| Theme coverage | Examples | matches | differs | reportsUnsupported | incomplete |
-|---|---|---|---|---|---|
-| The theme styles all of the example's `cn-*` classes | 64 | 53 | 2 | 9 | 0 |
-| The example uses classes the theme has no rule for | 196 | 133 | 17 | 36 | 10 |
-
-Several of the differences below only show up because a component is unstyled, for example an avatar without its size.
-
-## reportsUnsupported (45)
+## reportsUnsupported (48)
 
 In each of these, the app stops at a run-time report instead of approximating.
 
-| Examples | Report | Cause |
+| Examples | Report | Source and examples |
 |---|---|---|
-| 14 | `E_FONT` for text in `font-family: ui-monospace, …, monospace` (`kbd`, `⌘`, `$`, `font-mono` labels, inline `<code>`) | The host theme sets `--font-sans` to the embedded fixture font but leaves `--font-mono` at Tailwind's system stack, which no app embeds. The site uses `Geist Mono Variable`. This is a census-host gap: a monospace fixture font in the theme would measure these. |
-| 1 | `E_FONT` for the `<p>` in bubble-variants (`font-family: RunicFixture`) | The paragraph contains an inline `<code>`, which is monospace. Its other paragraphs draw. The report names the paragraph's family, not the run without a font: this belongs with the row above, and the attribution is misleading. |
-| 12 | `unsupported: field-sizing: content` | Stylo has no `field-sizing`. Affects the textarea and input-group block/textarea examples. |
-| 10 | `unsupported: text-wrap: balance` | Stylo has no `text-wrap: balance`. Affects the empty-* examples, typography-demo and typography-h1. |
-| 8 | `unsupported: -webkit-line-clamp: 2` (7) and `: 1` (spinner-demo) | Affects the item-* examples and spinner-item-demo. |
+| 15 | `text-wrap: balance` | style-vega's `.cn-alert-description` (the five alert examples), the `text-balance` utility (empty-*, spinner-empty-demo, toggle-group-font-weight-selector, typography-demo, typography-h1). Stylo has no `text-wrap: balance`. |
+| 12 | `field-sizing: content` | The textarea and input-group block/textarea examples, spinner-input-group-demo. Stylo has no `field-sizing`. |
+| 12 | `-webkit-text-fill-color: var(--shimmer-text-fill, transparent)` | shadcn-svelte's `.shimmer` utility: the shimmer, marker-demo, marker-shimmer and message-demo examples. Stylo drops the property. |
+| 8 | `-webkit-line-clamp: 2` (7) and `: 1` (spinner-demo) | The item-* examples and spinner-item-demo |
+| 1 | a non-solid or rounded border on an ordinary inline box with horizontal edges | bubble-variants: an inline `<code>`, which the site's `.mdsx code:not(pre code)` rule (app.css) gives `rounded-md` and horizontal padding, because the example sits inside the docs page's `.mdsx` wrapper. In the first run it reported `E_FONT` for the same `<code>`. |
 
-## differs (19), by cause
+## differs (11), by cause
 
 | Examples | Worst gate | Evidence | Cause |
 |---|---|---|---|
-| 7 | Geometry and pixels | See the avatar rows below the table. | Percentage-sized replaced elements, described below. |
-| 5 | Semantics: `<input>` selection | card-demo, input-disabled, input-fieldgroup, input-form, input-group-icon-demo, each at an `<input type="email">`. Chromium's selection is `null`; the app's is `[0,0]`. Pixels pass (MAE ≤ 0.22). | `type=email` has no selection API in Chromium (`selectionStart` is `null`). The app exposes one. |
-| 3 | Semantics: `<div> style` | accordion-basic, -borders, -card. `--bits-accordion-content-height` is 48/72/96 px in Chromium and 72/96/120 px in the app; the width is equal. Pixels pass (MAE 0.20–0.35). | bits-ui measures the open content once (`getBoundingClientRect` after a tick). Chromium's value is one line (24 px) less than its own final height of the element (72 px in accordion-basic). The app's value is the final height. Not attributed yet; Chromium probably measured before its final text layout, for example before the web font loaded. |
-| 2 | Pixels: `#demo` only | table-demo has region MAE 3.864 (viewport 2.077), and table-footer has 3.012 (1.156), both on the table's cells (bbox 357x231 at 221,69). | The table columns sit about 1 px apart: auto table layout distributes column widths differently at sub-pixel level. The glyphs are otherwise identical. |
-| 1 | Pixels: viewport | message-attachment has MAE 42.9 over the viewport (region 44.3); 46% of pixels differ, in the bbox 382x370 at 209,113. | The attachment media (`flex aspect-square`, without the theme's width) holds an `<img class="aspect-square w-full object-cover">`. Chromium sizes it 383 px wide; the app makes it wider than the viewport. This is the same cause as the avatars. |
-| 1 | Semantics: native render error | select-scrollable: `runic: render error: TypeError: RunicAttrsError: the spread passes items a value of another type than the prop's`. The app's snapshot has no content under the root; Chromium renders the trigger. | This is an app-only failure at run time, a real defect in the lowering of a rest-props spread with `items`, and needs a reduction. |
+| 5 | Semantics: `<input>` selection | card-demo, input-disabled, input-fieldgroup, input-form, input-group-icon-demo, each at an `<input type="email">`. Chromium's selection is `null`; the app's is `[0,0]`. | Unchanged from the first run: `type=email` has no selection API in Chromium (`selectionStart` is `null`), but the app exposes one. |
+| 2 | Geometry: `<input>` 44 px narrower | field-responsive-layout-demo: `#name` is 213 px wide at x 443 in Chromium, 169 px at x 487 in the app. input-group-button-group-demo: `#url` is 207 px in Chromium, 163 px in the app. Pixels pass (MAE ≤ 0.2). | New with the site's view; not attributed yet. In both, the input shares a flex row with other content, which takes 44 px more in the app. |
+| 2 | Geometry: `<button>` x off by 22 px | button-group-input-group-demo: the input group's button is at x 511.5 in Chromium and x 489.5 in the app. button-group-select-demo: the Select trigger is at x 246.8 in Chromium and x 268.8 in the app. Pixels pass (MAE ≤ 0.22). | New with the site's view, where both examples render for the first time; not attributed yet. These may share a cause with the inputs above (22 = 44/2: a centred row whose content is 44 px wider). |
+| 1 | Pixels: `#demo` only | table-demo has region MAE 4.712 (viewport 2.852), on the table's cells. | Unchanged from the first run: auto table layout distributes column widths differently at the sub-pixel level. |
+| 1 | Semantics: native render error | select-scrollable: `runic: render error: TypeError: RunicAttrsError: the spread passes items a value of another type than the prop's`. The app's snapshot has no content under the root; Chromium renders the trigger. | Unchanged from the first run: an app-only failure at run time, a defect in the lowering of a rest-props spread with `items`. It needs a reduction ([gap](../../docs/gaps/FRAMEWORKS.md)). |
 
-**Avatars (7 examples): percentage-sized replaced elements.**
+## incomplete (0)
 
-- **Affected:** avatar-demo, avatar-group, avatar-group-count, avatar-group-count-icon, avatar-size, avatar-dropdown and dropdown-menu-avatar.
-- **Evidence:**
-  - In avatar-group, the avatar `#bits-c1` is 460x460 at x 64 in Chromium and at x −282 in the app, so the group overflows centred rather than from the start; viewport MAE is 57.3.
-  - In avatar-demo, it is 460 px in Chromium and 1476 px in the app; MAE is 141.5.
-  - In avatar-dropdown, it is 460 px in Chromium and 34 px in the app; MAE is 42.8.
-- **Cause:** with the theme's `cn-avatar` size absent, the root is an unsized `relative flex shrink-0` box around `<img class="aspect-square size-full">`. Chromium treats a replaced element with a percentage size as compressible: its min-content contribution is 0, and the image falls back to its natural 460 px. Blitz/Taffy sizes these boxes differently in each context. The site's own sizes (`size-8`) would hide this, but the layout rule is a real gap.
-
-## incomplete (10): never counted as passed
-
-| Examples | Reason |
-|---|---|
-| 8 | bubble-tooltip, button-group-input-group-demo, input-group-label-demo, input-group-tooltip-demo, kbd-tooltip-demo, tooltip-disabled, tooltip-keyboard and tooltip-sides throw `Context "Tooltip.Provider" not found` on mount, both in Chromium (page error) and in the app (`runic: render error`). The site provides `Tooltip.Provider` in its layout; the census host does not. |
-| 2 | message-avatar and message-demo load `/avatars/10.png`, which the site does not serve: `docs/static/avatars/` has 01–05.png only. These cannot be pinned. |
+The first run's ten are measured now. The eight that threw `Context "Tooltip.Provider" not found` have the site's providers. message-avatar and message-demo have the 404 pin.
 
 ## Timing and disk
 
-- **Full run:** 6038 s wall for the 260 examples at `--jobs 2`, on the shared target and its lock. The 23 examples reclassified after the first pass, and select-scrollable, were run again.
+- **Full run:** 2801 s wall for the 253 examples at `--jobs 2`, on the shared target and its lock (5592 s summed over examples).
 - **Per example (median):**
 
   | Stage | Median |
   |---|---|
-  | Build | 20.9 s |
+  | Build | 13.6 s |
   | Chromium | 1.2 s |
   | Probe | 0.4 s |
-  | Comparison | 0.25 s |
-  | Total | 23.0 s |
+  | Comparison | 0.19 s |
+  | Total | 15.3 s |
 
-- **Slower examples:** the first build of a feature variant took about 72 s (Stylo and Blitz). Examples that waited on another worktree's builds took 150–360 s.
-- **Disk:** about 116 MB per example at its peak (median), of which the binary is 105 MB (dev profile). The binary, generated crate, screenshots, Vite cache and host are removed after each comparison, so the shared target does not grow from example to example.
+- **Disk:** about 117 MB per example at its peak (median), of which the binary is 106 MB (dev profile). The binary, generated crate, screenshots, Vite cache and host are removed after each comparison, so the shared target does not grow from example to example.

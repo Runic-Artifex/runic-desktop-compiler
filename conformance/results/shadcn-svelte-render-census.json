@@ -1,10 +1,23 @@
 {
   "generated": "node conformance/render-census.mjs",
-  "compiler": "771d3a4",
+  "compiler": "6519107",
   "census": "conformance/results/shadcn-svelte-census.json",
   "corpus": {
     "name": "shadcn-svelte",
     "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4"
+  },
+  "siteView": {
+    "stylesheet": {
+      "from": "docs/src/app.css",
+      "sha256": "ffa919d47ca5138920351f87faf55b9a94fb8f803479b5be981a9918471e420f"
+    },
+    "html": "lang=\"en\"",
+    "body": "data-sveltekit-preload-data=\"hover\"\n\t\tclass=\"group/body theme-blue style-vega overscroll-none font-sans text-foreground antialiased [--footer-height:calc(var(--spacing)*14)] [--header-height:calc(var(--spacing)*14)] lg:[--header-height:calc(var(--spacing)*16)] xl:[--footer-height:calc(var(--spacing)*24)]\"",
+    "fonts": {
+      "@fontsource-variable/geist": "5.2.8",
+      "@fontsource-variable/geist-mono": "5.2.7"
+    },
+    "images": "root-relative URLs from docs/static; one the site has no file for is pinned as a 404 on both sides"
   },
   "chromium": "153.0.8010.12",
   "viewport": {
@@ -19,69 +32,70 @@
     "pixels": "mean absolute error <= 3/255 over the viewport and over #demo"
   },
   "totals": {
-    "examples": 260,
-    "matches": 186,
-    "differs": 19,
-    "reportsUnsupported": 45,
+    "examples": 253,
+    "matches": 194,
+    "differs": 11,
+    "reportsUnsupported": 48,
     "buildFailed": 0,
     "nativeFailed": 0,
     "notLowered": 0,
-    "incomplete": 10,
+    "incomplete": 0,
     "byStyle": {
       "themeStylesAllClasses": {
-        "matches": 53,
-        "differs": 2,
-        "reportsUnsupported": 9,
+        "matches": 194,
+        "differs": 11,
+        "reportsUnsupported": 48,
         "buildFailed": 0,
         "nativeFailed": 0,
         "notLowered": 0,
         "incomplete": 0
       },
       "usesUnstyledClasses": {
-        "matches": 133,
-        "differs": 17,
-        "reportsUnsupported": 36,
+        "matches": 0,
+        "differs": 0,
+        "reportsUnsupported": 0,
         "buildFailed": 0,
         "nativeFailed": 0,
         "notLowered": 0,
-        "incomplete": 10
+        "incomplete": 0
       }
     }
   },
   "timing": {
-    "invocationSeconds": 0,
-    "exampleSecondsSum": 11627,
+    "invocationSeconds": 2801,
+    "exampleSecondsSum": 5592,
     "medianMs": {
-      "images": 7,
-      "build": 20945,
-      "browser": 1213,
-      "probe": 397,
-      "compare": 252,
-      "total": 22981
+      "images": 2,
+      "build": 13604,
+      "browser": 1204,
+      "probe": 435,
+      "compare": 185,
+      "total": 15328
     },
-    "medianDiskBytes": 115622265,
-    "medianBinaryBytes": 105282864
+    "medianDiskBytes": 116755028,
+    "medianBinaryBytes": 106144112
   },
   "clusters": [
     {
       "status": "reportsUnsupported",
-      "key": "E_FONT (font-family: ui-monospace)",
-      "count": 14,
+      "key": "unsupported CSS: text-wrap: balance",
+      "count": 15,
       "examples": [
-        "button-group-select-demo",
-        "command-dialog",
-        "input-group-kbd",
-        "kbd-button-demo",
-        "kbd-demo",
-        "kbd-group-demo",
-        "kbd-input-group-demo",
-        "scroll-fade-edge",
-        "shimmer-angle",
-        "shimmer-duration",
-        "shimmer-none",
-        "shimmer-rtl",
-        "shimmer-spread",
-        "typography-inline-code"
+        "alert-action",
+        "alert-basic",
+        "alert-colors",
+        "alert-demo",
+        "alert-destructive",
+        "empty-avatar-demo",
+        "empty-avatar-group-demo",
+        "empty-background-demo",
+        "empty-demo",
+        "empty-input-group-demo",
+        "empty-outline-demo",
+        "spinner-empty-demo",
+        "toggle-group-font-weight-selector",
+        "typography-demo",
+        "typography-h1"
       ]
     },
     {
@@ -105,34 +119,21 @@
     },
     {
       "status": "reportsUnsupported",
-      "key": "unsupported CSS: text-wrap: balance",
-      "count": 10,
+      "key": "unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparen",
+      "count": 12,
       "examples": [
-        "empty-avatar-demo",
-        "empty-avatar-group-demo",
-        "empty-background-demo",
-        "empty-demo",
-        "empty-input-group-demo",
-        "empty-outline-demo",
-        "spinner-empty-demo",
-        "toggle-group-font-weight-selector",
-        "typography-demo",
-        "typography-h1"
-      ]
-    },
-    {
-      "status": "incomplete",
-      "key": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "count": 8,
-      "examples": [
-        "bubble-tooltip",
-        "button-group-input-group-demo",
-        "input-group-label-demo",
-        "input-group-tooltip-demo",
-        "kbd-tooltip-demo",
-        "tooltip-disabled",
-        "tooltip-keyboard",
-        "tooltip-sides"
+        "marker-demo",
+        "marker-shimmer",
+        "message-demo",
+        "shimmer-angle",
+        "shimmer-color",
+        "shimmer-demo",
+        "shimmer-duration",
+        "shimmer-marker",
+        "shimmer-none",
+        "shimmer-once",
+        "shimmer-rtl",
+        "shimmer-spread"
       ]
     },
     {
@@ -163,81 +164,35 @@
     },
     {
       "status": "differs",
-      "key": "geometry: <div> x",
-      "count": 3,
-      "examples": [
-        "avatar-group",
-        "avatar-group-count",
-        "avatar-group-count-icon"
-      ]
-    },
-    {
-      "status": "differs",
-      "key": "semantics: <div> style",
-      "count": 3,
-      "examples": [
-        "accordion-basic",
-        "accordion-borders",
-        "accordion-card"
-      ]
-    },
-    {
-      "status": "differs",
-      "key": "geometry: <div> x,y,width,height",
+      "key": "geometry: <button> x",
       "count": 2,
       "examples": [
-        "avatar-dropdown",
-        "dropdown-menu-avatar"
+        "button-group-input-group-demo",
+        "button-group-select-demo"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "geometry: <input> width",
+      "count": 1,
+      "examples": [
+        "input-group-button-group-demo"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "geometry: <input> x,width",
+      "count": 1,
+      "examples": [
+        "field-responsive-layout-demo"
       ]
     },
     {
       "status": "differs",
       "key": "pixels: #demo only",
-      "count": 2,
-      "examples": [
-        "table-demo",
-        "table-footer"
-      ]
-    },
-    {
-      "status": "incomplete",
-      "key": "the site serves no /avatars/N.png: .cache/corpus/shadcn-svelte/docs/static has no avatars/N.png",
-      "count": 2,
-      "examples": [
-        "message-avatar",
-        "message-demo"
-      ]
-    },
-    {
-      "status": "reportsUnsupported",
-      "key": "E_FONT (font-family: RunicFixture)",
       "count": 1,
       "examples": [
-        "bubble-variants"
-      ]
-    },
-    {
-      "status": "differs",
-      "key": "geometry: <div> x,width,height",
-      "count": 1,
-      "examples": [
-        "avatar-demo"
-      ]
-    },
-    {
-      "status": "differs",
-      "key": "geometry: <div> y,width,height",
-      "count": 1,
-      "examples": [
-        "avatar-size"
-      ]
-    },
-    {
-      "status": "differs",
-      "key": "pixels: viewport",
-      "count": 1,
-      "examples": [
-        "message-attachment"
+        "table-demo"
       ]
     },
     {
@@ -255,231 +210,171 @@
       "examples": [
         "spinner-demo"
       ]
+    },
+    {
+      "status": "reportsUnsupported",
+      "key": "unsupported: a non-solid or rounded border on an ordinary inline box with horizontal edges (p",
+      "count": 1,
+      "examples": [
+        "bubble-variants"
+      ]
     }
   ],
   "results": [
     {
       "example": "accordion-basic",
-      "status": "differs",
-      "worst": {
-        "gate": "semantics",
-        "key": "<div> style",
-        "count": 1
-      },
-      "failingSteps": [
-        "mount",
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": false,
-        "geometry": true,
-        "pixels": true
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 0.2,
-        "regionMAE": 0.509,
-        "diff": {
-          "x": 145,
-          "y": 70,
-          "width": 505,
-          "height": 138,
-          "share": 0.00767
-        }
+        "mae": 0.075,
+        "regionMAE": 0.185
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "accordion-borders",
-      "status": "differs",
-      "worst": {
-        "gate": "semantics",
-        "key": "<div> style",
-        "count": 1
-      },
-      "failingSteps": [
-        "mount",
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": false,
-        "geometry": true,
-        "pixels": true
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 0.231,
-        "regionMAE": 0.528,
-        "diff": {
-          "x": 162,
-          "y": 71,
-          "width": 471,
-          "height": 165,
-          "share": 0.00875
-        }
+        "mae": 0.061,
+        "regionMAE": 0.152
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "accordion-card",
-      "status": "differs",
-      "worst": {
-        "gate": "semantics",
-        "key": "<div> style",
-        "count": 1
-      },
-      "failingSteps": [
-        "mount",
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": false,
-        "geometry": true,
-        "pixels": true
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 0.347,
-        "regionMAE": 0.593,
-        "diff": {
-          "x": 209,
-          "y": 69,
-          "width": 377,
-          "height": 259,
-          "share": 0.01324
-        }
+        "mae": 0.144,
+        "regionMAE": 0.247
       },
-      "unstyled": 10
+      "unstyled": 0
     },
     {
       "example": "accordion-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.171,
-        "regionMAE": 0.481
+        "mae": 0.08,
+        "regionMAE": 0.198
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "accordion-disabled",
       "status": "matches",
       "pixels": {
-        "mae": 0.068,
-        "regionMAE": 0.245
+        "mae": 0.061,
+        "regionMAE": 0.152
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "accordion-multiple",
       "status": "matches",
       "pixels": {
-        "mae": 0.153,
-        "regionMAE": 0.43
+        "mae": 0.044,
+        "regionMAE": 0.073
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "alert-action",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.071,
-        "regionMAE": 0.263
-      },
-      "unstyled": 6
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 671), which Blitz's style engine (Stylo) does not support, applies to an element matching .style-vega .cn-alert-description"
+      ],
+      "unstyled": 0
     },
     {
       "example": "alert-basic",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.097,
-        "regionMAE": 0.315
-      },
-      "unstyled": 6
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 671), which Blitz's style engine (Stylo) does not support, applies to an element matching .style-vega .cn-alert-description"
+      ],
+      "unstyled": 0
     },
     {
       "example": "alert-colors",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.074,
-        "regionMAE": 0.242
-      },
-      "unstyled": 6
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 675), which Blitz's style engine (Stylo) does not support, applies to an element matching .style-vega .cn-alert-description"
+      ],
+      "unstyled": 0
     },
     {
       "example": "alert-demo",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.19,
-        "regionMAE": 0.391
-      },
-      "unstyled": 6
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 671), which Blitz's style engine (Stylo) does not support, applies to an element matching .style-vega .cn-alert-description"
+      ],
+      "unstyled": 0
     },
     {
       "example": "alert-destructive",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.092,
-        "regionMAE": 0.299
-      },
-      "unstyled": 6
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 671), which Blitz's style engine (Stylo) does not support, applies to an element matching .style-vega .cn-alert-description"
+      ],
+      "unstyled": 0
     },
     {
       "example": "alert-dialog-basic",
       "status": "matches",
       "pixels": {
-        "mae": 0.071,
-        "regionMAE": 0.337
+        "mae": 0.057,
+        "regionMAE": 0.095
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "alert-dialog-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.071,
-        "regionMAE": 0.337
+        "mae": 0.057,
+        "regionMAE": 0.095
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "alert-dialog-destructive",
       "status": "matches",
       "pixels": {
-        "mae": 0.03,
-        "regionMAE": 0.143
+        "mae": 0.01,
+        "regionMAE": 0.016
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "alert-dialog-media",
       "status": "matches",
       "pixels": {
-        "mae": 0.053,
-        "regionMAE": 0.253
+        "mae": 0.034,
+        "regionMAE": 0.056
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "alert-dialog-small",
       "status": "matches",
       "pixels": {
-        "mae": 0.071,
-        "regionMAE": 0.337
+        "mae": 0.057,
+        "regionMAE": 0.095
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "alert-dialog-small-media",
       "status": "matches",
       "pixels": {
-        "mae": 0.071,
-        "regionMAE": 0.337
+        "mae": 0.057,
+        "regionMAE": 0.095
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "aspect-ratio-demo",
       "status": "matches",
       "pixels": {
         "mae": 0.029,
-        "regionMAE": 0.057
+        "regionMAE": 0.049
       },
       "unstyled": 0
     },
@@ -487,8 +382,8 @@
       "example": "aspect-ratio-portrait",
       "status": "matches",
       "pixels": {
-        "mae": 0.015,
-        "regionMAE": 0.025
+        "mae": 0.016,
+        "regionMAE": 0.027
       },
       "unstyled": 0
     },
@@ -497,399 +392,213 @@
       "status": "matches",
       "pixels": {
         "mae": 0.015,
-        "regionMAE": 0.032
+        "regionMAE": 0.026
       },
       "unstyled": 0
-    },
-    {
-      "example": "attachment-sizes",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.063,
-        "regionMAE": 0.115
-      },
-      "unstyled": 14
-    },
-    {
-      "example": "attachment-states",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.163,
-        "regionMAE": 0.215
-      },
-      "unstyled": 14
-    },
-    {
-      "example": "attachment-trigger",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.036,
-        "regionMAE": 0.094
-      },
-      "unstyled": 14
     },
     {
       "example": "avatar-badge",
       "status": "matches",
       "pixels": {
-        "mae": 0.106,
-        "regionMAE": 0.119
+        "mae": 0.026,
+        "regionMAE": 0.043
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "avatar-badge-icon",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.02
+        "mae": 0.024,
+        "regionMAE": 0.039
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "avatar-basic",
       "status": "matches",
       "pixels": {
-        "mae": 0.044,
-        "regionMAE": 0.049
+        "mae": 0.023,
+        "regionMAE": 0.039
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "avatar-demo",
-      "status": "differs",
-      "worst": {
-        "gate": "geometry",
-        "key": "<div> x,width,height",
-        "element": "bits-c1",
-        "delta": {
-          "x": -1877.797,
-          "y": 0,
-          "width": 1016,
-          "height": 1016
-        },
-        "count": 10
-      },
-      "failingSteps": [
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": false,
-        "pixels": false
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 141.463,
-        "regionMAE": 144.848,
-        "diff": {
-          "x": 0,
-          "y": 64,
-          "width": 800,
-          "height": 536,
-          "share": 0.78597
-        }
+        "mae": 0.105,
+        "regionMAE": 0.174
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "avatar-dropdown",
-      "status": "differs",
-      "worst": {
-        "gate": "geometry",
-        "key": "<div> x,y,width,height",
-        "element": "bits-c2",
-        "delta": {
-          "x": 213,
-          "y": 213,
-          "width": -426,
-          "height": -426
-        },
-        "count": 2
-      },
-      "failingSteps": [
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": false,
-        "pixels": false
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 42.808,
-        "regionMAE": 66.67,
-        "diff": {
-          "x": 170,
-          "y": 0,
-          "width": 460,
-          "height": 312,
-          "share": 0.29819
-        }
+        "mae": 0.025,
+        "regionMAE": 0.041
       },
-      "unstyled": 17
+      "unstyled": 0
     },
     {
       "example": "avatar-group",
-      "status": "differs",
-      "worst": {
-        "gate": "geometry",
-        "key": "<div> x",
-        "element": "bits-c1",
-        "delta": {
-          "x": -346,
-          "y": 0,
-          "width": 0,
-          "height": 0
-        },
-        "count": 6
-      },
-      "failingSteps": [
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": false,
-        "pixels": false
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 57.278,
-        "regionMAE": 59.634,
-        "diff": {
-          "x": 0,
-          "y": 64,
-          "width": 800,
-          "height": 460,
-          "share": 0.70055
-        }
+        "mae": 0.057,
+        "regionMAE": 0.094
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "avatar-group-count",
-      "status": "differs",
-      "worst": {
-        "gate": "geometry",
-        "key": "<div> x",
-        "element": "bits-c1",
-        "delta": {
-          "x": -353.797,
-          "y": 0,
-          "width": 0,
-          "height": 0
-        },
-        "count": 6
-      },
-      "failingSteps": [
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": false,
-        "pixels": false
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 58.664,
-        "regionMAE": 61.328,
-        "diff": {
-          "x": 0,
-          "y": 64,
-          "width": 800,
-          "height": 460,
-          "share": 0.70228
-        }
+        "mae": 0.064,
+        "regionMAE": 0.106
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "avatar-group-count-icon",
-      "status": "differs",
-      "worst": {
-        "gate": "geometry",
-        "key": "<div> x",
-        "element": "bits-c1",
-        "delta": {
-          "x": -354,
-          "y": 0,
-          "width": 0,
-          "height": 0
-        },
-        "count": 6
-      },
-      "failingSteps": [
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": false,
-        "pixels": false
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 58.664,
-        "regionMAE": 61.328,
-        "diff": {
-          "x": 0,
-          "y": 64,
-          "width": 800,
-          "height": 460,
-          "share": 0.70228
-        }
+        "mae": 0.062,
+        "regionMAE": 0.102
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "avatar-size",
-      "status": "differs",
-      "worst": {
-        "gate": "geometry",
-        "key": "<div> y,width,height",
-        "element": "bits-c7",
-        "delta": {
-          "x": 0,
-          "y": 1872,
-          "width": 936,
-          "height": 936
-        },
-        "count": 6
-      },
-      "failingSteps": [
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": false,
-        "pixels": false
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 63.808,
-        "regionMAE": 66.624,
-        "diff": {
-          "x": 64,
-          "y": 64,
-          "width": 736,
-          "height": 536,
-          "share": 0.7848
-        }
+        "mae": 0.076,
+        "regionMAE": 0.126
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "badge-colors",
       "status": "matches",
       "pixels": {
-        "mae": 0.066,
-        "regionMAE": 0.341
+        "mae": 0.039,
+        "regionMAE": 0.064
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "badge-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.075,
-        "regionMAE": 0.392
+        "mae": 0.106,
+        "regionMAE": 0.177
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "badge-icon",
       "status": "matches",
       "pixels": {
-        "mae": 0.065,
-        "regionMAE": 0.338
+        "mae": 0.06,
+        "regionMAE": 0.1
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "badge-link",
       "status": "matches",
       "pixels": {
-        "mae": 0.036,
-        "regionMAE": 0.19
+        "mae": 0.05,
+        "regionMAE": 0.083
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "badge-spinner",
       "status": "matches",
       "pixels": {
-        "mae": 0.081,
-        "regionMAE": 0.423
+        "mae": 0.051,
+        "regionMAE": 0.084
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "badge-variants",
       "status": "matches",
       "pixels": {
-        "mae": 0.123,
-        "regionMAE": 0.639
+        "mae": 0.116,
+        "regionMAE": 0.193
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "bubble-alignment",
       "status": "matches",
       "pixels": {
-        "mae": 0.104,
-        "regionMAE": 0.202
+        "mae": 0.203,
+        "regionMAE": 0.337
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "bubble-collapsible",
       "status": "matches",
       "pixels": {
-        "mae": 0.172,
-        "regionMAE": 0.266
+        "mae": 0.439,
+        "regionMAE": 0.71
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "bubble-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.403,
-        "regionMAE": 0.552
+        "mae": 0.479,
+        "regionMAE": 0.675
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "bubble-group-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.181,
-        "regionMAE": 0.282
+        "mae": 0.36,
+        "regionMAE": 0.557
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "bubble-popover",
       "status": "matches",
       "pixels": {
-        "mae": 0.038,
-        "regionMAE": 0.093
+        "mae": 0.065,
+        "regionMAE": 0.108
       },
-      "unstyled": 20
+      "unstyled": 0
     },
     {
       "example": "bubble-tooltip",
-      "status": "incomplete",
-      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "unstyled": 17
+      "status": "matches",
+      "pixels": {
+        "mae": 0.138,
+        "regionMAE": 0.229
+      },
+      "unstyled": 0
     },
     {
       "example": "bubble-variants",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: E_FONT: \"This is perfect for assistant messages t\" in <p> (font-family: RunicFixture) is not drawn: no font of its font-family is embedded in the app"
+        "runic: unsupported: a non-solid or rounded border on an ordinary inline box with horizontal edges (painted solid and square)"
       ],
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "button-default",
       "status": "matches",
       "pixels": {
-        "mae": 0.039,
-        "regionMAE": 0.187
+        "mae": 0.017,
+        "regionMAE": 0.028
       },
       "unstyled": 0
     },
@@ -897,8 +606,8 @@
       "example": "button-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.044,
-        "regionMAE": 0.206
+        "mae": 0.02,
+        "regionMAE": 0.033
       },
       "unstyled": 0
     },
@@ -906,8 +615,8 @@
       "example": "button-destructive",
       "status": "matches",
       "pixels": {
-        "mae": 0.039,
-        "regionMAE": 0.184
+        "mae": 0.019,
+        "regionMAE": 0.032
       },
       "unstyled": 0
     },
@@ -916,7 +625,7 @@
       "status": "matches",
       "pixels": {
         "mae": 0.035,
-        "regionMAE": 0.164
+        "regionMAE": 0.059
       },
       "unstyled": 0
     },
@@ -924,85 +633,145 @@
       "example": "button-group-dropdown-menu-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.045,
-        "regionMAE": 0.212
+        "mae": 0.021,
+        "regionMAE": 0.034
       },
-      "unstyled": 17
+      "unstyled": 0
     },
     {
       "example": "button-group-input-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.032,
-        "regionMAE": 0.149
+        "mae": 0.147,
+        "regionMAE": 0.244
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "button-group-input-group-demo",
-      "status": "incomplete",
-      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "unstyled": 21
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<button> x",
+        "element": "bits-c1",
+        "delta": {
+          "x": -22,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.217,
+        "regionMAE": 0.36,
+        "diff": {
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 444,
+          "share": 0.00384
+        }
+      },
+      "unstyled": 0
     },
     {
       "example": "button-group-orientation-demo",
       "status": "matches",
       "pixels": {
         "mae": 0.006,
-        "regionMAE": 0.021
+        "regionMAE": 0.011
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "button-group-popover-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.052,
-        "regionMAE": 0.247
+        "mae": 0.04,
+        "regionMAE": 0.066
       },
-      "unstyled": 11
+      "unstyled": 0
     },
     {
       "example": "button-group-select-demo",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"$\" in <button> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<button> x",
+        "element": "bits-c1",
+        "delta": {
+          "x": 22,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
       ],
-      "unstyled": 18
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.17,
+        "regionMAE": 0.283,
+        "diff": {
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 444,
+          "share": 0.00269
+        }
+      },
+      "unstyled": 0
     },
     {
       "example": "button-group-separator-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.031,
-        "regionMAE": 0.15
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "button-group-size-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.232,
-        "regionMAE": 0.542
+        "mae": 0.182,
+        "regionMAE": 0.301
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "button-group-split-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.009,
-        "regionMAE": 0.041
+        "mae": 0.028,
+        "regionMAE": 0.046
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "button-icon",
       "status": "matches",
       "pixels": {
-        "mae": 0.006,
-        "regionMAE": 0.027
+        "mae": 0.007,
+        "regionMAE": 0.011
       },
       "unstyled": 0
     },
@@ -1010,8 +779,8 @@
       "example": "button-link",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.083
+        "mae": 0.002,
+        "regionMAE": 0.004
       },
       "unstyled": 0
     },
@@ -1019,8 +788,8 @@
       "example": "button-loading",
       "status": "matches",
       "pixels": {
-        "mae": 0.046,
-        "regionMAE": 0.217
+        "mae": 0.041,
+        "regionMAE": 0.069
       },
       "unstyled": 0
     },
@@ -1028,8 +797,8 @@
       "example": "button-outline",
       "status": "matches",
       "pixels": {
-        "mae": 0.037,
-        "regionMAE": 0.175
+        "mae": 0.013,
+        "regionMAE": 0.021
       },
       "unstyled": 0
     },
@@ -1037,8 +806,8 @@
       "example": "button-rounded",
       "status": "matches",
       "pixels": {
-        "mae": 0.063,
-        "regionMAE": 0.299
+        "mae": 0.029,
+        "regionMAE": 0.048
       },
       "unstyled": 0
     },
@@ -1046,8 +815,8 @@
       "example": "button-secondary",
       "status": "matches",
       "pixels": {
-        "mae": 0.015,
-        "regionMAE": 0.072
+        "mae": 0.02,
+        "regionMAE": 0.033
       },
       "unstyled": 0
     },
@@ -1055,8 +824,8 @@
       "example": "button-size",
       "status": "matches",
       "pixels": {
-        "mae": 0.127,
-        "regionMAE": 0.586
+        "mae": 0.112,
+        "regionMAE": 0.186
       },
       "unstyled": 0
     },
@@ -1064,8 +833,8 @@
       "example": "button-with-icon",
       "status": "matches",
       "pixels": {
-        "mae": 0.049,
-        "regionMAE": 0.23
+        "mae": 0.086,
+        "regionMAE": 0.143
       },
       "unstyled": 0
     },
@@ -1087,60 +856,51 @@
         "pixels": true
       },
       "pixels": {
-        "mae": 0.215,
-        "regionMAE": 0.341,
+        "mae": 0.176,
+        "regionMAE": 0.279,
         "diff": {
-          "x": 209,
-          "y": 70,
-          "width": 382,
-          "height": 282,
-          "share": 0.00575
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 464,
+          "share": 0.00509
         }
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "card-edge-to-edge",
       "status": "matches",
       "pixels": {
-        "mae": 0.405,
-        "regionMAE": 0.639
+        "mae": 0.398,
+        "regionMAE": 0.664
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "card-image",
       "status": "matches",
       "pixels": {
-        "mae": 0.27,
-        "regionMAE": 0.401
+        "mae": 0.269,
+        "regionMAE": 0.392
       },
-      "unstyled": 13
-    },
-    {
-      "example": "card-small",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.224,
-        "regionMAE": 0.421
-      },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "collapsible-basic",
       "status": "matches",
       "pixels": {
-        "mae": 0.013,
-        "regionMAE": 0.06
+        "mae": 0.027,
+        "regionMAE": 0.044
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "collapsible-demo",
       "status": "matches",
       "pixels": {
         "mae": 0.022,
-        "regionMAE": 0.081
+        "regionMAE": 0.037
       },
       "unstyled": 0
     },
@@ -1148,61 +908,62 @@
       "example": "command-basic",
       "status": "matches",
       "pixels": {
-        "mae": 0.021,
-        "regionMAE": 0.101
+        "mae": 0.07,
+        "regionMAE": 0.116
       },
-      "unstyled": 26
+      "unstyled": 0
     },
     {
       "example": "command-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.113,
-        "regionMAE": 0.128
+        "mae": 0.125,
+        "regionMAE": 0.238
       },
-      "unstyled": 26
+      "unstyled": 0
     },
     {
       "example": "command-dialog",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"⌘\" in <span> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
-      ],
-      "unstyled": 26
+      "status": "matches",
+      "pixels": {
+        "mae": 0.065,
+        "regionMAE": 0.107
+      },
+      "unstyled": 0
     },
     {
       "example": "command-groups",
       "status": "matches",
       "pixels": {
-        "mae": 0.021,
-        "regionMAE": 0.101
+        "mae": 0.07,
+        "regionMAE": 0.116
       },
-      "unstyled": 26
+      "unstyled": 0
     },
     {
       "example": "command-scrollable",
       "status": "matches",
       "pixels": {
-        "mae": 0.021,
-        "regionMAE": 0.101
+        "mae": 0.07,
+        "regionMAE": 0.116
       },
-      "unstyled": 26
+      "unstyled": 0
     },
     {
       "example": "command-shortcuts",
       "status": "matches",
       "pixels": {
-        "mae": 0.021,
-        "regionMAE": 0.101
+        "mae": 0.07,
+        "regionMAE": 0.116
       },
-      "unstyled": 26
+      "unstyled": 0
     },
     {
       "example": "dialog-close-button",
       "status": "matches",
       "pixels": {
-        "mae": 0.017,
-        "regionMAE": 0.08
+        "mae": 0.007,
+        "regionMAE": 0.012
       },
       "unstyled": 0
     },
@@ -1210,8 +971,8 @@
       "example": "dialog-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.043,
-        "regionMAE": 0.202
+        "mae": 0.025,
+        "regionMAE": 0.041
       },
       "unstyled": 0
     },
@@ -1219,191 +980,164 @@
       "example": "dialog-no-close-button",
       "status": "matches",
       "pixels": {
-        "mae": 0.095,
-        "regionMAE": 0.452
+        "mae": 0.041,
+        "regionMAE": 0.067
       },
       "unstyled": 0
     },
     {
       "example": "dropdown-menu-avatar",
-      "status": "differs",
-      "worst": {
-        "gate": "geometry",
-        "key": "<div> x,y,width,height",
-        "element": "bits-c2",
-        "delta": {
-          "x": 213,
-          "y": 213,
-          "width": -426,
-          "height": -426
-        },
-        "count": 2
-      },
-      "failingSteps": [
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": false,
-        "pixels": false
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 42.808,
-        "regionMAE": 66.67,
-        "diff": {
-          "x": 170,
-          "y": 0,
-          "width": 460,
-          "height": 312,
-          "share": 0.29819
-        }
+        "mae": 0.025,
+        "regionMAE": 0.041
       },
-      "unstyled": 17
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-basic",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.086
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 12
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-checkboxes",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.086
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 12
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-checkboxes-icons",
       "status": "matches",
       "pixels": {
-        "mae": 0.035,
-        "regionMAE": 0.166
+        "mae": 0.022,
+        "regionMAE": 0.037
       },
-      "unstyled": 12
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.086
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 12
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-destructive",
       "status": "matches",
       "pixels": {
-        "mae": 0.042,
-        "regionMAE": 0.2
+        "mae": 0.019,
+        "regionMAE": 0.032
       },
-      "unstyled": 12
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-dialog",
       "status": "matches",
       "pixels": {
         "mae": 0.002,
-        "regionMAE": 0.008
+        "regionMAE": 0.004
       },
-      "unstyled": 13
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-icons",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.086
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 12
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-shortcuts",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.086
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 12
+      "unstyled": 0
     },
     {
       "example": "dropdown-menu-submenu",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.086
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 12
+      "unstyled": 0
     },
     {
       "example": "empty-avatar-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1295), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8784), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
-      "unstyled": 13
+      "unstyled": 0
     },
     {
       "example": "empty-avatar-group-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1290), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8779), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
-      "unstyled": 13
+      "unstyled": 0
     },
     {
       "example": "empty-background-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1246), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8749), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "empty-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1235), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8747), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "empty-input-group-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1263), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8771), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
-      "unstyled": 24
+      "unstyled": 0
     },
     {
       "example": "empty-outline-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1237), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8744), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "field-choice-card",
       "status": "matches",
       "pixels": {
-        "mae": 0.089,
-        "regionMAE": 0.164
+        "mae": 0.135,
+        "regionMAE": 0.224
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "field-field-set-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.087,
-        "regionMAE": 0.167
+        "mae": 0.197,
+        "regionMAE": 0.326
       },
       "unstyled": 0
     },
@@ -1411,8 +1145,8 @@
       "example": "field-input",
       "status": "matches",
       "pixels": {
-        "mae": 0.072,
-        "regionMAE": 0.146
+        "mae": 0.073,
+        "regionMAE": 0.121
       },
       "unstyled": 0
     },
@@ -1420,17 +1154,54 @@
       "example": "field-radio",
       "status": "matches",
       "pixels": {
-        "mae": 0.086,
-        "regionMAE": 0.231
+        "mae": 0.088,
+        "regionMAE": 0.147
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "field-responsive-layout-demo",
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<input> x,width",
+        "element": "name",
+        "delta": {
+          "x": 44,
+          "y": 0,
+          "width": -44,
+          "height": 0
+        },
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.194,
+        "regionMAE": 0.322,
+        "diff": {
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 444,
+          "share": 0.00435
+        }
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "field-select",
       "status": "matches",
       "pixels": {
-        "mae": 0.075,
-        "regionMAE": 0.169
+        "mae": 0.044,
+        "regionMAE": 0.073
       },
       "unstyled": 0
     },
@@ -1438,34 +1209,34 @@
       "example": "field-switch",
       "status": "matches",
       "pixels": {
-        "mae": 0.093,
-        "regionMAE": 0.528
+        "mae": 0.158,
+        "regionMAE": 0.261
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "field-textarea",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1200), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8576), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "input-badge",
       "status": "matches",
       "pixels": {
-        "mae": 0.05,
-        "regionMAE": 0.199
+        "mae": 0.047,
+        "regionMAE": 0.077
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "input-basic",
       "status": "matches",
       "pixels": {
-        "mae": 0.017,
-        "regionMAE": 0.081
+        "mae": 0.012,
+        "regionMAE": 0.019
       },
       "unstyled": 0
     },
@@ -1473,17 +1244,17 @@
       "example": "input-button-group",
       "status": "matches",
       "pixels": {
-        "mae": 0.04,
-        "regionMAE": 0.158
+        "mae": 0.043,
+        "regionMAE": 0.071
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "input-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.037,
-        "regionMAE": 0.121
+        "mae": 0.115,
+        "regionMAE": 0.19
       },
       "unstyled": 0
     },
@@ -1505,14 +1276,14 @@
         "pixels": true
       },
       "pixels": {
-        "mae": 0.027,
-        "regionMAE": 0.087,
+        "mae": 0.022,
+        "regionMAE": 0.036,
         "diff": {
-          "x": 64,
-          "y": 66,
-          "width": 207,
-          "height": 89,
-          "share": 0.00065
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 444,
+          "share": 0.00071
         }
       },
       "unstyled": 0
@@ -1521,8 +1292,8 @@
       "example": "input-field",
       "status": "matches",
       "pixels": {
-        "mae": 0.048,
-        "regionMAE": 0.158
+        "mae": 0.044,
+        "regionMAE": 0.073
       },
       "unstyled": 0
     },
@@ -1544,14 +1315,14 @@
         "pixels": true
       },
       "pixels": {
-        "mae": 0.081,
-        "regionMAE": 0.146,
+        "mae": 0.075,
+        "regionMAE": 0.125,
         "diff": {
-          "x": 66,
-          "y": 68,
-          "width": 668,
-          "height": 242,
-          "share": 0.00226
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 444,
+          "share": 0.00268
         }
       },
       "unstyled": 0
@@ -1574,24 +1345,24 @@
         "pixels": true
       },
       "pixels": {
-        "mae": 0.145,
-        "regionMAE": 0.173,
+        "mae": 0.189,
+        "regionMAE": 0.277,
         "diff": {
-          "x": 210,
-          "y": 68,
-          "width": 380,
-          "height": 422,
-          "share": 0.00398
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 503,
+          "share": 0.00476
         }
       },
-      "unstyled": 13
+      "unstyled": 0
     },
     {
       "example": "input-grid",
       "status": "matches",
       "pixels": {
         "mae": 0.027,
-        "regionMAE": 0.106
+        "regionMAE": 0.046
       },
       "unstyled": 0
     },
@@ -1599,52 +1370,80 @@
       "example": "input-group-block-end",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1217), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8588), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-block-start",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1229), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8600), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-button-group-demo",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.019,
-        "regionMAE": 0.089
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<input> width",
+        "element": "url",
+        "delta": {
+          "x": 0,
+          "y": 0,
+          "width": -44,
+          "height": 0
+        },
+        "count": 1
       },
-      "unstyled": 19
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.195,
+        "regionMAE": 0.324,
+        "diff": {
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 444,
+          "share": 0.00686
+        }
+      },
+      "unstyled": 0
     },
     {
       "example": "input-group-custom-input-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1191), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8580), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.019,
-        "regionMAE": 0.091
+        "mae": 0.024,
+        "regionMAE": 0.041
       },
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-dropdown-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.063,
-        "regionMAE": 0.213
+        "mae": 0.046,
+        "regionMAE": 0.077
       },
-      "unstyled": 26
+      "unstyled": 0
     },
     {
       "example": "input-group-icon-demo",
@@ -1664,87 +1463,94 @@
         "pixels": true
       },
       "pixels": {
-        "mae": 0.066,
-        "regionMAE": 0.133,
+        "mae": 0.061,
+        "regionMAE": 0.102,
         "diff": {
-          "x": 209,
-          "y": 66,
-          "width": 382,
-          "height": 212,
-          "share": 0.00171
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 444,
+          "share": 0.00148
         }
       },
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-inline-end",
       "status": "matches",
       "pixels": {
-        "mae": 0.036,
-        "regionMAE": 0.117
+        "mae": 0.033,
+        "regionMAE": 0.054
       },
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-inline-start",
       "status": "matches",
       "pixels": {
-        "mae": 0.028,
-        "regionMAE": 0.091
+        "mae": 0.03,
+        "regionMAE": 0.049
       },
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-kbd",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"⌘K\" in <kbd> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
-      ],
-      "unstyled": 16
+      "status": "matches",
+      "pixels": {
+        "mae": 0.028,
+        "regionMAE": 0.047
+      },
+      "unstyled": 0
     },
     {
       "example": "input-group-label-demo",
-      "status": "incomplete",
-      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "unstyled": 16
+      "status": "matches",
+      "pixels": {
+        "mae": 0.294,
+        "regionMAE": 0.487
+      },
+      "unstyled": 0
     },
     {
       "example": "input-group-spinner-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.131,
-        "regionMAE": 0.284
+        "mae": 0.086,
+        "regionMAE": 0.143
       },
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-text-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1187), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8576), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-textarea-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1190), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8580), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-group-tooltip-demo",
-      "status": "incomplete",
-      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "unstyled": 16
+      "status": "matches",
+      "pixels": {
+        "mae": 0.06,
+        "regionMAE": 0.099
+      },
+      "unstyled": 0
     },
     {
       "example": "input-inline",
       "status": "matches",
       "pixels": {
-        "mae": 0.029,
-        "regionMAE": 0.137
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
       "unstyled": 0
     },
@@ -1752,17 +1558,17 @@
       "example": "input-input-group",
       "status": "matches",
       "pixels": {
-        "mae": 0.057,
-        "regionMAE": 0.227
+        "mae": 0.042,
+        "regionMAE": 0.069
       },
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "input-invalid",
       "status": "matches",
       "pixels": {
-        "mae": 0.054,
-        "regionMAE": 0.176
+        "mae": 0.043,
+        "regionMAE": 0.071
       },
       "unstyled": 0
     },
@@ -1770,8 +1576,8 @@
       "example": "input-required",
       "status": "matches",
       "pixels": {
-        "mae": 0.043,
-        "regionMAE": 0.14
+        "mae": 0.039,
+        "regionMAE": 0.065
       },
       "unstyled": 0
     },
@@ -1779,413 +1585,359 @@
       "example": "item-avatar-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1206), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 8573), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
       ],
-      "unstyled": 24
+      "unstyled": 0
     },
     {
       "example": "item-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1170), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 8551), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
       ],
-      "unstyled": 19
+      "unstyled": 0
     },
     {
       "example": "item-icon-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1171), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 8551), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
       ],
-      "unstyled": 19
+      "unstyled": 0
     },
     {
       "example": "item-link-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1170), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 8551), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
       ],
-      "unstyled": 19
+      "unstyled": 0
     },
     {
       "example": "item-size-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1170), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 8551), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
       ],
-      "unstyled": 19
+      "unstyled": 0
     },
     {
       "example": "item-variants-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1174), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 8555), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
       ],
-      "unstyled": 19
+      "unstyled": 0
     },
     {
       "example": "kbd-button-demo",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"⏎\" in <kbd> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
-      ],
-      "unstyled": 2
+      "status": "matches",
+      "pixels": {
+        "mae": 0.056,
+        "regionMAE": 0.093
+      },
+      "unstyled": 0
     },
     {
       "example": "kbd-demo",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"+\" in <span> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
-      ],
-      "unstyled": 2
+      "status": "matches",
+      "pixels": {
+        "mae": 0.037,
+        "regionMAE": 0.061
+      },
+      "unstyled": 0
     },
     {
       "example": "kbd-group-demo",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"Ctrl + B\" in <kbd> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
-      ],
-      "unstyled": 2
+      "status": "matches",
+      "pixels": {
+        "mae": 0.063,
+        "regionMAE": 0.105
+      },
+      "unstyled": 0
     },
     {
       "example": "kbd-input-group-demo",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"⌘\" in <kbd> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
-      ],
-      "unstyled": 16
+      "status": "matches",
+      "pixels": {
+        "mae": 0.027,
+        "regionMAE": 0.044
+      },
+      "unstyled": 0
     },
     {
       "example": "kbd-tooltip-demo",
-      "status": "incomplete",
-      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "unstyled": 9
+      "status": "matches",
+      "pixels": {
+        "mae": 0.023,
+        "regionMAE": 0.039
+      },
+      "unstyled": 0
     },
     {
       "example": "label-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.022,
-        "regionMAE": 0.125
+        "mae": 0.051,
+        "regionMAE": 0.085
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "marker-border",
       "status": "matches",
       "pixels": {
-        "mae": 0.084,
-        "regionMAE": 0.182
+        "mae": 0.049,
+        "regionMAE": 0.081
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "marker-demo",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.072,
-        "regionMAE": 0.118
-      },
-      "unstyled": 5
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8642), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
+      ],
+      "unstyled": 0
     },
     {
       "example": "marker-icon",
       "status": "matches",
       "pixels": {
-        "mae": 0.124,
-        "regionMAE": 0.202
+        "mae": 0.113,
+        "regionMAE": 0.188
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "marker-separator",
       "status": "matches",
       "pixels": {
-        "mae": 0.04,
-        "regionMAE": 0.077
+        "mae": 0.084,
+        "regionMAE": 0.14
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "marker-shimmer",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.042
-      },
-      "unstyled": 5
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8636), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
+      ],
+      "unstyled": 0
     },
     {
       "example": "marker-status",
       "status": "matches",
       "pixels": {
-        "mae": 0.04,
-        "regionMAE": 0.091
+        "mae": 0.061,
+        "regionMAE": 0.102
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "marker-variants",
       "status": "matches",
       "pixels": {
-        "mae": 0.069,
-        "regionMAE": 0.132
+        "mae": 0.083,
+        "regionMAE": 0.138
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "menubar-checkbox",
       "status": "matches",
       "pixels": {
-        "mae": 0.011,
-        "regionMAE": 0.057
+        "mae": 0.014,
+        "regionMAE": 0.023
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "menubar-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.067,
-        "regionMAE": 0.349
+        "mae": 0.065,
+        "regionMAE": 0.108
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "menubar-icons",
       "status": "matches",
       "pixels": {
-        "mae": 0.02,
-        "regionMAE": 0.104
+        "mae": 0.041,
+        "regionMAE": 0.068
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "menubar-radio",
       "status": "matches",
       "pixels": {
-        "mae": 0.014,
-        "regionMAE": 0.071
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "menubar-submenu",
       "status": "matches",
       "pixels": {
-        "mae": 0.014,
-        "regionMAE": 0.071
+        "mae": 0.033,
+        "regionMAE": 0.055
       },
-      "unstyled": 15
+      "unstyled": 0
     },
     {
       "example": "message-actions",
       "status": "matches",
       "pixels": {
-        "mae": 0.104,
-        "regionMAE": 0.182
+        "mae": 0.219,
+        "regionMAE": 0.363
       },
-      "unstyled": 21
-    },
-    {
-      "example": "message-attachment",
-      "status": "differs",
-      "worst": {
-        "gate": "pixels",
-        "key": "viewport",
-        "mae": 42.884,
-        "regionMAE": 44.297,
-        "diff": {
-          "x": 209,
-          "y": 113,
-          "width": 591,
-          "height": 483,
-          "share": 0.45587
-        }
-      },
-      "failingSteps": [
-        "mount",
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": true,
-        "pixels": false
-      },
-      "pixels": {
-        "mae": 42.884,
-        "regionMAE": 44.297,
-        "diff": {
-          "x": 209,
-          "y": 113,
-          "width": 591,
-          "height": 483,
-          "share": 0.45587
-        }
-      },
-      "unstyled": 35
+      "unstyled": 0
     },
     {
       "example": "message-avatar",
-      "status": "incomplete",
-      "reason": "the site serves no /avatars/10.png: .cache/corpus/shadcn-svelte/docs/static has no avatars/10.png",
-      "unstyled": 26
+      "status": "matches",
+      "pixels": {
+        "mae": 0.234,
+        "regionMAE": 0.377
+      },
+      "unstyled": 0
     },
     {
       "example": "message-demo",
-      "status": "incomplete",
-      "reason": "the site serves no /avatars/10.png: .cache/corpus/shadcn-svelte/docs/static has no avatars/10.png",
-      "unstyled": 31
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8657), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
+      ],
+      "unstyled": 0
     },
     {
       "example": "message-group",
       "status": "matches",
       "pixels": {
-        "mae": 0.079,
-        "regionMAE": 0.098
+        "mae": 0.095,
+        "regionMAE": 0.157
       },
-      "unstyled": 26
+      "unstyled": 0
     },
     {
       "example": "message-header-footer",
       "status": "matches",
       "pixels": {
-        "mae": 0.094,
-        "regionMAE": 0.171
+        "mae": 0.211,
+        "regionMAE": 0.35
       },
-      "unstyled": 21
+      "unstyled": 0
     },
     {
       "example": "popover-alignments",
       "status": "matches",
       "pixels": {
-        "mae": 0.04,
-        "regionMAE": 0.193
+        "mae": 0.049,
+        "regionMAE": 0.082
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "popover-basic",
       "status": "matches",
       "pixels": {
-        "mae": 0.046,
-        "regionMAE": 0.219
+        "mae": 0.055,
+        "regionMAE": 0.091
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "popover-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.05,
-        "regionMAE": 0.238
+        "mae": 0.02,
+        "regionMAE": 0.032
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "popover-form",
       "status": "matches",
       "pixels": {
-        "mae": 0.046,
-        "regionMAE": 0.219
+        "mae": 0.055,
+        "regionMAE": 0.091
       },
-      "unstyled": 5
+      "unstyled": 0
     },
     {
       "example": "progress-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0,
-        "regionMAE": 0
+        "mae": 0.004,
+        "regionMAE": 0.006
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "progress-label",
       "status": "matches",
       "pixels": {
-        "mae": 0.019,
-        "regionMAE": 0.099
+        "mae": 0.02,
+        "regionMAE": 0.033
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "radio-group-choice-card",
       "status": "matches",
       "pixels": {
-        "mae": 0.059,
-        "regionMAE": 0.12
+        "mae": 0.062,
+        "regionMAE": 0.102
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "radio-group-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.122,
-        "regionMAE": 0.509
+        "mae": 0.046,
+        "regionMAE": 0.077
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "radio-group-description",
       "status": "matches",
       "pixels": {
-        "mae": 0.499,
-        "regionMAE": 1.463
+        "mae": 0.248,
+        "regionMAE": 0.411
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "radio-group-disabled",
       "status": "matches",
       "pixels": {
-        "mae": 0.033,
-        "regionMAE": 0.137
+        "mae": 0.046,
+        "regionMAE": 0.076
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "radio-group-fieldset",
       "status": "matches",
       "pixels": {
-        "mae": 0.086,
-        "regionMAE": 0.231
+        "mae": 0.088,
+        "regionMAE": 0.147
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "radio-group-invalid",
       "status": "matches",
       "pixels": {
-        "mae": 0.055,
-        "regionMAE": 0.149
-      },
-      "unstyled": 4
-    },
-    {
-      "example": "scroll-fade-edge",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"scroll-fade-t\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
-      ],
-      "unstyled": 0
-    },
-    {
-      "example": "scroll-fade-horizontal",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.103,
-        "regionMAE": 0.428
-      },
-      "unstyled": 0
-    },
-    {
-      "example": "scroll-fade-rtl",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.049,
-        "regionMAE": 0.205
+        "mae": 0.083,
+        "regionMAE": 0.137
       },
       "unstyled": 0
     },
@@ -2194,18 +1946,18 @@
       "status": "matches",
       "pixels": {
         "mae": 0.012,
-        "regionMAE": 0.063
+        "regionMAE": 0.02
       },
-      "unstyled": 13
+      "unstyled": 0
     },
     {
       "example": "select-disabled",
       "status": "matches",
       "pixels": {
-        "mae": 0.006,
-        "regionMAE": 0.032
+        "mae": 0.008,
+        "regionMAE": 0.013
       },
-      "unstyled": 13
+      "unstyled": 0
     },
     {
       "example": "select-scrollable",
@@ -2224,24 +1976,24 @@
         "pixels": true
       },
       "pixels": {
-        "mae": 0.258,
-        "regionMAE": 1.341,
+        "mae": 0.261,
+        "regionMAE": 0.432,
         "diff": {
-          "x": 273,
-          "y": 69,
-          "width": 250,
-          "height": 12,
-          "share": 0.00167
+          "x": 80,
+          "y": 40,
+          "width": 640,
+          "height": 452,
+          "share": 0.00753
         }
       },
-      "unstyled": 13
+      "unstyled": 0
     },
     {
       "example": "separator-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.507,
-        "regionMAE": 1.516
+        "mae": 0.083,
+        "regionMAE": 0.137
       },
       "unstyled": 0
     },
@@ -2249,8 +2001,8 @@
       "example": "separator-list",
       "status": "matches",
       "pixels": {
-        "mae": 0.042,
-        "regionMAE": 0.137
+        "mae": 0.051,
+        "regionMAE": 0.085
       },
       "unstyled": 0
     },
@@ -2258,8 +2010,8 @@
       "example": "separator-menu",
       "status": "matches",
       "pixels": {
-        "mae": 0.156,
-        "regionMAE": 0.715
+        "mae": 0.227,
+        "regionMAE": 0.376
       },
       "unstyled": 0
     },
@@ -2267,8 +2019,8 @@
       "example": "separator-vertical",
       "status": "matches",
       "pixels": {
-        "mae": 0.069,
-        "regionMAE": 0.373
+        "mae": 0.071,
+        "regionMAE": 0.118
       },
       "unstyled": 0
     },
@@ -2276,85 +2028,81 @@
       "example": "sheet-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.018,
-        "regionMAE": 0.086
+        "mae": 0.032,
+        "regionMAE": 0.053
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "sheet-no-close-button",
       "status": "matches",
       "pixels": {
-        "mae": 0.032,
-        "regionMAE": 0.151
+        "mae": 0.069,
+        "regionMAE": 0.114
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "shimmer-angle",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: E_FONT: \"shimmer\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8640), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
       ],
       "unstyled": 0
     },
     {
       "example": "shimmer-color",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.067,
-        "regionMAE": 0.292
-      },
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8632), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
+      ],
       "unstyled": 0
     },
     {
       "example": "shimmer-demo",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.034,
-        "regionMAE": 0.182
-      },
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8632), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
+      ],
       "unstyled": 0
     },
     {
       "example": "shimmer-duration",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: E_FONT: \"shimmer\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8640), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
       ],
       "unstyled": 0
     },
     {
       "example": "shimmer-marker",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.02,
-        "regionMAE": 0.08
-      },
-      "unstyled": 5
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8642), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
+      ],
+      "unstyled": 0
     },
     {
       "example": "shimmer-none",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: E_FONT: \"shimmer md:shimmer-none\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8632), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
       ],
       "unstyled": 0
     },
     {
       "example": "shimmer-once",
-      "status": "matches",
-      "pixels": {
-        "mae": 0.068,
-        "regionMAE": 0.26
-      },
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8632), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
+      ],
       "unstyled": 0
     },
     {
       "example": "shimmer-rtl",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: E_FONT: \"dir=\\\"ltr\\\"\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8640), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
       ],
       "unstyled": 0
     },
@@ -2362,7 +2110,7 @@
       "example": "shimmer-spread",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: E_FONT: \"shimmer-spread-4\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+        "runic: unsupported: the CSS declaration -webkit-text-fill-color: var(--shimmer-text-fill, transparent) (stylesheet generated by Tailwind CSS, line 8640), which Blitz's style engine (Stylo) does not support, applies to an element matching .shimmer"
       ],
       "unstyled": 0
     },
@@ -2370,62 +2118,62 @@
       "example": "skeleton-avatar",
       "status": "matches",
       "pixels": {
-        "mae": 0,
-        "regionMAE": 0
+        "mae": 0.001,
+        "regionMAE": 0.002
       },
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "skeleton-card",
       "status": "matches",
       "pixels": {
-        "mae": 0,
-        "regionMAE": 0
+        "mae": 0.014,
+        "regionMAE": 0.023
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "skeleton-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0,
-        "regionMAE": 0
+        "mae": 0.001,
+        "regionMAE": 0.002
       },
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "skeleton-form",
       "status": "matches",
       "pixels": {
-        "mae": 0,
-        "regionMAE": 0
+        "mae": 0.001,
+        "regionMAE": 0.002
       },
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "skeleton-text",
       "status": "matches",
       "pixels": {
-        "mae": 0,
-        "regionMAE": 0
+        "mae": 0.001,
+        "regionMAE": 0.002
       },
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "spinner-badge-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.144,
-        "regionMAE": 0.75
+        "mae": 0.102,
+        "regionMAE": 0.169
       },
-      "unstyled": 7
+      "unstyled": 0
     },
     {
       "example": "spinner-button-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.071,
-        "regionMAE": 0.199
+        "mae": 0.065,
+        "regionMAE": 0.108
       },
       "unstyled": 0
     },
@@ -2433,8 +2181,8 @@
       "example": "spinner-color-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.013,
-        "regionMAE": 0.067
+        "mae": 0.014,
+        "regionMAE": 0.023
       },
       "unstyled": 0
     },
@@ -2442,8 +2190,8 @@
       "example": "spinner-custom-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.003,
-        "regionMAE": 0.018
+        "mae": 0.004,
+        "regionMAE": 0.007
       },
       "unstyled": 0
     },
@@ -2451,40 +2199,40 @@
       "example": "spinner-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration -webkit-line-clamp: 1 (stylesheet generated by Tailwind CSS, line 1170), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-1"
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 1 (stylesheet generated by Tailwind CSS, line 8545), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-1"
       ],
-      "unstyled": 19
+      "unstyled": 0
     },
     {
       "example": "spinner-empty-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1237), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8749), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "spinner-input-group-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1199), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8589), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 14
+      "unstyled": 0
     },
     {
       "example": "spinner-item-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1180), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 8557), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
       ],
-      "unstyled": 21
+      "unstyled": 0
     },
     {
       "example": "spinner-size-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.016,
-        "regionMAE": 0.079
+        "mae": 0.017,
+        "regionMAE": 0.028
       },
       "unstyled": 0
     },
@@ -2492,64 +2240,64 @@
       "example": "switch-choice-card",
       "status": "matches",
       "pixels": {
-        "mae": 0.089,
-        "regionMAE": 0.181
+        "mae": 0.101,
+        "regionMAE": 0.167
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "switch-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.057,
-        "regionMAE": 0.326
+        "mae": 0.079,
+        "regionMAE": 0.13
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "switch-description",
       "status": "matches",
       "pixels": {
-        "mae": 0.049,
-        "regionMAE": 0.195
+        "mae": 0.055,
+        "regionMAE": 0.092
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "switch-disabled",
       "status": "matches",
       "pixels": {
-        "mae": 0.027,
-        "regionMAE": 0.153
+        "mae": 0.023,
+        "regionMAE": 0.038
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "switch-invalid",
       "status": "matches",
       "pixels": {
-        "mae": 0.037,
-        "regionMAE": 0.15
+        "mae": 0.1,
+        "regionMAE": 0.166
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "switch-sizes",
       "status": "matches",
       "pixels": {
-        "mae": 0.009,
-        "regionMAE": 0.039
+        "mae": 0.019,
+        "regionMAE": 0.031
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "table-actions",
       "status": "matches",
       "pixels": {
-        "mae": 0.617,
-        "regionMAE": 1.784
+        "mae": 0.352,
+        "regionMAE": 0.584
       },
-      "unstyled": 21
+      "unstyled": 0
     },
     {
       "example": "table-demo",
@@ -2557,14 +2305,14 @@
       "worst": {
         "gate": "pixels",
         "key": "#demo only",
-        "mae": 2.077,
-        "regionMAE": 3.864,
+        "mae": 2.852,
+        "regionMAE": 4.712,
         "diff": {
-          "x": 221,
-          "y": 69,
-          "width": 357,
-          "height": 231,
-          "share": 0.02987
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 446,
+          "share": 0.0252
         }
       },
       "failingSteps": [
@@ -2577,299 +2325,279 @@
         "pixels": false
       },
       "pixels": {
-        "mae": 2.077,
-        "regionMAE": 3.864,
+        "mae": 2.852,
+        "regionMAE": 4.712,
         "diff": {
-          "x": 221,
-          "y": 69,
-          "width": 357,
-          "height": 231,
-          "share": 0.02987
+          "x": 86,
+          "y": 46,
+          "width": 632,
+          "height": 446,
+          "share": 0.0252
         }
       },
-      "unstyled": 9
+      "unstyled": 0
     },
     {
       "example": "table-footer",
-      "status": "differs",
-      "worst": {
-        "gate": "pixels",
-        "key": "#demo only",
-        "mae": 1.156,
-        "regionMAE": 3.012,
-        "diff": {
-          "x": 221,
-          "y": 69,
-          "width": 357,
-          "height": 135,
-          "share": 0.01664
-        }
-      },
-      "failingSteps": [
-        "mount",
-        "wait 0"
-      ],
-      "passed": {
-        "semantics": true,
-        "geometry": true,
-        "pixels": false
-      },
+      "status": "matches",
       "pixels": {
-        "mae": 1.156,
-        "regionMAE": 3.012,
-        "diff": {
-          "x": 221,
-          "y": 69,
-          "width": 357,
-          "height": 135,
-          "share": 0.01664
-        }
+        "mae": 1.499,
+        "regionMAE": 2.487
       },
-      "unstyled": 9
+      "unstyled": 0
     },
     {
       "example": "tabs-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.163,
-        "regionMAE": 0.48
+        "mae": 0.126,
+        "regionMAE": 0.21
       },
-      "unstyled": 10
+      "unstyled": 0
     },
     {
       "example": "tabs-disabled",
       "status": "matches",
       "pixels": {
-        "mae": 0.036,
-        "regionMAE": 0.189
+        "mae": 0.039,
+        "regionMAE": 0.065
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "tabs-icons",
       "status": "matches",
       "pixels": {
-        "mae": 0.059,
-        "regionMAE": 0.305
+        "mae": 0.042,
+        "regionMAE": 0.069
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "tabs-line",
       "status": "matches",
       "pixels": {
-        "mae": 0.082,
-        "regionMAE": 0.429
+        "mae": 0.048,
+        "regionMAE": 0.079
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "tabs-vertical",
       "status": "matches",
       "pixels": {
-        "mae": 0.037,
-        "regionMAE": 0.139
+        "mae": 0.068,
+        "regionMAE": 0.112
       },
-      "unstyled": 4
+      "unstyled": 0
     },
     {
       "example": "textarea-button",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1174), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8568), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "textarea-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1165), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8564), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "textarea-disabled",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1199), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8576), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "textarea-field",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1199), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8576), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "textarea-invalid",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1199), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 8576), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
       ],
-      "unstyled": 1
+      "unstyled": 0
     },
     {
       "example": "toggle-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.076,
-        "regionMAE": 0.398
+        "mae": 0.038,
+        "regionMAE": 0.064
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "toggle-disabled",
       "status": "matches",
       "pixels": {
-        "mae": 0.036,
-        "regionMAE": 0.187
+        "mae": 0.02,
+        "regionMAE": 0.033
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "toggle-group-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.004,
-        "regionMAE": 0.02
+        "mae": 0.01,
+        "regionMAE": 0.017
       },
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "toggle-group-disabled",
       "status": "matches",
       "pixels": {
-        "mae": 0.002,
-        "regionMAE": 0.012
+        "mae": 0.004,
+        "regionMAE": 0.007
       },
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "toggle-group-font-weight-selector",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1381), which Blitz's style engine (Stylo) does not support, applies to an element matching .group-has-data-horizontal\\/field\\:text-balance:is(:where(.group\\/field):has(:where([data-orientation=\"horizontal\"])) *)"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8884), which Blitz's style engine (Stylo) does not support, applies to an element matching .group-has-data-horizontal\\/field\\:text-balance:is(:where(.group\\/field):has(:where([data-orientation=\"horizontal\"])) *)"
       ],
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "toggle-group-outline",
       "status": "matches",
       "pixels": {
-        "mae": 0.007,
-        "regionMAE": 0.035
+        "mae": 0.018,
+        "regionMAE": 0.03
       },
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "toggle-group-sizes",
       "status": "matches",
       "pixels": {
-        "mae": 0.222,
-        "regionMAE": 0.869
+        "mae": 0.123,
+        "regionMAE": 0.204
       },
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "toggle-group-spacing",
       "status": "matches",
       "pixels": {
-        "mae": 0.052,
-        "regionMAE": 0.27
+        "mae": 0.083,
+        "regionMAE": 0.138
       },
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "toggle-group-vertical",
       "status": "matches",
       "pixels": {
-        "mae": 0.004,
-        "regionMAE": 0.013
+        "mae": 0.007,
+        "regionMAE": 0.012
       },
-      "unstyled": 8
+      "unstyled": 0
     },
     {
       "example": "toggle-lg",
       "status": "matches",
       "pixels": {
-        "mae": 0.001,
-        "regionMAE": 0.004
+        "mae": 0.002,
+        "regionMAE": 0.003
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "toggle-outline",
       "status": "matches",
       "pixels": {
-        "mae": 0.042,
-        "regionMAE": 0.218
+        "mae": 0.022,
+        "regionMAE": 0.036
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "toggle-sizes",
       "status": "matches",
       "pixels": {
-        "mae": 0.069,
-        "regionMAE": 0.36
+        "mae": 0.081,
+        "regionMAE": 0.135
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "toggle-sm",
       "status": "matches",
       "pixels": {
-        "mae": 0.001,
-        "regionMAE": 0.004
+        "mae": 0.002,
+        "regionMAE": 0.003
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "toggle-with-text",
       "status": "matches",
       "pixels": {
-        "mae": 0.021,
-        "regionMAE": 0.111
+        "mae": 0.005,
+        "regionMAE": 0.009
       },
-      "unstyled": 6
+      "unstyled": 0
     },
     {
       "example": "tooltip-demo",
       "status": "matches",
       "pixels": {
-        "mae": 0.016,
-        "regionMAE": 0.076
+        "mae": 0.026,
+        "regionMAE": 0.044
       },
-      "unstyled": 2
+      "unstyled": 0
     },
     {
       "example": "tooltip-disabled",
-      "status": "incomplete",
-      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "unstyled": 2
+      "status": "matches",
+      "pixels": {
+        "mae": 0.021,
+        "regionMAE": 0.035
+      },
+      "unstyled": 0
     },
     {
       "example": "tooltip-keyboard",
-      "status": "incomplete",
-      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "unstyled": 4
+      "status": "matches",
+      "pixels": {
+        "mae": 0.005,
+        "regionMAE": 0.008
+      },
+      "unstyled": 0
     },
     {
       "example": "tooltip-sides",
-      "status": "incomplete",
-      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
-      "unstyled": 2
+      "status": "matches",
+      "pixels": {
+        "mae": 0.105,
+        "regionMAE": 0.175
+      },
+      "unstyled": 0
     },
     {
       "example": "typography-blockquote",
       "status": "matches",
       "pixels": {
-        "mae": 0.188,
-        "regionMAE": 0.698
+        "mae": 0.94,
+        "regionMAE": 1.559
       },
       "unstyled": 0
     },
@@ -2877,7 +2605,7 @@
       "example": "typography-demo",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1340), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8862), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
       "unstyled": 0
     },
@@ -2885,7 +2613,7 @@
       "example": "typography-h1",
       "status": "reportsUnsupported",
       "reports": [
-        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1221), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 8757), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
       ],
       "unstyled": 0
     },
@@ -2893,8 +2621,8 @@
       "example": "typography-h2",
       "status": "matches",
       "pixels": {
-        "mae": 0.136,
-        "regionMAE": 0.605
+        "mae": 0.043,
+        "regionMAE": 0.072
       },
       "unstyled": 0
     },
@@ -2902,8 +2630,8 @@
       "example": "typography-h3",
       "status": "matches",
       "pixels": {
-        "mae": 0.03,
-        "regionMAE": 0.145
+        "mae": 0.072,
+        "regionMAE": 0.119
       },
       "unstyled": 0
     },
@@ -2911,25 +2639,26 @@
       "example": "typography-h4",
       "status": "matches",
       "pixels": {
-        "mae": 0.024,
-        "regionMAE": 0.121
+        "mae": 0.122,
+        "regionMAE": 0.202
       },
       "unstyled": 0
     },
     {
       "example": "typography-inline-code",
-      "status": "reportsUnsupported",
-      "reports": [
-        "runic: E_FONT: \"@lucide/svelte\" in <code> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
-      ],
+      "status": "matches",
+      "pixels": {
+        "mae": 0.04,
+        "regionMAE": 0.066
+      },
       "unstyled": 0
     },
     {
       "example": "typography-large",
       "status": "matches",
       "pixels": {
-        "mae": 0.029,
-        "regionMAE": 0.144
+        "mae": 0.084,
+        "regionMAE": 0.139
       },
       "unstyled": 0
     },
@@ -2937,8 +2666,8 @@
       "example": "typography-lead",
       "status": "matches",
       "pixels": {
-        "mae": 0.036,
-        "regionMAE": 0.148
+        "mae": 0.058,
+        "regionMAE": 0.097
       },
       "unstyled": 0
     },
@@ -2946,8 +2675,8 @@
       "example": "typography-list",
       "status": "matches",
       "pixels": {
-        "mae": 0.578,
-        "regionMAE": 1.505
+        "mae": 0.561,
+        "regionMAE": 0.93
       },
       "unstyled": 0
     },
@@ -2955,8 +2684,8 @@
       "example": "typography-muted",
       "status": "matches",
       "pixels": {
-        "mae": 0.04,
-        "regionMAE": 0.217
+        "mae": 0.022,
+        "regionMAE": 0.036
       },
       "unstyled": 0
     },
@@ -2964,8 +2693,8 @@
       "example": "typography-p",
       "status": "matches",
       "pixels": {
-        "mae": 0.087,
-        "regionMAE": 0.356
+        "mae": 0.078,
+        "regionMAE": 0.13
       },
       "unstyled": 0
     },
@@ -2973,8 +2702,8 @@
       "example": "typography-small",
       "status": "matches",
       "pixels": {
-        "mae": 0.027,
-        "regionMAE": 0.151
+        "mae": 0.016,
+        "regionMAE": 0.026
       },
       "unstyled": 0
     },
@@ -2982,8 +2711,8 @@
       "example": "typography-table",
       "status": "matches",
       "pixels": {
-        "mae": 0.068,
-        "regionMAE": 0.138
+        "mae": 0.175,
+        "regionMAE": 0.29
       },
       "unstyled": 0
     }
