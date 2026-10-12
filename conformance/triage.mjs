@@ -6,6 +6,7 @@
 // backend validation, no native build), recording the first diagnostic.
 //
 //   node conformance/triage.mjs [example ...] [--out DIR] [--jobs N] [--keep-lib]
+//                               [--dynamic-values]
 //
 // Scope: the top-level examples only. examples/create/ (about 527 files that
 // the site's /preview/[item] route serves) is out of scope for this census.
@@ -29,7 +30,9 @@
 // their real path. The theme is fixtures/bits-dialog-svelte/src/app.css
 // without its fixture-specific `@source not inline(...)` exclusions,
 // generated into each host. A host is removed after its analysis unless
-// --keep-lib is given.
+// --keep-lib is given. With --dynamic-values, every host sets runic.json
+// `"dynamicValues": true` (the opt-in dynamic value tier for untyped code,
+// docs/design/M6-DYNAMIC-VALUES.md); the census records it.
 //
 // SvelteKit's `$app/*` modules (combobox-responsive imports
 // `$app/environment`, and so does sveltekit-superforms for form-demo) exist
@@ -82,6 +85,7 @@ const { values, positionals } = parseArgs({
     jobs: { type: 'string', default: '4' },
     timeout: { type: 'string', default: '600' },
     'keep-lib': { type: 'boolean' },
+    'dynamic-values': { type: 'boolean' },
     one: { type: 'string' },
   },
 });
@@ -280,6 +284,9 @@ if (!removedFromTheme.length || theme.includes('@source not'))
   throw new Error('fixtures/bits-dialog-svelte/src/app.css: the @source exclusions changed shape');
 const font = path.join(fixture, 'assets/DejaVuSans.woff2');
 
+/** runic.json's opt-in dynamic value tier, with --dynamic-values. */
+const dynamicValues = values['dynamic-values'] ? { dynamicValues: true } : {};
+
 /** Write the host shell (everything but src/lib) for `name`. */
 function host(name) {
   const dir = path.join(out, 'hosts', name);
@@ -295,6 +302,7 @@ function host(name) {
         title: `Runic triage ${name}`,
         tailwind: true,
         alias: { $lib: 'src/lib' },
+        ...dynamicValues,
       },
       null,
       2,
@@ -326,7 +334,13 @@ function kitHost(dir, name) {
   writeFileSync(
     path.join(dir, 'runic.json'),
     JSON.stringify(
-      { framework: 'svelte', kit: true, title: `Runic triage ${name}`, tailwind: true },
+      {
+        framework: 'svelte',
+        kit: true,
+        title: `Runic triage ${name}`,
+        tailwind: true,
+        ...dynamicValues,
+      },
       null,
       2,
     ) + '\n',
@@ -685,6 +699,7 @@ for (const r of results)
   }
 const census = {
   generated: 'node conformance/triage.mjs',
+  ...(values['dynamic-values'] ? { dynamicValues: true } : {}),
   corpus: {
     name: source.name,
     commit: source.commit,
