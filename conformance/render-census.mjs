@@ -46,17 +46,23 @@
 //
 // Statuses:
 //   matches            every gate passed;
-//   differs            a gate failed: the worst (semantics, then geometry, then
-//                      pixels) with its element or region and numbers;
+//   differs            a gate failed, with the worst difference: a render
+//                      error only the app reports (Chromium mounts the
+//                      example), else semantics, then geometry, then pixels,
+//                      with its element or region and numbers;
 //   reportsUnsupported the app reported `runic: E_*` or `runic: unsupported`
-//                      at run time (a probe stops at `unsupported`), with the
+//                      at run time (a probe stops at `unsupported` and at the
+//                      E_FONT, E_FILTER and E_BLEND deviations), with the
 //                      report; a probe that completed keeps its comparison;
 //   buildFailed        codegen or cargo failed, with the first error;
 //   nativeFailed       the probe crashed or timed out (not a report), with
 //                      the reason;
 //   notLowered         the example no longer lowers (triage's status and code);
 //   incomplete         a stage could not run (image pinning, Chromium, the
-//                      Kit build), with the reason; never counted as passed.
+//                      Kit build), or the example throws on mount on both
+//                      sides (Chromium's page error is the app's render
+//                      error: the host lacks what the site provides), with
+//                      the reason; never counted as passed.
 //
 // Evidence: <out>/reports/<example>.json (stages, timings, disk, the
 // comparison's differences), <out>/logs/<example>.build.log and .probe.log,
@@ -64,7 +70,7 @@
 // <out>/render-census-summary.json (the compact form committed under
 // conformance/results/). After its comparison each example's binary,
 // generated crate, screenshots, Vite cache, Kit build and host are removed
-// (--keep-shots keeps the screenshots and the host). --resume skips the
+// (--keep-shots keeps the screenshots, both traces and the host). --resume skips the
 // examples that already have a report.
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -432,7 +438,7 @@ function summarise(cmp, b, n) {
   if (bs && ns) r.pixels.diff = diffRegion(bs, ns);
   if (!cmp.passed.semantics) {
     const first = b.errors?.length
-      ? { key: `Chromium ${b.errors[0].kind} error` }
+      ? { key: `Chromium ${b.errors[0].kind} error: ${b.errors[0].message.split('\n')[0]}` }
       : dom.length
         ? dom[0]
         : s.focus
@@ -575,12 +581,16 @@ async function renderOne(name) {
     ms.probe = Date.now() - tp;
     if (e.code !== 'E_NATIVE_PROBE') throw e;
     writeFileSync(path.join(out, 'logs', name + '.probe.log'), e.stderr);
-    const unsupported = /panicked at [^\n]*\n\s*unsupported: ([^\n]*)/.exec(strip(e.stderr));
+    // A probe stops where an app reports (`unsupported: …`, and the
+    // `E_FONT`/`E_FILTER`/`E_BLEND` deviations an app reports on stderr).
+    const stopped = /panicked at [^\n]*\n\s*((?:unsupported|E_[A-Z_]+): [^\n]*)/.exec(
+      strip(e.stderr),
+    );
     const reports = reportsOf(e.stderr);
-    if (unsupported || reports.length)
+    if (stopped || reports.length)
       return finish({
         status: 'reportsUnsupported',
-        reports: [...reports, ...(unsupported ? [`runic: unsupported: ${unsupported[1]}`] : [])],
+        reports: [...reports, ...(stopped ? [`runic: ${stopped[1]}`] : [])],
         probeStopped: true,
       });
     return finish({ status: 'nativeFailed', reason: probeFailureReason(e) });
@@ -588,6 +598,11 @@ async function renderOne(name) {
   ms.probe = Date.now() - tp;
   if (n.stderr) writeFileSync(path.join(out, 'logs', name + '.probe.log'), n.stderr);
   report.mountUs = n.mountUs;
+  if (values['keep-shots'])
+    writeFileSync(
+      path.join(shots, 'traces.json'),
+      JSON.stringify({ browser: b.steps, native: n.steps }, null, 1),
+    );
 
   // Comparison.
   const cmp = await time('compare', () =>
@@ -597,6 +612,32 @@ async function renderOne(name) {
   const comparison = summarise(cmp, b, n);
   const reports = reportsOf(n.stderr ?? '');
   if (reports.length) return finish({ status: 'reportsUnsupported', reports, comparison });
+  // The example throws on mount in Chromium and the app reports the same
+  // render error: it does not render in this host on either side (the site
+  // provides what it lacks, such as its layout's Tooltip.Provider), so its
+  // rendering is not measured.
+  const thrown = b.errors
+    ?.filter(e => e.kind === 'pageerror')
+    .map(e => e.message.split('\n')[0].replace(/^Uncaught /, ''));
+  const rendered = strip(n.stderr ?? '')
+    .split('\n')
+    .filter(l => l.startsWith('runic: render error: '))
+    .map(l => l.slice('runic: render error: '.length));
+  if (thrown?.length && thrown.every(m => rendered.includes(m)))
+    return finish({
+      status: 'incomplete',
+      stage: 'mount',
+      reason: `throws on mount on both sides: ${thrown[0]}`,
+      comparison,
+    });
+  // A render error only the app reports (Chromium mounts the example): the
+  // worst difference, whatever the snapshots show.
+  const own = rendered.filter(m => !thrown?.includes(m));
+  if (own.length) {
+    cmp.passed.semantics = false;
+    comparison.renderErrors = own;
+    comparison.worst = { gate: 'semantics', key: `native render error: ${own[0]}` };
+  }
   const passed = Object.values(cmp.passed).every(v => v === true);
   return finish({ status: passed ? 'matches' : 'differs', comparison });
 }
@@ -661,11 +702,17 @@ const clusterKey = r => {
   if (r.status === 'differs') return `${r.comparison.worst.gate}: ${r.comparison.worst.key}`;
   if (r.status === 'reportsUnsupported')
     return r.reports
-      .map(l =>
-        l
+      .map(l => {
+        const font = /^runic: E_FONT: .*\(font-family: ([^)]*)\)/.exec(l);
+        if (font) return `E_FONT (font-family: ${font[1].split(',')[0]})`;
+        const css = /^runic: unsupported: the CSS declaration ([^(]*?) \(/.exec(l);
+        if (css) return `unsupported CSS: ${css[1]}`;
+        return l
           .replace(/^runic: (E_[A-Z_]+):.*$/, '$1')
-          .replace(/^runic: unsupported: (.{0,80}).*$/, 'unsupported: $1'),
-      )
+          .replace(/^runic: unsupported: (.{0,80}).*$/, 'unsupported: $1')
+          .replace(/\d+/g, 'N');
+      })
+      .filter((k, i, all) => all.indexOf(k) === i)
       .sort()
       .join(' + ');
   if (r.status === 'buildFailed')
@@ -697,10 +744,12 @@ const compact = r => {
     c.reports = r.reports;
     if (r.comparison) c.passed = r.comparison.passed;
   }
-  if (r.status === 'matches') c.pixels = r.comparison.pixels;
+  if (r.status === 'matches')
+    c.pixels = { mae: r.comparison.pixels?.mae, regionMAE: r.comparison.pixels?.regionMAE };
   if (r.error) c.error = r.error;
   if (r.reason) c.reason = r.reason;
-  if (r.style) c.unstyled = r.style.unstyled;
+  // How many of its `cn-*` classes the theme has no rule for (the report lists them).
+  if (r.style) c.unstyled = r.style.unstyled.length;
   return c;
 };
 // The statuses of the examples whose `cn-*` classes the host theme all styles,
@@ -735,7 +784,10 @@ const summary = {
   },
   totals,
   timing: {
-    seconds: Math.round((Date.now() - t0) / 1000),
+    // This invocation's wall time, and the examples' own times summed (a
+    // resumed census sums every run's).
+    invocationSeconds: Math.round((Date.now() - t0) / 1000),
+    exampleSecondsSum: Math.round(results.reduce((s, r) => s + (r.ms?.total ?? 0), 0) / 1000),
     medianMs: Object.fromEntries(
       ['images', 'build', 'browser', 'probe', 'compare', 'total'].map(k => [
         k,
