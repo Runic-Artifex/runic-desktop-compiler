@@ -395,6 +395,45 @@ test('{@const} of a value with identity is rejected', async () => {
   );
 });
 
+test('{@const} of a component value names a dynamic tag, beside a type-only import of its name', async () => {
+  // shadcn-svelte's ComponentPreviewTabs: `import type { Component }` and
+  // `{@const Component = component}<Component />`.
+  await withApp(
+    {
+      'A.svelte': '<p id="a">A</p>\n',
+      'B.svelte': '<p id="b">B</p>\n',
+      'Preview.svelte': `<script lang="ts">
+  import type { Component } from 'svelte';
+  let { component }: { component?: Component } = $props();
+</script>
+
+{#if component}
+  {@const Component = component}
+  <Component />
+{/if}
+`,
+      'App.svelte': `<script lang="ts">
+  import Preview from './Preview.svelte';
+  import A from './A.svelte';
+  import B from './B.svelte';
+  let which = $state(true);
+</script>
+
+<Preview component={which ? A : B} />
+<button id="t" onclick={() => (which = !which)}>t</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 't' }]);
+      assert.match(JSON.stringify(steps[0].state.dom), /"A"/);
+      assert.doesNotMatch(JSON.stringify(steps[0].state.dom), /"B"/);
+      assert.match(JSON.stringify(steps[1].state.dom), /"B"/);
+      assert.doesNotMatch(JSON.stringify(steps[1].state.dom), /"A"/);
+    },
+  );
+});
+
 test('capture listeners of a bag run from the root to the target, before the others', async () => {
   await withApp(
     {

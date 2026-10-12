@@ -159,7 +159,9 @@ export class ModuleResolver {
       for (const stmt of sf.statements) {
         if (ts.isImportDeclaration(stmt)) {
           const clause = stmt.importClause;
-          if (!clause) continue;
+          // A type-only import names no value or component (a template's
+          // `{@const Component = component}` beside `import type { Component }`).
+          if (!clause || clause.isTypeOnly) continue;
           const edge = this.edge(file, (stmt.moduleSpecifier as ts.StringLiteral).text);
           if (clause.name?.text === name) return edge && this.imported(edge, 'default', seen);
           const named = clause.namedBindings;
@@ -167,7 +169,7 @@ export class ModuleResolver {
             return edge && this.imported(edge, '*', seen);
           if (named && ts.isNamedImports(named))
             for (const el of named.elements)
-              if (el.name.text === name)
+              if (el.name.text === name && !el.isTypeOnly)
                 return edge && this.imported(edge, (el.propertyName ?? el.name).text, seen);
           continue;
         }

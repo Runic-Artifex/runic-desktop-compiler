@@ -376,6 +376,62 @@ test('root-relative URLs resolve in public/ (Vite) or static/ (SvelteKit) withou
     assert.deepEqual(untouched, program());
   }));
 
+test('a root-relative URL naming no static file is pinned as a 404, explicitly', () =>
+  withApp(async root => {
+    await mkdir(path.join(root, 'public'), { recursive: true });
+    await writeFile(path.join(root, 'public/here.png'), PNG);
+    const list = urls('/gone.png', '/here.png', `${base}/a.png`);
+    await assert.rejects(
+      pinImages({ root }, program(), list.slice(0, 1)),
+      failWith('src/App.svelte', /no file public\/gone\.png .*"status": 404/),
+    );
+    const write = images =>
+      writeFile(path.join(root, RECORD), JSON.stringify({ format: 1, images }));
+    await write([{ url: '/gone.png', status: 404 }]);
+    const ir = program();
+    await pinImages({ root }, ir, list.slice(0, 2));
+    assert.deepEqual(ir.images, [
+      { url: '/gone.png', status: 404 },
+      { url: '/here.png', asset: 1 },
+    ]);
+    assert.equal(ir.assets.length, 2);
+    // runic images keeps the pin beside the remote URLs it fetches, and
+    // drops it once the program no longer loads the URL.
+    const summary = await fetchImages(root, { imageUrls: list });
+    assert.equal(summary.local, 2);
+    const record = JSON.parse(await readFile(path.join(root, RECORD), 'utf8'));
+    assert.deepEqual(
+      record.images.map(e => e.url),
+      ['/gone.png', `${base}/a.png`],
+    );
+    assert.deepEqual(record.images[0], { url: '/gone.png', status: 404 });
+    await pinImages({ root }, program(), list);
+    await fetchImages(root, { imageUrls: list.slice(1, 2) });
+    assert.equal(existsSync(path.join(root, RECORD)), false);
+    // Only 404, only for a file that does not exist, and never bytes.
+    await write([{ url: '/gone.png', status: 410 }]);
+    await assert.rejects(
+      pinImages({ root }, program(), list.slice(0, 1)),
+      failWith(RECORD, /pinned only as a missing file, with status 404/),
+    );
+    await write([{ url: '/here.png', status: 404 }]);
+    await assert.rejects(
+      pinImages({ root }, program(), list.slice(1, 2)),
+      failWith('src/App.svelte', /pins it as missing \(404\), but public\/here\.png exists/),
+    );
+    await write([{ url: '/gone.png', sha256: sha256(PNG), bytes: PNG.length, mime: 'image/png' }]);
+    await assert.rejects(
+      pinImages({ root }, program(), list.slice(0, 1)),
+      failWith(RECORD, /pinned only as a missing file/),
+    );
+    // An entry the program does not load is stale, as for remote URLs.
+    await write([{ url: '/gone.png', status: 404 }]);
+    await assert.rejects(
+      pinImages({ root }, program(), list.slice(1, 2)),
+      failWith(RECORD, /does not load/),
+    );
+  }));
+
 test('the record feeds the source hash; the backend embeds checked image bytes', async () => {
   await mkdir('.cache/tests', { recursive: true });
   const root = await mkdtemp(path.resolve('.cache/tests/images-'));

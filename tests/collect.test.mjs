@@ -228,6 +228,27 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
     (await guards('p { -webkit-line-clamp: 2 }'))[0].message,
     /-webkit-line-clamp: 2 \(s\.css, line 1\)/,
   );
+  // Grayscale font smoothing is what both renderers draw: no guard. Values
+  // asking for subpixel or no antialiasing are reported where they apply.
+  assert.deepEqual(
+    (
+      (await guards(
+        '.antialiased { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale }',
+      )) ?? []
+    ).map(g => g.message),
+    [],
+  );
+  assert.deepEqual(
+    (
+      await guards(
+        '.a { -webkit-font-smoothing: subpixel-antialiased }\n.b { -webkit-font-smoothing: none }',
+      )
+    ).map(g => [g.selector, /-webkit-font-smoothing: (\S+) \(s\.css/.exec(g.message)?.[1]]),
+    [
+      ['.a', 'subpixel-antialiased'],
+      ['.b', 'none'],
+    ],
+  );
   // Not where a later rule of at least its specificity sets the property
   // (`unless`); the legacy box's clamping and orientation not where its
   // `display: -webkit-box` is overridden. Scroll margins are recognized
@@ -329,6 +350,54 @@ test('a stylesheet split off by a dynamic import is rejected at the import', asy
       'lazy.css': 'p{color:red}',
     },
   );
+});
+
+test('fonts of a package stylesheet Tailwind CSS inlines are recorded from their files', async () => {
+  // shadcn-svelte's app.css: `@import "@fontsource-variable/geist/index.css"`.
+  await mkdir('.cache/tests', { recursive: true });
+  const root = await mkdtemp(path.resolve('.cache/tests/collect-'));
+  const font = await readFile(
+    'node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2',
+  );
+  const files = {
+    'runic.json': JSON.stringify({
+      framework: 'svelte',
+      entry: 'main.js',
+      title: 'T',
+      tailwind: true,
+    }),
+    'index.html':
+      '<!doctype html><html><head></head><body><div id="root"></div><script type="module" src="/main.js"></script></body></html>',
+    'main.js':
+      "import { mount } from 'svelte';\nimport App from './App.svelte';\nimport './app.css';\nmount(App, { target: document.getElementById('root') });\n",
+    'App.svelte': '<p class="font-sans">Hi</p>\n',
+    'app.css':
+      '@import "tailwindcss";\n@import "fontpkg/index.css";\n@theme inline { --font-sans: "F", sans-serif; }\n',
+    'node_modules/fontpkg/package.json': JSON.stringify({ name: 'fontpkg', version: '1.0.0' }),
+    'node_modules/fontpkg/index.css':
+      '@font-face { font-family: "F"; font-weight: 100 900; src: url(./files/f.woff2) format("woff2-variations"); }\n',
+  };
+  try {
+    for (const [file, text] of Object.entries(files)) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), text);
+    }
+    await mkdir(path.join(root, 'node_modules/fontpkg/files'));
+    await writeFile(path.join(root, 'node_modules/fontpkg/files/f.woff2'), font);
+    const graph = await collect(root);
+    const { createHash } = await import('node:crypto');
+    assert.deepEqual(graph.assets, [
+      {
+        path: 'node_modules/fontpkg/files/f.woff2',
+        sha256: createHash('sha256').update(font).digest('hex'),
+        bytes: font.length,
+        mime: 'font/woff2',
+      },
+    ]);
+    assert.match(graph.css, /src: url\("data:font\/woff2;base64,/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('malformed Svelte source reports a located parse error', async () => {

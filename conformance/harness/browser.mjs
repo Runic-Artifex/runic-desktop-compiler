@@ -129,10 +129,11 @@ async function serveKitFixture(root, config) {
 
 /**
  * The fixture's pinned images (`runic.images.json`, M6 images): a map from
- * each URL as Chromium requests it (parsed and serialised) to `{ status,
- * mime, body }`, or undefined when the fixture pins none.
+ * each URL as Chromium requests it (parsed and serialised; a root-relative
+ * one, a missing static file pinned as a 404, against the fixture's server
+ * `base`) to `{ status, mime, body }`, or undefined when the fixture pins none.
  */
-export async function pinnedImages(fixture) {
+export async function pinnedImages(fixture, base) {
   const root = await realpath(fixture);
   let record;
   try {
@@ -145,7 +146,7 @@ export async function pinnedImages(fixture) {
   for (const entry of record.images) {
     const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg' };
     pinned.set(
-      new URL(entry.url).href,
+      new URL(entry.url, base).href,
       entry.status !== undefined
         ? { status: entry.status }
         : {
@@ -628,12 +629,13 @@ export async function createBrowserHarness() {
         await context.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
         // Pinned images (M6): Chromium is offline too. Every request outside
         // the fixture's server is answered from the record, with the pinned
-        // bytes or the pinned HTTP status; any other one fails the run.
-        const pinned = await pinnedImages(fixture);
+        // bytes or the pinned HTTP status; any other one fails the run. So is
+        // a request for a missing static file the record pins as a 404.
+        const pinned = await pinnedImages(fixture, server.url);
         const serverOrigin = new URL(server.url).origin;
         if (pinned)
           await context.route(
-            u => /^https?:$/.test(u.protocol) && u.origin !== serverOrigin,
+            u => /^https?:$/.test(u.protocol) && (u.origin !== serverOrigin || pinned.has(u.href)),
             route => {
               const url = route.request().url();
               const image = pinned.get(url);
@@ -813,10 +815,9 @@ export async function createBrowserHarness() {
           // Retain it as evidence without attributing it to an app console call.
           if (m.type() === 'verbose')
             browserDiagnostics.push({ type: m.type(), text: m.text(), location: m.location() });
-          else if (appSource(m.location().url, origin))
-            lines.push({ level: LEVELS[m.type()] ?? m.type(), text: textJson(m.text()) });
           // Chromium logs the failed load of a pinned failure (an image's
-          // 404), which the app sees only as its `error` event.
+          // 404), which the app sees only as its `error` event. (Checked
+          // before app sources: a root-relative pin is on the app's origin.)
           else if (
             m.type() === 'error' &&
             pinned?.has(m.location().url) &&
@@ -824,6 +825,8 @@ export async function createBrowserHarness() {
             m.text().startsWith('Failed to load resource:')
           )
             browserDiagnostics.push({ type: m.type(), text: m.text(), location: m.location() });
+          else if (appSource(m.location().url, origin))
+            lines.push({ level: LEVELS[m.type()] ?? m.type(), text: textJson(m.text()) });
           else if (m.type() === 'error') errors.push({ kind: 'console', message: m.text() });
         });
         const t1 = performance.now();

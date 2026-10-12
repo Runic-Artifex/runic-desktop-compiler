@@ -21,8 +21,14 @@
 // fetchImages; one network fetch per URL, shared by the hosts of the run), and
 // root-relative ones are copied from the directory the site serves them from,
 // the corpus's docs/static/, into the host's static directory (public/, or
-// static/ in a Kit host). A URL that cannot be pinned, or a file the site does
-// not have, makes the example `incomplete`.
+// static/ in a Kit host). A root-relative URL the site has no file for (the
+// avatar examples' /avatars/10.png) is what the site answers with a 404: the
+// host's runic.images.json pins it explicitly as `{ url, status: 404 }`, so
+// Chromium (harness/browser.mjs answers the request from the record) and the
+// native build both get the failed load and show the example's fallback; the
+// report lists it under images.pinned.missing. A URL that cannot be pinned
+// (a remote fetch without an HTTP status, an unsupported form) makes the
+// example `incomplete`.
 //
 // Per example: `node compiler/cli.mjs build <host> --probe` (the probe build
 // run.mjs uses: dev profile, CPU renderer, on the shared target under its
@@ -39,10 +45,11 @@
 // example cannot pass on the empty page around it). Geometry compares the
 // elements with ids (run.mjs's 2 px).
 //
-// The census theme styles Button, Dialog, Field, Input and Label only (the
-// site's other components take their rules from style-vega.css, which it
-// lacks): each report lists the `cn-*` classes the example uses that the
-// theme has no rule for, and the totals split the statuses by it.
+// The hosts show each example in the site's view (triage.mjs: the site's
+// stylesheet with style-vega.css and the Geist fonts, its <html> and <body>
+// attributes, the docs page's ancestors and ComponentPreview). Each report
+// still lists the `cn-*` classes the example uses that the host's stylesheet
+// has no rule for (none is expected), and the totals split the statuses by it.
 //
 // Statuses:
 //   matches            every gate passed;
@@ -155,12 +162,10 @@ if (!values.triage && selected.length) {
   );
   if (r.status !== 0) throw new Error(`triage.mjs exited ${r.status}`);
 }
-const fresh = new Map(
-  JSON.parse(readFileSync(path.join(triage, 'census.json'), 'utf8')).results.map(r => [
-    r.example,
-    r,
-  ]),
-);
+const triageCensus = JSON.parse(readFileSync(path.join(triage, 'census.json'), 'utf8'));
+const fresh = new Map(triageCensus.results.map(r => [r.example, r]));
+/** The hosts' view of the site (triage.mjs's census header), for the summary. */
+const siteView = triageCensus.host?.siteView;
 const manifest = JSON.parse(
   readFileSync(path.join(repo, 'conformance/corpus/north-star.json'), 'utf8'),
 );
@@ -168,11 +173,11 @@ const source = manifest.sources.find(s => s.name === 'shadcn-svelte');
 const siteStatic = path.join(repo, '.cache/corpus', source.name, source.target, 'static');
 
 // The style classes: the site styles its components with `cn-*` classes whose
-// rules are in registry/styles/style-vega.css (the default style); the census
-// theme carries those of Button, Dialog, Field, Input and Label only. Each
-// report records the `cn-*` classes the example's lib files use and those the
-// host theme has no rule for: a component without its rules renders unstyled
-// on both sides, so its comparison does not cover the site's look.
+// rules are in registry/styles/style-vega.css (the default style), which the
+// host's stylesheet imports as the site's does. Each report records the
+// `cn-*` classes the example's lib files use and those the host's CSS has no
+// rule for: a component without its rules renders unstyled on both sides, so
+// its comparison would not cover the site's look.
 const cnClasses = text => new Set(text.match(/\.cn-[a-z0-9-]+/g)?.map(c => c.slice(1)) ?? []);
 const vegaClasses = cnClasses(
   readFileSync(
@@ -187,7 +192,11 @@ const vegaClasses = cnClasses(
   ),
 );
 function styleCoverage(dir) {
-  const theme = cnClasses(readFileSync(path.join(dir, 'src/app.css'), 'utf8'));
+  const theme = cnClasses(
+    globSync('src/**/*.css', { cwd: dir })
+      .map(f => readFileSync(path.join(dir, f), 'utf8'))
+      .join('\n'),
+  );
   const used = new Set();
   for (const f of globSync('src/lib/**/*.{svelte,ts,js}', { cwd: dir }))
     for (const m of readFileSync(path.join(dir, f), 'utf8').matchAll(/\bcn-[a-z0-9-]+/g))
@@ -217,29 +226,49 @@ const sharedFetch = (url, init) => {
 async function pinHostImages(dir, urls, kit) {
   const remote = urls.filter(u => /^https?:\/\//i.test(u));
   const local = urls.filter(u => u.startsWith('/') && !u.startsWith('//'));
-  const pinned = { remote: [], local: [] };
+  const pinned = { remote: [], local: [], missing: [] };
   for (const url of local) {
     const rel = decodeURIComponent(url.split(/[?#]/)[0]).slice(1);
     const from = path.join(siteStatic, rel);
-    if (!from.startsWith(siteStatic + path.sep) || !existsSync(from))
-      return {
-        incomplete: `the site serves no ${url}: ${path.relative(repo, siteStatic)} has no ${rel}`,
-      };
+    if (!from.startsWith(siteStatic + path.sep) || /[?#]/.test(url))
+      return { incomplete: `${url} is not a plain path of the site's static files` };
+    if (!existsSync(from)) {
+      // The site serves no such file (its request ends with 404): pinned as
+      // a missing file on both sides (compiler/images.mjs), so both show what
+      // the example shows for a failed image.
+      pinned.missing.push({ url, status: 404, why: `${path.relative(repo, siteStatic)} has no ${rel}` });
+      continue;
+    }
     const to = path.join(dir, kit ? 'static' : 'public', rel);
     mkdirSync(path.dirname(to), { recursive: true });
     copyFileSync(from, to);
     pinned.local.push({ url, from: path.relative(repo, from) });
   }
+  const record = path.join(dir, 'runic.images.json');
+  if (pinned.missing.length)
+    writeFileSync(
+      record,
+      JSON.stringify(
+        { format: 1, images: pinned.missing.map(({ url, status }) => ({ url, status })) },
+        null,
+        2,
+      ) + '\n',
+    );
   if (remote.length) {
     try {
       await fetchImages(dir, {
-        imageUrls: remote.map(url => ({ url, source: undefined })),
+        imageUrls: [...remote, ...pinned.missing.map(m => m.url)].map(url => ({
+          url,
+          source: undefined,
+        })),
         fetch: sharedFetch,
       });
     } catch (e) {
       return { incomplete: `runic images: ${strip(e.message)}` };
     }
-    pinned.remote = JSON.parse(readFileSync(path.join(dir, 'runic.images.json'), 'utf8')).images;
+    pinned.remote = JSON.parse(readFileSync(record, 'utf8')).images.filter(e =>
+      remote.includes(e.url),
+    );
   }
   return { pinned };
 }
@@ -613,9 +642,8 @@ async function renderOne(name) {
   const reports = reportsOf(n.stderr ?? '');
   if (reports.length) return finish({ status: 'reportsUnsupported', reports, comparison });
   // The example throws on mount in Chromium and the app reports the same
-  // render error: it does not render in this host on either side (the site
-  // provides what it lacks, such as its layout's Tooltip.Provider), so its
-  // rendering is not measured.
+  // render error: it does not render in this host on either side (the host
+  // lacks what the site provides), so its rendering is not measured.
   const thrown = b.errors
     ?.filter(e => e.kind === 'pageerror')
     .map(e => e.message.split('\n')[0].replace(/^Uncaught /, ''));
@@ -748,12 +776,13 @@ const compact = r => {
     c.pixels = { mae: r.comparison.pixels?.mae, regionMAE: r.comparison.pixels?.regionMAE };
   if (r.error) c.error = r.error;
   if (r.reason) c.reason = r.reason;
-  // How many of its `cn-*` classes the theme has no rule for (the report lists them).
+  // How many of its `cn-*` classes the host's CSS has no rule for (the report lists them).
   if (r.style) c.unstyled = r.style.unstyled.length;
   return c;
 };
-// The statuses of the examples whose `cn-*` classes the host theme all styles,
-// and of those using classes it has no rule for.
+// The statuses of the examples whose `cn-*` classes the host's CSS all styles,
+// and of those using classes it has no rule for (the keys keep the first
+// census's names).
 const styled = r => r.style && !r.style.unstyled.length;
 totals.byStyle = {
   themeStylesAllClasses: Object.fromEntries(
@@ -772,6 +801,20 @@ const summary = {
       : ''),
   census: values.census,
   corpus: { name: source.name, commit: source.commit },
+  // The site's view the hosts reproduce (the full record, with every file's
+  // SHA-256, is the example census's host.siteView).
+  siteView: siteView && {
+    stylesheet: { from: siteView.stylesheet.from, sha256: siteView.stylesheet.sha256 },
+    html: siteView.html,
+    body: siteView.body,
+    fonts: Object.fromEntries(
+      Object.entries(siteView.packages)
+        .filter(([p]) => p.startsWith('@fontsource-variable/'))
+        .map(([p, v]) => [p, v.version]),
+    ),
+    images:
+      'root-relative URLs from docs/static; one the site has no file for is pinned as a 404 on both sides',
+  },
   chromium: browser.browserVersion,
   viewport,
   renderer: 'cpu',
