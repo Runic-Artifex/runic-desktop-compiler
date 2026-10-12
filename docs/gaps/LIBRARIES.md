@@ -9,7 +9,6 @@ A package import is `E_DEPENDENCY` unless a mapping pack covers it or it is comp
 | Package | Imports in the shadcn-svelte site (scan) | Needed by | Notes |
 |---|---|---|---|
 | `layerchart`, `d3-scale`, `d3-shape` | 100, 75, 47 | charts | Large; SVG text and gradients (P1). Installed since 2026-10-12: the chart-bar examples stop before lowering at `E_CSS_ORDER`: layerchart loads styled components (BrushContext, Legend, tooltips) through dynamic `import()` (Chart.base.svelte:446), which splits their styles into stylesheets of their own; the rejection is located at that import |
-| `@internationalized/date` | 63 | calendar, date pickers | Planned M6 pack |
 | `@tanstack/svelte-table` | 26 | data table | |
 | `svelte-sonner` 1.2.1 (source) | 21 | toasts, site shell | Compiled from source since 2026-10-12; the sonner examples stop at `Object.assign(basicToast, {…})` typed `any` (toast-state.svelte.js:290, V2). Its nested runed is 0.28.0, which has no pack (runed's pack is 0.35.1) |
 | `shadcn-svelte` (workspace) | 16 | site | |
@@ -35,7 +34,8 @@ bits-ui compiles from source; parts with a conformance case are in [CONTRACT](..
 | Pagination | `E_TYPE_UNSUPPORTED` without dynamic values; with the opt-in it passes case `bits-pagination` | design/M6-DYNAMIC-VALUES |
 | Meter, RadioGroup | lower; no case yet | design/M6-LIBRARIES |
 | Menubar | the shadcn-svelte census examples lower (2026-10-12); no native case yet | conformance/results/shadcn-svelte-census.md |
-| AlertDialog, HoverCard, ContextMenu, NavigationMenu, Calendar, RangeCalendar, DateField, Combobox, Toolbar, LinkPreview | not attempted | — |
+| Calendar, RangeCalendar, DatePicker | Since 2026-10-12 `@internationalized/date` is packed; all 16 calendar, date-picker and range-calendar examples of the census then stop at `E_TYPE_UNION` (V1): `CalendarDate \| CalendarDateTime \| ZonedDateTime \| DateValue[]`, the single/multiple value of `getDefaultDate`'s `defaultValue`, reached by `DateValue[]` (calendar.svelte.js:329, `handleMultipleUpdate` under `this.opts.type.current === "multiple"`) and by the three date classes (:340). Covering it takes (a) the census counting a union of classes as one member (the value model holds class unions already) and (b) ruling out the multiple branch where every Calendar is `type="single"`: build-time truth would have to follow the `type` prop through `boxWith(() => type)` into `this.opts.type.current`, or the component is compiled per member (layer 2). Beyond that, bits-ui's `getDefaultDate` reads the clock (`new Date()`) and compares Dates with `<` | bits-ui internal/date-time/utils.js:20; bits/calendar/calendar.svelte.js:325-345 |
+| AlertDialog, HoverCard, ContextMenu, NavigationMenu, DateField, Combobox, Toolbar, LinkPreview | not attempted | — |
 | Multiple Select, ToggleGroup/Accordion mixing types in one program | V1 | CONTRACT |
 | Command: clearing the search, queries without matches | P3 (comment anchors) | CONTRACT |
 | Popover open/close animations | not sampled by the case | CONTRACT |
@@ -53,6 +53,7 @@ bits-ui compiles from source; parts with a conformance case are in [CONTRACT](..
 | svelte-toolbelt 0.10.6 | box members other than `current`, `executeCallbacks` of two functions under one key, boxes of handlers, other exports | packs/svelte-toolbelt-0.10.6.ts |
 | @floating-ui/dom 1.7.4 | `autoPlacement`, `inline`, `detectOverflow`, platform overrides, virtual elements, derivable options, RTL scroll origins, `offsetParent` with the root as containing block, SVG children and inline boxes | packs/floating-ui-dom-1.7.4.ts; runtime floating.rs |
 | tabbable 6.5.0 | SVG content, `hidden="until-found"`, radio groups across forms, elements inside replaced elements, `displayCheck` other than full | packs/tabbable-6.5.0.ts; runtime tabbable.rs |
+| @internationalized/date 3.12.4 | `E_PACK`: calendars other than the Gregorian one (`JapaneseCalendar` …, `createCalendar`), `setLocalTimeZone`/`resetLocalTimeZone`, `parseDuration`, other exports and subpaths; not ported: the constructor overloads with a calendar or era, `cycle`, `minDate`/`maxDate`, `DateFormatter#resolvedOptions`. Reported unsupported where they run: dates before year 1 (BC era, also as an intermediate value: the week of 0001-01-01), zones other than UTC and the local one, locales outside the nine with measured week data, `formatToParts`/`formatRange`, Intl options outside the verified subset, and a local date-time whose day ends in a daylight-saving gap crossing midnight (Pacific/Apia 2011-12-30), where the package's local `toDate` depends on the time it runs (it starts from `new Date()`) | packs/internationalized-date-3.12.4/date.ts |
 | esm-env 1.2.2 | subpaths | packs/esm-env-1.2.2.ts |
 
 ## Untyped package code (L4)

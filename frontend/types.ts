@@ -1,7 +1,12 @@
 // TypeScript checker types → IR types (docs/design/M2-VALUES.md, D16).
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import type { RecordField, RecordType, Type } from './ir.ts';
 import { maybeInner } from './irtype.ts';
+
+/** Where pack ports live (frontend/packs.ts, `PackPort`). */
+const PACKS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'packs') + path.sep;
 
 export type Fail = (node: ts.Node, code: string, message: string) => never;
 
@@ -1001,12 +1006,15 @@ export class TypeMapper {
       (t.isIntersection() && t.types.every(m => (m.aliasSymbol ?? m.symbol)?.declarations?.length)
         ? t.types.flatMap(m => (m.aliasSymbol ?? m.symbol)!.declarations!)
         : []);
+    // (A pack's port stands for the package's declaration files: its types
+    // are the package's, which package code builds with any key subset.)
     if (
       declarations.length &&
       declarations.every(
         d =>
-          d.getSourceFile().isDeclarationFile &&
-          /[\\/]node_modules[\\/]/.test(d.getSourceFile().fileName),
+          (d.getSourceFile().isDeclarationFile &&
+            /[\\/]node_modules[\\/]/.test(d.getSourceFile().fileName)) ||
+          path.resolve(d.getSourceFile().fileName).startsWith(PACKS_DIR),
       )
     )
       this.packageRecords.add(index);

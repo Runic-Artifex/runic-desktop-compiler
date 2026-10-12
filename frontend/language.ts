@@ -7855,6 +7855,14 @@ export class Lowerer {
         return builtin('host.reply', [], { promise: 'void' });
       case 'unsupported':
         return builtin('host.unsupported', [arg(0, STRING)], 'void');
+      case 'timeZone':
+        return builtin('intl.time-zone', [], STRING);
+      case 'formatDate':
+        return builtin(
+          'intl.format-date-runtime',
+          [arg(0, NUMBER), arg(1, STRING), arg(2, STRING)],
+          STRING,
+        );
       // A value as Svelte renders it in text: nullish as empty, others as String(v).
       case 'text': {
         const v = this.expr(e.arguments[0], b);
