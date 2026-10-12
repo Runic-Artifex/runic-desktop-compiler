@@ -878,6 +878,22 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     a.expression.type === 'Identifier' &&
     (a.expression.name === decls.get(file)?.rest ||
       !!decls.get(file)?.restBags.has(a.expression.name));
+  /**
+   * Whether a site of component `file` may pass both snippets `a` and `b`
+   * (as `{#snippet}` blocks or content, or through its own rest props).
+   */
+  const sitePassesBoth = (file: string, a: string, b: string): boolean => {
+    let found = false;
+    for (const u of order)
+      walkTemplate(u.ast.fragment, n => {
+        if (found || n.type !== 'Component' || u.children.get(n.name) !== file) return;
+        const passed = new Set(snippetsPassed(n));
+        if (n.attributes.some((x: SNode) => spreadsRest(u.file, x)))
+          for (const s of restSlots.get(u.file) ?? []) passed.add(s);
+        found = passed.has(a) && passed.has(b);
+      });
+    return found;
+  };
   const slotForwards: { from: string; to: string }[] = [];
   for (const u of order)
     walkTemplate(u.ast.fragment, n => {
@@ -4200,17 +4216,103 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         source: loc(n),
       };
     };
-    /** `{@render name(args)}` / `{@render name?.(args)}` of a snippet prop → a slot. */
+    /**
+     * Where the entry `key` of the bag `e` comes from: `rest`, the rest
+     * props' entry (present or not); `absent`, no entry; undefined where it
+     * may come from elsewhere. Bags: the rest props, and constants of object
+     * literals (also as `$derived(…)`), whose last entry that may hold the
+     * key gives it. (The rest props hold the snippets they reached as
+     * slots, `forwardedSlots`, beyond their shape.)
+     */
+    const restEntryOf = (
+      e: ts.Expression,
+      key: string,
+      seen = new Set<ts.Node>(),
+    ): 'rest' | 'absent' | undefined => {
+      e = skipParens(e);
+      if (!ts.isIdentifier(e) || seen.has(e)) return undefined;
+      seen.add(e);
+      const binding = lower.binding(e);
+      if (binding?.kind === 'cell' && cells[binding.cell].prop === '...') return 'rest';
+      const sym = checker.getSymbolAtLocation(e);
+      const decl = sym?.valueDeclaration;
+      if (
+        !decl ||
+        !ts.isVariableDeclaration(decl) ||
+        !(decl.parent.flags & ts.NodeFlags.Const) ||
+        !decl.initializer
+      )
+        return undefined;
+      let init = skipParens(decl.initializer);
+      if (
+        ts.isCallExpression(init) &&
+        init.expression.getText() === '$derived' &&
+        init.arguments.length === 1
+      )
+        init = skipParens(init.arguments[0]);
+      if (!ts.isObjectLiteralExpression(init)) return undefined;
+      for (const p of [...init.properties].reverse()) {
+        if (ts.isSpreadAssignment(p)) {
+          const from = restEntryOf(p.expression, key, seen);
+          const may = mayHold(shapes.of(p.expression), key);
+          if (from === 'rest' && (may || forwardedSlots.has(key))) return 'rest';
+          if (from === 'absent' || !may) continue;
+          return undefined;
+        }
+        const name = p.name && shapes.propertyName(p.name);
+        if (name === undefined) return undefined;
+        if (name === key) return undefined;
+      }
+      return 'absent';
+    };
+    /**
+     * `{@render name(args)}` / `{@render name?.(args)}` of a snippet prop → a
+     * slot; also of a snippet the rest props hold, read from a bag of them
+     * (shadcn-svelte's `{@render mergedProps.children?.()}` of
+     * `mergedProps = $derived({ class: …, ...restProps })`): the slot it
+     * reached the rest props as, nothing where no site passes it.
+     */
     const render = (n: SNode): Node => {
       let call = exprNode(n.expression);
       while (ts.isParenthesizedExpression(call)) call = call.expression;
       const callee = ts.isCallExpression(call) ? call.expression : undefined;
-      const name =
+      let name =
         callee && ts.isIdentifier(callee)
           ? snippetOf.get(checker.getSymbolAtLocation(callee)!)
           : undefined;
+      let member: ts.Expression | undefined = callee;
+      while (member && ts.isNonNullExpression(member)) member = member.expression;
+      if (!name && member && ts.isPropertyAccessExpression(member)) {
+        const key = member.name.text;
+        const from = restEntryOf(member.expression, key);
+        const optional = !!(call as ts.CallExpression).questionDotToken;
+        const passed = mayHold(restShape.get(u.file) ?? openShape(), key);
+        if (from === 'rest' && forwardedSlots.has(key) && !passed) name = key;
+        // No site passes it (as a snippet or a value): the bag has no such
+        // entry, and an optional call renders nothing.
+        else if (
+          optional &&
+          (from === 'absent' || (from === 'rest' && !forwardedSlots.has(key) && !passed))
+        )
+          return { kind: 'if', test: { op: 'lit', value: false }, then: [], source: loc(n) };
+      }
       if (!name)
         return fail('E_TEMPLATE', '{@render} supports snippet props of this component', loc(n));
+      // Snippets the rest props received are slots, not bag entries: a bag
+      // of the rest props passed to a snippet lacks them. Svelte's holds
+      // them where the instance received both, so a site passing both is
+      // rejected.
+      if (
+        forwardedSlots.size &&
+        (call as ts.CallExpression).arguments.some(a => mentionsRest(a, u.file))
+      )
+        for (const held of forwardedSlots)
+          if (held !== name && sitePassesBoth(u.file, name, held))
+            fail(
+              'E_TEMPLATE',
+              `${name} receives a bag of the rest props, which hold the snippet ${held} where a site passes both; snippets in bags passed to snippets are unsupported`,
+              loc(n),
+            );
       const decl = slots.find(d => d.name === name)!;
       const args = (call as ts.CallExpression).arguments.map((a, i) => {
         const v = value(a);
@@ -4281,6 +4383,10 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const inner = typeof t === 'object' && 'maybe' in t ? t.maybe : t;
       if (bagValueType(inner)) return { name, value: v };
       if (typeof t === 'object' && 'maybe' in t) return { name, value: maybeAttribute(v, t, a) };
+      // `title={undefined}`: an entry holding undefined (no attribute, and
+      // it overrides an earlier entry of its name), not the text "undefined".
+      if (v.op === 'undefined')
+        return { name, value: { op: 'undefined', type: { maybe: 'string' } } };
       return { name, value: { op: 'to-string', arg: v } };
     };
     /**

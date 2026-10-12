@@ -192,3 +192,167 @@ export class Trigger {
     },
   );
 });
+
+// shadcn-svelte's Item, Bubble and Marker: an object literal of the
+// component's own attributes and its rest props is a bag (whatever the rest
+// props' TypeScript type), spread onto an element or passed to a `child`
+// snippet typed `Record<string, unknown>` or a svelte/elements interface;
+// the children the rest props received render from the bag.
+const ITEM = `<script lang="ts">
+  import type { Snippet } from 'svelte';
+  import type { HTMLAttributes } from 'svelte/elements';
+  let {
+    class: className,
+    child,
+    variant,
+    ...restProps
+  }: HTMLAttributes<HTMLDivElement> & {
+    child?: Snippet<[{ props: Record<string, unknown> }]>;
+    variant?: string;
+  } = $props();
+  const mergedProps = $derived({
+    class: className ? 'item ' + className : 'item',
+    'data-slot': 'item',
+    'data-variant': variant,
+    title: 'default',
+    ...restProps,
+  });
+</script>
+
+{#if child}
+  {@render child({ props: mergedProps })}
+{:else}
+  <div {...mergedProps}>{@render mergedProps.children?.()}</div>
+{/if}
+`;
+
+test('an object literal of attributes and rest props is a bag: later entries win, children render', async () => {
+  await withApp(
+    {
+      'Item.svelte': ITEM,
+      'Link.svelte': `<script lang="ts">
+  import type { Snippet } from 'svelte';
+  import type { HTMLAnchorAttributes } from 'svelte/elements';
+  let { child, ...restProps }: HTMLAnchorAttributes & {
+    child: Snippet<[{ props: HTMLAnchorAttributes }]>;
+  } = $props();
+  const attrs = $derived({ 'data-slot': 'link', ...restProps });
+</script>
+
+{@render child({ props: attrs })}
+`,
+      // No site passes children: the optional call renders nothing.
+      'Plain.svelte': `<script lang="ts">
+  import type { HTMLAttributes } from 'svelte/elements';
+  let { ...restProps }: HTMLAttributes<HTMLDivElement> = $props();
+  const mergedProps = $derived({ 'data-slot': 'plain', ...restProps });
+</script>
+
+<div {...mergedProps}>{@render mergedProps.children?.()}</div>
+`,
+      'App.svelte': `<script lang="ts">
+  import Item from './Item.svelte';
+  import Link from './Link.svelte';
+  import Plain from './Plain.svelte';
+  let variant = $state('outline');
+</script>
+
+<Plain id="f" />
+<Item id="g" />
+
+<Item id="a">content a</Item>
+<Item id="b" class="x" {variant} title="site" data-slot="override">content b</Item>
+<Item id="c" title={undefined}>content c</Item>
+<Item id="d">
+  {#snippet child({ props })}<span {...props}>from the snippet</span>{/snippet}
+</Item>
+<Link id="e" title="t">
+  {#snippet child({ props })}<span {...props}>link</span>{/snippet}
+</Link>
+<button id="go" onclick={() => (variant = 'muted')}>go</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const [start, clicked] = interpret(ir, [{ kind: 'click', id: 'go' }]);
+      const dom = start.state.dom;
+      assert.deepEqual(byId(dom, 'a').attrs, {
+        class: 'item',
+        'data-slot': 'item',
+        title: 'default',
+        id: 'a',
+      });
+      assert.equal(text(byId(dom, 'a')), 'content a');
+      // The rest props come after the component's own entries: they win.
+      assert.deepEqual(byId(dom, 'b').attrs, {
+        class: 'item x',
+        'data-slot': 'override',
+        'data-variant': 'outline',
+        title: 'site',
+        id: 'b',
+      });
+      assert.equal(byId(clicked.state.dom, 'b').attrs['data-variant'], 'muted');
+      // An undefined entry of a later spread removes the earlier one's attribute.
+      assert.equal(byId(dom, 'c').attrs.title, undefined);
+      assert.equal(text(byId(dom, 'c')), 'content c');
+      assert.equal(byId(dom, 'd').tag, 'span');
+      assert.equal(byId(dom, 'd').attrs.class, 'item');
+      assert.equal(text(byId(dom, 'd')), 'from the snippet');
+      assert.deepEqual(byId(dom, 'e').attrs, { 'data-slot': 'link', id: 'e', title: 't' });
+      assert.deepEqual(byId(dom, 'f').attrs, { 'data-slot': 'plain', id: 'f' });
+      assert.equal(text(byId(dom, 'f')), '');
+      // Children other sites pass, not this one.
+      assert.equal(text(byId(dom, 'g')), '');
+    },
+  );
+});
+
+test('a bag of rest props passed to a snippet is rejected where a site also passes children', async () => {
+  await withApp(
+    {
+      'Item.svelte': ITEM,
+      'App.svelte': `<script lang="ts">
+  import Item from './Item.svelte';
+</script>
+
+<Item id="d">
+  content
+  {#snippet child({ props })}<span {...props}>from the snippet</span>{/snippet}
+</Item>
+`,
+    },
+    root =>
+      assert.rejects(lowered(root), e => {
+        failWith('E_TEMPLATE', /hold the snippet children/)(e);
+        assert.equal(`${e.source?.file}:${e.source?.line}`, 'Item.svelte:23');
+        return true;
+      }),
+  );
+  // Children no site passes, called without `?.`: Svelte calls undefined.
+  await withApp(
+    {
+      'Item.svelte': `<script lang="ts">
+  import type { HTMLAttributes } from 'svelte/elements';
+  let { ...restProps }: HTMLAttributes<HTMLDivElement> = $props();
+  const mergedProps = $derived({ 'data-slot': 'item', ...restProps });
+</script>
+
+<div {...mergedProps}>
+  {@render mergedProps.children!()}
+</div>
+`,
+      'App.svelte': `<script lang="ts">
+  import Item from './Item.svelte';
+</script>
+
+<Item id="a" />
+`,
+    },
+    root =>
+      assert.rejects(lowered(root), e => {
+        failWith('E_TEMPLATE', /snippet props of this component/)(e);
+        assert.equal(`${e.source?.file}:${e.source?.line}`, 'Item.svelte:8');
+        return true;
+      }),
+  );
+});
