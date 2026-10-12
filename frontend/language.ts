@@ -4080,6 +4080,28 @@ export class Lowerer {
     return ok && used;
   }
 
+  /**
+   * Whether function `decl` returns a value the value model has no type
+   * for: an array TypeScript types with `never` items (an empty literal,
+   * `return []`), or a value whose type does not map.
+   */
+  private returnsUntypable(decl: ts.FunctionDeclaration): boolean {
+    let found = false;
+    const visit = (n: ts.Node) => {
+      if (found || (n !== decl && ts.isFunctionLike(n))) return;
+      if (ts.isReturnStatement(n) && n.expression) {
+        const t = this.checker.getTypeAtLocation(n.expression);
+        const item =
+          this.checker.isArrayType(t) && this.checker.getTypeArguments(t as ts.TypeReference)[0];
+        if ((item && item.flags & ts.TypeFlags.Never) || !this.types.tryMap(t, n.expression))
+          found = true;
+      }
+      ts.forEachChild(n, visit);
+    };
+    if (decl.body) ts.forEachChild(decl.body, visit);
+    return found;
+  }
+
   /** Untyped `let`s whose values may be undefined (`declaration`): reads keep them nullable. */
   private readonly widened = new Set<ts.Symbol>();
 
@@ -11342,6 +11364,31 @@ export class Lowerer {
     const index = this.reserve();
     const stable = component === undefined || this.stableFunctions;
     this.bindings.set(sym, { kind: 'function', fn: index, ...(stable ? { stable } : {}) });
+    // A function whose result no code reads (every use is a call whose
+    // value is discarded, `resultDiscarded`) and that returns a value of
+    // no IR type (bits-ui's Slider `handleDefaultValue()`, called for
+    // nothing but `return []` or `return min`): a function of no result.
+    // Its returns evaluate what they return and return (`statement`), all
+    // JavaScript does with a value nobody reads.
+    if (
+      ts.isFunctionDeclaration(decl) &&
+      !decl.type &&
+      !isAsync(decl) &&
+      !decl.asteriskToken &&
+      this.resultDiscarded(sym, decl) &&
+      this.returnsUntypable(decl)
+    ) {
+      this.functions[index] = {
+        name,
+        ...(component !== undefined ? { component } : {}),
+        params: [],
+        locals: [],
+        result: 'void',
+        body: [],
+      };
+      return () =>
+        this.function(decl, name, undefined, component, index, undefined, { result: 'void' });
+    }
     // Placeholder with the signature's types until the body is lowered.
     const sig = this.checker.getSignatureFromDeclaration(decl);
     const ret = sig?.getReturnType();

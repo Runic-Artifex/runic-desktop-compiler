@@ -468,7 +468,64 @@ export class Unions {
       const same = members.filter(m => kind(m) === kind(t));
       return same.length === 1 ? same[0] : undefined;
     };
+    // Empty array literals (`emptyArrays`, 2026-10-13). TypeScript types
+    // `[]` as `never[]`, which the value model cannot type, so a union such
+    // as `never[] | HTMLElement[]` (bits-ui's SafePolygon `#transitTargets
+    // = []`, later assigned `cond ? targets.filter(…) : []`) would count two
+    // members. A value of `never[]` is an array without items (no value has
+    // type never), and an array without items is a value of every array
+    // type, so where the `never[]` values are fresh literals the union can
+    // take its other array member exactly. Freshness is what makes it
+    // exact: arrays are shared references with identity (docs/IR.md,
+    // `JsRef<Vec<T>>`), so one array object that reached both a `string[]`
+    // and an `HTMLElement[]` slot could not be represented, and a push
+    // through one would be visible through the other. A literal `[]`
+    // evaluated where it is the value passed on (the whole value, or an
+    // operand of `c ? a : b`, `a ?? b`, `a || b`) creates a new array that
+    // no other reference holds, so the slot is its only holder: every read
+    // and write of it goes through the slot's type (the member taken),
+    // which the lowered program is checked against as any other. `never[]`
+    // values of another origin (a variable, a call's result) may be shared
+    // and still count as the `never[]` member. Without an array member of
+    // another element type nothing changes.
+    const arrays = members.filter(
+      m =>
+        this.checker.isArrayType(m) &&
+        !(this.checker.getTypeArguments(m as ts.TypeReference)[0]?.flags & F.Never),
+    );
+    /** The site of a fresh empty array literal reaching the union. */
+    let empty: ts.Node | undefined;
+    const emptyLiteral = (x: ts.Expression) => ts.isArrayLiteralExpression(x) && !x.elements.length;
+    /** The operands `e` passes on as its value (`c ? a : b`, `a ?? b`, `a || b`). */
+    const operands = (e: ts.Expression): ts.Expression[] => {
+      const x = skipAll(e);
+      if (ts.isConditionalExpression(x)) {
+        const d = this.decided(x.condition);
+        return d === undefined
+          ? [...operands(x.whenTrue), ...operands(x.whenFalse)]
+          : operands(d ? x.whenTrue : x.whenFalse);
+      }
+      if (
+        ts.isBinaryExpression(x) &&
+        (x.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+          x.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+      )
+        return [...operands(x.left), ...operands(x.right)];
+      return [x];
+    };
     const classify = (actual: ts.Type, n: ts.Node, e: ts.Expression, path: string[]) => {
+      // A fresh empty array literal is a value of every array member
+      // (`emptyArrays`): its site is kept aside, the other operands of
+      // the operators that pass one of them on are classified each.
+      if (arrays.length && !path.length) {
+        const parts = operands(e);
+        if (parts.some(emptyLiteral)) {
+          for (const p of parts)
+            if (emptyLiteral(p)) empty ??= p;
+            else classify(this.checker.getTypeAtLocation(p), n, p, path);
+          return;
+        }
+      }
       // What the value is built from.
       const traced = this.trace(e, path, 0);
       if (traced) {
@@ -600,6 +657,10 @@ export class Unions {
       };
       visit(sf);
     }
+    // Fresh empty arrays join the array member other values reach, or,
+    // where none does, the first array member.
+    if (empty && ![...census.members.keys()].some(m => arrays.includes(m)))
+      record(arrays[0], empty);
     this.counting.delete(key);
     return census;
   }

@@ -955,6 +955,78 @@ test('inheritance: a base field declared again with an initialiser is set in con
   );
 });
 
+// bits-ui's Slider root states in small: the base constructor ends by
+// passing the instance's closures on (`new SvelteResizeObserver(() =>
+// this.opts.ref.current, this.#handleLayoutChange)`), and the subclasses
+// declare arrow function fields, `$state` of literals, an `opts` of their
+// own and a base arrow field again (`getAllThumbs`). JavaScript creates
+// them after that code, which cannot tell.
+test('inheritance: subclass fields no base constructor code can reach exist from the start', async () => {
+  const classes = (rest, sub) => `type Opts = { n: number };
+     const later: (() => void)[] = [];
+     function register(get: () => number, cb: () => void): void {
+       later.push(() => { get(); cb(); });
+     }
+     class Base {
+       opts: Opts;
+       size = 1;
+       #version = 0;
+       count = (): number => this.size;
+       #bump = (): void => { this.#version += 1; };
+       constructor(opts: Opts) {
+         this.opts = opts;
+         ${rest}
+       }
+       get version(): number { return this.#version; }
+     }
+     class Single extends Base {
+       opts: Opts;
+       isMulti = false;
+       active = $state<number | null>(null);
+       ${sub}
+       label = (): string => \`single \${this.opts.n} \${this.isMulti}\`;
+       constructor(opts: Opts) {
+         super(opts);
+         this.opts = opts;
+       }
+     }`;
+  const out = await run(
+    `${classes('register(() => this.opts.n, this.#bump);', 'count = (): number => 2;')}
+     let out = $state('');
+     function go() {
+       const s = new Single({ n: 3 });
+       const before = s.version;
+       for (const f of later) f();
+       out = \`\${s.label()} \${s.count()} \${before} \${s.version} \${s.active}\`;
+     }`,
+  );
+  assert.deepEqual(out, ['', 'single 3 false 2 0 1 null']);
+  const go = `let out = $state('');\nfunction go() { out = String(new Single({ n: 1 }).isMulti); }`;
+  // Code that may read a base field the subclass declares again (in an arrow
+  // function a callee may call at once).
+  await rejects(
+    `${classes('register(() => 0, this.count);', 'count = (): number => 2;')}\n${go}`,
+    'E_CLASS',
+  );
+  await rejects(
+    `${classes('register(() => this.size, this.#bump);', 'size = 2;')}\n${go}`,
+    'E_CLASS',
+  );
+  // A function field assigned by the constructor, whose body is not followed.
+  await rejects(
+    `${classes('this.#cb = () => {};\n register(() => 0, this.#cb);', '')}\n${go}`.replace(
+      '#version = 0;',
+      '#version = 0;\n       #cb: () => void;',
+    ),
+    'E_CLASS',
+  );
+  // A subclass field whose initialiser has an effect.
+  await rejects(
+    `${classes('register(() => 0, this.#bump);', 'made = later.push(() => {});')}\n${go}`,
+    'E_CLASS',
+  );
+});
+
 test('the backend validates class hierarchies, class references and their conversions', async () => {
   const ir = await lowered(
     `import { result } from './shapes';
