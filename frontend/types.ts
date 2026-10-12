@@ -44,7 +44,7 @@ export class TypeMapper {
    * The member a union outside the value model is narrowed to by the values
    * that reach it (frontend/unions.ts), or a failure through `fail`.
    */
-  narrow?: (parts: ts.Type[], at: ts.Node, fail: Fail) => ts.Type;
+  narrow?: (parts: ts.Type[], at: ts.Node, fail: Fail, dynamic: boolean) => ts.Type;
   /**
    * Whether only null and undefined reach the property declared by `decl`,
    * which TypeScript types `unknown` (frontend/unions.ts).
@@ -84,6 +84,11 @@ export class TypeMapper {
    * types', so a read is narrowed to TypeScript's type where it is used.
    */
   readonly merged = new Set<number>();
+  /**
+   * Records `unionRecord` made for a union of object types: a property
+   * some member lacks is nullable.
+   */
+  readonly unionRecords = new Set<number>();
   /**
    * Object types some literal of the program implements with getters
    * (shadcn-svelte's `setToggleGroupCtx({ get variant() { … } })`), filled
@@ -572,13 +577,20 @@ export class TypeMapper {
     else if (this.classUnion && rest.every(p => this.sourceClass(p)))
       base = this.classUnion(rest, at);
     else if (this.classRecords(rest, at)) base = this.classRecords(rest, at)!;
-    // (With dynamic values, M6 spike: a union of object types is dynamic,
-    // as code building its values builds dynamic objects; a merged record
-    // would need copies.)
-    else if (rest.every(p => this.plainObject(p)) && this.dynHere()) return 'dyn';
-    // (Nor is it a merged record where an inference looks for a static type.)
-    else if (rest.every(p => this.plainObject(p)) && this.dynamic)
-      return this.fail(at, 'E_TYPE_UNION', 'A union of object types is dynamic');
+    // (With dynamic values, a union of object types the static rules type,
+    // a merged record or the member the values reaching it narrow it to, keeps
+    // that type: dynamic values are the fallback where they reject it. One
+    // of object literals of untyped JavaScript, `cond ? { kind: 'odd', n } :
+    // { kind: 'even', n, half }`, has no declared type to keep: dynamic,
+    // also where an inference looks for a static type first.)
+    else if (this.dynamic && rest.every(p => this.untypedLiteral(p)))
+      return this.dynHere()
+        ? 'dyn'
+        : this.fail(
+            at,
+            'E_TYPE_UNION',
+            'A union of object literals of untyped JavaScript is dynamic',
+          );
     else if (rest.every(p => this.plainObject(p)) && this.mergeable(rest, at))
       base = { record: this.unionRecord(rest, at) };
     else {
@@ -598,11 +610,9 @@ export class TypeMapper {
       if (mapped[0] !== undefined && mapped.every(m => JSON.stringify(m) === first))
         base = mapped[0]!;
       else if (widest >= 0) base = mapped[widest]!;
-      // With dynamic values (M6 spike): dynamic, rather than one member a
-      // census that cannot see every value narrows it to.
-      else if (this.dynHere()) return 'dyn';
-      // Narrowed by the values that reach it (frontend/unions.ts).
-      else if (this.narrow) base = this.map(this.narrow(rest, at, this.fail), at);
+      // Narrowed by the values that reach it (frontend/unions.ts). (With
+      // dynamic values, a union the census rejects is dynamic: `map`.)
+      else if (this.narrow) base = this.map(this.narrow(rest, at, this.fail, this.dynamic), at);
       else
         return this.fail(
           at,
@@ -1064,6 +1074,16 @@ export class TypeMapper {
   }
 
   /** Whether `t` is a plain object type (a record), not a DOM handle, bag, class or pack type. */
+  /** Whether `t` is the type of an object literal in a JavaScript file. */
+  private untypedLiteral(t: ts.Type): boolean {
+    const decl = t.symbol?.declarations?.[0];
+    return (
+      !!decl &&
+      ts.isObjectLiteralExpression(decl) &&
+      /\.[cm]?js$/.test(decl.getSourceFile().fileName)
+    );
+  }
+
   private plainObject(t: ts.Type): boolean {
     if (!(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection))) return false;
     if (t.getCallSignatures().length || t.getConstructSignatures().length) return false;
@@ -1150,6 +1170,7 @@ export class TypeMapper {
     this.records.push({ name: 'Object', fields });
     this.byShape.set(shape, index);
     this.packageRecords.add(index);
+    this.unionRecords.add(index);
     return index;
   }
 

@@ -129,8 +129,11 @@ export class Unions {
   /**
    * The member that union `parts` (its non-nullish members, at least two of
    * types the value model cannot unite) is narrowed to. Rejects the union
-   * when the values reaching it belong to different members or none is
-   * found.
+   * when the values reaching it belong to different members, or, with
+   * dynamic values (`dynamic`), where none is found for a union untyped
+   * JavaScript produces: the census sees values through the types code
+   * gives them, which no declaration gives there (`return flag ? 1 :
+   * 'one'`), so it is dynamic.
    */
   member(parts: readonly ts.Type[], at: ts.Node, fail: Fail, dynamic = false): ts.Type {
     const key = unionKey(parts);
@@ -154,10 +157,7 @@ export class Unions {
       return m;
     }
     // Nothing but null and undefined reaches it: any member types it.
-    // (With dynamic values, M6 spike: no value found may mean values the
-    // census does not see, an untyped function's inferred result: the
-    // union is dynamic.)
-    if (!found.size && dynamic)
+    if (!found.size && dynamic && this.untypedOrigin(at))
       return fail(at, 'E_TYPE_UNION', `Union ${union} is dynamic: no value reaching it was found`);
     if (!found.size) {
       this.resolved.set(key, members[0]);
@@ -351,6 +351,35 @@ export class Unions {
   narrowed(t: ts.Type): ts.Type | undefined {
     const parts = t.isUnion() ? t.types : [t];
     return this.resolved.get(unionKey(parts));
+  }
+
+  /**
+   * Whether TypeScript infers the type at `at` from untyped JavaScript: a
+   * function of a JavaScript file (its result), an expression there that
+   * computes a value (not a name or a member, whose types declarations may
+   * give), or a call of a function declared there.
+   */
+  private untypedOrigin(at: ts.Node): boolean {
+    const js = (n: ts.Node) => /\.[cm]?js$/.test(n.getSourceFile().fileName);
+    const call = ts.isExpression(at) ? skip(at) : at;
+    if (js(at)) {
+      if (ts.isFunctionLike(at)) return true;
+      if (
+        !ts.isExpression(call) ||
+        ts.isIdentifier(call) ||
+        ts.isPropertyAccessExpression(call) ||
+        ts.isElementAccessExpression(call)
+      )
+        return false;
+      if (!ts.isCallExpression(call)) return true;
+    }
+    if (!ts.isCallExpression(call)) return false;
+    let sym = this.checker.getSymbolAtLocation(
+      ts.isPropertyAccessExpression(call.expression) ? call.expression.name : call.expression,
+    );
+    if (sym && sym.flags & ts.SymbolFlags.Alias) sym = this.checker.getAliasedSymbol(sym);
+    const decl = sym?.valueDeclaration;
+    return !!decl && js(decl);
   }
 
   private count(key: string, members: ts.Type[]): Census {

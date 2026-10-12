@@ -190,3 +190,120 @@ test('a dynamic value in state changed in place is rejected: no tracking sees it
       ),
   );
 });
+
+// Dynamic values are the fallback: a value a static rule types keeps that
+// type with the opt-in, so the opt-in never loses a program the typed path
+// lowers.
+const TYPED = {
+  'types.ts': `export type Page = { type: 'page'; value: number };
+export type Gap = { type: 'ellipsis' };
+export type Item = (Page | Gap) & { key: string };
+`,
+  'Link.svelte': `<script lang="ts">
+  import type { Page } from './types.ts';
+  let { page }: { page: Page } = $props();
+</script>
+
+<span>{page.value}</span>
+`,
+  'App.svelte': `<script lang="ts">
+  import Link from './Link.svelte';
+  import type { Item } from './types.ts';
+  const items: Item[] = [
+    { type: 'page', value: 1, key: 'a' },
+    { type: 'ellipsis', key: 'b' },
+    { type: 'page', value: 3, key: 'c' },
+  ];
+  let side = $state<'data-top' | 'data-left'>('data-top');
+</script>
+
+<button id="side" onclick={() => (side = side === 'data-top' ? 'data-left' : 'data-top')} {...{ title: 'x', [side]: '0' }}>side</button>
+<p>{#each items as item (item.key)}{#if item.type === 'ellipsis'}<span>…</span>{:else}<Link page={item} />{/if}{/each}</p>
+`,
+};
+
+test('with the opt-in, values a static rule types stay typed: the same program', async () => {
+  const lowered = async dynamicValues => {
+    let out;
+    await withApp(
+      TYPED,
+      async root => (out = (await lower(await collect(root))).ir),
+      dynamicValues,
+    );
+    return out;
+  };
+  const typed = await lowered(false);
+  const dynamic = await lowered(true);
+  // (A union of object types and a bag of a key from a finite set of names:
+  // the same records and functions, no dynamic value.)
+  assert.ok(!JSON.stringify(dynamic).includes('"dyn'));
+  assert.deepEqual(dynamic.records, typed.records);
+  assert.deepEqual(dynamic.functions, typed.functions);
+  assert.deepEqual(dynamic.components, typed.components);
+  const steps = interpret(dynamic, []);
+  assert.deepEqual(texts(steps[0].state.dom).slice(1), ['1…3']);
+});
+
+test('with the opt-in, a value no static rule types is dynamic', async () => {
+  const app = {
+    'lib.js': 'export function wrap(k, n) { return { [k]: n, size: n }; }\n',
+    'App.svelte': `<script lang="ts">
+  import { wrap } from './lib.js';
+  let n = $state(2);
+  const o = $derived(wrap('k' + n, n * 2));
+</script>
+
+<button id="b" onclick={() => n++}>{o.size}</button>
+`,
+  };
+  await withApp(app, async root => {
+    const { ir } = await lower(await collect(root));
+    // (An object of a key computed at run time is a dynamic value.)
+    assert.ok(JSON.stringify(ir).includes('"dyn.get"'));
+    const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+    assert.equal(texts(steps[0].state.dom)[0], '4');
+    assert.equal(texts(steps[1].state.dom)[0], '6');
+  });
+  // (Without the opt-in, the typed path rejects it.)
+  await withApp(
+    app,
+    async root =>
+      assert.rejects(
+        collect(root).then(g => lower(g)),
+        e => e instanceof Diagnostic,
+      ),
+    false,
+  );
+});
+
+test('a prop typed `any` with an `undefined` default: valid IR or a located rejection', async () => {
+  // (bits-ui's Checkbox `name = undefined` of `name?: any`: the default once
+  // took the dynamic contextual type, an initialiser of another type than
+  // the cell's, invalid IR.)
+  await withApp(
+    {
+      'Box.svelte': `<script lang="ts">
+  let { name = undefined }: { name?: any } = $props();
+</script>
+
+<input type="checkbox" {name} />
+`,
+      'App.svelte': `<script lang="ts">
+  import Box from './Box.svelte';
+</script>
+
+<Box name="terms" />
+`,
+    },
+    async root => {
+      let ir;
+      try {
+        ({ ir } = await lower(await collect(root)));
+      } catch (e) {
+        failWith('E_TYPE_UNION', /default of name/)(e);
+        return;
+      }
+      interpret(ir, []);
+    },
+  );
+});
