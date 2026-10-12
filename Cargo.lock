@@ -246,7 +246,7 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=7be80352270c0c5860373a3f2cbf92017962bb32#7be80352270c0c5860373a3f2cbf92017962bb32"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -255,7 +255,7 @@ dependencies = [
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/Runic-Artifex/blitz?rev=7be80352270c0c5860373a3f2cbf92017962bb32)",
+ "debug_timer 0.1.3 (git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999)",
  "euclid",
  "html-escape",
  "image",
@@ -289,7 +289,7 @@ dependencies = [
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=7be80352270c0c5860373a3f2cbf92017962bb32#7be80352270c0c5860373a3f2cbf92017962bb32"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -300,7 +300,7 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=7be80352270c0c5860373a3f2cbf92017962bb32#7be80352270c0c5860373a3f2cbf92017962bb32"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
 dependencies = [
  "anyrender",
  "anyrender_svg",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=7be80352270c0c5860373a3f2cbf92017962bb32#7be80352270c0c5860373a3f2cbf92017962bb32"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -342,7 +342,7 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=7be80352270c0c5860373a3f2cbf92017962bb32#7be80352270c0c5860373a3f2cbf92017962bb32"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
 dependencies = [
  "atomic_refcell",
  "bitflags 2.13.2",
@@ -672,7 +672,7 @@ checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=7be80352270c0c5860373a3f2cbf92017962bb32#7be80352270c0c5860373a3f2cbf92017962bb32"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
 
 [[package]]
 name = "defmt"
@@ -992,7 +992,7 @@ dependencies = [
 [[package]]
 name = "fontique"
 version = "0.11.0"
-source = "git+https://github.com/Runic-Artifex/parley?rev=2ada2ec752f8c363d93f773b382a5d412208d9e4#2ada2ec752f8c363d93f773b382a5d412208d9e4"
+source = "git+https://github.com/Runic-Artifex/parley?rev=13cfb744d90f8e5809cb12707605ae61120e004e#13cfb744d90f8e5809cb12707605ae61120e004e"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
@@ -2181,7 +2181,7 @@ dependencies = [
 [[package]]
 name = "parlance"
 version = "0.1.0"
-source = "git+https://github.com/Runic-Artifex/parley?rev=2ada2ec752f8c363d93f773b382a5d412208d9e4#2ada2ec752f8c363d93f773b382a5d412208d9e4"
+source = "git+https://github.com/Runic-Artifex/parley?rev=13cfb744d90f8e5809cb12707605ae61120e004e#13cfb744d90f8e5809cb12707605ae61120e004e"
 dependencies = [
  "bytemuck",
 ]
@@ -2189,7 +2189,7 @@ dependencies = [
 [[package]]
 name = "parley"
 version = "0.11.0"
-source = "git+https://github.com/Runic-Artifex/parley?rev=2ada2ec752f8c363d93f773b382a5d412208d9e4#2ada2ec752f8c363d93f773b382a5d412208d9e4"
+source = "git+https://github.com/Runic-Artifex/parley?rev=13cfb744d90f8e5809cb12707605ae61120e004e#13cfb744d90f8e5809cb12707605ae61120e004e"
 dependencies = [
  "fontique",
  "hashbrown 0.17.1",
@@ -2202,7 +2202,7 @@ dependencies = [
 [[package]]
 name = "parley_data"
 version = "0.11.0"
-source = "git+https://github.com/Runic-Artifex/parley?rev=2ada2ec752f8c363d93f773b382a5d412208d9e4#2ada2ec752f8c363d93f773b382a5d412208d9e4"
+source = "git+https://github.com/Runic-Artifex/parley?rev=13cfb744d90f8e5809cb12707605ae61120e004e#13cfb744d90f8e5809cb12707605ae61120e004e"
 dependencies = [
  "icu_collections",
  "icu_properties",
@@ -2211,12 +2211,12 @@ dependencies = [
 [[package]]
 name = "parley_emoji"
 version = "0.11.0"
-source = "git+https://github.com/Runic-Artifex/parley?rev=2ada2ec752f8c363d93f773b382a5d412208d9e4#2ada2ec752f8c363d93f773b382a5d412208d9e4"
+source = "git+https://github.com/Runic-Artifex/parley?rev=13cfb744d90f8e5809cb12707605ae61120e004e#13cfb744d90f8e5809cb12707605ae61120e004e"
 
 [[package]]
 name = "parley_engine"
 version = "0.11.0"
-source = "git+https://github.com/Runic-Artifex/parley?rev=2ada2ec752f8c363d93f773b382a5d412208d9e4#2ada2ec752f8c363d93f773b382a5d412208d9e4"
+source = "git+https://github.com/Runic-Artifex/parley?rev=13cfb744d90f8e5809cb12707605ae61120e004e#13cfb744d90f8e5809cb12707605ae61120e004e"
 dependencies = [
  "fontique",
  "harfrust",
@@ -3224,7 +3224,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=7be80352270c0c5860373a3f2cbf92017962bb32#7be80352270c0c5860373a3f2cbf92017962bb32"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
 dependencies = [
  "bitflags 2.13.2",
  "stylo",

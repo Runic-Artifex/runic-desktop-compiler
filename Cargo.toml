@@ -16,13 +16,13 @@ rust-version = "1.98"
 license = "MIT"
 
 [workspace.dependencies]
-blitz-dom = { git = "https://github.com/Runic-Artifex/blitz", rev = "7be80352270c0c5860373a3f2cbf92017962bb32", default-features = false, features = ["woff"] }
-blitz-html = { git = "https://github.com/Runic-Artifex/blitz", rev = "7be80352270c0c5860373a3f2cbf92017962bb32", default-features = false }
-blitz-shell = { git = "https://github.com/Runic-Artifex/blitz", rev = "7be80352270c0c5860373a3f2cbf92017962bb32", default-features = false, features = ["data-uri"] }
+blitz-dom = { git = "https://github.com/Runic-Artifex/blitz", rev = "c8ecc95dd9d1ce8c0737ceb8b365d060d632b999", default-features = false, features = ["woff"] }
+blitz-html = { git = "https://github.com/Runic-Artifex/blitz", rev = "c8ecc95dd9d1ce8c0737ceb8b365d060d632b999", default-features = false }
+blitz-shell = { git = "https://github.com/Runic-Artifex/blitz", rev = "c8ecc95dd9d1ce8c0737ceb8b365d060d632b999", default-features = false, features = ["data-uri"] }
 # Element state bits for checkbox state changes (the version Blitz uses).
 style_dom = { version = "=0.22.0", package = "stylo_dom" }
-blitz-traits = { git = "https://github.com/Runic-Artifex/blitz", rev = "7be80352270c0c5860373a3f2cbf92017962bb32", default-features = false }
-blitz-paint = { git = "https://github.com/Runic-Artifex/blitz", rev = "7be80352270c0c5860373a3f2cbf92017962bb32", default-features = false }
+blitz-traits = { git = "https://github.com/Runic-Artifex/blitz", rev = "c8ecc95dd9d1ce8c0737ceb8b365d060d632b999", default-features = false }
+blitz-paint = { git = "https://github.com/Runic-Artifex/blitz", rev = "c8ecc95dd9d1ce8c0737ceb8b365d060d632b999", default-features = false }
 anyrender = "=0.14.0"
 kurbo = "=0.13.1"
 peniko = "=0.6.1"
@@ -90,12 +90,12 @@ debug = 0
 
 # Reviewed Parley parity source pinned to its signed integration revision.
 [patch."https://github.com/linebender/parley"]
-fontique = { git = "https://github.com/Runic-Artifex/parley", rev = "2ada2ec752f8c363d93f773b382a5d412208d9e4" }
-parley = { git = "https://github.com/Runic-Artifex/parley", rev = "2ada2ec752f8c363d93f773b382a5d412208d9e4" }
-parlance = { git = "https://github.com/Runic-Artifex/parley", rev = "2ada2ec752f8c363d93f773b382a5d412208d9e4" }
-parley_engine = { git = "https://github.com/Runic-Artifex/parley", rev = "2ada2ec752f8c363d93f773b382a5d412208d9e4" }
-parley_data = { git = "https://github.com/Runic-Artifex/parley", rev = "2ada2ec752f8c363d93f773b382a5d412208d9e4" }
-parley_emoji = { git = "https://github.com/Runic-Artifex/parley", rev = "2ada2ec752f8c363d93f773b382a5d412208d9e4" }
+fontique = { git = "https://github.com/Runic-Artifex/parley", rev = "13cfb744d90f8e5809cb12707605ae61120e004e" }
+parley = { git = "https://github.com/Runic-Artifex/parley", rev = "13cfb744d90f8e5809cb12707605ae61120e004e" }
+parlance = { git = "https://github.com/Runic-Artifex/parley", rev = "13cfb744d90f8e5809cb12707605ae61120e004e" }
+parley_engine = { git = "https://github.com/Runic-Artifex/parley", rev = "13cfb744d90f8e5809cb12707605ae61120e004e" }
+parley_data = { git = "https://github.com/Runic-Artifex/parley", rev = "13cfb744d90f8e5809cb12707605ae61120e004e" }
+parley_emoji = { git = "https://github.com/Runic-Artifex/parley", rev = "13cfb744d90f8e5809cb12707605ae61120e004e" }
 
 [profile.release]
 opt-level = "s"
