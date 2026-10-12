@@ -80,6 +80,27 @@ export function runProbe(
     maxBuffer: 256 << 20,
     timeout: 120_000,
   });
-  if (r.status !== 0) throw new Error(`Native probe failed (${r.status ?? r.signal}):\n${r.stderr}`);
+  if (r.status !== 0) {
+    const error = new Error(`Native probe failed (${r.status ?? r.signal ?? r.error?.code}):\n${r.stderr}`);
+    Object.assign(error, {
+      code: 'E_NATIVE_PROBE',
+      status: r.status,
+      signal: r.signal,
+      spawnError: r.error?.code,
+      stderr: r.stderr ?? '',
+    });
+    throw error;
+  }
   return JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+}
+
+/** A short reason for a failed native probe: its exit and the panic, if any. */
+export function probeFailureReason(error) {
+  const exit = `exit ${error.status ?? error.signal ?? 'unknown'}${error.spawnError ? ` (${error.spawnError})` : ''}`;
+  const lines = error.stderr.split('\n');
+  const i = lines.findIndex(line => line.includes(' panicked at '));
+  if (i >= 0)
+    return `${exit}, panicked at ${lines[i].split(' panicked at ')[1].replace(/:$/, '')}: ${lines[i + 1]?.trim() ?? ''}`;
+  const last = lines.map(line => line.trim()).filter(Boolean).at(-1);
+  return last ? `${exit}: ${last}` : exit;
 }

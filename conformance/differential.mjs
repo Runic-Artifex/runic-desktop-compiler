@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Differential test of generated code against the reference interpreter (D8):
 // seeded random event traces run through `runic-codegen interp` and through
-// the native probe; DOM and cells must agree after every step.
+// the native probe; DOM and cells must agree after every step. A failed native
+// probe fails its trace and the run goes on; a fixture whose generated inputs
+// are missing (`runic generate`, never run here) is incomplete.
 //
 //   node conformance/differential.mjs [fixture ...] [--traces N] [--length N] [--seed S] [--no-opt]
 //                                    [--timezone Zone] [--locale tag] [--viewport WxH] [--out trace-evidence.json]
@@ -15,7 +17,7 @@ import { collect } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
 import { interpret, migrate } from '../compiler/codegen.mjs';
 import { buildApp } from '../compiler/cli.mjs';
-import { runProbe } from './harness/native.mjs';
+import { runProbe, probeFailureReason } from './harness/native.mjs';
 import { canonical, canonicalHost } from './harness/compare.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -305,6 +307,7 @@ const random = rng(Number(values.seed));
 let failures = 0;
 let partial = 0;
 let renderErrors = 0;
+let probeFailures = 0;
 let steps = 0;
 const incomplete = [];
 const fixtureSummaries = [];
@@ -312,7 +315,21 @@ for (const fixture of fixtures) {
   const fixtureSummary = { fixture, requestedTraces, requestedActionsPerTrace: requestedActions, traces: [], comparedSteps: 0, complete: false };
   fixtureSummaries.push(fixtureSummary);
   const dir = fixture.includes('/') ? path.join(repo, fixture) : path.join(repo, 'fixtures', fixture);
-  const { ir } = await lower(await collect(dir));
+  let ir;
+  try {
+    ({ ir } = await lower(await collect(dir)));
+  } catch (error) {
+    // Generated inputs are not committed and builds never generate them
+    // (compiler/generate.mjs): the fixture cannot be checked until the user
+    // runs its generators.
+    if (error.code !== 'E_GENERATED') throw error;
+    incomplete.push(fixture);
+    const command = `node compiler/cli.mjs generate ${path.relative(repo, dir)}`;
+    fixtureSummary.reason = `needs generated inputs: run \`${command}\` from the repository root (E_GENERATED: ${error.message})`;
+    fixtureSummary.command = command;
+    console.log(`${fixture.padEnd(20)} incomplete (${fixtureSummary.reason})`);
+    continue;
+  }
   // The interpreter has no layout: such programs are compared against the
   // browser only (conformance/run.mjs), and reported here as incomplete.
   const layout = layoutBuiltin(ir);
@@ -355,6 +372,7 @@ for (const fixture of fixtures) {
   let fixtureFailures = 0;
   let fixturePartial = 0;
   let fixtureRenderErrors = 0;
+  let fixtureProbeFailures = 0;
   for (let t = 0; t < requestedTraces; t++) {
     const actions = [];
     for (let i = 0; i < requestedActions && weights.length; i++) {
@@ -372,7 +390,27 @@ for (const fixture of fixtures) {
     }
     const env = { timezone: values.timezone, locale: values.locale };
     // Observe the physical native target first; snapshots themselves are never rewritten.
-    const result = runProbe(binary, { actions, ...env, viewport, hiddenTargets: 'stop' });
+    let result;
+    try {
+      result = runProbe(binary, { actions, ...env, viewport, hiddenTargets: 'stop' });
+    } catch (error) {
+      // A failed probe (non-zero exit, panic) fails this trace; the remaining
+      // traces and fixtures still run (with the same generated actions).
+      if (error.code !== 'E_NATIVE_PROBE') throw error;
+      const reason = probeFailureReason(error);
+      fixtureFailures++;
+      fixtureProbeFailures++;
+      fixtureSummary.probeFailure ??= reason;
+      fixtureSummary.traces.push({ index: t, requestedActions, generatedActions: actions.length,
+        requestedSteps: requestedActions + 1, generatedSteps: actions.length + 1,
+        expectedSteps: null, actualSteps: null, comparedSteps: 0, stopped: null, renderError: null, failures: 1,
+        probeFailure: { reason, status: error.status, signal: error.signal, spawnError: error.spawnError ?? null,
+          stderr: error.stderr.slice(-4000) },
+        coverageIssues: [], pointerResolutionIssues: [], incompletePointerResolutions: [],
+        nativeActions: actions, interpreterActions: null, pointerResolutions: [], complete: false });
+      if (fixtureProbeFailures <= 3) console.log(`PROBE FAILED ${fixture} trace ${t}: ${reason}`);
+      continue;
+    }
     const replay = resolvedPointerActions(actions, result);
     const expected = interpret(ir, replay.actions, env);
     const actual = result.steps;
@@ -460,10 +498,12 @@ for (const fixture of fixtures) {
   fixtureSummary.failures = fixtureFailures;
   fixtureSummary.partialTraces = fixturePartial;
   fixtureSummary.renderErrorTraces = fixtureRenderErrors;
+  fixtureSummary.probeFailureTraces = fixtureProbeFailures;
   failures += fixtureFailures;
+  probeFailures += fixtureProbeFailures;
   renderErrors += fixtureRenderErrors;
   console.log(
-    `${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : fixtureSummary.complete ? 'ok' : 'incomplete'} (${values.traces} traces x ${values.length} actions${fixturePartial ? `; ${fixturePartial} ended early at a hidden pointer target` : ''}${fixtureRenderErrors ? `; ${fixtureRenderErrors} ended at the same render error` : ''})`,
+    `${fixture.padEnd(20)} ${fixtureFailures ? 'FAIL' : fixtureSummary.complete ? 'ok' : 'incomplete'} (${values.traces} traces x ${values.length} actions${fixturePartial ? `; ${fixturePartial} ended early at a hidden pointer target` : ''}${fixtureRenderErrors ? `; ${fixtureRenderErrors} ended at the same render error` : ''}${fixtureProbeFailures ? `; native probe failed in ${fixtureProbeFailures}: ${fixtureSummary.probeFailure}` : ''})`,
   );
 }
 const traceEvidenceJSON = JSON.stringify({ schema: 1, seed: Number(values.seed),
@@ -480,6 +520,6 @@ console.log(JSON.stringify({ fixtures: fixtures.length, viewport, requestedTrace
   expectedComparedSteps: fixtures.length * requestedTraces * (requestedActions + 1),
   traceCount: fixtureSummaries.reduce((count, fixture) => count + fixture.traces.length, 0),
   complete: incomplete.length === 0 && failures === 0 && fixtureSummaries.every(fixture => fixture.complete),
-  steps, failures, incomplete, partialTraces: partial, renderErrorTraces: renderErrors,
+  steps, failures, incomplete, partialTraces: partial, renderErrorTraces: renderErrors, probeFailureTraces: probeFailures,
   seed: Number(values.seed), optimize: !values['no-opt'], traceEvidence, fixtureSummaries: consoleFixtures }));
 process.exitCode = failures ? 1 : 0;
