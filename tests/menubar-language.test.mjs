@@ -105,6 +105,30 @@ test('Boolean(x), equality of different primitives, boolean unions, onMount in a
   );
 });
 
+test('strict equality of two different nullable primitives holds where both are nullish alike', async () => {
+  const app = `<script lang="ts">
+  let n = $state<number | undefined>();
+  let s = $state<string | undefined>();
+  let m = $state<number | null | undefined>(null);
+  let t = $state<string | null>(null);
+</script>
+
+<button id="go" onclick={() => { n = 1; t = 'x'; }}>go</button>
+<p id="u">{n === s}</p>
+<p id="z">{m === t}</p>
+<p id="mixed">{s === m}</p>
+`;
+  await withApp({ 'App.svelte': app }, async root => {
+    const { ir } = await lower(await collect(root));
+    const [start, clicked] = interpret(ir, [{ kind: 'click', id: 'go' }]);
+    assert.equal(text(byId(start.state.dom, 'u')), 'true');
+    assert.equal(text(byId(start.state.dom, 'z')), 'true');
+    assert.equal(text(byId(start.state.dom, 'mixed')), 'false');
+    assert.equal(text(byId(clicked.state.dom, 'u')), 'false');
+    assert.equal(text(byId(clicked.state.dom, 'z')), 'false');
+  });
+});
+
 const HELPER = `/** @param {boolean} pick */
 export function reader(pick) {
   const holder = { g: pick ? { name: 'a' } : null };

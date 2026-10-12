@@ -7072,12 +7072,33 @@ export class Lowerer {
         left: { op: 'to-number', arg: left },
         right: { op: 'to-number', arg: right },
       };
-    // Strict equality of two different primitive types (nullable or not)
-    // is false: bits-ui's `checked === "indeterminate"` of a boolean. The
-    // operands must be free of effects (they are not evaluated).
+    // Strict equality of two different primitive types is false (bits-ui's
+    // `checked === "indeterminate"` of a boolean), unless both are nullable:
+    // then it holds where both are null or both undefined. The operands must
+    // be free of effects (they are evaluated once or twice, or not at all).
     const primitive = (t: Type) => ['number', 'string', 'boolean'].includes(base(t) as string);
-    if (strict && primitive(lt) && primitive(rt) && this.effectFree(left) && this.effectFree(right))
-      return { op: 'lit', value: false };
+    if (
+      strict &&
+      primitive(lt) &&
+      primitive(rt) &&
+      this.effectFree(left) &&
+      this.effectFree(right)
+    ) {
+      const nullable = (t: Type) => typeof t === 'object' && 'maybe' in t;
+      if (!nullable(lt) || !nullable(rt)) return { op: 'lit', value: false };
+      const is = (name: string, v: Expr): Expr => ({
+        op: 'builtin',
+        name,
+        args: [v],
+        type: BOOLEAN,
+      });
+      const both = (name: string): Expr => ({
+        op: 'and',
+        left: is(name, left),
+        right: is(name, right),
+      });
+      return { op: 'or', left: both('maybe.is-null'), right: both('maybe.is-undefined') };
+    }
     return this.fail(at, 'E_OPERATOR', 'Equality between these types is outside the value model');
   }
 
