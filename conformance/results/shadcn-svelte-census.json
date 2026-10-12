@@ -1,6 +1,6 @@
 {
  "generated": "node conformance/triage.mjs --jobs 4",
- "compiler": "1482a5a",
+ "compiler": "918b006",
  "corpus": {
   "name": "shadcn-svelte",
   "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
@@ -9,7 +9,7 @@
   "unmodified": "git status of the checkout is clean before and after the run"
  },
  "iconTransform": {
-  "source": "../../../.cache/corpus/shadcn-svelte/packages/cli/src/utils/transformers/transform-icons.ts",
+  "source": ".cache/corpus/shadcn-svelte/packages/cli/src/utils/transformers/transform-icons.ts",
   "sha256": "8a4e8f2d44cac19989fa4a4174fca37b7ff62d27a13ae3ff07750db3fdf12935",
   "iconLibrary": "lucide"
  },
@@ -23,8 +23,8 @@
  },
  "totals": {
   "examples": 404,
-  "lowered": 221,
-  "rejected": 183,
+  "lowered": 226,
+  "rejected": 178,
   "harnessError": 0,
   "internalError": 0,
   "withClosureMisses": 0,
@@ -48,6 +48,9 @@
   "alert-dialog-media",
   "alert-dialog-small",
   "alert-dialog-small-media",
+  "aspect-ratio-demo",
+  "aspect-ratio-portrait",
+  "aspect-ratio-square",
   "attachment-sizes",
   "attachment-states",
   "attachment-trigger",
@@ -85,6 +88,7 @@
   "button-size",
   "card-demo",
   "card-edge-to-edge",
+  "card-image",
   "card-small",
   "collapsible-basic",
   "collapsible-demo",
@@ -159,6 +163,7 @@
   "menubar-radio",
   "menubar-submenu",
   "message-actions",
+  "message-attachment",
   "message-header-footer",
   "popover-basic",
   "popover-demo",
@@ -253,18 +258,30 @@
   "typography-small",
   "typography-table"
  ],
+ "imageUrls": {
+  "aspect-ratio-demo": [
+   "https://avatar.vercel.sh/shadcn1"
+  ],
+  "aspect-ratio-portrait": [
+   "https://avatar.vercel.sh/shadcn1"
+  ],
+  "aspect-ratio-square": [
+   "https://avatar.vercel.sh/shadcn1"
+  ],
+  "card-image": [
+   "https://avatar.vercel.sh/shadcn1"
+  ],
+  "message-attachment": [
+   "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=900&auto=format&fit=crop&q=80"
+  ]
+ },
  "clusters": [
   {
    "code": "E_TEMPLATE",
-   "count": 27,
-   "message": "<img> is outside the supported elements",
-   "location": "docs/src/lib/registry/examples/aspect-ratio-demo.svelte:7",
+   "count": 18,
+   "message": "Spread attributes on <img> are not supported: its src must be an attribute with values known at build time",
+   "location": "node_modules/bits-ui/dist/bits/avatar/components/avatar-image.svelte:36",
    "examples": [
-    "aspect-ratio-demo",
-    "aspect-ratio-portrait",
-    "aspect-ratio-square",
-    "attachment-demo",
-    "attachment-image",
     "avatar-badge",
     "avatar-badge-icon",
     "avatar-basic",
@@ -274,16 +291,12 @@
     "avatar-group-count",
     "avatar-group-count-icon",
     "avatar-size",
-    "card-image",
     "dropdown-menu-avatar",
     "empty-avatar-demo",
     "empty-avatar-group-demo",
     "item-avatar-demo",
     "item-dropdown-demo",
     "item-group-demo",
-    "item-header-demo",
-    "item-image-demo",
-    "message-attachment",
     "message-avatar",
     "message-demo",
     "message-group"
@@ -568,6 +581,42 @@
    "examples": [
     "dark-mode-dropdown-menu",
     "dark-mode-light-switch"
+   ]
+  },
+  {
+   "code": "E_ASSET",
+   "count": 1,
+   "message": "The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset",
+   "location": "docs/src/lib/registry/examples/attachment-demo.svelte:34",
+   "examples": [
+    "attachment-demo"
+   ]
+  },
+  {
+   "code": "E_ASSET",
+   "count": 1,
+   "message": "The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset",
+   "location": "docs/src/lib/registry/examples/attachment-image.svelte:32",
+   "examples": [
+    "attachment-image"
+   ]
+  },
+  {
+   "code": "E_ASSET",
+   "count": 1,
+   "message": "The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset",
+   "location": "docs/src/lib/registry/examples/item-header-demo.svelte:35",
+   "examples": [
+    "item-header-demo"
+   ]
+  },
+  {
+   "code": "E_ASSET",
+   "count": 1,
+   "message": "The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset",
+   "location": "docs/src/lib/registry/examples/item-image-demo.svelte:34",
+   "examples": [
+    "item-image-demo"
    ]
   },
   {

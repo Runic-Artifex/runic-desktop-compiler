@@ -83,8 +83,11 @@ if (values.one) {
   let result;
   try {
     const graph = await collect(values.one);
-    await lower(graph);
-    result = { status: 'lowered' };
+    // Pinning images is the explicit networked step (`runic images`), never
+    // part of the census: the URLs a lowered example needs are recorded.
+    const { imageUrls = [] } = await lower(graph, { images: false });
+    const urls = [...new Set(imageUrls.map(u => u.url))].sort();
+    result = { status: 'lowered', ...(urls.length ? { imageUrls: urls } : {}) };
   } catch (e) {
     result =
       e instanceof Diagnostic
