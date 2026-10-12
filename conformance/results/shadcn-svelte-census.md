@@ -2,32 +2,30 @@
 
 The first blocker of each of the 404 top-level component examples of shadcn-svelte `3ef557c` (`docs/src/lib/registry/examples`). Each is analysed (collect, lower, backend validation; no native build) in a generated host by [`conformance/triage.mjs`](../triage.mjs). An example counts as the CLI installs it: the corpus's pinned icon transform rewrites `IconPlaceholder` to `@lucide/svelte` in the host copies (ROADMAP decisions, 2026-10-12). The corpus checkout stays unmodified. `examples/create/` is out of scope.
 
-At compiler `918b006`: **226 lowered, 178 rejected**, 0 harness errors, 0 internal errors. Lowering is not rendering: a lowered example has not been built natively or compared with Chromium.
+At compiler `ef824ae`: **250 lowered, 154 rejected**, 0 harness errors, 0 internal errors. Lowering is not rendering: a lowered example has not been built natively or compared with Chromium.
 
-Earlier runs the same day lowered 149, then 173 after three type-system slices (`{}` intersections, child-bound wide props, re-declared fields: the input and input-group examples, card-demo, dropdown-menu-dialog), then 209 after attribute bags of rest props (`$derived({ class: …, ...restProps })` in item, bubble, marker) and spreads on lucide icons (Spinner), then 221 after menubar (`Boolean(x)`, `boolean` unions, `onMount`, runed contexts set with several classes, `disabled` of elements; also the two dropdown-menu-checkboxes examples) and snippet props passed on into rest props (CommandDialog), then 226 after native `<img>` with build-time `src` values (aspect-ratio-demo, -portrait, -square, card-image, message-attachment). The input-otp examples moved on from `onComplete` to the `any` of `pattern`, the four radio-group examples from the Menu context to `bind:value`, and the avatar examples from `<img>` to Avatar.Image's spread attributes.
+Earlier runs the same day lowered 149, then 173 after three type-system slices (`{}` intersections, child-bound wide props, re-declared fields: the input and input-group examples, card-demo, dropdown-menu-dialog), then 209 after attribute bags of rest props (`$derived({ class: …, ...restProps })` in item, bubble, marker) and spreads on lucide icons (Spinner), then 221 after menubar (`Boolean(x)`, `boolean` unions, `onMount`, runed contexts set with several classes, `disabled` of elements; also the two dropdown-menu-checkboxes examples) and snippet props passed on into rest props (CommandDialog), then 226 after native `<img>` with build-time `src` values (aspect-ratio-demo, -portrait, -square, card-image, message-attachment), then 250 after `new Image()` and spreads on `<img>` (Avatar.Image: 16 avatar, message and item examples) and `<fieldset>`/`<legend>` (8 field and radio-group examples). The input-otp examples moved on from `onComplete` to the `any` of `pattern`, the four radio-group examples from the Menu context to `bind:value`; field-checkbox, field-demo and field-field-group-demo from `<fieldset>` to field-separator's `children`, checkbox-group to the `any` of bits-ui's checkbox, and item-dropdown-demo and item-group-demo to image URLs from `{#each}` items.
 
-Image URLs are not pinned in the census (pinning is the explicit networked step, `runic images`): 5 lowered examples load remote images and need it before a native build (`aspect-ratio-demo`, `aspect-ratio-portrait`, `aspect-ratio-square`, `card-image`, `message-attachment`).
+Image URLs are not pinned in the census (pinning is the explicit networked step, `runic images`): 21 lowered examples load images, which a native build needs pinned (remote URLs) or in the static directory (root-relative paths such as the site's `/avatars/*.png`): (`aspect-ratio-demo`, `aspect-ratio-portrait`, `aspect-ratio-square`, `avatar-badge`, `avatar-badge-icon`, `avatar-basic`, `avatar-demo`, `avatar-dropdown`, `avatar-group`, `avatar-group-count`, `avatar-group-count-icon`, `avatar-size`, `card-image`, `dropdown-menu-avatar`, `empty-avatar-demo`, `empty-avatar-group-demo`, `item-avatar-demo`, `message-attachment`, `message-avatar`, `message-demo`, `message-group`).
 
 ## Blockers shared by four or more examples
 
 | Examples | Code | First diagnostic | Location |
 |---|---|---|---|
-| 18 | E_TEMPLATE | Spread attributes on &lt;img> are not supported: its src must be an attribute with values known at build time | `bits-ui/dist/bits/avatar/components/avatar-image.svelte:36` |
 | 15 | E_CLASS | CalendarDate is a library class; its instances are unsupported (only classes compiled from source are) | `bits-ui/dist/internal/date-time/utils.js:20` |
-| 12 | E_TEMPLATE | &lt;fieldset> is outside the supported elements | `ui/field/field-set.svelte:13` |
 | 10 | E_TYPE_UNION | Union HTMLElement \| Measurable is outside the value model: values of several members reach it (HTMLElement at… | `bits-ui/dist/bits/utilities/floating-layer/use-floating-layer.svelte.js:24` |
 | 9 | E_TYPE_UNSUPPORTED | Values of type any/unknown need a static type (or a JS island, M6) | `bits-ui/dist/bits/pin-input/pin-input.svelte.js:34` |
 | 8 | E_RESOLVE | Cannot resolve svelte-sonner | `examples/bubble-link-button.svelte:2` |
-| 8 | E_RESOLVE | Cannot resolve vaul-svelte | `ui/drawer/drawer.svelte:2` |
+| 8 | E_RESOLVE | Cannot resolve vaul-svelte | `ui/drawer/drawer-trigger.svelte:2` |
 | 7 | E_RESOLVE | Cannot resolve @tabler/icons-svelte/icons/check | `examples/button-group-dropdown-menu-demo.svelte:8` |
 | 6 | E_CSS_PROPERTY | Unsupported CSS declaration text-transform: capitalize: Blitz lays text out in upper or lower case only (upper… | `stylesheet generated by Tailwind CSS:1239` |
 | 6 | E_TEMPLATE | A link whose href may come from spread attributes is not supported; pass href explicitly | `ui/breadcrumb/breadcrumb-link.svelte:28` |
+| 6 | E_TYPE_UNSUPPORTED | Values of type any/unknown need a static type (or a JS island, M6) | `bits-ui/dist/bits/checkbox/components/checkbox.svelte:18` |
 | 5 | E_RESOLVE | Cannot resolve embla-carousel-svelte | `ui/carousel/carousel-content.svelte:2` |
-| 5 | E_TYPE_UNSUPPORTED | Values of type any/unknown need a static type (or a JS island, M6) | `bits-ui/dist/bits/checkbox/components/checkbox.svelte:18` |
 | 4 | E_CLASS | SliderSingleRootState declares fields, but the constructor of its base class SliderBaseRootState uses this bef… | `bits-ui/dist/bits/slider/slider.svelte.js:111` |
 | 4 | E_RESOLVE | Cannot resolve d3-scale | `examples/chart-bar-axis-tick-demo.svelte:2` |
 | 4 | E_TEMPLATE | bind:value needs a $state variable of the prop's type | `ui/dropdown-menu/dropdown-menu-radio-group.svelte:13` |
 | 4 | E_TYPE_UNION | The type of value (any) is outside the value model, so it takes the values its sites pass, but the prop value … | `ui/native-select/native-select.svelte:12` |
 | 4 | E_TYPE_UNSUPPORTED | This value has type never; add a type annotation (e.g. an empty array needs its element type) | `bits-ui/dist/bits/slider/components/slider.svelte:49` |
 
-43 further clusters block 49 examples. The examples per cluster, and the lowered examples, are in [shadcn-svelte-census.json](shadcn-svelte-census.json). Rerun with `node conformance/triage.mjs --jobs 4 --out <dir>`.
+46 further clusters block 54 examples. The examples per cluster, and the lowered examples, are in [shadcn-svelte-census.json](shadcn-svelte-census.json). Rerun with `node conformance/triage.mjs --jobs 4 --out <dir>`.

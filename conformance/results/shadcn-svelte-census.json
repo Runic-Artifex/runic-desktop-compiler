@@ -1,6 +1,6 @@
 {
  "generated": "node conformance/triage.mjs --jobs 4",
- "compiler": "918b006",
+ "compiler": "ef824ae",
  "corpus": {
   "name": "shadcn-svelte",
   "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
@@ -23,8 +23,8 @@
  },
  "totals": {
   "examples": 404,
-  "lowered": 226,
-  "rejected": 178,
+  "lowered": 250,
+  "rejected": 154,
   "harnessError": 0,
   "internalError": 0,
   "withClosureMisses": 0,
@@ -54,6 +54,15 @@
   "attachment-sizes",
   "attachment-states",
   "attachment-trigger",
+  "avatar-badge",
+  "avatar-badge-icon",
+  "avatar-basic",
+  "avatar-demo",
+  "avatar-dropdown",
+  "avatar-group",
+  "avatar-group-count",
+  "avatar-group-count-icon",
+  "avatar-size",
   "badge-colors",
   "badge-demo",
   "badge-icon",
@@ -101,6 +110,7 @@
   "dialog-close-button",
   "dialog-demo",
   "dialog-no-close-button",
+  "dropdown-menu-avatar",
   "dropdown-menu-basic",
   "dropdown-menu-checkboxes",
   "dropdown-menu-checkboxes-icons",
@@ -110,8 +120,16 @@
   "dropdown-menu-icons",
   "dropdown-menu-shortcuts",
   "dropdown-menu-submenu",
+  "empty-avatar-demo",
+  "empty-avatar-group-demo",
   "empty-input-group-demo",
+  "field-choice-card",
+  "field-field-set-demo",
+  "field-input",
+  "field-radio",
+  "field-responsive-layout-demo",
   "field-switch",
+  "field-textarea",
   "input-badge",
   "input-basic",
   "input-button-group",
@@ -139,6 +157,7 @@
   "input-input-group",
   "input-invalid",
   "input-required",
+  "item-avatar-demo",
   "item-demo",
   "item-icon-demo",
   "item-link-demo",
@@ -164,6 +183,9 @@
   "menubar-submenu",
   "message-actions",
   "message-attachment",
+  "message-avatar",
+  "message-demo",
+  "message-group",
   "message-header-footer",
   "popover-basic",
   "popover-demo",
@@ -174,6 +196,8 @@
   "radio-group-demo",
   "radio-group-description",
   "radio-group-disabled",
+  "radio-group-fieldset",
+  "radio-group-invalid",
   "scroll-fade-edge",
   "scroll-fade-horizontal",
   "scroll-fade-rtl",
@@ -268,40 +292,76 @@
   "aspect-ratio-square": [
    "https://avatar.vercel.sh/shadcn1"
   ],
+  "avatar-badge": [
+   "https://github.com/shadcn.png"
+  ],
+  "avatar-badge-icon": [
+   "https://github.com/pranathip.png"
+  ],
+  "avatar-basic": [
+   "https://github.com/shadcn.png"
+  ],
+  "avatar-demo": [
+   "https://github.com/evilrabbit.png",
+   "https://github.com/maxleiter.png",
+   "https://github.com/shadcn.png"
+  ],
+  "avatar-dropdown": [
+   "https://github.com/shadcn.png"
+  ],
+  "avatar-group": [
+   "https://github.com/evilrabbit.png",
+   "https://github.com/maxleiter.png",
+   "https://github.com/shadcn.png"
+  ],
+  "avatar-group-count": [
+   "https://github.com/evilrabbit.png",
+   "https://github.com/maxleiter.png",
+   "https://github.com/shadcn.png"
+  ],
+  "avatar-group-count-icon": [
+   "https://github.com/evilrabbit.png",
+   "https://github.com/maxleiter.png",
+   "https://github.com/shadcn.png"
+  ],
+  "avatar-size": [
+   "https://github.com/shadcn.png"
+  ],
   "card-image": [
    "https://avatar.vercel.sh/shadcn1"
   ],
+  "dropdown-menu-avatar": [
+   "https://github.com/shadcn.png"
+  ],
+  "empty-avatar-demo": [
+   "https://github.com/shadcn.png"
+  ],
+  "empty-avatar-group-demo": [
+   "https://github.com/evilrabbit.png",
+   "https://github.com/maxleiter.png",
+   "https://github.com/shadcn.png"
+  ],
+  "item-avatar-demo": [
+   "https://github.com/evilrabbit.png",
+   "https://github.com/maxleiter.png",
+   "https://github.com/shadcn.png"
+  ],
   "message-attachment": [
    "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=900&auto=format&fit=crop&q=80"
+  ],
+  "message-avatar": [
+   "/avatars/03.png",
+   "/avatars/10.png"
+  ],
+  "message-demo": [
+   "/avatars/02.png",
+   "/avatars/10.png"
+  ],
+  "message-group": [
+   "/avatars/02.png"
   ]
  },
  "clusters": [
-  {
-   "code": "E_TEMPLATE",
-   "count": 18,
-   "message": "Spread attributes on <img> are not supported: its src must be an attribute with values known at build time",
-   "location": "node_modules/bits-ui/dist/bits/avatar/components/avatar-image.svelte:36",
-   "examples": [
-    "avatar-badge",
-    "avatar-badge-icon",
-    "avatar-basic",
-    "avatar-demo",
-    "avatar-dropdown",
-    "avatar-group",
-    "avatar-group-count",
-    "avatar-group-count-icon",
-    "avatar-size",
-    "dropdown-menu-avatar",
-    "empty-avatar-demo",
-    "empty-avatar-group-demo",
-    "item-avatar-demo",
-    "item-dropdown-demo",
-    "item-group-demo",
-    "message-avatar",
-    "message-demo",
-    "message-group"
-   ]
-  },
   {
    "code": "E_CLASS",
    "count": 15,
@@ -323,26 +383,6 @@
     "date-picker-range",
     "date-picker-time",
     "range-calendar-demo"
-   ]
-  },
-  {
-   "code": "E_TEMPLATE",
-   "count": 12,
-   "message": "<fieldset> is outside the supported elements",
-   "location": "docs/src/lib/registry/ui/field/field-set.svelte:13",
-   "examples": [
-    "checkbox-group",
-    "field-checkbox",
-    "field-choice-card",
-    "field-demo",
-    "field-field-group-demo",
-    "field-field-set-demo",
-    "field-input",
-    "field-radio",
-    "field-responsive-layout-demo",
-    "field-textarea",
-    "radio-group-fieldset",
-    "radio-group-invalid"
    ]
   },
   {
@@ -400,7 +440,7 @@
    "code": "E_RESOLVE",
    "count": 8,
    "message": "Cannot resolve vaul-svelte",
-   "location": "docs/src/lib/registry/ui/drawer/drawer.svelte:2",
+   "location": "docs/src/lib/registry/ui/drawer/drawer-trigger.svelte:2",
    "examples": [
     "breadcrumb-responsive",
     "drawer-dialog",
@@ -456,6 +496,20 @@
    ]
   },
   {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 6,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "node_modules/bits-ui/dist/bits/checkbox/components/checkbox.svelte:18",
+   "examples": [
+    "checkbox-basic",
+    "checkbox-demo",
+    "checkbox-description",
+    "checkbox-disabled",
+    "checkbox-group",
+    "checkbox-invalid"
+   ]
+  },
+  {
    "code": "E_RESOLVE",
    "count": 5,
    "message": "Cannot resolve embla-carousel-svelte",
@@ -466,19 +520,6 @@
     "carousel-orientation",
     "carousel-size",
     "carousel-spacing"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 5,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "node_modules/bits-ui/dist/bits/checkbox/components/checkbox.svelte:18",
-   "examples": [
-    "checkbox-basic",
-    "checkbox-demo",
-    "checkbox-description",
-    "checkbox-disabled",
-    "checkbox-invalid"
    ]
   },
   {
@@ -564,6 +605,17 @@
    ]
   },
   {
+   "code": "E_UNRESOLVED",
+   "count": 3,
+   "message": "children is not a supported binding here",
+   "location": "docs/src/lib/registry/ui/field/field-separator.svelte:16",
+   "examples": [
+    "field-checkbox",
+    "field-demo",
+    "field-field-group-demo"
+   ]
+  },
+  {
    "code": "E_PACK",
    "count": 2,
    "message": "runed@0.35.1 pack covers Context, watch (watch.pre), ElementSize and Previous, not IsMounted",
@@ -581,6 +633,24 @@
    "examples": [
     "dark-mode-dropdown-menu",
     "dark-mode-light-switch"
+   ]
+  },
+  {
+   "code": "E_ASSET",
+   "count": 1,
+   "message": "The src of an image object (node_modules/bits-ui/dist/bits/avatar/avatar.svelte.js:27:21) may take this value, which is open: image sources must have a finite set of string values known at build time (literals, values of a literal union type, or props, options and parameters every site passes such values), each pinned as an asset",
+   "location": "docs/src/lib/registry/examples/item-dropdown-demo.svelte:42",
+   "examples": [
+    "item-dropdown-demo"
+   ]
+  },
+  {
+   "code": "E_ASSET",
+   "count": 1,
+   "message": "The src of an image object (node_modules/bits-ui/dist/bits/avatar/avatar.svelte.js:27:21) may take this value, which is open: image sources must have a finite set of string values known at build time (literals, values of a literal union type, or props, options and parameters every site passes such values), each pinned as an asset",
+   "location": "docs/src/lib/registry/examples/item-group-demo.svelte:31",
+   "examples": [
+    "item-group-demo"
    ]
   },
   {
