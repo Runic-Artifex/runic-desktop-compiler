@@ -7072,6 +7072,33 @@ export class Lowerer {
         left: { op: 'to-number', arg: left },
         right: { op: 'to-number', arg: right },
       };
+    // Strict equality of two different primitive types is false (bits-ui's
+    // `checked === "indeterminate"` of a boolean), unless both are nullable:
+    // then it holds where both are null or both undefined. The operands must
+    // be free of effects (they are evaluated once or twice, or not at all).
+    const primitive = (t: Type) => ['number', 'string', 'boolean'].includes(base(t) as string);
+    if (
+      strict &&
+      primitive(lt) &&
+      primitive(rt) &&
+      this.effectFree(left) &&
+      this.effectFree(right)
+    ) {
+      const nullable = (t: Type) => typeof t === 'object' && 'maybe' in t;
+      if (!nullable(lt) || !nullable(rt)) return { op: 'lit', value: false };
+      const is = (name: string, v: Expr): Expr => ({
+        op: 'builtin',
+        name,
+        args: [v],
+        type: BOOLEAN,
+      });
+      const both = (name: string): Expr => ({
+        op: 'and',
+        left: is(name, left),
+        right: is(name, right),
+      });
+      return { op: 'or', left: both('maybe.is-null'), right: both('maybe.is-undefined') };
+    }
     return this.fail(at, 'E_OPERATOR', 'Equality between these types is outside the value model');
   }
 
@@ -8025,9 +8052,17 @@ export class Lowerer {
     // without default may leave undefined), or one TypeScript narrowed to a
     // present one (`if (!geo) return; geo.corridor` of a record typed from
     // untyped code): reading a property of nullish throws a TypeError, as
-    // unwrapping does.
+    // unwrapping does. (Also any nullable value in untyped package code,
+    // which TypeScript does not check, as for method calls: bits-ui's
+    // `if (this.group) watch(() => this.group.opts…)`, where TypeScript
+    // forgets the test inside the closure.)
     const inner = maybeInner(t);
-    if (inner !== undefined && !e.questionDotToken && this.tsPresent(e.expression)) {
+    if (
+      inner !== undefined &&
+      !e.questionDotToken &&
+      (this.tsPresent(e.expression) ||
+        /\.[cm]?js(\.__runic\.ts)?$/.test(e.getSourceFile().fileName))
+    ) {
       object = { op: 'unwrap', value: object };
       t = inner;
     }
@@ -8162,6 +8197,59 @@ export class Lowerer {
             ),
             else: { op: 'lit', value: true },
           },
+        },
+      };
+    }
+    // `element.disabled` (bits-ui's menubar `triggers.filter((t) =>
+    // !t.disabled)`): on the elements with the property (button, input,
+    // select, textarea, fieldset, optgroup, option, link) it reflects the
+    // `disabled` attribute; any other element has none, undefined
+    // (reported unsupported: the boolean cannot hold it).
+    if (kind === 'element' && name === 'disabled') {
+      const el = b.local('$element', 'element');
+      const read: Expr = { op: 'local', local: el };
+      const tag: Expr = { op: 'builtin', name: 'element.localName', args: [read], type: STRING };
+      const owners = [
+        'button',
+        'input',
+        'select',
+        'textarea',
+        'fieldset',
+        'optgroup',
+        'option',
+        'link',
+      ];
+      const test = owners
+        .map((t): Expr => ({ op: 'eq', left: tag, right: { op: 'lit', value: t } }))
+        .reduce((left, right) => ({ op: 'or', left, right }));
+      return {
+        op: 'with',
+        local: el,
+        value: object,
+        body: {
+          op: 'cond',
+          test,
+          then: {
+            op: 'not',
+            arg: {
+              op: 'builtin',
+              name: 'maybe.is-nullish',
+              args: [
+                {
+                  op: 'builtin',
+                  name: 'element.getAttribute',
+                  args: [read, { op: 'lit', value: 'disabled' }],
+                  type: { maybe: STRING },
+                },
+              ],
+              type: BOOLEAN,
+            },
+          },
+          else: this.unsupportedValue(
+            'element$disabled',
+            BOOLEAN,
+            'element.disabled of an element without the property (undefined)',
+          ),
         },
       };
     }
@@ -9017,6 +9105,11 @@ export class Lowerer {
       // A copy of a match array keeps index, input and groups in JavaScript.
       if (global === 'structuredClone' && e.arguments[0] && this.isMatchArray(e.arguments[0]))
         return this.fail(e, 'E_REGEXP', 'structuredClone of a match array is unsupported');
+      // `Boolean(x)` is the truthiness of x, as in a test, whatever x's
+      // type (bits-ui's menubar `Boolean(currValue && value && currValue
+      // !== value)`, TypeScript's `false | true | ""`).
+      if (global === 'Boolean' && e.arguments.length === 1 && !ts.isSpreadElement(e.arguments[0]))
+        return this.condition(e.arguments[0], b);
       if (global && GLOBAL_FUNCTIONS.has(global))
         return this.builtinCall(global, args(), b, this.tsCallType(e), e);
       const binding = this.binding(callee);
@@ -9671,6 +9764,20 @@ export class Lowerer {
             },
           };
         }
+        // A present value searched in an array of nullable elements (bits-ui's
+        // menubar `candidateValues.indexOf(openMenuValue)` of attribute
+        // values): compared as present, as strict equality and SameValueZero
+        // compare it. (Not numbers: the runtime's NaN rules are for plain
+        // number arrays.)
+        const inner = maybeInner(elem);
+        if (inner !== undefined && inner !== NUMBER && sameType(inner, xt))
+          return this.builtinCall(
+            `array.${method}`,
+            [receiver, { op: 'some', value: x }],
+            b,
+            this.tsCallType(e),
+            e,
+          );
       }
       if (kind === 'array' && ARRAY_CALLBACKS.has(method)) {
         // A callback whose parameters TypeScript does not type (untyped
@@ -10921,7 +11028,34 @@ export class Lowerer {
       )
     ) {
       const ft = this.irType(this.functionOf(this.expr(e.expression, b), b), b);
-      if (typeof ft === 'object' && 'fn' in ft && argNodes.length <= ft.fn.params.length)
+      // (Arguments beyond its parameters, which JavaScript evaluates and
+      // ignores: dropped where evaluating them has no effect and cannot
+      // throw, bits-ui's PinInput `onComplete(value)` of its default `noop`.)
+      // (Only names and literals are tried; one that does not lower here
+      // leaves the call to the general rule below.)
+      const ignored = (i: number) => {
+        const n = skipParens(argNodes[i]);
+        if (
+          !ts.isIdentifier(n) &&
+          !ts.isLiteralExpression(n) &&
+          n.kind !== ts.SyntaxKind.ThisKeyword &&
+          n.kind !== ts.SyntaxKind.TrueKeyword &&
+          n.kind !== ts.SyntaxKind.FalseKeyword &&
+          n.kind !== ts.SyntaxKind.NullKeyword
+        )
+          return false;
+        try {
+          return this.effectFree(this.expr(n, b));
+        } catch (err) {
+          if (!/^E_/.test(String((err as { code?: unknown }).code))) throw err;
+          return false;
+        }
+      };
+      if (
+        typeof ft === 'object' &&
+        'fn' in ft &&
+        argNodes.every((_, i) => i < ft.fn.params.length || ignored(i))
+      )
         return ft.fn.params.map((pt, i) => {
           const arg = argNodes[i];
           return arg ? this.coerce(arg, b, pt) : ({ op: 'undefined', type: pt } as Expr);

@@ -32,11 +32,12 @@ bits-ui compiles from source; parts with a conformance case are in [CONTRACT](..
 | Slider | `number \| number[]` value union (V1) | design/M6-LIBRARIES |
 | ScrollArea | scoped component style | design/M6-LIBRARIES |
 | AspectRatio | `E_ATTRS` | design/M6-LIBRARIES |
-| PinInput (input-otp) | `any` callback (V2) | design/M6-LIBRARIES |
+| PinInput (input-otp) | Since 2026-10-12 the `onComplete` callback is typed (by its `noop` default); next `pattern: ReadableBox<any>` in its state's options (V2, frontend). Beyond that it needs the runtime: the text control's selection (`selectionStart`/`End`/`Direction`, `setSelectionRange`), the document's `selectionchange` event (also dispatched by script), a `<style>` element the state creates and fills with `sheet.insertRule` (`::selection`, `:autofill` rules), `DOMContext.getDocument()`/`getElementById`, and `input.dispatchEvent(new Event("input"))` | bits-ui pin-input.svelte.js |
 | Pagination | `E_TYPE_UNSUPPORTED` without dynamic values; with the opt-in it passes case `bits-pagination` | design/M6-DYNAMIC-VALUES |
 | Avatar.Image | images (P7) | CONTRACT |
 | Meter, RadioGroup | lower; no case yet | design/M6-LIBRARIES |
-| AlertDialog, HoverCard, ContextMenu, Menubar, NavigationMenu, Calendar, RangeCalendar, DateField, Combobox, Toolbar, LinkPreview | not attempted | — |
+| Menubar | the shadcn-svelte census examples lower (2026-10-12); no native case yet | conformance/results/shadcn-svelte-census.md |
+| AlertDialog, HoverCard, ContextMenu, NavigationMenu, Calendar, RangeCalendar, DateField, Combobox, Toolbar, LinkPreview | not attempted | — |
 | Multiple Select, ToggleGroup/Accordion mixing types in one program | V1 | CONTRACT |
 | Command: clearing the search, queries without matches | P3 (comment anchors) | CONTRACT |
 | Popover open/close animations | not sampled by the case | CONTRACT |

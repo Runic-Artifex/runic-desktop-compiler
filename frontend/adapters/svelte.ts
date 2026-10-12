@@ -856,11 +856,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // component, forwarded where its rest props are spread onto a component.
   const restSlots = new Map<string, Set<string>>();
   for (const [file, d] of decls) if (d.rest) restSlots.set(file, new Set());
+  /** Snippets sites pass on as attributes (`{children}`), by site (`snippetAttributes`). */
+  const snippetAttrs = new Map<SNode, string[]>();
   /** The snippets a site passes (`children` for content). */
   const snippetsPassed = (n: SNode): string[] => {
     const out: string[] = n.fragment.nodes
       .filter((c: SNode) => c.type === 'SnippetBlock')
       .map((c: SNode) => c.expression.name);
+    out.push(...(snippetAttrs.get(n) ?? []));
     if (
       n.fragment.nodes.some(
         (c: SNode) => c.type !== 'SnippetBlock' && !(c.type === 'Text' && !c.data.trim()),
@@ -905,15 +908,18 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (n.attributes.some((a: SNode) => spreadsRest(u.file, a)))
         slotForwards.push({ from: u.file, to });
     });
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const { from, to } of slotForwards)
-      for (const s of restSlots.get(from) ?? [])
-        if (!decls.get(to)!.declared.has(s) && restSlots.get(to) && !restSlots.get(to)!.has(s)) {
-          restSlots.get(to)!.add(s);
-          changed = true;
-        }
-  }
+  const forwardRestSlots = () => {
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const { from, to } of slotForwards)
+        for (const s of restSlots.get(from) ?? [])
+          if (!decls.get(to)!.declared.has(s) && restSlots.get(to) && !restSlots.get(to)!.has(s)) {
+            restSlots.get(to)!.add(s);
+            changed = true;
+          }
+    }
+  };
+  forwardRestSlots();
 
   // The props type each component exports to its parents' virtual modules.
   /** The local name of a child's props type in a virtual module (`Card.Root` → `__RunicProps_Card$Root`). */
@@ -1418,6 +1424,38 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const tsFail = (n: ts.Node, code: string, message: string): never =>
     fail(code, message, sourceOf(n));
   const checker = program.getTypeChecker();
+  // A snippet a site passes as an attribute to a component that collects
+  // it in its rest props (shadcn-svelte's CommandDialog `<Command
+  // {...restProps} {children} />`): a slot of that component, as content
+  // or a `{#snippet}` block would be (the site forwards its own snippet
+  // prop, or is rejected where it lowers the attribute).
+  const isSnippet = (t: ts.Type): boolean => {
+    const present = checker.getNonNullableType(t);
+    if (present.isUnion()) return present.types.every(isSnippet);
+    const sym = present.aliasSymbol ?? present.getSymbol();
+    const file = sym?.declarations?.[0]?.getSourceFile().fileName ?? '';
+    return sym?.name === 'Snippet' && /[\\/]svelte[\\/]/.test(file);
+  };
+  for (const u of order)
+    walkTemplate(u.ast.fragment, n => {
+      if (n.type !== 'Component') return;
+      const to = u.children.get(n.name);
+      if (!to || !restSlots.get(to)) return;
+      for (const a of n.attributes) {
+        if (
+          a.type !== 'Attribute' ||
+          decls.get(to)!.declared.has(a.name) ||
+          a.value === true ||
+          Array.isArray(a.value)
+        )
+          continue;
+        const e = skipParens(nodeIn(u, a.value.expression) as ts.Expression);
+        if (!ts.isIdentifier(e) || !isSnippet(checker.getTypeAtLocation(e))) continue;
+        snippetAttrs.set(n, [...(snippetAttrs.get(n) ?? []), a.name]);
+        restSlots.get(to)!.add(a.name);
+      }
+    });
+  forwardRestSlots();
   // SvelteKit: `error()` and `redirect()` throw values only the router reads
   // (frontend/adapters/kit/kit.ts), so code that may catch them (a `catch`
   // in a route module, or in a module or component that imports
@@ -1743,6 +1781,61 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
         )
           return tsFail(node, 'E_CALL', 'untrack takes a function without parameters');
         return { op: 'builtin', name: 'reactive.untrack-call', args: [f], type: t.fn.result };
+      }
+      // onMount(fn) outside a component script's top level (bits-ui's
+      // menubar and pin input state constructors, run while an instance is
+      // created): Svelte 5 runs `user_effect(() => { const cleanup =
+      // untrack(fn); if (typeof cleanup === 'function') return cleanup; })`,
+      // a post effect of the instance that tracks nothing. (Called while
+      // no instance is created nor an effect runs, Svelte throws
+      // lifecycle_outside_component and the effect builtin RunicEffectError.)
+      if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'onMount') {
+        const [fn] = node.arguments;
+        const f = fn && node.arguments.length === 1 ? lower.expr(fn, ctx) : undefined;
+        const t = f && lower.irType(f, ctx);
+        const result =
+          typeof t === 'object' && 'fn' in t && !t.fn.params.length ? t.fn.result : undefined;
+        const cleanup = (x: Type | undefined) =>
+          typeof x === 'object' && 'fn' in x && !x.fn.params.length && x.fn.result === 'void';
+        if (
+          !f ||
+          result === undefined ||
+          (result !== 'void' &&
+            !cleanup(result) &&
+            !(typeof result === 'object' && 'maybe' in result && cleanup(result.maybe)))
+        )
+          return tsFail(
+            node,
+            'E_EFFECT',
+            'onMount takes a function without parameters returning nothing or a cleanup function',
+          );
+        const call: Expr = {
+          op: 'builtin',
+          name: 'reactive.untrack-call',
+          args: [{ op: 'local', local: 0 }],
+          type: result,
+        };
+        const run = lower.reserve();
+        lower.functions[run] = {
+          name: 'onMount$run',
+          captures: [{ name: 'fn', type: t! }],
+          params: [],
+          locals: [],
+          result,
+          body: result === 'void' ? [{ op: 'expr', value: call }] : [{ op: 'return', value: call }],
+        };
+        const tmp = ctx.local('$onMount', t!);
+        return {
+          op: 'with',
+          local: tmp,
+          value: f,
+          body: {
+            op: 'builtin',
+            name: 'effect.post',
+            args: [{ op: 'closure', function: run, captures: [tmp] }],
+            type: 'void',
+          },
+        };
       }
       // Imperative mounts (M6 overlays): mount, unmount and getAllContexts.
       if (ts.isIdentifier(node.expression)) {
@@ -3095,6 +3188,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     };
 
     /**
+     * A prop typed wider than the value model that no site passes a value
+     * and its component never writes, with a default (bits-ui's PinInput
+     * `onComplete = noop`, typed `(...args: any[]) => void`, under
+     * shadcn-svelte's InputOTP, which no example gives one): it only ever
+     * holds its default, so it has the default's type. Undefined otherwise
+     * (also where the default's type is outside the value model).
+     */
+    const typeOfDefault = (sym: ts.Symbol, el: ts.BindingElement): Type | undefined => {
+      const passed = domains.siteTypes(sym);
+      if (!passed?.length || passed.some(t => t !== undefined)) return undefined;
+      if (domains.written(sym) !== false) return undefined;
+      let fallback = el.initializer;
+      if (fallback && runeName(fallback) === '$bindable')
+        fallback = (fallback as ts.CallExpression).arguments[0];
+      if (!fallback) return undefined;
+      const t = types.tryMap(checker.getTypeAtLocation(fallback), fallback);
+      return t && t !== 'void' ? t : undefined;
+    };
+
+    /**
      * The member of a discriminated union props type that every instance of
      * the component takes: bits-ui's ToggleGroup and Accordion take
      * `type: "single"` with `value?: string` or `type: "multiple"` with
@@ -3230,7 +3343,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             (values && typeOfValues(values)) ??
             typeOfSites(sym, el) ??
             typeOfBinds(sym, el) ??
-            typeOfChildBinds(sym, el);
+            typeOfChildBinds(sym, el) ??
+            typeOfDefault(sym, el);
           if (!t) {
             if (mixed)
               tsFail(
@@ -4638,6 +4752,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                 );
               v = { op: 'unwrap', value: v };
               from = inner;
+            }
+            // A prop of this component that only ever holds undefined (no
+            // site passes it, it has no default and is never written:
+            // shadcn-svelte's CommandDialog `portalProps`, typed by its
+            // values as a nullable string), passed where another nullable
+            // type is expected: undefined of that type.
+            const decl = ts.isIdentifier(e) ? checker.getSymbolAtLocation(e) : undefined;
+            const el = decl?.valueDeclaration;
+            if (
+              maybeInner(from) !== undefined &&
+              maybeInner(want) !== undefined &&
+              !sameType(from, want) &&
+              el &&
+              ts.isBindingElement(el) &&
+              !el.initializer &&
+              domains.values(decl!)?.every(x => x === undefined) &&
+              domains.written(decl!) === false
+            ) {
+              v = { op: 'undefined', type: want };
+              from = want;
             }
             const fn = maybeInner(want) ?? want;
             const adapted = lower.adaptFunction(v, from, fn);

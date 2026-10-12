@@ -1,6 +1,6 @@
 {
  "generated": "node conformance/triage.mjs --jobs 4",
- "compiler": "52018cc",
+ "compiler": "1482a5a",
  "corpus": {
   "name": "shadcn-svelte",
   "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
@@ -23,8 +23,8 @@
  },
  "totals": {
   "examples": 404,
-  "lowered": 209,
-  "rejected": 195,
+  "lowered": 221,
+  "rejected": 183,
   "harnessError": 0,
   "internalError": 0,
   "withClosureMisses": 0,
@@ -88,11 +88,18 @@
   "card-small",
   "collapsible-basic",
   "collapsible-demo",
+  "command-basic",
   "command-demo",
+  "command-dialog",
+  "command-groups",
+  "command-scrollable",
+  "command-shortcuts",
   "dialog-close-button",
   "dialog-demo",
   "dialog-no-close-button",
   "dropdown-menu-basic",
+  "dropdown-menu-checkboxes",
+  "dropdown-menu-checkboxes-icons",
   "dropdown-menu-demo",
   "dropdown-menu-destructive",
   "dropdown-menu-dialog",
@@ -146,6 +153,11 @@
   "marker-shimmer",
   "marker-status",
   "marker-variants",
+  "menubar-checkbox",
+  "menubar-demo",
+  "menubar-icons",
+  "menubar-radio",
+  "menubar-submenu",
   "message-actions",
   "message-header-footer",
   "popover-basic",
@@ -339,10 +351,10 @@
    ]
   },
   {
-   "code": "E_TYPE_UNION",
+   "code": "E_TYPE_UNSUPPORTED",
    "count": 9,
-   "message": "The type of onComplete ((...args: any[]) => void) is outside the value model, so it takes the values its sites pass, but the prop onComplete takes an open value at an instantiation site (src/lib/registry/ui/input-otp/input-otp.svelte:13:1)",
-   "location": "node_modules/bits-ui/dist/bits/pin-input/components/pin-input.svelte:19",
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "node_modules/bits-ui/dist/bits/pin-input/pin-input.svelte.js:34",
    "examples": [
     "input-otp-alphanumeric",
     "input-otp-controlled",
@@ -375,7 +387,7 @@
    "code": "E_RESOLVE",
    "count": 8,
    "message": "Cannot resolve vaul-svelte",
-   "location": "docs/src/lib/registry/ui/drawer/drawer-trigger.svelte:2",
+   "location": "docs/src/lib/registry/ui/drawer/drawer.svelte:2",
    "examples": [
     "breadcrumb-responsive",
     "drawer-dialog",
@@ -444,19 +456,6 @@
    ]
   },
   {
-   "code": "E_TYPE_UNION",
-   "count": 5,
-   "message": "Union false | true | \"\" is outside the value model: values of several members reach it (false at node_modules/bits-ui/dist/bits/menubar/menubar.svelte.js:60, true at node_modules/bits-ui/dist/bits/menubar/menubar.svelte.js:60); compiling per member is not supported yet",
-   "location": "node_modules/bits-ui/dist/bits/menubar/menubar.svelte.js:60",
-   "examples": [
-    "menubar-checkbox",
-    "menubar-demo",
-    "menubar-icons",
-    "menubar-radio",
-    "menubar-submenu"
-   ]
-  },
-  {
    "code": "E_TYPE_UNSUPPORTED",
    "count": 5,
    "message": "Values of type any/unknown need a static type (or a JS island, M6)",
@@ -467,19 +466,6 @@
     "checkbox-description",
     "checkbox-disabled",
     "checkbox-invalid"
-   ]
-  },
-  {
-   "code": "E_UNRESOLVED",
-   "count": 5,
-   "message": "children is not a supported binding here",
-   "location": "docs/src/lib/registry/ui/command/command-dialog.svelte:40",
-   "examples": [
-    "command-basic",
-    "command-dialog",
-    "command-groups",
-    "command-scrollable",
-    "command-shortcuts"
    ]
   },
   {
@@ -495,18 +481,6 @@
    ]
   },
   {
-   "code": "E_PACK",
-   "count": 4,
-   "message": "runed@0.35.1 pack: context Menu.Group | Menu.RadioGroup is set with values of different types",
-   "location": "node_modules/bits-ui/dist/bits/menu/menu.svelte.js:1350",
-   "examples": [
-    "button-group-demo",
-    "dropdown-menu-complex",
-    "dropdown-menu-radio-group",
-    "dropdown-menu-radio-icons"
-   ]
-  },
-  {
    "code": "E_RESOLVE",
    "count": 4,
    "message": "Cannot resolve d3-scale",
@@ -516,6 +490,18 @@
     "chart-bar-demo",
     "chart-bar-legend-demo",
     "chart-bar-tooltip-demo"
+   ]
+  },
+  {
+   "code": "E_TEMPLATE",
+   "count": 4,
+   "message": "bind:value needs a $state variable of the prop's type",
+   "location": "docs/src/lib/registry/ui/dropdown-menu/dropdown-menu-radio-group.svelte:13",
+   "examples": [
+    "button-group-demo",
+    "dropdown-menu-complex",
+    "dropdown-menu-radio-group",
+    "dropdown-menu-radio-icons"
    ]
   },
   {
@@ -562,16 +548,6 @@
     "pagination-demo",
     "pagination-icons-only",
     "pagination-simple"
-   ]
-  },
-  {
-   "code": "E_MEMBER",
-   "count": 2,
-   "message": "Unsupported property opts on maybe",
-   "location": "node_modules/bits-ui/dist/bits/menu/menu.svelte.js:1236",
-   "examples": [
-    "dropdown-menu-checkboxes",
-    "dropdown-menu-checkboxes-icons"
    ]
   },
   {

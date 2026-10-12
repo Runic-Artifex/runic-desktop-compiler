@@ -145,6 +145,14 @@ export class Unions {
       this.resolved.set(key, m);
       return m;
     }
+    // TypeScript's `boolean` is the union `false | true`: values of those
+    // two members only are booleans (bits-ui's `getCheckedState(checked:
+    // boolean | "indeterminate")` given only booleans).
+    if (found.size === 2 && [...found.keys()].every(m => m.flags & F.BooleanLiteral)) {
+      const m = this.checker.getBooleanType();
+      this.resolved.set(key, m);
+      return m;
+    }
     // Nothing but null and undefined reaches it: any member types it.
     // (With dynamic values, M6 spike: no value found may mean values the
     // census does not see, an untyped function's inferred result: the
@@ -206,11 +214,16 @@ export class Unions {
   }
 
   /**
-   * The type of the functions (`box`: boxes of functions) given to the
-   * property declared by `decl` (typed as any function), where every value
-   * the program gives it is a
+   * The type of the functions given to the property declared by `decl`
+   * (typed as any function; `box`: boxes of functions, by the function
+   * their `current` holds), where every value the program gives it is a
    * function of one type without `any` and nothing else may fill it (a
    * write, a spread, an untyped literal of its name); undefined otherwise.
+   * A given value TypeScript types with `any` (a getter box of a prop
+   * typed `(...args: any[]) => void`, bits-ui's PinInput `onComplete:
+   * boxWith(() => onComplete)`) is followed to the values it is built from
+   * (`trace`: the prop's sites and its default, `noop` where no site
+   * passes one).
    */
   anyFnSlot(decl: ts.Declaration, box = false): ts.Type | undefined {
     const index = this.properties();
@@ -225,24 +238,45 @@ export class Unions {
     )
       return undefined;
     const types: ts.Type[] = [];
+    const anyIn = (x: ts.Type) => !!(x.flags & (F.Any | F.Unknown));
+    /** Whether `t` is a function of one signature without `any`. */
+    const typed = (t: ts.Type) => {
+      const [sig, ...more] = t.getCallSignatures();
+      return (
+        !!sig &&
+        !more.length &&
+        !this.checker.getPropertiesOfType(t).length &&
+        !anyIn(sig.getReturnType()) &&
+        !sig.parameters.some(p => {
+          const pt = this.checker.getTypeOfSymbol(p);
+          // (`...args: any[]`.)
+          return (
+            anyIn(pt) ||
+            (this.checker.isArrayType(pt) &&
+              anyIn(this.checker.getTypeArguments(pt as ts.TypeReference)[0]))
+          );
+        })
+      );
+    };
     // (A function value TypeScript types without `any`: a literal, or a
     // call's typed result such as `$effect.root(…)`'s cleanup.)
-    // (`box`: boxes, by the function their `current` holds; the box's type
-    // is the property's, bits-ui's `onSelect: boxWith(() => onSelect)`.)
+    // (`box`: boxes, by the function their `current` holds, bits-ui's
+    // `onSelect: boxWith(() => onSelect)`.)
     for (const g of given) {
       const whole = this.checker.getTypeAtLocation(skipAll(g));
       const current = box ? whole.getProperty('current') : undefined;
       if (box && !current) return undefined;
       const t = current ? this.checker.getTypeOfSymbol(current) : whole;
-      const [sig, ...more] = t.getCallSignatures();
-      if (!sig || more.length || this.checker.getPropertiesOfType(t).length) return undefined;
-      const anyIn = (x: ts.Type) => !!(x.flags & (F.Any | F.Unknown));
-      if (
-        anyIn(sig.getReturnType()) ||
-        sig.parameters.some(p => anyIn(this.checker.getTypeOfSymbol(p)))
-      )
-        return undefined;
-      types.push(whole);
+      if (typed(t)) {
+        types.push(t);
+        continue;
+      }
+      // (Typed with `any`: the functions it is built from, also through
+      // the box's getter. A value that holds nothing, null or undefined
+      // only, gives no type.)
+      const traced = this.trace(g, box ? ['current'] : [], 0);
+      if (!traced?.length || !traced.every(typed)) return undefined;
+      types.push(...traced);
     }
     const [first] = types;
     const same = (a: ts.Type, b: ts.Type) =>
@@ -615,6 +649,11 @@ export class Unions {
         if (values && values.every(v => v === null || v === undefined)) return [];
         const init = this.constant(sym);
         if (init) return this.trace(init, [], depth + 1, strict);
+        // A function declaration (bits-ui's `noop`): its own type. (The
+        // language layer lowers its name as the function, and rejects
+        // assignments to it.)
+        if (sym.valueDeclaration && ts.isFunctionDeclaration(sym.valueDeclaration))
+          return [this.checker.getTypeOfSymbol(sym)];
         // A prop: what its sites pass.
         const passed = this.propFromSites(sym, [], depth, strict);
         if (passed) return passed;
