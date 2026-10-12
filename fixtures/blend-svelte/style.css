@@ -1,0 +1,175 @@
+@font-face {
+  font-family: RunicFixture;
+  src: url('./assets/DejaVuSans.woff2') format('woff2');
+  font-weight: 100 900;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  background: #eae6dc;
+  color: #252c28;
+  font-family: RunicFixture;
+  font-size: 16px;
+}
+body {
+  padding: 12px;
+}
+h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 400;
+}
+p {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  line-height: 16px;
+}
+img {
+  display: block;
+}
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+}
+.solid {
+  background: rgb(40, 120, 200);
+}
+.gradient {
+  background: linear-gradient(90deg, rgb(40, 120, 200), rgb(250, 230, 40) 60%, rgb(30, 30, 30));
+}
+.tile {
+  width: 40px;
+  height: 40px;
+  background: rgb(220, 90, 60);
+}
+.translucent {
+  background: linear-gradient(rgba(220, 90, 60, 0.75), rgba(90, 200, 120, 0.75));
+}
+.cell {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+.over {
+  position: absolute;
+  inset: 6px 0 0 6px;
+  background: radial-gradient(circle at 30% 30%, rgb(250, 120, 60), rgb(60, 40, 180));
+}
+.inner {
+  margin: 10px;
+  width: 20px;
+  height: 20px;
+  background: rgb(60, 200, 90);
+}
+.ancestor {
+  width: 40px;
+  height: 40px;
+  padding: 6px 0 0 6px;
+  background: linear-gradient(90deg, rgb(250, 230, 40) 50%, transparent 50%);
+}
+.ancestor .tile {
+  width: 34px;
+  height: 34px;
+}
+.isolate {
+  isolation: isolate;
+}
+.opacity {
+  opacity: 0.8;
+}
+.transform {
+  transform: translateX(0);
+}
+.z-index {
+  position: relative;
+  z-index: 0;
+}
+.overflow {
+  overflow: hidden;
+}
+.rounded {
+  overflow: hidden;
+  border-radius: 12px;
+}
+.hoisted {
+  position: relative;
+  z-index: 1;
+  left: 10px;
+  top: 10px;
+}
+.strip {
+  width: 180px;
+  height: 40px;
+  padding: 6px;
+  background: linear-gradient(90deg, rgb(40, 120, 200), rgb(250, 230, 40));
+}
+.blended-text {
+  color: white;
+  font-size: 22px;
+  line-height: 28px;
+}
+.label {
+  width: 120px;
+  padding: 4px;
+  background: rgb(240, 160, 200);
+  color: rgb(20, 90, 40);
+  font-size: 16px;
+  line-height: 20px;
+}
+/* shadcn-svelte's Avatar root and image (vega style): relative flex
+   shrink-0 select-none rounded-full, after:absolute after:inset-0
+   after:rounded-full after:border after:border-border
+   after:mix-blend-darken (dark: after:mix-blend-lighten); the image
+   rounded-full aspect-square size-full object-cover. */
+.avatar {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  user-select: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+}
+.avatar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgb(229, 229, 229);
+  border-radius: 9999px;
+  mix-blend-mode: darken;
+}
+.avatar.large {
+  width: 64px;
+  height: 64px;
+}
+.avatar.lighten::after {
+  border-color: rgba(255, 255, 255, 0.1);
+  mix-blend-mode: lighten;
+}
+.avatar-image {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 9999px;
+  object-fit: cover;
+}
+.dark {
+  padding: 4px;
+  background: rgb(10, 10, 10);
+}
+.layered {
+  background-color: rgb(40, 160, 120);
+  background-image: linear-gradient(135deg, rgb(220, 90, 60), rgb(250, 230, 40));
+}
+.layers {
+  background-color: rgb(200, 200, 60);
+  background-image:
+    radial-gradient(circle, rgb(240, 60, 160), transparent 70%),
+    linear-gradient(rgb(40, 120, 200), rgb(220, 90, 60));
+  background-blend-mode: difference, multiply;
+}

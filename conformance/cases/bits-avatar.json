@@ -2,9 +2,6 @@
   "description": "bits-ui's Avatar compiled from its published source through shadcn-svelte's unmodified avatar wrappers, as the avatar demos arrange them (M6 images, docs/design/M6-IMAGES.md): each Avatar.Image loads its pinned source with new Image() and renders an <img> of it (runic.images.json: two GitHub avatars and a pinned 404). Load success (after the default delayMs of 0, the image shows and the fallback hides: wait 0), a pinned 404 showing its fallback (data-status error), a root with delayMs 500 still loading after 300 ms of virtual time and loaded after 550, a source switched at run time from the 404 to an image (the root's onLoadingStatusChange trace is shown), sizes changed from the app (data-size and the size-dependent classes), a badge, a group with a count",
   "fixtures": ["bits-avatar-svelte"],
   "pixelRegions": ["avatars"],
-  "knownGaps": {
-    "pixels": "At 420px the avatars region differs by 3.3-5.7/255 once the images show (1.2/255 before; at 800px it stays at or below 2.9/255 and passes): shadcn-svelte's avatar draws an after: border with mix-blend-mode: darken, which Blitz paint does not implement, so a light ring is drawn over each image where Chromium darkens it away (5.1/255 over the first 44x44 avatar); the scaled image itself differs by 1.35/255 (a 14x14 interior crop: resampling, vello against Skia). docs/BLITZ-GAPS.md, mix-blend-mode"
-  },
   "actions": [
     { "kind": "wait", "ms": 0 },
     { "kind": "wait", "ms": 300 },

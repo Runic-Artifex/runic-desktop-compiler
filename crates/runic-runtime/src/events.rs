@@ -560,6 +560,7 @@ impl<A: App> Native<A> {
             ));
         }
         crate::effects::report_filter_deviations(&self.doc);
+        crate::effects::report_blend_deviations(&self.doc);
         self.listeners.settle(&mut self.doc);
         let clamped = crate::layout::take_clamped();
         for &node in &clamped {

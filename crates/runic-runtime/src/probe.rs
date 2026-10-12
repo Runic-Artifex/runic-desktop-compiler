@@ -921,6 +921,7 @@ pub(crate) fn run<A: App>() {
         crate::layout::resolve(&mut native.doc);
         // Every observed state, the mounted one included (frames check later ones).
         crate::effects::report_filter_deviations(&native.doc);
+        crate::effects::report_blend_deviations(&native.doc);
         let mut step = snapshot(native, width, height);
         step["action"] = action;
         if let Some(target) = pointer_target {
