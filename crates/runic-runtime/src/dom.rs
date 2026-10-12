@@ -46,10 +46,14 @@ pub enum Event {
     /// Session history events, fired at the window only.
     Popstate,
     Hashchange,
+    /// An `<img>`'s image loaded or failed (M6 images; not bubbling, a task
+    /// after the one that determined the outcome).
+    Load,
+    Error,
 }
 
 impl Event {
-    pub const ALL: [Event; 31] = [
+    pub const ALL: [Event; 33] = [
         Event::Click,
         Event::Submit,
         Event::Input,
@@ -81,6 +85,8 @@ impl Event {
         Event::Resize,
         Event::Popstate,
         Event::Hashchange,
+        Event::Load,
+        Event::Error,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -135,6 +141,8 @@ impl Event {
             Event::Resize => "resize",
             Event::Popstate => "popstate",
             Event::Hashchange => "hashchange",
+            Event::Load => "load",
+            Event::Error => "error",
         }
     }
 
@@ -151,6 +159,8 @@ impl Event {
                 | Event::Resize
                 | Event::Popstate
                 | Event::Hashchange
+                | Event::Load
+                | Event::Error
         )
     }
 
@@ -171,6 +181,8 @@ impl Event {
                 | Event::Resize
                 | Event::Popstate
                 | Event::Hashchange
+                | Event::Load
+                | Event::Error
         )
     }
 
@@ -202,6 +214,8 @@ impl Event {
             Event::Resize => "resize",
             Event::Focus | Event::Blur | Event::Focusin | Event::Focusout => "focus",
             Event::Popstate | Event::Hashchange => "back",
+            // No input delivers them: the image's request completes.
+            Event::Load | Event::Error => "load",
         }
     }
 }

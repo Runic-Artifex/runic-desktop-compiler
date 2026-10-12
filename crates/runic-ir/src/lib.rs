@@ -1062,6 +1062,12 @@ pub enum EventKind {
     Popstate,
     /// The fragment changed (a task after `popstate`); window only.
     Hashchange,
+    /// An `<img>`'s image was fetched and decoded / its fetch or decode
+    /// failed (M6 images; `<img>` listeners only, not bubbling, not
+    /// cancelable). A task after the one that determined the outcome. The
+    /// reference interpreter loads no images.
+    Load,
+    Error,
 }
 
 impl EventKind {
@@ -1088,6 +1094,8 @@ impl EventKind {
                 | EventKind::Resize
                 | EventKind::Popstate
                 | EventKind::Hashchange
+                | EventKind::Load
+                | EventKind::Error
         )
     }
 
@@ -1109,7 +1117,15 @@ impl EventKind {
                 | EventKind::Resize
                 | EventKind::Popstate
                 | EventKind::Hashchange
+                | EventKind::Load
+                | EventKind::Error
         )
+    }
+
+    /// An image request's outcome (`load`, `error`): listened to only on
+    /// `<img>` elements in the template (M6 images).
+    pub fn image(self) -> bool {
+        matches!(self, EventKind::Load | EventKind::Error)
     }
 
     /// Fired at the window only (no element or document listeners).
@@ -1151,10 +1167,12 @@ impl EventKind {
                 "focus"
             }
             EventKind::Popstate | EventKind::Hashchange => "back",
+            // No input delivers them: the image's request completes.
+            EventKind::Load | EventKind::Error => "load",
         }
     }
 
-    pub const ALL: [EventKind; 31] = [
+    pub const ALL: [EventKind; 33] = [
         EventKind::Click,
         EventKind::Submit,
         EventKind::Input,
@@ -1186,6 +1204,8 @@ impl EventKind {
         EventKind::Resize,
         EventKind::Popstate,
         EventKind::Hashchange,
+        EventKind::Load,
+        EventKind::Error,
     ];
 
     /// The kind named `name` (`event.type`).
@@ -1240,6 +1260,8 @@ impl EventKind {
             EventKind::Resize => "resize",
             EventKind::Popstate => "popstate",
             EventKind::Hashchange => "hashchange",
+            EventKind::Load => "load",
+            EventKind::Error => "error",
         }
     }
 }

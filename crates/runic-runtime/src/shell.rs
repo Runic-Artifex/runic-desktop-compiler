@@ -6,7 +6,7 @@ use crate::events::Native;
 use anyrender::WindowRenderer;
 use base64::Engine as _;
 use blitz_dom::{BaseDocument, DocumentConfig, LocalName, Namespace, QualName, ns};
-use blitz_shell::{BlitzApplication, BlitzShellProxy, DataUriNetProvider, WindowConfig};
+use blitz_shell::{BlitzApplication, BlitzShellProxy, WindowConfig};
 use blitz_traits::node_id::NodeId;
 use blitz_traits::shell::{ColorScheme, Viewport};
 use std::sync::Arc;
@@ -85,8 +85,11 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     crate::timeline::set_style_guards(A::STYLE_GUARDS);
     // Rejections a previous document left unreported go with it.
     runic_js::clear_rejections();
+    // Requests are served offline: data: URLs (fonts) and the pinned images
+    // (M6), whose `src` Blitz resolves against the base URL.
     let mut doc = BaseDocument::new(DocumentConfig {
-        net_provider: Some(DataUriNetProvider::shared(None)),
+        net_provider: Some(Arc::new(crate::images::PinnedNetProvider::new(A::IMAGES))),
+        base_url: Some(crate::images::BASE_URL.to_owned()),
         viewport: Some(Viewport::new(width, height, 1.0, ColorScheme::Light)),
         ..Default::default()
     });
@@ -151,6 +154,9 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         waker: None,
         fixup: None,
     };
+    // The images the mount requested fire `load` or `error` (each a task)
+    // before the document has loaded, as they delay a page's load event.
+    native.image_tasks();
     // Loaded: then the host's work queued while the app mounted.
     crate::history::loaded();
     native.host_tasks();

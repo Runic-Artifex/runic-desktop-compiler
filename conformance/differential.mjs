@@ -165,6 +165,13 @@ function eventKinds(ir) {
       // Select edits are chosen (a click would open a popup over other targets);
       // boundary and movement listeners still need real hover actions.
       for (const l of n.listeners ?? []) {
+        // Image load and error events come from the network provider; the
+        // interpreter loads no images (docs/gaps/VERIFICATION.md).
+        if (l.event === 'load' || l.event === 'error') {
+          const error = new Error(`the interpreter loads no images: <${n.tag}> listens for ${l.event}`);
+          error.code = 'E_DIFFERENTIAL_ACTION';
+          throw error;
+        }
         const action = Object.hasOwn(ACTION, l.event) ? ACTION[l.event] : undefined;
         if (action === undefined) {
           const error = new Error(`No differential action is mapped for event ${JSON.stringify(l.event)}`);

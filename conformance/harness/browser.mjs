@@ -127,6 +127,37 @@ async function serveKitFixture(root, config) {
   };
 }
 
+/**
+ * The fixture's pinned images (`runic.images.json`, M6 images): a map from
+ * each URL as Chromium requests it (parsed and serialised) to `{ status,
+ * mime, body }`, or undefined when the fixture pins none.
+ */
+export async function pinnedImages(fixture) {
+  const root = await realpath(fixture);
+  let record;
+  try {
+    record = JSON.parse(await readFile(path.join(root, 'runic.images.json'), 'utf8'));
+  } catch (e) {
+    if (e.code === 'ENOENT') return undefined;
+    throw e;
+  }
+  const pinned = new Map();
+  for (const entry of record.images) {
+    const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg' };
+    pinned.set(
+      new URL(entry.url).href,
+      entry.status !== undefined
+        ? { status: entry.status }
+        : {
+            status: 200,
+            mime: entry.mime,
+            body: await readFile(path.join(root, 'images', `${entry.sha256}.${ext[entry.mime]}`)),
+          },
+    );
+  }
+  return pinned;
+}
+
 /** Starts a Vite dev server for an original fixture on a free loopback port. */
 export async function serveFixture(fixture) {
   const root = await realpath(fixture);
@@ -595,6 +626,28 @@ export async function createBrowserHarness() {
         // Full Chromium requests a favicon the fixtures do not have; answer it
         // so real 404s still surface as console errors.
         await context.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
+        // Pinned images (M6): Chromium is offline too. Every request outside
+        // the fixture's server is answered from the record, with the pinned
+        // bytes or the pinned HTTP status; any other one fails the run.
+        const pinned = await pinnedImages(fixture);
+        const serverOrigin = new URL(server.url).origin;
+        if (pinned)
+          await context.route(
+            u => /^https?:$/.test(u.protocol) && u.origin !== serverOrigin,
+            route => {
+              const url = route.request().url();
+              const image = pinned.get(url);
+              if (!image) {
+                errors.push({ kind: 'network', message: `A request for ${url}, which is not pinned` });
+                return route.abort();
+              }
+              return route.fulfill(
+                image.body
+                  ? { status: 200, contentType: image.mime, body: image.body }
+                  : { status: image.status, contentType: 'text/plain', body: '' },
+              );
+            },
+          );
         // The clipboard is the browser's, shared by every run: it starts with
         // the case's text, written from a blank page of the app's origin.
         const blank = server.url + '__runic_clipboard';
@@ -664,6 +717,14 @@ export async function createBrowserHarness() {
         // error page): settling also waits for the fetches in flight.
         const settle = async () => {
           await settleFrames();
+          // Images still loading (M6): their load or error events follow
+          // their requests, which the frames do not wait for.
+          let loading = false;
+          while (await page.evaluate(() => [...document.images].some(i => !i.complete))) {
+            loading = true;
+            await new Promise(r => setTimeout(r, 10));
+          }
+          if (loading) await settleFrames();
           if (!server.container) return;
           let waited = false;
           while (await page.evaluate(() => window.__runicFetches > 0)) {
@@ -734,6 +795,15 @@ export async function createBrowserHarness() {
             browserDiagnostics.push({ type: m.type(), text: m.text(), location: m.location() });
           else if (appSource(m.location().url, origin))
             lines.push({ level: LEVELS[m.type()] ?? m.type(), text: textJson(m.text()) });
+          // Chromium logs the failed load of a pinned failure (an image's
+          // 404), which the app sees only as its `error` event.
+          else if (
+            m.type() === 'error' &&
+            pinned?.has(m.location().url) &&
+            !pinned.get(m.location().url).body &&
+            m.text().startsWith('Failed to load resource:')
+          )
+            browserDiagnostics.push({ type: m.type(), text: m.text(), location: m.location() });
           else if (m.type() === 'error') errors.push({ kind: 'console', message: m.text() });
         });
         const t1 = performance.now();

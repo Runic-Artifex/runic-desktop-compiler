@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "images": [
+    {
+      "url": "https://avatars.githubusercontent.com/u/1?s=40",
+      "sha256": "8dc1befbfbbb01af2837ea2afffa80d6974c8dabae5214424d4a5fea8d9733b7",
+      "bytes": 3144,
+      "mime": "image/png"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Runic-Artifex/blitz/main/runic-missing-image.png",
+      "status": 404
+    }
+  ]
+}
