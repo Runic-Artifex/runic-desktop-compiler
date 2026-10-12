@@ -228,11 +228,24 @@ export function packFor(pkg: PackageRef): Pack {
       'E_SOURCE_VERSION',
       `${pkg.name}@${pkg.version} is not compiled from source; the verified version is ${sourceVersions(pkg.name).join(', ')}`,
     );
-  if (!candidates.length)
+  if (!candidates.length) {
+    // A package that does not declare itself free of module side effects
+    // cannot be listed in frontend/sources.ts: say so.
+    let sideEffects: unknown;
+    try {
+      sideEffects = JSON.parse(
+        readFileSync(path.join(pkg.dir, 'package.json'), 'utf8'),
+      ).sideEffects;
+    } catch {
+      sideEffects = undefined;
+    }
     throw new PackError(
       'E_DEPENDENCY',
-      `No mapping pack for dependency ${pkg.name}, and it is not compiled from source (frontend/sources.ts lists those packages)`,
+      sideEffects === false
+        ? `No mapping pack for dependency ${pkg.name}, and it is not compiled from source (frontend/sources.ts lists those packages)`
+        : `No mapping pack for dependency ${pkg.name}@${pkg.version}, and it cannot be compiled from source: its package.json does not declare "sideEffects": false, which compiling only the declarations a program reaches requires (frontend/sources.ts)`,
     );
+  }
   const pack = candidates.find(p => p.version === pkg.version);
   if (!pack)
     throw new PackError(
