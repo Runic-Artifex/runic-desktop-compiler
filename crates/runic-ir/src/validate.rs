@@ -47,6 +47,8 @@ pub const TAGS: &[&str] = &[
     "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "colgroup", "col",
     // Images from the pinned table (M6 images; `check_img`).
     "img",
+    // Form grouping, without a fieldset's `disabled` (`check_fieldset`).
+    "fieldset", "legend",
 ];
 
 /// Inline SVG (M5): elements in the SVG namespace. Blitz renders an `<svg>`
@@ -141,6 +143,16 @@ fn check_img(tag: &str, attrs: &[Attr], spread: bool, src: Option<&Source>) -> R
             format!("The {} attribute of <img> is unsupported", a.name),
             src,
         );
+    }
+    Ok(())
+}
+
+/// A fieldset's `disabled` disables its descendant controls outside its
+/// first legend, which the runtime does not model (a spread holding it is
+/// reported at run time).
+fn check_fieldset(tag: &str, attrs: &[Attr], src: Option<&Source>) -> Result<()> {
+    if tag == "fieldset" && attrs.iter().any(|a| a.name == "disabled") {
+        return err("E_IR", "disabled on <fieldset> is unsupported", src);
     }
     Ok(())
 }
@@ -3103,6 +3115,7 @@ impl<'p> NodeCx<'_, 'p> {
                     return err("E_IR", "Nested buttons are invalid", src);
                 }
                 check_img(tag, attrs, spread.is_some(), src)?;
+                check_fieldset(tag, attrs, src)?;
                 check_svg(
                     tag,
                     self.stack,

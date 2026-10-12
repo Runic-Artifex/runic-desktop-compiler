@@ -78,7 +78,7 @@ import { lowerModules } from '../modules.ts';
 import { bindPackImport, packMappings, type Edge } from '../packs.ts';
 import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
-import { INERT_TAGS, TABLE_TAGS } from '../elements.ts';
+import { FIELDSET_DISABLED, FIELDSET_TAGS, INERT_TAGS, TABLE_TAGS } from '../elements.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type VNode = any;
@@ -131,6 +131,8 @@ const TAGS = new Set([
   'polyline',
   'polygon',
   'rect',
+  // Fieldsets without `disabled` (checked in element()).
+  ...FIELDSET_TAGS,
   ...INERT_TAGS,
 ]);
 const BOOLEAN_ATTRS = new Set([
@@ -4692,6 +4694,16 @@ export async function lowerVue(graph: Graph): Promise<Lowering> {
       // values join, other names take the later value.
       let spread: Expr | undefined;
       if (u.macros.inheritAttrs && plan.roots?.includes(n)) spreadAt = n.props.length;
+      if (n.tag === 'fieldset') {
+        const disabled = n.props.find(
+          (q: VNode) =>
+            (q.type === ATTRIBUTE && q.name === 'disabled') ||
+            (q.type === DIRECTIVE && q.name === 'bind' && q.arg?.content === 'disabled'),
+        );
+        if (disabled) fail('E_TEMPLATE', FIELDSET_DISABLED(false), loc(disabled));
+        if (spreadAt !== undefined && plan.keys.has('disabled'))
+          fail('E_TEMPLATE', FIELDSET_DISABLED(true), loc(n.props[spreadAt] ?? n));
+      }
       if (spreadAt !== undefined && restCell !== undefined) {
         const keys = plan.keys;
         for (const l of listeners)

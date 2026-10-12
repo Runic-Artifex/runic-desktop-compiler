@@ -1,0 +1,149 @@
+@font-face {
+  font-family: RunicFixture;
+  src: url('./assets/DejaVuSans.woff2') format('woff2');
+  font-weight: 100 900;
+}
+html,
+body {
+  margin: 0;
+  background: #fff;
+  color: #252c28;
+  font-family: RunicFixture;
+  font-size: 14px;
+  line-height: 18px;
+}
+body {
+  padding: 8px;
+}
+main {
+  max-width: 640px;
+  margin: 0 auto;
+}
+p {
+  margin: 0;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0;
+}
+/* Tailwind's preflight, scoped: shadcn's FieldSet resets the UA margin,
+   padding and border. */
+.reset,
+.reset * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0 solid;
+}
+.reset {
+  display: flex;
+  gap: 16px;
+  margin: 6px 0;
+  padding: 8px;
+  background: #f6f5f0;
+}
+/* cn-field-set flex flex-col gap-6 */
+.field-set {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.field-set.sm {
+  width: 100%;
+  max-width: 280px;
+}
+/* cn-field-legend mb-3 font-medium, variant legend: text-base, label: text-sm */
+.field-legend {
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+.field-legend[data-variant='legend'] {
+  font-size: 16px;
+  line-height: 24px;
+}
+.field-legend[data-variant='label'] {
+  font-size: 14px;
+  line-height: 20px;
+}
+/* cn-field-description: [[data-variant=legend]+&]:-mt-1.5 */
+.field-description {
+  color: #6b6f6c;
+  font-size: 14px;
+  line-height: 20px;
+}
+[data-variant='legend'] + .field-description {
+  margin-top: -6px;
+}
+.field-group {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 28px;
+}
+.field {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+}
+.field.row {
+  flex-direction: row;
+  align-items: center;
+  margin: 0;
+}
+.reset input[type='text'] {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #b7b7a9;
+  border-radius: 6px;
+  font: inherit;
+}
+#late,
+#two,
+#thick {
+  width: 180px;
+}
+#thick {
+  border: 10px solid #8a8f88;
+}
+#thick-legend {
+  font-size: 8px;
+  line-height: 8px;
+}
+#fancy {
+  width: 300px;
+  background: #dfe8ee;
+}
+#fancy-legend {
+  margin: 5px 20px 7px 30px;
+  padding: 4px 10px;
+  border: 3px solid #b0413e;
+  background: #f4e7a1;
+}
+#grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  width: 200px;
+}
+#sized {
+  height: 60px;
+  width: 140px;
+}
+#shrink {
+  display: inline-block;
+}
+#end {
+  width: 120px;
+}
+#end-legend {
+  margin-left: auto;
+}
+button {
+  font-family: RunicFixture;
+  font-size: 14px;
+  padding: 4px 10px;
+}

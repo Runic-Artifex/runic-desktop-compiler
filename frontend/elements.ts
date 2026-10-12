@@ -36,3 +36,15 @@ export const TABLE_TAGS = [
   'colgroup',
   'col',
 ];
+
+/**
+ * Form grouping: Blitz lays out the rendered legend over the fieldset's
+ * border as Chromium does. A fieldset's `disabled` (which disables its
+ * descendant controls outside its first legend) is not modelled, so it is
+ * rejected (docs/gaps/PLATFORM.md).
+ */
+export const FIELDSET_TAGS = ['fieldset', 'legend'];
+
+/** The diagnostic for `disabled` on a fieldset (`spread`: a spread that may hold it). */
+export const FIELDSET_DISABLED = (spread: boolean) =>
+  `${spread ? 'Spread attributes that may hold disabled' : 'disabled'} on <fieldset> are not supported: a disabled fieldset disables its descendant controls (outside its first legend), which the runtime does not model`;
