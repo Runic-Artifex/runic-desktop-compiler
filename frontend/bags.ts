@@ -9,7 +9,8 @@
 //
 // - object literals (static keys, computed keys that are build-time
 //   constants, spreads);
-// - conditionals and logical operators (both branches);
+// - conditionals and logical operators (both branches, or the one a test
+//   known at build time or of a value holding only null or undefined takes);
 // - variables and class fields through their initialisers and the values
 //   assigned to them, `$derived` values through their expressions;
 // - calls of local functions through their returned values, and of pack
@@ -76,6 +77,47 @@ export class BagShapes {
     this.hooks = hooks;
   }
 
+  /**
+   * The truth of a conditional's test where it is known at build time
+   * (`Lowerer.buildTimeTruth`), or where it tests a value that only holds
+   * null or undefined (shadcn-svelte's Spinner: `color != null ? { color }
+   * : {}` where no site passes `color`): its truthiness, or loose equality
+   * with null or undefined.
+   */
+  private decided(test: ts.Expression): boolean | undefined {
+    const known = this.lower.buildTimeTruth(test);
+    if (known !== undefined) return known;
+    const e = skipParens(test);
+    const K = ts.SyntaxKind;
+    const nothing = (x: ts.Expression) => {
+      x = skipParens(x);
+      return (
+        (ts.isIdentifier(x) || ts.isPropertyAccessExpression(x)) && this.lower.unions.nothing(x)
+      );
+    };
+    const nullish = (x: ts.Expression) => {
+      x = skipParens(x);
+      return (
+        x.kind === K.NullKeyword ||
+        (ts.isIdentifier(x) &&
+          x.text === 'undefined' &&
+          !this.lower.checker.getSymbolAtLocation(x)?.valueDeclaration)
+      );
+    };
+    if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) {
+      const v = this.decided(e.operand);
+      return v === undefined ? undefined : !v;
+    }
+    if (nothing(e)) return false;
+    if (ts.isBinaryExpression(e)) {
+      const op = e.operatorToken.kind;
+      if (op !== K.EqualsEqualsToken && op !== K.ExclamationEqualsToken) return undefined;
+      if ((nothing(e.left) && nullish(e.right)) || (nothing(e.right) && nullish(e.left)))
+        return op === K.EqualsEqualsToken;
+    }
+    return undefined;
+  }
+
   /** The names the bag `e` evaluates to may hold. */
   of(e: ts.Expression): Shape {
     if (this.active.has(e)) return emptyShape();
@@ -92,7 +134,11 @@ export class BagShapes {
     e = skipParens(e);
     while (ts.isNonNullExpression(e)) e = skipParens(e.expression);
     if (ts.isObjectLiteralExpression(e)) return this.object(e);
-    if (ts.isConditionalExpression(e)) return union(this.of(e.whenTrue), this.of(e.whenFalse));
+    if (ts.isConditionalExpression(e)) {
+      const d = this.decided(e.condition);
+      if (d !== undefined) return this.of(d ? e.whenTrue : e.whenFalse);
+      return union(this.of(e.whenTrue), this.of(e.whenFalse));
+    }
     if (ts.isBinaryExpression(e)) {
       const op = e.operatorToken.kind;
       if (op === ts.SyntaxKind.AmpersandAmpersandToken) return this.of(e.right);
@@ -264,17 +310,39 @@ export class BagShapes {
         const name = p.name && this.propertyName(p.name);
         if (name === undefined) return undefined;
         if (name !== key) continue;
-        const v = ts.isPropertyAssignment(p)
-          ? valueSet(ctx, p.initializer)
+        const x = ts.isPropertyAssignment(p)
+          ? skipParens(p.initializer)
           : ts.isShorthandPropertyAssignment(p)
-            ? valueSet(ctx, p.name)
+            ? p.name
             : undefined;
+        // (A value that only holds null or undefined: a prop no site passes,
+        // frontend/unions.ts; shadcn-svelte's Spinner `{ name }`, read
+        // through the variable a shorthand names.)
+        const decl =
+          p && ts.isShorthandPropertyAssignment(p)
+            ? checker.getShorthandAssignmentValueSymbol(p)?.valueDeclaration
+            : undefined;
+        const ref =
+          decl &&
+          (ts.isBindingElement(decl) || ts.isVariableDeclaration(decl)) &&
+          ts.isIdentifier(decl.name)
+            ? decl.name
+            : x;
+        const v =
+          ref &&
+          (ts.isIdentifier(ref) || ts.isPropertyAccessExpression(ref)) &&
+          this.lower.unions.nothing(ref)
+            ? [undefined, null]
+            : x && valueSet(ctx, x);
         return v && [...out, ...v];
       }
       return [...out, ABSENT];
     }
-    if (ts.isConditionalExpression(e))
+    if (ts.isConditionalExpression(e)) {
+      const d = this.decided(e.condition);
+      if (d !== undefined) return this.values(d ? e.whenTrue : e.whenFalse, key);
       return both(this.values(e.whenTrue, key), this.values(e.whenFalse, key));
+    }
     if (ts.isBinaryExpression(e)) {
       const op = e.operatorToken.kind;
       // (A falsy left operand spreads nothing.)

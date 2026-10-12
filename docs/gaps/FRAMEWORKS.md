@@ -33,6 +33,7 @@ Part of the [gap register](../GAPS.md). Locations as of commit `9add179` (2026-1
 | Svelte lazy proxy snapshots: identity through cycles, raw writes in later handlers | known gap | Native proxies are eager and shared | Lazy proxies | case `ownership-cycles` |
 | Spreads: a style object directly onto an element, `defaultValue` that is not a string or changes, `defaultChecked`, `value` on controls | run time | Live control state Blitz does not track | Per item | runtime dom.rs:1635-1723 |
 | Radio groups across components, in lists or multi-instance components, with non-literal names | E_TEMPLATE | Two could be checked at once | Run-time group tracking | controls.ts:122-186 |
+| Snippets as bag values: `{@render bag.key()}` other than a snippet the rest props received (through a constant whose last entry that may hold the key is the rest props); a bag of the rest props passed to a snippet where a site passes both that snippet and one the rest props hold | E_TEMPLATE | Snippets the rest props receive are slots, not bag entries | Snippet values in bags | svelte.ts (`restEntryOf`, `render`) |
 | Svelte 5.54.0 (the site's pin) and 5.49.2 are not in the automated campaign | — | Unchecked identity | Version environments (M7 prerequisite) | design/M6-SVELTEKIT |
 
 ## SvelteKit (F2)

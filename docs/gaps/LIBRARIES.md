@@ -49,7 +49,7 @@ bits-ui compiles from source; parts with a conformance case are in [CONTRACT](..
 | tailwind-variants 3.3.1 | `slots`, `compoundSlots`, `extend`, a second config, non-constant configs | packs/tailwind-variants-3.3.1.ts:68-92 |
 | clsx 2.1.1 / cn | spreads, computed and repeated keys, non-scalar values, other exports | packs/clsx-2.1.1.ts:255-417 |
 | choice (build-time evaluation of pack calls) | open strings without finite domains, string/boolean mixes, array spreads, object defaults and spreads | packs/choice.ts:358-557 |
-| @lucide/svelte 1.52.0 | barrel imports, `nonScalingStroke`, `iconNode`, children, listeners, spreads | packs/lucide-svelte-1.52.0.ts |
+| @lucide/svelte 1.52.0 | barrel imports, `nonScalingStroke`, `iconNode`, children, listeners; spreads of unknown names, of declared props with a value, of names outside the inline SVG allow-list with a value, and of `aria-*`/`role`/`title` where no `aria-*` or `role` is given explicitly | packs/lucide-svelte-1.52.0.ts |
 | runed 0.35.1 | exports other than Context, watch, ElementSize, Previous (watchOnce, IsMounted, PersistedState, …); watch options beyond `lazy`; previous values of several sources | packs/runed-0.35.1.ts |
 | svelte-toolbelt 0.10.6 | box members other than `current`, `executeCallbacks` of two functions under one key, boxes of handlers, other exports | packs/svelte-toolbelt-0.10.6.ts |
 | @floating-ui/dom 1.7.4 | `autoPlacement`, `inline`, `detectOverflow`, platform overrides, virtual elements, derivable options, RTL scroll origins, `offsetParent` with the root as containing block, SVG children and inline boxes | packs/floating-ui-dom-1.7.4.ts; runtime floating.rs |

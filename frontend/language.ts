@@ -41,6 +41,7 @@ import { Unions } from './unions.ts';
 import { bindPackConstant, packType } from './packs.ts';
 import { newSvelteMap, svelteMapEntries, svelteMapType } from './svelte-reactivity.ts';
 import { componentValueType, knownComponentRecord } from './component-values.ts';
+import { elementAttributesType } from './svelte-elements.ts';
 import {
   type Choice,
   valueSet,
@@ -408,7 +409,10 @@ export class Lowerer {
     types.classUnion = (parts, at) => this.classes.unionOf(parts, at);
     types.hostParameter = p => this.hostParam(p) !== undefined;
     types.packType = (t, at) =>
-      packType(t, at, this) ?? svelteMapType(t, at, this) ?? componentValueType(t, at, this);
+      packType(t, at, this) ??
+      svelteMapType(t, at, this) ??
+      componentValueType(t, at, this) ??
+      elementAttributesType(t);
     // Error objects are the Error records thrown values are (catch bindings, rejections).
     types.errorType = () => this.errorRecord();
     // Unions outside the value model, narrowed by the values reaching them.
@@ -11812,7 +11816,6 @@ export class Lowerer {
     return out;
   }
 
-  /** Whether an object literal builds an attribute bag: a computed key, or a spread of a bag. */
   /**
    * Whether `e` is what a function returns whose declared result is a bag
    * (a derived value of a field typed `Record<string, unknown>`).
@@ -11827,13 +11830,28 @@ export class Lowerer {
     );
   }
 
+  /**
+   * Whether an object literal builds an attribute bag: a computed key, or a
+   * spread of a bag: one typed as a bag, or a component's rest props (a bag
+   * whatever their TypeScript type, svelte/elements' attribute interfaces:
+   * shadcn-svelte's `{ class: cn(…), "data-slot": "item", ...restProps }`).
+   */
   private isBagLiteral(e: ts.ObjectLiteralExpression): boolean {
     return e.properties.some(
       p =>
         (p.name && ts.isComputedPropertyName(p.name)) ||
         (ts.isSpreadAssignment(p) &&
-          this.types.tryMap(this.checker.getTypeAtLocation(p.expression), p) === 'attrs'),
+          (this.types.tryMap(this.checker.getTypeAtLocation(p.expression), p) === 'attrs' ||
+            this.isRestBag(p.expression))),
     );
+  }
+
+  /** Whether `e` reads a binding that is a bag cell (a component's rest props). */
+  private isRestBag(e: ts.Expression): boolean {
+    const x = skipParens(e);
+    if (!ts.isIdentifier(x)) return false;
+    const binding = this.binding(x);
+    return binding?.kind === 'cell' && this.hooks.cellType(binding.cell) === 'attrs';
   }
 
   /**

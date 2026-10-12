@@ -400,6 +400,89 @@ test('lucide icons expand to the inline SVG of Icon.svelte with the package data
   });
 });
 
+// shadcn-svelte's Spinner: the icon receives the component's rest props and
+// a prop forwarded only when set.
+const SPIN = (head = 'role="status"') => `<script lang="ts">
+  import Loader from '@lucide/svelte/icons/loader-circle';
+  import type { SVGAttributes } from 'svelte/elements';
+  let { color, ...rest }: SVGAttributes<SVGSVGElement> = $props();
+</script>
+<Loader ${head} stroke-linecap="square" {...color != null ? { color } : {}} data-k="first" {...rest} data-last="icon" />
+`;
+
+test('spread attributes on lucide icons follow the defaults: later entries win, undefined removes', async () => {
+  const source = `<script lang="ts">
+  import Spin from './Spin.svelte';
+  let on = $state(false);
+</script>
+<button id="go" onclick={() => (on = !on)}>go</button>
+<Spin id="a" />
+<Spin id="b" stroke="red" stroke-linecap={undefined} data-k={on ? 'site' : undefined} data-last="site" aria-label="Busy" />
+`;
+  await withApp(
+    'svelte',
+    source,
+    async root => {
+      const steps = interpret((await lowered(root)).ir, [{ kind: 'click', id: 'go' }]);
+      const a = byId(steps[0], 'a').attrs;
+      assert.deepEqual(a, {
+        xmlns: 'http://www.w3.org/2000/svg',
+        width: '24',
+        height: '24',
+        viewBox: '0 0 24 24',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '2',
+        'stroke-linecap': 'square',
+        'stroke-linejoin': 'round',
+        // loader-circle, with its alias loader-2.
+        class: 'lucide lucide-loader-circle lucide-loader-2 lucide-icon',
+        role: 'status',
+        'data-k': 'first',
+        id: 'a',
+        'data-last': 'icon',
+      });
+      const b = byId(steps[0], 'b').attrs;
+      // The site's stroke replaces the default, its undefined
+      // stroke-linecap removes the icon's own, and its data-k (undefined,
+      // then 'site') follows the icon's; the icon's data-last follows the
+      // rest props.
+      assert.equal(b.stroke, 'red');
+      assert.equal(b['stroke-linecap'], undefined);
+      assert.equal(b['data-k'], undefined);
+      assert.equal(b['data-last'], 'icon');
+      assert.equal(b['aria-label'], 'Busy');
+      assert.equal(b['aria-hidden'], undefined);
+      assert.equal(byId(steps[1], 'b').attrs['data-k'], 'site');
+    },
+    { 'Spin.svelte': SPIN() },
+  );
+});
+
+test('spread attributes on lucide icons outside the covered shape are rejected', async () => {
+  const cases = [
+    // A name outside the inline SVG allow-list with a value.
+    ['<Spin tabindex={0} />', SPIN(), /tabindex, which is outside the inline SVG allow-list/],
+    // A declared prop the spread may set: the pack covers only its absence.
+    ['<Spin color="red" />', SPIN(), /the color prop from a spread is not covered/],
+    // An a11y name that decides aria-hidden.
+    ['<Spin aria-label="Busy" />', SPIN('data-x="1"'), /assistive technology/],
+    // Listeners.
+    ['<Spin onclick={() => {}} />', SPIN(), /listeners on icons are not covered/],
+  ];
+  for (const [site, spin, pattern] of cases)
+    await withApp(
+      'svelte',
+      `<script lang="ts">\n  import Spin from './Spin.svelte';\n</script>\n${site}\n`,
+      root =>
+        lowered(root).then(
+          () => assert.fail(`accepted: ${site}`),
+          failWith('E_PACK', 'Spin.svelte', pattern),
+        ),
+      { 'Spin.svelte': spin },
+    );
+});
+
 test('packages without a pack, other versions and uncovered shapes are rejected with a location', async () => {
   const fake = (name, version) => ({
     [`node_modules/${name}/package.json`]: JSON.stringify({

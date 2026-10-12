@@ -59,6 +59,7 @@ import {
   copyFileSync,
   globSync,
   chmodSync,
+  realpathSync,
 } from 'node:fs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -179,7 +180,9 @@ if (!cliFiles.every(f => existsSync(path.join(checkout, f)))) {
     writeFileSync(path.join(cliRoot, f), blob.stdout);
   }
 }
-const cliDir = path.join(cliRoot, 'packages/cli');
+// (Its real path: Node resolves modules by it, also where .cache/corpus is a
+// link to the main tree's, as in a worktree.)
+const cliDir = realpathSync(path.join(cliRoot, 'packages/cli'));
 const cliManifest = JSON.parse(readFileSync(path.join(cliDir, 'package.json'), 'utf8'));
 const cliRanges = {
   ...cliManifest.peerDependencies,

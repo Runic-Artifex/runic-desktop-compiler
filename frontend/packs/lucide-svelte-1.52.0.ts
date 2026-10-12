@@ -19,13 +19,16 @@
 // Values of size, width, height, color and strokeWidth must not be nullable
 // (null and undefined pick different defaults there). Rest attributes are
 // limited to the inline SVG allow-list on <svg> (docs/CONTRACT.md): id,
-// role, aria-*, data-* and paint attributes. Other props, spreads, children,
-// listeners and `nonScalingStroke` are rejected with E_PACK.
+// role, aria-*, data-* and paint attributes. Spread attributes of known
+// names (frontend/bags.ts) follow the same order (`expand`). Other props,
+// spreads outside that shape, children, listeners and `nonScalingStroke`
+// are rejected with E_PACK.
 import ts from 'typescript';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Expr, Node, Type } from '../ir.ts';
 import type { Pack, PackAttr, PackComponent } from '../packs.ts';
+import { ABSENT } from '../bags.ts';
 import { classValue, clsxPack } from './clsx-2.1.1.ts';
 
 const ID = '@lucide/svelte@1.52.0';
@@ -51,6 +54,39 @@ const PAINT = new Set([
   'stroke-dashoffset',
   'stroke-opacity',
 ]);
+
+/** Icon.svelte's props the pack covers. */
+const DECLARED = [
+  'color',
+  'size',
+  'width',
+  'height',
+  'strokeWidth',
+  'absoluteStrokeWidth',
+  'class',
+];
+
+/** Icon.svelte's props the pack does not cover. */
+const UNCOVERED = ['nonScalingStroke', 'icon', 'iconNode', 'children'];
+
+/** The <svg>'s attributes before the rest props (defaultAttributes.js, class, aria-hidden). */
+const DEFAULTS = [
+  'xmlns',
+  'width',
+  'height',
+  'viewBox',
+  'fill',
+  'stroke',
+  'stroke-width',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'class',
+  'aria-hidden',
+];
+
+/** Rest props the <svg> may carry (runic-ir's inline SVG allow-list). */
+const allowed = (name: string): boolean =>
+  name === 'id' || name === 'role' || /^(aria|data)-[a-z0-9-]+$/.test(name) || PAINT.has(name);
 
 /** The icon data of `icons/<name>`: through the alias re-export to the icon's .svelte file. */
 function readIcon(dir: string, name: string): IconData | string {
@@ -101,41 +137,72 @@ const mergeClasses = (...classes: string[]): string =>
 function icon(data: IconData): PackComponent {
   return {
     kind: 'component',
-    expand(attrs, { lower, b, at, fail }) {
+    expand(attrs, { lower, b, at, fail, bags }) {
       const own = (a: PackAttr, what: string): never => fail('E_PACK', `${ID} pack: ${what}`, a.at);
       const props = new Map<string, PackAttr>();
       const rest: PackAttr[] = [];
+      const spreads: PackAttr[] = [];
       for (const a of attrs) {
+        if ('spread' in a.value) {
+          spreads.push(a);
+          continue;
+        }
         if (props.has(a.name) || rest.some(r => r.name === a.name))
           own(a, `${a.name} is given twice`);
         if ('present' in a.value) own(a, `the bare attribute ${a.name} is not covered`);
-        if (
-          [
-            'color',
-            'size',
-            'width',
-            'height',
-            'strokeWidth',
-            'absoluteStrokeWidth',
-            'class',
-          ].includes(a.name)
-        )
-          props.set(a.name, a);
-        else if (['nonScalingStroke', 'icon', 'iconNode', 'children'].includes(a.name))
-          own(a, `the ${a.name} prop is not covered`);
+        if (DECLARED.includes(a.name)) props.set(a.name, a);
+        else if (UNCOVERED.includes(a.name)) own(a, `the ${a.name} prop is not covered`);
         else if (/^on/.test(a.name)) own(a, 'listeners on icons are not covered');
-        else if (
-          a.name === 'id' ||
-          a.name === 'role' ||
-          /^(aria|data)-[a-z0-9-]+$/.test(a.name) ||
-          PAINT.has(a.name)
-        )
-          rest.push(a);
+        else if (allowed(a.name)) rest.push(a);
         else
           own(
             a,
             `${a.name} is outside the inline SVG allow-list (id, role, aria-*, data-* and paint attributes)`,
           );
+      }
+      // Spreads (shadcn-svelte's Spinner: `{...restProps}` and
+      // `{...(color != null ? { color } : {})}`): their names must be known.
+      // Icon.svelte collects the names it does not declare in its rest
+      // props, which follow its defaults in the <svg>'s attributes; so an
+      // allow-listed name a spread may hold is an attribute whose value is
+      // the last entry of the name in source order (an entry holding
+      // undefined removes it). A declared prop a spread may hold only as
+      // undefined keeps its default, where no attribute gives it; a name
+      // outside the allow-list held only as null or undefined sets nothing.
+      // Anything else is rejected.
+      const reached = new Map<PackAttr, string[]>();
+      const a11y = rest.some(a => a.name.startsWith('aria-') || a.name === 'role');
+      for (const s of spreads) {
+        const e = (s.value as { spread: ts.Expression }).spread;
+        const shape = bags.shape(e);
+        if (shape.open) own(s, `spread attributes on icons need known names`);
+        const keys: string[] = [];
+        for (const k of shape.keys) {
+          const vs = bags.values(e, k);
+          const held = vs?.filter(v => v !== ABSENT);
+          if (held && !held.length) continue;
+          if (!a11y && (k.startsWith('aria-') || k === 'role' || k === 'title'))
+            own(
+              s,
+              `this spread may hold ${k}, which decides whether the icon is hidden from assistive technology (give role or an aria-* attribute explicitly)`,
+            );
+          if (DECLARED.includes(k) || UNCOVERED.includes(k)) {
+            if (!held || held.some(v => v !== undefined) || props.has(k))
+              own(s, `the ${k} prop from a spread is not covered`);
+            continue;
+          }
+          if (/^on/.test(k)) own(s, 'listeners on icons are not covered');
+          if (allowed(k)) {
+            keys.push(k);
+            continue;
+          }
+          if (!held || held.some(v => v !== undefined && v !== null) || DEFAULTS.includes(k))
+            own(
+              s,
+              `this spread may hold ${k}, which is outside the inline SVG allow-list (id, role, aria-*, data-* and paint attributes)`,
+            );
+        }
+        reached.set(s, keys);
       }
       /** The value of a prop: a string or number expression and its type. */
       const value = (a: PackAttr): { v: Expr; t: Type } => {
@@ -253,9 +320,45 @@ function icon(data: IconData): PackComponent {
         { name: 'stroke-linejoin', value: { op: 'lit', value: 'round' } },
         { name: 'class', value: klass },
       ];
-      if (!rest.some(a => a.name.startsWith('aria-') || a.name === 'role'))
-        out.push({ name: 'aria-hidden', value: { op: 'lit', value: 'true' } });
-      for (const a of rest) {
+      if (!a11y) out.push({ name: 'aria-hidden', value: { op: 'lit', value: 'true' } });
+      /** An attribute value as a nullable string. */
+      const nullable = (v: Expr): Expr => {
+        const t = lower.irType(v, b);
+        return t === 'string' ? { op: 'some', value: v } : v;
+      };
+      // The rest props in source order: explicit attributes and the names
+      // spreads may hold, a later entry of a name replacing an earlier one.
+      for (const a of attrs) {
+        const keys = reached.get(a);
+        if (keys) {
+          const e = (a.value as { spread: ts.Expression }).spread;
+          for (const k of keys) {
+            const name: Expr = { op: 'lit', value: k };
+            const i = out.findIndex(o => o.name === k);
+            const earlier: Expr =
+              i >= 0 ? nullable(out[i].value) : { op: 'undefined', type: { maybe: 'string' } };
+            const v: Expr = {
+              op: 'cond',
+              test: {
+                op: 'builtin',
+                name: 'attrs.has',
+                args: [bags.value(e), name],
+                type: 'boolean',
+              },
+              then: {
+                op: 'builtin',
+                name: 'attrs.get',
+                args: [bags.value(e), name],
+                type: { maybe: 'string' },
+              },
+              else: earlier,
+            };
+            if (i >= 0) out[i] = { name: k, value: v };
+            else out.push({ name: k, value: v });
+          }
+          continue;
+        }
+        if (!rest.includes(a)) continue;
         let v: Expr;
         if ('text' in a.value) v = { op: 'lit', value: a.value.text };
         else {
