@@ -39,7 +39,7 @@ export async function buildApp(app, options = {}) {
       throw new Diagnostic('E_CONFIG', 'The renderer must be "cpu" or "gpu"');
     graph.config = { ...graph.config, renderer: options.renderer };
   }
-  const { ir } = await lower(graph);
+  const { ir, skippedRules } = await lower(graph);
   if (!ir.assets.some(a => a.mime === 'font/woff2'))
     throw new Diagnostic(
       'E_FONT',
@@ -58,7 +58,7 @@ export async function buildApp(app, options = {}) {
     throw new Diagnostic('E_OUTPUT', 'Build outputs must be under artifacts/ or .cache/');
   await mkdir(path.dirname(out), { recursive: true });
   await mkdir(targetDir, { recursive: true });
-  return withSharedTarget(() => buildInto(ir, graph, out, options));
+  return withSharedTarget(() => buildInto(ir, graph, out, { ...options, skippedRules }));
 }
 
 async function buildInto(ir, graph, out, options) {
@@ -120,6 +120,8 @@ async function buildInto(ir, graph, out, options) {
           renderer: ir.renderer ?? 'cpu',
           rust: '1.98.1',
           blitz: await blitzRevision(),
+          // Stylesheet rules left out because no element can match them.
+          ...(options.skippedRules ? { skippedRules: options.skippedRules } : {}),
         },
         null,
         2,
@@ -189,13 +191,23 @@ async function main() {
   }
   const graph = await collect(app);
   if (command === 'analyze') {
-    const { ir } = await lower(graph);
+    const { ir, skippedRules } = await lower(graph);
     const out = values.out ?? `artifacts/analysis/${path.basename(graph.root)}/ir.json`;
     await mkdir(path.dirname(out), { recursive: true });
     const { irHash, ...body } = ir;
     await writeFile(out, JSON.stringify(body, null, 2) + '\n');
     console.log(
-      JSON.stringify(values.json ? body : { ir: out, sourceHash: ir.meta.sourceHash }, null, 2),
+      JSON.stringify(
+        values.json
+          ? body
+          : {
+              ir: out,
+              sourceHash: ir.meta.sourceHash,
+              ...(skippedRules ? { skippedRules } : {}),
+            },
+        null,
+        2,
+      ),
     );
     return;
   }

@@ -1,6 +1,6 @@
 // Framework adapters (frontend/adapters/*.ts) on the shared language layer.
 // Every lowered program is validated by the Rust backend before it is used.
-import { Diagnostic } from './collect.mjs';
+import { Diagnostic, hash, skipUnmatchedRules } from './collect.mjs';
 import { check } from './codegen.mjs';
 import { pinImages } from './images.mjs';
 
@@ -20,6 +20,15 @@ export async function lower(graph, { images = true } = {}) {
   } else if (graph.bodyAttrs) {
     // index.html's <body> attributes.
     result.ir.body = graph.bodyAttrs;
+  }
+  // Stylesheet rules collection could not accept: rejected unless no
+  // element of the program can match them (then left out and reported).
+  if (graph.pendingRules?.length) {
+    const { skipped, facts, open } = skipUnmatchedRules(graph.pendingRules, result.ir);
+    result.skippedRules = skipped;
+    result.elementFacts = { ...facts, open };
+    const { irHash, ...body } = result.ir;
+    if (irHash !== undefined) result.ir.irHash = hash(body);
   }
   if (images) await pinImages(graph, result.ir, result.imageUrls ?? []);
   check(result.ir);

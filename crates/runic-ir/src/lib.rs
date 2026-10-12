@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod builtins;
+pub mod facts;
 pub mod floating;
 pub mod interp;
 pub mod migrate;

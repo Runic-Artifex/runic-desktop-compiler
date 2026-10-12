@@ -257,7 +257,7 @@ test('SVG outside the verified surface is rejected with a location in every fram
           assert.match(e.message, decl.includes('url') ? /url\(\)/ : /markers, geometry/);
           return true;
         }),
-      `svg { ${decl}; }\n`,
+      `p, svg { ${decl}; }\n`,
     );
   await withApp(
     'svelte',

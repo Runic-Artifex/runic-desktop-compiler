@@ -1812,6 +1812,22 @@ pub fn infer_in(
     s.infer(e, 0, None).expect("validated expression")
 }
 
+/// As [`infer_in`], an error where the expression does not type in that
+/// context.
+pub fn try_infer_in(
+    program: &Program,
+    component: Option<usize>,
+    locals: &[Local],
+    payload: Option<Type>,
+    e: &Expr,
+) -> Result<Type> {
+    let mut s = Scope::new(program, component);
+    s.locals = locals.to_vec();
+    s.payload = payload;
+    s.handler = true;
+    s.infer(e, 0, None)
+}
+
 /// The name of a callback in an attribute bag (M6, `onOpenChange`): a
 /// prop name, not an event attribute (`on` followed by lowercase letters).
 fn callback_name_ok(name: &str) -> bool {
