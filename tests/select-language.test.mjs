@@ -381,3 +381,75 @@ test('a cancelled pointerdown keeps focus where it is', async () => {
     },
   );
 });
+
+// shadcn-svelte's select-scrollable: `items` computed from other constants
+// (`timezones.flatMap((group) => group.options)`) reaches bits-ui's Select
+// through the wrapper's rest props, declared with an optional `disabled`.
+// `option(value, label)` writes each option literal.
+const listApp = option => ({
+  'List.svelte': `<script lang="ts">
+  let { items = [] }: { items?: { value: string; label: string; disabled?: boolean }[] } = $props();
+</script>
+
+<ul>{#each items as item (item.value)}<li>{item.label}:{item.disabled === undefined ? 'u' : 'd'}</li>{/each}</ul>
+`,
+  'Wrapper.svelte': `<script lang="ts">
+  import List from './List.svelte';
+  import type { ComponentProps } from 'svelte';
+  let { ...restProps }: ComponentProps<typeof List> = $props();
+</script>
+
+<List {...restProps} />
+`,
+  'App.svelte': `<script lang="ts">
+  import Wrapper from './Wrapper.svelte';
+  import List from './List.svelte';
+  const groups = [
+    { label: 'A', options: [${option('a', 'A1')}, ${option('b', 'B1')}] },
+    { label: 'B', options: [${option('c', 'C')}] },
+  ];
+  const items = groups.flatMap((group) => group.options);
+</script>
+
+<Wrapper {items} />
+<List {items} />
+<p>{groups[0].options[1] === items[1]}</p>
+`,
+});
+
+test('a constant computed from literals takes the records of the prop it reaches through rest props', async () => {
+  await withApp(
+    listApp((v, l) => `{ value: '${v}', label: '${l}' }`),
+    async root => {
+      const { ir } = await lower(await collect(root));
+      // The literals' record is the prop's throughout (no run-time
+      // RunicAttrsError where the wrapper's rest props reach List), and the
+      // objects keep their identity.
+      const app = ir.components.find(c => c.name === 'App');
+      const items = app.cells.find(c => c.name === 'items');
+      assert.deepEqual(
+        ir.records[items.type.array.record].fields.map(f => f.name),
+        ['value', 'label', 'disabled'],
+      );
+      const [step] = interpret(ir, []);
+      assert.deepEqual(texts(step.state.dom), ['A1:uB1:uC:u', 'A1:uB1:uC:u', 'true']);
+    },
+  );
+});
+
+test('a computed constant whose records do not fit the prop it reaches through rest props is rejected at its site', async () => {
+  // (A field the prop's type does not have: the objects are not values of it.)
+  await withApp(
+    listApp((v, l) => `{ value: '${v}', label: '${l}', note: '' }`),
+    async root => {
+      await assert.rejects(lower(await collect(root)), e => {
+        failWith(
+          'E_PROPS',
+          /^items reaches List's prop items through rest props with objects of other fields than its type's \(\{ value, label, note \}\[\] for \{ value, label, disabled \}\[\]\)/,
+        )(e);
+        assert.equal(e.source?.file, 'App.svelte');
+        return true;
+      });
+    },
+  );
+});

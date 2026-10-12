@@ -3763,6 +3763,14 @@ export class Lowerer {
   };
 
   /**
+   * Rewrite the finished program for the records widened
+   * (`TypeMapper.widenRecord`). Call before `checkStyleSpreads`.
+   */
+  widenRecords(program: unknown): void {
+    this.types.widenProgram(program, e => this.absentWhenUndefined.add(e as Expr));
+  }
+
+  /**
    * Checks the assumption of style spreads (`styleObject`): every
    * construction of a spread style record gives each field that may be
    * undefined a value, or leaves it undefined only where the object it
@@ -3770,6 +3778,9 @@ export class Lowerer {
    */
   checkStyleSpreads(program: unknown): void {
     if (!this.styleSpreadChecks.length && !this.recordSpreadChecks.length) return;
+    // (Checks of records widened since: their targets, `widenRecords`.)
+    for (const c of [...this.styleSpreadChecks, ...this.recordSpreadChecks])
+      c.record = this.types.widenedTo(c.record);
     const records = new Set([
       ...this.styleSpreadChecks.map(c => c.record),
       ...this.recordSpreadChecks.map(c => c.record),

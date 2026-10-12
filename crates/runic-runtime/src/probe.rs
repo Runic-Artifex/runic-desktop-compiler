@@ -76,11 +76,13 @@ fn snapshot_node(doc: &BaseDocument, id: NodeId, focused: Option<NodeId>) -> Opt
             })
             .unwrap_or_default();
         out.insert("value".into(), json!(value));
-        if let Some((start, end, composing)) = controls::selection(doc, id) {
+        // (Only where the selection APIs apply, as Chromium's
+        // `selectionStart` is null elsewhere: not for email or number inputs.)
+        if let Some((start, end)) = controls::selection(doc, id) {
             out.insert("selection".into(), json!([start, end]));
-            if composing {
-                out.insert("composing".into(), json!(true));
-            }
+        }
+        if controls::composing(doc, id) {
+            out.insert("composing".into(), json!(true));
         }
         if node.attr("readonly".into()).is_some() {
             out.insert("readOnly".into(), json!(true));
