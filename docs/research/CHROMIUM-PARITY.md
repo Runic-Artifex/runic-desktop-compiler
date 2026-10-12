@@ -478,149 +478,65 @@ bounded and the modularity reviewable.
 
 ## Next ordinary-inline slice: generic edge flow and ownership
 
-The zero-advance ownership layer and private authored edge stream are implemented
-under their respective ADRs. Nonzero edges need a separate interface checkpoint. Keep
-CSS resolution in Stylo/Blitz and generic text flow in Parley; preserve defaults,
-source provenance and the public positioned-item enum.
+The [fixed-edge slice](../../conformance/results/chromium-inline-edges.md) lays out
+fixed, non-negative horizontal margin, border and padding of ordinary inline boxes
+in left-to-right standards-mode text. Stylo and Blitz resolve the values; Parley
+carries them as advances on shaped atoms, so both line breakers, intrinsic widths,
+glyph and cluster positions, empty anchors and fragment bounds see the same
+advance. Blitz uses the border box for client rects and hit testing and paints the
+background and solid borders over it. Values refresh without reshaping; a change
+in effective border presence reshapes, as in pinned Blink. Inputs outside this
+domain are reported at run time; a box with an unsupported value (percentage,
+`calc()`, anchor or negative), or with an edge at an out-of-flow box pushed at
+pending whitespace, keeps its edge-less layout and shaping. The slice was
+accepted with no regressions on any gate.
 
-The [private-flow checkpoint](../../conformance/results/chromium-inline-flow-views.md)
-extracts ordinary-span atom traversal and empty-anchor box traversal without
-merging their arithmetic policies. The verified
-[line-consumer continuation](../../conformance/results/chromium-inline-line-flow.md)
-adds glyph, cluster and first/last-line selection views plus four legacy-formula
-tests. All 4,820 direct states remain identical, and 569 compiled states pass.
-The [normalized-control continuation](../../conformance/results/chromium-inline-normalized-controls.md)
-now captures private normalized box sites and authored edge/box order; all 4,820
-direct states remain identical and 569 compiled states pass. The
+What remains, in order:
+
+1. **Out-of-flow boxes at pending whitespace.** Parley places an out-of-flow
+   box pushed while collapsible whitespace is pending before that whitespace
+   (`e <span><oof>…`: public index 1, normalized position 2). A box with a
+   nonzero edge at that side keeps its edge-less layout and is reported. Place
+   such boxes at their normalized position, without splitting shaping at the
+   box, and lift the rule; `pending_*_before_open_combining` and
+   `pending_oof_inside_open_close` measure it.
+2. **Negative margins.** Signed advances in both breakers, in hanging and in
+   saved-break replay, including negative opening edges that pull overflow back
+   within the line. Reuse the 27-state driver's negative-wrap reduction.
+3. **Percentages, `calc()` and anchor functions.** Resolve against the
+   containing block for each sizing phase (known and unknown width). Never feed a
+   span's intrinsic result back into its own basis, and bind width caches and
+   retained line plans to the basis.
+4. **Right-to-left and bidi text.** Edge sides follow the box's own direction,
+   placement follows the containing progression; mixed-bidi fragments need
+   segmentation.
+5. **Edges with no adjacent text.** A sole empty span, or edges enclosed by atomic
+   inline boxes, need a place on a line box of their own.
+6. **`box-decoration-break: clone`.** Stylo drops the property. Pinned Blink's
+   default does not reserve clone end edges; the ideal reservation is behind a
+   test-only feature and is not the reference.
+7. **Caret and selection next to edges.** Cluster advances include the edge, so
+   upstream and downstream caret positions at a box boundary coincide. Not yet
+   measured.
+8. **Paint details.** Non-solid and rounded inline borders paint solid and square;
+   vertical writing modes are reported only.
+9. **Quirks mode.** Measure the 48 quirks control states under their own policy.
+10. **Re-measure the completion targets** against this slice: the retained margin
+    hit failures and the standards control states with the omitted 8px text
+    margin.
+11. **Performance.** Profile per-owner edge scans before adding a cache.
+
+The implementation follows pinned Blink's
+[open/end edge flow](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/line_breaker.cc#3937),
+[intrinsic line breaking](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/inline_node.cc#1986),
+[boundary shaping](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/inline_node.cc#493)
+and the [reshape gate](https://raw.githubusercontent.com/chromium/chromium/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/style/computed_style.cc).
+The oracles are the [306-state edge cases](../../conformance/inline-span-edges.mjs),
+the [165-state flow-affinity cases](../../conformance/inline-flow-affinity.mjs),
+the [27-state drivers](../../conformance/inline-edge-drivers.mjs) and the
+[270-state shaping edges](../../conformance/inline-shaping-edges.mjs). Acceptance
+uses locked Chromium 153.0.8010.12; T3 Chrome 152 observations are candidates
+only. Earlier checkpoints: [authored edges](../../conformance/results/chromium-inline-authored-edges.md),
+[ownership](../../conformance/results/chromium-inline-ownership.md),
 [box-shaping preparation](../../conformance/results/chromium-inline-box-shaping-preparation.md)
-adds a dormant per-side computed-intent helper and four tests, plus 18 canonical
-cases / 270 states. All 5,090 direct states are unchanged and 569 compiled states
-pass. Its construction-only activation and forced recollection prototypes were
-rejected for regressions. These are private compatibility layers; all consumers and both breakers still
-need a defined effective used-edge path. The additive
-[27-state driver](../../conformance/inline-edge-drivers.mjs) now changes negative
-margin wrapping and controlling min-content width, and captures immediate `br`
-closing decoration at locked Chromium 153. These observations supply the three
-requested reductions; internal overflow recovery and cache branches remain
-uninstrumented.
-
-The [explicit-commit continuation](../../conformance/results/chromium-inline-explicit-commit.md)
-separates the committed-item producer from the legacy first/last-run adapter.
-Repeated whole-atom slices retain original run/box identities and have tested
-byte coverage, bidi order, cluster paths and navigation. Eight tests pass in
-debug and release; 1,074 states in six focused matrices remain byte-identical
-with zero gate changes and 968 strict-failing states. The broader 5,090-state
-and compiled matrices were not rerun. Durable cache/border-history drivers now
-cover 15 cases / 306 states, and a fresh percentage-basis baseline covers seven
-cases / 84 states. The cached fi/combining tail evidence distinguishes signed
-cursor movement from zero-width owner attribution; border and font histories
-retain different ownership outcomes. Supplemental T3 Chrome152 Range/caret
-observations remain separate from locked153 acceptance. Numeric edges and all
-effective consumers still need the integrated implementation below.
-
-1. Private normalized event order is retained and tested. Freeze an activated
-   logical scheduler independently from committed visual placements. In the
-   retained `a [OOF]b` reduction, the opening is at byte 2 before box ordinal 0,
-   whose public index remains 1 but captured normalized site is 2; the closing
-   follows at byte 2. `a[OOF] b` yields the same normalized `a b` and public index
-   1, but captures box site 1. Use these captured sites and authored box counts,
-   never inferred chronology or byte sorting. Keep logical consumption separate
-   from visual attachment. Leave the all-individually-zero path unchanged. Freeze
-   consumption and wrap affinity with reductions: pending
-   spaces, equal-position empty/nested owners, atomic and out-of-flow ordinals,
-   forced breaks, opening lookahead and closing-edge break opportunities. Byte
-   positions alone cannot define that order. Saved opportunities must restore
-   the active owner state and signed cursor, including negative opening edges
-   that bring overflow back within the line width. Reuse the supplied negative-wrap
-   and immediate `br`-close drivers; add instrumentation for internal recovery.
-2. Share edge-aware visual offsets across glyph positioning, empty anchors,
-   cluster point/visual-offset lookup, caret/selection geometry and both breakers
-   before adding advances. Freeze compatibility policies for glyphless spacing,
-   out-of-flow width, grouping and f32/f64 accumulation; today's consumers differ.
-   Prove zero-edge behavior unchanged. A breaker-only
-   cursor patch would leave those consumers inconsistent. Breaker/intrinsic and
-   effective visual/editing changes must pass one acceptance checkpoint together.
-   The private producer's repeated-slice identity is implemented and tested.
-   Before delegation, root must still settle active navigation geometry,
-   activation and clear/reset scope, placement
-   freshness under repeated alignment/justification, and signed overlap/tie
-   behavior for pointer hits and editing. Freeze owner content versus border
-   fragments and their consumer handoff; include empty-owner sizing, paint/hit
-   enumeration and early culls. Keep available-slot coordinates separate from
-   occupied extents, terminal advance and scroll overflow. Public interfaces
-   need an ADR; the current design remains unfrozen.
-3. Implement fixed signed advances in Parley and bind standards CSS edges in
-   Blitz. Opening and closing sums remain separate. Own margins are excluded
-   from border/client rectangles and hits; ancestor bounds include descendant
-   advances. Measure box direction and containing progression separately: own
-   direction changes asymmetric fragment placement under an unchanged parent.
-   Shaping intent is per edge and independent of the numeric used advance.
-   Unrequested span edges can lie inside ligature/combining atoms; shifted box
-   anchors need not coincide with original shaping seams. Explicit itemization
-   seams can split combining/flag graphemes. Freeze nonzero interior-control
-   behavior and compare those seam cases with pinned Chromium before exposing
-   value attachment. Cached margin histories can put nonzero edges inside an
-   existing whole atom; construction seams do not remove that requirement.
-   Activate computed intent and numeric placement only with all consumers ready.
-   Current metadata replay does not prove signed rollback.
-4. Add negative/percentage/calc/auto, intrinsic sizing, and layout-only mutation.
-   Specify percentage resolution for each known/unknown-width sizing phase,
-   including fixed calc contributions and retained authored intent. Do not feed
-   a span's intrinsic result back into its own percentage basis. Include refreshed
-   edge values and content-width invalidation in intrinsic layout clones/restoration and
-   saved-break replay; keep shape retention independently measured. Reuse the
-   controlling min-content driver in cache/refresh acceptance; instrument the
-   measured intrinsic branch rather than duplicating the browser reduction.
-   Bind width caches and retained line plans to the resolved-value/basis
-   generation, including early ComputeSize returns and later PerformLayout hits.
-   Border-presence changes need a separate cache-policy reduction: pinned Blink's
-   [reshape gate](https://raw.githubusercontent.com/chromium/chromium/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/style/computed_style.cc)
-   checks aggregate effective border presence, while construction intent is
-   per-side. Margin/alignment history must continue to retain shaped atoms.
-5. Implement and gate wrapped slice/clone fragments, decoration paint and hit
-   geometry. Match the pinned browser's default behavior: ideal clone end-edge
-   reservation is behind a test-only Blink feature. Do not silently adopt it as
-   the default reference. Re-run the 306 edge, 165 affinity, 27 driving and 270
-   shaping-history states first, then all retained matrices. The RI cases have
-   unmatched fallback fonts; keep their failed gates and distinguish real
-   geometry/point/paint repairs from changed rectangle-relative hit sampling.
-
-Completion targets stay concrete: the 60 retained margin hit failures and 84
-standards control states with an omitted 8px text margin, followed by the 48
-quirks control states under a separately measured policy. Full bidi fragment
-segmentation, grapheme/caret behavior, tabs, font/raster parity and OS editor
-delivery remain separate work. Profile per-owner atom scans before adding a
-cache; correctness and style/width/scale invalidation must precede optimization.
-
-The omitted 8px margin belongs to the existing ordinary `#text` span in inline
-and table layouts, whose containing inline root is `#table` or `#cell`. Bind
-generic values at ordinary-span creation; applying them to every root style
-would duplicate margins already handled by Taffy in flex/grid. Atomic button
-margins are already part of box width. CSSOM, pointer horizontal fragments and
-background/decoration paint currently use separate bounds; effective ordinary
-edge ownership must reach all of them at the integrated acceptance checkpoint.
-Use focused internal checks during implementation, then run the retained full
-matrix once the integrated change is ready.
-
-This follows pinned Blink's [open/end edge flow](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/line_breaker.cc#3937),
-[intrinsic line breaking](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/inline_node.cc#1986)
-and [boundary shaping](https://chromium.googlesource.com/chromium/src/+/971a7443b0c9b0a9b2860529b33331b76077ec62/third_party/blink/renderer/core/layout/inline/inline_node.cc#493).
-The [306-state oracle](../../conformance/inline-span-edges.mjs) retains fixed,
-negative, percentage/calc and auto edges, padding/border, empty/nested owners,
-atomic ordering, intrinsic wrapping, slice/clone and style/width/font history.
-The [165-state oracle](../../conformance/inline-flow-affinity.mjs) adds authored
-order, wrap, direction and intrinsic observations. Its negative margin moves an
-owner by 26.375px while every step remains two lines. Its min-content mutation
-leaves CCC's controlling width at 50.28125px; max-content changes 14.25px and
-restores. Neither observation certifies a recovery/cache branch. Preserved newline
-and `br` followed by an empty child have different closing fragments; immediate
-`br`-close is covered separately by the 27-state driving oracle. Own direction changes first/last fragment-side
-placement, while parent direction also changes alignment. Trailing space-only
-and empty observations coincide; the out-of-flow case covers one fixed checkpoint.
-Initial-style prerequisites and browser geometry do not instrument glyph/cache
-identity. T3 Chrome 152 exploration supplies candidates only; acceptance uses the
-locked Chromium 153.0.8010.12. Keep these limits in the
-[authored-edge checkpoint](../../conformance/results/chromium-inline-authored-edges.md).
-
-The [ownership checkpoint](../../conformance/results/chromium-inline-ownership.md)
-records the current geometry repairs and the two newly exposed strict pixel failures.
+and [explicit commit](../../conformance/results/chromium-inline-explicit-commit.md).

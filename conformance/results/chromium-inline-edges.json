@@ -1,0 +1,542 @@
+{
+  "schema": 1,
+  "date": "2026-10-12",
+  "scope": "Fixed non-negative horizontal margin, border and padding of ordinary display:inline spans in left-to-right standards-mode text, through Parley atom advances and Blitz geometry, hits and paint.",
+  "accepted": true,
+  "testedSource": {
+    "compiler": {
+      "branch": "inline-edges",
+      "revision": "1fff240f58ea0bc5fba53b09d873ed98aecd75b9",
+      "parent": "f1d2f74280227ecd056abda32eed9fd51afc025d"
+    },
+    "parley": {
+      "origin": "https://github.com/Runic-Artifex/parley",
+      "branch": "inline-edges",
+      "revision": "13cfb744d90f8e5809cb12707605ae61120e004e",
+      "parent": "2ada2ec752f8c363d93f773b382a5d412208d9e4",
+      "commits": [
+        "2421aed2578b159342db3c47149ddae45a2d93fc",
+        "13cfb744d90f8e5809cb12707605ae61120e004e"
+      ]
+    },
+    "blitz": {
+      "origin": "https://github.com/Runic-Artifex/blitz",
+      "branch": "inline-edges",
+      "revision": "c8ecc95dd9d1ce8c0737ceb8b365d060d632b999",
+      "parent": "7be80352270c0c5860373a3f2cbf92017962bb32",
+      "commits": [
+        "c1908f7c84af355f3fa27372b14c9b20299736b0",
+        "c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
+      ]
+    },
+    "unchanged": {
+      "stylo": "568059da762e9ecfdd4c7d1b11474da82f37339c",
+      "vello": "a8efce54ab03eb9d366ff0fe0d799758597b204f",
+      "anyrender": "22b336b19938c911179e391ad19b34309493978c"
+    },
+    "signatures": "all tested commits signed (G)",
+    "pushed": false
+  },
+  "baseline": "artifacts/inline-box-shaping-preparation (main-tree rebaseline 2026-10-12 found it unchanged); explicit-inline-commit after-interior-candidates and after-border-cache-candidates for the two cache drivers",
+  "gateDefinitions": "Per state over all 5,090 states: a gate passes when its difference list is empty (geometry flag; pixel MAE <= 3 for whole, crop and every local region; pixels = all three). Counts include ineligible states, unlike the eligible counts of the box-shaping-preparation record; geometry, hits, wholePixels, cropPixels and pixels agree with it.",
+  "direct": {
+    "matrices": 36,
+    "states": 5090,
+    "missing": 0,
+    "added": 0,
+    "exitCodesAsBaseline": true,
+    "gates": {
+      "geometry": {
+        "basePass": 4146,
+        "newPass": 4476,
+        "repairs": 330,
+        "regressions": 0
+      },
+      "hits": {
+        "basePass": 4543,
+        "newPass": 4768,
+        "repairs": 225,
+        "regressions": 0
+      },
+      "pointHits": {
+        "basePass": 4892,
+        "newPass": 4952,
+        "repairs": 60,
+        "regressions": 0
+      },
+      "clientRects": {
+        "basePass": 4076,
+        "newPass": 4328,
+        "repairs": 252,
+        "regressions": 0
+      },
+      "editor": {
+        "basePass": 5057,
+        "newPass": 5057,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "scroll": {
+        "basePass": 5042,
+        "newPass": 5042,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "lineWidth": {
+        "basePass": 5090,
+        "newPass": 5090,
+        "repairs": 0,
+        "regressions": 0
+      },
+      "wholePixels": {
+        "basePass": 5018,
+        "newPass": 5054,
+        "repairs": 36,
+        "regressions": 0
+      },
+      "cropPixels": {
+        "basePass": 2909,
+        "newPass": 3150,
+        "repairs": 241,
+        "regressions": 0
+      },
+      "localPixels": {
+        "basePass": 1528,
+        "newPass": 1571,
+        "repairs": 43,
+        "regressions": 0
+      },
+      "pixels": {
+        "basePass": 1477,
+        "newPass": 1520,
+        "repairs": 43,
+        "regressions": 0
+      }
+    },
+    "strictAllGatePass": {
+      "base": 1350,
+      "new": 1396
+    },
+    "changedMatrices": {
+      "inline-span-edges": {
+        "states": 306,
+        "exit": 1,
+        "gates": {
+          "geometry": {
+            "basePass": 141,
+            "newPass": 237,
+            "repairs": 96,
+            "regressions": 0
+          },
+          "hits": {
+            "basePass": 159,
+            "newPass": 231,
+            "repairs": 72,
+            "regressions": 0
+          },
+          "clientRects": {
+            "basePass": 141,
+            "newPass": 240,
+            "repairs": 99,
+            "regressions": 0
+          },
+          "wholePixels": {
+            "basePass": 276,
+            "newPass": 297,
+            "repairs": 21,
+            "regressions": 0
+          },
+          "cropPixels": {
+            "basePass": 128,
+            "newPass": 220,
+            "repairs": 92,
+            "regressions": 0
+          },
+          "localPixels": {
+            "basePass": 64,
+            "newPass": 83,
+            "repairs": 19,
+            "regressions": 0
+          },
+          "pixels": {
+            "basePass": 64,
+            "newPass": 83,
+            "repairs": 19,
+            "regressions": 0
+          }
+        }
+      },
+      "inline-flow-affinity": {
+        "states": 165,
+        "exit": 1,
+        "gates": {
+          "geometry": {
+            "basePass": 9,
+            "newPass": 81,
+            "repairs": 72,
+            "regressions": 0
+          },
+          "hits": {
+            "basePass": 60,
+            "newPass": 126,
+            "repairs": 66,
+            "regressions": 0
+          },
+          "pointHits": {
+            "basePass": 51,
+            "newPass": 102,
+            "repairs": 51,
+            "regressions": 0
+          },
+          "clientRects": {
+            "basePass": 6,
+            "newPass": 81,
+            "repairs": 75,
+            "regressions": 0
+          },
+          "wholePixels": {
+            "basePass": 156,
+            "newPass": 165,
+            "repairs": 9,
+            "regressions": 0
+          },
+          "cropPixels": {
+            "basePass": 7,
+            "newPass": 44,
+            "repairs": 37,
+            "regressions": 0
+          }
+        }
+      },
+      "inline-edge-drivers": {
+        "states": 27,
+        "exit": 1,
+        "gates": {
+          "geometry": {
+            "basePass": 3,
+            "newPass": 15,
+            "repairs": 12,
+            "regressions": 0
+          },
+          "hits": {
+            "basePass": 24,
+            "newPass": 27,
+            "repairs": 3,
+            "regressions": 0
+          },
+          "pointHits": {
+            "basePass": 18,
+            "newPass": 21,
+            "repairs": 3,
+            "regressions": 0
+          },
+          "clientRects": {
+            "basePass": 3,
+            "newPass": 15,
+            "repairs": 12,
+            "regressions": 0
+          },
+          "cropPixels": {
+            "basePass": 2,
+            "newPass": 7,
+            "repairs": 5,
+            "regressions": 0
+          }
+        }
+      },
+      "inline-fragments": {
+        "states": 363,
+        "exit": 1,
+        "gates": {
+          "geometry": {
+            "basePass": 192,
+            "newPass": 222,
+            "repairs": 30,
+            "regressions": 0
+          },
+          "hits": {
+            "basePass": 264,
+            "newPass": 294,
+            "repairs": 30,
+            "regressions": 0
+          },
+          "clientRects": {
+            "basePass": 177,
+            "newPass": 207,
+            "repairs": 30,
+            "regressions": 0
+          },
+          "wholePixels": {
+            "basePass": 348,
+            "newPass": 354,
+            "repairs": 6,
+            "regressions": 0
+          },
+          "cropPixels": {
+            "basePass": 84,
+            "newPass": 96,
+            "repairs": 12,
+            "regressions": 0
+          }
+        }
+      },
+      "control-layout": {
+        "states": 264,
+        "exit": 1,
+        "gates": {
+          "geometry": {
+            "basePass": 132,
+            "newPass": 216,
+            "repairs": 84,
+            "regressions": 0
+          },
+          "cropPixels": {
+            "basePass": 84,
+            "newPass": 150,
+            "repairs": 66,
+            "regressions": 0
+          }
+        }
+      },
+      "inline-shaping-edges": {
+        "states": 270,
+        "exit": 1,
+        "gates": {
+          "geometry": {
+            "basePass": 87,
+            "newPass": 123,
+            "repairs": 36,
+            "regressions": 0
+          },
+          "hits": {
+            "basePass": 195,
+            "newPass": 249,
+            "repairs": 54,
+            "regressions": 0
+          },
+          "pointHits": {
+            "basePass": 210,
+            "newPass": 216,
+            "repairs": 6,
+            "regressions": 0
+          },
+          "clientRects": {
+            "basePass": 87,
+            "newPass": 123,
+            "repairs": 36,
+            "regressions": 0
+          },
+          "cropPixels": {
+            "basePass": 118,
+            "newPass": 147,
+            "repairs": 29,
+            "regressions": 0
+          },
+          "localPixels": {
+            "basePass": 48,
+            "newPass": 72,
+            "repairs": 24,
+            "regressions": 0
+          },
+          "pixels": {
+            "basePass": 48,
+            "newPass": 72,
+            "repairs": 24,
+            "regressions": 0
+          }
+        }
+      }
+    },
+    "regressions": []
+  },
+  "additive": {
+    "inline-cached-edges": {
+      "states": 144,
+      "exit": 1,
+      "gates": {
+        "geometry": {
+          "basePass": 45,
+          "newPass": 126,
+          "repairs": 81,
+          "regressions": 0
+        },
+        "hits": {
+          "basePass": 51,
+          "newPass": 108,
+          "repairs": 57,
+          "regressions": 0
+        },
+        "clientRects": {
+          "basePass": 45,
+          "newPass": 126,
+          "repairs": 81,
+          "regressions": 0
+        },
+        "cropPixels": {
+          "basePass": 88,
+          "newPass": 144,
+          "repairs": 56,
+          "regressions": 0
+        }
+      }
+    },
+    "inline-border-history": {
+      "states": 162,
+      "exit": 1,
+      "gates": {
+        "geometry": {
+          "basePass": 60,
+          "newPass": 156,
+          "repairs": 96,
+          "regressions": 0
+        },
+        "hits": {
+          "basePass": 87,
+          "newPass": 150,
+          "repairs": 63,
+          "regressions": 0
+        },
+        "pointHits": {
+          "basePass": 75,
+          "newPass": 147,
+          "repairs": 72,
+          "regressions": 0
+        },
+        "clientRects": {
+          "basePass": 60,
+          "newPass": 156,
+          "repairs": 96,
+          "regressions": 0
+        },
+        "cropPixels": {
+          "basePass": 139,
+          "newPass": 162,
+          "repairs": 23,
+          "regressions": 0
+        }
+      }
+    }
+  },
+  "compiled": {
+    "commands": 6,
+    "runs": 61,
+    "states": 569,
+    "passed": true,
+    "perCommand": {
+      "hover-opt": [
+        12,
+        90
+      ],
+      "hover-no-opt": [
+        12,
+        90
+      ],
+      "regression-tables-cpu": [
+        6,
+        96
+      ],
+      "regression-tables-gpu": [
+        2,
+        32
+      ],
+      "regression-forms-focus": [
+        22,
+        242
+      ],
+      "regression-control-regressions": [
+        7,
+        19
+      ]
+    }
+  },
+  "checkpoints": [
+    {
+      "name": "first",
+      "note": "Before the hit-area snapping fix: sole_text_edges lost 6 hits."
+    },
+    {
+      "name": "second (focused)",
+      "regressions": {
+        "inline-span-edges": "1 cropPixels (margin_negative)",
+        "inline-flow-affinity": "9 hits + 15 pointHits (forced_newline_close, intrinsic_max_content)",
+        "inline-edge-drivers": "9 hits + 9 pointHits (forced_br_immediate_close)",
+        "inline-shaping-edges": "9 hits (flag_end_alignment_intent, pending_*_before_open_combining)"
+      },
+      "fixes": [
+        "boxes with an unsupported edge value keep their edge-less layout and shaping",
+        "closing edges right after a forced break attach before the break",
+        "itemization-only shaping boundaries inside a grapheme keep it whole"
+      ]
+    },
+    {
+      "name": "third (full)",
+      "regressions": "24 hits states: forced_newline_close and forced_br_immediate_close (9 each), pending_{absolute,fixed}_before_open_combining step 1 (6)"
+    },
+    {
+      "name": "final (full)",
+      "fixes": [
+        "a zero-width newline after a span's own nonzero closing edge no longer extends the span's bounds (Parley style_spans.rs)",
+        "a nonzero edge at a side where an out-of-flow box was pushed at pending collapsible whitespace keeps the box edge-less and is reported (Parley Layout::inline_edge_sides_with_pending_out_of_flow_box; Blitz layout/inline.rs and layout/construct.rs)"
+      ],
+      "pendingStates": "pending_{absolute,fixed}_before_open_combining step 1 at all three scales: every recorded value (geometry, differences, hits, point hits, client rects, whole, crop and local pixel MAEs, editor, scroll, line width) is identical to the baseline",
+      "givenBack": "hits pending_oof_inside_open_close step 1 (3 states), a repair of the third checkpoint: its box has the same pending out-of-flow opening side and now keeps its edge-less layout, as in the baseline",
+      "regressions": 0
+    }
+  ],
+  "units": {
+    "on": "compiler inline-edges rebased onto main f1d2f74, with the git pins",
+    "parley": {
+      "passed": 224,
+      "failed": 4,
+      "knownFailures": [
+        "cluster_from_position_start_alignment",
+        "cluster_from_position_center_alignment",
+        "cluster_from_position_end_alignment",
+        "cluster_from_position_justified_alignment"
+      ],
+      "newTests": 10,
+      "source": "parley-inline-edges at 13cfb74 with a clean tree (parley is not a workspace member, so cargo cannot test it from the pinned checkout)"
+    },
+    "blitzDom": {
+      "passed": 86,
+      "failed": 2,
+      "knownFailures": [
+        "scroll_by_clamps_and_bubbles",
+        "hover_styles_apply_and_clear"
+      ],
+      "newTests": 6,
+      "source": "node compiler/cargo.mjs test --offline -p blitz-dom, built from the pinned checkout c8ecc95"
+    },
+    "blitzPaint": {
+      "passed": 13,
+      "failed": 0,
+      "source": "git pins"
+    },
+    "blitzHtml": {
+      "passed": 3,
+      "failed": 0,
+      "source": "git pins"
+    },
+    "workspace": {
+      "command": "node compiler/cargo.mjs test --locked --offline --workspace",
+      "passed": 143,
+      "failed": 0
+    },
+    "npm": {
+      "command": "npm test",
+      "passed": 358,
+      "failed": 0
+    }
+  },
+  "incomplete": [
+    "caret and selection geometry next to edges (not measured)",
+    "box-decoration-break: clone (Stylo drops it)",
+    "non-solid and rounded inline borders (reported, painted solid and square)",
+    "right-to-left and bidi edges (reported)",
+    "edges with no adjacent text (reported, laid out as zero)",
+    "percentage, calc(), anchor and negative edges (reported, edge-less)",
+    "edges at a side where an out-of-flow box was pushed at pending whitespace (reported, edge-less)",
+    "quirks mode (reported, laid out as zero)"
+  ],
+  "acceptance": "Zero regressions on every gate in every one of the 36 direct matrices and in both cache drivers, against unchanged references, tolerances and cases; all six compiled commands pass."
+}
