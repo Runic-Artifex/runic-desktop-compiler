@@ -41,7 +41,10 @@ export function gpuEnvironment(gpuAdapter) {
   return env;
 }
 
-/** Run the probe binary; returns { mountUs, steps: [{ action, dom, focused, geometry, ... }] }. */
+/**
+ * Run the probe binary; returns { mountUs, steps: [{ action, dom, focused, geometry, ... }] },
+ * with `stderr` (the app's run-time reports, `runic: E_*`) when `stderr` is set.
+ */
 export function runProbe(
   binary,
   {
@@ -57,6 +60,7 @@ export function runProbe(
     visibleTargets,
     hiddenTargets,
     gpuAdapter,
+    stderr = false,
   } = {},
 ) {
   const args = ['--probe', '--width', String(viewport.width), '--height', String(viewport.height)];
@@ -91,7 +95,8 @@ export function runProbe(
     });
     throw error;
   }
-  return JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+  const trace = JSON.parse(r.stdout.slice(r.stdout.indexOf('{')));
+  return stderr ? { ...trace, stderr: r.stderr } : trace;
 }
 
 /** A short reason for a failed native probe: its exit and the panic, if any. */

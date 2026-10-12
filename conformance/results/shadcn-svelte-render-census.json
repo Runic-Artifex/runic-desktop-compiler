@@ -1,0 +1,2991 @@
+{
+  "generated": "node conformance/render-census.mjs",
+  "compiler": "771d3a4",
+  "census": "conformance/results/shadcn-svelte-census.json",
+  "corpus": {
+    "name": "shadcn-svelte",
+    "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4"
+  },
+  "chromium": "153.0.8010.12",
+  "viewport": {
+    "width": 800,
+    "height": 600
+  },
+  "renderer": "cpu",
+  "build": "node compiler/cli.mjs build <host> --probe (dev profile)",
+  "gates": {
+    "semantics": "DOM, document/body attributes, focus and host effects equal (compare.mjs canonical form); Chromium errors fail it",
+    "geometry": "elements with ids within 2 px per coordinate",
+    "pixels": "mean absolute error <= 3/255 over the viewport and over #demo"
+  },
+  "totals": {
+    "examples": 260,
+    "matches": 186,
+    "differs": 19,
+    "reportsUnsupported": 45,
+    "buildFailed": 0,
+    "nativeFailed": 0,
+    "notLowered": 0,
+    "incomplete": 10,
+    "byStyle": {
+      "themeStylesAllClasses": {
+        "matches": 53,
+        "differs": 2,
+        "reportsUnsupported": 9,
+        "buildFailed": 0,
+        "nativeFailed": 0,
+        "notLowered": 0,
+        "incomplete": 0
+      },
+      "usesUnstyledClasses": {
+        "matches": 133,
+        "differs": 17,
+        "reportsUnsupported": 36,
+        "buildFailed": 0,
+        "nativeFailed": 0,
+        "notLowered": 0,
+        "incomplete": 10
+      }
+    }
+  },
+  "timing": {
+    "invocationSeconds": 0,
+    "exampleSecondsSum": 11627,
+    "medianMs": {
+      "images": 7,
+      "build": 20945,
+      "browser": 1213,
+      "probe": 397,
+      "compare": 252,
+      "total": 22981
+    },
+    "medianDiskBytes": 115622265,
+    "medianBinaryBytes": 105282864
+  },
+  "clusters": [
+    {
+      "status": "reportsUnsupported",
+      "key": "E_FONT (font-family: ui-monospace)",
+      "count": 14,
+      "examples": [
+        "button-group-select-demo",
+        "command-dialog",
+        "input-group-kbd",
+        "kbd-button-demo",
+        "kbd-demo",
+        "kbd-group-demo",
+        "kbd-input-group-demo",
+        "scroll-fade-edge",
+        "shimmer-angle",
+        "shimmer-duration",
+        "shimmer-none",
+        "shimmer-rtl",
+        "shimmer-spread",
+        "typography-inline-code"
+      ]
+    },
+    {
+      "status": "reportsUnsupported",
+      "key": "unsupported CSS: field-sizing: content",
+      "count": 12,
+      "examples": [
+        "field-textarea",
+        "input-group-block-end",
+        "input-group-block-start",
+        "input-group-custom-input-demo",
+        "input-group-text-demo",
+        "input-group-textarea-demo",
+        "spinner-input-group-demo",
+        "textarea-button",
+        "textarea-demo",
+        "textarea-disabled",
+        "textarea-field",
+        "textarea-invalid"
+      ]
+    },
+    {
+      "status": "reportsUnsupported",
+      "key": "unsupported CSS: text-wrap: balance",
+      "count": 10,
+      "examples": [
+        "empty-avatar-demo",
+        "empty-avatar-group-demo",
+        "empty-background-demo",
+        "empty-demo",
+        "empty-input-group-demo",
+        "empty-outline-demo",
+        "spinner-empty-demo",
+        "toggle-group-font-weight-selector",
+        "typography-demo",
+        "typography-h1"
+      ]
+    },
+    {
+      "status": "incomplete",
+      "key": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "count": 8,
+      "examples": [
+        "bubble-tooltip",
+        "button-group-input-group-demo",
+        "input-group-label-demo",
+        "input-group-tooltip-demo",
+        "kbd-tooltip-demo",
+        "tooltip-disabled",
+        "tooltip-keyboard",
+        "tooltip-sides"
+      ]
+    },
+    {
+      "status": "reportsUnsupported",
+      "key": "unsupported CSS: -webkit-line-clamp: 2",
+      "count": 7,
+      "examples": [
+        "item-avatar-demo",
+        "item-demo",
+        "item-icon-demo",
+        "item-link-demo",
+        "item-size-demo",
+        "item-variants-demo",
+        "spinner-item-demo"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "semantics: <input> selection",
+      "count": 5,
+      "examples": [
+        "card-demo",
+        "input-disabled",
+        "input-fieldgroup",
+        "input-form",
+        "input-group-icon-demo"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "geometry: <div> x",
+      "count": 3,
+      "examples": [
+        "avatar-group",
+        "avatar-group-count",
+        "avatar-group-count-icon"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "semantics: <div> style",
+      "count": 3,
+      "examples": [
+        "accordion-basic",
+        "accordion-borders",
+        "accordion-card"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "geometry: <div> x,y,width,height",
+      "count": 2,
+      "examples": [
+        "avatar-dropdown",
+        "dropdown-menu-avatar"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "pixels: #demo only",
+      "count": 2,
+      "examples": [
+        "table-demo",
+        "table-footer"
+      ]
+    },
+    {
+      "status": "incomplete",
+      "key": "the site serves no /avatars/N.png: .cache/corpus/shadcn-svelte/docs/static has no avatars/N.png",
+      "count": 2,
+      "examples": [
+        "message-avatar",
+        "message-demo"
+      ]
+    },
+    {
+      "status": "reportsUnsupported",
+      "key": "E_FONT (font-family: RunicFixture)",
+      "count": 1,
+      "examples": [
+        "bubble-variants"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "geometry: <div> x,width,height",
+      "count": 1,
+      "examples": [
+        "avatar-demo"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "geometry: <div> y,width,height",
+      "count": 1,
+      "examples": [
+        "avatar-size"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "pixels: viewport",
+      "count": 1,
+      "examples": [
+        "message-attachment"
+      ]
+    },
+    {
+      "status": "differs",
+      "key": "semantics: native render error: TypeError: RunicAttrsError: the spread passes items a value of another type than the prop's",
+      "count": 1,
+      "examples": [
+        "select-scrollable"
+      ]
+    },
+    {
+      "status": "reportsUnsupported",
+      "key": "unsupported CSS: -webkit-line-clamp: 1",
+      "count": 1,
+      "examples": [
+        "spinner-demo"
+      ]
+    }
+  ],
+  "results": [
+    {
+      "example": "accordion-basic",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "<div> style",
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": true,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.2,
+        "regionMAE": 0.509,
+        "diff": {
+          "x": 145,
+          "y": 70,
+          "width": 505,
+          "height": 138,
+          "share": 0.00767
+        }
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "accordion-borders",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "<div> style",
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": true,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.231,
+        "regionMAE": 0.528,
+        "diff": {
+          "x": 162,
+          "y": 71,
+          "width": 471,
+          "height": 165,
+          "share": 0.00875
+        }
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "accordion-card",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "<div> style",
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": true,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.347,
+        "regionMAE": 0.593,
+        "diff": {
+          "x": 209,
+          "y": 69,
+          "width": 377,
+          "height": 259,
+          "share": 0.01324
+        }
+      },
+      "unstyled": 10
+    },
+    {
+      "example": "accordion-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.171,
+        "regionMAE": 0.481
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "accordion-disabled",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.068,
+        "regionMAE": 0.245
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "accordion-multiple",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.153,
+        "regionMAE": 0.43
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "alert-action",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.071,
+        "regionMAE": 0.263
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-basic",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.097,
+        "regionMAE": 0.315
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-colors",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.074,
+        "regionMAE": 0.242
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.19,
+        "regionMAE": 0.391
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-destructive",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.092,
+        "regionMAE": 0.299
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-dialog-basic",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.071,
+        "regionMAE": 0.337
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-dialog-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.071,
+        "regionMAE": 0.337
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-dialog-destructive",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.03,
+        "regionMAE": 0.143
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-dialog-media",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.053,
+        "regionMAE": 0.253
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-dialog-small",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.071,
+        "regionMAE": 0.337
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "alert-dialog-small-media",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.071,
+        "regionMAE": 0.337
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "aspect-ratio-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.029,
+        "regionMAE": 0.057
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "aspect-ratio-portrait",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.015,
+        "regionMAE": 0.025
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "aspect-ratio-square",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.015,
+        "regionMAE": 0.032
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "attachment-sizes",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.063,
+        "regionMAE": 0.115
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "attachment-states",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.163,
+        "regionMAE": 0.215
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "attachment-trigger",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.036,
+        "regionMAE": 0.094
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "avatar-badge",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.106,
+        "regionMAE": 0.119
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "avatar-badge-icon",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.02
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "avatar-basic",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.044,
+        "regionMAE": 0.049
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "avatar-demo",
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<div> x,width,height",
+        "element": "bits-c1",
+        "delta": {
+          "x": -1877.797,
+          "y": 0,
+          "width": 1016,
+          "height": 1016
+        },
+        "count": 10
+      },
+      "failingSteps": [
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 141.463,
+        "regionMAE": 144.848,
+        "diff": {
+          "x": 0,
+          "y": 64,
+          "width": 800,
+          "height": 536,
+          "share": 0.78597
+        }
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "avatar-dropdown",
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<div> x,y,width,height",
+        "element": "bits-c2",
+        "delta": {
+          "x": 213,
+          "y": 213,
+          "width": -426,
+          "height": -426
+        },
+        "count": 2
+      },
+      "failingSteps": [
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 42.808,
+        "regionMAE": 66.67,
+        "diff": {
+          "x": 170,
+          "y": 0,
+          "width": 460,
+          "height": 312,
+          "share": 0.29819
+        }
+      },
+      "unstyled": 17
+    },
+    {
+      "example": "avatar-group",
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<div> x",
+        "element": "bits-c1",
+        "delta": {
+          "x": -346,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "count": 6
+      },
+      "failingSteps": [
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 57.278,
+        "regionMAE": 59.634,
+        "diff": {
+          "x": 0,
+          "y": 64,
+          "width": 800,
+          "height": 460,
+          "share": 0.70055
+        }
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "avatar-group-count",
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<div> x",
+        "element": "bits-c1",
+        "delta": {
+          "x": -353.797,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "count": 6
+      },
+      "failingSteps": [
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 58.664,
+        "regionMAE": 61.328,
+        "diff": {
+          "x": 0,
+          "y": 64,
+          "width": 800,
+          "height": 460,
+          "share": 0.70228
+        }
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "avatar-group-count-icon",
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<div> x",
+        "element": "bits-c1",
+        "delta": {
+          "x": -354,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "count": 6
+      },
+      "failingSteps": [
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 58.664,
+        "regionMAE": 61.328,
+        "diff": {
+          "x": 0,
+          "y": 64,
+          "width": 800,
+          "height": 460,
+          "share": 0.70228
+        }
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "avatar-size",
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<div> y,width,height",
+        "element": "bits-c7",
+        "delta": {
+          "x": 0,
+          "y": 1872,
+          "width": 936,
+          "height": 936
+        },
+        "count": 6
+      },
+      "failingSteps": [
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 63.808,
+        "regionMAE": 66.624,
+        "diff": {
+          "x": 64,
+          "y": 64,
+          "width": 736,
+          "height": 536,
+          "share": 0.7848
+        }
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "badge-colors",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.066,
+        "regionMAE": 0.341
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "badge-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.075,
+        "regionMAE": 0.392
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "badge-icon",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.065,
+        "regionMAE": 0.338
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "badge-link",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.036,
+        "regionMAE": 0.19
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "badge-spinner",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.081,
+        "regionMAE": 0.423
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "badge-variants",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.123,
+        "regionMAE": 0.639
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "bubble-alignment",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.104,
+        "regionMAE": 0.202
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "bubble-collapsible",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.172,
+        "regionMAE": 0.266
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "bubble-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.403,
+        "regionMAE": 0.552
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "bubble-group-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.181,
+        "regionMAE": 0.282
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "bubble-popover",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.038,
+        "regionMAE": 0.093
+      },
+      "unstyled": 20
+    },
+    {
+      "example": "bubble-tooltip",
+      "status": "incomplete",
+      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "unstyled": 17
+    },
+    {
+      "example": "bubble-variants",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"This is perfect for assistant messages t\" in <p> (font-family: RunicFixture) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 15
+    },
+    {
+      "example": "button-default",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.039,
+        "regionMAE": 0.187
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.044,
+        "regionMAE": 0.206
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-destructive",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.039,
+        "regionMAE": 0.184
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-ghost",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.035,
+        "regionMAE": 0.164
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-group-dropdown-menu-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.045,
+        "regionMAE": 0.212
+      },
+      "unstyled": 17
+    },
+    {
+      "example": "button-group-input-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.032,
+        "regionMAE": 0.149
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "button-group-input-group-demo",
+      "status": "incomplete",
+      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "unstyled": 21
+    },
+    {
+      "example": "button-group-orientation-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.006,
+        "regionMAE": 0.021
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "button-group-popover-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.052,
+        "regionMAE": 0.247
+      },
+      "unstyled": 11
+    },
+    {
+      "example": "button-group-select-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"$\" in <button> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 18
+    },
+    {
+      "example": "button-group-separator-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.031,
+        "regionMAE": 0.15
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "button-group-size-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.232,
+        "regionMAE": 0.542
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "button-group-split-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.009,
+        "regionMAE": 0.041
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "button-icon",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.006,
+        "regionMAE": 0.027
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-link",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.083
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-loading",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.046,
+        "regionMAE": 0.217
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-outline",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.037,
+        "regionMAE": 0.175
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-rounded",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.063,
+        "regionMAE": 0.299
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-secondary",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.015,
+        "regionMAE": 0.072
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-size",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.127,
+        "regionMAE": 0.586
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "button-with-icon",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.049,
+        "regionMAE": 0.23
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "card-demo",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "<input> selection",
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": true,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.215,
+        "regionMAE": 0.341,
+        "diff": {
+          "x": 209,
+          "y": 70,
+          "width": 382,
+          "height": 282,
+          "share": 0.00575
+        }
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "card-edge-to-edge",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.405,
+        "regionMAE": 0.639
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "card-image",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.27,
+        "regionMAE": 0.401
+      },
+      "unstyled": 13
+    },
+    {
+      "example": "card-small",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.224,
+        "regionMAE": 0.421
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "collapsible-basic",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.013,
+        "regionMAE": 0.06
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "collapsible-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.022,
+        "regionMAE": 0.081
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "command-basic",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.021,
+        "regionMAE": 0.101
+      },
+      "unstyled": 26
+    },
+    {
+      "example": "command-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.113,
+        "regionMAE": 0.128
+      },
+      "unstyled": 26
+    },
+    {
+      "example": "command-dialog",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"⌘\" in <span> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 26
+    },
+    {
+      "example": "command-groups",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.021,
+        "regionMAE": 0.101
+      },
+      "unstyled": 26
+    },
+    {
+      "example": "command-scrollable",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.021,
+        "regionMAE": 0.101
+      },
+      "unstyled": 26
+    },
+    {
+      "example": "command-shortcuts",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.021,
+        "regionMAE": 0.101
+      },
+      "unstyled": 26
+    },
+    {
+      "example": "dialog-close-button",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.017,
+        "regionMAE": 0.08
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "dialog-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.043,
+        "regionMAE": 0.202
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "dialog-no-close-button",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.095,
+        "regionMAE": 0.452
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "dropdown-menu-avatar",
+      "status": "differs",
+      "worst": {
+        "gate": "geometry",
+        "key": "<div> x,y,width,height",
+        "element": "bits-c2",
+        "delta": {
+          "x": 213,
+          "y": 213,
+          "width": -426,
+          "height": -426
+        },
+        "count": 2
+      },
+      "failingSteps": [
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": false,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 42.808,
+        "regionMAE": 66.67,
+        "diff": {
+          "x": 170,
+          "y": 0,
+          "width": 460,
+          "height": 312,
+          "share": 0.29819
+        }
+      },
+      "unstyled": 17
+    },
+    {
+      "example": "dropdown-menu-basic",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.086
+      },
+      "unstyled": 12
+    },
+    {
+      "example": "dropdown-menu-checkboxes",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.086
+      },
+      "unstyled": 12
+    },
+    {
+      "example": "dropdown-menu-checkboxes-icons",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.035,
+        "regionMAE": 0.166
+      },
+      "unstyled": 12
+    },
+    {
+      "example": "dropdown-menu-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.086
+      },
+      "unstyled": 12
+    },
+    {
+      "example": "dropdown-menu-destructive",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.042,
+        "regionMAE": 0.2
+      },
+      "unstyled": 12
+    },
+    {
+      "example": "dropdown-menu-dialog",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.002,
+        "regionMAE": 0.008
+      },
+      "unstyled": 13
+    },
+    {
+      "example": "dropdown-menu-icons",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.086
+      },
+      "unstyled": 12
+    },
+    {
+      "example": "dropdown-menu-shortcuts",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.086
+      },
+      "unstyled": 12
+    },
+    {
+      "example": "dropdown-menu-submenu",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.086
+      },
+      "unstyled": 12
+    },
+    {
+      "example": "empty-avatar-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1295), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 13
+    },
+    {
+      "example": "empty-avatar-group-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1290), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 13
+    },
+    {
+      "example": "empty-background-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1246), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 8
+    },
+    {
+      "example": "empty-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1235), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 8
+    },
+    {
+      "example": "empty-input-group-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1263), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 24
+    },
+    {
+      "example": "empty-outline-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1237), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 8
+    },
+    {
+      "example": "field-choice-card",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.089,
+        "regionMAE": 0.164
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "field-field-set-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.087,
+        "regionMAE": 0.167
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "field-input",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.072,
+        "regionMAE": 0.146
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "field-radio",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.086,
+        "regionMAE": 0.231
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "field-responsive-layout-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.075,
+        "regionMAE": 0.169
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "field-switch",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.093,
+        "regionMAE": 0.528
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "field-textarea",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1200), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 1
+    },
+    {
+      "example": "input-badge",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.05,
+        "regionMAE": 0.199
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "input-basic",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.017,
+        "regionMAE": 0.081
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "input-button-group",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.04,
+        "regionMAE": 0.158
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "input-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.037,
+        "regionMAE": 0.121
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "input-disabled",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "<input> selection",
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": true,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.027,
+        "regionMAE": 0.087,
+        "diff": {
+          "x": 64,
+          "y": 66,
+          "width": 207,
+          "height": 89,
+          "share": 0.00065
+        }
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "input-field",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.048,
+        "regionMAE": 0.158
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "input-fieldgroup",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "<input> selection",
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": true,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.081,
+        "regionMAE": 0.146,
+        "diff": {
+          "x": 66,
+          "y": 68,
+          "width": 668,
+          "height": 242,
+          "share": 0.00226
+        }
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "input-form",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "<input> selection",
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": true,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.145,
+        "regionMAE": 0.173,
+        "diff": {
+          "x": 210,
+          "y": 68,
+          "width": 380,
+          "height": 422,
+          "share": 0.00398
+        }
+      },
+      "unstyled": 13
+    },
+    {
+      "example": "input-grid",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.027,
+        "regionMAE": 0.106
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "input-group-block-end",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1217), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-block-start",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1229), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-button-group-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.019,
+        "regionMAE": 0.089
+      },
+      "unstyled": 19
+    },
+    {
+      "example": "input-group-custom-input-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1191), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.019,
+        "regionMAE": 0.091
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-dropdown-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.063,
+        "regionMAE": 0.213
+      },
+      "unstyled": 26
+    },
+    {
+      "example": "input-group-icon-demo",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "<input> selection",
+        "count": 1
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": true,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.066,
+        "regionMAE": 0.133,
+        "diff": {
+          "x": 209,
+          "y": 66,
+          "width": 382,
+          "height": 212,
+          "share": 0.00171
+        }
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-inline-end",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.036,
+        "regionMAE": 0.117
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-inline-start",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.028,
+        "regionMAE": 0.091
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-kbd",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"⌘K\" in <kbd> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 16
+    },
+    {
+      "example": "input-group-label-demo",
+      "status": "incomplete",
+      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "unstyled": 16
+    },
+    {
+      "example": "input-group-spinner-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.131,
+        "regionMAE": 0.284
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-text-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1187), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-textarea-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1190), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 14
+    },
+    {
+      "example": "input-group-tooltip-demo",
+      "status": "incomplete",
+      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "unstyled": 16
+    },
+    {
+      "example": "input-inline",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.029,
+        "regionMAE": 0.137
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "input-input-group",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.057,
+        "regionMAE": 0.227
+      },
+      "unstyled": 14
+    },
+    {
+      "example": "input-invalid",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.054,
+        "regionMAE": 0.176
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "input-required",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.043,
+        "regionMAE": 0.14
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "item-avatar-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1206), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+      ],
+      "unstyled": 24
+    },
+    {
+      "example": "item-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1170), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+      ],
+      "unstyled": 19
+    },
+    {
+      "example": "item-icon-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1171), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+      ],
+      "unstyled": 19
+    },
+    {
+      "example": "item-link-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1170), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+      ],
+      "unstyled": 19
+    },
+    {
+      "example": "item-size-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1170), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+      ],
+      "unstyled": 19
+    },
+    {
+      "example": "item-variants-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1174), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+      ],
+      "unstyled": 19
+    },
+    {
+      "example": "kbd-button-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"⏎\" in <kbd> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 2
+    },
+    {
+      "example": "kbd-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"+\" in <span> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 2
+    },
+    {
+      "example": "kbd-group-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"Ctrl + B\" in <kbd> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 2
+    },
+    {
+      "example": "kbd-input-group-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"⌘\" in <kbd> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 16
+    },
+    {
+      "example": "kbd-tooltip-demo",
+      "status": "incomplete",
+      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "unstyled": 9
+    },
+    {
+      "example": "label-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.022,
+        "regionMAE": 0.125
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "marker-border",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.084,
+        "regionMAE": 0.182
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "marker-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.072,
+        "regionMAE": 0.118
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "marker-icon",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.124,
+        "regionMAE": 0.202
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "marker-separator",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.04,
+        "regionMAE": 0.077
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "marker-shimmer",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.042
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "marker-status",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.04,
+        "regionMAE": 0.091
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "marker-variants",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.069,
+        "regionMAE": 0.132
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "menubar-checkbox",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.011,
+        "regionMAE": 0.057
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "menubar-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.067,
+        "regionMAE": 0.349
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "menubar-icons",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.02,
+        "regionMAE": 0.104
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "menubar-radio",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.014,
+        "regionMAE": 0.071
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "menubar-submenu",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.014,
+        "regionMAE": 0.071
+      },
+      "unstyled": 15
+    },
+    {
+      "example": "message-actions",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.104,
+        "regionMAE": 0.182
+      },
+      "unstyled": 21
+    },
+    {
+      "example": "message-attachment",
+      "status": "differs",
+      "worst": {
+        "gate": "pixels",
+        "key": "viewport",
+        "mae": 42.884,
+        "regionMAE": 44.297,
+        "diff": {
+          "x": 209,
+          "y": 113,
+          "width": 591,
+          "height": 483,
+          "share": 0.45587
+        }
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": true,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 42.884,
+        "regionMAE": 44.297,
+        "diff": {
+          "x": 209,
+          "y": 113,
+          "width": 591,
+          "height": 483,
+          "share": 0.45587
+        }
+      },
+      "unstyled": 35
+    },
+    {
+      "example": "message-avatar",
+      "status": "incomplete",
+      "reason": "the site serves no /avatars/10.png: .cache/corpus/shadcn-svelte/docs/static has no avatars/10.png",
+      "unstyled": 26
+    },
+    {
+      "example": "message-demo",
+      "status": "incomplete",
+      "reason": "the site serves no /avatars/10.png: .cache/corpus/shadcn-svelte/docs/static has no avatars/10.png",
+      "unstyled": 31
+    },
+    {
+      "example": "message-group",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.079,
+        "regionMAE": 0.098
+      },
+      "unstyled": 26
+    },
+    {
+      "example": "message-header-footer",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.094,
+        "regionMAE": 0.171
+      },
+      "unstyled": 21
+    },
+    {
+      "example": "popover-alignments",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.04,
+        "regionMAE": 0.193
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "popover-basic",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.046,
+        "regionMAE": 0.219
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "popover-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.05,
+        "regionMAE": 0.238
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "popover-form",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.046,
+        "regionMAE": 0.219
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "progress-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0,
+        "regionMAE": 0
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "progress-label",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.019,
+        "regionMAE": 0.099
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "radio-group-choice-card",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.059,
+        "regionMAE": 0.12
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "radio-group-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.122,
+        "regionMAE": 0.509
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "radio-group-description",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.499,
+        "regionMAE": 1.463
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "radio-group-disabled",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.033,
+        "regionMAE": 0.137
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "radio-group-fieldset",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.086,
+        "regionMAE": 0.231
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "radio-group-invalid",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.055,
+        "regionMAE": 0.149
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "scroll-fade-edge",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"scroll-fade-t\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "scroll-fade-horizontal",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.103,
+        "regionMAE": 0.428
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "scroll-fade-rtl",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.049,
+        "regionMAE": 0.205
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "select-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.012,
+        "regionMAE": 0.063
+      },
+      "unstyled": 13
+    },
+    {
+      "example": "select-disabled",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.006,
+        "regionMAE": 0.032
+      },
+      "unstyled": 13
+    },
+    {
+      "example": "select-scrollable",
+      "status": "differs",
+      "worst": {
+        "gate": "semantics",
+        "key": "native render error: TypeError: RunicAttrsError: the spread passes items a value of another type than the prop's"
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": false,
+        "geometry": false,
+        "pixels": true
+      },
+      "pixels": {
+        "mae": 0.258,
+        "regionMAE": 1.341,
+        "diff": {
+          "x": 273,
+          "y": 69,
+          "width": 250,
+          "height": 12,
+          "share": 0.00167
+        }
+      },
+      "unstyled": 13
+    },
+    {
+      "example": "separator-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.507,
+        "regionMAE": 1.516
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "separator-list",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.042,
+        "regionMAE": 0.137
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "separator-menu",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.156,
+        "regionMAE": 0.715
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "separator-vertical",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.069,
+        "regionMAE": 0.373
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "sheet-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.018,
+        "regionMAE": 0.086
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "sheet-no-close-button",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.032,
+        "regionMAE": 0.151
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "shimmer-angle",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"shimmer\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "shimmer-color",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.067,
+        "regionMAE": 0.292
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "shimmer-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.034,
+        "regionMAE": 0.182
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "shimmer-duration",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"shimmer\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "shimmer-marker",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.02,
+        "regionMAE": 0.08
+      },
+      "unstyled": 5
+    },
+    {
+      "example": "shimmer-none",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"shimmer md:shimmer-none\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "shimmer-once",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.068,
+        "regionMAE": 0.26
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "shimmer-rtl",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"dir=\\\"ltr\\\"\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "shimmer-spread",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"shimmer-spread-4\" in <p> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "skeleton-avatar",
+      "status": "matches",
+      "pixels": {
+        "mae": 0,
+        "regionMAE": 0
+      },
+      "unstyled": 1
+    },
+    {
+      "example": "skeleton-card",
+      "status": "matches",
+      "pixels": {
+        "mae": 0,
+        "regionMAE": 0
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "skeleton-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0,
+        "regionMAE": 0
+      },
+      "unstyled": 1
+    },
+    {
+      "example": "skeleton-form",
+      "status": "matches",
+      "pixels": {
+        "mae": 0,
+        "regionMAE": 0
+      },
+      "unstyled": 1
+    },
+    {
+      "example": "skeleton-text",
+      "status": "matches",
+      "pixels": {
+        "mae": 0,
+        "regionMAE": 0
+      },
+      "unstyled": 1
+    },
+    {
+      "example": "spinner-badge-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.144,
+        "regionMAE": 0.75
+      },
+      "unstyled": 7
+    },
+    {
+      "example": "spinner-button-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.071,
+        "regionMAE": 0.199
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "spinner-color-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.013,
+        "regionMAE": 0.067
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "spinner-custom-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.003,
+        "regionMAE": 0.018
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "spinner-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 1 (stylesheet generated by Tailwind CSS, line 1170), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-1"
+      ],
+      "unstyled": 19
+    },
+    {
+      "example": "spinner-empty-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1237), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 8
+    },
+    {
+      "example": "spinner-input-group-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1199), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 14
+    },
+    {
+      "example": "spinner-item-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration -webkit-line-clamp: 2 (stylesheet generated by Tailwind CSS, line 1180), which Blitz's style engine (Stylo) does not support, applies to an element matching .line-clamp-2"
+      ],
+      "unstyled": 21
+    },
+    {
+      "example": "spinner-size-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.016,
+        "regionMAE": 0.079
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "switch-choice-card",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.089,
+        "regionMAE": 0.181
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "switch-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.057,
+        "regionMAE": 0.326
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "switch-description",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.049,
+        "regionMAE": 0.195
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "switch-disabled",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.027,
+        "regionMAE": 0.153
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "switch-invalid",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.037,
+        "regionMAE": 0.15
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "switch-sizes",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.009,
+        "regionMAE": 0.039
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "table-actions",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.617,
+        "regionMAE": 1.784
+      },
+      "unstyled": 21
+    },
+    {
+      "example": "table-demo",
+      "status": "differs",
+      "worst": {
+        "gate": "pixels",
+        "key": "#demo only",
+        "mae": 2.077,
+        "regionMAE": 3.864,
+        "diff": {
+          "x": 221,
+          "y": 69,
+          "width": 357,
+          "height": 231,
+          "share": 0.02987
+        }
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": true,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 2.077,
+        "regionMAE": 3.864,
+        "diff": {
+          "x": 221,
+          "y": 69,
+          "width": 357,
+          "height": 231,
+          "share": 0.02987
+        }
+      },
+      "unstyled": 9
+    },
+    {
+      "example": "table-footer",
+      "status": "differs",
+      "worst": {
+        "gate": "pixels",
+        "key": "#demo only",
+        "mae": 1.156,
+        "regionMAE": 3.012,
+        "diff": {
+          "x": 221,
+          "y": 69,
+          "width": 357,
+          "height": 135,
+          "share": 0.01664
+        }
+      },
+      "failingSteps": [
+        "mount",
+        "wait 0"
+      ],
+      "passed": {
+        "semantics": true,
+        "geometry": true,
+        "pixels": false
+      },
+      "pixels": {
+        "mae": 1.156,
+        "regionMAE": 3.012,
+        "diff": {
+          "x": 221,
+          "y": 69,
+          "width": 357,
+          "height": 135,
+          "share": 0.01664
+        }
+      },
+      "unstyled": 9
+    },
+    {
+      "example": "tabs-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.163,
+        "regionMAE": 0.48
+      },
+      "unstyled": 10
+    },
+    {
+      "example": "tabs-disabled",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.036,
+        "regionMAE": 0.189
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "tabs-icons",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.059,
+        "regionMAE": 0.305
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "tabs-line",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.082,
+        "regionMAE": 0.429
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "tabs-vertical",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.037,
+        "regionMAE": 0.139
+      },
+      "unstyled": 4
+    },
+    {
+      "example": "textarea-button",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1174), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 1
+    },
+    {
+      "example": "textarea-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1165), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 1
+    },
+    {
+      "example": "textarea-disabled",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1199), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 1
+    },
+    {
+      "example": "textarea-field",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1199), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 1
+    },
+    {
+      "example": "textarea-invalid",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration field-sizing: content (stylesheet generated by Tailwind CSS, line 1199), which Blitz's style engine (Stylo) does not support, applies to an element matching .field-sizing-content"
+      ],
+      "unstyled": 1
+    },
+    {
+      "example": "toggle-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.076,
+        "regionMAE": 0.398
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "toggle-disabled",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.036,
+        "regionMAE": 0.187
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "toggle-group-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.004,
+        "regionMAE": 0.02
+      },
+      "unstyled": 8
+    },
+    {
+      "example": "toggle-group-disabled",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.002,
+        "regionMAE": 0.012
+      },
+      "unstyled": 8
+    },
+    {
+      "example": "toggle-group-font-weight-selector",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1381), which Blitz's style engine (Stylo) does not support, applies to an element matching .group-has-data-horizontal\\/field\\:text-balance:is(:where(.group\\/field):has(:where([data-orientation=\"horizontal\"])) *)"
+      ],
+      "unstyled": 8
+    },
+    {
+      "example": "toggle-group-outline",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.007,
+        "regionMAE": 0.035
+      },
+      "unstyled": 8
+    },
+    {
+      "example": "toggle-group-sizes",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.222,
+        "regionMAE": 0.869
+      },
+      "unstyled": 8
+    },
+    {
+      "example": "toggle-group-spacing",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.052,
+        "regionMAE": 0.27
+      },
+      "unstyled": 8
+    },
+    {
+      "example": "toggle-group-vertical",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.004,
+        "regionMAE": 0.013
+      },
+      "unstyled": 8
+    },
+    {
+      "example": "toggle-lg",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.001,
+        "regionMAE": 0.004
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "toggle-outline",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.042,
+        "regionMAE": 0.218
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "toggle-sizes",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.069,
+        "regionMAE": 0.36
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "toggle-sm",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.001,
+        "regionMAE": 0.004
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "toggle-with-text",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.021,
+        "regionMAE": 0.111
+      },
+      "unstyled": 6
+    },
+    {
+      "example": "tooltip-demo",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.016,
+        "regionMAE": 0.076
+      },
+      "unstyled": 2
+    },
+    {
+      "example": "tooltip-disabled",
+      "status": "incomplete",
+      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "unstyled": 2
+    },
+    {
+      "example": "tooltip-keyboard",
+      "status": "incomplete",
+      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "unstyled": 4
+    },
+    {
+      "example": "tooltip-sides",
+      "status": "incomplete",
+      "reason": "throws on mount on both sides: Error: Context \"Tooltip.Provider\" not found",
+      "unstyled": 2
+    },
+    {
+      "example": "typography-blockquote",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.188,
+        "regionMAE": 0.698
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-demo",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1340), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "typography-h1",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: unsupported: the CSS declaration text-wrap: balance (stylesheet generated by Tailwind CSS, line 1221), which Blitz's style engine (Stylo) does not support, applies to an element matching .text-balance"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "typography-h2",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.136,
+        "regionMAE": 0.605
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-h3",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.03,
+        "regionMAE": 0.145
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-h4",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.024,
+        "regionMAE": 0.121
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-inline-code",
+      "status": "reportsUnsupported",
+      "reports": [
+        "runic: E_FONT: \"@lucide/svelte\" in <code> (font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace) is not drawn: no font of its font-family is embedded in the app"
+      ],
+      "unstyled": 0
+    },
+    {
+      "example": "typography-large",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.029,
+        "regionMAE": 0.144
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-lead",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.036,
+        "regionMAE": 0.148
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-list",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.578,
+        "regionMAE": 1.505
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-muted",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.04,
+        "regionMAE": 0.217
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-p",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.087,
+        "regionMAE": 0.356
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-small",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.027,
+        "regionMAE": 0.151
+      },
+      "unstyled": 0
+    },
+    {
+      "example": "typography-table",
+      "status": "matches",
+      "pixels": {
+        "mae": 0.068,
+        "regionMAE": 0.138
+      },
+      "unstyled": 0
+    }
+  ]
+}
