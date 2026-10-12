@@ -49,12 +49,19 @@ export class TypeMapper {
   nothingInBoxes?: (decl: ts.Declaration) => boolean;
   /**
    * The type of the functions given to the property declared by `decl`,
-   * typed as any function (`(...args: any[]) => any`), where they all have
+   * typed as any function (`(...args: any[]) => any`; `box`: boxes of such
+   * functions, by the function their `current` holds), where they all have
    * one type (frontend/unions.ts).
    */
   anyFnSlot?: (decl: ts.Declaration, box?: boolean) => ts.Type | undefined;
   /** While a box property holding nothing is mapped: its `unknown` content. */
   private boxNothing = false;
+  /**
+   * While a box property holding functions typed with `any` is mapped: the
+   * type of the functions given to it (`anyFnSlot`), which its `current`
+   * (the first such function type mapped) takes.
+   */
+  private boxFunction: ts.Type | undefined;
   /** The record of MutationObservers, once a program uses one. */
   mutationObserver?: number;
   /** The record of ResizeObservers (M6), once a program uses one. */
@@ -205,6 +212,10 @@ export class TypeMapper {
 
   map(t: ts.Type, at: ts.Node): Type {
     const F = ts.TypeFlags;
+    if (this.boxFunction && this.anyFn(t)) {
+      t = this.boxFunction;
+      this.boxFunction = undefined;
+    }
     // `this` in a class member: the class instance.
     if (t.flags & F.TypeParameter && (t as { isThisType?: boolean }).isThisType) {
       const c = this.checker.getBaseConstraintOfType(t);
@@ -975,14 +986,18 @@ export class TypeMapper {
         !nothing && decl && (this.anyFn(pt) || boxOfAnyFn)
           ? this.anyFnSlot?.(decl as ts.Declaration, boxOfAnyFn)
           : undefined;
-      if (given) pt = given;
+      // (A box: its `current` takes the functions' type.)
+      if (given && !boxOfAnyFn) pt = given;
       const outer = this.boxNothing;
+      const outerFunction = this.boxFunction;
       this.boxNothing = boxNothing;
+      this.boxFunction = given && boxOfAnyFn ? given : undefined;
       let mapped: Type;
       try {
         mapped = nothing ? { maybe: 'void' } : this.map(pt, where);
       } finally {
         this.boxNothing = outer;
+        this.boxFunction = outerFunction;
       }
       placeholder.fields.push({
         name: p.name,

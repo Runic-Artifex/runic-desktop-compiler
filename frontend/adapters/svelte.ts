@@ -3095,6 +3095,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
     };
 
     /**
+     * A prop typed wider than the value model that no site passes a value
+     * and its component never writes, with a default (bits-ui's PinInput
+     * `onComplete = noop`, typed `(...args: any[]) => void`, under
+     * shadcn-svelte's InputOTP, which no example gives one): it only ever
+     * holds its default, so it has the default's type. Undefined otherwise
+     * (also where the default's type is outside the value model).
+     */
+    const typeOfDefault = (sym: ts.Symbol, el: ts.BindingElement): Type | undefined => {
+      const passed = domains.siteTypes(sym);
+      if (!passed?.length || passed.some(t => t !== undefined)) return undefined;
+      if (domains.written(sym) !== false) return undefined;
+      let fallback = el.initializer;
+      if (fallback && runeName(fallback) === '$bindable')
+        fallback = (fallback as ts.CallExpression).arguments[0];
+      if (!fallback) return undefined;
+      const t = types.tryMap(checker.getTypeAtLocation(fallback), fallback);
+      return t && t !== 'void' ? t : undefined;
+    };
+
+    /**
      * The member of a discriminated union props type that every instance of
      * the component takes: bits-ui's ToggleGroup and Accordion take
      * `type: "single"` with `value?: string` or `type: "multiple"` with
@@ -3230,7 +3250,8 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
             (values && typeOfValues(values)) ??
             typeOfSites(sym, el) ??
             typeOfBinds(sym, el) ??
-            typeOfChildBinds(sym, el);
+            typeOfChildBinds(sym, el) ??
+            typeOfDefault(sym, el);
           if (!t) {
             if (mixed)
               tsFail(

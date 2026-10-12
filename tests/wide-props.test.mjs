@@ -196,3 +196,93 @@ test('a prop typed any that is only bound to a child prop takes its type', async
     'Wrapper.svelte:3:9',
   );
 });
+
+// (The class is lowered with the component: local modules lower before
+// the props' sites are known, bits-ui's package modules where used.)
+const PIN = `<script lang="ts">
+  import { boxWith, type ReadableBox } from 'svelte-toolbelt';
+  import { noop } from './noop.ts';
+  let { onComplete = noop, id }: { onComplete?: (...args: any[]) => void; id: string } = $props();
+  interface Opts {
+    onComplete: ReadableBox<(...args: any[]) => void>;
+  }
+  class Pin {
+    opts: Opts;
+    done = $state(0);
+    constructor(opts: Opts) {
+      this.opts = opts;
+    }
+    fill(value: string) {
+      this.opts.onComplete.current(value);
+      this.done++;
+    }
+  }
+  const pin = new Pin({ onComplete: boxWith(() => onComplete) });
+</script>
+
+<button {id} onclick={() => pin.fill('1234')}>{pin.done}</button>
+`;
+const PIN_FILES = {
+  'noop.ts': 'export function noop() {}\n',
+  'Wrapper.svelte': `<script lang="ts">
+  import type { ComponentProps } from 'svelte';
+  import Pin from './Pin.svelte';
+  let { ...rest }: ComponentProps<typeof Pin> = $props();
+</script>
+
+<Pin {...rest} />
+`,
+  'App.svelte': `<script lang="ts">
+  import Wrapper from './Wrapper.svelte';
+</script>
+
+<Wrapper id="a" />
+`,
+};
+
+test('a prop typed wider than the value model that no site passes has its default type', async () => {
+  // bits-ui's PinInput `onComplete = noop` under shadcn-svelte's InputOTP:
+  // the prop, and the box option given its getter, hold only the default.
+  await withApp({ ...PIN_FILES, 'Pin.svelte': PIN }, async root => {
+    const { ir } = await lower(await collect(root));
+    const [start, clicked] = interpret(ir, [{ kind: 'click', id: 'a' }]);
+    assert.equal(text(byId(start.state.dom, 'a')), '0');
+    assert.equal(text(byId(clicked.state.dom, 'a')), '1');
+  });
+  // The component also writes it: its values do not all come from the
+  // default, rejected where it is declared.
+  await rejects(
+    {
+      ...PIN_FILES,
+      'Pin.svelte': PIN.replace(
+        '</script>',
+        `  export function reset(f: (...args: any[]) => void) {
+    onComplete = f;
+  }
+</script>`,
+      ),
+    },
+    'E_TYPE_UNION',
+    'Pin.svelte:4:9',
+  );
+  // An extra argument whose evaluation may have an effect is not dropped:
+  // the call keeps TypeScript's parameters, outside the value model.
+  await rejects(
+    {
+      ...PIN_FILES,
+      'Pin.svelte': PIN.replace(
+        'this.opts.onComplete.current(value);',
+        'this.opts.onComplete.current(this.bump(value));',
+      ).replace(
+        '    fill(value: string) {',
+        `    bump(value: string): string {
+      this.done++;
+      return value;
+    }
+    fill(value: string) {`,
+      ),
+    },
+    'E_TYPE_UNSUPPORTED',
+    'Pin.svelte:19:7',
+  );
+});

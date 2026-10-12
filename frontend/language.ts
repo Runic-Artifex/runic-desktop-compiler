@@ -10921,7 +10921,15 @@ export class Lowerer {
       )
     ) {
       const ft = this.irType(this.functionOf(this.expr(e.expression, b), b), b);
-      if (typeof ft === 'object' && 'fn' in ft && argNodes.length <= ft.fn.params.length)
+      // (Arguments beyond its parameters, which JavaScript evaluates and
+      // ignores: dropped where evaluating them has no effect and cannot
+      // throw, bits-ui's PinInput `onComplete(value)` of its default `noop`.)
+      const ignored = (i: number) => this.effectFree(this.expr(argNodes[i], b));
+      if (
+        typeof ft === 'object' &&
+        'fn' in ft &&
+        argNodes.every((_, i) => i < ft.fn.params.length || ignored(i))
+      )
         return ft.fn.params.map((pt, i) => {
           const arg = argNodes[i];
           return arg ? this.coerce(arg, b, pt) : ({ op: 'undefined', type: pt } as Expr);
