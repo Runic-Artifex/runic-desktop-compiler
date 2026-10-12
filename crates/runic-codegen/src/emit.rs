@@ -67,13 +67,15 @@ pub fn patch_section(manifest: &str) -> String {
 /// Write the generated crate for `program` into `out`.
 ///
 /// `runtime` is the path of `crates/runic-runtime`; `lock` the workspace
-/// Cargo.lock whose dependency versions the app must reuse.
+/// Cargo.lock whose dependency versions the app must reuse; `asset_root` the
+/// app directory image assets are read from (`crate::images::write`).
 pub fn write_crate(
     program: &Program,
     ir_hash: &str,
     out: &Path,
     runtime: &Path,
     lock: &Path,
+    asset_root: Option<&Path>,
     options: &Options,
 ) -> Result<()> {
     let (css, assets) = extract_assets(&program.styles.css)?;
@@ -84,6 +86,7 @@ pub fn write_crate(
     for (i, (_, bytes)) in assets.iter().enumerate() {
         std::fs::write(out.join("assets").join(i.to_string()), bytes).map_err(io)?;
     }
+    crate::images::write(program, asset_root, out)?;
     std::fs::write(out.join("src/app.rs"), app).map_err(io)?;
     std::fs::write(
         out.join("src/main.rs"),

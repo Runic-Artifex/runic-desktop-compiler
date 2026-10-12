@@ -10,6 +10,7 @@ import { frontendTooling } from './adapters/tooling.mjs';
 import { cssCheck } from './codegen.mjs';
 import { parse as parseHTML } from 'parse5';
 import { isSourcePackage } from '../frontend/sources.ts';
+import { imageSourceInput } from './images.mjs';
 
 export const hash = value =>
   createHash('sha256')
@@ -651,6 +652,8 @@ export async function collect(app) {
   const uniqueAssets = [...new Map(assets.map(a => [a.path, a])).values()].sort((a, b) =>
     a.path.localeCompare(b.path),
   );
+  // The pinned image record and its files (compiler/images.mjs).
+  const images = await imageSourceInput(root);
   return {
     root,
     entry,
@@ -664,7 +667,13 @@ export async function collect(app) {
     ...(bodyAttrs && Object.keys(bodyAttrs).length ? { bodyAttrs } : {}),
     ...(kit ? { kit } : {}),
     manifest,
-    hash: hash({ manifest, assets: uniqueAssets, html: hash(htmlSource), config }),
+    hash: hash({
+      manifest,
+      assets: uniqueAssets,
+      html: hash(htmlSource),
+      config,
+      ...(images ? { images } : {}),
+    }),
   };
 }
 

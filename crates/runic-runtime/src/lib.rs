@@ -15,6 +15,7 @@ mod events;
 pub mod floating;
 mod forms;
 pub mod history;
+pub mod images;
 mod jobs;
 mod layout;
 #[cfg(feature = "probe")]
@@ -220,6 +221,8 @@ pub trait App: 'static {
     /// Attributes of the element the app mounts in (the HTML template's
     /// container, M6); `None` for `<div id="root">`.
     const CONTAINER_ATTRS: Option<&'static [(&'static str, &'static str)]> = None;
+    /// The pinned image URLs, sorted by URL (`images::find`; M6).
+    const IMAGES: &'static [images::PinnedImage] = &[];
 
     fn new() -> Self;
     /// Build the initial DOM under `parent` and register listeners.

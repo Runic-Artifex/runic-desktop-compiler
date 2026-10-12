@@ -88,8 +88,12 @@ export function check(ir) {
   return withIR(ir, file => JSON.parse(run(['check', file])));
 }
 
-/** Write the generated application crate for `ir` into `out`. */
-export function emit(ir, out, optimize = true) {
+/**
+ * Write the generated application crate for `ir` into `out`. `assetRoot`, the
+ * app directory, is where the backend reads image assets from (their bytes do
+ * not travel in the IR; compiler/images.mjs pinned them).
+ */
+export function emit(ir, out, optimize = true, assetRoot = undefined) {
   withIR(ir, file =>
     run([
       'emit',
@@ -101,6 +105,7 @@ export function emit(ir, out, optimize = true) {
       path.join(repository, 'Cargo.lock'),
       '--hash',
       ir.irHash ?? '',
+      ...(assetRoot ? ['--asset-root', assetRoot] : []),
       ...(optimize ? [] : ['--no-opt']),
     ]),
   );

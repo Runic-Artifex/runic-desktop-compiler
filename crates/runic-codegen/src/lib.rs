@@ -23,6 +23,7 @@ pub mod dynamic;
 pub mod emit;
 pub mod expr;
 pub mod floating;
+pub mod images;
 pub mod types;
 
 use expr::{FnCtx, js_str, rust_str};
@@ -3271,6 +3272,8 @@ pub fn generate(
             attr_list(c)
         );
     }
+    // Pinned image URLs (M6): the table the runtime resolves them through.
+    template_attrs += &crate::images::table(p);
     let assets: String = asset_mimes
         .iter()
         .enumerate()
