@@ -249,6 +249,55 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       ['.b', 'none'],
     ],
   );
+  // Blitz breaks lines as Chromium 153 does for `balance` and `stable`
+  // (greedy, as `auto`): no guard, except that a balancing rule is reported
+  // where it reaches a text area, whose text Blitz does not balance.
+  // `pretty` (which Stylo drops) is reported where it applies, also through
+  // a var().
+  assert.deepEqual(
+    (
+      (await guards(
+        '.b { text-wrap-style: stable }\n.c { text-wrap: nowrap }\n.e { text-wrap: wrap stable }',
+      )) ?? []
+    ).map(g => g.message),
+    [],
+  );
+  assert.deepEqual(
+    (
+      await guards(
+        '.a, h1 > p { text-wrap: balance }\n.b { text-wrap-style: balance }\n' +
+          '.c { --w: balance }\n.d { text-wrap: var(--w) }',
+      )
+    ).map(g => [g.selector, /\(s\.css, line (\d)\) applies to a text area/.exec(g.message)?.[1]]),
+    [
+      ['.a:is(textarea), .a textarea, h1 > p:is(textarea), h1 > p textarea', '1'],
+      ['.b:is(textarea), .b textarea', '2'],
+      ['.d:is(textarea), .d textarea', '4'],
+    ],
+  );
+  assert.deepEqual(
+    (
+      await guards(
+        '.a { text-wrap: pretty }\n.c { --w: pretty }\n.d { text-wrap: var(--w) }\n' +
+          '.e { text-wrap-style: pretty }',
+      )
+    ).map(g => [
+      g.selector,
+      /\(s\.css, line (\d)\), which (.*), applies/.exec(g.message)?.slice(1),
+    ]),
+    [
+      ['.a', ['1', "Blitz's style engine (Stylo) does not support"]],
+      ['.e', ['4', "Blitz's style engine (Stylo) does not support"]],
+      ['.d', ['3', 'Blitz does not lay out as Chromium does']],
+    ],
+  );
+  await check('p { color: red }\np::before { text-wrap: pretty }', 'E_CSS_PROPERTY', 2);
+  await check(
+    'p { color: red }\ntextarea::placeholder { text-wrap: balance }',
+    'E_CSS_PROPERTY',
+    2,
+  );
+  await check('p::before { text-wrap: balance; text-wrap-style: stable }', undefined);
   // Not where a later rule of at least its specificity sets the property
   // (`unless`); the legacy box's clamping and orientation not where its
   // `display: -webkit-box` is overridden. Scroll margins are recognized

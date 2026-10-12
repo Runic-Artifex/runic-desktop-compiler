@@ -846,8 +846,42 @@ function checkWithStylo(code, file) {
       );
     return later.length ? later.map(r => fullSelectors(r).join(', ')).join(', ') : undefined;
   };
-  for (const i of result.invalid) {
-    const d = decls[i];
+  // Blitz breaks lines as Chromium 153 does for `text-wrap-style: auto`,
+  // `stable` (greedy in both) and `balance` (Blink's balancing, in the Blitz and
+  // Parley forks), except in a text area, whose text Chromium balances too and
+  // Blitz's text editor does not: balance is reported where a text area
+  // matches the rule or is inside an element that does (the property is
+  // inherited). `pretty` is reported as Stylo's drops are; Stylo drops it, but
+  // not through a `var()`.
+  const textWrap = (d, keyword) =>
+    /^text-wrap(-style)?$/.test(d.prop) && possibleKeywords(d.value, customValues).has(keyword);
+  const reported = [
+    ...result.invalid.map(i => decls[i]),
+    ...decls.filter(d => !invalid.has(d) && textWrap(d, 'pretty')),
+  ];
+  for (const d of decls.filter(d => !invalid.has(d) && textWrap(d, 'balance'))) {
+    const selectors = d.parent?.type === 'rule' ? fullSelectors(d.parent) : [];
+    const rule = selectors.join(', ');
+    if (selectors.some(x => /::placeholder\b/i.test(x)))
+      throw new Diagnostic(
+        'E_CSS_PROPERTY',
+        `Unsupported CSS declaration ${d.prop}: ${d.value} (in ${d.parent.selector}): Blitz does not balance the text of a text area`,
+        at(d.source.start.line, d.source.start.column),
+      );
+    if (
+      !selectors.length ||
+      selectors.some(x => /::|:(before|after|first-line|first-letter)\b/i.test(x))
+    )
+      continue;
+    guards.push({
+      selector: selectors.flatMap(s => [`${s}:is(textarea)`, `${s} textarea`]).join(', '),
+      message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}) applies to a text area through ${rule}, and Blitz does not balance the text of a text area`,
+    });
+  }
+  for (const d of reported) {
+    const unsupported = invalid.has(d)
+      ? "Blitz's style engine (Stylo) does not support"
+      : 'Blitz does not lay out as Chromium does';
     if (EQUIVALENT_DROPPED_PROPERTY.has(d.prop)) continue;
     if (EQUIVALENT_DROPPED_VALUE.get(d.prop) === d.value.trim().toLowerCase()) continue;
     // Blitz draws no resize grip whatever `resize` says; Chromium's default
@@ -883,13 +917,13 @@ function checkWithStylo(code, file) {
               when: `scroll-container:${scrollPaddingAxis(d.prop)}:${rootFont ? '' : (lengthPx(d.value, customValues) ?? '')}`,
             }
           : {}),
-        message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}), which Blitz's style engine (Stylo) does not support, applies to an element matching ${rule}`,
+        message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}), which ${unsupported}, applies to an element matching ${rule}`,
       });
       continue;
     }
     throw new Diagnostic(
       'E_CSS_PROPERTY',
-      `Unsupported CSS declaration ${d.prop}: ${d.value}${rule ? ` (in ${rule})` : ''}: Blitz's style engine (Stylo) does not support it`,
+      `Unsupported CSS declaration ${d.prop}: ${d.value}${rule ? ` (in ${rule})` : ''}: ${invalid.has(d) ? "Blitz's style engine (Stylo) does not support it" : 'Blitz does not lay it out as Chromium does'}`,
       at(d.source.start.line, d.source.start.column),
     );
   }
