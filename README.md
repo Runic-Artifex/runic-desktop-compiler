@@ -20,7 +20,7 @@ node compiler/cli.mjs build fixtures/settings-wizard --release
 ./artifacts/settings-wizard/runic-app --x11
 ```
 
-Omit `--x11` to use the desktop's default display backend. Other fixtures are `counter-*`, `editor-*` and `modules-*` (for `react`, `vue` and `svelte`), plus `quantity`, `thermostat`, `pricing` and `settings-wizard` (React); `examples/` holds 7GUIs Counter, Temperature Converter and a ledger in all three frameworks. `node compiler/cli.mjs analyze <app>` reports diagnostics without building. `fixtures/unsupported-effect` shows a rejection.
+Omit `--x11` to use the desktop's default display backend. Other fixtures are `counter-*`, `editor-*` and `modules-*` (for `react`, `vue` and `svelte`), plus `quantity`, `thermostat`, `pricing` and `settings-wizard` (React); `examples/` holds 7GUIs Counter, Temperature Converter and a ledger in all three frameworks. `node compiler/cli.mjs analyze <app>` reports diagnostics without building. `node compiler/cli.mjs generate <app>` and `node compiler/cli.mjs images <app>` are the explicit steps that write an app's recorded inputs (generated sources; pinned remote images, the only networked step); builds only check their records. `fixtures/unsupported-effect` shows a rejection.
 
 ## Repository
 
