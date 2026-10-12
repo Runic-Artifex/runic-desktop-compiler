@@ -856,11 +856,14 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   // component, forwarded where its rest props are spread onto a component.
   const restSlots = new Map<string, Set<string>>();
   for (const [file, d] of decls) if (d.rest) restSlots.set(file, new Set());
+  /** Snippets sites pass on as attributes (`{children}`), by site (`snippetAttributes`). */
+  const snippetAttrs = new Map<SNode, string[]>();
   /** The snippets a site passes (`children` for content). */
   const snippetsPassed = (n: SNode): string[] => {
     const out: string[] = n.fragment.nodes
       .filter((c: SNode) => c.type === 'SnippetBlock')
       .map((c: SNode) => c.expression.name);
+    out.push(...(snippetAttrs.get(n) ?? []));
     if (
       n.fragment.nodes.some(
         (c: SNode) => c.type !== 'SnippetBlock' && !(c.type === 'Text' && !c.data.trim()),
@@ -905,15 +908,18 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (n.attributes.some((a: SNode) => spreadsRest(u.file, a)))
         slotForwards.push({ from: u.file, to });
     });
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const { from, to } of slotForwards)
-      for (const s of restSlots.get(from) ?? [])
-        if (!decls.get(to)!.declared.has(s) && restSlots.get(to) && !restSlots.get(to)!.has(s)) {
-          restSlots.get(to)!.add(s);
-          changed = true;
-        }
-  }
+  const forwardRestSlots = () => {
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const { from, to } of slotForwards)
+        for (const s of restSlots.get(from) ?? [])
+          if (!decls.get(to)!.declared.has(s) && restSlots.get(to) && !restSlots.get(to)!.has(s)) {
+            restSlots.get(to)!.add(s);
+            changed = true;
+          }
+    }
+  };
+  forwardRestSlots();
 
   // The props type each component exports to its parents' virtual modules.
   /** The local name of a child's props type in a virtual module (`Card.Root` → `__RunicProps_Card$Root`). */
@@ -1418,6 +1424,38 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
   const tsFail = (n: ts.Node, code: string, message: string): never =>
     fail(code, message, sourceOf(n));
   const checker = program.getTypeChecker();
+  // A snippet a site passes as an attribute to a component that collects
+  // it in its rest props (shadcn-svelte's CommandDialog `<Command
+  // {...restProps} {children} />`): a slot of that component, as content
+  // or a `{#snippet}` block would be (the site forwards its own snippet
+  // prop, or is rejected where it lowers the attribute).
+  const isSnippet = (t: ts.Type): boolean => {
+    const present = checker.getNonNullableType(t);
+    if (present.isUnion()) return present.types.every(isSnippet);
+    const sym = present.aliasSymbol ?? present.getSymbol();
+    const file = sym?.declarations?.[0]?.getSourceFile().fileName ?? '';
+    return sym?.name === 'Snippet' && /[\\/]svelte[\\/]/.test(file);
+  };
+  for (const u of order)
+    walkTemplate(u.ast.fragment, n => {
+      if (n.type !== 'Component') return;
+      const to = u.children.get(n.name);
+      if (!to || !restSlots.get(to)) return;
+      for (const a of n.attributes) {
+        if (
+          a.type !== 'Attribute' ||
+          decls.get(to)!.declared.has(a.name) ||
+          a.value === true ||
+          Array.isArray(a.value)
+        )
+          continue;
+        const e = skipParens(nodeIn(u, a.value.expression) as ts.Expression);
+        if (!ts.isIdentifier(e) || !isSnippet(checker.getTypeAtLocation(e))) continue;
+        snippetAttrs.set(n, [...(snippetAttrs.get(n) ?? []), a.name]);
+        restSlots.get(to)!.add(a.name);
+      }
+    });
+  forwardRestSlots();
   // SvelteKit: `error()` and `redirect()` throw values only the router reads
   // (frontend/adapters/kit/kit.ts), so code that may catch them (a `catch`
   // in a route module, or in a module or component that imports
@@ -4714,6 +4752,26 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
                 );
               v = { op: 'unwrap', value: v };
               from = inner;
+            }
+            // A prop of this component that only ever holds undefined (no
+            // site passes it, it has no default and is never written:
+            // shadcn-svelte's CommandDialog `portalProps`, typed by its
+            // values as a nullable string), passed where another nullable
+            // type is expected: undefined of that type.
+            const decl = ts.isIdentifier(e) ? checker.getSymbolAtLocation(e) : undefined;
+            const el = decl?.valueDeclaration;
+            if (
+              maybeInner(from) !== undefined &&
+              maybeInner(want) !== undefined &&
+              !sameType(from, want) &&
+              el &&
+              ts.isBindingElement(el) &&
+              !el.initializer &&
+              domains.values(decl!)?.every(x => x === undefined) &&
+              domains.written(decl!) === false
+            ) {
+              v = { op: 'undefined', type: want };
+              from = want;
             }
             const fn = maybeInner(want) ?? want;
             const adapted = lower.adaptFunction(v, from, fn);

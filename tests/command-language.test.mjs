@@ -2,9 +2,11 @@
 // bits-command): template snippets, a component instance bound where
 // nothing reads it, props typed through bindings that forward them, `??`
 // decided by the values the sites pass, nullable keys of maps and sets,
-// templates reading one field of state
-// beside a map that changes, CSS.escape, and script writing attributes
-// (native only). The interpreter runs each program.
+// templates reading one field of state beside a map that changes,
+// CSS.escape, script writing attributes (native only), and for
+// shadcn-svelte's CommandDialog snippet props passed on as attributes
+// into rest props and props that only hold undefined passed on. The
+// interpreter runs each program.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -262,5 +264,71 @@ test('script writing an attribute is native only: the interpreter reports it inc
       assert.ok(JSON.stringify(ir).includes('"element.setAttribute"'));
       assert.throws(() => interpret(ir, []), /RunicLayoutError|needs the native DOM/);
     },
+  );
+});
+
+const LEAF = `<script lang="ts">
+  import type { Snippet } from 'svelte';
+  let { children, box }: { children?: Snippet; box?: { to?: string } } = $props();
+</script>
+
+<div>{@render children?.()}</div>
+<p>{box?.to ?? 'none'}</p>
+`;
+const MID = `<script lang="ts">
+  import type { Snippet } from 'svelte';
+  import Leaf from './Leaf.svelte';
+  let { ...rest }: { children?: Snippet } = $props();
+</script>
+
+<Leaf {...rest} />
+`;
+const OUTER = `<script lang="ts">
+  import type { Snippet } from 'svelte';
+  import Mid from './Mid.svelte';
+  import Leaf from './Leaf.svelte';
+  let { children, box }: { children: Snippet; box?: { to?: string | HTMLElement } } = $props();
+</script>
+
+<Mid {children} />
+<Leaf {box} />
+`;
+
+test('a snippet prop passed on as an attribute reaches rest props; a prop holding only undefined passes on', async () => {
+  const files = {
+    'Leaf.svelte': LEAF,
+    'Mid.svelte': MID,
+    'Outer.svelte': OUTER,
+    'App.svelte': `<script lang="ts">
+  import Outer from './Outer.svelte';
+</script>
+
+<Outer><b>hello</b></Outer>
+`,
+  };
+  await withApp(files, async root => {
+    const { ir } = await lower(await collect(root));
+    const { dom } = interpret(ir, [])[0].state;
+    assert.deepEqual(texts(dom), ['hello', 'none', '', 'none']);
+  });
+  // A snippet that is not a snippet prop of the site is not passed on (as
+  // before, a template snippet is no value).
+  await withApp(
+    {
+      ...files,
+      'Outer.svelte': OUTER.replace(
+        '<Mid {children} />',
+        '{#snippet own()}<i>own</i>{/snippet}\n<Mid children={own} />',
+      ),
+    },
+    root =>
+      assert.rejects(
+        collect(root).then(g => lower(g)),
+        e => {
+          failWith('E_UNRESOLVED', /own is not a supported binding here/)(e);
+          assert.equal(`${e.source.file}:${e.source.line}:${e.source.column}`, 'Outer.svelte:9:16');
+          return true;
+        },
+      ),
   );
 });
