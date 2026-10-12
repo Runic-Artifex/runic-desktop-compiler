@@ -8,7 +8,7 @@
 | [CONTRACT.md](CONTRACT.md) | The input that is implemented and accepted today |
 | [GAPS.md](GAPS.md) | What is not covered yet, why, and what it would take: the list to implement from |
 | [BLITZ-GAPS.md](BLITZ-GAPS.md) | Rendering gaps of Blitz, Stylo and Taffy, and the fork patches |
-| [IR.md](IR.md) | IR schema 4, the frontend/backend boundary |
+| [IR.md](IR.md) | IR schema 5, the frontend/backend boundary |
 | [design/](design/) | Milestone designs (M2 to M6) |
 | [research/](research/) | Research notes, including the [approach review](research/APPROACH-REVIEW.md) of 2026-10-07 |
 | [reference/BLITZ-BLAZOR-REVIEW.md](reference/BLITZ-BLAZOR-REVIEW.md) | The archived Blitz/Blazor initiative as a source of native fixes |

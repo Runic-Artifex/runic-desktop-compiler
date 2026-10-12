@@ -95,7 +95,7 @@ pub fn write_crate(
         Renderer::Gpu => "renderer-gpu",
     };
     // Only programs with inline SVG link Blitz's SVG support.
-    let features = if program.components.iter().any(|c| c.uses_svg()) {
+    let features = if program.uses_svg() {
         format!("\"{renderer}\", \"svg\"")
     } else {
         format!("\"{renderer}\"")

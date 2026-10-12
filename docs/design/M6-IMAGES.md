@@ -44,7 +44,7 @@ Each case checks geometry, the event trace and pixels. Image scaling filters lik
 
 ## Work order
 
-1. IR, validator and migration, with font assets moved and nothing else changed. Full `npm test` and workspace tests.
+1. IR, validator and migration, with font assets moved and nothing else changed. Full `npm test` and workspace tests. Done as schema 5 ([IR](../IR.md#program)): an `images` entry names its asset by index into `assets`, and `image/svg+xml` is accepted only in a program drawing inline SVG, the condition under which codegen selects the `svg` feature.
 2. `runic images` plus the build-time record check. Collector paths for local and pinned remote images.
 3. The Blitz load/error event patch, as a fork commit with its own probe.
 4. Runtime `NetProvider` and the `new Image()` host object. Lowering in `language.ts`.

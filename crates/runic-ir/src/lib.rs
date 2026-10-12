@@ -1,6 +1,6 @@
-//! Runic IR schema 4: serialized program types, validation, schema 3 migration
-//! and the reference interpreter that defines the meaning of each operation.
-//! See `docs/IR.md` and `docs/design/M2-VALUES.md`.
+//! Runic IR schema 5: serialized program types, validation, migration of
+//! schemas 2 to 4 and the reference interpreter that defines the meaning of
+//! each operation. See `docs/IR.md` and `docs/design/M2-VALUES.md`.
 
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ pub mod interp;
 pub mod migrate;
 pub mod validate;
 
-pub const SCHEMA: u32 = 4;
+pub const SCHEMA: u32 = 5;
 
 /// A diagnostic with a stable code, mirroring the frontend's `Diagnostic`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -72,6 +72,14 @@ pub struct Program {
     pub renderer: Renderer,
     pub capabilities: Vec<String>,
     pub styles: Styles,
+    /// Files embedded in the application: fonts referenced by the CSS and,
+    /// from M6, images.
+    #[serde(default)]
+    pub assets: Vec<Asset>,
+    /// The image URLs the program can load, each pinned to an image asset or
+    /// to an HTTP failure status (M6, docs/design/M6-IMAGES.md).
+    #[serde(default)]
+    pub images: Vec<Image>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub records: Vec<RecordType>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -300,8 +308,6 @@ pub enum Renderer {
 #[serde(deny_unknown_fields)]
 pub struct Styles {
     pub css: String,
-    #[serde(default)]
-    pub assets: Vec<Asset>,
     /// Declarations the style engine drops, in rules whose selectors can be
     /// matched against elements: reported as unsupported once one matches.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -333,6 +339,19 @@ pub struct Asset {
     pub sha256: String,
     pub bytes: u64,
     pub mime: String,
+}
+
+/// An image URL pinned at build time: exactly one of `asset`, the index of an
+/// image entry in `Program.assets`, and `status`, the HTTP status of a pinned
+/// failure.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Image {
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
 }
 
 /// IR types (D16). Unit variants serialize as strings (`"number"`), the others
@@ -553,6 +572,12 @@ pub enum Reactive {
 }
 
 impl Program {
+    /// Whether a component draws inline SVG, which selects the runtime's `svg`
+    /// feature.
+    pub fn uses_svg(&self) -> bool {
+        self.components.iter().any(Component::uses_svg)
+    }
+
     /// Whether class record `r` is `c` or one of its subclasses.
     pub fn extends(&self, r: usize, c: usize) -> bool {
         let mut at = Some(r);
@@ -2053,15 +2078,16 @@ impl Node {
     }
 }
 
-/// Parse and validate a serialized program of schema 3 or 4. Schema 3 inputs
+/// Parse and validate a serialized program of schema 2 to 5. Older schemas
 /// are migrated explicitly.
 pub fn load(json: &str) -> Result<Program> {
     let raw: serde_json::Value = serde_json::from_str(json)
         .map_err(|e| Diagnostic::new("E_IR", format!("Invalid IR JSON: {e}"), None))?;
     let program = match raw.get("schema").and_then(|s| s.as_u64()) {
         Some(3) | Some(2) => migrate::from_schema3(&raw)?,
-        Some(4) => serde_json::from_value(raw)
-            .map_err(|e| Diagnostic::new("E_IR", format!("Invalid schema 4 IR: {e}"), None))?,
+        Some(4) => migrate::from_schema4(raw)?,
+        Some(5) => serde_json::from_value(raw)
+            .map_err(|e| Diagnostic::new("E_IR", format!("Invalid schema 5 IR: {e}"), None))?,
         other => {
             return Err(Diagnostic::new(
                 "E_IR",

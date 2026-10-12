@@ -140,14 +140,14 @@ test('React still rejects unsupported canonical form props and nonflag booleans'
     );
 });
 
-test('React onSubmit allows synchronous FormEvent currentTarget and stays discrete in schema 4', async () => {
+test('React onSubmit allows synchronous FormEvent currentTarget and stays discrete in schema 5', async () => {
   await app(
     'react',
     `import {useState} from 'react';import type {FormEvent} from 'react';
 export function App(){const [log,setLog]=useState('');function submitted(e:FormEvent){e.preventDefault();e.stopPropagation();setLog(e.type+String(e.defaultPrevented)+String(e.currentTarget===e.target));}return <form id="form" onSubmit={submitted}><button>Save</button><p>{log}</p></form>;}`,
     async graph => {
       const { ir } = await lowerReact(graph);
-      assert.equal(ir.schema, 4);
+      assert.equal(ir.schema, 5);
       assert.equal(handlers(ir).filter(handler => handler.event === 'submit').length, 1);
       assert.ok(!(ir.schedule.continuous ?? []).includes('submit'));
       assert.ok(builtins(ir).includes('event.preventDefault'));
@@ -165,7 +165,7 @@ test('Vue and Svelte route typed SubmitEvent through generic listeners', async (
   for (const [framework, source] of Object.entries(sources))
     await app(framework, source, async graph => {
       const { ir } = await lowering[framework](graph);
-      assert.equal(ir.schema, 4);
+      assert.equal(ir.schema, 5);
       assert.equal(handlers(ir).filter(handler => handler.event === 'submit').length, 1);
       assert.ok(builtins(ir).includes('event.preventDefault'));
       assert.ok(builtins(ir).includes('event.stopPropagation'));

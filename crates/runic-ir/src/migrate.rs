@@ -1,8 +1,13 @@
-//! Explicit migration of schema 2/3 IR (emitted by the JS adapters) to schema 4.
+//! Explicit migration of older IR to schema 5: schema 2/3 (emitted by the old
+//! JS adapters) and schema 4.
 //!
 //! Schema 3 handler updates read `state` (the committed snapshot at handler
 //! entry) and `previous` (the pending value of the update's target slot). They
 //! map to `cell` reads with `snapshot` and `current` modes respectively.
+//!
+//! Schema 4 kept the embedded fonts in `styles.assets`; schema 5 moves them,
+//! unchanged and in order, to the top-level `assets` list and adds an empty
+//! `images` table.
 
 use crate::*;
 use serde_json::Value as Json;
@@ -388,10 +393,10 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
         capabilities,
         styles: Styles {
             css: field(v, "css")?.as_str().unwrap_or_default().to_owned(),
-            assets: serde_json::from_value(field(v, "assets")?.clone())
-                .or_else(|_| bad("assets"))?,
             guards: vec![],
         },
+        assets: serde_json::from_value(field(v, "assets")?.clone()).or_else(|_| bad("assets"))?,
+        images: vec![],
         globals: vec![],
         restore_focus: false,
         schedule: Default::default(),
@@ -411,4 +416,92 @@ pub fn from_schema3(v: &Json) -> Result<Program> {
             None => Default::default(),
         },
     })
+}
+
+/// Schema 4 differs from schema 5 only in where the embedded assets are
+/// listed: `styles.assets` moves to the top-level `assets` list unchanged, and
+/// the `images` table is empty.
+pub fn from_schema4(mut v: Json) -> Result<Program> {
+    let bad =
+        |message: &str| Diagnostic::new("E_IR", format!("Invalid schema 4 IR: {message}"), None);
+    let object = v.as_object_mut().ok_or_else(|| bad("not an object"))?;
+    for key in ["assets", "images"] {
+        if object.contains_key(key) {
+            return Err(bad(&format!("unknown field `{key}`")));
+        }
+    }
+    let assets = object
+        .get_mut("styles")
+        .and_then(Json::as_object_mut)
+        .ok_or_else(|| bad("missing styles"))?
+        .remove("assets")
+        .unwrap_or_else(|| Json::Array(vec![]));
+    object.insert("assets".into(), assets);
+    object.insert("images".into(), Json::Array(vec![]));
+    object.insert("schema".into(), Json::from(SCHEMA));
+    serde_json::from_value(v).map_err(|e| bad(&e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn schema4(styles: Json) -> Json {
+        json!({
+            "schema": 4,
+            "meta": {"title": "t", "sourceHash": "0".repeat(64), "frontend": {}},
+            "capabilities": ["dom"],
+            "styles": styles,
+            "components": [{"name": "App", "template": [], "cells": [], "handlers": []}],
+            "root": 0
+        })
+    }
+
+    #[test]
+    fn schema4_fonts_move_to_assets_unchanged() {
+        let fonts = json!([
+            {"path": "assets/A.woff2", "sha256": "a".repeat(64), "bytes": 1234, "mime": "font/woff2"},
+            {"path": "vendor/B.woff2", "sha256": "b".repeat(64), "bytes": 4 << 20, "mime": "font/woff2"}
+        ]);
+        let css = "@font-face { font-family: F; src: url(data:font/woff2;base64,AAEC); }";
+        let raw = schema4(
+            json!({"css": css, "assets": fonts.clone(), "guards": [{"selector": "p", "message": "m"}]}),
+        );
+        let program = crate::load(&raw.to_string()).unwrap();
+        assert_eq!(program.schema, SCHEMA);
+        assert_eq!(serde_json::to_value(&program.assets).unwrap(), fonts);
+        assert!(program.images.is_empty());
+        assert_eq!(program.styles.css, css);
+        assert_eq!(program.styles.guards.len(), 1);
+        // Everything else is the schema 4 program as it was.
+        let mut expected = raw.clone();
+        expected["schema"] = json!(SCHEMA);
+        expected["styles"].as_object_mut().unwrap().remove("assets");
+        expected["assets"] = fonts;
+        expected["images"] = json!([]);
+        let direct: Program = serde_json::from_value(expected).unwrap();
+        assert_eq!(program, direct);
+        // A program without fonts migrates to empty lists.
+        let program = crate::load(&schema4(json!({"css": ""})).to_string()).unwrap();
+        assert!(program.assets.is_empty() && program.images.is_empty());
+    }
+
+    #[test]
+    fn schema4_rejects_schema5_fields() {
+        for key in ["assets", "images"] {
+            let mut raw = schema4(json!({"css": ""}));
+            raw[key] = json!([]);
+            let e = crate::load(&raw.to_string()).unwrap_err();
+            assert_eq!(e.code, "E_IR");
+            assert!(e.message.contains(key), "{e}");
+        }
+    }
+
+    #[test]
+    fn schema5_rejects_styles_assets() {
+        let mut raw = schema4(json!({"css": "", "assets": []}));
+        raw["schema"] = json!(5);
+        assert_eq!(crate::load(&raw.to_string()).unwrap_err().code, "E_IR");
+    }
 }

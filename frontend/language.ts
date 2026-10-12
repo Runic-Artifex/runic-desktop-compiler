@@ -1,5 +1,5 @@
 // Shared lowering of TypeScript/JavaScript statements and expressions to IR
-// schema 4 (docs/design/M2-VALUES.md). Framework adapters supply only the
+// schema 5 (docs/design/M2-VALUES.md). Framework adapters supply only the
 // semantics of their reactive bindings through `Hooks`.
 import ts from 'typescript';
 import { platform } from 'node:os';

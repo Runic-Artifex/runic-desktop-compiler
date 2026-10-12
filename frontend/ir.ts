@@ -1,8 +1,8 @@
-// Runic IR schema 4 as TypeScript types. Mirrors crates/runic-ir/src/lib.rs;
+// Runic IR schema 5 as TypeScript types. Mirrors crates/runic-ir/src/lib.rs;
 // the Rust validator is authoritative. See docs/IR.md and
 // docs/design/M2-VALUES.md.
 
-export const SCHEMA = 4;
+export const SCHEMA = 5;
 
 export interface Source {
   file: string;
@@ -517,8 +517,27 @@ export interface Schedule {
   continuous?: EventKind[];
 }
 
+/**
+ * A file embedded in the application: a CSS font or (M6) an image, at most
+ * 4 MiB, and 32 MiB for all of a program's assets. `mime` is `font/woff2`,
+ * `image/png`, `image/jpeg`, `image/webp`, `image/gif`, or `image/svg+xml` in a
+ * program that draws inline SVG (the validator checks it).
+ */
+export interface Asset {
+  path: string;
+  sha256: string;
+  bytes: number;
+  mime: string;
+}
+
+/**
+ * An image URL pinned at build time (M6, docs/design/M6-IMAGES.md): the index
+ * of an image asset in `Program.assets`, or the HTTP status of a pinned failure.
+ */
+export type Image = { url: string; asset: number } | { url: string; status: number };
+
 export interface Program {
-  schema: 4;
+  schema: 5;
   meta: {
     title: string;
     sourceHash: string;
@@ -530,10 +549,13 @@ export interface Program {
   capabilities: string[];
   styles: {
     css: string;
-    assets: { path: string; sha256: string; bytes: number; mime: string }[];
     /** Declarations the style engine drops, reported once their selector matches. */
     guards?: StyleGuard[];
   };
+  /** Embedded files: fonts the CSS references and, from M6, images. */
+  assets: Asset[];
+  /** The image URLs the program can load, each pinned once. */
+  images: Image[];
   records?: RecordType[];
   functions?: Fn[];
   globals?: Global[];

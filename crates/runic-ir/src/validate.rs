@@ -1,4 +1,4 @@
-//! Structural, typing and resource validation for schema 4 programs.
+//! Structural, typing and resource validation for schema 5 programs.
 
 use crate::*;
 use std::collections::HashSet;
@@ -10,6 +10,21 @@ pub const MAX_FUNCTIONS: usize = 4096;
 pub const MAX_DEPTH: usize = 96;
 pub const MAX_CSS: usize = 4 * 1024 * 1024;
 pub const MAX_EXPRESSIONS: usize = 1 << 20;
+/// The largest embedded asset (a font or an image).
+pub const MAX_ASSET_BYTES: u64 = 4 << 20;
+/// All embedded assets of a program together.
+pub const MAX_PROGRAM_ASSET_BYTES: u64 = 32 << 20;
+/// The MIME types an embedded asset may have. `image/svg+xml` additionally
+/// needs the runtime's `svg` feature, which only programs drawing inline SVG
+/// select (`Program::uses_svg`).
+pub const ASSET_MIMES: &[&str] = &[
+    "font/woff2",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "image/svg+xml",
+];
 
 /// Elements the runtime renders with browser semantics, default actions
 /// included: links (`a` with an `href`) follow fragment links of this
@@ -1828,6 +1843,88 @@ fn check_fragments(p: &Program) -> Result<()> {
     Ok(())
 }
 
+/// Embedded assets (allowed MIME types, per-asset and per-program sizes) and
+/// the image table: each URL once, pinned to an existing image asset or to an
+/// HTTP status.
+fn check_assets(p: &Program) -> Result<()> {
+    let mut total = 0u64;
+    for a in &p.assets {
+        if a.path.is_empty() || a.path.starts_with('/') || a.path.split('/').any(|s| s == "..") {
+            return err("E_IR", "Invalid embedded asset path", None);
+        }
+        if !ASSET_MIMES.contains(&a.mime.as_str()) {
+            return err(
+                "E_IR",
+                format!("Embedded asset {} has unsupported type {}", a.path, a.mime),
+                None,
+            );
+        }
+        if a.mime == "image/svg+xml" && !p.uses_svg() {
+            return err(
+                "E_IR",
+                format!(
+                    "SVG image {} needs the runtime's svg feature, which only programs drawing inline SVG select",
+                    a.path
+                ),
+                None,
+            );
+        }
+        if a.bytes == 0 || a.bytes > MAX_ASSET_BYTES || a.sha256.len() != 64 {
+            return err("E_IR", format!("Invalid embedded asset {}", a.path), None);
+        }
+        total += a.bytes;
+    }
+    if total > MAX_PROGRAM_ASSET_BYTES {
+        return err(
+            "E_RESOURCE",
+            format!("Embedded assets exceed {MAX_PROGRAM_ASSET_BYTES} bytes"),
+            None,
+        );
+    }
+    let mut urls = HashSet::new();
+    for image in &p.images {
+        if image.url.is_empty() || !urls.insert(image.url.as_str()) {
+            return err(
+                "E_IR",
+                format!("Image URLs are distinct non-empty strings: {:?}", image.url),
+                None,
+            );
+        }
+        match (image.asset, image.status) {
+            (Some(i), None) => {
+                if !p
+                    .assets
+                    .get(i)
+                    .is_some_and(|a| a.mime.starts_with("image/"))
+                {
+                    return err(
+                        "E_IR",
+                        format!("Image {} names no image asset", image.url),
+                        None,
+                    );
+                }
+            }
+            (None, Some(status)) => {
+                if !(100..=599).contains(&status) {
+                    return err(
+                        "E_IR",
+                        format!("Image {} has invalid HTTP status {status}", image.url),
+                        None,
+                    );
+                }
+            }
+            _ => {
+                return err(
+                    "E_IR",
+                    format!("Image {} needs exactly one of asset and status", image.url),
+                    None,
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn validate(p: &Program) -> Result<()> {
     if p.schema != SCHEMA {
         return err("E_IR", format!("Expected schema {SCHEMA}"), None);
@@ -1845,14 +1942,7 @@ pub fn validate(p: &Program) -> Result<()> {
             return err("E_IR", format!("Unknown or duplicate capability {c}"), None);
         }
     }
-    for a in &p.styles.assets {
-        if a.path.is_empty() || a.path.starts_with('/') || a.path.split('/').any(|s| s == "..") {
-            return err("E_IR", "Invalid embedded asset path", None);
-        }
-        if a.mime != "font/woff2" || a.bytes == 0 || a.bytes > 4 << 20 || a.sha256.len() != 64 {
-            return err("E_IR", "Invalid embedded asset", None);
-        }
-    }
+    check_assets(p)?;
     for name in p.container_attrs.keys() {
         if !attr_name_ok(name) || name == "id" {
             return err("E_IR", format!("Invalid container attribute {name}"), None);
@@ -4731,6 +4821,157 @@ fn collect_exprs<'a>(body: &'a [Stmt], out: &mut Vec<&'a Expr>) {
                 }
             }
             Stmt::Break { .. } | Stmt::Continue { .. } => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod asset_tests {
+    use super::*;
+    use serde_json::{Value as Json, json};
+
+    fn asset(path: &str, mime: &str, bytes: u64) -> Json {
+        json!({"path": path, "sha256": "a".repeat(64), "bytes": bytes, "mime": mime})
+    }
+
+    fn program(assets: Json, images: Json, template: Json) -> Program {
+        serde_json::from_value(json!({
+            "schema": SCHEMA,
+            "meta": {"title": "assets", "sourceHash": "0".repeat(64), "frontend": {}},
+            "capabilities": ["dom"],
+            "styles": {"css": ""},
+            "assets": assets,
+            "images": images,
+            "components": [{"name": "App", "template": template}],
+            "root": 0
+        }))
+        .unwrap()
+    }
+
+    fn check(assets: Json, images: Json) -> Result<()> {
+        validate(&program(assets, images, json!([])))
+    }
+
+    fn rejects(assets: Json, images: Json, code: &str, text: &str) {
+        let e = check(assets, images).unwrap_err();
+        assert_eq!(e.code, code, "{e}");
+        assert!(e.message.contains(text), "{e}");
+    }
+
+    #[test]
+    fn accepts_fonts_images_and_pinned_failures() {
+        check(
+            json!([
+                asset("assets/F.woff2", "font/woff2", MAX_ASSET_BYTES),
+                asset("images/a.png", "image/png", 10),
+                asset("images/b.jpg", "image/jpeg", 10),
+                asset("images/c.webp", "image/webp", 10),
+                asset("images/d.gif", "image/gif", 10),
+            ]),
+            json!([
+                {"url": "https://example.com/a.png", "asset": 1},
+                {"url": "https://example.com/d.gif", "asset": 4},
+                {"url": "https://example.com/gone.png", "status": 404},
+                {"url": "https://example.com/min", "status": 100},
+                {"url": "https://example.com/max", "status": 599},
+            ]),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn rejects_disallowed_mime() {
+        for mime in ["font/ttf", "image/avif", "image/x-icon", "text/plain", ""] {
+            rejects(
+                json!([asset("a", mime, 10)]),
+                json!([]),
+                "E_IR",
+                "unsupported type",
+            );
+        }
+    }
+
+    #[test]
+    fn svg_images_need_the_svg_feature() {
+        let svg = json!([asset("images/a.svg", "image/svg+xml", 10)]);
+        rejects(svg.clone(), json!([]), "E_IR", "svg feature");
+        let view_box = json!({"name": "viewBox", "value": {"op": "lit", "value": "0 0 1 1"}});
+        let inline = json!([{"kind": "element", "tag": "svg", "attrs": [view_box]}]);
+        let images = json!([{"url": "https://example.com/a.svg", "asset": 0}]);
+        validate(&program(svg, images, inline)).unwrap();
+    }
+
+    #[test]
+    fn rejects_oversize_asset_and_program() {
+        for mime in ["image/png", "font/woff2"] {
+            rejects(
+                json!([asset("a", mime, MAX_ASSET_BYTES + 1)]),
+                json!([]),
+                "E_IR",
+                "Invalid embedded asset",
+            );
+        }
+        rejects(
+            json!([asset("a.png", "image/png", 0)]),
+            json!([]),
+            "E_IR",
+            "Invalid embedded asset",
+        );
+        let full: Vec<Json> = (0..MAX_PROGRAM_ASSET_BYTES / MAX_ASSET_BYTES)
+            .map(|i| asset(&format!("images/{i}.png"), "image/png", MAX_ASSET_BYTES))
+            .collect();
+        check(Json::Array(full.clone()), json!([])).unwrap();
+        let mut over = full;
+        over.push(asset("images/extra.png", "image/png", 1));
+        rejects(Json::Array(over), json!([]), "E_RESOURCE", "exceed");
+    }
+
+    #[test]
+    fn rejects_dangling_and_duplicate_images() {
+        let assets = json!([
+            asset("assets/F.woff2", "font/woff2", 10),
+            asset("images/a.png", "image/png", 10),
+        ]);
+        let cases = [
+            (json!([{"url": "u", "asset": 2}]), "no image asset"),
+            // A font is not an image.
+            (json!([{"url": "u", "asset": 0}]), "no image asset"),
+            (
+                json!([{"url": "u", "asset": 1}, {"url": "u", "status": 404}]),
+                "distinct",
+            ),
+            (json!([{"url": "", "asset": 1}]), "distinct"),
+            (
+                json!([{"url": "u", "asset": 1, "status": 404}]),
+                "exactly one",
+            ),
+            (json!([{"url": "u"}]), "exactly one"),
+        ];
+        for (images, text) in cases {
+            rejects(assets.clone(), images, "E_IR", text);
+        }
+    }
+
+    #[test]
+    fn rejects_bad_status() {
+        for status in [0, 99, 600, 999] {
+            rejects(
+                json!([]),
+                json!([{"url": "u", "status": status}]),
+                "E_IR",
+                "HTTP status",
+            );
+        }
+        // Not an HTTP status at all: rejected when the IR is parsed.
+        for status in [json!(-1), json!(70000), json!(404.5), json!("404")] {
+            let raw = json!({
+                "schema": SCHEMA,
+                "meta": {"title": "t", "sourceHash": "0".repeat(64), "frontend": {}},
+                "capabilities": [], "styles": {"css": ""},
+                "images": [{"url": "u", "status": status}],
+                "components": [{"name": "App", "template": []}], "root": 0
+            });
+            assert_eq!(crate::load(&raw.to_string()).unwrap_err().code, "E_IR");
         }
     }
 }

@@ -9,7 +9,7 @@ import { mkdtemp, mkdir, writeFile, rm, cp } from 'node:fs/promises';
 import path from 'node:path';
 import { collect } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
-import { interpret } from '../compiler/codegen.mjs';
+import { interpret, migrate } from '../compiler/codegen.mjs';
 
 async function app(script, markup) {
   await mkdir('.cache/tests', { recursive: true });
@@ -78,6 +78,26 @@ async function rejects(script, code, markup = '<p>x</p>') {
     await rm(root, { recursive: true, force: true });
   }
 }
+
+test('schema 5: fonts are top-level assets, the image table is empty, a schema 4 form migrates', async () => {
+  const root = await app('', '<p>x</p>');
+  try {
+    const { ir } = await lower(await collect(root));
+    assert.equal(ir.schema, 5);
+    assert.equal(ir.styles.assets, undefined);
+    assert.deepEqual(
+      ir.assets.map(a => [a.path, a.mime]),
+      [['assets/DejaVuSans.woff2', 'font/woff2']],
+    );
+    assert.deepEqual(ir.images, []);
+    const { assets, images, irHash, ...rest } = ir;
+    const schema4 = { ...rest, schema: 4, styles: { ...ir.styles, assets } };
+    assert.deepEqual(migrate(schema4), migrate(ir));
+    assert.deepEqual(migrate(schema4).assets, assets);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('optional chaining short-circuits and narrows', async () => {
   const out = await run(

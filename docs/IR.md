@@ -1,19 +1,21 @@
-# Runic IR v4
+# Runic IR v5
 
 This is the serialized contract between the frontend adapters and the Rust backend (D1). Its types live in `crates/runic-ir` (`src/lib.rs`), and that crate is the authority whenever this document and the code disagree. The `runic-ir` validator and reference interpreter define its meaning. The code generator in `crates/runic-codegen` must agree with that interpreter (D8).
 
-Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)), and in M4 with scheduling, effects, derived values, promises and host services ([design](design/M4-EFFECTS.md)); M6 adds class records, their reactive fields, class hierarchies and class references, imperative mounts, ResizeObservers and animation objects ([design](design/M6-OVERLAYS.md)), and HTML fragments for `{@html}` ([design](design/M6-SVELTEKIT.md)). The frontends in `frontend/` emit it directly. Older schema 2/3 artifacts are still accepted and migrated with `runic_ir::migrate`.
+Schema 4 was introduced in M1 and extended additively in M2 with values, statements and functions ([design](design/M2-VALUES.md)) in M3 with component instances, lists, slots, refs and more events ([design](design/M3-COMPONENTS.md)), and in M4 with scheduling, effects, derived values, promises and host services ([design](design/M4-EFFECTS.md)); M6 adds class records, their reactive fields, class hierarchies and class references, imperative mounts, ResizeObservers and animation objects ([design](design/M6-OVERLAYS.md)), and HTML fragments for `{@html}` ([design](design/M6-SVELTEKIT.md)). Schema 5 (M6, [design](design/M6-IMAGES.md)) moves the embedded assets from `styles.assets` to a top-level `assets` list and adds the `images` table; nothing else changed. The frontends in `frontend/` emit it directly. Older schema 2/3/4 artifacts are still accepted and migrated with `runic_ir::migrate` (a schema 4 program keeps its font assets unchanged and in order, with an empty `images` table).
 
 ## Program
 
 ```jsonc
 {
-  "schema": 4,
+  "schema": 5,
   "meta": { "title": "…", "sourceHash": "<sha256>", "frontend": {…}, "provenance": […], "mappings": [{ "id": "clsx@2.1.1", "version": 1, "sha256": "…" }] },
   "renderer": "cpu",                 // D12: "cpu" | "gpu"
   "capabilities": ["dom", "css", "window", "click", "keyboard", "text-input"],
-  "styles": { "css": "…", "assets": [{ "path": "assets/x.woff2", "sha256": "…", "bytes": 1234, "mime": "font/woff2" }],
+  "styles": { "css": "…",
               "guards": [{ "selector": "…", "unless": "…", "when": "scroll-target", "message": "…" }] },  // M6: declarations the style engine drops, reported once an element matches selector and not unless (once one is scrolled into view with when "scroll-target"; with "scroll-container:<block|inline|both>:<px>", a scroll padding, once a target inside one is scrolled into view where the padding, if known, would move it)
+  "assets": [{ "path": "assets/x.woff2", "sha256": "…", "bytes": 1234, "mime": "font/woff2" }],  // embedded files
+  "images": [{ "url": "https://…/a.png", "asset": 1 }, { "url": "https://…/b.png", "status": 404 }],  // M6: pinned image URLs (empty until images land)
   "records":   [ { "name": "Item", "fields": [ { "name": "label", "type": "string" } ] } ],  // "class": true marks class instances (M6), "extends": b a subclass, "abstract": true, "tuple": true a tuple (M6 overlays); fields may be "reactive"
   "functions": [ Function, … ],
   "globals":   [ { "name": "DEFAULTS", "type": T, "init": Expr } ],  // module constants, evaluated once in order
@@ -42,6 +44,8 @@ Schema 4 was introduced in M1 and extended additively in M2 with values, stateme
 `meta.mappings` lists the mapping packs ([D9](design/M6-LIBRARIES.md#mapping-packs-d9)) the frontend used: `<package>@<version>`, the pack format version (1) and the SHA-256 of the pack module. It is provenance only: packs lower to ordinary IR (expressions, functions and template nodes), so the backend never sees a package.
 
 CSS refers to embedded assets as `url("runic-asset:<index>")`. The runtime resolves them from bytes compiled into the binary. Every object rejects unknown fields.
+
+`assets` lists the embedded files with their path inside the app, SHA-256, size and MIME type. The validator accepts `font/woff2`, `image/png`, `image/jpeg`, `image/webp` and `image/gif`, and `image/svg+xml` only in a program that draws inline SVG, the condition under which codegen links the runtime's `svg` feature. Each asset has 1 byte to 4 MiB, all of a program's assets together at most 32 MiB (`E_RESOURCE`). `images` is the table the runtime will resolve image URLs through ([design](design/M6-IMAGES.md)): each entry has a distinct non-empty `url` and exactly one of `asset`, the index of an `image/*` entry in `assets`, and `status`, the HTTP status (100 to 599) of a pinned failure. The frontends emit an empty table; nothing loads images yet. Font bytes still travel inside `styles.css` as data URLs, which codegen extracts; `assets` records their metadata.
 
 ## Types and values
 

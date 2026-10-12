@@ -1,4 +1,4 @@
-//! Reference interpreter: the executable definition of schema 4 semantics.
+//! Reference interpreter: the executable definition of schema 5 semantics.
 //!
 //! It renders a program to an abstract DOM and fires events at elements by
 //! their `id`, applying the same DOM rules as the native runtime (disabled
@@ -9133,7 +9133,7 @@ mod form_submission_tests {
         }
         body.push(json!({"op": "expr", "value": {"op": "builtin", "name": "event.preventDefault", "type": "void", "args": [{"op": "event"}]}}));
         serde_json::from_value(json!({
-            "schema": 4,
+            "schema": 5,
             "meta": {"title": "listener stages", "sourceHash": "test", "frontend": {}},
             "capabilities": [], "styles": {"css": ""}, "root": 0,
             "functions": functions,
@@ -9607,7 +9607,7 @@ mod form_submission_tests {
     #[test]
     fn repeated_nested_submit_keeps_listeners_tree_and_outer_event_state() {
         let mut program: Program = serde_json::from_value(json!({
-            "schema": 4,
+            "schema": 5,
             "meta": {"title": "nested submit", "sourceHash": "test", "frontend": {}},
             "capabilities": [], "styles": {"css": ""}, "root": 0,
             "functions": [{

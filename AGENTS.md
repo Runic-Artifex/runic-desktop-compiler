@@ -15,8 +15,8 @@ Start here:
 | Path | Content |
 |---|---|
 | `compiler/` | Node CLI: Vite collector (`collect.mjs`, framework tooling in `adapters/tooling.mjs`), adapter dispatch (`frontend.mjs`), `scan`, and `codegen.mjs`, the bridge to the Rust backend |
-| `frontend/` | TypeScript frontends run by Node's type stripping: shared language layer (`language.ts`, `types.ts`, `irtype.ts`, `modules.ts`), schema 4 types (`ir.ts`) and framework adapters (`adapters/`) |
-| `crates/` | Rust workspace: `runic-ir` (schema 4 types, validator, migration, reference interpreter), `runic-codegen` (Rust generation, `runic-codegen` binary), `runic-runtime` (library linked by every generated app), `runic-js` (JS value semantics), `runic-blitz-probes` (Blitz behaviour probes) |
+| `frontend/` | TypeScript frontends run by Node's type stripping: shared language layer (`language.ts`, `types.ts`, `irtype.ts`, `modules.ts`), schema 5 types (`ir.ts`) and framework adapters (`adapters/`) |
+| `crates/` | Rust workspace: `runic-ir` (schema 5 types, validator, migration, reference interpreter), `runic-codegen` (Rust generation, `runic-codegen` binary), `runic-runtime` (library linked by every generated app), `runic-js` (JS value semantics), `runic-blitz-probes` (Blitz behaviour probes) |
 | `fixtures/` | Example and conformance applications per framework, including expected-rejection fixtures |
 | `conformance/` | Harness (`run.mjs`: browser vs native; `differential.mjs`: interpreter vs native; `measure.mjs`: startup/size), case manifests (`cases/`), committed result summaries (`results/`), isolated framework-version environments |
 | `tests/` | `node --test` suites (`npm test` also type-checks `frontend/`) |
