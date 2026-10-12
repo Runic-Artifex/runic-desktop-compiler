@@ -55,6 +55,32 @@ pub(crate) fn resolve(doc: &mut BaseDocument) {
     crate::layout::record_layout_scroll_changes(doc, scroll_offsets);
     crate::animations::observe(doc, now);
     check_style_guards(doc);
+    report_unsupported_layout(doc);
+}
+
+thread_local! {
+    /// Layout inputs already reported as unsupported (once each).
+    static LAYOUT_REPORTED: std::cell::RefCell<Vec<&'static str>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Inputs layout laid out without their unsupported part (for example
+/// percentage or negative horizontal edges of an ordinary inline box) are
+/// reported once each.
+fn report_unsupported_layout(doc: &mut BaseDocument) {
+    for what in doc.take_unsupported_layout_reports() {
+        let first = LAYOUT_REPORTED.with(|reported| {
+            let mut reported = reported.borrow_mut();
+            let first = !reported.contains(&what);
+            if first {
+                reported.push(what);
+            }
+            first
+        });
+        if first {
+            crate::unsupported(what);
+        }
+    }
 }
 
 type Guard = (&'static str, &'static str, &'static str, &'static str);
