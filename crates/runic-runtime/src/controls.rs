@@ -54,18 +54,71 @@ pub fn reset_scroll_on_blur(doc: &mut BaseDocument, id: NodeId) {
     }
 }
 
-/// `(selectionStart, selectionEnd)` in UTF-16 code units.
+/// Whether the selection APIs (`selectionStart`, `selectionEnd`,
+/// `setSelectionRange`) apply to a control: a text area, or an input whose
+/// type state is Text, Search, Telephone, URL or Password (HTML, "Common
+/// input element APIs": they do not apply to the other states, where
+/// `selectionStart` is null). A missing or invalid `type` is the Text state.
+/// Blitz also gives Email and Number inputs an editor; Chromium has no
+/// selection for them.
+#[cfg_attr(not(any(feature = "probe", test)), allow(dead_code))]
+fn selection_applies(doc: &BaseDocument, id: NodeId) -> bool {
+    let Some(node) = doc.get_node(id) else {
+        return false;
+    };
+    match node.element_data().map(|el| el.name.local.as_ref()) {
+        Some("textarea") => true,
+        Some("input") => selection_applies_to_type(node.attr("type".into())),
+        _ => false,
+    }
+}
+
+/// `selection_applies` for an input of the authored `type` attribute.
+#[cfg_attr(not(any(feature = "probe", test)), allow(dead_code))]
+fn selection_applies_to_type(ty: Option<&str>) -> bool {
+    const STATES: [&str; 22] = [
+        "hidden",
+        "text",
+        "search",
+        "tel",
+        "url",
+        "email",
+        "password",
+        "date",
+        "month",
+        "week",
+        "time",
+        "datetime-local",
+        "number",
+        "range",
+        "color",
+        "checkbox",
+        "radio",
+        "file",
+        "submit",
+        "image",
+        "reset",
+        "button",
+    ];
+    let state = ty
+        .and_then(|t| STATES.iter().find(|s| s.eq_ignore_ascii_case(t)))
+        .copied()
+        .unwrap_or("text");
+    matches!(state, "text" | "search" | "tel" | "url" | "password")
+}
+
+/// `(selectionStart, selectionEnd)` in UTF-16 code units; None where the
+/// selection APIs do not apply (`selection_applies`).
 #[cfg_attr(not(feature = "probe"), allow(dead_code))]
-pub fn selection(doc: &BaseDocument, id: NodeId) -> Option<(usize, usize, bool)> {
+pub fn selection(doc: &BaseDocument, id: NodeId) -> Option<(usize, usize)> {
+    if !selection_applies(doc, id) {
+        return None;
+    }
     let e = &editor(doc, id)?.editor;
     let text = e.raw_text();
     let range = e.raw_selection().text_range();
     let units = |b: usize| text[..b].encode_utf16().count();
-    Some((
-        units(range.start),
-        units(range.end),
-        e.raw_compose().is_some(),
-    ))
+    Some((units(range.start), units(range.end)))
 }
 
 fn locked(doc: &BaseDocument, id: NodeId) -> bool {
@@ -158,4 +211,93 @@ pub fn exceeds_maxlength(doc: &BaseDocument, event: &DomEventData) -> bool {
         + insert.encode_utf16().count()
         + text[range.end..].encode_utf16().count();
     units > max
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dom::{Dom, Listeners};
+    use blitz_dom::DocumentConfig;
+    use blitz_traits::shell::{ColorScheme, Viewport};
+
+    /// Chromium 153's `selectionStart` of a new input of each `type` (None:
+    /// no attribute) is a number where the selection APIs apply, else null;
+    /// the conformance harness reads it as the control's selection.
+    const CHROMIUM: [(Option<&str>, bool); 26] = [
+        (None, true),
+        (Some("foo"), true),
+        (Some("EMAIL"), false),
+        (Some("Text"), true),
+        (Some("hidden"), false),
+        (Some("text"), true),
+        (Some("search"), true),
+        (Some("tel"), true),
+        (Some("url"), true),
+        (Some("email"), false),
+        (Some("password"), true),
+        (Some("date"), false),
+        (Some("month"), false),
+        (Some("week"), false),
+        (Some("time"), false),
+        (Some("datetime-local"), false),
+        (Some("number"), false),
+        (Some("range"), false),
+        (Some("color"), false),
+        (Some("checkbox"), false),
+        (Some("radio"), false),
+        (Some("file"), false),
+        (Some("submit"), false),
+        (Some("image"), false),
+        (Some("reset"), false),
+        (Some("button"), false),
+    ];
+
+    #[test]
+    fn selection_applies_as_in_chromium() {
+        let mut doc = Box::new(BaseDocument::new(DocumentConfig {
+            viewport: Some(Viewport::new(800, 600, 1.0, ColorScheme::Light)),
+            ..Default::default()
+        }));
+        let mut listeners = Box::<Listeners>::default();
+        let mut dom = Dom {
+            doc: &mut doc,
+            listeners: &mut listeners,
+        };
+        let root = dom.doc.root_node().id;
+        let html = dom.element("html");
+        let body = dom.element("body");
+        dom.append(html, body);
+        dom.append(root, html);
+        let mut controls = vec![];
+        for (ty, applies) in CHROMIUM {
+            let input = dom.element("input");
+            if let Some(ty) = ty {
+                dom.set_attr(input, "type", ty);
+            }
+            dom.append(body, input);
+            controls.push((format!("input type={ty:?}"), input, applies));
+        }
+        let area = dom.element("textarea");
+        dom.append(body, area);
+        controls.push(("textarea".into(), area, true));
+        crate::layout::resolve(dom.doc);
+        // (Blitz gives Email and Number inputs an editor all the same.)
+        for (name, id, _) in &controls {
+            if name.contains("\"email\"") || name.contains("\"number\"") {
+                assert!(has_editor(&doc, *id), "{name} has an editor");
+            }
+        }
+        let failures: Vec<String> = controls
+            .iter()
+            .filter(|(_, id, applies)| selection(&doc, *id).is_some() != *applies)
+            .map(|(name, id, applies)| {
+                format!(
+                    "{name}: selection {:?}, Chromium's selectionStart is {}",
+                    selection(&doc, *id),
+                    if *applies { "a number" } else { "null" }
+                )
+            })
+            .collect();
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
 }
