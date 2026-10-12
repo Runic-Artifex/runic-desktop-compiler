@@ -187,6 +187,17 @@ function eventKinds(ir) {
     }
   };
   for (const c of ir.components) walk(c.template);
+  // Image objects' load and error events likewise (M6 images, `new Image()`).
+  // (Inside eventKinds: tests/hover-events.test.mjs evaluates it on its own.)
+  const sets = v =>
+    !!v &&
+    typeof v === 'object' &&
+    ((v.op === 'builtin' && v.name === 'image.set-src') || (Array.isArray(v) ? v : Object.values(v)).some(sets));
+  if (sets(ir)) {
+    const error = new Error('the interpreter loads no images: the program sets the src of an image object');
+    error.code = 'E_DIFFERENTIAL_ACTION';
+    throw error;
+  }
   return kinds;
 }
 

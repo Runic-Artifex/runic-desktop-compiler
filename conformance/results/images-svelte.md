@@ -1,6 +1,6 @@
 # Images: Svelte `<img>` — 2026-10-12
 
-Steps 4 and 5 of the [image design](../../docs/design/M6-IMAGES.md) for `<img>` in Svelte: the runtime's pinned net provider, `load`/`error` dispatch and the adapter's `src` value check. `new Image()`, Avatar, React and Vue are open ([gaps](../../docs/gaps/PLATFORM.md#images-and-fonts-p7)).
+Steps 4 and 5 of the [image design](../../docs/design/M6-IMAGES.md) for `<img>` in Svelte: the runtime's pinned net provider, `load`/`error` dispatch and the adapter's `src` value check. React and Vue are open ([gaps](../../docs/gaps/PLATFORM.md#images-and-fonts-p7)); `new Image()` and Avatar followed ([bits-avatar-svelte](bits-avatar-svelte.md)), and the `images` numbers below were unchanged by that change (rerun 2026-10-12, both modes).
 
 Case `images` (fixture `images-svelte`, Chromium 153.0.8010.12, CPU renderer, viewports 800x600 and 420x600, the mount and three clicks: 8 compared states per mode). The fixture loads three files of `public/` and two remote URLs pinned by a real `runic images` run: a GitHub avatar (PNG, 3,144 bytes) and a missing file on raw.githubusercontent.com pinned as HTTP 404 (`avatars.githubusercontent.com` answers unknown ids and paths with a 200 identicon, so it has no 404 to pin). In Chromium the harness routes each pinned URL to its pinned bytes or status; any other remote request fails the run.
 

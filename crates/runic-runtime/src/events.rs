@@ -303,12 +303,31 @@ impl<A: App> Native<A> {
     /// Outcomes the listeners determine follow, until none is left. An
     /// element whose `src` changed after its outcome was taken has a newer
     /// request: the older outcome is dropped, as Chromium cancels its event.
+    ///
+    /// Image objects (`new Image()`) determine their outcome when their
+    /// `src` is set; each round runs the outcomes queued so far first, in
+    /// the order their sources were set, then the elements' (Chromium 153
+    /// orders a cached URL so for an object set before an element; for an
+    /// uncached URL its order varies between runs, docs/gaps/PLATFORM.md).
     pub(crate) fn image_tasks(&mut self) {
         loop {
+            let objects = self.app.image_queued();
+            for _ in 0..objects {
+                self.listeners.settle(&mut self.doc);
+                let mut dom = Dom {
+                    doc: &mut self.doc,
+                    listeners: &mut self.listeners,
+                };
+                self.app.image_task(&mut dom);
+                self.fix_focus_after_update();
+            }
             self.doc.handle_messages();
             let events = self.doc.take_image_load_events();
             if events.is_empty() {
-                return;
+                if objects == 0 {
+                    return;
+                }
+                continue;
             }
             let srcs: Vec<Option<String>> = events
                 .iter()

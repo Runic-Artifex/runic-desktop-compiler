@@ -1731,6 +1731,18 @@ impl Dom<'_> {
                 continue;
             }
             match (name.as_str(), value) {
+                // An `<img>`'s attributes with unmodelled loading behaviour
+                // (M6 images; the frontend proves a bag holds none of them
+                // with a value, and rejects them as attributes).
+                ("loading" | "srcset" | "sizes" | "crossorigin", v)
+                    if !matches!(v, AttrValue::Absent | AttrValue::Null)
+                        && self.tag_is(node, "img") =>
+                {
+                    crate::unsupported(&format!(
+                        "the {name} attribute of <img> from a spread (its loading behaviour is not modelled)"
+                    ));
+                    continue;
+                }
                 ("style", AttrValue::Text(t)) => {
                     // `style.cssText`, when the value changed.
                     let current = self

@@ -577,10 +577,11 @@ declare const localStorage: {
   clear(): void;
 };
 /**
- * M6: image objects. The native runtime loads no images (and renders no
- * <img>): `new Image()` throws RunicUnsupportedError when it runs. bits-ui's
- * Avatar binds a loader that would create one for Avatar.Image, whose <img>
- * is rejected at compile time.
+ * M6 images: image objects (`new Image()`, the `image` IR type). Setting
+ * `src` requests a pinned image (every value must be known at build time)
+ * and fires `load` or `error`; `crossOrigin` and `referrerPolicy` are
+ * reflected only. The members below the listeners are declared so that
+ * reading them is a located E_MEMBER, not a type error (docs/GAPS.md).
  */
 interface HTMLImageElement {
   readonly __runicImage: true;
@@ -589,6 +590,12 @@ interface HTMLImageElement {
   referrerPolicy: string;
   onload: (() => void) | null;
   onerror: (() => void) | null;
+  addEventListener(type: 'load' | 'error', listener: () => void): void;
+  removeEventListener(type: 'load' | 'error', listener: () => void): void;
+  readonly complete: boolean;
+  readonly naturalWidth: number;
+  readonly naturalHeight: number;
+  decode(): Promise<void>;
 }
 declare var Image: { new (): HTMLImageElement };
 /** M6: the referrer policies (svelte/elements' image attributes name it). */

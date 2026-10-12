@@ -43,6 +43,12 @@ export type Type =
   /** A CSS animation or transition of an element (`element.getAnimations()`; identity, M6). */
   | 'animation'
   /**
+   * An image object (`new Image()`; identity, M6 images): its source,
+   * reflected attributes and load/error listeners, through `image.*`
+   * built-ins (docs/IR.md).
+   */
+  | 'image'
+  /**
    * A dynamic value (M6 spike, docs/design/M6-DYNAMIC-VALUES.md): any
    * JavaScript value, operated on through `dyn.*` built-ins; static values
    * are boxed (`dyn.from`) and unboxed with a check (`dyn.to`).

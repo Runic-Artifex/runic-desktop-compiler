@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "images": [
+    {
+      "url": "https://github.com/evilrabbit.png?size=40",
+      "sha256": "4f7923fe8f1794a1f2fc3765895d9660db2b041c0e8ce55d7b85cc3653d31933",
+      "bytes": 710,
+      "mime": "image/png"
+    },
+    {
+      "url": "https://github.com/runic-artifex-no-such-user-404.png?size=40",
+      "status": 404
+    },
+    {
+      "url": "https://github.com/shadcn.png?size=40",
+      "sha256": "c332a70f95952ea4964f9caad3cb6d8e3ad2fe3a989d8847eaac81de98ef0337",
+      "bytes": 1355,
+      "mime": "image/jpeg"
+    }
+  ]
+}

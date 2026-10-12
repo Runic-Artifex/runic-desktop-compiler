@@ -16,7 +16,7 @@ Programs using these are "incomplete" in the differential test (`conformance/dif
 | Script `setAttribute` and `appendChild` (no mutable DOM) | RunicLayoutError | interp.rs:2904-2917 |
 | `closest`/`document.querySelector` matching html, head or the container; `firstNonCommentNode` on text children | RunicUnsupportedError | interp.rs:2880-2897,8017-8107 |
 | Elements hidden by CSS during the focus fix-up | not modelled | interp.rs:6186 |
-| Image loading: the interpreter loads no images, so a program with `<img>` `load` or `error` listeners (`images-svelte`) is incomplete in the differential and checked against Chromium only (`conformance/run.mjs images`); an `<img>` without them compares (its attributes only) | incomplete (E_DIFFERENTIAL_ACTION) | differential.mjs (`eventKinds`) |
+| Image loading: the interpreter loads no images, so a program with `<img>` `load` or `error` listeners (`images-svelte`) or setting an image object's `src` (`new Image()`, `bits-avatar-svelte`) is incomplete in the differential and checked against Chromium only (`conformance/run.mjs images bits-avatar`); an `<img>` without them compares (its attributes only), and the interpreter keeps image objects' other state (handlers, listeners, `crossOrigin`, `referrerPolicy`) but throws `RunicUnsupportedError` on reading `src` | incomplete (E_DIFFERENTIAL_ACTION) | differential.mjs (`eventKinds`) |
 
 Every M6 bits-ui fixture is incomplete in the differential (13 of them), so library behaviour is checked against Chromium only. Covering it would need layout in the interpreter (a Blitz instance, which defeats its independence) or interpreter models of the specific APIs.
 

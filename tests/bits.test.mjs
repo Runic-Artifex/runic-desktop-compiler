@@ -333,29 +333,72 @@ test('a style record spread into a style object keeps its keys in order', async 
   );
 });
 
-test('Avatar: fallbacks compile, Avatar.Image (image loading) is rejected at its <img>', async () => {
-  const { ir } = await lowered('fixtures/bits-avatar-svelte');
+test('Avatar: Avatar.Image pins its sources (new Image() and <img>), open ones are E_ASSET', async () => {
+  const graph = await collect('fixtures/bits-avatar-svelte');
+  const { ir, imageUrls } = await lower(graph, { images: false });
+  const SHADCN = 'https://github.com/shadcn.png?size=40';
+  const RABBIT = 'https://github.com/evilrabbit.png?size=40';
+  const MISSING = 'https://github.com/runic-artifex-no-such-user-404.png?size=40';
+  // The literals App.svelte passes reach bits-ui's `<img {...mergedProps}
+  // {src} />` through the props and `image.src = src` in its root state's
+  // `loadImage` through the box, the runed watch and the method's call site.
+  const by = file =>
+    [...new Set(imageUrls.filter(u => u.source.file.endsWith(file)).map(u => u.url))].sort();
+  assert.deepEqual(by('components/avatar-image.svelte'), [RABBIT, MISSING, SHADCN].sort());
+  assert.deepEqual(by('avatar/avatar.svelte.js'), [RABBIT, MISSING, SHADCN].sort());
+  const names = new Set();
+  const walk = v => {
+    if (!v || typeof v !== 'object') return;
+    if (v.op === 'builtin' && v.name.startsWith('image.')) names.add(v.name);
+    for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x);
+  };
+  walk(ir);
+  assert.deepEqual([...names].sort(), [
+    'image.new',
+    'image.set-cross-origin',
+    'image.set-handler',
+    'image.set-referrer-policy',
+    'image.set-src',
+  ]);
+  // The interpreter loads no images: the avatars stay loading (the
+  // differential reports the program incomplete).
   const steps = interpret(ir, [{ kind: 'click', id: 'small' }]);
   assert.equal(byId(steps[1], 'cn').attrs['data-size'], 'sm');
   assert.equal(byId(steps[1], 'cn').attrs['data-status'], 'loading');
+
   await mkdir('.cache/tests', { recursive: true });
   const root = await mkdtemp(path.resolve('.cache/tests/avatar-'));
   try {
     await cp('fixtures/bits-avatar-svelte', root, { recursive: true });
     const app = path.join(root, 'src/App.svelte');
+    const code = readFileSync(app, 'utf8');
+    // An open source: rejected at the site that passes it (followed back
+    // from bits-ui's code through the props).
     await writeFile(
       app,
-      readFileSync(app, 'utf8').replace(
-        '<Avatar.Root id="cn" {size}>',
-        '<Avatar.Root id="cn" {size}><Avatar.Image src="https://github.com/shadcn.png" alt="@shadcn" />',
+      code.replace(
+        '<Avatar.Image src={SHADCN} alt="@shadcn" />',
+        '<Avatar.Image src={trace.join("")} alt="@shadcn" />',
       ),
     );
     await assert.rejects(
-      lowered(root),
+      lower(await collect(root), { images: false }),
+      failWith('E_ASSET', 'src/App.svelte', /may take this value, which is open/),
+    );
+    // A crossorigin with a value: rejected at the spread.
+    await writeFile(
+      app,
+      code.replace(
+        '<Avatar.Image src={SHADCN} alt="@shadcn" />',
+        '<Avatar.Image src={SHADCN} alt="@shadcn" crossorigin="anonymous" />',
+      ),
+    );
+    await assert.rejects(
+      lower(await collect(root), { images: false }),
       failWith(
         'E_TEMPLATE',
         'node_modules/bits-ui/dist/bits/avatar/components/avatar-image.svelte',
-        /<img>/,
+        /This spread may give the <img> a crossorigin attribute/,
       ),
     );
   } finally {

@@ -27,6 +27,15 @@
 //   whose values depend on the site is enumerated once per site.
 // Anything else (a plain `string`, numbers, objects) is open and rejected
 // with E_PACK; pack modules explain the cheapest exact alternative.
+//
+// Where the type is open, `valueSet` (values without IR) follows the values
+// into a few more places (M6 images, bits-ui's Avatar loading
+// `image.src = src` in a method): a box's `current` read through an option
+// every object literal gives a getter box (frontend/unions.ts
+// `boxedSources`), a parameter of a method the program only calls (the
+// union over its call sites' arguments), and an element of a runed
+// `watch(getters, ([a, b]) => …)` callback's array parameter (what the
+// matching getter returns). Each is a superset of what reaches it.
 import ts from 'typescript';
 import type { Expr, Type } from '../ir.ts';
 import type { FnBuilder, Lowerer } from '../language.ts';
@@ -815,7 +824,285 @@ export function valueSet(ctx: SetCtx, e: ts.Expression): unknown[] | undefined {
     const inlined = inlinedSet(ctx, node);
     if (inlined !== null) return inlined;
   }
-  return typedSet(lower.checker.getTypeAtLocation(node));
+  const typed = typedSet(lower.checker.getTypeAtLocation(node));
+  if (typed || !ts.isPropertyAccessExpression(node)) return typed;
+  // A getter box's value read through an option (`this.opts.src.current`).
+  const sources = lower.unions.boxedSources(node);
+  if (!sources || flowing.has(node)) return undefined;
+  flowing.add(node);
+  try {
+    const out: unknown[] = [];
+    for (const s of sources) {
+      const v = valueSet(ctx, s);
+      if (!v) return undefined;
+      out.push(...v);
+    }
+    return distinct(out);
+  } finally {
+    flowing.delete(node);
+  }
+}
+
+/**
+ * Where an open value of `e` comes from (`valueSet` undefined): the
+ * expression, following the same constructs (operands, constants, props to
+ * their sites, the flow of the header) to the first open one. For
+ * diagnostics; `e` itself where nothing further is found.
+ */
+export function openOrigin(ctx: SetCtx, e: ts.Expression, seen = new Set<ts.Node>()): ts.Node {
+  const { lower } = ctx;
+  const node = skip(e);
+  if (seen.has(node) || valueSet(ctx, node)) return e;
+  seen.add(node);
+  const first = (xs: readonly ts.Expression[]) => {
+    for (const x of xs) if (!valueSet(ctx, x)) return openOrigin(ctx, x, seen);
+    return e;
+  };
+  if (ts.isConditionalExpression(node)) return first([node.whenTrue, node.whenFalse]);
+  if (ts.isBinaryExpression(node)) return first([node.left, node.right]);
+  if (ts.isPropertyAccessExpression(node)) {
+    const sources = lower.unions.boxedSources(node);
+    return sources ? first(sources) : e;
+  }
+  if (!ts.isIdentifier(node)) return e;
+  const sym = lower.checker.getSymbolAtLocation(node);
+  if (!sym) return e;
+  const prop = lower.domains?.openOrigin?.(sym);
+  if (prop) return prop;
+  const decl = sym.valueDeclaration;
+  if (
+    decl &&
+    ts.isVariableDeclaration(decl) &&
+    decl.initializer &&
+    decl.parent.flags & ts.NodeFlags.Const
+  )
+    return first([decl.initializer]);
+  if (decl && ts.isParameter(decl) && ts.isMethodDeclaration(decl.parent)) {
+    const i = decl.parent.parameters.indexOf(decl);
+    const sites = callSites(lower, decl.parent);
+    return sites ? first(sites.flatMap(c => (c.arguments[i] ? [c.arguments[i]] : []))) : e;
+  }
+  if (
+    decl &&
+    ts.isBindingElement(decl) &&
+    ts.isArrayBindingPattern(decl.parent) &&
+    ts.isParameter(decl.parent.parent) &&
+    ts.isCallExpression(decl.parent.parent.parent.parent)
+  ) {
+    const getters = skip(decl.parent.parent.parent.parent.arguments[0]);
+    const getter =
+      ts.isArrayLiteralExpression(getters) && getters.elements[decl.parent.elements.indexOf(decl)];
+    const returns = getter && getterReturns(getter);
+    return returns ? first(returns) : e;
+  }
+  return e;
+}
+
+/** Places whose values are being followed (recursion guard: a cycle adds nothing). */
+const flowing = new Set<ts.Node>();
+
+/** Whether `sym` is assigned (or incremented) anywhere in `scope`. */
+function reassigned(lower: Lowerer, sym: ts.Symbol, scope: ts.Node): boolean {
+  let found = false;
+  const target = (n: ts.Expression) =>
+    ts.isIdentifier(skip(n)) && lower.checker.getSymbolAtLocation(skip(n)) === sym;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    if (
+      (ts.isBinaryExpression(n) &&
+        n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        n.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+        target(n.left)) ||
+      ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+        [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(n.operator) &&
+        target(n.operand))
+    )
+      found = true;
+    else ts.forEachChild(n, visit);
+  };
+  visit(scope);
+  return found;
+}
+
+/** By method declaration: its call sites, or null where it escapes (`callSites`). */
+const siteIndex = new WeakMap<Lowerer, Map<ts.Node, ts.CallExpression[] | null>>();
+
+/**
+ * The calls of method `method` (its implementation's declaration; a call
+ * through a package's declaration file counts for its implementation), or
+ * undefined where the program uses it otherwise than by calling it (passes
+ * it as a value) or replaces it: the one replacement allowed is
+ * `this.m = this.m.bind(this)` (bits-ui binds its loaders so).
+ */
+function callSites(lower: Lowerer, method: ts.MethodDeclaration): ts.CallExpression[] | undefined {
+  let index = siteIndex.get(lower);
+  if (!index) siteIndex.set(lower, (index = new Map()));
+  if (index.has(method)) return index.get(method) ?? undefined;
+  const name = ts.isIdentifier(method.name) ? method.name.text : undefined;
+  let sites: ts.CallExpression[] | null = name === undefined ? null : [];
+  const checker = lower.checker;
+  const isMethod = (n: ts.PropertyAccessExpression) => {
+    const s = checker.getSymbolAtLocation(n.name);
+    const impl = s && lower.implementedMember(s);
+    return !!impl && (impl.valueDeclaration ?? impl.declarations?.[0]) === method;
+  };
+  const bound = (n: ts.PropertyAccessExpression): boolean => {
+    // `this.m = this.m.bind(this)`: the left side, and the receiver of `bind`.
+    const p = n.parent;
+    if (
+      ts.isBinaryExpression(p) &&
+      p.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      p.left === n
+    ) {
+      const r = skip(p.right);
+      return (
+        n.expression.kind === ts.SyntaxKind.ThisKeyword &&
+        ts.isCallExpression(r) &&
+        ts.isPropertyAccessExpression(r.expression) &&
+        r.expression.name.text === 'bind' &&
+        r.arguments.length === 1 &&
+        r.arguments[0].kind === ts.SyntaxKind.ThisKeyword &&
+        ts.isPropertyAccessExpression(r.expression.expression) &&
+        r.expression.expression.expression.kind === ts.SyntaxKind.ThisKeyword &&
+        r.expression.expression.name.text === n.name.text
+      );
+    }
+    return (
+      ts.isPropertyAccessExpression(p) &&
+      p.name.text === 'bind' &&
+      ts.isCallExpression(p.parent) &&
+      p.parent.expression === p &&
+      ts.isBinaryExpression(p.parent.parent) &&
+      bound(p.parent.parent.left as ts.PropertyAccessExpression)
+    );
+  };
+  for (const sf of lower.program.getSourceFiles()) {
+    if (sites === null) break;
+    if (sf.isDeclarationFile || !sf.text.includes(name!)) continue;
+    const visit = (n: ts.Node) => {
+      if (sites === null) return;
+      if (ts.isPropertyAccessExpression(n) && n.name.text === name && isMethod(n)) {
+        const p = n.parent;
+        if (ts.isCallExpression(p) && p.expression === n) sites.push(p);
+        else if (!bound(n)) sites = null;
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
+  index.set(method, sites);
+  return sites ?? undefined;
+}
+
+/** The expressions a getter function returns (undefined: a body with other statements). */
+function getterReturns(fn: ts.Expression): ts.Expression[] | undefined {
+  fn = skip(fn);
+  if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return undefined;
+  if (!ts.isBlock(fn.body)) return [fn.body];
+  const [only] = fn.body.statements;
+  return fn.body.statements.length === 1 && ts.isReturnStatement(only) && only.expression
+    ? [only.expression]
+    : undefined;
+}
+
+/** Whether `callee` is runed's `watch` or `watch.pre`. */
+function runedWatch(lower: Lowerer, callee: ts.Expression): boolean {
+  callee = skip(callee);
+  const id =
+    ts.isPropertyAccessExpression(callee) && callee.name.text === 'pre'
+      ? callee.expression
+      : callee;
+  if (!ts.isIdentifier(id) || id.text !== 'watch') return false;
+  let sym = lower.checker.getSymbolAtLocation(id);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = lower.checker.getAliasedSymbol(sym);
+  const file = (sym?.valueDeclaration ?? sym?.declarations?.[0])?.getSourceFile().fileName ?? '';
+  return /[\/]runed[\/]/.test(file);
+}
+
+/**
+ * The values a parameter receives (`valueSet`'s flow, see the header):
+ * null where `sym` is not such a parameter, undefined where they are open.
+ */
+function parameterSet(ctx: SetCtx, sym: ts.Symbol): unknown[] | undefined | null {
+  const { lower } = ctx;
+  const decl = sym.valueDeclaration;
+  if (!decl || flowing.has(decl)) return decl && flowing.has(decl) ? [] : null;
+  // A method's parameter: its call sites' arguments.
+  if (
+    ts.isParameter(decl) &&
+    ts.isIdentifier(decl.name) &&
+    !decl.dotDotDotToken &&
+    ts.isMethodDeclaration(decl.parent) &&
+    decl.parent.body
+  ) {
+    const method = decl.parent;
+    const i = method.parameters.indexOf(decl);
+    if (reassigned(lower, sym, method.body!)) return undefined;
+    const sites = callSites(lower, method);
+    if (!sites) return undefined;
+    flowing.add(decl);
+    try {
+      const out: unknown[] = [];
+      for (const call of sites) {
+        const arg = call.arguments[i];
+        if (call.arguments.slice(0, i + 1).some(a => ts.isSpreadElement(a))) return undefined;
+        const v = arg ? valueSet(ctx, arg) : [undefined];
+        if (!v) return undefined;
+        // (Undefined takes the parameter's default.)
+        if (decl.initializer && v.includes(undefined)) {
+          const d = valueSet(ctx, decl.initializer);
+          if (!d) return undefined;
+          out.push(...v.filter(x => x !== undefined), ...d);
+        } else out.push(...v);
+      }
+      return distinct(out);
+    } finally {
+      flowing.delete(decl);
+    }
+  }
+  // An element of a runed watch callback's array parameter: what the
+  // getter at its index returns.
+  if (
+    ts.isBindingElement(decl) &&
+    ts.isIdentifier(decl.name) &&
+    !decl.dotDotDotToken &&
+    !decl.initializer &&
+    ts.isArrayBindingPattern(decl.parent) &&
+    ts.isParameter(decl.parent.parent) &&
+    (ts.isArrowFunction(decl.parent.parent.parent) ||
+      ts.isFunctionExpression(decl.parent.parent.parent))
+  ) {
+    const fn = decl.parent.parent.parent;
+    const call = fn.parent;
+    if (
+      fn.parameters[0] !== decl.parent.parent ||
+      !ts.isCallExpression(call) ||
+      call.arguments[1] !== fn ||
+      !runedWatch(lower, call.expression) ||
+      reassigned(lower, sym, fn.body)
+    )
+      return null;
+    const getters = skip(call.arguments[0]);
+    const i = decl.parent.elements.indexOf(decl);
+    if (!ts.isArrayLiteralExpression(getters) || getters.elements.some(ts.isSpreadElement))
+      return undefined;
+    const getter = getters.elements[i];
+    const returns = getter && getterReturns(getter);
+    if (!returns) return undefined;
+    flowing.add(decl);
+    try {
+      const out: unknown[] = [];
+      for (const r of returns) {
+        const v = valueSet(ctx, r);
+        if (!v) return undefined;
+        out.push(...v);
+      }
+      return distinct(out);
+    } finally {
+      flowing.delete(decl);
+    }
+  }
+  return null;
 }
 
 /** Parameters standing for a call's arguments while its function is inlined (`inlinedSet`). */
@@ -929,11 +1216,14 @@ function identifierSet(
       }
     }
   }
-  return typedSet(
+  const typed = typedSet(
     sym
       ? lower.checker.getTypeOfSymbolAtLocation(sym, node)
       : lower.checker.getTypeAtLocation(node),
   );
+  if (typed || !sym) return typed;
+  const flow = parameterSet(ctx, sym);
+  return flow === null ? undefined : flow;
 }
 
 function typedSet(type: ts.Type): unknown[] | undefined {

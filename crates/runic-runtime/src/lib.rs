@@ -307,6 +307,17 @@ pub trait App: 'static {
         let _ = dom;
         None
     }
+    /// The number of image objects' outcomes queued (M6 images, `new
+    /// Image()`): `load` or `error` of a `src` the program set.
+    fn image_queued(&self) -> usize {
+        0
+    }
+    /// Run the next queued image object outcome: its `load` or `error`
+    /// listeners in order, each a task with its microtask checkpoint;
+    /// nothing for an outcome a later `src` abandoned.
+    fn image_task(&mut self, dom: &mut Dom) {
+        let _ = dom;
+    }
     /// Queue a traversal of the session history by the user (back, forward).
     fn traverse(&mut self, delta: i64) {
         let _ = delta;

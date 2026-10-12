@@ -702,6 +702,14 @@ object resolved through the same table. Lazy loading, multi-candidate `srcset`
 and `<picture>` stay rejected. Acceptance is pending; this decision alone does
 not extend the implemented contract.
 
+The host object is an opaque IR type, `image` (a handle, like `animation`),
+with `image.*` built-ins for `src`, the handlers, the listeners and the two
+recorded attributes; it is never an element, so the template and its
+validation are unchanged. The language layer lowers it for every frontend
+and reports each `src` value as a pinned URL, as an adapter does for `<img>`.
+The runtime queues each outcome as a task, run before Blitz's `<img>`
+events in each round (measured differences in the gap register).
+
 ## Chromium parity: private line-flow consumers (2026-10-09)
 
 A borrowed, crate-private `LineFlow` is the entry point for committed-line

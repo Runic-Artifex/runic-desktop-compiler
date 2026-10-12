@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { collect, Diagnostic, hash } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
-import { check, emit } from '../compiler/codegen.mjs';
+import { check, emit, interpret } from '../compiler/codegen.mjs';
 import { fetchImages, pinImages, RECORD, sniff } from '../compiler/images.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -542,7 +542,35 @@ test('Svelte <img> rejects open sources and unsupported attributes at the source
   await rejects(intrinsic, 'crossorigin="anonymous"', 'E_TEMPLATE', 25, /crossorigin/);
   await rejects(intrinsic, 'bind:naturalWidth={avatar}', 'E_TEMPLATE', 25, /naturalWidth/);
   await rejects(intrinsic, 'bind:naturalHeight={avatar}', 'E_TEMPLATE', 25, /naturalHeight/);
-  await rejects(intrinsic, "{...{ title: 'x' }}", 'E_TEMPLATE', 25, /Spread attributes/);
+  // Spreads (M6 images, Avatar): rejected names with a value, open sources.
+  await rejects(
+    intrinsic,
+    "{...{ title: 'x', loading: 'lazy' }}",
+    'E_TEMPLATE',
+    25,
+    /This spread may give the <img> a loading attribute \("lazy"\)/,
+  );
+  await rejects(
+    intrinsic,
+    '{...{ srcset: log.join() }}',
+    'E_TEMPLATE',
+    25,
+    /may give the <img> a srcset attribute/,
+  );
+  await rejects(
+    h1,
+    `${h1}<img {...{ src: log.join('') }} alt="" />`,
+    'E_ASSET',
+    22,
+    /src this spread may give the <img> is open/,
+  );
+  await rejects(
+    h1,
+    `${h1}<img {...{ src: 1 }} alt="" />`,
+    'E_ASSET',
+    22,
+    /may be 1 \(from this spread\)/,
+  );
   await rejects(
     h1,
     '<picture><img src="/tiles.png" alt="" /></picture>',
@@ -557,4 +585,137 @@ test('Svelte <img> rejects open sources and unsupported attributes at the source
     22,
     /onload handlers are supported on <img> elements only/,
   );
+});
+
+test('Svelte <img> spreads: src from the last spread that may hold it, rejected names proven absent', async () => {
+  const h1 = '<h1>Images</h1>';
+  const urls = async to =>
+    (await lower(await imagesApp(h1, `${h1}${to}`), { images: false })).imageUrls
+      .filter(u => u.source.line === 22)
+      .map(u => [u.url, u.source.column]);
+  // A src attribute after the spread decides (the bag's names are absent or undefined).
+  assert.deepEqual(
+    await urls(
+      `<img {...{ title: 'x', loading: undefined, crossorigin: null }} src="/wide.png" alt="" />`,
+    ),
+    [['/wide.png', 82]],
+  );
+  // The bag's src values, where the spread comes after the attribute; a bag
+  // that may not hold src leaves it to the attribute (one holding undefined
+  // removes it: no request).
+  assert.deepEqual(
+    await urls(`<img src="/wide.png" {...(log.length ? { src: '/tiles.png' } : {})} alt="" />`),
+    [
+      ['/tiles.png', 39],
+      ['/wide.png', 23],
+    ],
+  );
+  assert.deepEqual(
+    await urls(
+      `<img src="/wide.png" {...{ src: log.length ? '/tiles.png' : undefined }} alt="" />`,
+    ),
+    [['/tiles.png', 39]],
+  );
+});
+
+test('new Image(): src values are pinned image URLs; members lower to image built-ins', async () => {
+  const marker = '  let log = $state<string[]>([]);';
+  const script = `${marker}
+  let probe = $state('');
+  const probeImage = (url: Source) => {
+    const image = new Image();
+    const f = () => (log = [...log, 'listener']);
+    image.addEventListener('load', f);
+    image.onload = () => (log = [...log, 'onload']);
+    image.crossOrigin = 'foo';
+    image.referrerPolicy = 'bogus';
+    image.src = url;
+    probe = \`\${image.crossOrigin} [\${image.referrerPolicy}] \${image.onload === null}\`;
+    image.onload = null;
+    image.removeEventListener('load', f);
+  };`;
+  const h1 = '<h1>Images</h1>';
+  const button = `${h1}<button id="probe" onclick={() => probeImage(src)}>{probe}</button>`;
+  const app = async (extra = '') => {
+    const g = await imagesApp(marker, script + extra);
+    const id = path.join(g.root, 'App.svelte');
+    const code = g.modules.get(id).code.replace(h1, button);
+    const modules = new Map(g.modules);
+    modules.set(id, { ...g.modules.get(id), code });
+    return { ...g, modules, hash: hash(code), code };
+  };
+  const graph = await app();
+  const line = graph.code.split('\n').findIndex(l => l.includes('image.src = url')) + 1;
+  const { imageUrls } = await lower(graph, { images: false });
+  assert.deepEqual(
+    imageUrls
+      .filter(u => u.source.line === line)
+      .map(u => u.url)
+      .sort(),
+    ['/alt.png', AVATAR, MISSING].sort(),
+  );
+  const { ir } = await lower(graph);
+  check(ir);
+  // The validator admits only load and error as the event kind literal.
+  const relabelled = structuredClone(ir);
+  const relabel = v => {
+    if (!v || typeof v !== 'object') return false;
+    if (v.op === 'builtin' && v.name === 'image.listen') return ((v.args[1].value = 'focus'), true);
+    return (Array.isArray(v) ? v : Object.values(v)).some(relabel);
+  };
+  assert.ok(relabel(relabelled));
+  assert.throws(
+    () => check(relabelled),
+    e => e.code === 'E_BUILTIN' && /image\.listen: the event kind is load or error/.test(e.message),
+  );
+  const names = new Set();
+  const walk = v => {
+    if (!v || typeof v !== 'object') return;
+    if (v.op === 'builtin' && v.name.startsWith('image.')) names.add(v.name);
+    for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x);
+  };
+  walk(ir);
+  assert.deepEqual([...names].sort(), [
+    'image.cross-origin',
+    'image.handler',
+    'image.listen',
+    'image.new',
+    'image.referrer-policy',
+    'image.set-cross-origin',
+    'image.set-handler',
+    'image.set-referrer-policy',
+    'image.set-src',
+    'image.unlisten',
+  ]);
+  // The interpreter keeps an image object's state (reflected as Chromium
+  // 153 reflects it) and loads nothing.
+  const steps = interpret(ir, [{ kind: 'click', id: 'probe' }]);
+  const text = n => (typeof n === 'string' ? n : n.children.map(text).join(''));
+  const flat = nodes => nodes.flatMap(n => (typeof n === 'string' ? [] : [n, ...flat(n.children)]));
+  assert.equal(
+    text(flat(steps[1].state.dom).find(n => n.attrs.id === 'probe')),
+    'anonymous [] false',
+  );
+
+  const rejects = async (extra, code, pattern) => {
+    const g = await app(`\n  const more = (image: HTMLImageElement) => {\n    ${extra};\n  };`);
+    const at = g.code.split('\n').findIndex(l => l.includes(extra)) + 1;
+    await assert.rejects(
+      lower(g, { images: false }),
+      e =>
+        (e instanceof Diagnostic &&
+          e.code === code &&
+          e.source?.file === 'App.svelte' &&
+          e.source.line === at &&
+          pattern.test(e.message)) ||
+        assert.fail(
+          `expected ${code} at ${at}, got ${e.code} ${JSON.stringify(e.source)}: ${e.message}`,
+        ),
+    );
+  };
+  await rejects('log = [String(image.complete)]', 'E_MEMBER', /Image complete is unsupported/);
+  await rejects('log = [String(image.naturalWidth)]', 'E_MEMBER', /naturalWidth/);
+  await rejects('void image.decode()', 'E_CALL', /Image decode\(\) is unsupported/);
+  await rejects("image.src = log.join('')", 'E_ASSET', /src of this image object is open/);
+  await rejects("image.src += '/tiles.png'", 'E_ASSIGN', /plain assignment/);
 });

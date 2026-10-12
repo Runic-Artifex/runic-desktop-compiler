@@ -51,6 +51,19 @@ pub struct Closure {
     pub snapshot: Option<Rc<Vec<Val>>>,
 }
 
+/// An image object's state (M6 images).
+#[derive(Debug, Default)]
+pub struct ImageObject {
+    /// The last `src` written (none: never written).
+    pub src: Option<JsString>,
+    pub cross_origin: Option<&'static str>,
+    pub referrer_policy: &'static str,
+    /// `(error, handler, function)`, in order: `load` or `error`, and
+    /// whether it is the `onload`/`onerror` handler (which keeps the place
+    /// of its first assignment, as the DOM's event handlers do).
+    pub listeners: Vec<(bool, bool, Val)>,
+}
+
 /// A dynamic value.
 #[derive(Clone, Debug)]
 pub enum Val {
@@ -81,6 +94,10 @@ pub enum Val {
     Mounted(Rc<std::cell::Cell<Option<usize>>>),
     /// The contexts instance `i` sees (`context.all`).
     Contexts(usize),
+    /// An image object (`new Image()`, M6 images). The interpreter loads
+    /// no images: it keeps what the program sets and never fires `load`
+    /// or `error` (the differential reports such programs incomplete).
+    Image(Rc<RefCell<ImageObject>>),
     /// A dynamic object (M6 spike): properties in insertion order.
     DynObject(JsRef<Vec<(JsString, Val)>>),
     /// A static value boxed into a dynamic one (M6 spike).
@@ -227,6 +244,7 @@ impl js::StrictEq for Val {
             (Val::Date(a), Val::Date(b)) => a == b,
             (Val::Mounted(a), Val::Mounted(b)) => Rc::ptr_eq(a, b),
             (Val::Contexts(a), Val::Contexts(b)) => a == b,
+            (Val::Image(a), Val::Image(b)) => Rc::ptr_eq(a, b),
             (Val::DynObject(a), Val::DynObject(b)) => JsRef::ptr_eq(a, b),
             (Val::DynFn(a), Val::DynFn(b)) => Rc::ptr_eq(a, b),
             (Val::Boxed(a), Val::Boxed(b)) => a.value.strict_eq(&b.value),
@@ -279,6 +297,7 @@ impl js::ToJsString for Val {
             Val::Date(d) => d.to_js_string(),
             Val::Attrs(_) | Val::Mounted(_) => JsString::from("[object Object]"),
             Val::Contexts(_) => JsString::from("[object Map]"),
+            Val::Image(_) => JsString::from("[object HTMLImageElement]"),
             Val::Promise(_) => JsString::from("[object Promise]"),
             // (Dynamic values convert with dyn.to-string, which can throw.)
             Val::DynObject(_) | Val::Boxed(_) | Val::DynFn(_) => {
@@ -385,6 +404,7 @@ impl ToMapKey for Val {
             Val::Date(d) => d.map_key(),
             Val::Attrs(a) => MapKey::Ref(Rc::as_ptr(a) as *const u8 as usize),
             Val::Mounted(m) => MapKey::Ref(Rc::as_ptr(m) as *const u8 as usize),
+            Val::Image(i) => MapKey::Ref(Rc::as_ptr(i) as *const u8 as usize),
             // Instance ids never collide with heap addresses in one map (a
             // map's key type is static).
             Val::Contexts(i) => MapKey::Ref(*i),
@@ -3314,6 +3334,87 @@ impl<'p> Machine<'p> {
                     ));
                 }
             },
+            // Image objects (M6 images): their state; no image loads.
+            ("image", "new") => Val::Image(Rc::new(RefCell::new(ImageObject::default()))),
+            ("image", m) => {
+                let Val::Image(i) = &a[0] else {
+                    panic!("validated image")
+                };
+                let mut i = i.borrow_mut();
+                let error = || matches!(&a[1], Val::Str(k) if k.to_rust() == "error");
+                match m {
+                    "set-src" => {
+                        let Val::Str(s) = &a[1] else {
+                            panic!("validated string")
+                        };
+                        i.src = Some(s.clone());
+                        Val::Undefined
+                    }
+                    "src" => {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            "the interpreter does not resolve image URLs (image.src)",
+                        ));
+                    }
+                    "cross-origin" => i
+                        .cross_origin
+                        .map_or(Val::Null, |v| Val::Str(JsString::from(v))),
+                    "set-cross-origin" => {
+                        i.cross_origin = match &a[1] {
+                            Val::Null => js::image::cross_origin(None),
+                            Val::Str(s) => js::image::cross_origin(Some(&s.to_rust())),
+                            _ => js::image::cross_origin(Some("undefined")),
+                        };
+                        Val::Undefined
+                    }
+                    "referrer-policy" => Val::Str(JsString::from(i.referrer_policy)),
+                    "set-referrer-policy" => {
+                        let Val::Str(s) = &a[1] else {
+                            panic!("validated string")
+                        };
+                        i.referrer_policy = js::image::referrer_policy(&s.to_rust());
+                        Val::Undefined
+                    }
+                    "handler" => {
+                        let e = error();
+                        i.listeners
+                            .iter()
+                            .find(|l| l.0 == e && l.1)
+                            .map_or(Val::Null, |l| l.2.clone())
+                    }
+                    "set-handler" => {
+                        let e = error();
+                        let at = i.listeners.iter().position(|l| l.0 == e && l.1);
+                        match (&a[2], at) {
+                            (Val::Null | Val::Undefined, Some(at)) => {
+                                i.listeners.remove(at);
+                            }
+                            (Val::Null | Val::Undefined, None) => {}
+                            (f, Some(at)) => i.listeners[at].2 = f.clone(),
+                            (f, None) => i.listeners.push((e, true, f.clone())),
+                        }
+                        Val::Undefined
+                    }
+                    "listen" => {
+                        let e = error();
+                        if !i
+                            .listeners
+                            .iter()
+                            .any(|l| l.0 == e && !l.1 && strict_equal(&l.2, &a[2]))
+                        {
+                            i.listeners.push((e, false, a[2].clone()));
+                        }
+                        Val::Undefined
+                    }
+                    "unlisten" => {
+                        let e = error();
+                        i.listeners
+                            .retain(|l| !(l.0 == e && !l.1 && strict_equal(&l.2, &a[2])));
+                        Val::Undefined
+                    }
+                    _ => panic!("validated image built-in {m}"),
+                }
+            }
             ("mounted", "unmount") => {
                 let Val::Mounted(h) = &a[0] else {
                     panic!("validated mounted instance")
@@ -3874,6 +3975,7 @@ impl<'p> Machine<'p> {
             | Val::Date(_)
             | Val::Mounted(_)
             | Val::Contexts(_)
+            | Val::Image(_)
             | Val::DynObject(_)
             | Val::Boxed(_)
             | Val::DynFn(_)
@@ -8915,6 +9017,7 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Attrs(_) => json!("attrs"),
         Val::Mounted(_) => json!("mounted"),
         Val::Contexts(_) => json!("contexts"),
+        Val::Image(_) => json!("image"),
         Val::DynObject(_) | Val::Boxed(_) | Val::DynFn(_) => unreachable!("dynamic::cell_json"),
     }
 }

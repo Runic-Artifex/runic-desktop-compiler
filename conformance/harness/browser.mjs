@@ -696,6 +696,19 @@ export async function createBrowserHarness() {
               return p;
             };
           });
+        // Image objects (M6 images, `new Image()`), which settling waits for
+        // as for the document's images; constructed as before.
+        await page.addInitScript(() => {
+          const made = [];
+          window.__runicImages = made;
+          window.Image = new Proxy(window.Image, {
+            construct(target, args, newTarget) {
+              const image = Reflect.construct(target, args, newTarget);
+              made.push(new WeakRef(image));
+              return image;
+            },
+          });
+        });
         // localStorage items the case starts with.
         if (storage)
           await page.addInitScript(items => {
@@ -718,9 +731,16 @@ export async function createBrowserHarness() {
         const settle = async () => {
           await settleFrames();
           // Images still loading (M6): their load or error events follow
-          // their requests, which the frames do not wait for.
+          // their requests, which the frames do not wait for (also image
+          // objects').
           let loading = false;
-          while (await page.evaluate(() => [...document.images].some(i => !i.complete))) {
+          while (
+            await page.evaluate(() =>
+              [...document.images, ...window.__runicImages.map(r => r.deref())].some(
+                i => i && !i.complete,
+              ),
+            )
+          ) {
             loading = true;
             await new Promise(r => setTimeout(r, 10));
           }

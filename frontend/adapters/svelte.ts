@@ -52,7 +52,7 @@ import {
 import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domains.ts';
 import { svelteReactivityImport } from '../svelte-reactivity.ts';
 import { svelteContextImport } from '../svelte-context.ts';
-import { valueSet } from '../packs/choice.ts';
+import { openOrigin, valueSet } from '../packs/choice.ts';
 import { ABSENT, BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
 import { packageBindings } from '../package-bindings.ts';
 import { componentBinding, componentGlobal } from '../component-values.ts';
@@ -5061,37 +5061,89 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
      * its `src` can take must be known at build time (a literal, or an
      * expression with a finite set of string values: the value domains of
      * frontend/packs/choice.ts) and becomes an image URL the builder pins.
-     * A spread could hold `src`, and attributes whose loading behaviour the
-     * runtime does not model are rejected: `loading` (lazy loading changes
-     * when `load` fires), `srcset` and `sizes` (selection by device pixel
-     * ratio; Blitz loads `src` only), `crossorigin` (no canvas reads it), and
-     * the `naturalWidth`/`naturalHeight` bindings.
+     * Attributes whose loading behaviour the runtime does not model are
+     * rejected: `loading` (lazy loading changes when `load` fires), `srcset`
+     * and `sizes` (selection by device pixel ratio; Blitz loads `src` only),
+     * `crossorigin` (no canvas reads it), and the `naturalWidth`/
+     * `naturalHeight` bindings. A spread (bits-ui's Avatar image: `<img
+     * {...mergedProps} {src} />`) is supported where the bag provably holds
+     * none of those names with a value (absent, undefined or null: frontend/
+     * bags.ts), and where its `src` is determined: an attribute after every
+     * spread, or the bags' `src` values (each spread's, from the last; one
+     * that may not hold it leaves it to those before it).
      */
+    const IMG_REJECTED: Record<string, string> = {
+      loading: 'lazy loading changes when load fires',
+      srcset: 'the runtime loads src only, without selection by device pixel ratio',
+      sizes: 'the runtime loads src only, without selection by device pixel ratio',
+      crossorigin: 'it only affects canvas reads, and there is no canvas',
+    };
     const imageSources = (n: SNode) => {
       for (const a of n.attributes) {
-        if (a.type === 'SpreadAttribute')
-          fail(
-            'E_TEMPLATE',
-            'Spread attributes on <img> are not supported: its src must be an attribute with values known at build time',
-            loc(a),
-          );
         if (a.type === 'BindDirective' && a.name !== 'this')
           fail('E_TEMPLATE', `bind:${a.name} on <img> is not supported`, loc(a));
+        if (a.type === 'SpreadAttribute') {
+          const bag = nodeIn(u, a.expression) as ts.Expression;
+          const shape = shapes.of(bag);
+          for (const [name, why] of Object.entries(IMG_REJECTED)) {
+            if (!mayHold(shape, name)) continue;
+            const values = shapes.values(bag, name);
+            // (Svelte sets false as the attribute "false": only absent,
+            // undefined and null remove it.)
+            const valued = values?.find(v => v !== ABSENT && v !== undefined && v !== null);
+            if (!values || valued !== undefined)
+              fail(
+                'E_TEMPLATE',
+                `This spread may give the <img> a ${name} attribute${
+                  values ? ` (${JSON.stringify(valued)})` : ' (its values are open)'
+                }, which is not supported (${why})`,
+                loc(a),
+              );
+          }
+        }
         if (a.type !== 'Attribute') continue;
-        if (['loading', 'srcset', 'sizes', 'crossorigin'].includes(a.name))
+        if (IMG_REJECTED[a.name])
           fail(
             'E_TEMPLATE',
-            `The ${a.name} attribute of <img> is not supported (${
-              a.name === 'loading'
-                ? 'lazy loading changes when load fires'
-                : a.name === 'crossorigin'
-                  ? 'it only affects canvas reads, and there is no canvas'
-                  : 'the runtime loads src only, without selection by device pixel ratio'
-            })`,
+            `The ${a.name} attribute of <img> is not supported (${IMG_REJECTED[a.name]})`,
             loc(a),
           );
       }
-      const at = n.attributes.find((a: SNode) => a.type === 'Attribute' && a.name === 'src');
+      const record = (values: unknown[], at: SNode, what: string) => {
+        for (const v of values) {
+          // No attribute: no request.
+          if (v === undefined || v === null || v === ABSENT) continue;
+          if (typeof v !== 'string')
+            fail(
+              'E_ASSET',
+              `The src of this <img> may be ${JSON.stringify(v)}${what}, not a URL`,
+              loc(at),
+            );
+          imageUrls.push({ url: v as string, source: loc(at) });
+        }
+      };
+      const srcAt = n.attributes.findLastIndex(
+        (a: SNode) => a.type === 'Attribute' && a.name === 'src',
+      );
+      const at = srcAt >= 0 ? n.attributes[srcAt] : undefined;
+      // Spreads after the attribute, from the last.
+      const later = n.attributes
+        .slice(srcAt + 1)
+        .filter((a: SNode) => a.type === 'SpreadAttribute')
+        .reverse();
+      for (const spread of later) {
+        const bag = nodeIn(u, spread.expression) as ts.Expression;
+        if (!mayHold(shapes.of(bag), 'src')) continue;
+        const values = shapes.values(bag, 'src');
+        if (!values)
+          fail(
+            'E_ASSET',
+            'The src this spread may give the <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset; or set src as an attribute after the spread',
+            loc(spread),
+          );
+        record(values!, spread, ' (from this spread)');
+        if (!values!.includes(ABSENT)) return;
+      }
       if (!at) return;
       const values: unknown[] | undefined =
         at.value === true
@@ -5103,19 +5155,27 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
                 ? valueSet({ lower, label: '<img src>' }, exprNode(at.value[0].expression))
                 : undefined
             : valueSet({ lower, label: '<img src>' }, exprNode(at.value.expression));
-      if (!values)
-        fail(
-          'E_ASSET',
-          'The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset',
-          loc(at),
-        );
-      for (const v of values!) {
-        // No attribute: no request.
-        if (v === undefined || v === null) continue;
-        if (typeof v !== 'string')
-          fail('E_ASSET', `The src of this <img> may be ${JSON.stringify(v)}, not a URL`, loc(at));
-        imageUrls.push({ url: v as string, source: loc(at) });
+      if (!values) {
+        const what =
+          'image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset';
+        // (A value passed on through props: where it comes from.)
+        const single =
+          at.value !== true && !Array.isArray(at.value)
+            ? exprNode(at.value.expression)
+            : Array.isArray(at.value) && at.value.length === 1 && at.value[0].expression
+              ? exprNode(at.value[0].expression)
+              : undefined;
+        const origin = single && openOrigin({ lower, label: '<img src>' }, single);
+        const here = loc(at);
+        if (origin && origin !== single)
+          fail(
+            'E_ASSET',
+            `The src of an <img> (${here.file}:${here.line}:${here.column}) may take this value, which is open: ${what}`,
+            lower.sourceOf(origin)!,
+          );
+        fail('E_ASSET', `The src of this <img> is open: ${what}`, here);
       }
+      record(values!, at, '');
     };
     /** A fieldset's `disabled`, also from a spread that may hold it (FIELDSET_DISABLED). */
     const fieldsetAttributes = (n: SNode) => {
@@ -5629,6 +5689,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       );
   }
   (ir as Program & { irHash?: string }).irHash = hash(ir);
+  imageUrls.push(...lower.imageUrls);
   return imageUrls.length ? { ir, imageUrls } : { ir };
 }
 

@@ -645,6 +645,44 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
             t[0]
         ),
         ("animation", "pending") => format!("cx.dom.animation_pending(anim_of(&{}).id)", t[0]),
+        // Image objects (M6 images, `new Image()`): the generated `Img`; a
+        // `src` queues its outcome for the runtime's image tasks.
+        ("image", "new") => "js::Handle::new(Img::default())".into(),
+        ("image", "set-src") => format!("{{ img_set_src(cx, &{}, &{}); }}", t[0], t[1]),
+        ("image", "src") => format!("img_of(&{}).src.borrow().clone()", t[0]),
+        ("image", "set-cross-origin") => format!(
+            "{{ let v: Maybe<JsString> = {}; img_of(&{}).cross_origin.set(match v {{ Maybe::Some(s) => js::image::cross_origin(Some(&s.to_rust())), Maybe::Null => None, Maybe::Undefined => js::image::cross_origin(Some(\"undefined\")) }}); }}",
+            t[1], t[0]
+        ),
+        ("image", "cross-origin") => format!(
+            "img_of(&{}).cross_origin.get().map_or(Maybe::Null, |v| Maybe::Some(JsString::from(v)))",
+            t[0]
+        ),
+        ("image", "set-referrer-policy") => format!(
+            "{{ img_of(&{}).referrer_policy.set(js::image::referrer_policy(&{}.to_rust())); }}",
+            t[0], t[1]
+        ),
+        ("image", "referrer-policy") => {
+            format!("JsString::from(img_of(&{}).referrer_policy.get())", t[0])
+        }
+        ("image", m @ ("handler" | "set-handler" | "listen" | "unlisten")) => {
+            let error = matches!(args.get(1), Some(Expr::Lit { value: runic_ir::Value::String(k) }) if k == "error");
+            match m {
+                "handler" => format!(
+                    "img_of(&{}).listeners.borrow().iter().find(|x| x.0 == {error} && x.1).map_or(Maybe::Null, |x| Maybe::Some(x.2.clone()))",
+                    t[0]
+                ),
+                "set-handler" => format!("{{ img_set_handler(&{}, {error}, {}); }}", t[0], t[2]),
+                "listen" => format!(
+                    "{{ let f: Lst = {}; let mut l = img_of(&{}).listeners.borrow_mut(); if !l.iter().any(|x| x.0 == {error} && !x.1 && Rc::ptr_eq(&x.2, &f)) {{ l.push(({error}, false, f)); }} }}",
+                    t[2], t[0]
+                ),
+                _ => format!(
+                    "{{ let f: Lst = {}; img_of(&{}).listeners.borrow_mut().retain(|x| !(x.0 == {error} && !x.1 && Rc::ptr_eq(&x.2, &f))); }}",
+                    t[2], t[0]
+                ),
+            }
+        }
         // `beforematch` listeners: the runtime never fires the event.
         ("element", "listen" | "unlisten")
             if matches!(args.get(1), Some(Expr::Lit { value: runic_ir::Value::String(k) }) if k == "beforematch") =>

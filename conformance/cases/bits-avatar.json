@@ -1,9 +1,17 @@
 {
-  "description": "bits-ui's Avatar compiled from its published source (its root state holds svelte-toolbelt's DOMContext and binds an image loader) through shadcn-svelte's unmodified avatar wrappers, arranged as the avatar demos arrange them but without Avatar.Image: loading an image is rejected (the native runtime fetches no images and renders no <img>; new Image() throws RunicUnsupportedError when it runs; every avatar demo loads one from github.com and is rejected), so the avatars show their fallbacks with data-status loading, as the demos do while their images load. Sizes changed from the app (data-size and the size-dependent classes), a badge, a group with a count",
+  "description": "bits-ui's Avatar compiled from its published source through shadcn-svelte's unmodified avatar wrappers, as the avatar demos arrange them (M6 images, docs/design/M6-IMAGES.md): each Avatar.Image loads its pinned source with new Image() and renders an <img> of it (runic.images.json: two GitHub avatars and a pinned 404). Load success (after the default delayMs of 0, the image shows and the fallback hides: wait 0), a pinned 404 showing its fallback (data-status error), a root with delayMs 500 still loading after 300 ms of virtual time and loaded after 550, a source switched at run time from the 404 to an image (the root's onLoadingStatusChange trace is shown), sizes changed from the app (data-size and the size-dependent classes), a badge, a group with a count",
   "fixtures": ["bits-avatar-svelte"],
   "pixelRegions": ["avatars"],
+  "knownGaps": {
+    "pixels": "At 420px the avatars region differs by 3.3-5.7/255 once the images show (1.2/255 before; at 800px it stays at or below 2.9/255 and passes): shadcn-svelte's avatar draws an after: border with mix-blend-mode: darken, which Blitz paint does not implement, so a light ring is drawn over each image where Chromium darkens it away (5.1/255 over the first 44x44 avatar); the scaled image itself differs by 1.35/255 (a 14x14 interior crop: resampling, vello against Skia). docs/BLITZ-GAPS.md, mix-blend-mode"
+  },
   "actions": [
+    { "kind": "wait", "ms": 0 },
+    { "kind": "wait", "ms": 300 },
+    { "kind": "wait", "ms": 250 },
     { "kind": "click", "id": "small" },
+    { "kind": "click", "id": "swap" },
+    { "kind": "wait", "ms": 0 },
     { "kind": "click", "id": "more" },
     { "kind": "click", "id": "large" },
     { "kind": "hover", "id": "cn" }
