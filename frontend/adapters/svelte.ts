@@ -86,7 +86,7 @@ import { FIELDSET_TAGS, FIELDSET_DISABLED, INERT_TAGS, TABLE_TAGS } from '../ele
 type SNode = any;
 
 /** `svelte` exports modules may import. */
-const MODULE_SVELTE = ['tick', 'untrack', 'settled', 'setContext', 'getContext'];
+const MODULE_SVELTE = ['tick', 'untrack', 'settled', 'setContext', 'getContext', 'hasContext'];
 
 /** Inline SVG elements (runic-ir's SVG_TAGS). */
 const SVG_TAGS = ['svg', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'rect'];
@@ -2425,7 +2425,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   for (const p of lowerModules(graph, program, lower, {
     skip: f => f === graph.entry,
     // 'svelte''s tick, untrack and settled in modules lower where they are
-    // called; setContext and getContext are bound (frontend/svelte-context.ts).
+    // called; setContext, getContext and hasContext are bound (frontend/svelte-context.ts).
     frameworkImport(spec, stmt) {
       if (spec !== 'svelte') return false;
       const named = stmt.importClause?.namedBindings;

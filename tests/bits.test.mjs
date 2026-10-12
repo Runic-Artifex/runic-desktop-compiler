@@ -631,6 +631,59 @@ test('svelte contexts with string keys, getter objects, bound optional props, ca
   );
 });
 
+test("svelte's hasContext in modules: whether the instance or a parent set the key", async () => {
+  // shadcn-svelte's carousel context guards getContext with hasContext.
+  const files = (setValue, keyOf = "'c'") => ({
+    'Ctx.svelte': `<script lang="ts" module>
+  import { getContext, hasContext, setContext } from 'svelte';
+  interface C { tone: string }
+  export function setC(c: ${setValue}) { setContext('c', c); }
+  export function hasC() { return hasContext(${keyOf}); }
+  export function hasNever() { return hasContext('never'); }
+  export function getC() { return getContext<C | undefined>('c'); }
+</script>
+<script lang="ts">
+  let { children }: { children?: import('svelte').Snippet } = $props();
+  setC({ tone: 'loud' });
+</script>
+{@render children?.()}
+`,
+    'Show.svelte': `<script lang="ts">
+  import { getC, hasC, hasNever } from './Ctx.svelte';
+  let { id }: { id: string } = $props();
+  const inside = hasC();
+  const never = hasNever();
+  const tone = getC()?.tone ?? 'none';
+</script>
+<p {id}>{inside ? 'in' : 'out'} {never} {tone}</p>
+`,
+    'App.svelte': `<script lang="ts">
+  import Ctx from './Ctx.svelte';
+  import Show from './Show.svelte';
+</script>
+<Ctx><Show id="a" /></Ctx>
+<Show id="b" />
+`,
+  });
+  await withApp(files('C'), async root => {
+    const steps = interpret((await lowered(root)).ir, []);
+    assert.deepEqual(
+      ['a', 'b'].map(id => text(byId(steps[0], id))),
+      ['in false loud', 'out false none'],
+    );
+  });
+  // A set value that may be undefined is a value to hasContext, not none.
+  await withApp(files('C | undefined'), async root =>
+    assert.rejects(
+      lowered(root),
+      failWith('E_CAPABILITY', 'Ctx.svelte', /may be undefined, which hasContext tells apart/),
+    ),
+  );
+  await withApp(files('C', "'c' + ''"), async root =>
+    assert.rejects(lowered(root), failWith('E_CAPABILITY', 'Ctx.svelte', /string literal key/)),
+  );
+});
+
 test('Accordion: single and multiple compile; watch effects are functions of the values', async () => {
   // The fixtures read layout (the content's size), so the conformance cases
   // bits-accordion and bits-accordion-multiple run them.
