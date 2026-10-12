@@ -1,0 +1,19 @@
+{
+  "description": "text-transform: capitalize as Chromium 153 lays it out (Blink's Capitalize: ICU word starts after the previous text's last code unit, the simple titlecase of each word's first code unit, other letters unchanged): spaces, punctuation, hyphens, apostrophes, digits, full stops and colons; already upper- and mixed-case words; é, ß (unchanged), the ǆ digraphs (titlecase ǅ), ﬁ (unchanged), Greek with ypogegrammeni, Cyrillic, Armenian, Georgian (its own titlecase); words split across inline elements ('don'<b>t</b> is two words, as in Chromium), a <br> and line wrapping; the last text of an inline-block continuing the word after it, an out-of-flow box passed through and a float ending it; no-break spaces; a white space text Blink lays out nothing for after an out-of-flow box; text with none and uppercase among capitalized text; text set at run time (the node's own text, a Tailwind-like button label as in shadcn-svelte's examples) and the class toggled; a control row writes the inline-block row out in capitals without text-transform",
+  "fixtures": ["capitalize-svelte"],
+  "viewports": [
+    [800, 760],
+    [420, 900]
+  ],
+  "pixelRegions": ["boundaries", "cases", "scripts", "split", "boxes", "boxes-control", "dynamic", "toggled"],
+  "knownGaps": {
+    "pixels": "The row with inline-blocks (region boxes) differs by 3.636/255 at both widths, and so does its control row boxes-control, the same text written out in capitals without text-transform (3.636-3.637/255): the inline-blocks’ backgrounds cover the same device pixels, and a few glyphs next to them are drawn up to 0.3px left of Chromium’s (ink centroids; docs/BLITZ-GAPS.md, glyph rasterisation), whatever the case transform. The other regions are within 2.8/255 and the page within 0.45/255"
+  },
+  "actions": [
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "side-button" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "toggle" }
+  ]
+}

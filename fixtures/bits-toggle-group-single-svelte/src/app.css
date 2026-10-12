@@ -5,14 +5,8 @@
  * style-vega.css, imported there into the base layer) for Toggle and Toggle Group, at the
  * pinned commit (conformance/corpus/north-star.json). MIT licence:
  * lib/LICENSE.md.
- *
- * toggle-group-spacing's items are `capitalize`, which is rejected (Blitz
- * transforms text to upper and lower case only), so this app keeps it out of
- * Tailwind's generation (the browser reference renders the same stylesheet
- * as the native build).
  */
 @import "tailwindcss";
-@source not inline("capitalize");
 
 @custom-variant dark (&:is(.dark *));
 
