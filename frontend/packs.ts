@@ -518,6 +518,29 @@ const skip = (e: ts.Expression): ts.Expression =>
     : e;
 
 /**
+ * Whether a call's callee is a function compiled from source (a function
+ * declaration with a body outside declaration files, through imports). Its
+ * result is a value, never a pack function, so `bindPackConstant` need not
+ * resolve its binding, which lowers it: adapters ask before their prop
+ * analyses exist, and lowering a package function then would decide the
+ * unions it meets without them (bits-ui's `getDefaultDate` in the Calendar).
+ */
+function sourceFunction(e: ts.Expression | undefined, lower: Lowerer): boolean {
+  const init = e && skip(e);
+  if (!init || !ts.isCallExpression(init) || !ts.isIdentifier(init.expression)) return false;
+  let sym = lower.checker.getSymbolAtLocation(init.expression);
+  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = lower.checker.getAliasedSymbol(sym);
+  const decl = sym?.valueDeclaration;
+  return (
+    !!decl &&
+    ts.isFunctionDeclaration(decl) &&
+    !!decl.body &&
+    !decl.getSourceFile().isDeclarationFile &&
+    lower.bindings.get(sym!)?.kind !== 'pack'
+  );
+}
+
+/**
  * Bind a const initialised by a pack call that defines a new pack function
  * (`const button = tv({...})`). Returns false for other declarations.
  */
@@ -525,6 +548,7 @@ export function bindPackConstant(d: ts.VariableDeclaration, lower: Lowerer): boo
   // Bound already (adapters bind component constants before analysing props).
   const own = ts.isIdentifier(d.name) ? lower.checker.getSymbolAtLocation(d.name) : undefined;
   if (own && lower.bindings.get(own)?.kind === 'pack') return true;
+  if (sourceFunction(d.initializer, lower)) return false;
   const found = calleeBinding(d.initializer, lower);
   if (!found?.binding.constant) return false;
   if (!ts.isIdentifier(d.name))

@@ -439,6 +439,7 @@ export class Lowerer {
       () => program.getSourceFiles(),
       sym => this.domains?.written(sym),
       test => this.buildTimeTruth(test),
+      t => types.sourceClass(t),
     );
     types.narrow = (parts, at, fail, dynamic) => this.unions.member(parts, at, fail, dynamic);
     types.nothingSlot = decl => this.unions.nothingSlot(decl);
@@ -1532,6 +1533,25 @@ export class Lowerer {
     ) {
       const m = member(e.arguments[0]);
       if (m) return this.checker.isArrayType(m) || this.checker.isTupleType(m);
+      // A nullable union narrowed to a member that is no array is no array:
+      // null and undefined are none either (bits-ui's `getDefaultDate`,
+      // `Array.isArray(defaultValue) && defaultValue.length` of a
+      // `DateValue | DateValue[] | undefined` only dates reach).
+      const arg = skipParens(e.arguments[0]);
+      const at = this.checker.getTypeAtLocation(arg);
+      const present = this.checker.getNonNullableType(at);
+      if (
+        present !== at &&
+        present.isUnion() &&
+        !(at.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) &&
+        this.types.tryMap(at, arg) !== undefined
+      ) {
+        const n = this.unions.narrowed(present);
+        if (n && !this.checker.isArrayType(n) && !this.checker.isTupleType(n)) {
+          if (!ts.isIdentifier(arg)) effects.push(arg);
+          return false;
+        }
+      }
       const t = typeOfLocal(e.arguments[0]);
       if (t === undefined || (typeof t === 'object' && 'maybe' in t)) return undefined;
       // (A tuple record is an array in JavaScript.)
@@ -1550,15 +1570,76 @@ export class Lowerer {
    * destructured from a parameter (bits-ui's `static create(props) { const
    * { type, ...rest } = props; … }`) that every call of its function, all of
    * them direct calls in the program, passes in an object literal with one
-   * such value. Undefined where it may differ or cannot be told.
+   * such value. Also a local constant whose initialiser has one such value
+   * (an equality or `!` of such values: its truth), and the `current` of
+   * getter boxes whose getters all return one such value
+   * (frontend/unions.ts `boxedSources`: bits-ui's `const multiple =
+   * this.opts.type.current === "multiple"`, the box `boxWith(() => type)`
+   * of a `type` prop every site passes as `"single"`). Undefined where it
+   * may differ or cannot be told.
    */
   buildTimeValue(e: ts.Expression, depth = 0): { value: unknown } | undefined {
     e = skipParens(e);
     const known = this.staticValue(e);
     if (known) return known;
-    if (!ts.isIdentifier(e) || depth > 8) return undefined;
+    if (depth > 8) return undefined;
+    if (ts.isPropertyAccessExpression(e) && !e.questionDotToken) return this.boxedValue(e, depth);
+    if (!ts.isIdentifier(e)) return undefined;
     const sym = this.checker.getSymbolAtLocation(e);
-    return sym && this.symbolValue(sym, depth);
+    return sym && (this.symbolValue(sym, depth) ?? this.constantValue(sym, depth));
+  }
+
+  /**
+   * The one value of a `const` declared in a function (not a pattern, not a
+   * module constant, which `staticValue` covers): its initialiser's, or the
+   * truth of an equality or negation (whose values are booleans).
+   */
+  private constantValue(sym: ts.Symbol, depth: number): { value: unknown } | undefined {
+    const d = sym.valueDeclaration;
+    if (
+      !d ||
+      !ts.isVariableDeclaration(d) ||
+      !ts.isIdentifier(d.name) ||
+      !d.initializer ||
+      !(ts.getCombinedNodeFlags(d) & ts.NodeFlags.Const)
+    )
+      return undefined;
+    const init = skipParens(d.initializer);
+    const value = this.buildTimeValue(init, depth + 1);
+    if (value) return value;
+    const K = ts.SyntaxKind;
+    const boolean =
+      (ts.isPrefixUnaryExpression(init) && init.operator === K.ExclamationToken) ||
+      (ts.isBinaryExpression(init) &&
+        [
+          K.EqualsEqualsEqualsToken,
+          K.EqualsEqualsToken,
+          K.ExclamationEqualsEqualsToken,
+          K.ExclamationEqualsToken,
+        ].includes(init.operatorToken.kind));
+    const truth = boolean ? this.buildTimeTruth(init, depth + 1) : undefined;
+    return truth === undefined ? undefined : { value: truth };
+  }
+
+  /**
+   * `x.current` of getter boxes (`boxWith(() => v)`, every box the
+   * program gives the property, none written through or filled by a
+   * spread: frontend/unions.ts `boxedSources`) whose getters all return
+   * one value.
+   */
+  private boxedValue(
+    e: ts.PropertyAccessExpression,
+    depth: number,
+  ): { value: unknown } | undefined {
+    const sources = this.unions.boxedSources(e);
+    if (!sources?.length) return undefined;
+    let found: { value: unknown } | undefined;
+    for (const s of sources) {
+      const v = this.buildTimeValue(s, depth + 1);
+      if (!v || (found && found.value !== v.value)) return undefined;
+      found = v;
+    }
+    return found;
   }
 
   private symbolValue(sym: ts.Symbol, depth: number): { value: unknown } | undefined {
@@ -1721,26 +1802,27 @@ export class Lowerer {
    * lowering it (`buildTimeValue` of its operands; `!`, `&&`, `||`,
    * equality; `classLiteral` members).
    */
-  buildTimeTruth(e: ts.Expression): boolean | undefined {
+  buildTimeTruth(e: ts.Expression, depth = 0): boolean | undefined {
     e = skipParens(e);
     const K = ts.SyntaxKind;
+    if (depth > 8) return undefined;
     if (ts.isPrefixUnaryExpression(e) && e.operator === K.ExclamationToken) {
-      const v = this.buildTimeTruth(e.operand);
+      const v = this.buildTimeTruth(e.operand, depth);
       return v === undefined ? undefined : !v;
     }
     if (ts.isBinaryExpression(e)) {
       const op = e.operatorToken.kind;
       if (op === K.AmpersandAmpersandToken || op === K.BarBarToken) {
-        const l = this.buildTimeTruth(e.left);
+        const l = this.buildTimeTruth(e.left, depth);
         if (l === undefined) return undefined;
         if (op === K.AmpersandAmpersandToken ? !l : l) return l;
-        return this.buildTimeTruth(e.right);
+        return this.buildTimeTruth(e.right, depth);
       }
       const eq = [K.EqualsEqualsEqualsToken, K.EqualsEqualsToken].includes(op);
       const ne = [K.ExclamationEqualsEqualsToken, K.ExclamationEqualsToken].includes(op);
       if (eq || ne) {
-        const l = this.buildTimeValue(e.left) ?? this.classLiteral(e.left);
-        const r = l && (this.buildTimeValue(e.right) ?? this.classLiteral(e.right));
+        const l = this.buildTimeValue(e.left, depth) ?? this.classLiteral(e.left);
+        const r = l && (this.buildTimeValue(e.right, depth) ?? this.classLiteral(e.right));
         if (!l || !r) return undefined;
         const loose = op === K.EqualsEqualsToken || op === K.ExclamationEqualsToken;
         // (Loose equality of primitives of one type, or of null and undefined.)
@@ -1751,7 +1833,7 @@ export class Lowerer {
       }
       return undefined;
     }
-    const v = this.buildTimeValue(e) ?? this.classLiteral(e);
+    const v = this.buildTimeValue(e, depth) ?? this.classLiteral(e);
     return v ? !!v.value : undefined;
   }
 

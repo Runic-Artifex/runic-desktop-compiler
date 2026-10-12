@@ -1,6 +1,6 @@
 {
  "generated": "node conformance/triage.mjs --jobs 4",
- "compiler": "56a4335",
+ "compiler": "f1db969",
  "corpus": {
   "name": "shadcn-svelte",
   "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
@@ -374,30 +374,6 @@
  },
  "clusters": [
   {
-   "code": "E_TYPE_UNION",
-   "count": 16,
-   "message": "Union CalendarDate | CalendarDateTime | ZonedDateTime | DateValue[] is outside the value model: values of several members reach it (DateValue[] at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:329, CalendarDate at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:340, CalendarDateTime at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:340, ZonedDateTime at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:340); compiling per member is not supported yet",
-   "location": "node_modules/bits-ui/dist/internal/date-time/utils.js:20",
-   "examples": [
-    "calendar-basic",
-    "calendar-booked-dates",
-    "calendar-caption",
-    "calendar-custom-days",
-    "calendar-demo",
-    "calendar-presets",
-    "calendar-range",
-    "calendar-time",
-    "date-picker-basic",
-    "date-picker-demo",
-    "date-picker-dob",
-    "date-picker-input",
-    "date-picker-natural-language",
-    "date-picker-range",
-    "date-picker-time",
-    "range-calendar-demo"
-   ]
-  },
-  {
    "code": "E_DEPENDENCY",
    "count": 10,
    "message": "No mapping pack for dependency vaul-svelte@1.0.0-next.7, and it cannot be compiled from source: its package.json does not declare \"sideEffects\": false, which compiling only the declarations a program reaches requires (frontend/sources.ts)",
@@ -431,6 +407,23 @@
     "context-menu-shortcuts",
     "context-menu-sides",
     "context-menu-submenu"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 9,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:24",
+   "examples": [
+    "calendar-basic",
+    "calendar-booked-dates",
+    "calendar-caption",
+    "calendar-custom-days",
+    "calendar-demo",
+    "calendar-presets",
+    "calendar-range",
+    "calendar-time",
+    "range-calendar-demo"
    ]
   },
   {
@@ -553,6 +546,18 @@
     "native-select-disabled",
     "native-select-groups",
     "native-select-invalid"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 4,
+   "message": "Union string | number is outside the value model: values of several members reach it (number at node_modules/bits-ui/dist/bits/utilities/floating-layer/use-floating-layer.svelte.js:166, string at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:335); compiling per member is not supported yet",
+   "location": "node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:24",
+   "examples": [
+    "date-picker-basic",
+    "date-picker-demo",
+    "date-picker-dob",
+    "date-picker-range"
    ]
   },
   {
@@ -729,6 +734,15 @@
   {
    "code": "E_DEPENDENCY",
    "count": 1,
+   "message": "No mapping pack for dependency chrono-node, and it is not compiled from source (frontend/sources.ts lists those packages)",
+   "location": "docs/src/lib/registry/examples/date-picker-natural-language.svelte:4",
+   "examples": [
+    "date-picker-natural-language"
+   ]
+  },
+  {
+   "code": "E_DEPENDENCY",
+   "count": 1,
    "message": "No mapping pack for dependency mode-watcher@1.1.0, and it cannot be compiled from source: its package.json does not declare \"sideEffects\": false, which compiling only the declarations a program reaches requires (frontend/sources.ts)",
    "location": "docs/src/lib/registry/examples/dark-mode-dropdown-menu.svelte:4",
    "examples": [
@@ -775,7 +789,7 @@
    "code": "E_KIT_IMPORT",
    "count": 1,
    "message": "$app/stores is unsupported (supported: $app/state, $app/navigation, $app/environment, @sveltejs/kit)",
-   "location": "../../../../node_modules/sveltekit-superforms/dist/client/SuperDebug.svelte:5",
+   "location": "../../../../node_modules/sveltekit-superforms/dist/client/superForm.js:2",
    "examples": [
     "form-demo"
    ]
@@ -900,6 +914,15 @@
   {
    "code": "E_TYPE_UNION",
    "count": 1,
+   "message": "The type of value (any) is outside the value model, so it takes the values its sites pass, but the prop value is assigned by its component, so its values do not all come from its instantiation sites",
+   "location": "docs/src/lib/registry/ui/input/input.svelte:14",
+   "examples": [
+    "date-picker-input"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 1,
    "message": "The value of && is either operand, of types no one type holds (boolean | \"\" | undefined)",
    "location": "docs/src/lib/components/chart-tooltip-demo-item.svelte:46",
    "examples": [
@@ -913,6 +936,15 @@
    "location": "docs/src/lib/registry/ui/field/field-error.svelte:33",
    "examples": [
     "select-invalid"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 1,
+   "message": "Union never[] | HTMLElement[] is outside the value model: values of several members reach it (never[] at node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:50, HTMLElement[] at node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:125); compiling per member is not supported yet",
+   "location": "node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:50",
+   "examples": [
+    "date-picker-time"
    ]
   },
   {
