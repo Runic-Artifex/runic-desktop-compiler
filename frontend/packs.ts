@@ -98,9 +98,10 @@ export interface PackFunction {
 
 /** An attribute of a component instance, as written. */
 export interface PackAttr {
+  /** The attribute's name (`...` for a spread). */
   name: string;
   at: Source;
-  value: { text: string } | { expr: ts.Expression } | { present: true };
+  value: { text: string } | { expr: ts.Expression } | { present: true } | { spread: ts.Expression };
 }
 
 /** A component export: an instance expands into template nodes. */
@@ -113,6 +114,14 @@ export interface PackComponent {
       b: FnBuilder;
       at: Source;
       fail(code: string, message: string, at: Source): never;
+      /** Spread attributes' bags (frontend/bags.ts): their names, values and value. */
+      bags: {
+        shape(e: ts.Expression): Shape;
+        /** The values the bag holds for `key` (`ABSENT` where it may not), undefined where open. */
+        values(e: ts.Expression, key: string): unknown[] | undefined;
+        /** The bag, lowered. */
+        value(e: ts.Expression): Expr;
+      };
     },
   ): Node;
 }

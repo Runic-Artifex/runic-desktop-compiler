@@ -4425,11 +4425,20 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       const reject = (at: SNode, what: string): never =>
         fail('E_PACK', `${pack.name}@${pack.version} pack: ${what}`, loc(at));
       for (const a of n.attributes) {
-        if (a.type !== 'Attribute')
-          reject(
-            a,
-            `${a.type === 'SpreadAttribute' ? 'spread attributes' : a.type} on ${n.name} are not covered`,
-          );
+        if (a.type === 'SpreadAttribute') {
+          // A bag the pack reads by name (frontend/bags.ts). Snippets this
+          // component received in its rest props are slots, not entries, so
+          // a spread of them would not pass them on.
+          const e = exprNode(a.expression) as ts.Expression;
+          if (forwardedSlots.size && mentionsRest(e, u.file))
+            reject(
+              a,
+              `this spread passes on the rest props, which hold the snippets ${[...forwardedSlots].join(', ')}`,
+            );
+          attrs.push({ name: '...', at: loc(a), value: { spread: e } });
+          continue;
+        }
+        if (a.type !== 'Attribute') reject(a, `${a.type} on ${n.name} are not covered`);
         let value: PackAttr['value'];
         if (a.value === true) value = { present: true };
         else {
@@ -4444,7 +4453,17 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
       if (n.fragment.nodes.some((c: SNode) => c.type !== 'Text' || c.data.trim()))
         reject(n, `content inside ${n.name} is not covered`);
       usePack(lower, pack);
-      return component.expand(attrs, { lower, b: tb, at: loc(n), fail });
+      return component.expand(attrs, {
+        lower,
+        b: tb,
+        at: loc(n),
+        fail,
+        bags: {
+          shape: e => shapes.of(e),
+          values: (e, key) => shapes.values(e, key),
+          value: e => lower.bagValue(e, tb),
+        },
+      });
     };
     const component = (n: SNode): Node => {
       const packed = u.packs.get(n.name);
