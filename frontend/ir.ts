@@ -536,6 +536,24 @@ export interface Asset {
  */
 export type Image = { url: string; asset: number } | { url: string; status: number };
 
+/**
+ * An image URL a program can load, with the source location naming it (M6,
+ * docs/design/M6-IMAGES.md). The builder pins each one (`compiler/images.mjs`).
+ */
+export interface ImageUrl {
+  url: string;
+  source: Source;
+}
+
+/**
+ * What a frontend adapter returns: the program and the image URLs it can load
+ * (absent: none; no adapter yields any until `<img>` is lowered).
+ */
+export interface Lowering {
+  ir: Program;
+  imageUrls?: ImageUrl[];
+}
+
 export interface Program {
   schema: 5;
   meta: {

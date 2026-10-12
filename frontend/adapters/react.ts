@@ -53,6 +53,7 @@ import type {
   Type,
   RecordType,
   StyleGuard,
+  Lowering,
 } from '../ir.ts';
 import { FnBuilder, Lowerer, skipParens, type HandlerEvent, type Hooks } from '../language.ts';
 import { createProgram, REACT } from '../program.ts';
@@ -474,7 +475,7 @@ const EVENT_INSTANCEOF = '$reactEventInstanceOf';
 /** The key marking IR nodes rendered inside a Fragment fiber (removed like REF_ACCESS). */
 const FRAGMENT = '$reactFragment';
 
-export async function lowerReact(graph: Graph): Promise<{ ir: Program }> {
+export async function lowerReact(graph: Graph): Promise<Lowering> {
   const { root } = graph;
   const files = new Map<string, string>();
   for (const [id, m] of graph.modules)

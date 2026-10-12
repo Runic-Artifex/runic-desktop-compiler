@@ -60,6 +60,7 @@ import type {
   Type,
   RecordType,
   StyleGuard,
+  Lowering,
 } from '../ir.ts';
 import { EVENT_KINDS } from '../ir.ts';
 import {
@@ -428,7 +429,7 @@ function memberName(m: ts.TypeElement): string | undefined {
   return undefined;
 }
 
-export async function lowerVue(graph: Graph): Promise<{ ir: Program }> {
+export async function lowerVue(graph: Graph): Promise<Lowering> {
   const { root } = graph;
   const fail = (code: string, message: string, source?: Source): never => {
     throw new Diagnostic(code, message, source);

@@ -2,8 +2,14 @@
 // Every lowered program is validated by the Rust backend before it is used.
 import { Diagnostic } from './collect.mjs';
 import { check } from './codegen.mjs';
+import { pinImages } from './images.mjs';
 
-export async function lower(graph) {
+/**
+ * Lower a collected app. The image URLs the program can load are pinned
+ * (compiler/images.mjs) unless `images` is false (`runic images`, which
+ * produces the record pinning needs).
+ */
+export async function lower(graph, { images = true } = {}) {
   const result = await adapter(graph);
   // The document element starts with index.html's <html> attributes.
   if (Object.keys(graph.documentAttrs ?? {}).length) result.ir.document = graph.documentAttrs;
@@ -15,6 +21,7 @@ export async function lower(graph) {
     // index.html's <body> attributes.
     result.ir.body = graph.bodyAttrs;
   }
+  if (images) await pinImages(graph, result.ir, result.imageUrls ?? []);
   check(result.ir);
   return result;
 }

@@ -66,7 +66,7 @@ async function buildInto(ir, graph, out, options) {
     path.join(path.dirname(out), '.' + path.basename(out) + '-building-'),
   );
   try {
-    emit(ir, stage, !options.noOpt);
+    emit(ir, stage, !options.noOpt, graph.root);
     // Offline: the copied workspace lock pins every dependency; cargo only adds
     // the generated package itself.
     const result = spawnSync(
@@ -148,7 +148,7 @@ async function buildInto(ir, graph, out, options) {
 async function main() {
   if (!command || !app) {
     console.log(
-      'runic-compiler analyze|build|generate <app>\nrunic-compiler scan <project-dir>\nOptions: --out PATH --no-opt --release --probe --renderer cpu|gpu --json',
+      'runic-compiler analyze|build|generate|images <app>\nrunic-compiler scan <project-dir>\nOptions: --out PATH --no-opt --release --probe --renderer cpu|gpu --json',
     );
     return;
   }
@@ -173,6 +173,12 @@ async function main() {
         server: Boolean(record.server),
       }),
     );
+    return;
+  }
+  if (command === 'images') {
+    // The only networked step: pins the program's remote image URLs.
+    const { fetchImages } = await import('./images.mjs');
+    console.log(JSON.stringify(await fetchImages(app)));
     return;
   }
   if (command === 'scan') {

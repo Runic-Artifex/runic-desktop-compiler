@@ -23,6 +23,7 @@ import type {
   RecordType,
   Effect,
   StyleGuard,
+  Lowering,
 } from '../ir.ts';
 import { EVENT_KINDS } from '../ir.ts';
 import {
@@ -288,7 +289,7 @@ interface Unit {
   reached: boolean;
 }
 
-export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
+export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   const { root } = graph;
   const fail = (code: string, message: string, source?: Source): never => {
     throw new Diagnostic(code, message, source);

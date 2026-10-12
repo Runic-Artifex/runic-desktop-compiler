@@ -3,7 +3,7 @@
 //! ```text
 //! runic-codegen check   <ir.json>
 //! runic-codegen migrate <ir.json>
-//! runic-codegen emit    <ir.json> <out-dir> --runtime <crate> --lock <Cargo.lock> --hash <hex> [--no-opt]
+//! runic-codegen emit    <ir.json> <out-dir> --runtime <crate> --lock <Cargo.lock> --hash <hex> [--asset-root <app>] [--no-opt]
 //! runic-codegen interp  <ir.json> < actions.json
 //! ```
 //! Diagnostics are printed as JSON on stderr with exit code 1.
@@ -152,6 +152,8 @@ fn main() {
             let lock = flag(&args, "--lock")
                 .unwrap_or_else(|| fail(Diagnostic::new("E_INPUT", "missing --lock", None)));
             let hash = flag(&args, "--hash").unwrap_or_default();
+            // The app directory: image bytes are read from it, not the IR.
+            let asset_root = flag(&args, "--asset-root");
             let options = Options {
                 optimize: !args.iter().any(|a| a == "--no-opt"),
             };
@@ -161,6 +163,7 @@ fn main() {
                 Path::new(out),
                 Path::new(&runtime),
                 Path::new(&lock),
+                asset_root.as_deref().map(Path::new),
                 &options,
             )
             .unwrap_or_else(|d| fail(d));
