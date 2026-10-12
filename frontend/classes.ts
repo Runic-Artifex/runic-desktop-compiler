@@ -2129,9 +2129,22 @@ export class Classes {
   /**
    * Whether fields of the classes `later` can exist before `rest` (the
    * statements of a base constructor after it first used the instance) runs:
-   * each is a literal or derived (creating it has no effect), and `rest`
-   * reaches the instance only through fields of the classes above them (in
-   * closures too, which it may call at once) or in effects, which run later.
+   * each is a literal, derived, a whole arrow function or `$state` of a
+   * literal (creating it has no effect and reads nothing: an arrow function
+   * reads `this` when it runs), as is each base field they declare again
+   * (`overrides`), and `rest` reaches the instance only through fields of
+   * the classes above them that no later class declares again (in closures
+   * too, which it may call at once, and in the arrow functions those fields
+   * hold, which it may call at once too: their bodies are checked the same
+   * way) or in effects, which run later.
+   *
+   * JavaScript creates the later fields after `rest`, the record before it
+   * (bits-ui's SliderSingleRootState and SliderMultiRootState, whose base
+   * constructor ends with `new SvelteResizeObserver(() =>
+   * this.opts.ref.current, this.#handleLayoutChange)`). Nothing can tell:
+   * creating them has no effect, and `rest` cannot read them (where it
+   * could, JavaScript would see them missing, or a re-declared field's
+   * base value, and the class stays rejected).
    */
   private fieldsUnobserved(
     rest: readonly ts.Statement[],
@@ -2149,15 +2162,34 @@ export class Classes {
         (ts.isIdentifier(e) && e.text === 'undefined')
       );
     };
+    /** Whether evaluating initialiser `e` has no effect and reads nothing. */
+    const inert = (e: ts.Expression): boolean => {
+      const inner = skipParens(e);
+      return literal(inner) || ts.isArrowFunction(inner);
+    };
+    // (Declared with it: one the constructor assigns is created there.)
+    const stateOfLiteral = (f: Field) =>
+      (f.rune?.kind === '$state' || f.rune?.kind === '$state.raw') &&
+      !!f.decl?.initializer &&
+      skipParens(f.decl.initializer) === f.rune.call &&
+      f.rune.call.arguments.every(literal);
     if (
-      !later.every(y =>
-        y.own.every(
-          f => isDerived(f) || (!f.param && !!f.decl?.initializer && literal(f.decl.initializer)),
-        ),
+      !later.every(
+        y =>
+          y.own.every(
+            f =>
+              isDerived(f) ||
+              stateOfLiteral(f) ||
+              (!f.param && !f.rune && !!f.decl?.initializer && inert(f.decl.initializer)),
+          ) && (y.overrides ?? []).every(d => !!d.initializer && inert(d.initializer)),
       )
     )
       return false;
+    const redefined = new Set(
+      later.flatMap(y => (y.overrides ?? []).map(d => this.fieldNamed(info, memberName(d.name)))),
+    );
     let ok = true;
+    const checked = new Set<ts.Node>();
     const visit = (n: ts.Node): void => {
       if (!ok) return;
       // A function with its own `this`.
@@ -2178,7 +2210,19 @@ export class Classes {
           !(ts.isCallExpression(access.parent) && access.parent.expression === access)
             ? this.fieldNamed(info, access.name)
             : undefined;
-        if (!field || later.includes(field.owner)) ok = false;
+        if (!field || later.includes(field.owner) || redefined.has(field)) ok = false;
+        // (An arrow function the field holds from its initialiser, which
+        // whatever `rest` passes it to may call at once.)
+        // A function it holds otherwise (assigned by a constructor, a bound
+        // method) is not followed: not known not to reach them.
+        const init = field?.decl?.initializer && skipParens(field.decl.initializer);
+        const arrow = !!init && ts.isArrowFunction(init);
+        const fnType = (t: Type | undefined) => typeof t === 'object' && 'fn' in t;
+        if (field && !arrow && (fnType(field.type) || fnType(maybeInner(field.type)))) ok = false;
+        if (ok && arrow && !checked.has(init)) {
+          checked.add(init);
+          visit((init as ts.ArrowFunction).body);
+        }
       }
       ts.forEachChild(n, visit);
     };
@@ -2385,10 +2429,11 @@ export class Classes {
     }
     // The classes below one whose constructor uses the instance declare no
     // fields: JavaScript would initialise them only after that code ran.
-    // Unless nothing can tell (bits-ui's SelectSingleRootState): each is a
-    // literal or derived, and what that constructor runs at once never
-    // reaches them (`fieldsUnobserved`); they are then in the record from
-    // the start.
+    // Unless nothing can tell (bits-ui's SelectSingleRootState, the
+    // slider's SliderSingleRootState): each is a literal, derived, an arrow
+    // function or `$state` of a literal, and what that constructor runs at
+    // once never reaches them (`fieldsUnobserved`); they are then in the
+    // record from the start, as are the base fields they declare again.
     const later = chain.slice(k);
     if (broke) {
       const unobserved = this.fieldsUnobserved(broke.rest, later, info);
@@ -2400,13 +2445,32 @@ export class Classes {
           );
         // (A base's field declared again holds the base's value until then,
         // which that code may read.)
-        for (const d of y.overrides ?? [])
-          this.fail(
-            d,
-            `${y.name} declares the field ${memberName(d.name)} of a base class again, but the constructor of its base class ${broke.cls.name} uses this before it is set (JavaScript sets it after super(…) returns); assign it in the constructor instead`,
+        if (!unobserved)
+          for (const d of y.overrides ?? [])
+            this.fail(
+              d,
+              `${y.name} declares the field ${memberName(d.name)} of a base class again, but the constructor of its base class ${broke.cls.name} uses this before it is set (JavaScript sets it after super(…) returns); assign it in the constructor instead`,
+            );
+        // (In declaration order, as JavaScript creates them.)
+        for (const m of y.decl.members) {
+          if (!ts.isPropertyDeclaration(m) || !m.initializer) continue;
+          if (y.overrides?.includes(m)) {
+            const f = this.fieldNamed(info, memberName(m.name))!;
+            assign(f, this.early(m.initializer, b, info, temps, 'initialiser'), m);
+            continue;
+          }
+          const f = y.own.find(o => o.decl === m);
+          if (!f || isDerived(f)) continue;
+          assign(
+            f,
+            f.rune
+              ? runeValue(f, 'initialiser')
+              : ts.isArrowFunction(skipParens(m.initializer))
+                ? this.early(m.initializer, b, info, temps, 'initialiser')
+                : lower.expr(m.initializer, b),
+            m,
           );
-        for (const f of y.own)
-          if (!isDerived(f)) assign(f, lower.expr(f.decl!.initializer!, b), f.decl!);
+        }
       }
     }
     let rest = [...(broke?.rest ?? []), ...later.flatMap(y => [...after(y)])];
