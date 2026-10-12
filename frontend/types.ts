@@ -857,7 +857,7 @@ export class TypeMapper {
   }
 
   /** Whether `t` is the instance type of a class compiled from source. */
-  private sourceClass(t: ts.Type): boolean {
+  sourceClass(t: ts.Type): boolean {
     return (
       !!(t.flags & ts.TypeFlags.Object) &&
       !!t.symbol &&

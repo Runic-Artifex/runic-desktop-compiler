@@ -102,6 +102,9 @@ export class Unions {
    */
   private readonly decided: (test: ts.Expression) => boolean | undefined;
 
+  /** Whether `t` is a class whose union the value model holds (`TypeMapper.sourceClass`). */
+  private readonly isClass: (t: ts.Type) => boolean;
+
   /** Whether a prop is written by its component (undefined: not a declared prop). */
   private readonly propWritten: (sym: ts.Symbol) => boolean | undefined;
 
@@ -116,7 +119,9 @@ export class Unions {
     allFiles: () => readonly ts.SourceFile[] = files,
     propWritten: (sym: ts.Symbol) => boolean | undefined = () => undefined,
     decided: (test: ts.Expression) => boolean | undefined = () => undefined,
+    isClass: (t: ts.Type) => boolean = () => false,
   ) {
+    this.isClass = isClass;
     this.decided = decided;
     this.propWritten = propWritten;
     this.allFiles = allFiles;
@@ -156,6 +161,18 @@ export class Unions {
       this.resolved.set(key, m);
       return m;
     }
+    // Classes are one member: the value model holds a union of classes
+    // compiled from source or given by a pack (a class reference,
+    // `TypeMapper.classUnion`), so values of several of them type the union
+    // as theirs (bits-ui's `DateValue | DateValue[]` reached by the three
+    // `@internationalized/date` classes only).
+    if (found.size > 1 && [...found.keys()].every(m => this.isClass(m))) {
+      const m = (
+        this.checker as unknown as { getUnionType(types: ts.Type[]): ts.Type }
+      ).getUnionType([...found.keys()]);
+      this.resolved.set(key, m);
+      return m;
+    }
     // Nothing but null and undefined reaches it: any member types it.
     if (!found.size && dynamic && this.untypedOrigin(at))
       return fail(at, 'E_TYPE_UNION', `Union ${union} is dynamic: no value reaching it was found`);
@@ -172,6 +189,18 @@ export class Unions {
       'E_TYPE_UNION',
       `Union ${union} is outside the value model: values of several members reach it (${sites.join(', ')}); compiling per member is not supported yet`,
     );
+  }
+
+  /**
+   * Whether instances of class `t` are instances of class `m`: `t` is `m`
+   * (another instantiation of it where TypeScript assigns it) or extends it.
+   */
+  private extendsClass(t: ts.Type, m: ts.Type, depth = 0): boolean {
+    if (t.symbol && t.symbol === m.symbol) return this.checker.isTypeAssignableTo(t, m);
+    if (depth > 16 || !(t.flags & F.Object)) return false;
+    const declared = ((t as ts.TypeReference).target ?? t) as ts.InterfaceType;
+    if (!(declared.objectFlags & ts.ObjectFlags.ClassOrInterface)) return false;
+    return this.checker.getBaseTypes(declared).some(b => this.extendsClass(b, m, depth + 1));
   }
 
   private readonly slotCache = new Map<ts.Declaration, ts.Node | null>();
@@ -414,8 +443,26 @@ export class Unions {
       // away (`customAnchor ?? triggerNode` is `string | Measurable`), the
       // element stands for itself.
       if (isElement(t) && !members.some(isElement)) return t;
-      const exact = members.find(m => m === t || this.checker.isTypeAssignableTo(t, m));
+      // An instance of a class is one of its own class or of a class it
+      // extends, not of another class it is structurally assignable to (a
+      // Moment with Day's fields is no Day): the value model tells classes
+      // apart (`TypeMapper.classUnion`).
+      const exact = members.find(
+        m =>
+          m === t ||
+          (this.isClass(t) && this.isClass(m)
+            ? this.extendsClass(t, m)
+            : this.checker.isTypeAssignableTo(t, m)),
+      );
       if (exact) return exact;
+      // (Where TypeScript lets it stand for another class only by its
+      // shape, it stands for itself, as an element does: counted, never
+      // dropped.)
+      if (
+        this.isClass(t) &&
+        members.some(m => this.isClass(m) && this.checker.isTypeAssignableTo(t, m))
+      )
+        return t;
       // (Objects and arrays are told apart by their shapes only.)
       if (kind(t) === 'object' || kind(t) === 'array') return undefined;
       const same = members.filter(m => kind(m) === kind(t));
