@@ -142,6 +142,42 @@ fn main() {
                 json!({"schema": program.schema, "cells": c.cells.len(), "handlers": c.handlers.len(), "nodes": count(&c.template)})
             );
         }
+        // Selector lists no element of the program can match
+        // (runic_ir::facts, runic_css::unmatched): `unmatched <ir.json>
+        // <selectors.json>` (an array of selector lists) gives, for each, why
+        // none can match (null where one may), and the facts' sizes and open
+        // parts.
+        "unmatched" => {
+            let selectors: Vec<String> = args
+                .get(2)
+                .and_then(|f| std::fs::read_to_string(f).ok())
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_else(|| {
+                    fail(Diagnostic::new(
+                        "E_INPUT",
+                        "missing selector list file",
+                        None,
+                    ))
+                });
+            let facts = runic_ir::facts::element_facts(&program);
+            let results: Vec<Option<String>> = selectors
+                .iter()
+                .map(|s| runic_css::unmatched::unmatchable(s, &facts.facts))
+                .collect();
+            let f = &facts.facts;
+            println!(
+                "{}",
+                json!({
+                    "results": results,
+                    "facts": {
+                        "tags": f.tags.as_ref().map(|t| t.len()),
+                        "classes": f.classes.as_ref().map(|t| t.len()),
+                        "attributes": f.attributes.as_ref().map(|t| t.len()),
+                    },
+                    "open": facts.open,
+                })
+            );
+        }
         "migrate" => println!("{}", serde_json::to_string_pretty(&program).unwrap()),
         "emit" => {
             let out = args.get(2).unwrap_or_else(|| {

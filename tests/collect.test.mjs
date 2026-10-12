@@ -9,6 +9,10 @@ import { collect, Diagnostic } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
 import { repository } from '../compiler/codegen.mjs';
 
+// Collect and lower: rejections of style rules are decided once the
+// program's elements are known (skipUnmatchedRules).
+const build = async root => lower(await collect(root), { images: false });
+
 async function react(source, run, files = {}) {
   await mkdir('.cache/tests', { recursive: true });
   const root = await mkdtemp(path.resolve('.cache/tests/collect-'));
@@ -67,10 +71,10 @@ test('CSS accepts ordinary properties and selectors but not remote assets', asyn
       async root =>
         expected
           ? assert.rejects(
-              collect(root),
+              build(root),
               e => e instanceof Diagnostic && e.code === expected && e.source?.file === 's.css',
             )
-          : collect(root),
+          : build(root),
       { 's.css': css },
     );
   await check('p:first-child + p { grid-template-columns: 1fr 2fr; opacity: .5 }', undefined);
@@ -95,7 +99,7 @@ test('CSS rejects unsupported validity states with stylesheet locations', async 
         'import "./s.css";function App(){return <form noValidate><input required/></form>;}',
         async root =>
           assert.rejects(
-            collect(root),
+            build(root),
             e =>
               e instanceof Diagnostic &&
               e.code === 'E_CSS' &&
@@ -114,18 +118,13 @@ test('CSS rejects unsupported validity states with stylesheet locations', async 
 test('CSS validity guard distinguishes classes and literal attribute values', async () => {
   await react(
     'import "./s.css";function App(){return <input className="valid"/>;}',
-    root =>
-      assert.rejects(
-        collect(root),
-        e => e instanceof Diagnostic && e.code === 'E_ASSET' && e.source?.file === 's.css',
-      ),
-    // A later URL error proves selector checks accepted these spellings without
-    // invoking the native Stylo checker during this focused frontend test.
+    // No rejection, not even one deferred to lowering (the class valid is
+    // on an element).
+    async root => assert.equal((await collect(root)).pendingRules, undefined),
     {
       's.css': String.raw`.valid, .invalid, .user-valid, .user-invalid, .in-range, .out-of-range,
       .valid-extra, .field\:valid, .\76 alid, .valid/* :invalid */, [data-state=":invalid"], [data-state=':user-invalid'],
-      :is(.valid):not(.invalid):has(.in-range) { color: blue }
-      p { background-image: url("https://example.invalid/image.png") }`,
+      :is(.valid):not(.invalid):has(.in-range) { color: blue }`,
     },
   );
 });
@@ -137,14 +136,14 @@ test('CSS transitions and keyframe animations are accepted where the runtime rep
       async root =>
         expected
           ? assert.rejects(
-              collect(root),
+              build(root),
               e =>
                 e instanceof Diagnostic &&
                 e.code === expected &&
                 e.source?.file === 's.css' &&
                 (line === undefined || e.source.line === line),
             )
-          : collect(root),
+          : build(root),
       { 's.css': css },
     );
   await check(
@@ -173,9 +172,9 @@ test('CSS transitions and keyframe animations are accepted where the runtime rep
   await check('@starting-style { p { opacity: 0 } }', 'E_CSS', 1);
   // Blitz generates the strings of `content` only.
   await check('p::before { content: "\\201C" } p::after { content: "" }', undefined);
-  await check('q::before { content: open-quote }', 'E_CSS_PROPERTY', 1);
-  await check('li::before { content: counter(item) ". " }', 'E_CSS_PROPERTY', 1);
-  await check('a::after { content: " (" attr(href) ")" }', 'E_CSS_PROPERTY', 1);
+  await check('p::before { content: open-quote }', 'E_CSS_PROPERTY', 1);
+  await check('p::before { content: counter(item) ". " }', 'E_CSS_PROPERTY', 1);
+  await check('p::after { content: " (" attr(href) ")" }', 'E_CSS_PROPERTY', 1);
 });
 
 test('CSS that Stylo drops is reported unless verified equivalent in Chromium', async () => {
@@ -185,14 +184,14 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       async root =>
         expected
           ? assert.rejects(
-              collect(root),
+              build(root),
               e =>
                 e instanceof Diagnostic &&
                 e.code === expected &&
                 e.source?.file === 's.css' &&
                 (line === undefined || e.source.line === line),
             )
-          : collect(root),
+          : build(root),
       { 's.css': css },
     );
   // Accepted: cascade layers, registered properties, @supports, :has(),
@@ -210,7 +209,7 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   );
   // Reported, with the line of the rule or declaration.
   await check('p { color: red }\n@container style(--x: 1) { p { color: blue } }', 'E_CSS', 2);
-  await check('p { color: red }\n.c { container-type: scroll-state }', 'E_CSS_PROPERTY', 2);
+  await check('p { color: red }\np { container-type: scroll-state }', 'E_CSS_PROPERTY', 2);
   await check('p { color: red }\np::before { field-sizing: content }', 'E_CSS_PROPERTY', 2);
   // A declaration Stylo drops from a rule with matchable selectors is a
   // guard the app reports once the selector matches an element.
@@ -296,14 +295,14 @@ test('CSS filter lists are accepted where the renderers draw them', async () => 
       async root =>
         expected
           ? assert.rejects(
-              collect(root),
+              build(root),
               e =>
                 e instanceof Diagnostic &&
                 e.code === expected &&
                 e.source?.file === 's.css' &&
                 (line === undefined || e.source.line === line),
             )
-          : collect(root),
+          : build(root),
       { 's.css': css },
     );
   await check(
@@ -330,7 +329,8 @@ test('CSS filter lists are accepted where the renderers draw them', async () => 
       '.a { --c: currentColor }\n.b { filter: drop-shadow(1px 1px var(--c, red)) }',
     undefined,
   );
-  await check('.a { --f: url(#x) }\n.b { filter: var(--f, none) }', 'E_CSS_PROPERTY', 2);
+  // (In one rule: the custom property's url() is itself rejected at once.)
+  await check('p { --f: url(#x); filter: var(--f, none) }', 'E_CSS_PROPERTY', 1);
   await check('p { backdrop-filter: url(#f) }', 'E_CSS_PROPERTY', 1);
 });
 

@@ -83,6 +83,21 @@ export function cssCheck(css, declarations, selectors = []) {
   return withIR({ css, declarations, selectors }, file => JSON.parse(run(['css-check', file])));
 }
 
+/**
+ * Which selector lists no element of `ir` can match (runic_ir::facts,
+ * runic_css::unmatched): `{ results, facts, open }`, `results[i]` the reason
+ * none can match `selectors[i]` or null where one may; `facts` the sizes of
+ * the tag, class and attribute facts (null: any) and `open` why parts of them
+ * are open.
+ */
+export function unmatched(ir, selectors) {
+  return withIR(ir, (file, dir) => {
+    const list = path.join(dir, 'selectors.json');
+    writeFileSync(list, JSON.stringify(selectors));
+    return JSON.parse(run(['unmatched', file, list]));
+  });
+}
+
 /** Validate `ir` in the Rust backend (the authoritative schema); throws its diagnostic. */
 export function check(ir) {
   return withIR(ir, file => JSON.parse(run(['check', file])));
