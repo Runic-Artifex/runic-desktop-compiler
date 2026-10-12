@@ -16,13 +16,13 @@ rust-version = "1.98"
 license = "MIT"
 
 [workspace.dependencies]
-blitz-dom = { git = "https://github.com/Runic-Artifex/blitz", rev = "ef6e873d75db4f396fe12462f9586a06a32048cc", default-features = false, features = ["woff"] }
-blitz-html = { git = "https://github.com/Runic-Artifex/blitz", rev = "ef6e873d75db4f396fe12462f9586a06a32048cc", default-features = false }
-blitz-shell = { git = "https://github.com/Runic-Artifex/blitz", rev = "ef6e873d75db4f396fe12462f9586a06a32048cc", default-features = false, features = ["data-uri"] }
+blitz-dom = { git = "https://github.com/Runic-Artifex/blitz", rev = "8da0f830fd548ccce795e0193ffc5d404faa0c0e", default-features = false, features = ["woff"] }
+blitz-html = { git = "https://github.com/Runic-Artifex/blitz", rev = "8da0f830fd548ccce795e0193ffc5d404faa0c0e", default-features = false }
+blitz-shell = { git = "https://github.com/Runic-Artifex/blitz", rev = "8da0f830fd548ccce795e0193ffc5d404faa0c0e", default-features = false, features = ["data-uri"] }
 # Element state bits for checkbox state changes (the version Blitz uses).
 style_dom = { version = "=0.22.0", package = "stylo_dom" }
-blitz-traits = { git = "https://github.com/Runic-Artifex/blitz", rev = "ef6e873d75db4f396fe12462f9586a06a32048cc", default-features = false }
-blitz-paint = { git = "https://github.com/Runic-Artifex/blitz", rev = "ef6e873d75db4f396fe12462f9586a06a32048cc", default-features = false }
+blitz-traits = { git = "https://github.com/Runic-Artifex/blitz", rev = "8da0f830fd548ccce795e0193ffc5d404faa0c0e", default-features = false }
+blitz-paint = { git = "https://github.com/Runic-Artifex/blitz", rev = "8da0f830fd548ccce795e0193ffc5d404faa0c0e", default-features = false }
 anyrender = "=0.14.0"
 kurbo = "=0.13.1"
 peniko = "=0.6.1"
@@ -36,6 +36,9 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.149"
 base64 = "=0.22.1"
 png = "=0.18.1"
+# Image decoding for Blitz's `<img>` (M6 images): Blitz builds `image` without
+# formats; these select the decoders already in the lock.
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 keyboard-types = "=0.7.0"
 # Host services (M5): history URLs, OS randomness and the OS clipboard.
 url = "=2.5.8"

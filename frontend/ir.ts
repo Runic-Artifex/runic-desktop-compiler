@@ -106,7 +106,9 @@ export type EventKind =
   | 'scroll'
   | 'resize'
   | 'popstate'
-  | 'hashchange';
+  | 'hashchange'
+  | 'load'
+  | 'error';
 
 export const EVENT_KINDS: readonly EventKind[] = [
   'click',
@@ -142,6 +144,12 @@ export const EVENT_KINDS: readonly EventKind[] = [
 
 /** Session history events: fired at the window only (window listeners). */
 export const WINDOW_EVENT_KINDS: readonly EventKind[] = ['popstate', 'hashchange'];
+
+/**
+ * An image request's outcome (M6 images): listened to only through `<img>`
+ * elements' template attributes, never by script or at the window.
+ */
+export const IMAGE_EVENT_KINDS: readonly EventKind[] = ['load', 'error'];
 
 export type Read = 'current' | 'snapshot';
 
@@ -547,7 +555,7 @@ export interface ImageUrl {
 
 /**
  * What a frontend adapter returns: the program and the image URLs it can load
- * (absent: none; no adapter yields any until `<img>` is lowered).
+ * (absent: none; the Svelte adapter lists each `<img>` `src` value).
  */
 export interface Lowering {
   ir: Program;

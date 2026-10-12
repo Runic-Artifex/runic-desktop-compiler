@@ -45,6 +45,8 @@ pub const TAGS: &[&str] = &[
     "samp", "ins", "del", "data", "blockquote", "address",
     // Table formatting (isolated Blitz parity work; frontend/elements.ts).
     "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "colgroup", "col",
+    // Images from the pinned table (M6 images; `check_img`).
+    "img",
 ];
 
 /// Inline SVG (M5): elements in the SVG namespace. Blitz renders an `<svg>`
@@ -109,6 +111,38 @@ fn svg_attr_ok(tag: &str, name: &str) -> bool {
             .is_some_and(|rest| !rest.is_empty() && attr_name_ok(&format!("a{rest}")))
     };
     svg_attrs(tag).contains(&name) || SVG_PAINT.contains(&name) || data("aria-") || data("data-")
+}
+
+/// `<img>` attributes whose behaviour the runtime does not model (M6 images):
+/// lazy loading changes when `load` fires, `srcset`/`sizes` select by device
+/// pixel ratio, and `crossorigin` only matters to canvas reads.
+const IMG_UNSUPPORTED: &[&str] = &["loading", "srcset", "sizes", "crossorigin"];
+
+/// The `<img>` rules (M6 images): its `src` comes from its attributes, whose
+/// values the frontend pinned, never from a spread; attributes with
+/// unmodelled loading behaviour are rejected.
+fn check_img(tag: &str, attrs: &[Attr], spread: bool, src: Option<&Source>) -> Result<()> {
+    if tag != "img" {
+        return Ok(());
+    }
+    if spread {
+        return err(
+            "E_IR",
+            "Spread attributes on <img> are unsupported (its src must be a pinned attribute value)",
+            src,
+        );
+    }
+    if let Some(a) = attrs
+        .iter()
+        .find(|a| IMG_UNSUPPORTED.contains(&a.name.as_str()))
+    {
+        return err(
+            "E_IR",
+            format!("The {} attribute of <img> is unsupported", a.name),
+            src,
+        );
+    }
+    Ok(())
 }
 
 /// HTML's ASCII whitespace: text that SVG rendering ignores.
@@ -205,7 +239,7 @@ pub const CAPABILITIES: &[&str] = &["dom", "css", "window", "click", "keyboard",
 /// shapes draw no content).
 const VOID: &[&str] = &[
     "input", "br", "hr", "textarea", "path", "circle", "ellipse", "line", "polyline", "polygon",
-    "rect",
+    "rect", "img",
 ];
 
 fn err<T>(code: &str, message: impl Into<String>, source: Option<&Source>) -> Result<T> {
@@ -381,11 +415,15 @@ fn check_library_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Re
         // M6 overlays: and the element events (bits-ui's `on(node, "keydown", f)`).
         "element.listen" | "element.unlisten" => match literal(1) {
             Some("beforematch") => Ok(()),
-            Some(k) if crate::EventKind::parse(k).is_some_and(|k| !k.window_only()) => Ok(()),
+            Some(k)
+                if crate::EventKind::parse(k).is_some_and(|k| !k.window_only() && !k.image()) =>
+            {
+                Ok(())
+            }
             _ => err(
                 "E_BUILTIN",
                 format!(
-                    "{name}: element listeners added by script are supported for beforematch and the element events"
+                    "{name}: element listeners added by script are supported for beforematch and the element events (load and error only as <img> attributes)"
                 ),
                 src,
             ),
@@ -843,6 +881,8 @@ impl<'a> Scope<'a> {
                         AttrItem::Entry { name, value } => {
                             let t = self.infer(value, d, src)?;
                             let ok = match EventKind::listener(name).map(|(k, _)| k) {
+                                // Image events only as `<img>` attributes (M6 images).
+                                Some(k) if k.image() => false,
                                 Some(_) => matches!(
                                     &t,
                                     Type::Fn(f) if f.params.is_empty() || f.params == [Type::Event]
@@ -1137,6 +1177,15 @@ impl<'a> Scope<'a> {
                         return err(
                             "E_BUILTIN",
                             format!("{name}: the event kind must be a supported event name"),
+                            src,
+                        );
+                    }
+                    if kind.is_some_and(EventKind::image) {
+                        return err(
+                            "E_BUILTIN",
+                            format!(
+                                "{name}: load and error are supported only as <img> listeners (the runtime fires no document or window load)"
+                            ),
                             src,
                         );
                     }
@@ -3053,6 +3102,7 @@ impl<'p> NodeCx<'_, 'p> {
                 if tag == "button" && self.stack.contains(&"button") {
                     return err("E_IR", "Nested buttons are invalid", src);
                 }
+                check_img(tag, attrs, spread.is_some(), src)?;
                 check_svg(
                     tag,
                     self.stack,
@@ -3173,6 +3223,13 @@ impl<'p> NodeCx<'_, 'p> {
                     }
                     if l.event == EventKind::Resize {
                         return err("E_IR", "Resize listeners belong to the window", src);
+                    }
+                    if l.event.image() && tag != "img" {
+                        return err(
+                            "E_IR",
+                            "load and error listeners are supported on <img> elements only",
+                            src,
+                        );
                     }
                     if l.event == EventKind::Change && !checkbox && tag != "select" {
                         return err(

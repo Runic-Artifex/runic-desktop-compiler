@@ -267,6 +267,8 @@ impl<A: App> Native<A> {
     /// brings (`popstate`, `hashchange`).
     pub(crate) fn host_tasks(&mut self) {
         loop {
+            // The image outcomes the last task determined come first.
+            self.image_tasks();
             self.listeners.settle(&mut self.doc);
             let mut dom = Dom {
                 doc: &mut self.doc,
@@ -288,6 +290,50 @@ impl<A: App> Native<A> {
                 }
             }
             self.fix_focus_after_update();
+        }
+    }
+
+    /// The `load` and `error` events of `<img>` elements (M6 images). The net
+    /// provider answers every request synchronously; Blitz determines each
+    /// outcome when it processes the response (`handle_messages`), or, for
+    /// an image it already holds, when `src` is set or the element inserted,
+    /// and records them in that order. Each event is then a task of its own
+    /// after the task that determined it (not bubbling, not cancelable): its
+    /// listeners, their microtask checkpoints and the updates they queue.
+    /// Outcomes the listeners determine follow, until none is left. An
+    /// element whose `src` changed after its outcome was taken has a newer
+    /// request: the older outcome is dropped, as Chromium cancels its event.
+    pub(crate) fn image_tasks(&mut self) {
+        loop {
+            self.doc.handle_messages();
+            let events = self.doc.take_image_load_events();
+            if events.is_empty() {
+                return;
+            }
+            let srcs: Vec<Option<String>> = events
+                .iter()
+                .map(|e| image_src(&self.doc, e.node_id))
+                .collect();
+            for (e, src) in events.into_iter().zip(srcs) {
+                if image_src(&self.doc, e.node_id) != src {
+                    continue;
+                }
+                let kind = match e.kind {
+                    blitz_dom::ImageLoadEventKind::Load => Event::Load,
+                    blitz_dom::ImageLoadEventKind::Error => Event::Error,
+                };
+                self.listeners.settle(&mut self.doc);
+                let mut handler = Handler {
+                    app: &mut self.app,
+                    listeners: &mut self.listeners,
+                    space_target: &mut self.space_target,
+                    nav_start: &mut self.nav_start,
+                    log: &mut self.log,
+                    pointer: &mut self.pointer,
+                };
+                handler.fire(&mut self.doc, &[e.node_id], kind, EventData::default());
+                self.fix_focus_after_update();
+            }
         }
     }
 
@@ -610,6 +656,12 @@ struct Handler<'a, A: App> {
     nav_start: &'a mut Option<NodeId>,
     log: &'a mut Vec<String>,
     pointer: &'a mut Pointer,
+}
+
+/// The `src` of image element `id` (`None` once the node is gone).
+fn image_src(doc: &BaseDocument, id: NodeId) -> Option<String> {
+    let node = doc.get_node(id)?;
+    Some(node.attr("src".into()).unwrap_or_default().to_owned())
 }
 
 fn tag(doc: &BaseDocument, id: NodeId) -> Option<&str> {
