@@ -576,6 +576,45 @@ export class Unions {
     );
   }
 
+  /**
+   * The expressions whose values `option.current` holds (M6 images: bits-ui's
+   * `this.opts.src.current`), where `option` is a property every object
+   * literal of the program gives a getter box (svelte-toolbelt's
+   * `boxWith(() => v)`, a getter that only returns) and nothing writes
+   * through or fills by a spread: what the getters return. Undefined
+   * otherwise.
+   */
+  boxedSources(e: ts.PropertyAccessExpression): ts.Expression[] | undefined {
+    if (e.name.text !== 'current') return undefined;
+    const option = skipAll(e.expression);
+    if (!ts.isPropertyAccessExpression(option)) return undefined;
+    const sym = this.symbol(option.name);
+    const decl = sym && declarationOf(sym);
+    if (!decl) return undefined;
+    const index = this.properties();
+    const given = index.given.get(decl) ?? [];
+    if (!given.length || index.writes.get(decl)?.length || index.spread.has(decl)) return undefined;
+    const out: ts.Expression[] = [];
+    for (const g of given) {
+      const box = skipAll(g);
+      if (
+        !ts.isCallExpression(box) ||
+        box.arguments.length !== 1 ||
+        !this.isBox(this.checker.getTypeAtLocation(box))
+      )
+        return undefined;
+      const getter = skipAll(box.arguments[0]);
+      if (!ts.isArrowFunction(getter) && !ts.isFunctionExpression(getter)) return undefined;
+      if (
+        ts.isBlock(getter.body) &&
+        !(getter.body.statements.length === 1 && ts.isReturnStatement(getter.body.statements[0]))
+      )
+        return undefined;
+      out.push(...returned(getter));
+    }
+    return out;
+  }
+
   /** Unions whose census is being taken. */
   private readonly counting = new Set<string>();
 

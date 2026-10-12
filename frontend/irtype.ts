@@ -255,6 +255,16 @@ export const ANIMATION_MEMBERS: Record<string, Type> = {
   pending: B,
 };
 
+/**
+ * Members of image objects (`new Image()`, M6 images) read and written
+ * through `image.*` built-ins: the built-in's name and the member's type.
+ */
+export const IMAGE_MEMBERS: Record<string, { name: string; type: Type }> = {
+  src: { name: 'src', type: S },
+  crossOrigin: { name: 'cross-origin', type: { maybe: S } },
+  referrerPolicy: { name: 'referrer-policy', type: S },
+};
+
 /** Whether `t` contains a dynamic value (M6 spike). */
 export function containsDyn(t: Type): boolean {
   if (t === 'dyn') return true;

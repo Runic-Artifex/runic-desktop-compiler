@@ -88,6 +88,12 @@ export interface DomainHook {
   written(sym: ts.Symbol): boolean | undefined;
   /** Why the prop `sym` has no finite domain (undefined if it is not a prop or has one). */
   explain(sym: ts.Symbol): string | undefined;
+  /**
+   * Where an open value of prop `sym` comes from: the expression a site
+   * passes, followed through props and rest props passed on (undefined:
+   * none found).
+   */
+  openOrigin?(sym: ts.Symbol): ts.Node | undefined;
   /** The component whose prop with a domain `sym` is. */
   componentOf(sym: ts.Symbol): number | undefined;
   /** How many sites instantiate `component`. */
@@ -320,6 +326,50 @@ export class PropDomains implements DomainHook {
         return `the prop ${d.key} takes an open value at an instantiation site${at ? ` (${at.file}:${at.line}:${at.column})` : ''}`;
       }
     return undefined;
+  }
+
+  openOrigin(sym: ts.Symbol, seen = new Set<number>()): ts.Node | undefined {
+    const d = this.decls.get(sym);
+    if (!d || d.written || seen.has(d.component)) return undefined;
+    seen.add(d.component);
+    try {
+      return this.openIn(d.component, d.key, seen);
+    } finally {
+      seen.delete(d.component);
+    }
+  }
+
+  /** The origin of the first open value the sites of `component` pass for `key`. */
+  private openIn(component: number, key: string, seen: Set<number>): ts.Node | undefined {
+    for (const site of this.byComponent.get(component) ?? []) {
+      const p = site.values.get(key);
+      const found = p && this.openPassed(p, key, seen);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  private openPassed(p: SiteValue, key: string, seen: Set<number>): ts.Node | undefined {
+    if ('value' in p) return undefined;
+    if ('expr' in p) {
+      if (valueSet({ lower: this.lower, label: 'prop domains' }, p.expr)) return undefined;
+      let e = p.expr;
+      while (ts.isParenthesizedExpression(e)) e = e.expression;
+      const sym = ts.isIdentifier(e) ? this.lower.symbol(e) : undefined;
+      return (sym && this.openOrigin(sym, seen)) ?? p.expr;
+    }
+    if (p.restOf !== undefined) {
+      if (seen.has(p.restOf)) return undefined;
+      seen.add(p.restOf);
+      try {
+        return (
+          this.openIn(p.restOf, key, seen) ?? (p.before && this.openPassed(p.before, key, seen))
+        );
+      } finally {
+        seen.delete(p.restOf);
+      }
+    }
+    return p.spread;
   }
 
   /** The union over all sites (undefined if any site's values are open). */

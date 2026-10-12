@@ -24,6 +24,7 @@ pub mod env;
 pub mod floating;
 pub mod forms;
 pub mod history;
+pub mod image;
 pub mod intersection;
 pub mod intl;
 pub mod json;

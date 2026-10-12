@@ -261,6 +261,15 @@ pub fn needs_layout(name: &str) -> bool {
     }
 }
 
+/// The type of an image object's event handlers and listeners (M6 images):
+/// functions of no arguments (the event object is not passed).
+pub fn image_listener() -> Type {
+    Type::Fn(crate::FnType {
+        params: Vec::new(),
+        result: Box::new(Type::Void),
+    })
+}
+
 fn arity(args: &[Type], min: usize, max: usize) -> std::result::Result<(), std::string::String> {
     if args.len() < min || args.len() > max {
         Err(format!(
@@ -1063,6 +1072,49 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("animation", "finished") => {
             arity(args, 1, 1)?;
             expect(&args[0], &Animation, "animation").map(|_| Promise(Box::new(Animation)))
+        }
+        // Image objects (M6 images, `new Image()`): not elements of the
+        // document. Setting `src` (a pinned URL) queues its `load` or
+        // `error`; the event kind of handlers and listeners is a literal
+        // (`load` or `error`) checked by the validator.
+        ("image", "new") => {
+            arity(args, 0, 0)?;
+            Ok(Type::Image)
+        }
+        ("image", m @ ("src" | "cross-origin" | "referrer-policy")) => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Type::Image, "image")?;
+            Ok(match m {
+                "cross-origin" => Type::maybe(s),
+                _ => s,
+            })
+        }
+        ("image", m @ ("set-src" | "set-cross-origin" | "set-referrer-policy")) => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Type::Image, "image")?;
+            let want = if m == "set-cross-origin" {
+                Type::maybe(s)
+            } else {
+                s
+            };
+            expect(&args[1], &want, "value").map(|_| Void)
+        }
+        ("image", "handler") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Type::Image, "image")?;
+            expect(&args[1], &s, "event kind").map(|_| Type::maybe(image_listener()))
+        }
+        ("image", "set-handler") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Type::Image, "image")?;
+            expect(&args[1], &s, "event kind")?;
+            expect(&args[2], &Type::maybe(image_listener()), "handler").map(|_| Void)
+        }
+        ("image", "listen" | "unlisten") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Type::Image, "image")?;
+            expect(&args[1], &s, "event kind")?;
+            expect(&args[2], &image_listener(), "listener").map(|_| Void)
         }
         // Listeners added by script (`on` of svelte/events); the kind is a
         // literal checked by the validator.

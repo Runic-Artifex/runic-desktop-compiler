@@ -118,19 +118,16 @@ fn svg_attr_ok(tag: &str, name: &str) -> bool {
 /// pixel ratio, and `crossorigin` only matters to canvas reads.
 const IMG_UNSUPPORTED: &[&str] = &["loading", "srcset", "sizes", "crossorigin"];
 
-/// The `<img>` rules (M6 images): its `src` comes from its attributes, whose
-/// values the frontend pinned, never from a spread; attributes with
-/// unmodelled loading behaviour are rejected.
-fn check_img(tag: &str, attrs: &[Attr], spread: bool, src: Option<&Source>) -> Result<()> {
+/// The `<img>` rules (M6 images): attributes with unmodelled loading
+/// behaviour are rejected. Its `src` values are pinned by the frontend,
+/// also where a spread supplies them (the frontend proves the bag's `src`
+/// values and that it holds none of these names with a value); at run time
+/// a bag entry of one of them with a value is reported unsupported, and a
+/// `src` outside the pinned table never loads (runic-runtime's net
+/// provider).
+fn check_img(tag: &str, attrs: &[Attr], src: Option<&Source>) -> Result<()> {
     if tag != "img" {
         return Ok(());
-    }
-    if spread {
-        return err(
-            "E_IR",
-            "Spread attributes on <img> are unsupported (its src must be a pinned attribute value)",
-            src,
-        );
     }
     if let Some(a) = attrs
         .iter()
@@ -428,6 +425,17 @@ fn check_library_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Re
                 src,
             ),
         },
+        // Image objects' events (M6 images): their outcome only.
+        "image.handler" | "image.set-handler" | "image.listen" | "image.unlisten" => {
+            match literal(1) {
+                Some("load" | "error") => Ok(()),
+                _ => err(
+                    "E_BUILTIN",
+                    format!("{name}: the event kind is load or error (a literal)"),
+                    src,
+                ),
+            }
+        }
         // ResizeObserver boxes (M6).
         "resize.observe" => match literal(2) {
             Some("content-box" | "border-box" | "device-pixel-content-box") => Ok(()),
@@ -3102,7 +3110,7 @@ impl<'p> NodeCx<'_, 'p> {
                 if tag == "button" && self.stack.contains(&"button") {
                     return err("E_IR", "Nested buttons are invalid", src);
                 }
-                check_img(tag, attrs, spread.is_some(), src)?;
+                check_img(tag, attrs, src)?;
                 check_svg(
                     tag,
                     self.stack,
@@ -3321,6 +3329,7 @@ fn host_service(name: &str) -> Option<&'static str> {
         "random" => Some("Randomness (Math.random, crypto.randomUUID)"),
         "mounted" => Some("Unmounting a component"),
         "animation" => Some("Animation objects (playState, pending)"),
+        "image" => Some("Image objects (their source, handlers and listeners)"),
         _ => None,
     }
 }

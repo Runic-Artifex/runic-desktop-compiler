@@ -4027,7 +4027,8 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
   };
   stripEventInstanceOf(ir);
   (ir as Program & { irHash?: string }).irHash = hash(ir);
-  return { ir };
+  // The image URLs image objects can load (M6 images, `new Image()`).
+  return lower.imageUrls.length ? { ir, imageUrls: lower.imageUrls } : { ir };
 }
 
 const propertyName = (n: ts.PropertyName): string =>

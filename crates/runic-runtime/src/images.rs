@@ -67,6 +67,65 @@ impl PinnedNetProvider {
     }
 }
 
+/// What an image object's `src` reads (M6, `new Image()`): the value
+/// resolved against the document's base URL (Chromium resolves it against
+/// the page's URL: a root-relative or empty value reads with the page's
+/// origin, here `http://runic.invalid`); a value that does not parse reads
+/// as written.
+pub fn resolve(src: &str) -> String {
+    let base = Url::parse(BASE_URL).expect("base URL");
+    base.join(src)
+        .map_or_else(|_| src.to_owned(), |u| u.to_string())
+}
+
+thread_local! {
+    /// Whether each pinned image's bytes decode, by URL (decoded once).
+    static DECODED: std::cell::RefCell<std::collections::HashMap<&'static str, bool>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// The outcome of an image object's request for `src` (M6, `new Image()`):
+/// `Some(true)` fires `load`, `Some(false)` fires `error`. A pinned image
+/// loads when its bytes decode (with the decoders Blitz uses for `<img>`),
+/// a pinned failure and an empty `src` give `error`. A URL the table lacks
+/// cannot occur in a program the compiler accepted: it is reported as
+/// unsupported (`None`, no event), as are SVG images, which the runtime
+/// decodes only for `<img>`.
+pub fn outcome(table: &'static [PinnedImage], src: &str) -> Option<bool> {
+    if src.is_empty() {
+        return Some(false);
+    }
+    let base = Url::parse(BASE_URL).expect("base URL");
+    let wanted = base.join(src).ok().map(|u| u.to_string());
+    let entry = wanted.as_deref().and_then(|wanted| {
+        table
+            .iter()
+            .find(|e| base.join(e.url).is_ok_and(|u| u.as_str() == wanted))
+    });
+    let Some(entry) = entry else {
+        crate::unsupported(&format!(
+            "E_ASSET: image URL {src} is not pinned: the compiler found no such src value (an image object's request outside the table never loads)"
+        ));
+        return None;
+    };
+    match entry.image {
+        Err(_) => Some(false),
+        Ok(("image/svg+xml", _)) => {
+            crate::unsupported(&format!(
+                "an image object loading the SVG image {src} (SVG images are decoded for <img> only)"
+            ));
+            None
+        }
+        Ok((_, bytes)) => Some(DECODED.with(|d| {
+            *d.borrow_mut().entry(entry.url).or_insert_with(|| {
+                image::ImageReader::new(std::io::Cursor::new(bytes))
+                    .with_guessed_format()
+                    .is_ok_and(|r| r.decode().is_ok())
+            })
+        })),
+    }
+}
+
 /// `url` as the program wrote it: root-relative for the app's own files.
 fn shown(url: &str) -> &str {
     url.strip_prefix(BASE_URL.trim_end_matches('/'))
@@ -163,6 +222,39 @@ mod tests {
             Some(Err(m)) if m.contains("404")
         ));
         assert_eq!(fetch("data:text/plain,abc"), Some(Ok(b"abc".to_vec())));
+        assert_eq!(resolve(""), BASE_URL);
+        assert_eq!(resolve("/x.png"), "http://runic.invalid/x.png");
+        assert_eq!(resolve("HTTPS://A.example:443/x"), "https://a.example/x");
+    }
+
+    #[test]
+    fn image_objects_load_decoded_pinned_images() {
+        // A 2x1 PNG, encoded by the decoder's own crate.
+        let mut png = Vec::new();
+        image::RgbaImage::new(2, 1)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let png: &'static [u8] = Box::leak(png.into_boxed_slice());
+        let table: &'static [PinnedImage] = Box::leak(Box::new([
+            PinnedImage {
+                url: "/bad.png",
+                image: Ok(("image/png", b"\x89PNG")),
+            },
+            PinnedImage {
+                url: "/good.png",
+                image: Ok(("image/png", png)),
+            },
+            PinnedImage {
+                url: "https://b.example/missing.png",
+                image: Err(404),
+            },
+        ]));
+        assert_eq!(outcome(table, "/good.png"), Some(true));
+        assert_eq!(outcome(table, "http://runic.invalid/good.png"), Some(true));
+        // Bytes that do not decode, a pinned failure and an empty source fail.
+        assert_eq!(outcome(table, "/bad.png"), Some(false));
+        assert_eq!(outcome(table, "HTTPS://B.example/missing.png"), Some(false));
+        assert_eq!(outcome(table, ""), Some(false));
         assert_eq!(shown("http://runic.invalid/x.png"), "/x.png");
         assert_eq!(shown("https://c.example/x.png"), "https://c.example/x.png");
     }

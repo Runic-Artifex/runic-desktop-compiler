@@ -397,15 +397,18 @@ export class BagShapes {
       )
         return this.values(own.initializer, key);
       if (known === undefined && this.hooks.bindingValues) return undefined;
-      // A constant, or a field nothing assigns: its initialiser.
-      const decl = target.valueDeclaration;
+      // A constant, or a field nothing assigns: its initialiser (a field a
+      // package's declaration file declares: its implementation's; bits-ui's
+      // `imageState.props`).
+      const impl = this.lower.implementedMember(target);
+      const decl = impl.valueDeclaration;
       if (
         decl &&
         (ts.isVariableDeclaration(decl) || ts.isPropertyDeclaration(decl)) &&
         decl.initializer &&
         (ts.isVariableDeclaration(decl)
           ? !!(decl.parent.flags & ts.NodeFlags.Const)
-          : !this.assignments(target, decl.parent).length)
+          : !this.assignments(impl, decl.parent).length)
       )
         return this.values(decl.initializer, key);
       return undefined;

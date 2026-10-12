@@ -13,6 +13,7 @@ import {
   type Expr,
   type Fn,
   type Global,
+  type ImageUrl,
   type Literal,
   type Local,
   type Place,
@@ -27,6 +28,7 @@ import {
   ELEMENT_METRICS,
   ANIMATION_MEMBERS,
   EVENT_MEMBERS,
+  IMAGE_MEMBERS,
   irType,
   maybeInner,
   WINDOW_METRICS,
@@ -45,6 +47,7 @@ import { elementAttributesType } from './svelte-elements.ts';
 import {
   type Choice,
   valueSet,
+  openOrigin,
   graft as graftChoice,
   leaf as choiceLeaf,
   sequence as choiceSequence,
@@ -354,9 +357,16 @@ const BOOLEAN: Type = 'boolean';
 const NUMBER: Type = 'number';
 const STRING: Type = 'string';
 const VOID: Type = 'void';
+/** A listener of an image object (M6 images): no arguments. */
+const IMAGE_LISTENER: Type = { fn: { params: [], result: 'void' } };
 
 export class Lowerer {
   readonly functions: Fn[] = [];
+  /**
+   * The image URLs `src` writes of image objects can load (M6 images,
+   * `new Image()`), for the adapter's `Lowering.imageUrls`.
+   */
+  readonly imageUrls: ImageUrl[] = [];
   /** Module constants shared by all components (program globals). */
   readonly globals: Global[] = [];
   readonly bindings = new Map<ts.Symbol, Binding>();
@@ -1857,7 +1867,7 @@ export class Lowerer {
    * `this.root.setState("search", …)` through the declared root class).
    * Other symbols are themselves.
    */
-  private implementedMember(member: ts.Symbol): ts.Symbol {
+  implementedMember(member: ts.Symbol): ts.Symbol {
     const decl = member.valueDeclaration ?? member.declarations?.[0];
     if (!decl?.getSourceFile().isDeclarationFile || !ts.isClassDeclaration(decl.parent))
       return member;
@@ -4312,6 +4322,106 @@ export class Lowerer {
     return this.typeAt(target);
   }
 
+  /**
+   * A listener of an image object (`onload`, `onerror`, `load`/`error`
+   * listeners): a function without arguments (the runtime passes no event).
+   */
+  private imageListener(e: ts.Expression, b: FnBuilder): Expr {
+    const v = this.coerce(e, b, IMAGE_LISTENER);
+    const t = this.irType(v, b);
+    if (!sameType(t, IMAGE_LISTENER))
+      return this.fail(
+        e,
+        'E_EVENT',
+        'Listeners of image objects are supported as functions without parameters (no event object is passed)',
+      );
+    return v;
+  }
+
+  /**
+   * `image.member = value` for an image object (M6 images, `new Image()`):
+   * every value of `src` must be known at build time and is an image URL
+   * the builder pins (`imageUrls`); `crossOrigin` and `referrerPolicy`
+   * are reflected only; `onload`/`onerror` set or (null) remove the
+   * handler.
+   */
+  private imageWrite(
+    target: ts.PropertyAccessExpression,
+    operator: ts.SyntaxKind,
+    valueNode: ts.Expression | { expr: Expr; type: Type },
+    b: FnBuilder,
+  ): Stmt[] {
+    const name = target.name.text;
+    if (operator !== ts.SyntaxKind.EqualsToken || 'expr' in valueNode)
+      return this.fail(target, 'E_ASSIGN', `Image ${name} is supported with plain assignment`);
+    const object = this.expr(target.expression, b);
+    const stmt = (name: string, args: Expr[]): Stmt[] => [
+      {
+        op: 'expr',
+        value: { op: 'builtin', name, args: [object, ...args], type: 'void' },
+        ...this.src(target),
+      },
+    ];
+    if (name === 'onload' || name === 'onerror') {
+      const kind: Expr = { op: 'lit', value: name.slice(2) };
+      const v = this.coerce(valueNode, b, { maybe: IMAGE_LISTENER });
+      if (
+        !sameType(this.irType(v, b), { maybe: IMAGE_LISTENER }) &&
+        !sameType(this.irType(v, b), IMAGE_LISTENER)
+      )
+        return this.fail(
+          valueNode,
+          'E_EVENT',
+          'Handlers of image objects are supported as functions without parameters, or null',
+        );
+      return stmt('image.set-handler', [kind, this.fitValue(v, { maybe: IMAGE_LISTENER }, b)]);
+    }
+    if (name === 'src') {
+      const values = valueSet({ lower: this, label: 'image src' }, valueNode);
+      const what =
+        'image sources must have a finite set of string values known at build time (literals, values of a literal union type, or props, options and parameters every site passes such values), each pinned as an asset';
+      if (!values) {
+        const origin = openOrigin({ lower: this, label: 'image src' }, valueNode);
+        const use = this.sourceOf(valueNode);
+        return this.fail(
+          origin,
+          'E_ASSET',
+          `The src of ${origin === valueNode ? 'this image object' : `an image object (${use?.file}:${use?.line}:${use?.column}) may take this value, which`} is open: ${what}`,
+        );
+      }
+      for (const v of values) {
+        // A value the type rules out (a nullable prop the code tests first).
+        if (v === undefined || v === null) continue;
+        if (typeof v !== 'string')
+          return this.fail(
+            valueNode,
+            'E_ASSET',
+            `The src of this image object may be ${JSON.stringify(v)}, not a URL`,
+          );
+        const source = this.sourceOf(valueNode);
+        if (!source)
+          return this.fail(
+            valueNode,
+            'E_ASSET',
+            'An image object source outside the program sources',
+          );
+        this.imageUrls.push({ url: v, source });
+      }
+      return stmt('image.set-src', [this.coerce(valueNode, b, 'string')]);
+    }
+    if (name === 'crossOrigin')
+      return stmt('image.set-cross-origin', [
+        this.fitValue(this.coerce(valueNode, b, { maybe: 'string' }), { maybe: 'string' }, b),
+      ]);
+    if (name === 'referrerPolicy')
+      return stmt('image.set-referrer-policy', [this.coerce(valueNode, b, 'string')]);
+    return this.fail(
+      target,
+      'E_MEMBER',
+      `Assigning Image ${name} is unsupported (src, crossOrigin, referrerPolicy, onload and onerror are supported)`,
+    );
+  }
+
   /** `target op= value` as statements. */
   assignment(
     target: ts.Expression,
@@ -4357,6 +4467,12 @@ export class Lowerer {
         b,
       );
     }
+    // A member of an image object (M6 images).
+    if (
+      ts.isPropertyAccessExpression(target) &&
+      this.types.typeOrUndefined(target.expression) === 'image'
+    )
+      return this.imageWrite(target, operator, valueNode, b);
     const compound = COMPOUND[operator];
     const current = () => this.expr(target, b);
     const rhs = () => ('expr' in valueNode ? valueNode.expr : this.expr(valueNode, b));
@@ -7114,6 +7230,7 @@ export class Lowerer {
     if (t === 'media-query') return 'media-query';
     if (t === 'date') return 'date';
     if (t === 'animation') return 'animation';
+    if (t === 'image') return 'image';
     if (typeof t === 'object') {
       if ('array' in t) return 'array';
       if ('map' in t) return 'map';
@@ -8075,6 +8192,29 @@ export class Lowerer {
           `MediaQueryList ${name} is unsupported (matches is supported)`,
         );
       return { op: 'builtin', name: 'media-query.matches', args: [object], type: 'boolean' };
+    }
+    // Image objects (M6 images, `new Image()`): their source and reflected
+    // attributes, and their `onload`/`onerror` handlers.
+    if (kind === 'image') {
+      const member = IMAGE_MEMBERS[name];
+      if (member)
+        return { op: 'builtin', name: `image.${member.name}`, args: [object], type: member.type };
+      if (name === 'onload' || name === 'onerror')
+        return {
+          op: 'builtin',
+          name: 'image.handler',
+          args: [object, { op: 'lit', value: name.slice(2) }],
+          type: { maybe: IMAGE_LISTENER },
+        };
+      return this.fail(
+        e,
+        'E_MEMBER',
+        `Image ${name} is unsupported (src, crossOrigin, referrerPolicy, onload and onerror are supported; ${
+          ['complete', 'naturalWidth', 'naturalHeight'].includes(name)
+            ? 'the runtime does not expose the state or size of an image object'
+            : 'docs/GAPS.md'
+        })`,
+      );
     }
     // Animation objects (M6, `element.getAnimations()`).
     if (kind === 'animation') {
@@ -9707,6 +9847,28 @@ export class Lowerer {
           args: this.callArgs(e, b),
         };
       if (kind === 'element') return this.elementMethod(method, receiver, e, b);
+      // Image objects (M6 images): `load` and `error` listeners, identified
+      // by their function value; `decode()` is not supported (docs/GAPS.md).
+      if (kind === 'image') {
+        const [type, listener, options] = e.arguments;
+        if (method !== 'addEventListener' && method !== 'removeEventListener')
+          return this.fail(
+            e,
+            'E_CALL',
+            `Image ${method}() is unsupported (image objects support src, crossOrigin, referrerPolicy, onload, onerror and load/error listeners)`,
+          );
+        if (options)
+          this.fail(options, 'E_EVENT', 'Listener options are planned for a later milestone');
+        if (!type || !ts.isStringLiteralLike(type) || !['load', 'error'].includes(type.text))
+          return this.fail(type ?? e, 'E_EVENT', 'Image objects have load and error listeners');
+        if (!listener) return this.fail(e, 'E_EVENT', `${method} takes a listener`);
+        return {
+          op: 'builtin',
+          name: `image.${method === 'addEventListener' ? 'listen' : 'unlisten'}`,
+          args: [receiver, { op: 'lit', value: type.text }, this.imageListener(listener, b)],
+          type: 'void',
+        };
+      }
       if (kind === 'media-query') {
         const [type, listener, options] = e.arguments;
         if (method !== 'addEventListener' && method !== 'removeEventListener')
@@ -11186,35 +11348,16 @@ export class Lowerer {
   private newExpression(e: ts.NewExpression, b: FnBuilder): Expr {
     const svelteMap = newSvelteMap(e, this);
     if (svelteMap) return svelteMap;
-    // Image objects load images over the network or from files, which the
-    // native runtime does not (no <img> either): `new Image()` throws
-    // RunicUnsupportedError when it runs (frontend/dom.d.ts).
+    // Image objects (M6 images, docs/design/M6-IMAGES.md): an `image` value
+    // whose `src` requests a pinned image (`imageWrite`).
     if (this.hostName(e.expression) === 'Image') {
-      const type = this.types.of(e);
-      const index = this.reserve();
-      this.functions[index] = {
-        name: 'Image$new',
-        params: [],
-        locals: [],
-        result: type,
-        body: [
-          {
-            op: 'throw',
-            value: {
-              op: 'record',
-              record: this.errorRecord(),
-              fields: [
-                { op: 'lit', value: 'RunicUnsupportedError' },
-                {
-                  op: 'lit',
-                  value: 'new Image(): the native runtime loads no images',
-                },
-              ],
-            },
-          },
-        ],
-      };
-      return { op: 'call', function: index, args: [] };
+      if (e.arguments?.length)
+        return this.fail(
+          e,
+          'E_CALL',
+          'new Image(width, height) is unsupported (image objects are created without arguments)',
+        );
+      return { op: 'builtin', name: 'image.new', args: [], type: 'image' };
     }
     const global = this.globalName(e.expression);
     if (ts.isIdentifier(e.expression)) {

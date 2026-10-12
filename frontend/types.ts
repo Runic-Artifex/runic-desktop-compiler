@@ -88,9 +88,6 @@ export class TypeMapper {
   readonly accessorTypes = new Set<ts.Type>();
   /** Records of `accessorTypes`: fields are getters (`() => T`). */
   readonly accessors = new Set<number>();
-  /** The record of image objects (frontend/dom.d.ts), once used. */
-  image: number | undefined;
-
   /**
    * Dynamic values (M6 spike, runic.json `"dynamicValues": true`): a value
    * whose type is outside the static model (`any`, `unknown`, a union the
@@ -629,25 +626,8 @@ export class TypeMapper {
     if (t.getProperty('__runicMediaQuery')) return 'media-query';
     // A CSS animation or transition (frontend/dom.d.ts), read through built-ins.
     if (t.getProperty('__runicAnimation')) return 'animation';
-    // An image object (frontend/dom.d.ts): a record of its properties.
-    if (t.getProperty('__runicImage')) {
-      if (this.image === undefined) {
-        this.image = this.records.length;
-        const handler: Type = { maybe: { fn: { params: [], result: 'void' } } };
-        this.records.push({
-          name: 'Image',
-          class: true,
-          fields: [
-            { name: 'src', type: 'string' },
-            { name: 'crossOrigin', type: { maybe: 'string' } },
-            { name: 'referrerPolicy', type: 'string' },
-            { name: 'onload', type: handler },
-            { name: 'onerror', type: handler },
-          ],
-        });
-      }
-      return { record: this.image };
-    }
+    // An image object (frontend/dom.d.ts), read and written through built-ins.
+    if (t.getProperty('__runicImage')) return 'image';
     // A computed style declaration stands for its element (frontend/dom.d.ts).
     if (t.getProperty('__runicComputedStyle')) return 'element';
     // Attribute bags (docs/IR.md `attrs`): the marker frontend/dom.d.ts

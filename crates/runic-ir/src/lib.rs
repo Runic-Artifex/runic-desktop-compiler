@@ -404,6 +404,10 @@ pub enum Type {
     /// A CSS animation or transition of an element (`element.getAnimations()`,
     /// M6), compared by identity: read through the `animation.*` built-ins.
     Animation,
+    /// An image object (`new Image()`, M6 images), compared by identity: not
+    /// an element of the document; its source, handlers and listeners are
+    /// read and written through the `image.*` built-ins.
+    Image,
     /// A dynamic value (M6 spike, docs/design/M6-DYNAMIC-VALUES.md): any
     /// JavaScript value, its type known at run time, operated on through the
     /// `dyn.*` built-ins; static values are boxed (`dyn.from`) and unboxed
@@ -440,6 +444,7 @@ impl Type {
             Type::Mounted => "mounted".into(),
             Type::Contexts => "contexts".into(),
             Type::Animation => "animation".into(),
+            Type::Image => "image".into(),
             Type::Dyn => "dyn".into(),
             Type::Class(c) => format!("class#{c}"),
             Type::Classes(cs) => format!(
