@@ -562,10 +562,20 @@ function attachRef(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr 
   const [ref, onChange] = node.arguments;
   if (!ref || node.arguments.length > 2)
     return lower.fail(node, 'E_PACK', `${LABEL}: attachRef takes a ref and an optional onChange`);
-  const refValue = lower.expr(ref, b);
-  const refType = lower.irType(refValue, b);
+  let refValue = lower.expr(ref, b);
+  let refType = lower.irType(refValue, b);
   const element: Type = { maybe: 'element' };
   const boxed = boxValue(lower, refType);
+  // A setter with a result (bits-ui's menubar trigger `(v) =>
+  // (state.triggerNode = v)`): attachRef calls it for its effect, the
+  // result discarded.
+  if (boxed === undefined) {
+    const adapted = lower.adaptFunction(refValue, refType, fnType([element], 'void'));
+    if (adapted) {
+      refValue = adapted;
+      refType = fnType([element], 'void');
+    }
+  }
   if (boxed !== undefined && JSON.stringify(boxed) !== JSON.stringify(element))
     lower.fail(ref, 'E_PACK', `${LABEL}: attachRef takes a box of an element or null`);
   if (boxed === undefined && JSON.stringify(refType) !== JSON.stringify(fnType([element], 'void')))

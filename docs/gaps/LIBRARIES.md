@@ -36,7 +36,8 @@ bits-ui compiles from source; parts with a conformance case are in [CONTRACT](..
 | Pagination | `E_TYPE_UNSUPPORTED` without dynamic values; with the opt-in it passes case `bits-pagination` | design/M6-DYNAMIC-VALUES |
 | Avatar.Image | images (P7) | CONTRACT |
 | Meter, RadioGroup | lower; no case yet | design/M6-LIBRARIES |
-| AlertDialog, HoverCard, ContextMenu, Menubar, NavigationMenu, Calendar, RangeCalendar, DateField, Combobox, Toolbar, LinkPreview | not attempted | — |
+| Menubar | the shadcn-svelte census examples lower (2026-10-12); no native case yet | conformance/results/shadcn-svelte-census.md |
+| AlertDialog, HoverCard, ContextMenu, NavigationMenu, Calendar, RangeCalendar, DateField, Combobox, Toolbar, LinkPreview | not attempted | — |
 | Multiple Select, ToggleGroup/Accordion mixing types in one program | V1 | CONTRACT |
 | Command: clearing the search, queries without matches | P3 (comment anchors) | CONTRACT |
 | Popover open/close animations | not sampled by the case | CONTRACT |

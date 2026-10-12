@@ -145,6 +145,14 @@ export class Unions {
       this.resolved.set(key, m);
       return m;
     }
+    // TypeScript's `boolean` is the union `false | true`: values of those
+    // two members only are booleans (bits-ui's `getCheckedState(checked:
+    // boolean | "indeterminate")` given only booleans).
+    if (found.size === 2 && [...found.keys()].every(m => m.flags & F.BooleanLiteral)) {
+      const m = this.checker.getBooleanType();
+      this.resolved.set(key, m);
+      return m;
+    }
     // Nothing but null and undefined reaches it: any member types it.
     // (With dynamic values, M6 spike: no value found may mean values the
     // census does not see, an untyped function's inferred result: the

@@ -69,6 +69,9 @@ function contextConstant(
   // (Calls in code that never runs, `Lowerer.neverRuns`, are left out, or
   // give the type where no other call sets it: get() then finds no value.)
   const sets: { n: ts.CallExpression; dead: boolean }[] = [];
+  // Every other reference (get, getOr, exists, or the key passed on) reads
+  // the context, unless it is in code that never runs.
+  let read = false;
   for (const sf of lower.program.getSourceFiles()) {
     if (sf.isDeclarationFile) continue;
     const visit = (n: ts.Node) => {
@@ -79,21 +82,63 @@ function contextConstant(
         ts.isIdentifier(n.expression.expression) &&
         lower.symbol(n.expression.expression) === sym &&
         n.arguments[0]
-      )
+      ) {
         sets.push({ n, dead: lower.neverRuns(n) });
+        n.arguments.forEach(visit);
+        return;
+      }
+      if (
+        !read &&
+        sym &&
+        ts.isIdentifier(n) &&
+        n !== (decl as ts.VariableDeclaration).name &&
+        !ts.isImportSpecifier(n.parent) &&
+        !ts.isExportSpecifier(n.parent) &&
+        !ts.isImportClause(n.parent) &&
+        lower.symbol(n) === sym &&
+        !lower.neverRuns(n)
+      )
+        read = true;
       ts.forEachChild(n, visit);
     };
     visit(sf);
   }
   const live = sets.filter(x => !x.dead);
+  // A context nothing that runs reads (bits-ui's `Menu.Group |
+  // Menu.RadioGroup`, read only by the group heading, which a menu without
+  // headings does not render) may be set with values of different types:
+  // the key is the constant's own symbol, so a set is observable only
+  // through its result, the value itself (and the set stores nothing).
+  const unread = !!sym && !read;
   for (const { n } of live.length ? live : sets) {
     const t = lower.types.of(n.arguments[0]);
-    if (type !== undefined && JSON.stringify(t) !== JSON.stringify(type))
+    if (type !== undefined && JSON.stringify(t) !== JSON.stringify(type)) {
+      // Instances of different classes: a reference to their class union,
+      // each value keeping its class (bits-ui's `Menu.Group |
+      // Menu.RadioGroup`, set by MenuGroupState and MenuRadioGroupState).
+      const joined = lower.classes.join(type, t);
+      if (joined) {
+        type = joined;
+        continue;
+      }
+      if (unread) {
+        type = undefined;
+        break;
+      }
       lower.fail(n, 'E_PACK', `${LABEL}: context ${label} is set with values of different types`);
+    }
     type = t;
   }
+  const mixed = unread && type === undefined && sets.length > 0;
   const valueType = (at: ts.Node): Type =>
-    type ?? lower.fail(at, 'E_PACK', `${LABEL}: context ${label} is never set`);
+    type ??
+    lower.fail(
+      at,
+      'E_PACK',
+      mixed
+        ? `${LABEL}: context ${label} is set with values of different types`
+        : `${LABEL}: context ${label} is never set`,
+    );
   let getter: number | undefined;
   return {
     kind: 'function',
@@ -102,6 +147,7 @@ function contextConstant(
     methods: {
       set(n, b, l) {
         if (n.arguments.length !== 1) l.fail(n, 'E_PACK', `${LABEL}: set takes the value`);
+        if (mixed) return l.expr(n.arguments[0], b);
         const t = valueType(n);
         // A set in code that never runs, of another type (bits-ui's radio
         // group under a menu without one): reported unsupported if it ran.

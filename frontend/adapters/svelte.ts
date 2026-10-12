@@ -1744,6 +1744,61 @@ export async function lowerSvelte(graph: Graph): Promise<{ ir: Program }> {
           return tsFail(node, 'E_CALL', 'untrack takes a function without parameters');
         return { op: 'builtin', name: 'reactive.untrack-call', args: [f], type: t.fn.result };
       }
+      // onMount(fn) outside a component script's top level (bits-ui's
+      // menubar and pin input state constructors, run while an instance is
+      // created): Svelte 5 runs `user_effect(() => { const cleanup =
+      // untrack(fn); if (typeof cleanup === 'function') return cleanup; })`,
+      // a post effect of the instance that tracks nothing. (Called while
+      // no instance is created nor an effect runs, Svelte throws
+      // lifecycle_outside_component and the effect builtin RunicEffectError.)
+      if (ts.isIdentifier(node.expression) && svelteImport(node.expression) === 'onMount') {
+        const [fn] = node.arguments;
+        const f = fn && node.arguments.length === 1 ? lower.expr(fn, ctx) : undefined;
+        const t = f && lower.irType(f, ctx);
+        const result =
+          typeof t === 'object' && 'fn' in t && !t.fn.params.length ? t.fn.result : undefined;
+        const cleanup = (x: Type | undefined) =>
+          typeof x === 'object' && 'fn' in x && !x.fn.params.length && x.fn.result === 'void';
+        if (
+          !f ||
+          result === undefined ||
+          (result !== 'void' &&
+            !cleanup(result) &&
+            !(typeof result === 'object' && 'maybe' in result && cleanup(result.maybe)))
+        )
+          return tsFail(
+            node,
+            'E_EFFECT',
+            'onMount takes a function without parameters returning nothing or a cleanup function',
+          );
+        const call: Expr = {
+          op: 'builtin',
+          name: 'reactive.untrack-call',
+          args: [{ op: 'local', local: 0 }],
+          type: result,
+        };
+        const run = lower.reserve();
+        lower.functions[run] = {
+          name: 'onMount$run',
+          captures: [{ name: 'fn', type: t! }],
+          params: [],
+          locals: [],
+          result,
+          body: result === 'void' ? [{ op: 'expr', value: call }] : [{ op: 'return', value: call }],
+        };
+        const tmp = ctx.local('$onMount', t!);
+        return {
+          op: 'with',
+          local: tmp,
+          value: f,
+          body: {
+            op: 'builtin',
+            name: 'effect.post',
+            args: [{ op: 'closure', function: run, captures: [tmp] }],
+            type: 'void',
+          },
+        };
+      }
       // Imperative mounts (M6 overlays): mount, unmount and getAllContexts.
       if (ts.isIdentifier(node.expression)) {
         const imported = svelteImport(node.expression);
