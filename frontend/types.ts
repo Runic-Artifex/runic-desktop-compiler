@@ -1073,7 +1073,6 @@ export class TypeMapper {
     return unique.length === 1 ? { record: unique[0] } : { classes: unique };
   }
 
-  /** Whether `t` is a plain object type (a record), not a DOM handle, bag, class or pack type. */
   /** Whether `t` is the type of an object literal in a JavaScript file. */
   private untypedLiteral(t: ts.Type): boolean {
     const decl = t.symbol?.declarations?.[0];
@@ -1084,6 +1083,7 @@ export class TypeMapper {
     );
   }
 
+  /** Whether `t` is a plain object type (a record), not a DOM handle, bag, class or pack type. */
   private plainObject(t: ts.Type): boolean {
     if (!(t.flags & (ts.TypeFlags.Object | ts.TypeFlags.Intersection))) return false;
     if (t.getCallSignatures().length || t.getConstructSignatures().length) return false;
