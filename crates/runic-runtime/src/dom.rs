@@ -925,6 +925,17 @@ impl Host {
         let Some(dom) = self.dom() else { return };
         let node = NodeId::from_u64(node);
         let name = name.to_ascii_lowercase();
+        // A fieldset's `disabled` is not modelled (`Dom::spread`).
+        if name == "disabled"
+            && dom
+                .doc
+                .get_node(node)
+                .and_then(|n| n.element_data())
+                .is_some_and(|e| &*e.name.local == "fieldset")
+        {
+            crate::unsupported("disabled on a <fieldset> (its controls stay enabled)");
+            return;
+        }
         let names = dom.listeners.script_attrs.entry(node).or_default();
         if !names.contains(&name) {
             names.push(name.clone());
@@ -1741,6 +1752,14 @@ impl Dom<'_> {
                     crate::unsupported(
                         "a style object spread onto an element (set as the string [object Object])",
                     );
+                    continue;
+                }
+                // A fieldset's `disabled` disables its descendant controls, which
+                // is not modelled (the frontends reject it where they see it).
+                ("disabled", AttrValue::Flag(true) | AttrValue::Text(_) | AttrValue::Value(..))
+                    if self.tag_is(node, "fieldset") =>
+                {
+                    crate::unsupported("disabled on a <fieldset> (its controls stay enabled)");
                     continue;
                 }
                 ("hidden", AttrValue::Text(t))

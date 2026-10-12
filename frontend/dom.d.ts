@@ -207,6 +207,8 @@ interface HTMLParagraphElement extends HTMLElement {}
 interface HTMLLIElement extends HTMLElement {}
 interface HTMLUListElement extends HTMLElement {}
 interface HTMLHeadingElement extends HTMLElement {}
+interface HTMLFieldSetElement extends HTMLElement {}
+interface HTMLLegendElement extends HTMLElement {}
 interface Element extends HTMLElement {}
 /** M6 (bits-ui's floating layer): `x instanceof Element` of element values. */
 declare var Element: { prototype: Element };

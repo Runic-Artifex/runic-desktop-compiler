@@ -62,7 +62,7 @@ import { lowerModules } from '../modules.ts';
 import { packMappings, type Edge } from '../packs.ts';
 import { arrayElement, maybeInner, upcastTo } from '../irtype.ts';
 import { checkRadioGroups, checkSelectChildren } from '../controls.ts';
-import { INERT_TAGS, TABLE_TAGS } from '../elements.ts';
+import { FIELDSET_DISABLED, FIELDSET_TAGS, INERT_TAGS, TABLE_TAGS } from '../elements.ts';
 
 const TAGS = new Set([
   ...TABLE_TAGS,
@@ -101,6 +101,8 @@ const TAGS = new Set([
   'label',
   'select',
   'option',
+  // Fieldsets without `disabled` (checked in element()).
+  ...FIELDSET_TAGS,
   ...INERT_TAGS,
 ]);
 /** Inline SVG elements (runic-ir's SVG_TAGS). */
@@ -2385,6 +2387,14 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
           'E_JSX',
           `Spread attributes on ${radio ? 'radio buttons' : checkbox ? 'checkboxes' : `<${name}>`} are planned for later`,
         );
+    }
+    if (name === 'fieldset') {
+      const disabled = opening.attributes.properties.find(
+        p => ts.isJsxAttribute(p) && p.name.getText() === 'disabled',
+      );
+      if (disabled) fail(disabled, 'E_JSX', FIELDSET_DISABLED(false));
+      if (restKeys.has('disabled'))
+        fail(opening.attributes.properties[spreadAt], 'E_JSX', FIELDSET_DISABLED(true));
     }
     for (const a of opening.attributes.properties) {
       if (ts.isJsxSpreadAttribute(a)) continue;

@@ -135,14 +135,16 @@ The TypeScript frontends (`frontend/`) lower every framework through one shared 
 
 ## Collection
 
-The shared IR and Svelte element lists contain 78 tags (with `img`, below); React and Vue accept 71.
-All three accept `form`, `table`, `caption`, `thead`, `tbody`, `tfoot`, `tr`, `th`,
+The shared IR and Svelte element lists contain 80 tags (with `img`, below); React and Vue accept 73.
+All three accept `form`, `fieldset`, `legend`, `table`, `caption`, `thead`, `tbody`, `tfoot`, `tr`, `th`,
 `td`, `colgroup` and `col`. React and Vue still lack `a`, `dl`, `dt`, `dd`,
 `figure` and `figcaption`. Blitz owns table formatting; adapters lower structure
 and attributes (React maps `colSpan`/`rowSpan`), with no framework-specific backend
 path. Verified fixtures cover captions, column sizing, row/group boxes, spans,
 alignment, collapsed borders, responsive scrollers and cell/row events.
 The complete CSS table model and full quirks behavior remain separate gaps.
+
+**Fieldsets** (case `fieldset`, fixture `fieldset-svelte`, `tests/fieldset.test.mjs`, Blitz fork; [results](../conformance/results/fieldset.md)): `fieldset` and `legend` in all three adapters, laid out and painted as Chromium 153 does. The rendered legend (the first `legend` child that is neither floated nor absolutely positioned, also after other content) leaves the fieldset's content: it is shrink-to-fit at the content box's inline start (auto margins align it), its block-start margin ignored, centred over a thicker block-start border, and the content (block, flex or grid, with its gap) starts below the larger of the border and the legend's margin box. A definite height keeps its border box; a content-sized fieldset is at least as wide as its legend. The border runs through the legend's centre and is cut out behind it (snapped to device pixels), and the background and shadows start at the border. A second legend is ordinary content. The UA border is Chromium's `2px groove rgb(239, 239, 239)`. `disabled` on a `fieldset` is rejected where it is written or where a spread or rest props may carry it (`E_TEMPLATE` in Svelte and Vue, `E_JSX` in React, `E_IR` in the validator; the runtime reports one reaching a fieldset through a bag as unsupported): a disabled fieldset disables its descendant controls, which the runtime does not model. Legends with an inline `display`, inline content on both sides of the legend, `display: inline` fieldsets and scrolling fieldsets render differently ([gaps](gaps/PLATFORM.md)).
 
 `runic.json` selects a local entry, title, optional `framework` (`react`, the default, `vue` or `svelte`) and optional `renderer` (`cpu`, the default, or `gpu`). Optional `alias` maps import prefixes to directories inside the app, resolved as Vite's `resolve.alias` (`"alias": { "$lib": "src/lib" }`, as SvelteKit configures `$lib`; the app's own Vite and SvelteKit configs are never run). All apps use an empty `div#root` and one module script; `index.html`'s `<html>` and `<body>` attributes (`lang`, `class`, `data-*`) become the document element's and the body's (M6; shadcn-svelte's style class is on `<body>`, where portalled content inherits it). Vite collects original sources, ordered local CSS and WOFF2 assets; inline HTML scripts are rejected. Imports of types only (`import type`, lists of `type` names) load nothing.
 

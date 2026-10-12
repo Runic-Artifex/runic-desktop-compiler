@@ -79,7 +79,7 @@ import {
   type PackAttr,
   type PackComponent,
 } from '../packs.ts';
-import { INERT_TAGS, TABLE_TAGS } from '../elements.ts';
+import { FIELDSET_TAGS, FIELDSET_DISABLED, INERT_TAGS, TABLE_TAGS } from '../elements.ts';
 
 // The svelte/compiler AST is untyped here; nodes are plain objects.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -136,6 +136,8 @@ const TAGS = new Set([
   'form',
   // M6 images: `src` values pinned at build time (`imageSources` below).
   'img',
+  // Fieldsets without `disabled` (`fieldsetAttributes` below).
+  ...FIELDSET_TAGS,
   ...SVG_TAGS,
   ...INERT_TAGS,
 ]);
@@ -5115,6 +5117,16 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         imageUrls.push({ url: v as string, source: loc(at) });
       }
     };
+    /** A fieldset's `disabled`, also from a spread that may hold it (FIELDSET_DISABLED). */
+    const fieldsetAttributes = (n: SNode) => {
+      for (const a of n.attributes)
+        if (
+          (a.type === 'Attribute' && a.name === 'disabled') ||
+          (a.type === 'SpreadAttribute' &&
+            mayHold(shapes.of(nodeIn(u, a.expression) as ts.Expression), 'disabled'))
+        )
+          fail('E_TEMPLATE', FIELDSET_DISABLED(a.type === 'SpreadAttribute'), loc(a));
+    };
     /**
      * SvelteKit link options and focus: `data-sveltekit-preload-*` other
      * than off (preloading runs loads early, not modelled yet) and
@@ -5165,6 +5177,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       if (n.name === 'a' && !graph.kit) linkTargets(n);
       if (graph.kit) kitAttributes(n);
       if (n.name === 'img') imageSources(n);
+      if (n.name === 'fieldset') fieldsetAttributes(n);
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];

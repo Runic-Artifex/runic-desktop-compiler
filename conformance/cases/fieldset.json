@@ -1,0 +1,14 @@
+{
+  "description": "<fieldset> and <legend> as Chromium renders them (HTML's rendering of the fieldset and legend elements): a UA-styled fieldset whose groove border runs behind the legend's centre with a gap behind it; shadcn-svelte's FieldSet and FieldLegend shape (a preflight-reset flex column with a 24px gap, the legend with mb-3 and font-medium out of the gap, a description pulled up by -mt-1.5 through legend + description) with both legend variants; a legend after other content (still the rendered legend) and a second legend (in the content); a thick border centred on a small legend; a legend with margins (its block-start margin ignored, as in Chromium), padding, border and background over a fieldset background that starts at the border; a grid fieldset; a fixed-height fieldset whose legend spill is subtracted; an inline-block fieldset as wide as its legend; an end-aligned legend (margin-left: auto). A click removes one legend and widens another; a click focuses an input below a legend",
+  "fixtures": ["fieldset-svelte"],
+  "pixelRegions": ["plain", "field-set", "label-set", "thick", "fancy", "sized", "shrink"],
+  "knownGaps": {
+    "pixels": "Text at fractional origins (the UA fieldset's 0.75em/0.35em padding at 14px puts its legend and content 12.5px and 22.9px into a whole-pixel box) differs by up to 5.822/255 per region at 800px (plain 2.655, fancy 3.29-4.534, sized 4.169-5.094, shrink 5.822) and 6.529/255 at 420px (plain 4.221, fancy 5.284-6.529); the whole page is within 1.666/255. With all text transparent every region is within 0.171/255 (borders, the legend cutout, backgrounds and legend boxes within 0.011/255) and geometry passes: this is Blitz's glyph rasterisation at fractional origins (docs/BLITZ-GAPS.md, Glyph rasterisation), not the fieldset rendering. The shadcn-shaped regions (field-set, label-set: whole-pixel origins) are within 0.594/255"
+  },
+  "actions": [
+    { "kind": "click", "id": "card" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "fancy-legend" },
+    { "kind": "click", "id": "toggle" }
+  ]
+}
