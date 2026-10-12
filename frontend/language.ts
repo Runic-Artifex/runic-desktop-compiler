@@ -4605,10 +4605,12 @@ export class Lowerer {
         b,
       );
     }
-    // A member of an image object (M6 images).
+    // A member of an image object (M6 images). (Only asks: the object may
+    // be no value of its own, `this` in a static method being its class.)
     if (
       ts.isPropertyAccessExpression(target) &&
-      this.types.typeOrUndefined(target.expression) === 'image'
+      this.types.tryMap(this.checker.getTypeAtLocation(target.expression), target.expression) ===
+        'image'
     )
       return this.imageWrite(target, operator, valueNode, b);
     const compound = COMPOUND[operator];

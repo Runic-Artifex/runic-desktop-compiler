@@ -738,3 +738,39 @@ test('a record passed where a record of some of its fields is expected; dictiona
     },
   );
 });
+
+test('a static method writes a static field through this', async () => {
+  // (bits-ui's FocusScopeManager: a lazily created singleton.)
+  await withApp(
+    {
+      'registry.ts': `export class Registry {
+  static instance: Registry | undefined;
+  static get(): Registry {
+    if (!this.instance) this.instance = new Registry();
+    return this.instance;
+  }
+  n = 0;
+  count(): number {
+    this.n++;
+    return this.n;
+  }
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { Registry } from './registry';
+  let out = $state('');
+  function run() {
+    out = Registry.get().count() + ' ' + Registry.get().count();
+  }
+</script>
+
+<button id="b" onclick={run}>{out}</button>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [{ kind: 'click', id: 'b' }]);
+      assert.equal(text(steps[1].state.dom[0]), '1 2');
+    },
+  );
+});
