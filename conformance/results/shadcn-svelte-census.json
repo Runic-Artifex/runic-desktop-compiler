@@ -1,6 +1,6 @@
 {
  "generated": "node conformance/triage.mjs --jobs 4",
- "compiler": "868db79",
+ "compiler": "56a4335",
  "corpus": {
   "name": "shadcn-svelte",
   "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
@@ -23,8 +23,8 @@
  },
  "totals": {
   "examples": 404,
-  "lowered": 260,
-  "rejected": 144,
+  "lowered": 261,
+  "rejected": 143,
   "harnessError": 0,
   "internalError": 0,
   "withClosureMisses": 0,
@@ -133,6 +133,7 @@
   "field-input",
   "field-radio",
   "field-responsive-layout-demo",
+  "field-select",
   "field-switch",
   "field-textarea",
   "input-badge",
@@ -373,9 +374,9 @@
  },
  "clusters": [
   {
-   "code": "E_CLASS",
+   "code": "E_TYPE_UNION",
    "count": 16,
-   "message": "CalendarDate is a library class; its instances are unsupported (only classes compiled from source are)",
+   "message": "Union CalendarDate | CalendarDateTime | ZonedDateTime | DateValue[] is outside the value model: values of several members reach it (DateValue[] at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:329, CalendarDate at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:340, CalendarDateTime at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:340, ZonedDateTime at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:340); compiling per member is not supported yet",
    "location": "node_modules/bits-ui/dist/internal/date-time/utils.js:20",
    "examples": [
     "calendar-basic",
@@ -521,8 +522,8 @@
   {
    "code": "E_CSS_ORDER",
    "count": 4,
-   "message": "Split/dynamic stylesheet order is outside this contract",
-   "location": null,
+   "message": "Split/dynamic stylesheet order is outside this contract: ../../../../node_modules/layerchart/dist/components/BrushContext.svelte (loaded by a dynamic import()) has styles of its own, emitted as a separate stylesheet",
+   "location": "../../../../node_modules/layerchart/dist/components/Chart/Chart.base.svelte:446",
    "examples": [
     "chart-bar-axis-tick-demo",
     "chart-bar-demo",
@@ -609,6 +610,15 @@
    ]
   },
   {
+   "code": "E_ARRAY",
+   "count": 1,
+   "message": "A spread of objects of other fields (value, label) than the array's elements (value, label, disabled)",
+   "location": "docs/src/lib/registry/examples/select-groups.svelte:19",
+   "examples": [
+    "select-groups"
+   ]
+  },
+  {
    "code": "E_ASSET",
    "count": 1,
    "message": "The src of an image object (node_modules/bits-ui/dist/bits/avatar/avatar.svelte.js:27:21) may take this value, which is open: image sources must have a finite set of string values known at build time (literals, values of a literal union type, or props, options and parameters every site passes such values), each pinned as an asset",
@@ -660,6 +670,42 @@
    "location": "docs/src/lib/registry/examples/item-image-demo.svelte:34",
    "examples": [
     "item-image-demo"
+   ]
+  },
+  {
+   "code": "E_BUILTIN",
+   "count": 1,
+   "message": "Array.from over an array-like object ({ length: n }) is unsupported (arrays, sets and strings are)",
+   "location": "docs/src/lib/registry/examples/scroll-fade-demo.svelte:2",
+   "examples": [
+    "scroll-fade-demo"
+   ]
+  },
+  {
+   "code": "E_BUILTIN",
+   "count": 1,
+   "message": "Array.from over an array-like object ({ length: n }) is unsupported (arrays, sets and strings are)",
+   "location": "docs/src/lib/registry/examples/scroll-fade-none.svelte:2",
+   "examples": [
+    "scroll-fade-none"
+   ]
+  },
+  {
+   "code": "E_BUILTIN",
+   "count": 1,
+   "message": "Array.from over an array-like object ({ length: n }) is unsupported (arrays, sets and strings are)",
+   "location": "docs/src/lib/registry/examples/scroll-fade-overflow.svelte:2",
+   "examples": [
+    "scroll-fade-overflow"
+   ]
+  },
+  {
+   "code": "E_BUILTIN",
+   "count": 1,
+   "message": "Array.from over an array-like object ({ length: n }) is unsupported (arrays, sets and strings are)",
+   "location": "docs/src/lib/registry/examples/scroll-fade-size.svelte:2",
+   "examples": [
+    "scroll-fade-size"
    ]
   },
   {
@@ -726,37 +772,10 @@
    ]
   },
   {
-   "code": "E_IR",
-   "count": 1,
-   "message": "Conditional branches boolean | undefined and record#190[] | undefined | undefined",
-   "location": null,
-   "examples": [
-    "select-invalid"
-   ]
-  },
-  {
-   "code": "E_IR",
-   "count": 1,
-   "message": "Expected record#20[], found record#53[]",
-   "location": "docs/src/lib/registry/examples/select-groups.svelte:19",
-   "examples": [
-    "select-groups"
-   ]
-  },
-  {
-   "code": "E_IR",
-   "count": 1,
-   "message": "Expected record#9[], found record#8[]",
-   "location": null,
-   "examples": [
-    "field-select"
-   ]
-  },
-  {
    "code": "E_KIT_IMPORT",
    "count": 1,
    "message": "$app/stores is unsupported (supported: $app/state, $app/navigation, $app/environment, @sveltejs/kit)",
-   "location": "../../../../node_modules/sveltekit-superforms/dist/client/superForm.js:2",
+   "location": "../../../../node_modules/sveltekit-superforms/dist/client/SuperDebug.svelte:5",
    "examples": [
     "form-demo"
    ]
@@ -795,15 +814,6 @@
    "location": "docs/src/lib/registry/examples/skeleton-table.svelte:6",
    "examples": [
     "skeleton-table"
-   ]
-  },
-  {
-   "code": "E_TEMPLATE",
-   "count": 1,
-   "message": "<defs> is outside the supported elements",
-   "location": "docs/src/lib/registry/examples/chart-tooltip-demo.svelte:24",
-   "examples": [
-    "chart-tooltip-demo"
    ]
   },
   {
@@ -890,6 +900,24 @@
   {
    "code": "E_TYPE_UNION",
    "count": 1,
+   "message": "The value of && is either operand, of types no one type holds (boolean | \"\" | undefined)",
+   "location": "docs/src/lib/components/chart-tooltip-demo-item.svelte:46",
+   "examples": [
+    "chart-tooltip-demo"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 1,
+   "message": "The value of && is either operand, of types no one type holds (string | false | undefined)",
+   "location": "docs/src/lib/registry/ui/field/field-error.svelte:33",
+   "examples": [
+    "select-invalid"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 1,
    "message": "Union string | number is outside the value model: values of several members reach it (number at node_modules/bits-ui/dist/bits/utilities/floating-layer/use-floating-layer.svelte.js:166, string at src/lib/registry/examples/input-group-button-demo.svelte:23); compiling per member is not supported yet",
    "location": "docs/src/lib/hooks/use-clipboard.svelte.ts:51",
    "examples": [
@@ -966,42 +994,6 @@
    "location": "docs/src/lib/registry/examples/combobox-popup.svelte:33",
    "examples": [
     "combobox-popup"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/examples/scroll-fade-demo.svelte:2",
-   "examples": [
-    "scroll-fade-demo"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/examples/scroll-fade-none.svelte:2",
-   "examples": [
-    "scroll-fade-none"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/examples/scroll-fade-overflow.svelte:2",
-   "examples": [
-    "scroll-fade-overflow"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "docs/src/lib/registry/examples/scroll-fade-size.svelte:2",
-   "examples": [
-    "scroll-fade-size"
    ]
   }
  ]
