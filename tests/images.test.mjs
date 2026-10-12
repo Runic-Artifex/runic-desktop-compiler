@@ -1,8 +1,9 @@
 // Images as pinned build assets, step 2 (docs/design/M6-IMAGES.md):
 // `runic images` fetches each remote image URL once into a committed record
 // and files; builds check the record (stale, extra, altered, missing, unknown
-// files) and resolve root-relative URLs in the app's static directory. No
-// adapter yields image URLs yet, so the tests inject them.
+// files) and resolve root-relative URLs in the app's static directory. Most
+// tests inject the URLs; the Svelte adapter yields them for `<img src>`
+// (steps 4 and 5), tested at the end.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -11,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
-import { collect, Diagnostic } from '../compiler/collect.mjs';
+import { collect, Diagnostic, hash } from '../compiler/collect.mjs';
 import { lower } from '../compiler/frontend.mjs';
 import { check, emit } from '../compiler/codegen.mjs';
 import { fetchImages, pinImages, RECORD, sniff } from '../compiler/images.mjs';
@@ -385,7 +386,7 @@ test('the record feeds the source hash; the backend embeds checked image bytes',
     await fetchImages(root, { imageUrls: urls(url) });
     const graph = await collect(root);
     assert.notEqual(graph.hash, before, 'the record and files change the source hash');
-    // No adapter yields image URLs yet: the record pins one the program does not load.
+    // counter-svelte has no <img>: the record pins a URL the program does not load.
     await assert.rejects(lower(graph), failWith(RECORD, /does not load/));
     // Pin the URL as an adapter will report it, then validate and emit.
     const { ir } = await lower(graph, { images: false });
@@ -413,4 +414,147 @@ test('the record feeds the source hash; the backend embeds checked image bytes',
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+const AVATAR = 'https://avatars.githubusercontent.com/u/1?s=40';
+const MISSING =
+  'https://raw.githubusercontent.com/Runic-Artifex/blitz/main/runic-missing-image.png';
+
+/** fixtures/images-svelte with one replacement in App.svelte. */
+async function imagesApp(from, to) {
+  const g = await collect('fixtures/images-svelte');
+  const id = path.join(g.root, 'App.svelte');
+  const original = g.modules.get(id).code;
+  assert.ok(original.includes(from), `Replacement must match: ${from}`);
+  const code = original.replace(from, () => to);
+  const modules = new Map(g.modules);
+  modules.set(id, { ...g.modules.get(id), code });
+  return { ...g, modules, hash: hash(code) };
+}
+
+test('Svelte <img src> yields each build-time value with its source', async () => {
+  const graph = await collect('fixtures/images-svelte');
+  const { imageUrls } = await lower(graph, { images: false });
+  assert.deepEqual(
+    imageUrls.map(u => [u.url, u.source.file, u.source.line]),
+    [
+      ['/tiles.png', 'App.svelte', 24],
+      ['/tiles.png', 'App.svelte', 25],
+      [AVATAR, 'App.svelte', 28],
+      [MISSING, 'App.svelte', 38],
+      ['/wide.png', 'App.svelte', 48],
+      // `{src}` of the literal union type Source.
+      [AVATAR, 'App.svelte', 55],
+      [MISSING, 'App.svelte', 55],
+      ['/alt.png', 'App.svelte', 55],
+    ],
+  );
+  // With pinning, the committed record covers the remote URLs and public/ the rest.
+  const { ir } = await lower(graph);
+  assert.deepEqual(
+    ir.images.map(i => i.url),
+    ['/alt.png', '/tiles.png', '/wide.png', AVATAR, MISSING].sort(),
+  );
+  const listeners = [];
+  const walk = nodes => {
+    for (const n of nodes ?? []) {
+      if (n.tag === 'img') for (const l of n.listeners ?? []) listeners.push(l.event);
+      for (const k of ['children', 'then', 'else', 'body', 'fallback']) walk(n[k]);
+    }
+  };
+  for (const c of ir.components) walk(c.template);
+  assert.deepEqual(listeners, ['load', 'error', 'load', 'error', 'load', 'error']);
+  check(ir);
+
+  // The backend validator keeps the same rules for IR from any frontend.
+  const find = (nodes, tag, listening = false) => {
+    for (const n of nodes ?? []) {
+      if (n.tag === tag && (!listening || n.listeners?.length)) return n;
+      for (const k of ['children', 'then', 'else', 'body', 'fallback']) {
+        const found = find(n[k], tag, listening);
+        if (found) return found;
+      }
+    }
+  };
+  const edited = edit => {
+    const copy = structuredClone(ir);
+    edit(copy.components.flatMap(c => c.template));
+    return copy;
+  };
+  const invalid = (copy, pattern) =>
+    assert.throws(
+      () => check(copy),
+      e => e.code === 'E_IR' && pattern.test(e.message),
+    );
+  invalid(
+    edited(t => {
+      const img = find(t, 'img');
+      img.attrs.push({ name: 'srcset', value: { op: 'lit', value: '/tiles.png 2x' } });
+    }),
+    /srcset attribute of <img> is unsupported/,
+  );
+  invalid(
+    edited(t => {
+      find(t, 'h1').listeners = [find(t, 'img', true).listeners[0]];
+    }),
+    /<img> elements only/,
+  );
+
+  // A conditional of literals is finite too.
+  const ternary = await lower(
+    await imagesApp(
+      '<h1>Images</h1>',
+      `<h1>Images</h1><img src={log.length > 1 ? '/tiles.png' : '/wide.png'} alt="" />`,
+    ),
+    { images: false },
+  );
+  assert.deepEqual(
+    ternary.imageUrls.slice(0, 2).map(u => [u.url, u.source.line]),
+    [
+      ['/tiles.png', 22],
+      ['/wide.png', 22],
+    ],
+  );
+});
+
+test('Svelte <img> rejects open sources and unsupported attributes at the source', async () => {
+  const rejects = async (from, to, code, line, pattern) =>
+    assert.rejects(
+      lower(await imagesApp(from, to), { images: false }),
+      e =>
+        (e instanceof Diagnostic &&
+          e.code === code &&
+          e.source?.file === 'App.svelte' &&
+          e.source.line === line &&
+          pattern.test(e.message)) ||
+        assert.fail(
+          `expected ${code} at ${line}, got ${e.code} ${JSON.stringify(e.source)}: ${e.message}`,
+        ),
+    );
+  const h1 = '<h1>Images</h1>';
+  await rejects(h1, `${h1}<img src={log.join('')} alt="" />`, 'E_ASSET', 22, /is open/);
+  await rejects(h1, `${h1}<img src="/{avatar}.png" alt="" />`, 'E_ASSET', 22, /is open/);
+  await rejects(h1, `${h1}<img src={log.length ? 1 : 2} alt="" />`, 'E_ASSET', 22, /may be 1/);
+  const intrinsic = 'decoding="async"';
+  await rejects(intrinsic, 'loading="lazy"', 'E_TEMPLATE', 25, /loading attribute/);
+  await rejects(intrinsic, 'srcset="/tiles.png 1x, /wide.png 2x"', 'E_TEMPLATE', 25, /srcset/);
+  await rejects(intrinsic, 'sizes="50vw"', 'E_TEMPLATE', 25, /sizes/);
+  await rejects(intrinsic, 'crossorigin="anonymous"', 'E_TEMPLATE', 25, /crossorigin/);
+  await rejects(intrinsic, 'bind:naturalWidth={avatar}', 'E_TEMPLATE', 25, /naturalWidth/);
+  await rejects(intrinsic, 'bind:naturalHeight={avatar}', 'E_TEMPLATE', 25, /naturalHeight/);
+  await rejects(intrinsic, "{...{ title: 'x' }}", 'E_TEMPLATE', 25, /Spread attributes/);
+  await rejects(
+    h1,
+    '<picture><img src="/tiles.png" alt="" /></picture>',
+    'E_TEMPLATE',
+    22,
+    /picture/,
+  );
+  await rejects(
+    h1,
+    `<h1 onload={() => (avatar = 'x')}>Images</h1>`,
+    'E_EVENT',
+    22,
+    /onload handlers are supported on <img> elements only/,
+  );
 });

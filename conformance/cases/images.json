@@ -1,0 +1,10 @@
+{
+  "description": "Images as pinned assets (M6, docs/design/M6-IMAGES.md, <img> slice): a public/ image sized by its width and height attributes only (scaled 1.5x), the same image at its intrinsic size, object-fit: cover in a box as wide as the viewport allows (two viewports), a pinned remote avatar and a pinned 404 whose onload/onerror handlers write visible state, and an image whose src a button cycles through a local file, the cached avatar and the 404, logging the click and each load or error in order",
+  "fixtures": ["images-svelte"],
+  "actions": [
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" }
+  ],
+  "pixelRegions": ["sized", "intrinsic", "avatar", "cover", "switch"]
+}

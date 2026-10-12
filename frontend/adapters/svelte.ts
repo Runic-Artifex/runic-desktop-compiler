@@ -24,8 +24,9 @@ import type {
   Effect,
   StyleGuard,
   Lowering,
+  ImageUrl,
 } from '../ir.ts';
-import { EVENT_KINDS } from '../ir.ts';
+import { EVENT_KINDS, IMAGE_EVENT_KINDS } from '../ir.ts';
 import {
   FnBuilder,
   Lowerer,
@@ -133,6 +134,8 @@ const TAGS = new Set([
   'figure',
   'figcaption',
   'form',
+  // M6 images: `src` values pinned at build time (`imageSources` below).
+  'img',
   ...SVG_TAGS,
   ...INERT_TAGS,
 ]);
@@ -2910,6 +2913,8 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
 
   /** The fragments links may navigate to (checked against the element ids below). */
   const linkFragments: { name: string; at: Source }[] = [];
+  /** The image URLs `<img>` elements can load (pinned by compiler/images.mjs). */
+  const imageUrls: ImageUrl[] = [];
   const components: Component[] = [];
   for (const u of order) {
     lowering = u.index;
@@ -5050,6 +5055,67 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       }
     };
     /**
+     * An image's sources (M6 images, docs/design/M6-IMAGES.md): every value
+     * its `src` can take must be known at build time (a literal, or an
+     * expression with a finite set of string values: the value domains of
+     * frontend/packs/choice.ts) and becomes an image URL the builder pins.
+     * A spread could hold `src`, and attributes whose loading behaviour the
+     * runtime does not model are rejected: `loading` (lazy loading changes
+     * when `load` fires), `srcset` and `sizes` (selection by device pixel
+     * ratio; Blitz loads `src` only), `crossorigin` (no canvas reads it), and
+     * the `naturalWidth`/`naturalHeight` bindings.
+     */
+    const imageSources = (n: SNode) => {
+      for (const a of n.attributes) {
+        if (a.type === 'SpreadAttribute')
+          fail(
+            'E_TEMPLATE',
+            'Spread attributes on <img> are not supported: its src must be an attribute with values known at build time',
+            loc(a),
+          );
+        if (a.type === 'BindDirective' && a.name !== 'this')
+          fail('E_TEMPLATE', `bind:${a.name} on <img> is not supported`, loc(a));
+        if (a.type !== 'Attribute') continue;
+        if (['loading', 'srcset', 'sizes', 'crossorigin'].includes(a.name))
+          fail(
+            'E_TEMPLATE',
+            `The ${a.name} attribute of <img> is not supported (${
+              a.name === 'loading'
+                ? 'lazy loading changes when load fires'
+                : a.name === 'crossorigin'
+                  ? 'it only affects canvas reads, and there is no canvas'
+                  : 'the runtime loads src only, without selection by device pixel ratio'
+            })`,
+            loc(a),
+          );
+      }
+      const at = n.attributes.find((a: SNode) => a.type === 'Attribute' && a.name === 'src');
+      if (!at) return;
+      const values: unknown[] | undefined =
+        at.value === true
+          ? ['']
+          : Array.isArray(at.value)
+            ? at.value.every((v: SNode) => v.type === 'Text')
+              ? [at.value.map((v: SNode) => v.data).join('')]
+              : at.value.length === 1
+                ? valueSet({ lower, label: '<img src>' }, exprNode(at.value[0].expression))
+                : undefined
+            : valueSet({ lower, label: '<img src>' }, exprNode(at.value.expression));
+      if (!values)
+        fail(
+          'E_ASSET',
+          'The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset',
+          loc(at),
+        );
+      for (const v of values!) {
+        // No attribute: no request.
+        if (v === undefined || v === null) continue;
+        if (typeof v !== 'string')
+          fail('E_ASSET', `The src of this <img> may be ${JSON.stringify(v)}, not a URL`, loc(at));
+        imageUrls.push({ url: v as string, source: loc(at) });
+      }
+    };
+    /**
      * SvelteKit link options and focus: `data-sveltekit-preload-*` other
      * than off (preloading runs loads early, not modelled yet) and
      * `autofocus` (Kit's focus reset focuses it) are rejected.
@@ -5098,6 +5164,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       // In a SvelteKit app the router follows links (its click listener).
       if (n.name === 'a' && !graph.kit) linkTargets(n);
       if (graph.kit) kitAttributes(n);
+      if (n.name === 'img') imageSources(n);
       const attrs: { name: string; value: Expr }[] = [];
       const props: { name: string; value: Expr }[] = [];
       const listeners: Listener[] = [];
@@ -5130,7 +5197,13 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           const name: string = a.name;
           if (/^on[a-z]+$/.test(name)) {
             const event = name.slice(2);
-            if (!EVENT_KINDS.includes(event as HandlerEvent))
+            // An image's outcome (M6 images): `<img>` attributes only.
+            if (IMAGE_EVENT_KINDS.includes(event as HandlerEvent) && n.name !== 'img')
+              fail('E_EVENT', `on${event} handlers are supported on <img> elements only`, loc(a));
+            if (
+              !EVENT_KINDS.includes(event as HandlerEvent) &&
+              !IMAGE_EVENT_KINDS.includes(event as HandlerEvent)
+            )
               fail('E_EVENT', `on${event} handlers are planned for a later milestone`, loc(a));
             if (event === 'resize')
               fail('E_EVENT', 'resize events go to the window (svelte:window onresize)', loc(a));
@@ -5543,7 +5616,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       );
   }
   (ir as Program & { irHash?: string }).irHash = hash(ir);
-  return { ir };
+  return imageUrls.length ? { ir, imageUrls } : { ir };
 }
 
 /**
