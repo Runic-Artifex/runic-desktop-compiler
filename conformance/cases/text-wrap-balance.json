@@ -1,0 +1,15 @@
+{
+  "description": "text-wrap: balance as Chromium 153 lays it out (Blink's LineBreakStrategy: the score line breaker, else bisecting the width, for the first paragraph of at most six lines): a centred heading, two break opportunities in a narrow box (bisected), one line (unchanged), justified text (no line penalty), a text-indent, a forced break (pre-line: only the first paragraph balanced), bold, larger and bordered inline elements, the text-wrap-style longhand with letter spacing, a balancing span in a greedy paragraph (ignored: the block container decides), and text and class changed at run time. Chromium breaks 7 of the 10 balanced paragraphs differently from greedy wrapping at 420px and 8 at 800px. The last word of each paragraph has an id, so geometry checks where the lines break",
+  "fixtures": ["text-wrap-balance-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["heading", "fox", "bisect", "one", "justify", "indent", "forced", "inline", "longhand", "span-only", "dynamic"],
+  "actions": [
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "toggle" }
+  ]
+}
