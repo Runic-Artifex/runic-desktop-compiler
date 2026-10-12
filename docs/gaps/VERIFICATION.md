@@ -30,8 +30,7 @@ Every M6 bits-ui fixture is incomplete in the differential (13 of them), so libr
 | GPU pixel runs: representative cases on lavapipe only; hardware drivers and Wayland presentation | — | Hardware runs |
 | Corpus scan of 20–50 apps; shadcn/ui and shadcn-vue not scanned; the editor's scan dates from M1; no island or native-coverage baseline | M6 exit criteria not reached | M6 step 10 |
 | Example coverage of the north star: 221 of the 404 top-level shadcn-svelte component examples lower (analysis only: no native build or Chromium comparison per example; 2026-10-12) | Work in progress | The [census](../../conformance/results/shadcn-svelte-census.md) blockers; conformance cases for lowered examples |
-| A plain `conformance/differential.mjs` run stops at the first native probe failure. `table-react`, `table-svelte` and `table-vue` panic in Blitz's debug-only layout check (`resolve.rs` `assert_layout_parents_consistent`: a layout container keeps a removed child after a table mutation; release builds skip the check), so later fixtures are not checked in one run | Stale layout child in Blitz; the harness throws instead of recording | Fix the stale layout child; record a probe failure as FAIL and continue |
-| `kit-docs-svelte` needs `runic generate` before the differential; without it the run stops with `E_GENERATED` | Generated inputs are not committed (by policy) | Generate in the harness, or report the fixture incomplete |
+| `kit-docs-svelte` is incomplete in a plain `conformance/differential.mjs` run: its generated inputs are missing until `node compiler/cli.mjs generate fixtures/kit-docs-svelte` has run, and the run reports that command | Generated inputs are not committed (by policy), and neither builds nor the harness run generation | Generate first, then run the differential (and remove the generated outputs after) |
 | Conformance route selection (`--routes`) for the whole site | Proposed only | — |
 
 ## Product and later milestones (T3)

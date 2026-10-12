@@ -246,7 +246,7 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=ef6e873d75db4f396fe12462f9586a06a32048cc#ef6e873d75db4f396fe12462f9586a06a32048cc"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -255,7 +255,7 @@ dependencies = [
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999)",
+ "debug_timer 0.1.3 (git+https://github.com/Runic-Artifex/blitz?rev=ef6e873d75db4f396fe12462f9586a06a32048cc)",
  "euclid",
  "html-escape",
  "image",
@@ -289,7 +289,7 @@ dependencies = [
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=ef6e873d75db4f396fe12462f9586a06a32048cc#ef6e873d75db4f396fe12462f9586a06a32048cc"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -300,7 +300,7 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=ef6e873d75db4f396fe12462f9586a06a32048cc#ef6e873d75db4f396fe12462f9586a06a32048cc"
 dependencies = [
  "anyrender",
  "anyrender_svg",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=ef6e873d75db4f396fe12462f9586a06a32048cc#ef6e873d75db4f396fe12462f9586a06a32048cc"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -342,7 +342,7 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=ef6e873d75db4f396fe12462f9586a06a32048cc#ef6e873d75db4f396fe12462f9586a06a32048cc"
 dependencies = [
  "atomic_refcell",
  "bitflags 2.13.2",
@@ -672,7 +672,7 @@ checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=ef6e873d75db4f396fe12462f9586a06a32048cc#ef6e873d75db4f396fe12462f9586a06a32048cc"
 
 [[package]]
 name = "defmt"
@@ -3224,7 +3224,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/Runic-Artifex/blitz?rev=c8ecc95dd9d1ce8c0737ceb8b365d060d632b999#c8ecc95dd9d1ce8c0737ceb8b365d060d632b999"
+source = "git+https://github.com/Runic-Artifex/blitz?rev=ef6e873d75db4f396fe12462f9586a06a32048cc#ef6e873d75db4f396fe12462f9586a06a32048cc"
 dependencies = [
  "bitflags 2.13.2",
  "stylo",
