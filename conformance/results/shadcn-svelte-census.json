@@ -1,6 +1,6 @@
 {
  "generated": "node conformance/triage.mjs --jobs 4",
- "compiler": "f1db969",
+ "compiler": "cb93d23",
  "corpus": {
   "name": "shadcn-svelte",
   "commit": "3ef557c89e744820bd038d4d979aaf2ea22ff4f4",
@@ -9,22 +9,230 @@
   "unmodified": "git status of the checkout is clean before and after the run"
  },
  "iconTransform": {
-  "source": ".cache/corpus/shadcn-svelte/packages/cli/src/utils/transformers/transform-icons.ts",
+  "source": "../../../.cache/corpus/shadcn-svelte/packages/cli/src/utils/transformers/transform-icons.ts",
   "sha256": "8a4e8f2d44cac19989fa4a4174fca37b7ff62d27a13ae3ff07750db3fdf12935",
   "iconLibrary": "lucide"
  },
- "theme": {
-  "from": "fixtures/bits-dialog-svelte/src/app.css",
-  "removed": [
-   "@source not inline(\"transition-all\");",
-   "@source not inline(\"fill-foreground\");"
+ "siteView": {
+  "stylesheet": {
+   "from": "docs/src/app.css",
+   "sha256": "ffa919d47ca5138920351f87faf55b9a94fb8f803479b5be981a9918471e420f",
+   "leftOut": {
+    "why": "rules all of whose selectors need an attribute rehype-pretty-code writes on the docs' highlighted code (the markdown's code blocks and ComponentPreview's code panel); no file of a host names one (checked per host)",
+    "attributes": [
+     "data-rehype-pretty-code-figure",
+     "data-rehype-pretty-code-title",
+     "data-line-numbers",
+     "data-line",
+     "data-highlighted-line",
+     "data-highlighted-chars",
+     "data-language"
+    ],
+    "rules": [
+     {
+      "line": 273,
+      "selector": "[data-rehype-pretty-code-figure]"
+     },
+     {
+      "line": 291,
+      "selector": "[data-rehype-pretty-code-figure] code, [data-rehype-pretty-code-figure] code span"
+     },
+     {
+      "line": 299,
+      "selector": "[data-rehype-pretty-code-title]"
+     },
+     {
+      "line": 310,
+      "selector": "[data-line-numbers]"
+     },
+     {
+      "line": 321,
+      "selector": "[data-line-numbers] [data-line]::before"
+     },
+     {
+      "line": 335,
+      "selector": "[data-line-numbers] [data-highlighted-line][data-line]::before"
+     },
+     {
+      "line": 339,
+      "selector": "[data-line]"
+     },
+     {
+      "line": 347,
+      "selector": "[data-rehype-pretty-code-figure] pre[data-language=\"text\"] code, [data-rehype-pretty-code-figure] pre[data-language=\"plaintext\"] code, [data-slot=\"docs\"] pre[data-language=\"text\"] code, [data-slot=\"docs\"] pre[data-language=\"plaintext\"] code"
+     },
+     {
+      "line": 360,
+      "selector": "[data-rehype-pretty-code-figure] pre[data-language=\"text\"] [data-line], [data-rehype-pretty-code-figure] pre[data-language=\"plaintext\"] [data-line], [data-rehype-pretty-code-figure] code[data-language=\"text\"] [data-line], [data-rehype-pretty-code-figure] code[data-language=\"plaintext\"] [data-line], [data-slot=\"docs\"] pre[data-language=\"text\"] [data-line], [data-slot=\"docs\"] pre[data-language=\"plaintext\"] [data-line]"
+     },
+     {
+      "line": 373,
+      "selector": "[data-line] span"
+     },
+     {
+      "line": 381,
+      "selector": "[data-highlighted-line], [data-highlighted-chars]"
+     },
+     {
+      "line": 387,
+      "selector": "[data-highlighted-line]"
+     },
+     {
+      "line": 399,
+      "selector": "[data-highlighted-chars]"
+     }
+    ]
+   }
+  },
+  "body": "data-sveltekit-preload-data=\"hover\"\n\t\tclass=\"group/body theme-blue style-vega overscroll-none font-sans text-foreground antialiased [--footer-height:calc(var(--spacing)*14)] [--header-height:calc(var(--spacing)*14)] lg:[--header-height:calc(var(--spacing)*16)] xl:[--footer-height:calc(var(--spacing)*24)]\"",
+  "html": "lang=\"en\"",
+  "ancestors": [
+   {
+    "file": "docs/src/routes/(app)/+layout.svelte",
+    "tag": "<Tooltip.Provider>"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/+layout.svelte",
+    "tag": "<div class=\"relative z-10 flex min-h-svh flex-col bg-background\">"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/+layout.svelte",
+    "tag": "<main class=\"flex flex-1 flex-col\">"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/+layout.svelte",
+    "tag": "<Tooltip.Provider>"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/docs/+layout.svelte",
+    "tag": "<div class=\"container-wrapper flex flex-1 flex-col px-2\">"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/docs/+layout.svelte",
+    "tag": "<div class=\"h-full w-full\">"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/docs/[...slug]/+page.svelte",
+    "tag": "<div\n\tdata-slot=\"docs\"\n\tclass=\"flex scroll-mt-24 flex-row-reverse items-stretch text-[1.05rem] sm:text-[15px] xl:w-full\"\n\tid=\"main-content\"\n>"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/docs/[...slug]/+page.svelte",
+    "tag": "<div class=\"flex min-w-0 flex-1 flex-col\">"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/docs/[...slug]/+page.svelte",
+    "tag": "<div\n\t\t\tclass=\"mx-auto flex w-full max-w-[40rem] min-w-0 flex-1 flex-col gap-6 px-4 py-6 text-foreground md:px-0 lg:py-8 dark:text-foreground\"\n\t\t>"
+   },
+   {
+    "file": "docs/src/routes/(app)/(layout)/docs/[...slug]/+page.svelte",
+    "tag": "<div class=\"w-full flex-1 pb-16 *:data-[slot=alert]:first:mt-0 sm:pb-0\">"
+   },
+   {
+    "file": "docs/src/lib/components/mdsx/blueprint.svelte",
+    "tag": "<div class=\"mdsx\">"
+   }
   ],
-  "sha256": "a4cc6f010dc3db9bc434914cede6c02c578ae9b568c45902863185a28df6ab87"
+  "tooltipProviders": "the Tooltip.Provider ancestors are kept where the example's files reach the tooltip (each result's tooltipProviders); see omitted",
+  "preview": "import ComponentPreview from \"$lib/components/component-preview.svelte\";",
+  "packages": {
+   "shadcn-svelte": {
+    "version": "1.7.0 (workspace:*)",
+    "files": {
+     "package.json": "packages/cli/package.json",
+     "dist/tailwind.css": "packages/cli/src/tailwind.css"
+    }
+   },
+   "@fontsource-variable/geist": {
+    "version": "5.2.8",
+    "integrity": "sha512-cJ6m9e+8MQ5dCYJsLylfZrgBh6KkG4bOLckB35Tr9J/EqdkEM6QllH5PxqP1dhTvFup+HtMRPuz9xOjxXJggxw==",
+    "files": {
+     "package.json": "613660caef3262e6c3ee8d627b19625889215f6113b1459de5d2cbf021f59702",
+     "index.css": "e9b80b9552ed6b0066735baf19d3f8eea3916f5e971b4aa47ea726a05a2c3d29",
+     "files/geist-cyrillic-wght-normal.woff2": "33d7ab460dff4e1fc586738d5d50e3e04bcb48e9bef7b94154cc7e07aeed6b66",
+     "files/geist-latin-ext-wght-normal.woff2": "3640f9351b2a4631515dffea38092c24e70db9df2ef1e97c10cbdeb4163e6186",
+     "files/geist-latin-wght-normal.woff2": "0cbbe6286a00f356e98980783cc950a9b693751e04aedfb97d9526ff6dc2b316"
+    }
+   },
+   "@fontsource-variable/geist-mono": {
+    "version": "5.2.7",
+    "integrity": "sha512-ZKlZ5sjtalb2TwXKs400mAGDlt/+2ENLNySPx0wTz3bP3mWARCsUW+rpxzZc7e05d2qGch70pItt3K4qttbIYA==",
+    "files": {
+     "package.json": "2467d3cd13bcda0f2850ad71dd2e8163220620ef4e5157818561515bee9e3aea",
+     "index.css": "d2b43fc38239612279e23dc195999b27819cf09169253043b83b2801e80347ce",
+     "files/geist-mono-cyrillic-wght-normal.woff2": "a5e8e11f202b076d7640113f3dd28853f90a45991ff4e61a2262f1527c6e17ea",
+     "files/geist-mono-latin-ext-wght-normal.woff2": "6aadc1c180fd799413a0f225ffc68356d6ed33d2d867d2899322b1c9530ed5e7",
+     "files/geist-mono-latin-wght-normal.woff2": "e9fb088eeacced307860d82ceedb0ae9ad2ebfa07a7c0a7279c8c961dd9d5fd3"
+    }
+   }
+  },
+  "resolved": {
+   "tailwindcss": "4.3.3 (node_modules)",
+   "tw-animate-css": "1.4.0 (node_modules)"
+  },
+  "omitted": [
+   {
+    "what": "the ancestors' other children: SiteHeader, SiteFooter, DocsSidebar, the table of contents, the page's title, description, links and other markdown",
+    "why": "they are not the example; DocsSidebar and the table of contents are hidden below the lg and xl breakpoints (the census viewport is 800 px wide)"
+   },
+   {
+    "what": "ComponentPreview's code panel (the hosts pass hideCode)",
+    "why": "it holds the example's highlighted source (mdsx and shiki at the site's build), not the example"
+   },
+   {
+    "what": "the root layout's TailwindIndicator",
+    "why": "it renders in dev only ($app/environment); the site is a production build"
+   },
+   {
+    "what": "app.html's head: the user config cookie script and the analytics scripts",
+    "why": "the cookie script does nothing without the scn_user_config cookie, which the census does not set; the analytics scripts are remote and draw nothing"
+   },
+   {
+    "what": "the (app) layout's ModeWatcher (mode-watcher, defaultMode system) and its `d` key handler",
+    "why": "mode-watcher does not lower (E_DEPENDENCY: it does not declare sideEffects false; example census); in Chromium's default light scheme it sets color-scheme: light on <html>, the default rendering"
+   },
+   {
+    "what": "the (app) layout's Toaster (registry/ui/sonner, svelte-sonner)",
+    "why": "svelte-sonner does not lower (E_TYPE_UNSUPPORTED in dist/toast-state.svelte.js; example census); without a toast it renders an empty notification section"
+   },
+   {
+    "what": "the two Tooltip.Provider ancestors (the (app) and (layout) layouts'), for an example none of whose files reaches the tooltip (registry/ui/tooltip or bits-ui's Tooltip; the host's tooltipProviders is false)",
+    "why": "a Tooltip.Provider renders only its children and sets a context only bits-ui's tooltip reads (it also listens for window scrolls that close an open tooltip); in a program without a tooltip its state does not lower (E_TYPE_UNSUPPORTED at bits-ui/dist/bits/tooltip/tooltip.svelte.js:16: the trigger registry's untyped `new Map()`, whose entries only the tooltip's own code sets), while an example that reaches the tooltip keeps both providers"
+   },
+   {
+    "what": "the docs layout's Sidebar.Provider (registry/ui/sidebar): its wrapper <div data-slot=\"sidebar-wrapper\">, a full-width flex row whose one rendered child is the full-width \"h-full w-full\" div, its Tooltip.Provider (delayDuration 0) and its keyboard shortcut",
+    "why": "it does not lower (E_CAPABILITY: svelte/reactivity's MediaQuery, through registry/hooks/is-mobile.svelte.ts); the wrapper draws no background or border and its child keeps its place, the tooltip provider acts on hover only, and the census presses no key"
+   },
+   {
+    "what": "the (app) layout's UserConfigContext",
+    "why": "no example reads it"
+   },
+   {
+    "what": "the (layout) layout's syncMenuColor (lib/features/design-system/menu-color.ts)",
+    "why": "a MutationObserver that removes cn-menu-translucent from menus as they open; the census opens none"
+   }
+  ],
+  "files": {
+   "docs/src/app.css": "48db07bfcdd9ca6fa6a74b0ef045cd11a3666d53b23b629d3313daa0a175ffab",
+   "docs/src/app.html": "cdd8dcb1ead7e3477f23792a22ce079561aaaee2c93180c64ef573bb0b92fa2c",
+   "docs/src/lib/components/component-preview-tabs.svelte": "c2ba6a3e0be96f2f8002994c4bc14a6c3a694e1212816ba77fcf339f0fb18ff7",
+   "docs/src/lib/components/component-preview.svelte": "c7be2be18314b5b4337d199034dd314b2309b08e39f8321060df65ea9f1e3a06",
+   "docs/src/lib/components/mdsx/blueprint.svelte": "280072c546be63734c4a573096736cd9b4bbe3591a7253d926e26bb7fb29ea71",
+   "docs/src/lib/registry/styles/style-vega.css": "7b0dc3a9d2245ab6ce3d17653fa74a07f0ce2541e480bef36d2600fe38f1281b",
+   "docs/src/routes/(app)/(layout)/+layout.svelte": "9e853f1c554f3e421e915f32ff9975a6298e2f9eb5aa5c01fc55d9a63990d23f",
+   "docs/src/routes/(app)/(layout)/docs/[...slug]/+page.svelte": "e4de0bd6ec9549148915eefa4d632f5e6dba45857e9d99f8bd78f92ec5dfdeb5",
+   "docs/src/routes/(app)/(layout)/docs/+layout.svelte": "4e00875e8f5e3b1aafe6fd77731c885f61cc673eab2d7fd62fa8343baec2ea4d",
+   "docs/src/routes/(app)/+layout.svelte": "2259e12d057d99baab715dad106cc7ee5e84bf34ce754f9ad424a50b25d6fb8e",
+   "docs/svelte.config.js": "4738edd6869c4bd6fc48daab000ea85f69f9de90ae910ae453537e0c9147e8c3",
+   "packages/cli/package.json": "a58daba2ed96168426721732e9c2444e16448d9dbc00793d03b2eb1ef3add0db",
+   "packages/cli/src/tailwind.css": "61ccaa3dd0ce0d87b8930d7dd0329481c96af3d8407de2db632dc0f28b262a78",
+   "packages/cli/tsdown.config.ts": "c482f0d6785a6bc3fcc92d5c357a2e99ba204b1e89ab72f5ff32d86962f53114",
+   "pnpm-lock.yaml": "78aebb25282930933a2721119e3efb76b99661c1f76b699ea3e950a8f4a7ec79"
+  }
  },
  "totals": {
   "examples": 404,
-  "lowered": 261,
-  "rejected": 143,
+  "lowered": 253,
+  "rejected": 151,
   "harnessError": 0,
   "internalError": 0,
   "withClosureMisses": 0,
@@ -51,9 +259,6 @@
   "aspect-ratio-demo",
   "aspect-ratio-portrait",
   "aspect-ratio-square",
-  "attachment-sizes",
-  "attachment-states",
-  "attachment-trigger",
   "avatar-badge",
   "avatar-badge-icon",
   "avatar-basic",
@@ -100,7 +305,6 @@
   "card-demo",
   "card-edge-to-edge",
   "card-image",
-  "card-small",
   "collapsible-basic",
   "collapsible-demo",
   "command-basic",
@@ -189,7 +393,6 @@
   "menubar-radio",
   "menubar-submenu",
   "message-actions",
-  "message-attachment",
   "message-avatar",
   "message-demo",
   "message-group",
@@ -206,9 +409,6 @@
   "radio-group-disabled",
   "radio-group-fieldset",
   "radio-group-invalid",
-  "scroll-fade-edge",
-  "scroll-fade-horizontal",
-  "scroll-fade-rtl",
   "select-demo",
   "select-disabled",
   "select-scrollable",
@@ -357,9 +557,6 @@
    "https://github.com/maxleiter.png",
    "https://github.com/shadcn.png"
   ],
-  "message-attachment": [
-   "https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=900&auto=format&fit=crop&q=80"
-  ],
   "message-avatar": [
    "/avatars/03.png",
    "/avatars/10.png"
@@ -374,21 +571,63 @@
  },
  "clusters": [
   {
-   "code": "E_DEPENDENCY",
-   "count": 10,
-   "message": "No mapping pack for dependency vaul-svelte@1.0.0-next.7, and it cannot be compiled from source: its package.json does not declare \"sideEffects\": false, which compiling only the declarations a program reaches requires (frontend/sources.ts)",
-   "location": "docs/src/lib/registry/ui/drawer/drawer.svelte:12",
+   "code": "E_CSS_PROPERTY",
+   "count": 14,
+   "message": "Unsupported CSS declaration animation-timeline: scroll-driven animations (animation and scroll timelines) are not supported",
+   "location": "stylesheet generated by Tailwind CSS:8669",
    "examples": [
-    "breadcrumb-responsive",
-    "combobox-responsive",
-    "drawer-demo",
-    "drawer-dialog",
-    "drawer-direction",
-    "drawer-nested",
-    "drawer-non-modal",
-    "drawer-scrollable-content",
-    "drawer-sides",
-    "drawer-snap-points"
+    "attachment-demo",
+    "attachment-group",
+    "attachment-image",
+    "attachment-sizes",
+    "attachment-states",
+    "attachment-trigger",
+    "message-attachment",
+    "scroll-fade-demo",
+    "scroll-fade-edge",
+    "scroll-fade-horizontal",
+    "scroll-fade-none",
+    "scroll-fade-overflow",
+    "scroll-fade-rtl",
+    "scroll-fade-size"
+   ]
+  },
+  {
+   "code": "E_CSS_PROPERTY",
+   "count": 11,
+   "message": "Unsupported CSS declaration content: counter(step): Blitz generates strings only (quotes, counters, attr() and images are not supported)",
+   "location": "stylesheet generated by Tailwind CSS:8530",
+   "examples": [
+    "calendar-time",
+    "card-small",
+    "date-picker-time",
+    "field-slider",
+    "progress-controlled",
+    "slider-controlled",
+    "slider-demo",
+    "slider-disabled",
+    "slider-multiple",
+    "slider-range",
+    "slider-vertical"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNION",
+   "count": 11,
+   "message": "Union never[] | HTMLElement[] is outside the value model: values of several members reach it (never[] at node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:50, HTMLElement[] at node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:125); compiling per member is not supported yet",
+   "location": "node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:50",
+   "examples": [
+    "combobox-basic",
+    "combobox-custom",
+    "combobox-demo",
+    "combobox-disabled",
+    "combobox-groups",
+    "combobox-invalid",
+    "combobox-popup",
+    "date-picker-basic",
+    "date-picker-demo",
+    "date-picker-dob",
+    "date-picker-range"
    ]
   },
   {
@@ -410,20 +649,20 @@
    ]
   },
   {
-   "code": "E_TYPE_UNSUPPORTED",
+   "code": "E_DEPENDENCY",
    "count": 9,
-   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
-   "location": "node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:24",
+   "message": "No mapping pack for dependency vaul-svelte@1.0.0-next.7, and it cannot be compiled from source: its package.json does not declare \"sideEffects\": false, which compiling only the declarations a program reaches requires (frontend/sources.ts)",
+   "location": "docs/src/lib/registry/ui/drawer/drawer.svelte:12",
    "examples": [
-    "calendar-basic",
-    "calendar-booked-dates",
-    "calendar-caption",
-    "calendar-custom-days",
-    "calendar-demo",
-    "calendar-presets",
-    "calendar-range",
-    "calendar-time",
-    "range-calendar-demo"
+    "breadcrumb-responsive",
+    "drawer-demo",
+    "drawer-dialog",
+    "drawer-direction",
+    "drawer-nested",
+    "drawer-non-modal",
+    "drawer-scrollable-content",
+    "drawer-sides",
+    "drawer-snap-points"
    ]
   },
   {
@@ -441,6 +680,22 @@
     "input-otp-invalid",
     "input-otp-pattern",
     "input-otp-separator"
+   ]
+  },
+  {
+   "code": "E_TYPE_UNSUPPORTED",
+   "count": 8,
+   "message": "Values of type any/unknown need a static type (or a JS island, M6)",
+   "location": "node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:24",
+   "examples": [
+    "calendar-basic",
+    "calendar-booked-dates",
+    "calendar-caption",
+    "calendar-custom-days",
+    "calendar-demo",
+    "calendar-presets",
+    "calendar-range",
+    "range-calendar-demo"
    ]
   },
   {
@@ -501,18 +756,6 @@
    ]
   },
   {
-   "code": "E_CLASS",
-   "count": 4,
-   "message": "SliderSingleRootState declares fields, but the constructor of its base class SliderBaseRootState uses this before they exist (JavaScript initialises them after super(…) returns); move that code out of the constructor, or the fields into SliderBaseRootState",
-   "location": "node_modules/bits-ui/dist/bits/slider/slider.svelte.js:111",
-   "examples": [
-    "progress-controlled",
-    "slider-demo",
-    "slider-disabled",
-    "slider-vertical"
-   ]
-  },
-  {
    "code": "E_CSS_ORDER",
    "count": 4,
    "message": "Split/dynamic stylesheet order is outside this contract: ../../../../node_modules/layerchart/dist/components/BrushContext.svelte (loaded by a dynamic import()) has styles of its own, emitted as a separate stylesheet",
@@ -549,30 +792,6 @@
    ]
   },
   {
-   "code": "E_TYPE_UNION",
-   "count": 4,
-   "message": "Union string | number is outside the value model: values of several members reach it (number at node_modules/bits-ui/dist/bits/utilities/floating-layer/use-floating-layer.svelte.js:166, string at node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:335); compiling per member is not supported yet",
-   "location": "node_modules/bits-ui/dist/bits/calendar/calendar.svelte.js:24",
-   "examples": [
-    "date-picker-basic",
-    "date-picker-demo",
-    "date-picker-dob",
-    "date-picker-range"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 4,
-   "message": "This value has type never; add a type annotation (e.g. an empty array needs its element type)",
-   "location": "node_modules/bits-ui/dist/bits/slider/components/slider.svelte:49",
-   "examples": [
-    "field-slider",
-    "slider-controlled",
-    "slider-multiple",
-    "slider-range"
-   ]
-  },
-  {
    "code": "E_TYPE_UNSUPPORTED",
    "count": 3,
    "message": "Values of type any/unknown need a static type (or a JS island, M6)",
@@ -592,6 +811,16 @@
     "field-checkbox",
     "field-demo",
     "field-field-group-demo"
+   ]
+  },
+  {
+   "code": "E_KIT_PRELOAD",
+   "count": 2,
+   "message": "data-sveltekit-preload-data=\"hover\" on the body preloads routes (loads run on hover or tap), which is not supported yet; use \"off\" or \"false\"",
+   "location": "src/app.html:7",
+   "examples": [
+    "combobox-responsive",
+    "form-demo"
    ]
   },
   {
@@ -645,24 +874,6 @@
    "code": "E_ASSET",
    "count": 1,
    "message": "The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset",
-   "location": "docs/src/lib/registry/examples/attachment-demo.svelte:34",
-   "examples": [
-    "attachment-demo"
-   ]
-  },
-  {
-   "code": "E_ASSET",
-   "count": 1,
-   "message": "The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset",
-   "location": "docs/src/lib/registry/examples/attachment-image.svelte:32",
-   "examples": [
-    "attachment-image"
-   ]
-  },
-  {
-   "code": "E_ASSET",
-   "count": 1,
-   "message": "The src of this <img> is open: image sources must have a finite set of string values known at build time (literals, or values of a literal union type), each pinned as an asset",
    "location": "docs/src/lib/registry/examples/item-header-demo.svelte:35",
    "examples": [
     "item-header-demo"
@@ -678,46 +889,19 @@
    ]
   },
   {
-   "code": "E_BUILTIN",
+   "code": "E_COMPONENT",
    "count": 1,
-   "message": "Array.from over an array-like object ({ length: n }) is unsupported (arrays, sets and strings are)",
-   "location": "docs/src/lib/registry/examples/scroll-fade-demo.svelte:2",
+   "message": "Recursive components are planned for a later milestone",
+   "location": "docs/src/lib/registry/examples/combobox-popover.svelte:78",
    "examples": [
-    "scroll-fade-demo"
-   ]
-  },
-  {
-   "code": "E_BUILTIN",
-   "count": 1,
-   "message": "Array.from over an array-like object ({ length: n }) is unsupported (arrays, sets and strings are)",
-   "location": "docs/src/lib/registry/examples/scroll-fade-none.svelte:2",
-   "examples": [
-    "scroll-fade-none"
-   ]
-  },
-  {
-   "code": "E_BUILTIN",
-   "count": 1,
-   "message": "Array.from over an array-like object ({ length: n }) is unsupported (arrays, sets and strings are)",
-   "location": "docs/src/lib/registry/examples/scroll-fade-overflow.svelte:2",
-   "examples": [
-    "scroll-fade-overflow"
-   ]
-  },
-  {
-   "code": "E_BUILTIN",
-   "count": 1,
-   "message": "Array.from over an array-like object ({ length: n }) is unsupported (arrays, sets and strings are)",
-   "location": "docs/src/lib/registry/examples/scroll-fade-size.svelte:2",
-   "examples": [
-    "scroll-fade-size"
+    "combobox-popover"
    ]
   },
   {
    "code": "E_CSS_PROPERTY",
    "count": 1,
    "message": "Unsupported CSS declaration position: sticky: Blitz lays sticky boxes out as relative ones and does not keep them in view while scrolling",
-   "location": "stylesheet generated by Tailwind CSS:1183",
+   "location": "stylesheet generated by Tailwind CSS:8520",
    "examples": [
     "dialog-sticky-footer"
    ]
@@ -786,15 +970,6 @@
    ]
   },
   {
-   "code": "E_KIT_IMPORT",
-   "count": 1,
-   "message": "$app/stores is unsupported (supported: $app/state, $app/navigation, $app/environment, @sveltejs/kit)",
-   "location": "../../../../node_modules/sveltekit-superforms/dist/client/superForm.js:2",
-   "examples": [
-    "form-demo"
-   ]
-  },
-  {
    "code": "E_PACK",
    "count": 1,
    "message": "cn@0.3.0 pack: a value of type ClassValue | null | undefined is not covered: the arguments of calls evaluated at build time must be compile-time constants or range over string literals, booleans, null and undefined, and the prop class takes an open value at an instantiation site (src/lib/registry/examples/card-spacing.svelte:47:2)",
@@ -837,24 +1012,6 @@
    "location": "docs/src/lib/registry/ui/input/input.svelte:45",
    "examples": [
     "collapsible-settings"
-   ]
-  },
-  {
-   "code": "E_TEMPLATE",
-   "count": 1,
-   "message": "Icon is neither an imported component nor a component value of the program that the tag's props fit",
-   "location": "docs/src/lib/registry/examples/attachment-group.svelte:39",
-   "examples": [
-    "attachment-group"
-   ]
-  },
-  {
-   "code": "E_TEMPLATE",
-   "count": 1,
-   "message": "Icon is neither an imported component nor a component value of the program that the tag's props fit",
-   "location": "docs/src/lib/registry/examples/combobox-popover.svelte:78",
-   "examples": [
-    "combobox-popover"
    ]
   },
   {
@@ -941,15 +1098,6 @@
   {
    "code": "E_TYPE_UNION",
    "count": 1,
-   "message": "Union never[] | HTMLElement[] is outside the value model: values of several members reach it (never[] at node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:50, HTMLElement[] at node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:125); compiling per member is not supported yet",
-   "location": "node_modules/bits-ui/dist/internal/safe-polygon.svelte.js:50",
-   "examples": [
-    "date-picker-time"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNION",
-   "count": 1,
    "message": "Union string | number is outside the value model: values of several members reach it (number at node_modules/bits-ui/dist/bits/utilities/floating-layer/use-floating-layer.svelte.js:166, string at src/lib/registry/examples/input-group-button-demo.svelte:23); compiling per member is not supported yet",
    "location": "docs/src/lib/hooks/use-clipboard.svelte.ts:51",
    "examples": [
@@ -960,72 +1108,9 @@
    "code": "E_TYPE_UNSUPPORTED",
    "count": 1,
    "message": "A value that is always null has no useful type",
-   "location": "docs/src/lib/registry/examples/combobox-basic.svelte:12",
-   "examples": [
-    "combobox-basic"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "A value that is always null has no useful type",
-   "location": "docs/src/lib/registry/examples/combobox-custom.svelte:36",
-   "examples": [
-    "combobox-custom"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "A value that is always null has no useful type",
-   "location": "docs/src/lib/registry/examples/combobox-demo.svelte:12",
-   "examples": [
-    "combobox-demo"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "A value that is always null has no useful type",
-   "location": "docs/src/lib/registry/examples/combobox-disabled.svelte:12",
-   "examples": [
-    "combobox-disabled"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "A value that is always null has no useful type",
    "location": "docs/src/lib/registry/examples/combobox-dropdown-menu.svelte:24",
    "examples": [
     "combobox-dropdown-menu"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "A value that is always null has no useful type",
-   "location": "docs/src/lib/registry/examples/combobox-groups.svelte:46",
-   "examples": [
-    "combobox-groups"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "A value that is always null has no useful type",
-   "location": "docs/src/lib/registry/examples/combobox-invalid.svelte:12",
-   "examples": [
-    "combobox-invalid"
-   ]
-  },
-  {
-   "code": "E_TYPE_UNSUPPORTED",
-   "count": 1,
-   "message": "A value that is always null has no useful type",
-   "location": "docs/src/lib/registry/examples/combobox-popup.svelte:33",
-   "examples": [
-    "combobox-popup"
    ]
   }
  ]

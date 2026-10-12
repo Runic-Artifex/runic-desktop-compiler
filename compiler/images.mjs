@@ -5,7 +5,10 @@
 // the bytes in `<app>/images/<sha256>.<ext>`; both are committed with the app.
 // Builds (pinImages) read only the record and the files, never the network.
 // Root-relative URLs name files of the app's static directory (Vite's
-// `public/`, SvelteKit's `static/`) and need no record.
+// `public/`, SvelteKit's `static/`) and need no record; one naming no file
+// there is accepted only as a pinned missing file, an explicit
+// `{ "url": "/x.png", "status": 404 }` entry of the record (what a static
+// server answers), which `runic images` keeps while the program loads the URL.
 import { readFile, readdir, realpath, rename, rm, stat, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Diagnostic, hash } from './collect.mjs';
@@ -141,7 +144,15 @@ async function readRecord(root) {
     const where = url ? entryLocation(text, url) : at(RECORD);
     if (!url || seen.has(url)) bad(`entries need distinct non-empty URLs`, where);
     seen.add(url);
-    if (keys === 'bytes,mime,sha256,url') {
+    if (kind(url) === 'local') {
+      // A root-relative URL's bytes are its static file; the record can only
+      // pin it as missing.
+      if (keys !== 'status,url' || entry.status !== 404)
+        bad(
+          `a root-relative URL (${url}) is pinned only as a missing file, with status 404`,
+          where,
+        );
+    } else if (keys === 'bytes,mime,sha256,url') {
       if (
         !/^[0-9a-f]{64}$/.test(entry.sha256) ||
         !Number.isInteger(entry.bytes) ||
@@ -198,8 +209,11 @@ export async function imageSourceInput(root) {
   return { record: hash(text), files };
 }
 
-/** The bytes and type of the static file a root-relative `url` names. */
-async function localImage(root, staticDir, url, source) {
+/**
+ * The bytes and type of the static file a root-relative `url` names, or, with
+ * `missing` (a pinned 404), undefined after checking that no such file exists.
+ */
+async function localImage(root, staticDir, url, source, missing = false) {
   const fail = message => {
     throw new Diagnostic('E_ASSET', `Image ${JSON.stringify(url)}: ${message}`, source);
   };
@@ -213,12 +227,18 @@ async function localImage(root, staticDir, url, source) {
   }
   if (segments.some(s => s === '' || s === '.' || s === '..' || s.includes('/')))
     fail('the path must name a file without empty, "." or ".." segments');
+  const named = path.posix.join(staticDir, ...segments);
   let file;
   try {
     file = await realpath(path.join(root, staticDir, ...segments));
   } catch {
-    fail(`no file ${path.posix.join(staticDir, ...segments)} in the app`);
+    if (missing) return undefined;
+    fail(
+      `no file ${named} in the app (a URL the site serves no file for is pinned as { "url": ${JSON.stringify(url)}, "status": 404 } in ${RECORD})`,
+    );
   }
+  if (missing)
+    fail(`${RECORD} pins it as missing (404), but ${named} exists; remove the entry or the file`);
   if (!file.startsWith(root + path.sep)) fail('the file is outside the app');
   const info = await stat(file);
   if (!info.isFile()) fail(`${path.relative(root, file)} is not a file`);
@@ -249,6 +269,9 @@ export async function pinImages(graph, ir, imageUrls = []) {
   const record = await readRecord(root);
   if (!record && !remote.length && !local.length) return;
   const images = [];
+  const missing = new Set(
+    (record?.images ?? []).filter(e => kind(e.url) === 'local').map(e => e.url),
+  );
   if (record || remote.length) {
     if (!record)
       throw new Diagnostic(
@@ -264,7 +287,7 @@ export async function pinImages(graph, ir, imageUrls = []) {
           `Image ${JSON.stringify(url)} is not pinned in ${RECORD}; run \`${command(root)}\``,
           urls.get(url),
         );
-    const needed = new Set(remote);
+    const needed = new Set([...remote, ...local]);
     for (const entry of record.images)
       if (!needed.has(entry.url))
         throw new Diagnostic(
@@ -281,6 +304,7 @@ export async function pinImages(graph, ir, imageUrls = []) {
           at(`${IMAGES_DIR}/${d.name}`),
         );
     for (const entry of record.images) {
+      if (missing.has(entry.url)) continue;
       if (!entry.sha256) {
         images.push({ url: entry.url, status: entry.status });
         continue;
@@ -319,6 +343,11 @@ export async function pinImages(graph, ir, imageUrls = []) {
   }
   const staticDir = graph.kit ? 'static' : 'public';
   for (const url of local) {
+    if (missing.has(url)) {
+      await localImage(root, staticDir, url, urls.get(url), true);
+      images.push({ url, status: 404 });
+      continue;
+    }
     const image = await localImage(root, staticDir, url, urls.get(url));
     images.push({
       url,
@@ -432,6 +461,11 @@ export async function fetchImages(app, options = {}) {
     if (k === 'remote') remote.push(url);
   }
   remote.sort();
+  // Pinned missing static files the program still loads stay pinned (builds
+  // check that their files are still absent).
+  const kept = ((await readRecord(root))?.images ?? []).filter(
+    e => kind(e.url) === 'local' && urls.has(e.url),
+  );
   const listed = await listImages(root);
   for (const d of listed)
     if (!d.isFile() || !PINNED_FILE.test(d.name))
@@ -462,7 +496,8 @@ export async function fetchImages(app, options = {}) {
     await rename(temporary(name), path.join(dir, name));
   }
   const recordFile = path.join(root, RECORD);
-  if (remote.length) {
+  const pinned = remote.length || kept.length;
+  if (pinned) {
     const record = {
       format: RECORD_FORMAT,
       images: results
@@ -471,6 +506,7 @@ export async function fetchImages(app, options = {}) {
             ? { url: r.url, sha256: hash(r.bytes), bytes: r.bytes.length, mime: r.mime }
             : { url: r.url, status: r.status },
         )
+        .concat(kept.map(e => ({ url: e.url, status: e.status })))
         .sort(byUrl),
     };
     const staged = path.join(root, `.${RECORD}.${process.pid}.tmp`);
@@ -486,7 +522,7 @@ export async function fetchImages(app, options = {}) {
   if (!files.size && listed.length && !(await listImages(root)).length)
     await rm(dir, { recursive: true, force: true });
   return {
-    record: remote.length ? recordFile : undefined,
+    record: pinned ? recordFile : undefined,
     pinned: results.filter(r => r.bytes).length,
     failed: results.filter(r => !r.bytes).length,
     local: urls.size - remote.length,

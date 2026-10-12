@@ -27,10 +27,62 @@
 // copies (reflinked where the filesystem allows) of the corpus docs/src/lib
 // files the example reaches, made inside each host because the collector
 // accepts only aliases inside the application and Vite resolves symlinks to
-// their real path. The theme is fixtures/bits-dialog-svelte/src/app.css
-// without its fixture-specific `@source not inline(...)` exclusions,
-// generated into each host. A host is removed after its analysis unless
-// --keep-lib is given. With --dynamic-values, every host sets runic.json
+// their real path. A host is removed after its analysis unless --keep-lib is
+// given.
+//
+// Each host shows the example as the site does. The site has no isolated
+// route for the top-level examples (/view/[name] serves blocks,
+// /preview/[item] examples/create/): a docs page shows each through
+// ComponentPreview, which the site's mdsx preprocessor (docs/svelte.config.js,
+// inject-component-preview) gives the example as `component`, under the
+// layouts of its route. The host reproduces that, from the corpus's files
+// (every one recorded with its sha256 in census.json, host.siteView):
+//
+// - the stylesheet: docs/src/app.css with what it imports:
+//   registry/styles/style-vega.css (in the host's $lib),
+//   shadcn-svelte/tailwind.css (the site's workspace package; its
+//   dist/tailwind.css is the copy of packages/cli/src/tailwind.css its
+//   tsdown.config.ts makes), @fontsource-variable/geist and geist-mono (the
+//   repository's packages at the site's lockfile versions, integrity checked
+//   against docs' pnpm-lock.yaml: Geist Variable and Geist Mono Variable as
+//   local WOFF2 files, `format("woff2-variations")`), tw-animate-css and
+//   tailwindcss (the repository's, at the site's lockfile versions). The
+//   packages the stylesheet imports are copied into the host's node_modules/,
+//   so the font files are inside the application (the collector's asset
+//   rule). Every byte of app.css is the site's except its code-block rules:
+//   the rules all of whose selectors need an attribute rehype-pretty-code
+//   writes on highlighted code (`[data-line]`, `[data-rehype-pretty-code-
+//   figure]`, …), which style the docs' code blocks and ComponentPreview's
+//   code panel only. No file of a host names those attributes (checked per
+//   host; the code panel, which hideCode removes, is skipped), so they style
+//   nothing there; they are left out and listed (stylesheet.leftOut), because
+//   the collector rejects two of their declarations (`content:
+//   counter(line)`, `position: sticky`) for the whole stylesheet;
+// - <html lang> and <body>'s attributes from docs/src/app.html (classes
+//   `theme-blue style-vega … font-sans text-foreground antialiased`) and its
+//   `<div style="display: contents">` container;
+// - the example's ancestors in a docs page, each start tag copied verbatim
+//   from its template: the (app) layout's Tooltip.Provider, the (layout)
+//   layout's page box, <main> and Tooltip.Provider, the docs layout's
+//   container and content box, the docs page's columns, the mdsx blueprint's
+//   `.mdsx` wrapper, and ComponentPreview with the attributes of the
+//   example's <ComponentPreview> in docs/content (its component's own page
+//   first), plus `hideCode` and `id="demo"` (the region the render census
+//   compares). The two Tooltip.Provider ancestors are kept where the example
+//   reaches the tooltip (the result's `tooltipProviders`): elsewhere they
+//   render only their children and set a context nothing reads, and their
+//   state does not lower in a program without a tooltip.
+//
+// Left out, each with its reason (host.siteView.omitted): the ancestors'
+// other children (site header and footer, the docs sidebar and table of
+// contents, hidden below the lg and xl breakpoints, the page's title and
+// other markdown), ComponentPreview's code panel, the root layout's
+// TailwindIndicator (dev only), app.html's head scripts, the docs layout's
+// Sidebar.Provider (svelte/reactivity's MediaQuery does not lower; its
+// wrapper draws nothing), the (app) layout's ModeWatcher, Toaster and user
+// config context and the (layout) layout's menu colour sync.
+//
+// With --dynamic-values, every host sets runic.json
 // `"dynamicValues": true` (the opt-in dynamic value tier for untyped code,
 // docs/design/M6-DYNAMIC-VALUES.md); the census records it.
 //
@@ -39,9 +91,10 @@
 // only in a Kit app, as in the site. An example whose lib files import one,
 // or whose plain host's build fails to resolve one a package imports, gets
 // (or is rerun in) a Kit host instead
-// (fixtures/kit-routes-svelte's svelte.config.js and app.html, a root layout
-// importing the theme, the mounting markup as src/routes/+page.svelte, `$lib`
-// from Kit), where the collector provides them (compiler/adapters/kit-app.mjs);
+// (fixtures/kit-routes-svelte's svelte.config.js and its app.html with the
+// site's <html> and <body> attributes, a root layout importing the
+// stylesheet, the site's view as src/routes/+page.svelte, `$lib` from Kit),
+// where the collector provides them (compiler/adapters/kit-app.mjs);
 // the result records `kitHost`. A Kit app lowers its route tree, so where an
 // example has several blockers the first one reported can differ from a
 // plain host's.
@@ -63,6 +116,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registerHooks } from 'node:module';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import postcss from 'postcss';
 import {
   readFileSync,
   writeFileSync,
@@ -274,25 +328,399 @@ for (const name of selected)
 const sha = data => createHash('sha256').update(data).digest('hex');
 const shaFile = file => sha(readFileSync(file));
 
-// The host theme: the bits-dialog fixture's, without the exclusions that keep
-// utilities out of that fixture's generation, otherwise unchanged.
-const fixtureTheme = readFileSync(path.join(fixture, 'src/app.css'), 'utf8');
-const exclusion = /^@source not inline\([^)]*\);\n/gm;
-const removedFromTheme = fixtureTheme.match(exclusion) ?? [];
-const theme = fixtureTheme.replace(exclusion, '');
-if (!removedFromTheme.length || theme.includes('@source not'))
-  throw new Error('fixtures/bits-dialog-svelte/src/app.css: the @source exclusions changed shape');
-const font = path.join(fixture, 'assets/DejaVuSans.woff2');
+// --- The site's example view (see the header) ---
+
+/** Every corpus file the hosts are made from, with its sha256 (census.json). */
+const siteFiles = {};
+const siteText = rel => {
+  const bytes = readFileSync(path.join(checkout, rel));
+  siteFiles[rel] = sha(bytes);
+  return bytes.toString('utf8');
+};
+/**
+ * The start tag of the element `needle` locates in `text` (the needle occurs
+ * once; the tag is read verbatim up to its `>`, outside quotes and braces).
+ */
+function startTag(text, needle, file) {
+  const at = text.indexOf(needle);
+  if (at < 0 || text.indexOf(needle, at + 1) >= 0)
+    throw new Error(`${file}: expected one ${JSON.stringify(needle)}`);
+  return tagAt(text, text.lastIndexOf('<', at), file);
+}
+/** The start tag at `start` in `text`, verbatim. */
+function tagAt(text, start, file) {
+  let quote = null;
+  let depth = 0;
+  for (let i = start + 1; i < text.length; i++) {
+    const c = text[i];
+    if (quote) quote = c === quote ? null : quote;
+    else if (c === '"' || c === "'") quote = c;
+    else if (c === '{') depth++;
+    else if (c === '}') depth--;
+    else if (c === '>' && !depth) {
+      const tag = text.slice(start, i + 1);
+      return { tag, name: /^<([\w.:-]+)/.exec(tag)[1] };
+    }
+  }
+  throw new Error(`${file}: unterminated tag at ${start}`);
+}
+const attributesOf = tag =>
+  tag
+    .replace(/^<[\w.:-]+/, '')
+    .replace(/\/?>$/, '')
+    .trim();
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
+// The stylesheet and what it imports.
+const siteCss = path.posix.join(source.target, 'src/app.css');
+const siteCssText = siteText(siteCss);
+const cssImports = [...siteCssText.matchAll(/^@import "([^"]+)"/gm)].map(m => m[1]);
+const expectedImports = [
+  'tailwindcss',
+  'tw-animate-css',
+  'shadcn-svelte/tailwind.css',
+  './lib/registry/styles/style-vega.css',
+  '@fontsource-variable/geist/index.css',
+  '@fontsource-variable/geist-mono/index.css',
+];
+if (cssImports.join() !== expectedImports.join())
+  throw new Error(`${siteCss} imports ${cssImports.join(', ')}; the hosts expect ${expectedImports}`);
+const vegaFile = path.join(lib, 'registry/styles/style-vega.css');
+siteText(path.relative(checkout, vegaFile));
+/**
+ * The site's code-block styles: the attributes rehype-pretty-code writes on
+ * the highlighted code of the docs' markdown and of ComponentPreview's code
+ * panel. A rule of the stylesheet all of whose selectors need one of them
+ * styles that code only; the example's view contains none (each host checks
+ * that none of its files names these attributes), so those rules are left
+ * out of the host's copy, each recorded. Every other byte is the site's.
+ */
+const codeAttributes = [
+  'data-rehype-pretty-code-figure',
+  'data-rehype-pretty-code-title',
+  'data-line-numbers',
+  'data-line',
+  'data-highlighted-line',
+  'data-highlighted-chars',
+  'data-language',
+];
+const codeAttribute = new RegExp(`(${codeAttributes.map(escapeRe).join('|')})(?![\\w-])`);
+const leftOutRules = [];
+const hostCss = (() => {
+  const root = postcss.parse(siteCssText, { from: siteCss });
+  root.walkRules(rule => {
+    if (rule.parent?.type === 'rule') return;
+    const needs = sel =>
+      [...sel.matchAll(/\[\s*(data-[\w-]+)/g)].some(m => codeAttributes.includes(m[1]));
+    if (!rule.selectors.every(needs)) return;
+    leftOutRules.push({
+      line: rule.source.start.line,
+      selector: rule.selector.replace(/\s+/g, ' '),
+    });
+    rule.remove();
+  });
+  return root.toString();
+})();
+
+// The versions docs/ locks (pnpm-lock.yaml, importer `docs`) and, for the
+// packages the hosts copy, their integrity.
+const lockText = siteText('pnpm-lock.yaml');
+const docsImporter = /\n {2}docs:\n([\s\S]*?)\n {2}\S/.exec(lockText)?.[1] ?? '';
+const lockedVersion = pkg => {
+  const key = pkg.startsWith('@') ? `'${pkg}'` : pkg;
+  const m = new RegExp(
+    `\\n {6}${escapeRe(key)}:\\n {8}specifier: \\S+\\n {8}version: ([^\\s(]+)`,
+  ).exec('\n' + docsImporter);
+  if (!m) throw new Error(`pnpm-lock.yaml: docs does not lock ${pkg}`);
+  return m[1];
+};
+const lockedIntegrity = (pkg, version) => {
+  const m = new RegExp(
+    `\\n {2}'?${escapeRe(pkg)}@${escapeRe(version)}'?:\\n {4}resolution: \\{integrity: (\\S+)\\}`,
+  ).exec(lockText);
+  if (!m) throw new Error(`pnpm-lock.yaml: no resolution for ${pkg}@${version}`);
+  return m[1];
+};
+const repoLock = JSON.parse(readFileSync(path.join(repo, 'package-lock.json'), 'utf8'));
+/** A package of the repository's node_modules, at the version docs/ locks. */
+function sitePackage(pkg, { integrity = false } = {}) {
+  const version = lockedVersion(pkg);
+  const dir = path.join(repo, 'node_modules', pkg);
+  const installed = existsSync(path.join(dir, 'package.json'))
+    ? JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8')).version
+    : null;
+  if (installed !== version)
+    throw new Error(
+      `node_modules/${pkg} is ${installed ?? 'missing'}; the site locks ${version} (npm ci)`,
+    );
+  const entry = { version, dir };
+  if (integrity) {
+    entry.integrity = lockedIntegrity(pkg, version);
+    const npm = repoLock.packages?.[`node_modules/${pkg}`];
+    if (npm?.version !== version || npm?.integrity !== entry.integrity)
+      throw new Error(`package-lock.json: ${pkg} is not ${version} with the site's integrity`);
+  }
+  return entry;
+}
+const resolvedPackages = Object.fromEntries(
+  ['tailwindcss', 'tw-animate-css'].map(p => [p, `${sitePackage(p).version} (node_modules)`]),
+);
+/**
+ * The files the hosts copy into their node_modules/ (the stylesheet's other
+ * package imports), destination -> source. shadcn-svelte is the site's
+ * workspace package (packages/cli); its build copies src/tailwind.css to
+ * dist/tailwind.css, the file its exports name.
+ */
+const hostPackages = {};
+const packageRecord = {};
+{
+  const cli = 'packages/cli';
+  const manifest = JSON.parse(siteText(`${cli}/package.json`));
+  if (
+    manifest.name !== 'shadcn-svelte' ||
+    manifest.exports?.['./tailwind.css']?.style !== './dist/tailwind.css' ||
+    !siteText(`${cli}/tsdown.config.ts`).includes(
+      'copyFileSync("src/tailwind.css", "dist/tailwind.css")',
+    )
+  )
+    throw new Error(`${cli}: shadcn-svelte/tailwind.css is no longer a copy of src/tailwind.css`);
+  siteText(`${cli}/src/tailwind.css`);
+  hostPackages['shadcn-svelte/package.json'] = path.join(checkout, cli, 'package.json');
+  hostPackages['shadcn-svelte/dist/tailwind.css'] = path.join(checkout, cli, 'src/tailwind.css');
+  packageRecord['shadcn-svelte'] = {
+    version: `${manifest.version} (workspace:*)`,
+    files: {
+      'package.json': `${cli}/package.json`,
+      'dist/tailwind.css': `${cli}/src/tailwind.css`,
+    },
+  };
+  for (const pkg of ['@fontsource-variable/geist', '@fontsource-variable/geist-mono']) {
+    const p = sitePackage(pkg, { integrity: true });
+    const files = [
+      'package.json',
+      'index.css',
+      ...readdirSync(path.join(p.dir, 'files'))
+        .sort()
+        .map(f => `files/${f}`),
+    ];
+    const index = readFileSync(path.join(p.dir, 'index.css'), 'utf8');
+    for (const m of index.matchAll(/url\(\.\/([^)]+)\)/g))
+      if (!files.includes(m[1])) throw new Error(`${pkg}/index.css loads ${m[1]}, which is absent`);
+    packageRecord[pkg] = { version: p.version, integrity: p.integrity, files: {} };
+    for (const f of files) {
+      hostPackages[`${pkg}/${f}`] = path.join(p.dir, f);
+      packageRecord[pkg].files[f] = shaFile(path.join(p.dir, f));
+    }
+  }
+}
+
+// <html> and <body> from app.html.
+const appHtmlFile = path.posix.join(source.target, 'src/app.html');
+const appHtml = siteText(appHtmlFile);
+const htmlAttributes = attributesOf(startTag(appHtml, '<html', appHtmlFile).tag);
+const bodyAttributes = attributesOf(startTag(appHtml, '<body', appHtmlFile).tag);
+const container = startTag(appHtml, '<div style="display: contents">', appHtmlFile).tag;
+
+// The example's ancestors in a docs page, outermost first.
+const routes = path.posix.join(source.target, 'src/routes/(app)');
+const docsPage = `${routes}/(layout)/docs/[...slug]/+page.svelte`;
+const ancestorSpec = [
+  [`${routes}/+layout.svelte`, '<Tooltip.Provider>'],
+  [`${routes}/(layout)/+layout.svelte`, '<div class="relative z-10 flex min-h-svh'],
+  [`${routes}/(layout)/+layout.svelte`, '<main'],
+  [`${routes}/(layout)/+layout.svelte`, '<Tooltip.Provider>'],
+  [`${routes}/(layout)/docs/+layout.svelte`, '<div class="container-wrapper'],
+  [`${routes}/(layout)/docs/+layout.svelte`, '<div class="h-full w-full">'],
+  [docsPage, 'data-slot="docs"'],
+  [docsPage, '<div class="flex min-w-0 flex-1 flex-col">'],
+  [docsPage, 'class="mx-auto flex w-full max-w-[40rem]'],
+  [docsPage, '<div class="w-full flex-1 pb-16'],
+  [path.posix.join(source.target, 'src/lib/components/mdsx/blueprint.svelte'), '<div class="mdsx">'],
+];
+const ancestors = ancestorSpec.map(([file, needle]) => ({
+  file,
+  ...startTag(siteText(file), needle, file),
+}));
+// The imports of the ancestors' components, as their templates write them.
+const siteImports = [
+  [`${routes}/+layout.svelte`, 'import * as Tooltip from "$lib/registry/ui/tooltip/index.js";'],
+];
+for (const [file, line] of siteImports)
+  if (!siteText(file).includes(line)) throw new Error(`${file} no longer has ${line}`);
+const previewImport = 'import ComponentPreview from "$lib/components/component-preview.svelte";';
+const previewFile = path.join(lib, 'components/component-preview.svelte');
+siteText(path.relative(checkout, previewFile));
+siteText(path.relative(checkout, path.join(lib, 'components/component-preview-tabs.svelte')));
+// The site's mdsx preprocessing of a <ComponentPreview name="…"> (the
+// inject-component-preview preprocessor of docs/svelte.config.js).
+const svelteConfig = path.posix.join(source.target, 'svelte.config.js');
+const svelteConfigText = siteText(svelteConfig);
+for (const s of [
+  'const camelize = (/** @type {string} */ s) => s.replace(/-./g, (w) => w[1].toUpperCase());',
+  'const prop = ` component={${identifier}}`;',
+  'importStatement = `import ${identifier} from "$lib/registry/examples/${name}.svelte";`;',
+])
+  if (!svelteConfigText.includes(s))
+    throw new Error(`${svelteConfig}: the ComponentPreview injection changed (${s})`);
+const camelize = s => s.replace(/-./g, w => w[1].toUpperCase());
+
+/**
+ * The <ComponentPreview> of each example in docs/content, verbatim; where it
+ * appears on several pages, its component's own page (content/components/
+ * first, then the page whose name is the longest prefix of the example's).
+ */
+const previews = new Map();
+{
+  const content = path.join(docs, 'content');
+  const found = [];
+  for (const f of globSync('**/*.md', { cwd: content }).sort()) {
+    const text = readFileSync(path.join(content, f), 'utf8');
+    for (const m of text.matchAll(/<ComponentPreview\b/g)) {
+      const { tag } = tagAt(text, m.index, f);
+      const name = /\sname="([^"]*)"/.exec(tag)?.[1];
+      if (!name || /\stype="block"/.test(tag)) continue;
+      const page = path.basename(f, '.md');
+      found.push({
+        name,
+        tag,
+        file: path.posix.join(source.target, 'content', f),
+        line: text.slice(0, m.index).split('\n').length,
+        rank: [
+          f.startsWith('components/') ? 0 : 1,
+          name === page || name.startsWith(page + '-') ? -page.length : 0,
+        ],
+      });
+    }
+  }
+  found.sort(
+    (a, b) => a.rank[0] - b.rank[0] || a.rank[1] - b.rank[1] || a.file.localeCompare(b.file),
+  );
+  for (const p of found) if (!previews.has(p.name)) previews.set(p.name, p);
+}
+
+/**
+ * The example in the site's view: App.svelte (plain host) or the page (Kit
+ * host). The Tooltip.Provider ancestors only where the example reaches the
+ * tooltip (`tooltip`, readsTooltip).
+ */
+function siteView(name, { kit, tooltip }) {
+  const id = camelize(name);
+  const preview = previews.get(name);
+  const tag = preview?.tag ?? `<ComponentPreview name="${name}">`;
+  if (/[{}]/.test(tag)) throw new Error(`${name}: <ComponentPreview> with an expression: ${tag}`);
+  const attrs = attributesOf(tag);
+  const element =
+    `<ComponentPreview component={${id}} ${attrs}` +
+    (/(^|\s)hideCode(\s|$)/.test(attrs) ? '' : ' hideCode') +
+    ' id="demo" />';
+  const kept = ancestors.filter(a => tooltip || a.name !== 'Tooltip.Provider');
+  const chain = kit ? kept : [{ tag: container, name: 'div' }, ...kept];
+  const indent = i => '\t'.repeat(i);
+  const markup = [
+    ...chain.map(
+      (a, i) =>
+        indent(i) +
+        a.tag
+          .split('\n')
+          .map((l, j) => (j ? indent(i) + l.replace(/^\s*/, /^\s*>$/.test(l) ? '' : '\t') : l))
+          .join('\n'),
+    ),
+    indent(chain.length) + element,
+    ...chain.map((a, i) => `${indent(i)}</${a.name}>`).reverse(),
+  ].join('\n');
+  const script = [
+    ...(tooltip ? siteImports.map(([, line]) => line) : []),
+    previewImport,
+    `import ${id} from "$lib/registry/examples/${name}.svelte";`,
+  ];
+  return {
+    text: `<script lang="ts">\n${script.map(l => '\t' + l).join('\n')}\n</script>\n\n${markup}\n`,
+    preview: preview ? { from: `${preview.file}:${preview.line}`, tag } : { inDocs: false, tag },
+  };
+}
+// The $lib files the host's own markup reaches: the ancestors' components,
+// ComponentPreview and the stylesheet's style-vega.css.
+const tooltipIndex = path.join(lib, 'registry/ui/tooltip/index.ts');
+const siteLibEntries = tooltip => [...(tooltip ? [tooltipIndex] : []), previewFile, vegaFile];
+for (const f of siteLibEntries(true)) if (!existsSync(f)) throw new Error(`${f} is missing`);
+/**
+ * Whether the example's own files reach the tooltip (registry/ui/tooltip or
+ * bits-ui's Tooltip), the only readers of the Tooltip.Provider context
+ * (bits-ui's tooltip module; the registry's other users, sidebar-menu-button
+ * and sidebar-provider, go through registry/ui/tooltip).
+ */
+async function readsTooltip(name) {
+  const { files } = await closure([path.join(examplesDir, name + '.svelte')]);
+  const dir = path.dirname(tooltipIndex) + path.sep;
+  for (const f of files) {
+    if (f.startsWith(dir)) return true;
+    const text = f.endsWith('.svelte') ? (await installed(f)).content : readFileSync(f, 'utf8');
+    if (/\bimport\s*\{[^}]*\bTooltip\b[^}]*\}\s*from\s*["']bits-ui["']/.test(text)) return true;
+  }
+  return false;
+}
+
+/** What the hosts leave out of the site's view, and why (census.json). */
+const siteOmitted = [
+  {
+    what: "the ancestors' other children: SiteHeader, SiteFooter, DocsSidebar, the table of contents, the page's title, description, links and other markdown",
+    why: 'they are not the example; DocsSidebar and the table of contents are hidden below the lg and xl breakpoints (the census viewport is 800 px wide)',
+  },
+  {
+    what: "ComponentPreview's code panel (the hosts pass hideCode)",
+    why: "it holds the example's highlighted source (mdsx and shiki at the site's build), not the example",
+  },
+  {
+    what: "the root layout's TailwindIndicator",
+    why: 'it renders in dev only ($app/environment); the site is a production build',
+  },
+  {
+    what: "app.html's head: the user config cookie script and the analytics scripts",
+    why: 'the cookie script does nothing without the scn_user_config cookie, which the census does not set; the analytics scripts are remote and draw nothing',
+  },
+  {
+    what: "the (app) layout's ModeWatcher (mode-watcher, defaultMode system) and its `d` key handler",
+    why: "mode-watcher does not lower (E_DEPENDENCY: it does not declare sideEffects false; example census); in Chromium's default light scheme it sets color-scheme: light on <html>, the default rendering",
+  },
+  {
+    what: "the (app) layout's Toaster (registry/ui/sonner, svelte-sonner)",
+    why: 'svelte-sonner does not lower (E_TYPE_UNSUPPORTED in dist/toast-state.svelte.js; example census); without a toast it renders an empty notification section',
+  },
+  {
+    what: "the two Tooltip.Provider ancestors (the (app) and (layout) layouts'), for an example none of whose files reaches the tooltip (registry/ui/tooltip or bits-ui's Tooltip; the host's tooltipProviders is false)",
+    why: "a Tooltip.Provider renders only its children and sets a context only bits-ui's tooltip reads (it also listens for window scrolls that close an open tooltip); in a program without a tooltip its state does not lower (E_TYPE_UNSUPPORTED at bits-ui/dist/bits/tooltip/tooltip.svelte.js:16: the trigger registry's untyped `new Map()`, whose entries only the tooltip's own code sets), while an example that reaches the tooltip keeps both providers",
+  },
+  {
+    what: 'the docs layout\'s Sidebar.Provider (registry/ui/sidebar): its wrapper <div data-slot="sidebar-wrapper">, a full-width flex row whose one rendered child is the full-width "h-full w-full" div, its Tooltip.Provider (delayDuration 0) and its keyboard shortcut',
+    why: "it does not lower (E_CAPABILITY: svelte/reactivity's MediaQuery, through registry/hooks/is-mobile.svelte.ts); the wrapper draws no background or border and its child keeps its place, the tooltip provider acts on hover only, and the census presses no key",
+  },
+  {
+    what: "the (app) layout's UserConfigContext",
+    why: 'no example reads it',
+  },
+  {
+    what: "the (layout) layout's syncMenuColor (lib/features/design-system/menu-color.ts)",
+    why: 'a MutationObserver that removes cn-menu-translucent from menus as they open; the census opens none',
+  },
+];
 
 /** runic.json's opt-in dynamic value tier, with --dynamic-values. */
 const dynamicValues = values['dynamic-values'] ? { dynamicValues: true } : {};
 
+/** Copy the stylesheet's packages into the host's node_modules/. */
+function copyPackages(dir) {
+  for (const [to, from] of Object.entries(hostPackages)) {
+    const target = path.join(dir, 'node_modules', to);
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(from, target);
+  }
+}
+
 /** Write the host shell (everything but src/lib) for `name`. */
-function host(name) {
+function host(name, tooltip) {
   const dir = path.join(out, 'hosts', name);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(path.join(dir, 'src'), { recursive: true });
-  mkdirSync(path.join(dir, 'assets'), { recursive: true });
   writeFileSync(
     path.join(dir, 'runic.json'),
     JSON.stringify(
@@ -309,27 +737,27 @@ function host(name) {
     ) + '\n',
   );
   writeFileSync(path.join(dir, 'main.js'), readFileSync(path.join(fixture, 'main.js')));
-  writeFileSync(path.join(dir, 'index.html'), readFileSync(path.join(fixture, 'index.html')));
   writeFileSync(
-    path.join(dir, 'src/App.svelte'),
-    `<script lang="ts">\n  import Example from '$lib/registry/examples/${name}.svelte';\n</script>\n\n` +
-      `<div class="flex flex-col gap-6 bg-background p-4 font-sans text-foreground">\n` +
-      `  <div id="demo" class="flex justify-center p-12"><Example /></div>\n</div>\n`,
+    path.join(dir, 'index.html'),
+    `<!doctype html><html ${htmlAttributes}><head></head><body ${bodyAttributes}><div id="root"></div><script type="module" src="/main.js"></script></body></html>\n`,
   );
-  writeFileSync(path.join(dir, 'src/app.css'), theme);
-  copyFileSync(font, path.join(dir, 'assets/DejaVuSans.woff2'));
-  return dir;
+  const view = siteView(name, { kit: false, tooltip });
+  writeFileSync(path.join(dir, 'src/App.svelte'), view.text);
+  writeFileSync(path.join(dir, 'src/app.css'), hostCss);
+  copyPackages(dir);
+  return { dir, preview: view.preview };
 }
 
 /**
  * Turn the host shell into a SvelteKit app (fixtures/kit-routes-svelte's
- * svelte.config.js and app.html), for an example whose files import `$app/*`:
- * those modules exist only in a Kit app, where the collector provides them
+ * svelte.config.js and app.html, with the site's <html> and <body>
+ * attributes), for an example whose files import `$app/*`: those modules
+ * exist only in a Kit app, where the collector provides them
  * (compiler/adapters/kit-app.mjs), as they do in the site. The root layout
- * imports the theme and the page holds App.svelte's markup; Kit gives `$lib`.
+ * imports the stylesheet, as the site's does, and the page holds the site's
+ * view (app.html gives its container); Kit gives `$lib`.
  */
-function kitHost(dir, name) {
-  const app = readFileSync(path.join(dir, 'src/App.svelte'), 'utf8');
+function kitHost(dir, name, tooltip) {
   for (const f of ['main.js', 'index.html', 'src/App.svelte']) rmSync(path.join(dir, f));
   writeFileSync(
     path.join(dir, 'runic.json'),
@@ -346,14 +774,21 @@ function kitHost(dir, name) {
     ) + '\n',
   );
   copyFileSync(path.join(kitFixture, 'svelte.config.js'), path.join(dir, 'svelte.config.js'));
-  copyFileSync(path.join(kitFixture, 'src/app.html'), path.join(dir, 'src/app.html'));
+  const kitHtml = readFileSync(path.join(kitFixture, 'src/app.html'), 'utf8');
+  const kitFile = 'fixtures/kit-routes-svelte/src/app.html';
+  writeFileSync(
+    path.join(dir, 'src/app.html'),
+    kitHtml
+      .replace(startTag(kitHtml, '<html', kitFile).tag, `<html ${htmlAttributes}>`)
+      .replace(startTag(kitHtml, '<body', kitFile).tag, `<body ${bodyAttributes}>`),
+  );
   mkdirSync(path.join(dir, 'src/routes'), { recursive: true });
   writeFileSync(
     path.join(dir, 'src/routes/+layout.svelte'),
     `<script lang="ts">\n  import '../app.css';\n  import type { Snippet } from 'svelte';\n\n` +
       `  let { children }: { children: Snippet } = $props();\n</script>\n\n{@render children()}\n`,
   );
-  writeFileSync(path.join(dir, 'src/routes/+page.svelte'), app);
+  writeFileSync(path.join(dir, 'src/routes/+page.svelte'), siteView(name, { kit: true, tooltip }).text);
 }
 
 /** The CLI's icon transform of a corpus .svelte file (cached per file). */
@@ -377,17 +812,17 @@ function installed(file) {
 }
 
 /**
- * The $lib files `entry` reaches, as installed, through static imports and
+ * The $lib files `entries` reach, as installed, through static imports and
  * exports (types included), side-effect imports and dynamic imports (template
  * literals are expanded as Vite expands them, each substitution matching
  * within one path segment), as the fixtures vendor them: only the reached
  * files are present, so Tailwind's source detection sees what the example
- * uses.
+ * and the site's view use.
  */
-async function closure(entry) {
+async function closure(entries) {
   const seen = new Set();
   const missing = [];
-  const pending = [entry];
+  const pending = [...entries];
   // SvelteKit's `$app/*` modules the reached files import (Kit hosts).
   const app = new Set();
   const candidates = p => {
@@ -443,10 +878,10 @@ async function closure(entry) {
  * Copy the reached $lib files (reflinked where possible) into the host and
  * write the transformed content over the host copies the transform changed.
  */
-async function copyLib(dir, name) {
+async function copyLib(dir, name, tooltip) {
   const target = path.join(dir, 'src/lib');
   mkdirSync(target, { recursive: true });
-  const closed = await closure(path.join(examplesDir, name + '.svelte'));
+  const closed = await closure([path.join(examplesDir, name + '.svelte'), ...siteLibEntries(tooltip)]);
   const { files, missing } = closed;
   const rel = files.map(f => path.relative(lib, f)).sort();
   const r = spawnSync('cp', ['--parents', '-p', '--reflink=auto', ...rel, target], {
@@ -472,6 +907,21 @@ async function copyLib(dir, name) {
     }
     if (shaFile(path.join(lib, f)) !== shaFile(copy))
       throw new Error(`copied ${f} differs from the corpus`);
+  }
+  // The code-block rules left out of the stylesheet style none of the host's
+  // elements (ComponentPreview's code panel, which hideCode leaves out, names
+  // them in its classes).
+  for (const f of globSync('src/**/*.{svelte,ts,js}', { cwd: dir })) {
+    let text = readFileSync(path.join(dir, f), 'utf8');
+    if (f === 'src/lib/components/component-preview-tabs.svelte') {
+      const panel = text.lastIndexOf('{#if !hideCode}');
+      const end = text.lastIndexOf('{/if}');
+      if (panel < 0 || end < panel || !/^\{\/if\}\s*<\/div>\s*$/.test(text.slice(end)))
+        throw new Error(`${f}: the code panel is not the last block`);
+      text = text.slice(0, panel) + text.slice(end + 5);
+    }
+    const m = codeAttribute.exec(text);
+    if (m) throw new Error(`${f} names ${m[1]}, which the site's left-out code-block rules style`);
   }
   return {
     files: rel.length,
@@ -536,16 +986,17 @@ async function run(name) {
 function runIn(name, packageApp) {
   return new Promise(async resolve => {
     const started = Date.now();
-    let dir, copied;
+    let dir, copied, preview, tooltip;
     const done = r => {
       if (dir && !values['keep-lib']) rmSync(dir, { recursive: true, force: true });
       resolve(r);
     };
     try {
-      dir = host(name);
-      copied = await copyLib(dir, name);
+      tooltip = await readsTooltip(name);
+      ({ dir, preview } = host(name, tooltip));
+      copied = await copyLib(dir, name, tooltip);
       copied.app.push(...packageApp);
-      if (copied.app.length) kitHost(dir, name);
+      if (copied.app.length) kitHost(dir, name, tooltip);
     } catch (e) {
       done({
         example: name,
@@ -558,6 +1009,8 @@ function runIn(name, packageApp) {
     const base = {
       example: name,
       ...(copied.app.length ? { kitHost: { app: copied.app } } : {}),
+      preview,
+      tooltipProviders: tooltip,
       libFiles: copied.files,
       closureMisses: copied.missing,
       iconTransform: copied.iconTransform,
@@ -708,13 +1161,30 @@ const census = {
     unmodified: 'git status of the checkout is clean before and after the run',
   },
   host: {
-    shape: 'fixtures/bits-dialog-svelte (runic.json with tailwind and $lib alias, main.js, index.html, assets/DejaVuSans.woff2); src/App.svelte mounts the example',
+    shape:
+      "the site's example view: runic.json (tailwind, $lib alias), the fixtures' main.js, index.html with app.html's <html> and <body> attributes, src/app.css (the site's stylesheet), src/App.svelte (app.html's container, the example's ancestors in a docs page and its ComponentPreview with hideCode and id=\"demo\"), node_modules/ with the stylesheet's copied packages",
     kitShape:
-      'for examples whose files or packages import $app/* (results with kitHost): a SvelteKit app with fixtures/kit-routes-svelte/svelte.config.js and src/app.html, runic.json kit and tailwind, src/routes/+layout.svelte importing the theme, src/routes/+page.svelte holding the App.svelte markup; Kit gives $lib',
-    theme: {
-      from: 'fixtures/bits-dialog-svelte/src/app.css',
-      removed: removedFromTheme.map(l => l.trim()),
-      sha256: sha(theme),
+      "for examples whose files or packages import $app/* (results with kitHost): a SvelteKit app with fixtures/kit-routes-svelte/svelte.config.js and src/app.html (the site's <html> and <body> attributes), runic.json kit and tailwind, src/routes/+layout.svelte importing the stylesheet, src/routes/+page.svelte holding the site's view; Kit gives $lib",
+    siteView: {
+      stylesheet: {
+        from: siteCss,
+        sha256: sha(hostCss),
+        leftOut: {
+          why: "rules all of whose selectors need an attribute rehype-pretty-code writes on the docs' highlighted code (the markdown's code blocks and ComponentPreview's code panel); no file of a host names one (checked per host)",
+          attributes: codeAttributes,
+          rules: leftOutRules,
+        },
+      },
+      body: bodyAttributes,
+      html: htmlAttributes,
+      ancestors: ancestors.map(a => ({ file: a.file, tag: a.tag })),
+      tooltipProviders:
+        "the Tooltip.Provider ancestors are kept where the example's files reach the tooltip (each result's tooltipProviders); see omitted",
+      preview: previewImport,
+      packages: packageRecord,
+      resolved: resolvedPackages,
+      omitted: siteOmitted,
+      files: Object.fromEntries(Object.entries(siteFiles).sort(([x], [y]) => x.localeCompare(y))),
     },
     lib: 'the $lib files the example reaches as installed (static, type-only, side-effect and dynamic imports, template imports expanded), copied (reflinked) from the corpus docs/src/lib into each host, byte-identical (sha256-checked) except the .svelte files the icon transform changed; removed after analysis unless --keep-lib',
     iconTransform: {

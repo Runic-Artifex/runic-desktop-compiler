@@ -114,6 +114,17 @@ const EQUIVALENT_DROPPED_PROPERTY = new Set([
   '-webkit-text-decoration',
   '-webkit-backdrop-filter',
 ]);
+// Font smoothing values asking for what the renderers always do: grayscale
+// antialiasing. Both of Blitz's renderers fill glyph outlines as paths with
+// one coverage value per pixel and have no subpixel (LCD) path (vello_cpu
+// through glifo `renderer.rs` `fill_path`, `vello_common` strip alphas; vello
+// `fine.wgsl` `area`); Chromium 153 on Linux draws the same pixels with and
+// without them (docs/research/M6-CSS.md). Other values (`auto`,
+// `subpixel-antialiased`, `none`) ask for something else and stay reported.
+const EQUIVALENT_DROPPED_VALUE = new Map([
+  ['-webkit-font-smoothing', 'antialiased'],
+  ['-moz-osx-font-smoothing', 'grayscale'],
+]);
 // The CSS filter functions both renderers draw in `filter` and
 // `backdrop-filter` (docs/research/M6-CPU-RENDERER.md, GPU section).
 const FILTER_FUNCTIONS = new Set([
@@ -680,6 +691,31 @@ export async function collect(app) {
       checkRules(css, label);
       styleGuards = [...styleGuards, ...checkWithStylo(String(styles[0].source), label)];
     }
+    // Resources the stylesheet's own imports bring in (a package's
+    // @font-face, `@import "@fontsource-variable/geist/index.css"`, which
+    // Tailwind CSS inlines) reach only the emitted stylesheet: each is
+    // recorded from the one source file Vite emitted it from, under the
+    // module rules above (inside the application, at most 1 MiB, WOFF2).
+    const fromEmitted = new Map();
+    for (const asset of emitted.filter(a => a.fileName.endsWith('.woff2'))) {
+      const sources = asset.originalFileNames ?? [];
+      if (sources.length !== 1) continue;
+      let file;
+      try {
+        file = await realpath(path.resolve(root, sources[0]));
+      } catch {
+        continue;
+      }
+      if (!file.startsWith(root + path.sep) || path.extname(file) !== '.woff2') continue;
+      const bytes = await readFile(file);
+      if (!bytes.equals(Buffer.from(asset.source))) continue;
+      fromEmitted.set(asset.fileName, {
+        path: path.relative(root, file),
+        sha256: hash(bytes),
+        bytes: bytes.length,
+        mime: 'font/woff2',
+      });
+    }
     css.walkDecls(decl => {
       const parsed = valueParser(decl.value);
       parsed.walk(n => {
@@ -688,6 +724,15 @@ export async function collect(app) {
         const asset = emitted.find(a => '/' + a.fileName === url);
         if (!asset || !asset.fileName.endsWith('.woff2'))
           throw new Diagnostic('E_ASSET', 'Unresolved emitted CSS resource');
+        if (Buffer.from(asset.source).length > 1024 * 1024)
+          throw new Diagnostic('E_ASSET', 'Asset exceeds 1 MiB limit');
+        const record = fromEmitted.get(asset.fileName);
+        if (!record && !assets.some(a => a.sha256 === hash(Buffer.from(asset.source))))
+          throw new Diagnostic(
+            'E_ASSET',
+            `Emitted CSS resource ${asset.fileName} does not come from one file inside the application`,
+          );
+        if (record) assets.push(record);
         n.nodes = [
           {
             type: 'string',
@@ -804,6 +849,7 @@ function checkWithStylo(code, file) {
   for (const i of result.invalid) {
     const d = decls[i];
     if (EQUIVALENT_DROPPED_PROPERTY.has(d.prop)) continue;
+    if (EQUIVALENT_DROPPED_VALUE.get(d.prop) === d.value.trim().toLowerCase()) continue;
     // Blitz draws no resize grip whatever `resize` says; Chromium's default
     // (`both`) already differs, a gap recorded in docs/BLITZ-GAPS.md.
     if (d.prop === 'resize') continue;

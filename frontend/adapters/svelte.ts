@@ -55,7 +55,7 @@ import { svelteContextImport } from '../svelte-context.ts';
 import { openOrigin, valueSet } from '../packs/choice.ts';
 import { ABSENT, BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
 import { packageBindings } from '../package-bindings.ts';
-import { componentBinding, componentGlobal } from '../component-values.ts';
+import { componentBinding, componentGlobal, knownComponentRecord } from '../component-values.ts';
 import { jsonBinding, reexportsJson } from '../json-modules.ts';
 import { Fragments } from '../html-fragments.ts';
 import {
@@ -4012,6 +4012,8 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           let r: 'read' | 'effect' | 'none' = 'none';
           if (n.type === 'Text' || n.type === 'Comment') continue;
           if (n.type === 'ExpressionTag') r = expression(n.expression);
+          // A dynamic tag tests its value first (dynamicComponent).
+          else if (n.type === 'RunicDynamic') r = expression(n.nameNode);
           else if (n.type === 'RegularElement') {
             for (const a of n.attributes) {
               const values =
@@ -4062,8 +4064,12 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             return fail('E_TEMPLATE', '{@const} declares one name with a value', loc(c));
           const v = value(decl.initializer);
           const t = lower.irType(v, tb);
+          // A component value (`{@const Component = component}` for a
+          // dynamic tag) refers to its component's constant, so evaluating
+          // it again gives the same value, as Svelte's derived does.
           const plain = (x: Type): boolean =>
             ['string', 'number', 'boolean', 'attrs'].includes(x as string) ||
+            (typeof x === 'object' && 'record' in x && x.record === knownComponentRecord(lower)) ||
             (typeof x === 'object' && 'maybe' in x && plain(x.maybe));
           if (
             !plain(t) ||
