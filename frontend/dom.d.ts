@@ -525,6 +525,17 @@ declare const __runic: {
   text(value: unknown): string;
   /** Report a runtime shape the native model does not cover (probes stop). */
   unsupported(what: string): void;
+  /**
+   * `new Intl.DateTimeFormat().resolvedOptions().timeZone` (`intl.time-zone`):
+   * the default time zone, when it is verified against Chromium.
+   */
+  timeZone(): string;
+  /**
+   * `new Intl.DateTimeFormat(locale, options).format(time)` with options
+   * written as `intl.*` option strings (`m=f;month=long;…`) built at run
+   * time (`intl.format-date-runtime`): unverified options are unsupported.
+   */
+  formatDate(time: number, options: string, locale: string): string;
 };
 interface HostRootElement {
   readonly dataset: { [name: string]: string | undefined };

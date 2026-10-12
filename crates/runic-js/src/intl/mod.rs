@@ -26,7 +26,7 @@ pub mod plural;
 pub mod tag;
 
 pub use collate::{CollatorSpec, compare, compare_default};
-pub use datetime::{DateSpec, format_date};
+pub use datetime::{DateSpec, default_time_zone, format_date, format_date_runtime};
 pub use names::{NamesSpec, check_display_locale, display_name};
 pub use number::{NumberSpec, format_number};
 pub use plural::{PluralSpec, check_plural_locale, plural_categories, plural_select};
@@ -199,5 +199,40 @@ mod tests {
                 "RunicUnsupportedError"
             );
         }
+    }
+
+    /// Options built at run time (`intl.format-date-runtime`) format as the
+    /// literal ones (Chromium: `new Intl.DateTimeFormat("en-US", {dateStyle:
+    /// "long", timeZone: "UTC"}).format(Date.UTC(2025, 5, 1))`); a malformed
+    /// locale is Chromium's RangeError, options outside the verified set are
+    /// unsupported; the default zone is reported when it is verified.
+    #[test]
+    fn runtime_date_options() {
+        let tv = 1_748_736_000_000.0; // 2025-06-01T00:00:00Z
+        let f = |spec: &str, l: &str| {
+            format_date_runtime(tv, &JsString::from(spec), &JsString::from(l))
+        };
+        let ok = |spec: &str, l: &str| f(spec, l).unwrap().to_rust();
+        assert_eq!(
+            ok("m=f;dateStyle=long;timeZone=UTC", "en-US"),
+            "June 1, 2025"
+        );
+        assert_eq!(
+            ok("m=f;month=long;year=numeric;timeZone=UTC", "en-US"),
+            "June 2025"
+        );
+        assert_eq!(ok("m=f;weekday=short;timeZone=UTC", "de-DE"), "So");
+        assert_eq!(f("m=f", "en_US").unwrap_err().name.to_rust(), "RangeError");
+        for spec in ["m=f;timeStyle=long", "m=f;hourCycle=h23", "m=f;month=bogus"] {
+            assert_eq!(
+                f(spec, "en-US").unwrap_err().name.to_rust(),
+                "RunicUnsupportedError",
+                "{spec}"
+            );
+        }
+        crate::env::set_time_zone("Europe/Berlin").unwrap();
+        assert_eq!(default_time_zone().unwrap().to_rust(), "Europe/Berlin");
+        crate::env::set_time_zone("UTC").unwrap();
+        assert_eq!(default_time_zone().unwrap().to_rust(), "UTC");
     }
 }

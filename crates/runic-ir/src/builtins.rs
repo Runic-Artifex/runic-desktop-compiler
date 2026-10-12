@@ -1925,6 +1925,18 @@ fn intl_type(m: &str, args: &[Type]) -> R {
         arity(args, 2, 2)?;
         return all(args, &String).map(|_| String);
     }
+    // The default time zone's name, and a date format whose options are a
+    // runtime string (the @internationalized/date pack's DateFormatter).
+    if m == "time-zone" {
+        return arity(args, 0, 0).map(|_| String);
+    }
+    if m == "format-date-runtime" {
+        arity(args, 3, 3)?;
+        expect(&args[0], &Number, "time value")?;
+        expect(&args[1], &String, "options")?;
+        expect(&args[2], &String, "locale")?;
+        return Ok(String);
+    }
     let (operands, result) = match m {
         "format-date" | "format-number" | "plural-select" => (1, String),
         "compare" => (2, Number),

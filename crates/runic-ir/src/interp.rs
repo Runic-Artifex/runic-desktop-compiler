@@ -2273,10 +2273,24 @@ impl<'p> Machine<'p> {
                     m => Val::Num(js::date::get(tv, m)),
                 }
             }
-            ("intl", m @ ("locale" | "plural-select" | "plural-categories" | "display-of")) => {
+            (
+                "intl",
+                m @ ("locale"
+                | "plural-select"
+                | "plural-categories"
+                | "display-of"
+                | "time-zone"
+                | "format-date-runtime"),
+            ) => {
                 // A locale or value outside the verified data stops the
                 // run (E_UNSUPPORTED), as the native runtime reports it.
                 let result = (|| -> js::JsResult<Val> {
+                    if m == "time-zone" {
+                        return Ok(Val::Str(js::intl::default_time_zone()?));
+                    }
+                    if m == "format-date-runtime" {
+                        return Ok(Val::Str(js::intl::format_date_runtime(n(0), &s(1), &s(2))?));
+                    }
                     if m == "locale" {
                         let check = if s(1).to_rust() == "p" {
                             js::intl::check_plural_locale

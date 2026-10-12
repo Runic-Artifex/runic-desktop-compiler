@@ -1,0 +1,61 @@
+{
+  "browser": "153.0.8010.12",
+  "locales": {
+    "en-US": {
+      "firstDay": 7,
+      "region": "US"
+    },
+    "en-GB": {
+      "firstDay": 1,
+      "region": "GB"
+    },
+    "de-DE": {
+      "firstDay": 1,
+      "region": "DE"
+    },
+    "fr-FR": {
+      "firstDay": 1,
+      "region": "FR"
+    },
+    "ja-JP": {
+      "firstDay": 7,
+      "region": "JP"
+    },
+    "en": {
+      "firstDay": 7,
+      "region": "US"
+    },
+    "de": {
+      "firstDay": 1,
+      "region": "DE"
+    },
+    "fr": {
+      "firstDay": 1,
+      "region": "FR"
+    },
+    "ja": {
+      "firstDay": 7,
+      "region": "JP"
+    }
+  },
+  "zones": {
+    "UTC": {
+      "resolved": "UTC",
+      "compared": 28,
+      "differences": [],
+      "invalid": "RangeError: Invalid time value"
+    },
+    "Europe/Berlin": {
+      "resolved": "Europe/Berlin",
+      "compared": 28,
+      "differences": [],
+      "invalid": "RangeError: Invalid time value"
+    },
+    "America/New_York": {
+      "resolved": "America/New_York",
+      "compared": 28,
+      "differences": [],
+      "invalid": "RangeError: Invalid time value"
+    }
+  }
+}

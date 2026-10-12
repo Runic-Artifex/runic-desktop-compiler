@@ -1378,6 +1378,15 @@ fn date(cx: &FnCtx, m: &str, t: &[String]) -> String {
 /// option string is parsed once. Plural rules and display names report
 /// locales and values outside their verified data before throwing.
 fn intl(cx: &FnCtx, m: &str, t: &[String], args: &[Expr]) -> String {
+    if m == "time-zone" {
+        return cx.q("runic_runtime::reported(js::intl::default_time_zone())");
+    }
+    if m == "format-date-runtime" {
+        return cx.q(&format!(
+            "runic_runtime::reported(js::intl::format_date_runtime({}, &{}, &{}))",
+            t[0], t[1], t[2]
+        ));
+    }
     if m == "locale" {
         let Some(Expr::Lit {
             value: runic_ir::Value::String(kind),

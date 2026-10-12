@@ -353,6 +353,10 @@ fn check_regexp_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Res
 /// The option string of the `intl.*` built-ins is a literal the runtime
 /// accepts: verified locales, options and option combinations only.
 fn check_intl_literals(name: &str, args: &[Expr], src: Option<&Source>) -> Result<()> {
+    // Options read when the program runs (unsupported ones are reported there).
+    if matches!(name, "intl.time-zone" | "intl.format-date-runtime") {
+        return Ok(());
+    }
     let index = match name {
         "intl.compare" => 2,
         "intl.plural-categories" => 0,
@@ -3330,6 +3334,12 @@ fn host_service(name: &str) -> Option<&'static str> {
     // the element queries do (`element.querySelector`), which are not host
     // services either (M6 overlays: bits-ui's portal target, a derived value).
     if name == "document.body" || name == "document.querySelector" {
+        return None;
+    }
+    // Reporting an uncovered runtime shape is a diagnostic, not a value the
+    // program reads or a change it observes (a pack's port reports a date
+    // before the common era where a derived value computes it).
+    if name == "host.unsupported" {
         return None;
     }
     match name.split_once('.')?.0 {

@@ -292,3 +292,32 @@ pub fn format_date(tv: f64, spec: &DateSpec, locale: Option<&JsString>) -> JsRes
     }
     Ok(JsString::from(out))
 }
+
+/// `new Intl.DateTimeFormat(locale, options).format(tv)` with options known
+/// only when the program runs (the `@internationalized/date` pack's
+/// `DateFormatter`, frontend/packs): `spec` is an option string as
+/// `DateSpec::parse` reads it. The locale is checked first, as the
+/// constructor canonicalises it before it reads the options (a malformed
+/// tag throws Chromium's `RangeError`); options outside the verified set
+/// are unsupported (`RunicUnsupportedError`), never formatted otherwise.
+pub fn format_date_runtime(tv: f64, spec: &JsString, locale: &JsString) -> JsResult<JsString> {
+    resolve_locale(None, Some(locale))?;
+    let spec = DateSpec::parse(&spec.to_rust())
+        .map_err(|m| super::tag::unsupported(&format!("Intl.DateTimeFormat options: {m}")))?;
+    format_date(tv, &spec, Some(locale))
+}
+
+/// `new Intl.DateTimeFormat().resolvedOptions().timeZone`: the default time
+/// zone's name, when it is verified against Chromium (a probe's manifest
+/// pins it in both); other zones are unsupported, since Chromium may
+/// report another spelling of them.
+pub fn default_time_zone() -> JsResult<JsString> {
+    let name = crate::env::time_zone_name();
+    if super::is_verified_zone(&name) {
+        Ok(JsString::from(name))
+    } else {
+        Err(super::tag::unsupported(&format!(
+            "the time zone {name} is not verified against Chromium"
+        )))
+    }
+}
