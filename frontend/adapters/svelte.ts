@@ -85,6 +85,15 @@ import { FIELDSET_TAGS, FIELDSET_DISABLED, INERT_TAGS, TABLE_TAGS } from '../ele
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SNode = any;
 
+/**
+ * Svelte's warnings, compiling in runes mode, for legacy features that mean
+ * something else there (`<slot>`, `on:`, a `let` updated without `$state`).
+ */
+const LEGACY_WARNINGS = [
+  'slot_element_deprecated',
+  'event_directive_deprecated',
+  'non_reactive_update',
+];
 /** `svelte` exports modules may import. */
 const MODULE_SVELTE = ['tick', 'untrack', 'settled', 'setContext', 'getContext', 'hasContext'];
 
@@ -228,7 +237,12 @@ interface Graph {
       compile: (
         src: string,
         opts: object,
-      ) => { js: { code: string }; css: { code: string } | null };
+      ) => {
+        js: { code: string };
+        css: { code: string } | null;
+        metadata: { runes: boolean };
+        warnings: { code: string; position?: [number, number] }[];
+      };
     };
   };
 }
@@ -577,6 +591,32 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     });
     return out.js.code.includes(marker) || !!out.css?.code.includes(marker);
   };
+  /**
+   * The first feature of a legacy-mode component that runes mode reads
+   * differently, with its offset; null where it has none.
+   */
+  const legacyFeature = (u: Unit): { what: string; at: number } | null => {
+    const offset = (e: { position?: [number, number] }) => e.position?.[0] ?? 0;
+    let warnings: { code: string; position?: [number, number] }[];
+    try {
+      warnings = graph.tooling.compiler.compile(u.original, {
+        filename: u.file,
+        generate: false,
+        runes: true,
+      }).warnings;
+    } catch (e) {
+      const err = e as { code?: string; position?: [number, number] };
+      return { what: `a construct runes mode rejects (${err.code ?? String(e)})`, at: offset(err) };
+    }
+    const legacy = warnings.find(w => LEGACY_WARNINGS.includes(w.code));
+    if (legacy) return { what: `a legacy feature (${legacy.code})`, at: offset(legacy) };
+    for (const s of (u.ast.instance?.content.body ?? []) as SNode[]) {
+      if (s.type === 'VariableDeclaration' && s.kind !== 'const')
+        return { what: `a \`${s.kind}\` declaration`, at: s.start };
+      if (s.type.startsWith('Export')) return { what: 'an export', at: s.start };
+    }
+    return null;
+  };
   /** A reached component: its checks, and the components its template instantiates. */
   const reach = (u: Unit) => {
     const loc = (n: SNode) => locate(u.original, n.start ?? 0, u.rel);
@@ -592,6 +632,30 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       offset => locate(u.original, offset, u.rel),
     );
     const { ast } = u;
+    // A package's component compiles in the mode Svelte infers for it
+    // (compiler/adapters/tooling.mjs `svelteRunes`); the adapter lowers
+    // runes mode only. A component without runes is legacy mode, and lowers
+    // as runes mode only where the two modes give it the same meaning (bits-ui's
+    // hidden inputs, svelte-sonner's icons): it compiles in runes mode without
+    // the warnings of legacy features, and its instance script declares no
+    // `let`/`var` (reactive in legacy mode) and exports nothing (props or
+    // accessors in legacy mode). Others (`export let`, `$:`, `$$props`,
+    // `<slot>`, `on:`) are lowered only through a mapping pack.
+    if (graph.modules.get(u.file)?.package) {
+      const mode = graph.tooling.compiler.compile(u.original, {
+        filename: u.file,
+        generate: false,
+      });
+      if (!mode.metadata.runes) {
+        const legacy = legacyFeature(u);
+        if (legacy)
+          fail(
+            'E_SVELTE_LEGACY',
+            `${u.rel} is a legacy-mode Svelte component (it uses no runes) with ${legacy.what}, whose meaning differs in runes mode; components compiled from source must mean the same in runes mode`,
+            locate(u.original, legacy.at, u.rel),
+          );
+      }
+    }
     // Component styles whose rules are all `:global(…)` join the stylesheet
     // Vite emits, where they are checked with the rest (compiler/collect.mjs).
     // Scoped rules would need the compiler's scoping class on the elements

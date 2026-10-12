@@ -20,6 +20,7 @@ import { cnPack } from './packs/cn-0.3.0.ts';
 import { esmEnvPack } from './packs/esm-env-1.2.2.ts';
 import { clsxPack } from './packs/clsx-2.1.1.ts';
 import { lucideSveltePack } from './packs/lucide-svelte-1.52.0.ts';
+import { tablerIconsSveltePack } from './packs/tabler-icons-svelte-3.40.0.ts';
 import { tailwindMergePack } from './packs/tailwind-merge-3.7.0.ts';
 import { tailwindVariantsPack } from './packs/tailwind-variants-3.3.1.ts';
 import { runedPack } from './packs/runed-0.35.1.ts';
@@ -199,6 +200,7 @@ const PACKS: Pack[] = [
   floatingUiDomPack,
   tabbablePack,
   lucideSveltePack,
+  tablerIconsSveltePack,
   runedPack,
   svelteToolbeltPack,
   tailwindMergePack,

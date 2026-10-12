@@ -38,6 +38,21 @@ function svelteScripts(compiler, root, code, id) {
     .filter(n => n?.type === 'Script')
     .map(n => ({ code: code.slice(n.content.start, n.content.end), offset: n.content.start }));
 }
+/**
+ * The Svelte compiler's `runes` option: the application's components are
+ * compiled in runes mode (the mode the Svelte adapter lowers), library
+ * components (files under `node_modules`) in the mode their authors wrote
+ * them in, which Svelte infers per file (`undefined`), as vite-plugin-svelte
+ * compiles them in the site's build, whose config sets no mode. This is
+ * SvelteKit's project template rule (`sv create`). A legacy-mode library
+ * component is compiled for the collector's bundle; the Svelte adapter
+ * lowers one only where runes mode means the same for it, and rejects
+ * legacy features (`$$props`, `export let`) it reaches outside a mapping
+ * pack (frontend/adapters/svelte.ts).
+ */
+export const svelteRunes = ({ filename }) =>
+  filename?.split(/[/\\]/).includes('node_modules') ? undefined : true;
+
 /** The checked version of Tailwind CSS (runic.json `"tailwind": true`). */
 export const tailwindVersion = '4.3.3';
 
@@ -162,7 +177,7 @@ async function frameworkTooling(root, config) {
       // Production output: generated apps implement production semantics,
       // and development builds add instrumentation that changes timing
       // (every `await` gains extra microtask hops through track_reactivity_loss).
-      plugins: [svelte({ configFile: false, compilerOptions: { runes: true, dev: false } })],
+      plugins: [svelte({ configFile: false, compilerOptions: { runes: svelteRunes, dev: false } })],
       packages: { svelte: version, '@sveltejs/vite-plugin-svelte': pluginVersion },
       extensions: ['.svelte'],
       scripts: (code, id) => svelteScripts(compiler, root, code, id),
