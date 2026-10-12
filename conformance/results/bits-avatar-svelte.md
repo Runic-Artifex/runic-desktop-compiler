@@ -21,29 +21,30 @@ The roots' `onLoadingStatusChange` callbacks write a visible trace.
 |---|---|---|---|
 | `node conformance/run.mjs bits-avatar images --pixels` | 14/14 | 14/14 | 13/14, 1 known gap |
 | `node conformance/run.mjs bits-avatar images --pixels --no-opt` | 14/14 | 14/14 | 13/14, 1 known gap |
+| `node conformance/run.mjs blend bits-avatar --pixels`, with and without `--no-opt` (Blitz `8acde914`; per viewport the 10 `bits-avatar` states and the 1 `blend` state) | 11/11 | 11/11 | 11/11 |
 
 Each row's 14 states are the `bits-avatar` case's 10 and the `images` case's 4 at one viewport, both viewports giving the same counts. The DOM, focus and geometry of every state match exactly, including each avatar's `data-status`, the visible fallback or image, and the trace: `switch error` at the mount (the 404 settles before the first state), `delayed loaded` after `wait 250` (not after `wait 300`), `switch loading` after `swap` and `switch loaded` after the following `wait 0`. Both modes give identical pixel numbers. The `images` case is unchanged: the same region numbers as in [images-svelte](images-svelte.md).
 
 ## Pixels
 
-Mean error of the `#avatars` region (/255) per state. The gate is 3/255.
+Mean error of the `#avatars` region (/255) per state. The gate is 3/255. The first two columns are this record's original run, from before Blitz drew `mix-blend-mode` at all (it drew it as `normal`). The last two were measured at Blitz `8acde914`, which blends as Chromium does ([blend-svelte](blend-svelte.md)); `bits-avatar` with and without `--no-opt` gives identical numbers.
 
-| State | 800x600 | 420x600 |
-|---|---|---|
-| mount (fallbacks: images not loaded yet) | 0.586 | 1.16 |
-| wait 0 (images shown) | 1.662 | 3.289 |
-| wait 300 | 1.662 | 3.289 |
-| wait 250 (the delayed image shown) | 2.379 | 4.709 |
-| small | 2.256 | 4.466 |
-| swap | 2.256 | 4.466 |
-| wait 0 (the switched image shown) | 2.856 | 5.653 |
-| more | 2.866 | 5.673 |
-| large | 2.483 | 4.916 |
-| hover | 2.483 | 4.916 |
+| State | 800x600 before | 420x600 before | 800x600 blended | 420x600 blended |
+|---|---|---|---|---|
+| mount (fallbacks: images not loaded yet) | 0.586 | 1.16 | 0.602 | 1.191 |
+| wait 0 (images shown) | 1.662 | 3.289 | 0.797 | 1.577 |
+| wait 300 | 1.662 | 3.289 | 0.797 | 1.577 |
+| wait 250 (the delayed image shown) | 2.379 | 4.709 | 0.809 | 1.601 |
+| small | 2.256 | 4.466 | 0.748 | 1.481 |
+| swap | 2.256 | 4.466 | 0.748 | 1.481 |
+| wait 0 (the switched image shown) | 2.856 | 5.653 | 0.642 | 1.271 |
+| more | 2.866 | 5.673 | 0.653 | 1.292 |
+| large | 2.483 | 4.916 | 0.589 | 1.167 |
+| hover | 2.483 | 4.916 | 0.589 | 1.167 |
 
-Whole-viewport mean error ranges over 0.075–0.237/255 at 800 px and 0.143–0.452/255 at 420 px. At 420 px the region fails the gate once images show. The case records this as a known gap, never absorbed by tolerance.
+Before blending, whole-viewport mean error ranged over 0.075–0.237/255 at 800 px and 0.143–0.452/255 at 420 px. At 420 px the region failed the gate once images showed, and the case recorded this as a known gap. With blending, whole-viewport mean error is 0.076–0.116/255 at 800 px and 0.144–0.221/255 at 420 px. Every state passes, and the known gap is removed.
 
-The dominant cause is shadcn-svelte's avatar ring. `after:absolute after:inset-0 after:border after:border-border after:mix-blend-darken` draws a light border that `mix-blend-mode: darken` removes over the image in Chromium. Blitz paint ignores `mix-blend-mode`, so the native ring stays visible over every image. Crops of the 420 px shots, measured with `magick compare -metric MAE`:
+The cause was shadcn-svelte's avatar ring. `after:absolute after:inset-0 after:border after:border-border after:mix-blend-darken` draws a light border, and `mix-blend-mode: darken` removes it over the image in Chromium. Before `8acde914`, Blitz paint ignored `mix-blend-mode`, so the native ring stayed visible over every image. Crops of the 420 px shots before the fix, measured with `magick compare -metric MAE`:
 
 | Crop | Mean error |
 |---|---|
@@ -51,7 +52,7 @@ The dominant cause is shadcn-svelte's avatar ring. `after:absolute after:inset-0
 | The whole `#cn` avatar after the switch | 6.57/255 |
 | A 14x14 crop inside `#cn`'s image, away from the ring | 1.35/255 (resampling of the 40x40 image, the [scaled image row](../../docs/gaps/PLATFORM.md#images-and-fonts-p7)) |
 
-The [BLITZ-GAPS row](../../docs/BLITZ-GAPS.md) for `mix-blend-mode` and the [P4 row](../../docs/gaps/PLATFORM.md#css-and-rendering-p4) record it; the runtime reports no diagnostic for it yet.
+The remaining region error is the resampling of the scaled images.
 
 ## Ordering against Chromium
 
