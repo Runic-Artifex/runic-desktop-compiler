@@ -3135,7 +3135,11 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       let fallback = el.initializer;
       if (fallback && runeName(fallback) === '$bindable')
         fallback = (fallback as ts.CallExpression).arguments[0];
-      return nullable && !fallback ? { maybe: base } : base;
+      // (A default of `undefined`, bits-ui's Checkbox `name = undefined`,
+      // keeps the prop nullable.)
+      const undefinedDefault =
+        !!fallback && ts.isIdentifier(fallback) && fallback.text === 'undefined';
+      return nullable && (!fallback || undefinedDefault) ? { maybe: base } : base;
     };
 
     /**
@@ -3414,12 +3418,14 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           // A prop typed wider than the value model (svelte/elements'
           // `class?: ClassValue`) takes the type of the values its sites pass.
           const values = domains.values(sym);
-          const t =
+          let t =
             (values && typeOfValues(values)) ??
             typeOfSites(sym, el) ??
             typeOfBinds(sym, el) ??
             typeOfChildBinds(sym, el) ??
             typeOfDefault(sym, el);
+          // With dynamic values, where no rule types it: dynamic.
+          if (!t && types.mapsToDyn(checker.getTypeAtLocation(el.name), el.name)) t = 'dyn';
           if (!t) {
             if (mixed)
               tsFail(
@@ -3484,6 +3490,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             const inner = (x: Type) => maybeInner(x) ?? x;
             if (
               fromSites &&
+              type !== 'dyn' &&
               v.op !== 'null' &&
               v.op !== 'undefined' &&
               JSON.stringify(inner(t)) !== JSON.stringify(inner(type))
@@ -3494,8 +3501,18 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
                 `The type of ${name} (${checker.typeToString(checker.getTypeAtLocation(el.name))}) is outside the value model, so it takes the values its sites pass (${JSON.stringify(inner(type))}), but its default is of another type (${JSON.stringify(inner(t))})`,
               );
             // A function taking fewer parameters (`onOpenChange = noop`).
-            cells[cell].init =
+            const init =
               lower.adaptFunction(v, t, type) ?? coerceInit(v, t, type, lower.types.records);
+            // (A default the prop's type cannot hold, `undefined` where every
+            // site passes a value, is rejected here rather than given to the
+            // backend as an initialiser of another type.)
+            if (!sameType(lower.valueType(init), type))
+              tsFail(
+                f,
+                'E_TYPE_UNION',
+                `The default of ${name} (${JSON.stringify(t)}) is not a value of the prop's type (${JSON.stringify(type)})`,
+              );
+            cells[cell].init = init;
           });
         }
       }
@@ -4849,11 +4866,29 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
               v = { op: 'undefined', type: want };
               from = want;
             }
+            // A record where a record of some of its fields is expected
+            // (`<Pagination.Link {page}>` of a page item): a view of those
+            // fields (language.ts `recordView`).
+            const view = lower.recordView(e, v, lower.irType(v, tb), maybeInner(want) ?? want, tb);
+            if (view) {
+              v = view;
+              from = maybeInner(want) ?? want;
+            }
             const fn = maybeInner(want) ?? want;
             const adapted = lower.adaptFunction(v, from, fn);
             v = adapted
               ? coerceInit(adapted, fn, want, lower.types.records)
               : coerceInit(v, from, want, lower.types.records);
+            // Plain records of other fields (an array of `{ value, label }`
+            // where items with an optional `disabled` are expected): the
+            // same objects in JavaScript, not values of the prop's type here.
+            const have = lower.irType(v, tb);
+            if (otherRecords(have, want, lower.types.records))
+              fail(
+                'E_PROPS',
+                `${n.name}'s prop ${a.name} is passed objects of other fields than its type's (${shownRecords(have, lower.types.records)} for ${shownRecords(want, lower.types.records)})`,
+                loc(a),
+              );
           }
           const w = writers.get(a.name);
           if (w) w.push({ explicit: v });
@@ -5850,6 +5885,32 @@ function assigned(checker: ts.TypeChecker, sf: ts.SourceFile, sym: ts.Symbol): b
   };
   visit(sf);
   return found;
+}
+
+/**
+ * Whether `a` and `b` are, through the same nullable and array layers,
+ * different plain records.
+ */
+function otherRecords(a: Type, b: Type, records: RecordType[]): boolean {
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+  if ('maybe' in a && 'maybe' in b) return otherRecords(a.maybe, b.maybe, records);
+  if ('array' in a && 'array' in b) return otherRecords(a.array, b.array, records);
+  return (
+    'record' in a &&
+    'record' in b &&
+    a.record !== b.record &&
+    !records[a.record].class &&
+    !records[b.record].class
+  );
+}
+
+/** A record type by its field names, for diagnostics: `{ value, label }[]`. */
+function shownRecords(t: Type, records: RecordType[]): string {
+  if (typeof t !== 'object') return t;
+  if ('maybe' in t) return `${shownRecords(t.maybe, records)} | undefined`;
+  if ('array' in t) return `${shownRecords(t.array, records)}[]`;
+  if ('record' in t) return `{ ${records[t.record].fields.map(f => f.name).join(', ')} }`;
+  return JSON.stringify(t);
 }
 
 /** Widen an initial value to the cell type (T → Maybe<T>). */
