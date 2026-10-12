@@ -8,7 +8,7 @@ A package import is `E_DEPENDENCY` unless a mapping pack covers it or it is comp
 
 | Package | Imports in the shadcn-svelte site (scan) | Needed by | Notes |
 |---|---|---|---|
-| `layerchart`, `d3-scale`, `d3-shape` | 100, 75, 47 | charts | Large; SVG text and gradients (P1). Installed since 2026-10-12: the chart-bar examples stop before lowering at `E_CSS_ORDER` (split stylesheet order), a diagnostic without a source location |
+| `layerchart`, `d3-scale`, `d3-shape` | 100, 75, 47 | charts | Large; SVG text and gradients (P1). Installed since 2026-10-12: the chart-bar examples stop before lowering at `E_CSS_ORDER`: layerchart loads styled components (BrushContext, Legend, tooltips) through dynamic `import()` (Chart.base.svelte:446), which splits their styles into stylesheets of their own; the rejection is located at that import |
 | `@internationalized/date` | 63 | calendar, date pickers | Planned M6 pack |
 | `@tanstack/svelte-table` | 26 | data table | |
 | `svelte-sonner` 1.2.1 (source) | 21 | toasts, site shell | Compiled from source since 2026-10-12; the sonner examples stop at `Object.assign(basicToast, {…})` typed `any` (toast-state.svelte.js:290, V2). Its nested runed is 0.28.0, which has no pack (runed's pack is 0.35.1) |

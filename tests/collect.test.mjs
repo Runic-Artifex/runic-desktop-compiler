@@ -313,6 +313,24 @@ test('CSS filter lists are accepted where the renderers draw them', async () => 
   await check('p { backdrop-filter: url(#f) }', 'E_CSS_PROPERTY', 1);
 });
 
+test('a stylesheet split off by a dynamic import is rejected at the import', async () => {
+  await react(
+    `import './main.css';function App(){return <p>Hi</p>;}\nimport('./lazy.js');`,
+    async root =>
+      assert.rejects(collect(root), e => {
+        assert.equal(e.code, 'E_CSS_ORDER');
+        assert.match(e.message, /lazy\.js \(loaded by a dynamic import\(\)\)/);
+        assert.deepEqual(e.source, { file: 'main.jsx', line: 2, column: 1 });
+        return true;
+      }),
+    {
+      'main.css': 'p{color:blue}',
+      'lazy.js': "import './lazy.css';export const lazy = 1;",
+      'lazy.css': 'p{color:red}',
+    },
+  );
+});
+
 test('malformed Svelte source reports a located parse error', async () => {
   await mkdir('.cache/tests', { recursive: true });
   const root = await mkdtemp(path.resolve('.cache/tests/svelte-'));

@@ -40,6 +40,60 @@ export function fail(node, root, code, message) {
   throw new Diagnostic(code, message, location(node, root));
 }
 const mime = { '.woff2': 'font/woff2' };
+
+/**
+ * Records the chunks a dynamic `import()` splits off with stylesheets of
+ * their own (`E_CSS_ORDER`): their entry module and its dynamic importers.
+ */
+function splitStylesPlugin(out) {
+  return {
+    name: 'runic-split-styles',
+    generateBundle(_, bundle) {
+      for (const chunk of Object.values(bundle))
+        if (
+          chunk.type === 'chunk' &&
+          chunk.isDynamicEntry &&
+          chunk.viteMetadata?.importedCss.size
+        ) {
+          const facade = chunk.facadeModuleId;
+          out.push({
+            facade,
+            importers: [...(this.getModuleInfo(facade)?.dynamicImporters ?? [])],
+          });
+        }
+    },
+  };
+}
+
+/**
+ * The `import()` that splits a styled module off the entry's stylesheet:
+ * the first (by path) such module, located at a string-literal `import()`
+ * of it (not a `typeof import()` type) in an importer, else at the module.
+ */
+async function splitStyleSource(root, splits) {
+  const clean = id => id.replace(/[?#].*$/, '');
+  const [split] = splits.sort((a, b) => clean(a.facade).localeCompare(clean(b.facade)));
+  if (!split) return null;
+  const target = clean(split.facade);
+  const what = `${path.relative(root, target)} (loaded by a dynamic import())`;
+  for (const importer of split.importers.map(clean).sort()) {
+    const code = await readFile(importer, 'utf8').catch(() => null);
+    if (code == null) continue;
+    for (const m of code.matchAll(/(?<!\btypeof\s+)\bimport\(\s*(['"])([^'"]+)\1\s*\)/g)) {
+      if (!m[2].startsWith('.') || path.resolve(path.dirname(importer), m[2]) !== target) continue;
+      const before = code.slice(0, m.index).split('\n');
+      return {
+        what,
+        source: {
+          file: path.relative(root, importer),
+          line: before.length,
+          column: before.at(-1).length + 1,
+        },
+      };
+    }
+  }
+  return { what, source: { file: path.relative(root, target), line: 1, column: 1 } };
+}
 /** CSS properties that apply only to SVG content (paint, markers, geometry). */
 // What Stylo (Blitz's preferences) drops and Chromium applies differently is
 // reported; these drops are verified equivalent in Chromium 153
@@ -490,6 +544,7 @@ export async function collect(app) {
   const modules = new Map();
   const componentStyles = new Map();
   let bundled, collectionError;
+  const splitStyles = [];
   try {
     bundled = await build({
       root,
@@ -507,6 +562,7 @@ export async function collect(app) {
           componentStyles,
         ),
         ...tooling.plugins,
+        splitStylesPlugin(splitStyles),
       ],
       build: {
         write: false,
@@ -605,8 +661,15 @@ export async function collect(app) {
   // Preserve Vite's actual entry cascade, rather than sorting source filenames.
   const emitted = bundled.output.filter(a => a.type === 'asset');
   const styles = emitted.filter(a => a.fileName.endsWith('.css'));
-  if (styles.length > 1)
-    throw new Diagnostic('E_CSS_ORDER', 'Split/dynamic stylesheet order is outside this contract');
+  if (styles.length > 1) {
+    const split = await splitStyleSource(root, splitStyles);
+    throw new Diagnostic(
+      'E_CSS_ORDER',
+      'Split/dynamic stylesheet order is outside this contract' +
+        (split ? `: ${split.what} has styles of its own, emitted as a separate stylesheet` : ''),
+      split?.source,
+    );
+  }
   let orderedCSS = '';
   let styleGuards = moduleGuards;
   if (styles.length) {
