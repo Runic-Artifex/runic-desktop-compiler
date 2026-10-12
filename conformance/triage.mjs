@@ -31,6 +31,18 @@
 // generated into each host. A host is removed after its analysis unless
 // --keep-lib is given.
 //
+// SvelteKit's `$app/*` modules (combobox-responsive imports
+// `$app/environment`, and so does sveltekit-superforms for form-demo) exist
+// only in a Kit app, as in the site. An example whose lib files import one,
+// or whose plain host's build fails to resolve one a package imports, gets
+// (or is rerun in) a Kit host instead
+// (fixtures/kit-routes-svelte's svelte.config.js and app.html, a root layout
+// importing the theme, the mounting markup as src/routes/+page.svelte, `$lib`
+// from Kit), where the collector provides them (compiler/adapters/kit-app.mjs);
+// the result records `kitHost`. A Kit app lowers its route tree, so where an
+// example has several blockers the first one reported can differ from a
+// plain host's.
+//
 // Statuses: lowered; rejected (a compiler diagnostic: the blocker); and,
 // not counted as rejections, harnessError (the host or toolchain failed:
 // a closure miss, the icon transform, E_BUILD*, E_SVELTE_COMPILE, whose cause
@@ -129,6 +141,7 @@ const docs = path.join(checkout, source.target);
 const lib = path.join(docs, 'src/lib');
 const examplesDir = path.join(lib, 'registry/examples');
 const fixture = path.join(repo, 'fixtures/bits-dialog-svelte');
+const kitFixture = path.join(repo, 'fixtures/kit-routes-svelte');
 
 // The backend binary must be current: the census never builds it.
 const codegenTarget = path.resolve(
@@ -300,6 +313,35 @@ function host(name) {
   return dir;
 }
 
+/**
+ * Turn the host shell into a SvelteKit app (fixtures/kit-routes-svelte's
+ * svelte.config.js and app.html), for an example whose files import `$app/*`:
+ * those modules exist only in a Kit app, where the collector provides them
+ * (compiler/adapters/kit-app.mjs), as they do in the site. The root layout
+ * imports the theme and the page holds App.svelte's markup; Kit gives `$lib`.
+ */
+function kitHost(dir, name) {
+  const app = readFileSync(path.join(dir, 'src/App.svelte'), 'utf8');
+  for (const f of ['main.js', 'index.html', 'src/App.svelte']) rmSync(path.join(dir, f));
+  writeFileSync(
+    path.join(dir, 'runic.json'),
+    JSON.stringify(
+      { framework: 'svelte', kit: true, title: `Runic triage ${name}`, tailwind: true },
+      null,
+      2,
+    ) + '\n',
+  );
+  copyFileSync(path.join(kitFixture, 'svelte.config.js'), path.join(dir, 'svelte.config.js'));
+  copyFileSync(path.join(kitFixture, 'src/app.html'), path.join(dir, 'src/app.html'));
+  mkdirSync(path.join(dir, 'src/routes'), { recursive: true });
+  writeFileSync(
+    path.join(dir, 'src/routes/+layout.svelte'),
+    `<script lang="ts">\n  import '../app.css';\n  import type { Snippet } from 'svelte';\n\n` +
+      `  let { children }: { children: Snippet } = $props();\n</script>\n\n{@render children()}\n`,
+  );
+  writeFileSync(path.join(dir, 'src/routes/+page.svelte'), app);
+}
+
 /** The CLI's icon transform of a corpus .svelte file (cached per file). */
 const transformed = new Map();
 function installed(file) {
@@ -332,6 +374,8 @@ async function closure(entry) {
   const seen = new Set();
   const missing = [];
   const pending = [entry];
+  // SvelteKit's `$app/*` modules the reached files import (Kit hosts).
+  const app = new Set();
   const candidates = p => {
     const c = [p];
     if (/\.js$/.test(p)) c.push(p.replace(/\.js$/, '.ts'));
@@ -360,7 +404,10 @@ async function closure(entry) {
       let base;
       if (spec === '$lib' || spec.startsWith('$lib/')) base = path.join(lib, spec.slice(4));
       else if (spec.startsWith('.')) base = path.resolve(path.dirname(file), spec);
-      else continue;
+      else {
+        if (spec.startsWith('$app/')) app.add(spec);
+        continue;
+      }
       if (glob) {
         const pattern = path.relative(lib, base).replace(/\$\{[^}]*\}/g, '*');
         for (const f of globSync(pattern, { cwd: lib })) pending.push(path.join(lib, f));
@@ -371,7 +418,11 @@ async function closure(entry) {
       else missing.push({ from: path.relative(lib, file), spec });
     }
   }
-  return { files: [...seen].filter(f => f.startsWith(lib + path.sep)), missing };
+  return {
+    files: [...seen].filter(f => f.startsWith(lib + path.sep)),
+    missing,
+    app: [...app].sort(),
+  };
 }
 
 /**
@@ -381,7 +432,8 @@ async function closure(entry) {
 async function copyLib(dir, name) {
   const target = path.join(dir, 'src/lib');
   mkdirSync(target, { recursive: true });
-  const { files, missing } = await closure(path.join(examplesDir, name + '.svelte'));
+  const closed = await closure(path.join(examplesDir, name + '.svelte'));
+  const { files, missing } = closed;
   const rel = files.map(f => path.relative(lib, f)).sort();
   const r = spawnSync('cp', ['--parents', '-p', '--reflink=auto', ...rel, target], {
     cwd: lib,
@@ -410,6 +462,7 @@ async function copyLib(dir, name) {
   return {
     files: rel.length,
     missing,
+    app: closed.app,
     iconTransform: {
       applied: true,
       iconLibrary,
@@ -449,7 +502,24 @@ function classify(r, copied) {
   return r;
 }
 
-function run(name) {
+/**
+ * The `$app/*` module a plain host's build could not resolve: one a package
+ * imports (sveltekit-superforms), which the lib closure does not scan.
+ */
+const appImportOf = r =>
+  r.status === 'harnessError' && r.code === 'E_SVELTE_COMPILE'
+    ? /failed to resolve import "(\$app\/[^"]+)" from "([^"]+)"/.exec(r.message)
+    : null;
+
+/** Triage one example; a package importing `$app/*` reruns it in a Kit host. */
+async function run(name) {
+  const r = await runIn(name, []);
+  const app = appImportOf(r);
+  if (!app) return r;
+  return runIn(name, [`${app[1]} (${path.relative(repo, app[2])})`]);
+}
+
+function runIn(name, packageApp) {
   return new Promise(async resolve => {
     const started = Date.now();
     let dir, copied;
@@ -460,6 +530,8 @@ function run(name) {
     try {
       dir = host(name);
       copied = await copyLib(dir, name);
+      copied.app.push(...packageApp);
+      if (copied.app.length) kitHost(dir, name);
     } catch (e) {
       done({
         example: name,
@@ -471,6 +543,7 @@ function run(name) {
     }
     const base = {
       example: name,
+      ...(copied.app.length ? { kitHost: { app: copied.app } } : {}),
       libFiles: copied.files,
       closureMisses: copied.missing,
       iconTransform: copied.iconTransform,
@@ -538,7 +611,7 @@ export function construct(r) {
   const head = m
     .split('\n')[0]
     .replace(/\s+at\s+\S+:\d+:\d+/g, '')
-    .replace(/@\d+\.\d+\.\d+/g, '')
+    .replace(/@\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?/g, '')
     .slice(0, 120);
   // Stylesheet declarations and elements name their construct; the line in
   // the generated stylesheet varies with the example's utilities.
@@ -621,6 +694,8 @@ const census = {
   },
   host: {
     shape: 'fixtures/bits-dialog-svelte (runic.json with tailwind and $lib alias, main.js, index.html, assets/DejaVuSans.woff2); src/App.svelte mounts the example',
+    kitShape:
+      'for examples whose files or packages import $app/* (results with kitHost): a SvelteKit app with fixtures/kit-routes-svelte/svelte.config.js and src/app.html, runic.json kit and tailwind, src/routes/+layout.svelte importing the theme, src/routes/+page.svelte holding the App.svelte markup; Kit gives $lib',
     theme: {
       from: 'fixtures/bits-dialog-svelte/src/app.css',
       removed: removedFromTheme.map(l => l.trim()),
