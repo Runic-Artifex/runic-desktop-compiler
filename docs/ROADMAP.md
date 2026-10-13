@@ -32,6 +32,7 @@ How each kind of work is executed (standalone, subagents or workflows) is define
 | M11 | Windows | M8 app on Windows | Standalone | Planned |
 | M12 | macOS | M8 app on macOS | Standalone | Planned |
 | M13 | (Optional) Solid and further frontends; port frontends/language layer to Rust | — | Decided by M10 profiling | Optional |
+| M14 | Pages without a framework: a plain-JavaScript frontend (`index.html` plus module scripts), then Alpine.js and HTMX pages | a plain-JavaScript TodoMVC; Alpine and HTMX samples | Standalone design per frontend ([M6-SCRIPT-DOM](design/M6-SCRIPT-DOM.md)) | Planned (user decision 2026-10-13) |
 
 **Continuous tracks that run alongside the milestones:**
 
@@ -193,6 +194,7 @@ Replace the parts that cannot scale before adding any capability.
 - **SvelteKit:** a static SPA subset (`adapter-static`, layouts/pages, the `$app`/`$lib` modules the shadcn-svelte site and the editor use).
 - **Corpus and islands:** `runic scan` over a corpus of 20–50 open-source Svelte, React and Vue apps; QuickJS islands (D7), opt-in, with island and coverage reports; model-assisted discovery generalised to library packs.
 - **Blitz fork** (decided 2026-10-04, the first step): [`Runic-Artifex/blitz`](https://github.com/Runic-Artifex/blitz), based on upstream main. Move the pin to it (AnyRender 0.14, Taffy and Parley updates, a full conformance rerun), then carry one commit per gap in the order of [BLITZ-GAPS](BLITZ-GAPS.md#fork-assessment), each with the conformance case that shows it and offered upstream; fixture workarounds are removed as their gaps close. Placeholders come with it.
+- **Script DOM** (gap P3, user decision 2026-10-13): as much of the DOM as Chromium gives scripts: node values (the document and the window included), script-created nodes and their ownership next to framework-rendered ones, insertion, traversal, attributes and reflected properties, queries, events created by script, observers; first for bits-ui's announcer (the calendars and date pickers) and embla-carousel (the carousels), then breadth ([design](design/M6-SCRIPT-DOM.md)). Run-time HTML parsing waits for a user decision.
 - **Carried from M5:** `ResizeObserver`, `Intl.PluralRules`/`DisplayNames`, React's continuous lane (scroll-driven updates rendered after the frame, for the React virtualized list), console reports of unhandled promise rejections.
 
 **Exit:** the shadcn-svelte site's component examples render from source, the corpus coverage report (including the three shadcn sources) is committed, and island counts are recorded as the baseline to reduce from.
@@ -261,6 +263,16 @@ Every change is measured with paired measurements; no speed-up is claimed withou
 
 Solid and further frontends; porting the language layer or adapters to Rust (oxc) only where M10 profiling shows it is worth it. These need a user decision.
 
+## M14: Pages without a framework (planned)
+
+Added by the user on 2026-10-13 (decisions log). It builds on the M6 script DOM ([design](design/M6-SCRIPT-DOM.md)) and is not started.
+
+- **Plain JavaScript:** a frontend for an `index.html` with module scripts and no framework. The page markup becomes script-owned nodes created at start, and the modules go through the shared language layer. Its first proof, a plain-JavaScript TodoMVC, may land within M6 as the script DOM's end-to-end case.
+- **Alpine.js:** an adapter that compiles a page's `x-*` attribute expressions at build time (Alpine itself evaluates them with `new Function`, which would need a JavaScript engine), with Alpine's scheduling verified against Alpine in Chromium.
+- **HTMX:** needs run-time HTML parsing (excluded by a deliberate policy today, so a user decision), a network host service with an origin (after M8), and a native implementation of htmx's attribute semantics validated against htmx.
+
+**Work mode:** standalone design per frontend; conformance against the original library in Chromium.
+
 ## Decisions log
 
 - 2026-10-03: no specific app was named initially. The Translations Editor is the north star, to be revisited at M8 if needed.
@@ -282,3 +294,4 @@ Solid and further frontends; porting the language layer or adapters to Rust (oxc
 - 2026-10-12 (M6, user decisions after the example census, `conformance/triage.mjs`): a shadcn-svelte component example counts as the shadcn-svelte CLI installs it. The corpus's own pinned icon transform rewrites `IconPlaceholder` to `@lucide/svelte` imports in the host copies; the upstream sources stay unmodified. This makes the bits-* fixtures' existing practice explicit.
 - 2026-10-12 (M6): remote images become pinned build assets. A separate, explicit fetch operation records each remote image by URL and SHA-256 into the app; builds stay offline and deterministic, and an unpinned remote source is rejected. Local images use the same asset path. The IR change gets its architecture checkpoint before implementation.
 - 2026-10-13 (M6, user decision): CSS compatibility is a workstream of its own: as much CSS as possible behaves as in Chromium 153 in compiled apps, slice by slice in the Runic forks (Blitz, Stylo, Taffy, Parley) and the compiler, so that rules are laid out and painted faithfully instead of rejected or reported. It matters beyond the shadcn north star: full Bootstrap 5.3 compatibility is planned future scope, not done. Its first survey is [bootstrap-5.3-css-survey](../conformance/results/bootstrap-5.3-css-survey.md).
+- 2026-10-13 (M6, user decision, verbatim): "the next workstreams should be a full run on as much DOM support as possible. (So in the future we can even get simple apps that use handwritten javascript or Alpine.js or HTMX working)". The script DOM (gap P3) becomes an M6 workstream ([design](design/M6-SCRIPT-DOM.md)); a plain-JavaScript frontend, Alpine.js and HTMX pages are new planned scope (M14), not done.

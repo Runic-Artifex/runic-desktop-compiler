@@ -38,6 +38,8 @@ Part of the [gap register](../GAPS.md). Rendering details of Blitz, Stylo and Ta
 
 ## Script DOM (P3)
 
+The workstream that covers these rows, its ownership rules and its slices are in [design/M6-SCRIPT-DOM.md](../design/M6-SCRIPT-DOM.md).
+
 | Not covered | Code | Reason | What it would take | Location |
 |---|---|---|---|---|
 | The framework inserting into a parent whose children script reordered (bits-ui Command: clearing the search, a query without matches) | run time | The runtime keeps no comment anchors; Svelte places blocks by them | Comment anchors in the runtime (Blitz has `create_comment_node`); then `appendChild` generally | dom.rs:1426-1433 |
