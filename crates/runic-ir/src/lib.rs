@@ -9,6 +9,7 @@ pub mod facts;
 pub mod floating;
 pub mod interp;
 pub mod migrate;
+pub mod reactive;
 pub mod validate;
 
 pub const SCHEMA: u32 = 5;

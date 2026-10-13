@@ -94,10 +94,11 @@ test('symbol context keys: one context per constant, nearest provider, hasContex
   );
 });
 
-test('a $state object shared through a context and mutated is rejected where a constant reads it', async () => {
+test('a $state object shared through a context and mutated is lowered where a constant reads it', async () => {
   // The carousel's pattern (`let carouselState = $state<EmblaContext>({…})`
   // set as the context, read as `const emblaCtx = getEmblaContext()`):
-  // Svelte tracks reads through the proxy, a native constant does not.
+  // reads through the proxy are dependencies wherever it is held
+  // (docs/design/REACTIVITY-ALIASING.md, R1/R2; case alias-reads).
   const files = {};
   for (const f of ['context.ts', 'Show.svelte', 'Probe.svelte', 'Other.svelte', 'App.svelte'])
     files[f] = await readFile(path.join(FIXTURE, f), 'utf8');
@@ -114,12 +115,11 @@ test('a $state object shared through a context and mutated is rejected where a c
 <h2>{label} ({tone.count})</h2>
 {@render children?.()}
 `;
-  await withApp(files, async root =>
-    assert.rejects(
-      lowered(root),
-      failWith('E_REACTIVITY', 'Show.svelte', /tone holds a value that may be deep state/),
-    ),
-  );
+  await withApp(files, async root => {
+    const { ir } = await lowered(root);
+    const show = ir.components.find(c => c.name === 'Show');
+    assert.equal(show.cells.find(c => c.name === 'tone')?.tracking, 'identity');
+  });
 });
 
 /** An app whose context module declares KEY and `extra`; components add `uses`. */

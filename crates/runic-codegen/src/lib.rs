@@ -125,41 +125,101 @@ fn derived_reads(
     }
 }
 
-/// Whether `e` (typed in `component` with `locals`) reads a reactive class
-/// field itself; the functions it calls are added to `calls`.
+/// Whether `e` (typed in `component` with `locals`) reads a signal of the
+/// heap itself: a reactive class field, or a slot of a value that may be a
+/// proxy of deep state or a reactive object, however the value was reached
+/// (docs/design/REACTIVITY-ALIASING.md, R2). The functions it calls or makes
+/// closures of (built-ins call them) are added to `calls`.
 fn reactive_refs(
     p: &Program,
+    heap: &runic_ir::reactive::ReactiveHeap,
     component: Option<usize>,
     locals: &[Local],
     e: &Expr,
     calls: &mut BTreeSet<usize>,
 ) -> bool {
+    let ty = |x: &Expr| runic_ir::validate::infer_in(p, component, locals, None, x);
     let mut found = false;
     match e {
         Expr::Get { object, field } => {
-            if let Some(r) = p.field_record(&runic_ir::validate::infer_in(
-                p, component, locals, None, object,
-            )) {
+            let t = ty(object);
+            if let Some(r) = p.field_record(&t) {
                 found = p.records[r].fields[*field].reactive.is_some();
             }
+            found |= heap.is(p, &t);
         }
-        Expr::Call { function, .. } => {
+        Expr::Index { array, .. } if !heap.is_empty() => found = heap.is(p, &ty(array)),
+        Expr::ToString { arg } if !heap.is_empty() => found = heap.reachable(p, &ty(arg)),
+        Expr::Builtin { args, .. } if !heap.is_empty() => {
+            found = args.iter().any(|a| heap.reachable(p, &ty(a)))
+        }
+        Expr::Array { items, .. } if !heap.is_empty() => {
+            found = items.iter().any(|i| match i {
+                ArrayItem::Spread { spread } => heap.reachable(p, &ty(spread)),
+                ArrayItem::Item(_) => false,
+            })
+        }
+        Expr::Call { function, .. } | Expr::Closure { function, .. } => {
             calls.insert(*function);
         }
         _ => {}
     }
     for c in e.children() {
-        found |= reactive_refs(p, component, locals, c, calls);
+        found |= reactive_refs(p, heap, component, locals, c, calls);
     }
     found
 }
 
-/// Whether each function may read a reactive class field, directly or
-/// through the functions it calls (calls through function values make a
-/// binding's dependencies unknown anyway).
-fn function_reactive_reads(p: &Program) -> Vec<bool> {
+/// Whether a statement of `body` iterates (`for-of`) over a value that may
+/// hold a reactive heap object.
+fn reactive_iteration(
+    p: &Program,
+    heap: &runic_ir::reactive::ReactiveHeap,
+    component: Option<usize>,
+    locals: &[Local],
+    body: &[Stmt],
+) -> bool {
+    body.iter().any(|s| match s {
+        Stmt::ForOf { iterable, body, .. } => {
+            heap.reachable(
+                p,
+                &runic_ir::validate::infer_in(p, component, locals, None, iterable),
+            ) || reactive_iteration(p, heap, component, locals, body)
+        }
+        Stmt::If {
+            then, otherwise, ..
+        } => {
+            reactive_iteration(p, heap, component, locals, then)
+                || reactive_iteration(p, heap, component, locals, otherwise)
+        }
+        Stmt::While { body, update, .. } => {
+            reactive_iteration(p, heap, component, locals, body)
+                || reactive_iteration(p, heap, component, locals, update)
+        }
+        Stmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            reactive_iteration(p, heap, component, locals, body)
+                || catch
+                    .as_ref()
+                    .is_some_and(|c| reactive_iteration(p, heap, component, locals, &c.body))
+                || finally
+                    .as_ref()
+                    .is_some_and(|f| reactive_iteration(p, heap, component, locals, f))
+        }
+        _ => false,
+    })
+}
+
+/// Whether each function may read a signal of the heap (a reactive class
+/// field, a slot of a proxy or reactive object), directly or through the
+/// functions it calls (calls through function values make a binding's
+/// dependencies unknown anyway).
+fn function_reactive_reads(p: &Program, heap: &runic_ir::reactive::ReactiveHeap) -> Vec<bool> {
     let n = p.functions.len();
-    if !p.has_reactive_fields() {
+    if !p.has_reactive_fields() && heap.is_empty() {
         return vec![false; n];
     }
     let mut direct = vec![];
@@ -176,9 +236,10 @@ fn function_reactive_reads(p: &Program) -> Vec<bool> {
             stmt_exprs(s, &mut exprs);
         }
         let mut calls = BTreeSet::new();
-        let mut found = false;
+        let mut found =
+            !heap.is_empty() && reactive_iteration(p, heap, f.component, &locals, &f.body);
         for e in exprs {
-            found |= reactive_refs(p, f.component, &locals, e, &mut calls);
+            found |= reactive_refs(p, heap, f.component, &locals, e, &mut calls);
         }
         direct.push((found, calls));
     }
@@ -623,8 +684,11 @@ struct Gen<'a> {
     p: &'a Program,
     optimize: bool,
     reads: Vec<Option<BTreeSet<usize>>>,
-    /// Per function: whether it may read a reactive class field.
+    /// Per function: whether it may read a signal of the heap (a reactive
+    /// class field, a slot of a proxy or reactive object).
     reactive: Vec<bool>,
+    /// The types whose values may be proxies or reactive objects.
+    heap: runic_ir::reactive::ReactiveHeap,
     /// Whether instances may create effects at run time (`effect.pre`, `effect.post`).
     dynamic_fx: bool,
 }
@@ -681,16 +745,18 @@ impl Gen<'_> {
         Some(cells)
     }
 
-    /// Whether template expressions of component `k` may read a reactive
-    /// class field, directly or through the functions they call.
+    /// Whether template expressions of component `k` may read a signal of
+    /// the heap (a reactive class field, a slot of a proxy or reactive
+    /// object, wherever they reached it), directly or through the functions
+    /// they call.
     fn reads_reactive(&self, k: usize, exprs: &[&Expr]) -> bool {
-        if !self.p.has_reactive_fields() {
+        if !self.p.has_reactive_fields() && self.heap.is_empty() {
             return false;
         }
         let locals = &self.p.components[k].template_locals;
         exprs.iter().any(|e| {
             let mut calls = BTreeSet::new();
-            reactive_refs(self.p, Some(k), locals, e, &mut calls)
+            reactive_refs(self.p, &self.heap, Some(k), locals, e, &mut calls)
                 || calls.iter().any(|&f| self.reactive[f])
         })
     }
@@ -2737,11 +2803,13 @@ pub fn generate(
     // Animation objects (M6): the runtime tracks the document's animations.
     let tracks_animations = uses_builtin(p, &["element.getAnimations"]);
     crate::builtins::TRACKS_ANIMATIONS.set(tracks_animations);
+    let heap = runic_ir::reactive::ReactiveHeap::of(p);
     let g = Gen {
         p,
         optimize: options.optimize,
         reads,
-        reactive: function_reactive_reads(p),
+        reactive: function_reactive_reads(p, &heap),
+        heap,
         dynamic_fx,
     };
     let mut planner = Planner::new(p);
@@ -3409,8 +3477,8 @@ pub fn generate(
          fn flush_pass(&mut self, dom: &mut Dom) {{\n\
          self.cx.jobs.phase = Some(runic_runtime::Phase::Pre);\n\
          let (deep, owned) = self.cx.jobs.take_mutated();\n\
-         // Signal fields of class instances (or deep state through proxies) written since the last pass: bindings that may read them re-evaluate.\n\
-         self.cx.rh = js::take_signal_writes();\n\
+         // Signal fields of class instances, deep state through proxies or (deep cells) the heap written since the last pass: bindings that may read them, however they reached them, re-evaluate.\n\
+         self.cx.rh = js::take_signal_writes() || ({tracks_deep} && deep);\n\
          {end}\
          {begin}\
          let tree = self.walk();\n\

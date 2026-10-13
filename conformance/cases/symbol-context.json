@@ -1,5 +1,5 @@
 {
-  "description": "Svelte contexts keyed by module-level symbols, as shadcn-svelte's carousel keys its context (`const EMBLA_CAROUSEL_CONTEXT = Symbol(…)` with setContext, getContext guarded by hasContext): a provider's object of getters over its $state set under one symbol and read by the nearest provider's consumers (nested providers), a second symbol of the same description that is another context, hasContext outside every provider and of a symbol nothing sets. Clicks bump and reset each provider's count through the context. (A $state object read through a constant, the carousel's own value, is rejected: E_REACTIVITY, tests/symbol-context.test.mjs.)",
+  "description": "Svelte contexts keyed by module-level symbols, as shadcn-svelte's carousel keys its context (`const EMBLA_CAROUSEL_CONTEXT = Symbol(…)` with setContext, getContext guarded by hasContext): a provider's object of getters over its $state set under one symbol and read by the nearest provider's consumers (nested providers), a second symbol of the same description that is another context, hasContext outside every provider and of a symbol nothing sets. Clicks bump and reset each provider's count through the context. (A $state object read through a constant, the carousel's own value, is case alias-reads.)",
   "fixtures": [
     "symbol-context-svelte"
   ],

@@ -68,7 +68,7 @@ For every template expression of an accepted program: whenever the value it comp
 
 ## Steps
 
-1. **R1/R2**: reactive-heap guards for template bindings; remove `shares_mutated_proxy` (case `alias-reads`).
+1. **R1/R2**: reactive-heap guards for template bindings; remove `shares_mutated_proxy` (cases `alias-reads`, `alias-vue`). Done ([results](../../conformance/results/reactivity.md#step-1-reads-through-aliases-r1r2)).
 2. **R4**: self-invalidation through write logs, cells and heap (case `effect-self`).
 3. **R3**: overlays in `runic_js::heap`, for the interpreter and generated code alike (cases `proxy-target`, `proxy-lazy`; `ownership`, `ownership-cycles` without its known gap).
 4. **R6/R7**: proxied props from raw sources and untracked template reads (cases `prop-raw`, `untrack-template` as expected rejections).

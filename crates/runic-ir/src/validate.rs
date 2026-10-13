@@ -3552,10 +3552,6 @@ struct Mutations {
     /// root is.
     dyn_roots: HashSet<Root>,
     dyn_unknown: bool,
-    /// Types of plain objects and arrays mutated in place through deep state
-    /// proxies (`proxied` cells, reactive class fields): another cell may
-    /// hold the same proxy (passed through a context, a call or a prop).
-    proxied_types: Vec<Type>,
 }
 
 /// The RegExp whose `lastIndex` a built-in may change (global and sticky
@@ -3878,9 +3874,6 @@ impl Origins<'_> {
                     }
                 } else {
                     self.reactive_write(o);
-                    if let Ok(t) = self.scope.infer(e, 0, None) {
-                        self.out.proxied_types.push(t);
-                    }
                 }
             }
             Origin::Root(Root::Cell(k, cell)) if self.p.components[k].cells[cell].readonly => {
@@ -3899,18 +3892,6 @@ impl Origins<'_> {
                 self.out.roots.insert(r);
                 if collection {
                     self.out.collections.insert(r);
-                }
-                // (Class instances, maps and sets in it stay raw.)
-                if let Root::Cell(k, cell) = r {
-                    if self.p.components[k].cells[cell].tracking == Tracking::Proxied {
-                        match self.scope.infer(e, 0, None) {
-                            Ok(Type::Record(r)) if self.p.records[r].class => {}
-                            Ok(t @ (Type::Record(_) | Type::Array(_))) => {
-                                self.out.proxied_types.push(t)
-                            }
-                            _ => {}
-                        }
-                    }
                 }
             }
             Origin::Fresh => {}
@@ -4505,29 +4486,6 @@ fn same_value_type(p: &Program, a: &Type, b: &Type) -> bool {
         }
 }
 
-/// Whether a value of type `outer` can hold a value of type `inner` other
-/// than through a class instance (whose reactive fields notify natively).
-fn holds_plain(p: &Program, outer: &Type, inner: &Type, seen: &mut HashSet<usize>) -> bool {
-    if same_value_type(p, outer, inner) {
-        return true;
-    }
-    match outer {
-        Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
-            holds_plain(p, t, inner, seen)
-        }
-        Type::Map(k, v) => holds_plain(p, k, inner, seen) || holds_plain(p, v, inner, seen),
-        Type::Union(ms) => ms.iter().any(|m| holds_plain(p, m, inner, seen)),
-        Type::Record(r) if !p.records[*r].class => {
-            seen.insert(*r)
-                && p.records[*r]
-                    .fields
-                    .iter()
-                    .any(|f| holds_plain(p, &f.ty, inner, seen))
-        }
-        _ => false,
-    }
-}
-
 /// Whether a value of type `outer` can hold a value of type `inner`.
 fn holds(p: &Program, outer: &Type, inner: &Type, seen: &mut HashSet<usize>) -> bool {
     if same_value_type(p, outer, inner) {
@@ -4642,32 +4600,6 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 && exposes(p, ty, &Type::Record(r), false, &mut HashSet::new())
         })
     };
-    // Whether cell `root` of type `ty`, initialised with a value that is not
-    // new (it may be shared), exposes to the template a plain object or array
-    // type that is mutated through a deep state proxy.
-    let shares_mutated_proxy = |root: Root, ty: &Type| {
-        let Root::Cell(k, cell) = root else {
-            return false;
-        };
-        let c = &p.components[k].cells[cell];
-        if c.prop.is_some() || m.written.contains(&(k, cell)) {
-            return false;
-        }
-        let mut scratch = Mutations::default();
-        let origins = Origins {
-            p,
-            scope: Scope::new(p, Some(k)),
-            locals: vec![],
-            out: &mut scratch,
-            source: None,
-            error: None,
-            site: Site::Template(k),
-        };
-        origins.origin(&c.init) != Origin::Fresh
-            && m.proxied_types
-                .iter()
-                .any(|t| t.is_reference() && holds_plain(p, ty, t, &mut HashSet::new()))
-    };
     let changes = |root: Root| -> Option<String> {
         let (ty, name, tracking) = match root {
             Root::Host(what) => {
@@ -4729,17 +4661,6 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 (ty.is_reference() && (m.roots.contains(&root) || mutated_type(false))).then(|| {
                     format!("{name} is mutated in place but is not reactive state; declare it as state")
                 })
-            }
-            // A constant (identity-tracked, never set) initialised with a
-            // value it may share with deep state elsewhere: a `$state` proxy
-            // passed through a context, a call or a prop. Svelte tracks reads
-            // through the proxy wherever they are; native templates re-read
-            // only reactive cells, so a mutation through the proxy would not
-            // update this view.
-            Tracking::Identity if ty.is_reference() && shares_mutated_proxy(root, ty) => {
-                Some(format!(
-                    "{name} holds a value that may be deep state ($state) of another component or cell, which is mutated in place; a constant does not track reads through it, so the change would not update the view (hold it in $state, or read it through a getter)"
-                ))
             }
             Tracking::None | Tracking::Identity => (ty.is_reference()
                 && (m.roots.contains(&root) || mutated_type(false) || field_changed(ty)))
@@ -5503,67 +5424,5 @@ mod union_tests {
             json!({"op": "match-union", "value": x(), "cases": [case("boolean", 1, n.clone())], "else": n}),
             "not a member",
         );
-    }
-}
-
-#[cfg(test)]
-mod shared_proxy_tests {
-    use super::*;
-    use serde_json::{Value as Json, json};
-
-    fn state() -> Json {
-        json!({"op": "cell", "cell": 0, "read": "current"})
-    }
-
-    /// One component: `state` (cell 0, proxied) holding a plain record that
-    /// a click handler mutates in place, and `alias` (cell 1, tracking
-    /// `tracking`) initialised with `init`, whose field the template reads.
-    fn program(init: Json, tracking: &str) -> Program {
-        serde_json::from_value(json!({
-            "schema": SCHEMA,
-            "meta": {"title": "shared proxies", "sourceHash": "0".repeat(64), "frontend": {}},
-            "capabilities": ["dom"],
-            "styles": {"css": ""},
-            "records": [{"name": "Tone", "fields": [{"name": "count", "type": "number"}]}],
-            "components": [{
-                "name": "App",
-                "cells": [
-                    {"name": "state", "type": {"record": 0}, "tracking": "proxied",
-                     "init": {"op": "record", "record": 0, "fields": [{"op": "lit", "value": 0}]}},
-                    {"name": "alias", "type": {"record": 0}, "tracking": tracking, "init": init}
-                ],
-                "handlers": [{"event": "click", "body": [{"op": "assign",
-                    "target": {"place": "field", "object": state(), "field": 0},
-                    "value": {"op": "add", "left": {"op": "get", "object": state(), "field": 0},
-                              "right": {"op": "lit", "value": 1}}}]}],
-                "template": [{"kind": "element", "tag": "button",
-                    "listeners": [{"event": "click", "handler": 0}],
-                    "children": [{"kind": "text", "parts": [{"op": "to-string", "arg": {"op": "get",
-                        "object": {"op": "cell", "cell": 1, "read": "current"}, "field": 0}}]}]}]
-            }],
-            "root": 0
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn constants_sharing_mutated_deep_state_are_rejected() {
-        // `const alias = state` (or a value from a context or a call): the
-        // proxy's mutations would not update the view natively.
-        let e = validate(&program(state(), "identity")).unwrap_err();
-        assert_eq!(e.code, "E_REACTIVITY", "{e}");
-        assert!(
-            e.message
-                .contains("alias holds a value that may be deep state"),
-            "{e}"
-        );
-    }
-
-    #[test]
-    fn new_values_and_proxied_cells_are_accepted() {
-        // A record of its own (never mutated), or the proxy in $state.
-        let fresh = json!({"op": "record", "record": 0, "fields": [{"op": "lit", "value": 0}]});
-        validate(&program(fresh, "identity")).unwrap();
-        validate(&program(state(), "proxied")).unwrap();
     }
 }
