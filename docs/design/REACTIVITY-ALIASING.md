@@ -74,7 +74,7 @@ For every template expression of an accepted program: whenever the value it comp
 4. **R3**: overlays in `runic_js::heap`, for the interpreter and generated code alike (cases `proxy-target`, `proxy-lazy`; `ownership`, `ownership-cycles` without its known gap).
 5. **R5**: before-images for teardowns (case `teardown-proxy`).
 6. **R8**: aliases of deep state as proxies (case `alias-writes`).
-7. React and Vue audit (below).
+7. React and Vue audit (below; case `staleness` for React).
 
 Each step runs the node and Rust tests, the differential on the affected fixtures, conformance with pixels on the new and the existing reactivity cases, and the example census where it can reject programs.
 
@@ -89,10 +89,13 @@ What each framework does, what the native model does, and the case that detects 
 | Raw object after storing it in state | target untouched; per-property snapshot at first read (verified) | proxy writes through to the target; raw writes not tracked, shown at the next render (verified) | state is the object; mutation rejected | R3 (Svelte), in-place marking and R6 (Vue) | `proxy-target`, `proxy-lazy`, `raw-target-vue` |
 | Proxy identity | new proxy per raw store and per lazy path; `proxy(p) === p` | one reactive proxy per raw object (`reactiveMap`) | identity of the object | R3; Vue: shared storage | `ownership`, `ownership-cycles` |
 | Effect writing what it read | re-runs (cells and proxies; verified) | `watchEffect` does not re-run for its own writes (verified); rejected by the adapter | `useEffect` with the value in deps re-runs after the next render | R4 | `effect-self` |
+| React state identity and staleness | — | — | equal state commits nothing; effects keep their render's props; a timeout reads its render's state; value updates vs updaters (verified) | snapshots, `identity` cells | `staleness` |
 | Teardown/cleanup reads | values before the flush, proxies included (verified, 5.57.1) | live values (`onWatcherCleanup` runs before the re-run) | the render's closure (snapshot) | R5; `cleanupReadsPrevious` per adapter | `teardown-proxy` |
 | Template granularity | per block, calls memoized (verified) | per component render | per component render (with children) | per binding, validator R7 | `untrack-template`, `prop-raw` |
-| Derived caching | `$derived`: recomputed lazily, `===` | `computed`: lazy, `Object.is` | render constants every render; `useMemo` rejected | derived functions | `derived-timing`, `derived-equality` |
+| Derived caching | `$derived`: recomputed lazily, `===` (also over arrays changed in place: verified) | `computed`: lazy, `Object.is` | render constants every render; `useMemo` rejected | derived functions | `derived-timing`, `derived-equality`, `derived-arrays` |
+| Deep reactivity through collections | `Map`/`Set` not proxied (`SvelteMap` only); mutation in `$state` rejected | Maps, Sets and arrays a deep ref holds are reactive, nested too (verified) | — | `deep` marking | `collections-vue` |
+| State shared across component instances | module `$state` and `$state` class fields: every instance updates (verified) | (module refs: not covered) | — | module state as class fields | `shared-state` |
 | Shallow state | `$state.raw`: identity only | `shallowRef`: identity only (`.value` replace); in-place mutation rejected (`E_REACTIVITY`) | — | `identity` cells | `tests/reactivity.test.mjs` (`shallow-vue`) |
 | Stale closures | live reads | live reads | the render snapshot | snapshot reads | `closures` |
-| Keyed list item identity after replacing an item with the same key | block kept, item updated | vnode patched | fiber kept, props updated | locals updated, `tl` | `keyed-replace` (planned) |
+| Keyed list item identity after replacing an item with the same key | block kept with its child's state, item updated; in-place sort moves blocks (verified) | vnode patched | fiber kept, props updated | locals updated, `tl` | `keyed-replace` |
 | Effect pushing to an array it does not otherwise read | runs again: `push` reads the length (verified; unbounded, `effect_update_depth_exceeded`) | — | — | R4 | `push-effect` |

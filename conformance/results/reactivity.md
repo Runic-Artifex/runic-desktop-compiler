@@ -26,6 +26,8 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `prop-raw` | a child mutating a raw object through its prop shows it only when its block re-renders for another prop | interpreter shows it at once; native when any proxy is written | rejected, step 3 (R6) |
 | `raw-target-vue` | a raw write to a deep ref's target is not tracked and shows at the component's next render | interpreter (and native) show it at once; a recorded M4 deviation | rejected, step 3 (R6 for Vue) |
 | `shallow-vue` | a `shallowRef` mutated in place shows at the next render | rejected (`E_REACTIVITY`) | expected rejection |
+| `collections-vue` | Maps, Sets and arrays a deep ref holds are reactive, nested too | interpreter agrees | regression case |
+| `keyed-replace`, `derived-arrays`, `shared-state` (Svelte) | keyed blocks keep child state when an item is replaced; derived values over arrays changed in place; module state shared by instances | interpreter agrees | regression cases |
 | `staleness` (React) | immutable updates, effects keeping their render's props, a mount timeout reading the mount's state, bail-out on equal state, value updates vs updaters | interpreter agrees | regression case |
 
 ## Step 1: reads through aliases (R1/R2)
@@ -109,3 +111,33 @@ items, as TodoMVC's `{#each shown as todo}`) stays accepted. `shallow-vue`
   (`artifacts/reactivity/census-2`) lowers the same 280 programs as main
   (before props passed by imperatively mounted content were included; the
   census after step 6 covers them).
+
+## Regression cases (cross-framework audit)
+
+Rows of the [cross-framework matrix](../../docs/design/REACTIVITY-ALIASING.md#cross-framework-semantics-matrix)
+where the native model already agreed with the framework, each run in
+Chromium and the interpreter first, kept as regression cases:
+
+- `keyed-replace` (Svelte): an item replaced by a new object of the same key
+  keeps its block and its child's state, an item mutated in place updates,
+  a sort in place moves blocks, a rebuilt array keeps every block.
+- `derived-arrays` (Svelte): derived values over a `$state` array changed in
+  place (a filter, the array itself, a sorted copy, a sum, a counted
+  length) through `push`, `splice`, `sort` and an element write.
+- `shared-state` (Svelte): module state (a `$state` object and array, a
+  class with `$state` fields) written by two instances and read by them and
+  the root, one instance destroyed and created again.
+- `collections-vue`: Maps, Sets and arrays a deep ref holds, also nested in
+  an object, after `set`, `add`, `push` and element writes, read by the
+  template and a computed value.
+- `staleness` (React): six text expectations (immutable item updates reach
+  keyed rows, an effect without dependencies keeps its first render's
+  props, a timeout started at mount reads the mount's state, setting a state
+  to its value commits nothing, two value updates in one handler give one
+  increment and two updaters two). Its first run failed on the expectations
+  only: the fixture's log began with a space, in Chromium and natively
+  alike; the log now starts without it.
+
+Conformance with pixels at 800x600 and 420x600: all pass
+(`artifacts/reactivity/step23`, `step23-staleness`, `step23-collections`);
+the differential of their fixtures is in step 2.

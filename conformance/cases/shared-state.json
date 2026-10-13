@@ -1,0 +1,36 @@
+{
+  "description": "Svelte module state shared by component instances: a $state object and array and a class with $state fields, written by two instances, read by them and the root, one instance destroyed and created again",
+  "fixtures": [
+    "shared-state-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "a-bump"
+    },
+    {
+      "kind": "click",
+      "id": "b-bump"
+    },
+    {
+      "kind": "click",
+      "id": "toggle"
+    },
+    {
+      "kind": "click",
+      "id": "a-bump"
+    },
+    {
+      "kind": "click",
+      "id": "toggle"
+    },
+    {
+      "kind": "click",
+      "id": "b-bump"
+    },
+    {
+      "kind": "click",
+      "id": "reset"
+    }
+  ]
+}

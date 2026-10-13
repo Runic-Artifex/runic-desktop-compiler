@@ -1,0 +1,68 @@
+{
+  "description": "React's snapshot model: immutable item updates reach keyed rows, an effect without dependencies keeps its first render's props, a timeout started at mount reads the mount's state, setting a state to its value commits nothing, two value updates in one handler give one increment and two updaters two",
+  "fixtures": [
+    "staleness-react"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "twice"
+    },
+    {
+      "kind": "click",
+      "id": "same"
+    },
+    {
+      "kind": "click",
+      "id": "show"
+    },
+    {
+      "kind": "wait",
+      "ms": 350
+    },
+    {
+      "kind": "click",
+      "id": "updaters"
+    },
+    {
+      "kind": "click",
+      "id": "rename"
+    },
+    {
+      "kind": "click",
+      "id": "show"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 1,
+      "id": "count",
+      "text": "1"
+    },
+    {
+      "step": 3,
+      "id": "log",
+      "text": "commits:2"
+    },
+    {
+      "step": 4,
+      "id": "log",
+      "text": "commits:2 timeout:0"
+    },
+    {
+      "step": 5,
+      "id": "count",
+      "text": "3"
+    },
+    {
+      "step": 6,
+      "id": "row-1",
+      "text": "one! 3 first one/0"
+    },
+    {
+      "step": 7,
+      "id": "log",
+      "text": "commits:2 timeout:0 commits:6"
+    }
+  ]
+}

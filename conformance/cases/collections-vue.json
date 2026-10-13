@@ -1,0 +1,32 @@
+{
+  "description": "Vue deep refs make the Maps, Sets and arrays they hold reactive, also nested in an object: template reads and a computed value update after set, add, push and element writes",
+  "fixtures": [
+    "collections-vue"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "score"
+    },
+    {
+      "kind": "click",
+      "id": "tag"
+    },
+    {
+      "kind": "click",
+      "id": "nest"
+    },
+    {
+      "kind": "click",
+      "id": "score"
+    },
+    {
+      "kind": "click",
+      "id": "tag"
+    },
+    {
+      "kind": "click",
+      "id": "nest"
+    }
+  ]
+}

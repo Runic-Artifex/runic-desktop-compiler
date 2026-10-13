@@ -1,0 +1,40 @@
+{
+  "description": "Svelte keyed lists over $state: an item replaced by a new object of the same key keeps its block and child state, an item mutated in place updates, a sort in place moves blocks, a rebuilt array keeps every block",
+  "fixtures": [
+    "keyed-replace-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "row-1-click"
+    },
+    {
+      "kind": "click",
+      "id": "replace"
+    },
+    {
+      "kind": "click",
+      "id": "toggle"
+    },
+    {
+      "kind": "click",
+      "id": "row-2-click"
+    },
+    {
+      "kind": "click",
+      "id": "sort"
+    },
+    {
+      "kind": "click",
+      "id": "replace"
+    },
+    {
+      "kind": "click",
+      "id": "rebuild"
+    },
+    {
+      "kind": "click",
+      "id": "toggle"
+    }
+  ]
+}
