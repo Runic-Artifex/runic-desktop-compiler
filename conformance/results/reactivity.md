@@ -22,9 +22,10 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `push-effect` (Svelte) | an effect pushing to a `$state` array runs again (`push` reads the length) until it stops pushing | ran once | fixed, step 2 (R4) |
 | `effect-self` (Vue) | a `watchEffect` does not re-run for its own writes | rejected by the Vue adapter (`E_EFFECT`), as designed | expected rejection |
 | `teardown-proxy` | cleanups and `onDestroy` read proxy properties as before the flush (`cleanup 0/0`, `destroy 3 3`) | proxies read current values (`0/1`, `13 3`) | step 5 (R5) |
-| `untrack-template` | `{untrack(() => x)}` never updates (memoized call) | interpreter updates at every render, native when `x` is dirty | step 4 (R7, rejection) |
-| `prop-raw` | a child mutating a raw object through its prop shows it only when its block re-renders for another prop | interpreter shows it at once; native when any proxy is written | step 4 (R6, rejection) |
-| `raw-target-vue` | a raw write to a deep ref's target is not tracked and shows at the component's next render | interpreter (and native) show it at once | step 4 (R6 for Vue, rejection) |
+| `untrack-template` | `{untrack(() => x)}` never updates (memoized call) | interpreter updates at every render, native when `x` is dirty | rejected, step 3 (R7) |
+| `prop-raw` | a child mutating a raw object through its prop shows it only when its block re-renders for another prop | interpreter shows it at once; native when any proxy is written | rejected, step 3 (R6) |
+| `raw-target-vue` | a raw write to a deep ref's target is not tracked and shows at the component's next render | interpreter (and native) show it at once; a recorded M4 deviation | rejected, step 3 (R6 for Vue) |
+| `shallow-vue` | a `shallowRef` mutated in place shows at the next render | rejected (`E_REACTIVITY`) | expected rejection |
 | `staleness` (React) | immutable updates, effects keeping their render's props, a mount timeout reading the mount's state, bail-out on equal state, value updates vs updaters | interpreter agrees | regression case |
 
 ## Step 1: reads through aliases (R1/R2)
@@ -89,3 +90,22 @@ changes nothing.
   `collections-vue`: 3640 steps, no failure.
 - `npm test` 479/479 and `cargo test --workspace` (178) pass with steps 2
   and 3.
+
+## Step 3: raw props, raw ref targets and untracked template reads (R6, R7)
+
+Rejections (`E_REACTIVITY`, located), each checked in Chromium first:
+`{untrack(() => …)}` reached from a template expression (`untrack-template`:
+Svelte memoizes the expression); a child mutating a prop where a site passes
+a raw object or a default object applies (`prop-raw`); a raw object a Vue ref
+holds changed through another root (`raw-target-vue`, until now a recorded M4
+deviation). A prop whose value has an unknown origin (a derived value's
+items, as TodoMVC's `{#each shown as todo}`) stays accepted. `shallow-vue`
+(a `shallowRef` mutated in place) stays an expected rejection.
+
+- `tests/reactivity.test.mjs` checks each rejection and its source location,
+  and that a child mutating a `$state` object passed as its prop is
+  accepted.
+- No program that lowered before is rejected: the example census
+  (`artifacts/reactivity/census-2`) lowers the same 280 programs as main
+  (before props passed by imperatively mounted content were included; the
+  census after step 6 covers them).

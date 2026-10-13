@@ -3552,6 +3552,15 @@ struct Mutations {
     /// root is.
     dyn_roots: HashSet<Root>,
     dyn_unknown: bool,
+    /// `proxied` props that may hold a plain object or array that is not
+    /// deep state (computed before the walk, `raw_capable_props`), and those
+    /// of them mutated in place: such a write is raw (R6).
+    raw_props: HashSet<(usize, usize)>,
+    raw_prop_mutated: HashSet<(usize, usize)>,
+    /// Roots (not deep themselves) whose values are stored into deep state
+    /// (Vue refs): their raw in-place mutations change what a deep ref holds
+    /// without going through its reactive proxy (R6).
+    stored_deep: HashSet<Root>,
 }
 
 /// The RegExp whose `lastIndex` a built-in may change (global and sticky
@@ -3893,6 +3902,16 @@ impl Origins<'_> {
                 if collection {
                     self.out.collections.insert(r);
                 }
+                // A prop that may hold a plain object that is not deep state:
+                // the write is raw, and other values may hold the object.
+                if let Root::Cell(k, cell) = r {
+                    if self.out.raw_props.contains(&(k, cell)) {
+                        self.out.raw_prop_mutated.insert((k, cell));
+                        if let Ok(t) = self.scope.infer(e, 0, None) {
+                            self.out.types.push(t);
+                        }
+                    }
+                }
             }
             Origin::Fresh => {}
             Origin::Unknown => {
@@ -3901,6 +3920,23 @@ impl Origins<'_> {
                 }
             }
         }
+    }
+
+    /// `value` is stored into deep state (a Vue ref): a root it comes from
+    /// now shares what the ref holds.
+    fn stored_deep(&mut self, value: &Expr) {
+        if let Origin::Root(r) = self.origin(value) {
+            let deep = matches!(r, Root::Cell(k, c) if self.p.components[k].cells[c].tracking == Tracking::Deep);
+            if !deep {
+                self.out.stored_deep.insert(r);
+            }
+        }
+    }
+
+    /// Whether `e` evaluates to a value held by a deep ref.
+    fn deep_origin(&self, e: &Expr) -> bool {
+        matches!(self.origin(e), Origin::Root(Root::Cell(k, c))
+            if self.p.components[k].cells[c].tracking == Tracking::Deep)
     }
 
     fn expr(&mut self, e: &Expr) {
@@ -3939,6 +3975,12 @@ impl Origins<'_> {
                         receiver,
                         name.starts_with("map.") || name.starts_with("set."),
                     );
+                    // (Values stored into what a deep ref holds.)
+                    if self.deep_origin(receiver) {
+                        for a in &args[1..] {
+                            self.stored_deep(a);
+                        }
+                    }
                 }
             }
         }
@@ -3990,6 +4032,9 @@ impl Origins<'_> {
                 self.expr(value);
                 self.change(Origin::Unknown);
                 self.written(*cell);
+                if self.cell_deep(*cell) {
+                    self.stored_deep(value);
+                }
             }
             Stmt::Let { local, value, .. } => {
                 if let Some(v) = value {
@@ -4007,7 +4052,10 @@ impl Origins<'_> {
                     }
                     Place::Cell { cell } => {
                         self.change(Origin::Unknown);
-                        self.written(*cell)
+                        self.written(*cell);
+                        if self.cell_deep(*cell) {
+                            self.stored_deep(value);
+                        }
                     }
                     // A reactive class field notifies: not an unnoticed mutation.
                     Place::Field { object, field }
@@ -4039,11 +4087,17 @@ impl Origins<'_> {
                     Place::Field { object, .. } => {
                         self.expr(object);
                         self.mutated(object, false);
+                        if self.deep_origin(object) {
+                            self.stored_deep(value);
+                        }
                     }
                     Place::Index { array, index } => {
                         self.expr(array);
                         self.expr(index);
                         self.mutated(array, false);
+                        if self.deep_origin(array) {
+                            self.stored_deep(value);
+                        }
                     }
                 }
             }
@@ -4099,6 +4153,13 @@ impl Origins<'_> {
             }
             Stmt::Break { .. } | Stmt::Continue { .. } => {}
         }
+    }
+
+    /// Whether cell `cell` of the running component is a deep ref.
+    fn cell_deep(&self, cell: usize) -> bool {
+        self.scope
+            .component
+            .is_some_and(|k| self.p.components[k].cells[cell].tracking == Tracking::Deep)
     }
 
     fn written(&mut self, cell: usize) {
@@ -4527,8 +4588,193 @@ fn stmt_source(s: &Stmt) -> Option<&Source> {
     }
 }
 
+/// `proxied` prop cells of types deep state proxies that may hold a value
+/// that is not a proxy (docs/design/REACTIVITY-ALIASING.md, R6): Svelte
+/// passes props as they are and never proxies a default, so a site passing a
+/// new object, a module constant, a cell that is not `proxied` or another
+/// such prop, a site leaving the prop to a default object, or an imperative
+/// mount makes it hold a raw object, whose mutation Svelte does not track.
+/// (A value of unknown origin, a function's result, is not told apart.)
+fn raw_capable_props(p: &Program) -> HashSet<(usize, usize)> {
+    let heap = crate::reactive::ReactiveHeap::of(p);
+    let candidate = |k: usize, i: usize| {
+        let c = &p.components[k].cells[i];
+        c.prop.is_some() && c.tracking == Tracking::Proxied && heap.is(p, &c.ty)
+    };
+    // A default that is a new object (Svelte never proxies a default).
+    let default_raw = |k: usize, i: usize| {
+        matches!(
+            p.components[k].cells[i].init,
+            Expr::Record { .. } | Expr::Array { .. }
+        )
+    };
+    let mut raw = HashSet::new();
+    for c in &p.components {
+        for m in &c.mounts {
+            for i in 0..p.components[m.component].cells.len() {
+                if candidate(m.component, i) {
+                    raw.insert((m.component, i));
+                }
+            }
+        }
+    }
+    /// The sites of `nodes`: (child component, cell) whose value may be raw.
+    #[allow(clippy::too_many_arguments)]
+    fn sites(
+        p: &Program,
+        o: &mut Origins,
+        nodes: &[Node],
+        raw: &HashSet<(usize, usize)>,
+        candidate: &dyn Fn(usize, usize) -> bool,
+        default_raw: &dyn Fn(usize, usize) -> bool,
+        out: &mut Vec<(usize, usize)>,
+    ) {
+        // A value surely raw: a new object, a module constant, a cell that
+        // is not deep state (unless a constant of a proxy, R8), a prop that
+        // may hold one. (A value of unknown origin, such as a function's
+        // result, is taken as it may be: docs/gaps/FRAMEWORKS.md.)
+        let raw_value = |o: Origin| match o {
+            Origin::Fresh | Origin::Root(Root::Global(_)) => true,
+            Origin::Root(Root::Cell(k, c)) => {
+                let cell = &p.components[k].cells[c];
+                cell.tracking != Tracking::Proxied || (cell.prop.is_some() && raw.contains(&(k, c)))
+            }
+            _ => false,
+        };
+        let set = |o: &mut Origins, local: usize, v: Origin| {
+            if o.locals.len() <= local {
+                o.locals.resize(local + 1, Origin::Unknown);
+            }
+            o.locals[local] = v;
+        };
+        for n in nodes {
+            match n {
+                Node::Element { children, .. } => {
+                    sites(p, o, children, raw, candidate, default_raw, out)
+                }
+                Node::Text { .. } | Node::Html { .. } => {}
+                Node::If {
+                    then, otherwise, ..
+                } => {
+                    sites(p, o, then, raw, candidate, default_raw, out);
+                    sites(p, o, otherwise, raw, candidate, default_raw, out);
+                }
+                Node::Slot { fallback, .. } => {
+                    sites(p, o, fallback, raw, candidate, default_raw, out)
+                }
+                Node::Each {
+                    items,
+                    item,
+                    index,
+                    body,
+                    otherwise,
+                    ..
+                } => {
+                    let element = match o.origin(items) {
+                        r @ (Origin::Root(_) | Origin::Reactive) => r,
+                        _ => Origin::Unknown,
+                    };
+                    set(o, *item, element);
+                    if let Some(i) = index {
+                        set(o, *i, Origin::Fresh);
+                    }
+                    sites(p, o, body, raw, candidate, default_raw, out);
+                    sites(p, o, otherwise, raw, candidate, default_raw, out);
+                }
+                Node::Component {
+                    component,
+                    props,
+                    slots,
+                    ..
+                } => {
+                    let child = &p.components[*component];
+                    for (i, cell) in child.cells.iter().enumerate() {
+                        if !candidate(*component, i) {
+                            continue;
+                        }
+                        let name = cell.prop.as_deref().unwrap_or_default();
+                        let is_raw = match props.iter().find(|a| a.name == name) {
+                            None => default_raw(*component, i),
+                            Some(a) => {
+                                raw_value(o.origin(&a.value))
+                                    || (cell.undefined_default
+                                        && matches!(
+                                            o.scope.infer(&a.value, 0, None),
+                                            Ok(Type::Maybe(_))
+                                        )
+                                        && default_raw(*component, i))
+                            }
+                        };
+                        if is_raw {
+                            out.push((*component, i));
+                        }
+                    }
+                    for s in slots {
+                        // (Slot content's parameters: values the child gives.)
+                        for &l in &s.params {
+                            set(o, l, Origin::Unknown);
+                        }
+                        sites(p, o, &s.body, raw, candidate, default_raw, out);
+                    }
+                }
+            }
+        }
+    }
+    loop {
+        let mut found = vec![];
+        for (k, c) in p.components.iter().enumerate() {
+            let mut scratch = Mutations::default();
+            let mut scope = Scope::new(p, Some(k));
+            scope.locals = c.template_locals.clone();
+            let mut o = Origins {
+                p,
+                scope,
+                locals: vec![Origin::Unknown; c.template_locals.len()],
+                out: &mut scratch,
+                source: None,
+                error: None,
+                site: Site::Template(k),
+            };
+            sites(
+                p,
+                &mut o,
+                &c.template_and_mounts(),
+                &raw,
+                &candidate,
+                &default_raw,
+                &mut found,
+            );
+        }
+        let before = raw.len();
+        raw.extend(found);
+        if raw.len() == before {
+            return raw;
+        }
+    }
+}
+
 fn untracked_template_reads(p: &Program) -> Result<()> {
-    let mut m = Mutations::default();
+    let mut m = Mutations {
+        raw_props: raw_capable_props(p),
+        ..Mutations::default()
+    };
+    // What deep refs start with: a root whose value one holds shares it.
+    for (k, c) in p.components.iter().enumerate() {
+        for cell in &c.cells {
+            if cell.tracking == Tracking::Deep && cell.prop.is_none() {
+                let mut o = Origins {
+                    p,
+                    scope: Scope::new(p, Some(k)),
+                    locals: vec![],
+                    out: &mut m,
+                    source: None,
+                    error: None,
+                    site: Site::Template(k),
+                };
+                o.stored_deep(&cell.init);
+            }
+        }
+    }
     for (i, f) in p.functions.iter().enumerate() {
         let mut scope = Scope::new(p, f.component);
         scope.locals = f
@@ -4573,6 +4819,28 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
         }
     }
     unsafe_mutations(p, &mut m)?;
+    // Untracked reads while rendering (docs/design/REACTIVITY-ALIASING.md,
+    // R7): Svelte memoizes a template expression that calls a function and
+    // computes it again only when what it tracked changed, so a value read
+    // with untrack() stays as first shown; native bindings and the
+    // interpreter would show its changes.
+    for c in &p.components {
+        let nodes = c.template_and_mounts();
+        let mut exprs = vec![];
+        template_sourced(&nodes, None, &mut exprs);
+        for (e, src) in exprs {
+            if renders_untracked(p, e, &mut HashSet::new()) {
+                return err(
+                    "E_REACTIVITY",
+                    format!(
+                        "A template expression of {} reads values with untrack(); Svelte computes such an expression once and does not show their changes, which the native view would (read them tracked, or keep the value in state)",
+                        c.name
+                    ),
+                    src,
+                );
+            }
+        }
+    }
     // RegExps whose lastIndex changes in template expressions themselves.
     for (k, c) in p.components.iter().enumerate() {
         let all_nodes = c.template_and_mounts();
@@ -4673,6 +4941,14 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                 ),
             }),
             Tracking::Proxied => {
+                // A prop holding a raw object its parent passed, changed in
+                // place (R6): Svelte shows the change only when the block
+                // renders again for another reason.
+                if matches!(root, Root::Cell(k, c) if m.raw_prop_mutated.contains(&(k, c))) {
+                    return Some(format!(
+                        "{name} is a prop that may hold a plain object or array that is not $state (a new object or a constant its parent passes, or its default), and it is mutated in place; Svelte does not track such writes, so the view would show them only when it renders again for another reason (pass $state from the parent, or replace the value)"
+                    ));
+                }
                 // Svelte proxies plain objects and arrays only: a class
                 // instance in state, and everything it holds, stays raw.
                 let mut classes = vec![];
@@ -4696,7 +4972,30 @@ fn untracked_template_reads(p: &Program) -> Result<()> {
                     )
                 })
             }
-            Tracking::Deep => None,
+            // What a deep ref holds, also held by another root that changes
+            // it in place directly (R6): Vue tracks writes through the ref's
+            // reactive proxy only, and shows such a change when the
+            // component renders again for another reason.
+            Tracking::Deep => m
+                .stored_deep
+                .iter()
+                .filter(|r| m.roots.contains(r))
+                .find_map(|&r| {
+                    let (other, other_ty) = match r {
+                        Root::Cell(k, c) => {
+                            let cell = &p.components[k].cells[c];
+                            if !matches!(cell.tracking, Tracking::Identity | Tracking::None) {
+                                return None;
+                            }
+                            (cell.name.clone(), &cell.ty)
+                        }
+                        Root::Global(g) => (p.globals[g].name.clone(), &p.globals[g].ty),
+                        Root::Host(_) => return None,
+                    };
+                    holds(p, ty, other_ty, &mut HashSet::new()).then(|| format!(
+                        "{name} holds an object that {other} also holds and changes in place directly, not through the ref; Vue tracks only writes through the ref's reactive proxy, so the view would show them only when it renders again for another reason (change it through {name})"
+                    ))
+                }),
         }
     };
     for (k, c) in p.components.iter().enumerate() {
@@ -5039,6 +5338,40 @@ fn reads(
     for c in e.children() {
         reads(p, k, c, seen, f);
     }
+}
+
+/// Whether evaluating `e` while rendering reads values untracked
+/// (`reactive.untrack-call`): directly, through the functions it calls
+/// (derived values are cached on their own tracked reads) or through the
+/// callbacks it hands to built-ins, which may call them.
+fn renders_untracked(p: &Program, e: &Expr, seen: &mut HashSet<usize>) -> bool {
+    let body = |f: usize, seen: &mut HashSet<usize>| {
+        if !seen.insert(f) {
+            return false;
+        }
+        let mut exprs = vec![];
+        collect_exprs(&p.functions[f].body, &mut exprs);
+        exprs.into_iter().any(|x| renders_untracked(p, x, seen))
+    };
+    match e {
+        Expr::Builtin { name, .. } if name == "reactive.untrack-call" => return true,
+        Expr::Call { function, .. } if !p.functions[*function].derived => {
+            if body(*function, seen) {
+                return true;
+            }
+        }
+        Expr::Builtin { args, .. } => {
+            for a in args {
+                if let Expr::Closure { function, .. } = a {
+                    if body(*function, seen) {
+                        return true;
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    e.children().iter().any(|c| renders_untracked(p, c, seen))
 }
 
 fn collect_exprs<'a>(body: &'a [Stmt], out: &mut Vec<&'a Expr>) {
