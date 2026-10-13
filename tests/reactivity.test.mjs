@@ -207,6 +207,20 @@ test('proxies never write their target and take its properties lazily (R3)', asy
   assert.equal(shown(lazy[5], 'items'), 'touch 0,renamed,touch 2');
 });
 
+test('an effect depends on a nested object it is the first to read through a proxy (R3, R4)', async () => {
+  // Case deep-tracking in Chromium: the effect reading `items[0].done` runs
+  // again after the item is toggled. Its first run makes the proxy of
+  // items[0]; Svelte creates it with the array's proxy (`with_parent`), so
+  // it is not a source the effect created itself.
+  const steps = interpret(
+    (await lowered('fixtures/deep-tracking-svelte')).ir,
+    ['dump', 'toggle-first', 'dump'].map(click),
+    {},
+  );
+  assert.equal(shown(steps[1], 'log'), 'a 1 | first false | count 2');
+  assert.equal(shown(steps[3], 'log'), 'first true');
+});
+
 test('changing an array in place under a proxy is reported (R3)', async () => {
   await withApp(
     'raw-array',

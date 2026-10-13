@@ -107,9 +107,16 @@ struct Storage<T> {
 
 impl<T> Storage<T> {
     fn new(value: T) -> Self {
-        let born = BORN.with(|b| {
-            b.set(b.get() + 1);
-            b.get()
+        // A proxy made while another takes a slot (a nested plain value at
+        // its first access) counts as created with that one: Svelte creates
+        // a proxy's lazy sources in the reaction that created the proxy
+        // (`with_parent` in proxy.js), so a reaction reading a nested
+        // object for the first time depends on it (case deep-tracking).
+        let born = TAKING.with(Cell::get).unwrap_or_else(|| {
+            BORN.with(|b| {
+                b.set(b.get() + 1);
+                b.get()
+            })
         });
         Storage {
             value: RefCell::new(value),
@@ -134,6 +141,9 @@ thread_local! {
     /// The first behaviour the heap could not reproduce since the last
     /// [`take_heap_unsupported`].
     static UNSUPPORTED: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// While a proxy takes slots from its target: when that proxy was
+    /// created, which the proxies it makes of nested values inherit.
+    static TAKING: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
 /// Proxies keep their values before the flush for teardowns (R5 of
@@ -378,6 +388,7 @@ impl<T> JsRef<T> {
                 Some(_) => 0..0,
                 None => 0..l.pending.len(),
             };
+            let taking = TAKING.with(|t| t.replace(Some(self.0.storage.counts.born)));
             for s in range {
                 if l.pending[s] {
                     l.pending[s] = false;
@@ -385,6 +396,7 @@ impl<T> JsRef<T> {
                     (l.take)(&mut own, &target, s as u32);
                 }
             }
+            TAKING.with(|t| t.set(taking));
         }
         if l.left == 0 {
             if l.elements {
