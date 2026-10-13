@@ -10,10 +10,13 @@
 // - any other package, or another version of one of these, is rejected
 //   (E_DEPENDENCY, E_SOURCE_VERSION, E_PACK_VERSION) at the import.
 //
-// Only reached code is lowered: a source package must declare itself free of
-// module side effects (`"sideEffects": false`), which is what makes lowering
-// the declarations a program uses, and only those, equivalent to running the
-// package's modules.
+// Only reached code is lowered: the declarations a program uses, when it
+// first uses them. That is equivalent to running the package's modules where
+// the package declares itself free of module side effects (`"sideEffects":
+// false`: a bundle drops the modules whose exports nothing uses) or, for any
+// other package, where the top-level code of every module a bundle evaluates
+// is inert (frontend/module-effects.ts checks it, in bundle order, and
+// rejects the first code that is not).
 
 export interface SourcePackage {
   name: string;
@@ -26,6 +29,12 @@ export const SOURCE_PACKAGES: readonly SourcePackage[] = [
   { name: 'bits-ui', version: '2.19.2' },
   // Toasts (shadcn-svelte's Sonner; the site's lockfile pin).
   { name: 'svelte-sonner', version: '1.2.1' },
+  // The Drawer, Resizable and dark-mode examples' packages (the site's
+  // lockfile pins). None declares "sideEffects": false, so their modules'
+  // top-level code is checked (frontend/module-effects.ts).
+  { name: 'vaul-svelte', version: '1.0.0-next.7' },
+  { name: 'paneforge', version: '1.0.2' },
+  { name: 'mode-watcher', version: '1.1.0' },
 ];
 
 /** Whether `name@version` is compiled from source. */

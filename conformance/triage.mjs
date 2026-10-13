@@ -649,7 +649,7 @@ const siteOmitted = [
   },
   {
     what: "the (app) layout's ModeWatcher (mode-watcher, defaultMode system) and its `d` key handler",
-    why: "mode-watcher does not lower (E_DEPENDENCY: it does not declare sideEffects false; example census); in Chromium's default light scheme it sets color-scheme: light on <html>, the default rendering",
+    why: "mode-watcher does not lower (E_PACK_VERSION: its nested runed 0.25.0, then E_MODULE: localStorage and matchMedia read at module evaluation; example census); in Chromium's default light scheme it sets color-scheme: light on <html>, the default rendering",
   },
   {
     what: "the (app) layout's Toaster (registry/ui/sonner, svelte-sonner)",

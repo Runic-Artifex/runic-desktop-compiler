@@ -1,7 +1,9 @@
 // Bindings of package modules compiled from source, created on first use
 // (frontend/sources.ts, frontend/package-modules.ts). A source package
-// declares itself free of module side effects, so lowering only the
-// declarations a program reaches is equivalent to running its modules:
+// declares itself free of module side effects, or the top-level code of the
+// modules a bundle evaluates is inert (frontend/module-effects.ts), so
+// lowering only the declarations a program reaches is equivalent to running
+// its modules:
 // functions, classes and constants are lowered when code first names them,
 // imports of packs bound when first used. A module constant whose
 // dependencies come first is a program global created after them, so

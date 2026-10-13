@@ -374,12 +374,14 @@ export function collectionPlugin(root, modules, tooling, onDiagnostic, component
         if (!id.startsWith(root + path.sep) || id.includes('/node_modules/')) {
           const pkg = await owningPackage(id);
           if (!pkg || !isSourcePackage(pkg.name, pkg.version)) return;
-          source = { name: pkg.name, version: pkg.version, dir: pkg.dir };
-          if (pkg.sideEffects !== false)
-            throw new Diagnostic(
-              'E_SOURCE_PACKAGE',
-              `${pkg.name}@${pkg.version} does not declare "sideEffects": false; packages compiled from source must, since only the declarations a program reaches are lowered`,
-            );
+          // Its `sideEffects` decides which of its modules a bundle evaluates
+          // (frontend/module-effects.ts checks the others' top-level code).
+          source = {
+            name: pkg.name,
+            version: pkg.version,
+            dir: pkg.dir,
+            ...(pkg.sideEffects === false ? { sideEffects: false } : {}),
+          };
         }
         if (
           !['.js', '.jsx', '.ts', '.tsx', '.css', ...(tooling.extensions ?? [])].includes(

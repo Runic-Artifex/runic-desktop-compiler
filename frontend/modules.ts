@@ -14,7 +14,11 @@ export interface ModuleGraph {
   /** `package`: the package compiled from source a module belongs to (frontend/sources.ts). */
   modules: Map<
     string,
-    { code: string; imports: Edge[]; package?: { name: string; version: string; dir: string } }
+    {
+      code: string;
+      imports: Edge[];
+      package?: { name: string; version: string; dir: string; sideEffects?: false };
+    }
   >;
 }
 
