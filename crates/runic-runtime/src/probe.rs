@@ -262,13 +262,17 @@ fn text_json(s: &runic_js::JsString) -> Value {
     }
 }
 
-fn pointer(x: f32, y: f32, buttons: MouseEventButtons) -> BlitzPointerEvent {
+/// A mouse pointer at client point `(x, y)`. Its page point adds the
+/// viewport's scroll, as blitz-shell's `pointer_coords` does for OS input:
+/// Blitz hit-tests and hovers at the page point.
+fn pointer(doc: &BaseDocument, x: f32, y: f32, buttons: MouseEventButtons) -> BlitzPointerEvent {
+    let (page_x, page_y) = page_point(doc, x, y);
     BlitzPointerEvent {
         id: BlitzPointerId::Mouse,
         is_primary: true,
         coords: PointerCoords {
-            page_x: x,
-            page_y: y,
+            page_x,
+            page_y,
             screen_x: x,
             screen_y: y,
             client_x: x,
@@ -281,6 +285,12 @@ fn pointer(x: f32, y: f32, buttons: MouseEventButtons) -> BlitzPointerEvent {
         element: Default::default(),
         active_pointers: Default::default(),
     }
+}
+
+/// The page point (Blitz's hit-test coordinates) of client point `(x, y)`.
+fn page_point(doc: &BaseDocument, x: f32, y: f32) -> (f32, f32) {
+    let scroll = doc.viewport_scroll();
+    (x + scroll.x as f32, y + scroll.y as f32)
 }
 
 fn key_event(key: Key, code: Code, mods: Modifiers, text: Option<&str>, up: bool) -> BlitzKeyEvent {
@@ -421,7 +431,8 @@ fn hidden_pointer_target<A: App>(native: &mut Native<A>, action: &Value) -> Opti
     // interpreter, delivering to the target, would not run.
     let r = crate::layout::client_rect(&native.doc, target)?;
     let (x, y) = ((r.x + r.width / 2.0) as f32, (r.y + r.height / 2.0) as f32);
-    let mut hit = native.doc.hit(x, y).map(|h| h.node_id);
+    let (px, py) = page_point(&native.doc, x, y);
+    let mut hit = native.doc.hit(px, py).map(|h| h.node_id);
     let mut listening_descendant = false;
     while let Some(n) = hit {
         if n == target {
@@ -535,7 +546,8 @@ fn pointer_target<A: App>(native: &mut Native<A>, action: &Value) -> Option<Valu
         return unavailable("selected element has no client rectangle");
     }
     let (x, y) = centre(native, selected, action);
-    let Some(hit) = native.doc.hit(x, y) else {
+    let (px, py) = page_point(&native.doc, x, y);
+    let Some(hit) = native.doc.hit(px, py) else {
         return unavailable("pointer point has no hit");
     };
     let Some(normalized) = native.doc.nearest_non_anonymous_ancestor(hit.node_id) else {
@@ -620,10 +632,10 @@ fn press_button<A: App>(
         _ => MouseEventButtons::Primary,
     };
     native.pointer.next_count = Some(count);
-    let mut down = pointer(x, y, pressed);
+    let mut down = pointer(&native.doc, x, y, pressed);
     down.button = button;
     native.handle_ui_event(UiEvent::PointerDown(down));
-    let mut up = pointer(x, y, MouseEventButtons::None);
+    let mut up = pointer(&native.doc, x, y, MouseEventButtons::None);
     up.button = button;
     native.handle_ui_event(UiEvent::PointerUp(up));
 }
@@ -634,7 +646,12 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
         // dblclick, right click (`contextmenu`), hover and wheel.
         kind @ ("click" | "dblclick" | "contextmenu") => {
             let (x, y) = centre(native, target.expect("pointer target"), action);
-            native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
+            native.handle_ui_event(UiEvent::PointerMove(pointer(
+                &native.doc,
+                x,
+                y,
+                MouseEventButtons::None,
+            )));
             if kind == "contextmenu" {
                 press_button(native, x, y, MouseEventButton::Secondary, 1);
             } else {
@@ -646,17 +663,27 @@ fn perform_on<A: App>(native: &mut Native<A>, action: &Value, target: Option<Nod
         }
         "hover" => {
             let (x, y) = centre(native, target.expect("hover target"), action);
-            native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
+            native.handle_ui_event(UiEvent::PointerMove(pointer(
+                &native.doc,
+                x,
+                y,
+                MouseEventButtons::None,
+            )));
         }
         "wheel" => {
             let (x, y) = centre(native, target.expect("wheel target"), action);
-            native.handle_ui_event(UiEvent::PointerMove(pointer(x, y, MouseEventButtons::None)));
+            native.handle_ui_event(UiEvent::PointerMove(pointer(
+                &native.doc,
+                x,
+                y,
+                MouseEventButtons::None,
+            )));
             // Blitz's deltas point the other way from the DOM's.
             let dx = action["deltaX"].as_f64().unwrap_or(0.0);
             let dy = action["deltaY"].as_f64().unwrap_or(0.0);
             native.handle_ui_event(UiEvent::Wheel(BlitzWheelEvent {
                 delta: BlitzWheelDelta::Pixels(-dx, -dy),
-                coords: pointer(x, y, MouseEventButtons::None).coords,
+                coords: pointer(&native.doc, x, y, MouseEventButtons::None).coords,
                 buttons: MouseEventButtons::None,
                 mods: Modifiers::empty(),
                 element: Default::default(),
