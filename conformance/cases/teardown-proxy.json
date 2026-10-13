@@ -1,0 +1,49 @@
+{
+  "description": "Svelte teardowns read state as it was before the flush, through proxies too (docs/design/REACTIVITY-ALIASING.md, R5): an effect's cleanup and a child's onDestroy, after one write, two writes and a write in the handler that destroys the child (Svelte 5.57.1 keeps the value before the flush's first write); a derived value the cleanup reads is computed from those values. Before R5 natively the proxies read their current values (`cleanup 0/1`, `destroy 13 3`) and the derived value its cache (`d0` throughout).",
+  "fixtures": [
+    "teardown-proxy-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "bump"
+    },
+    {
+      "kind": "click",
+      "id": "dump"
+    },
+    {
+      "kind": "click",
+      "id": "twice"
+    },
+    {
+      "kind": "click",
+      "id": "dump"
+    },
+    {
+      "kind": "click",
+      "id": "hide"
+    },
+    {
+      "kind": "click",
+      "id": "dump"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 2,
+      "id": "log",
+      "text": "cleanup 0/0 0/0 d0"
+    },
+    {
+      "step": 4,
+      "id": "log",
+      "text": "cleanup 1/1 1/1 d2"
+    },
+    {
+      "step": 6,
+      "id": "log",
+      "text": "destroy 3 3 | cleanup 3/3 3/3 d6"
+    }
+  ]
+}

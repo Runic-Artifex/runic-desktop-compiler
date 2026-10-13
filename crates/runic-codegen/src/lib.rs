@@ -2291,8 +2291,10 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
         if let Some(c) = self.roots[r].fx[e].cleanup.take() {
             // (Reading the values before the writes that re-run it, as an instance's.)
             self.reading_previous = CLEANUP_READS_PREVIOUS;
+            js::set_reading_previous(CLEANUP_READS_PREVIOUS);
             let result = c(self);
             self.reading_previous = false;
+            js::set_reading_previous(false);
             if let Err(err) = result {
                 eprintln!("runic: uncaught exception in a cleanup: {err}");
             }
@@ -2605,6 +2607,8 @@ fn component_derived(p: &Program, k: usize, out: &mut String) {
              else {{ let version = cx.jobs.version(); inst.borrow_mut().dv{f} = Some(runic_runtime::Derived {{ cached: v, deps, version }}); }}\n\
              Ok(())\n}}\n\
              #[allow(unused_variables)]\nfn dget_{f}(cx: &mut Cx, inst: &I{k}) -> JsResult<{t}> {{\n\
+             // A teardown computes it afresh from the values before the flush (not cached).\n\
+             if cx.reading_previous {{ let outer = cx.tracking.take(); let heap_outer = js::begin_heap_reads(None); let snap = {{ let s = Rc::clone(&inst.borrow().snap); s }}; let r = f{f}(cx, inst, &snap); js::end_heap_reads(heap_outer); cx.tracking = outer; return r; }}\n\
              dref_{f}(cx, inst)?;\n\
              let (v, version) = {{ let st = inst.borrow(); let d = st.dv{f}.as_ref().expect(\"derived value\"); (d.cached.clone(), d.version) }};\n\
              if let Some(t) = cx.tracking.as_mut() {{ let i2 = Rc::clone(inst); t.push(runic_runtime::Dep {{ cells: None, cell: 0, refresh: Some(Rc::new(move |cx: &mut Cx| {{ let _ = dref_{f}(cx, &i2); i2.borrow().dv{f}.as_ref().map_or(u64::MAX, |d| d.version) }})), version, heap: None }}); }}\n\
@@ -2738,8 +2742,8 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
     }
     let previous = if p.schedule.cleanup_reads_previous {
         (
-            "cx.reading_previous = true; ",
-            "cx.reading_previous = false; ",
+            "cx.reading_previous = true; js::set_reading_previous(true); ",
+            "cx.reading_previous = false; js::set_reading_previous(false); ",
         )
     } else {
         ("", "")
@@ -3229,6 +3233,8 @@ pub fn generate(
     };
     let owned_only_v = owned_only(p);
     let cleanup_previous_v = p.schedule.cleanup_reads_previous;
+    // Teardowns read deep state as before the flush too (R5).
+    let before_images = cleanup_previous_v && owned_only(p);
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
@@ -3299,6 +3305,7 @@ pub fn generate(
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          /// Effects track the heap objects they read only where references are owned (proxied state, signal fields).\nconst OWNED_ONLY: bool = {owned_only_v};\n\
          /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n\
+         /// Proxies keep their values before the flush for teardowns (R5).\nconst KEEP_BEFORE_IMAGES: bool = {before_images};\n\
          impl Cx {{\n\
          fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), custom_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), listener_generations: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{img_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); self.listener_generations[k as usize] += 1; k }} None => {{ self.listeners.push(Some(f)); self.listener_generations.push(0); (self.listeners.len() - 1) as u32 }} }} }}\n\
@@ -3478,7 +3485,7 @@ pub fn generate(
          self.cx.jobs.note_mutations();\n\
          if !self.cx.jobs.again {{ break; }}\n\
          }}\n\
-         self.cx.jobs.flush_ended();\n\
+         self.cx.jobs.flush_ended(); js::flush_ended();\n\
          if let Some(p) = self.cx.flush_promise.take() {{ runic_runtime::promises::settle(&mut self.cx, &p, Ok(())); }}\n\
          }}\n\
          /// One pass: commit the state, update the DOM (pre effects run as each instance updates), tear down destroyed instances, then layout and post effects children first.\n\
@@ -3533,14 +3540,14 @@ pub fn generate(
          const IR_HASH: &'static str = {hash};\n\
          {template_attrs}\
          const CHANGE_WITH_CLICK: bool = {change_with_click};\n\
-         fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx, None);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
+         fn new() -> Self {{\njs::keep_before_images(KEEP_BEFORE_IMAGES);\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx, None);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          {container}match mount_s{root}(&mut self.cx, dom, &self.inst, &self.t, parent, None) {{\n\
          Ok(s) => self.root = Some((parent, s)),\n\
          Err(e) => runic_runtime::render_error(&e),\n}}\n\
          self.free(dom);\n\
-         self.cx.jobs.flush_ended();\n\
+         self.cx.jobs.flush_ended(); js::flush_ended();\n\
          {mount_timing}\n\
          self.checkpoint(dom);\n\
          while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\

@@ -21,7 +21,7 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `effect-self` (Svelte) | effects writing what they read re-run: `len 5 \| … \| len 4 \| … \| len 3`, also through proxies; one writing back the value it read runs once more | cells re-run, proxies never (`len 5`, values `4 3 4`) | fixed, step 2 (R4) |
 | `push-effect` (Svelte) | an effect pushing to a `$state` array runs again (`push` reads the length) until it stops pushing | ran once | fixed, step 2 (R4) |
 | `effect-self` (Vue) | a `watchEffect` does not re-run for its own writes | rejected by the Vue adapter (`E_EFFECT`), as designed | expected rejection |
-| `teardown-proxy` | cleanups and `onDestroy` read proxy properties as before the flush (`cleanup 0/0`, `destroy 3 3`) | proxies read current values (`0/1`, `13 3`) | step 5 (R5) |
+| `teardown-proxy` | cleanups and `onDestroy` read proxy properties as before the flush (`cleanup 0/0`, `destroy 3 3`) | proxies read current values (`0/1`, `13 3`; a derived value its cache, `d0`) | fixed, step 5 (R5) |
 | `untrack-template` | `{untrack(() => x)}` never updates (memoized call) | interpreter updates at every render, native when `x` is dirty | rejected, step 3 (R7) |
 | `prop-raw` | a child mutating a raw object through its prop shows it only when its block re-renders for another prop | interpreter shows it at once; native when any proxy is written | rejected, step 3 (R6) |
 | `raw-target-vue` | a raw write to a deep ref's target is not tracked and shows at the component's next render | interpreter (and native) show it at once; a recorded M4 deviation | rejected, step 3 (R6 for Vue) |
@@ -162,3 +162,20 @@ reported (`RunicUnsupportedError`, the interpreter `E_UNSUPPORTED`).
   report of an array changed in place under its proxy; `npm test` 486/486,
   `cargo test --workspace` (181) pass after rebasing onto main 092e1ca.
   Native conformance and the differential: with steps 5 and 6 (step 6).
+
+## Step 5: teardowns read deep state as before the flush (R5)
+
+Proxies keep a before-image from their first write after a flush ended
+until the next flush ends, in programs whose cleanups read the values before
+the flush (Svelte) and that have proxies; reads through a proxy while a
+cleanup or `onDestroy` runs give it, and a derived value read then is
+computed afresh from those values, neither from nor into its cache (Svelte
+re-executes a derived value that depends on old values).
+
+- `teardown-proxy`: `cleanup 0/0 0/0 d0`, `cleanup 1/1 1/1 d2`,
+  `destroy 3 3 | cleanup 3/3 3/3 d6`, as in Chromium (before: the proxies'
+  current values, `0/1`, `1/3`, `destroy 13 3 | cleanup 3/13`, and the
+  derived value's cache, `d0` throughout).
+- `tests/reactivity.test.mjs` checks the case in the interpreter;
+  `npm test` 487/487, `cargo test --workspace` (182) pass. Native
+  conformance and the differential: with step 6.

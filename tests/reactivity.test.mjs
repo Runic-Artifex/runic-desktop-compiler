@@ -206,3 +206,17 @@ test('changing an array in place under a proxy is reported (R3)', async () => {
     },
   );
 });
+
+test('teardowns read deep state and derived values as before the flush (R5)', async () => {
+  // Svelte 5.57.1 in Chromium (case teardown-proxy): an effect's cleanup and
+  // a child's onDestroy read proxies as they were before the flush's first
+  // write, and a derived value they read is computed from those values.
+  const steps = interpret(
+    (await lowered('fixtures/teardown-proxy-svelte')).ir,
+    ['bump', 'dump', 'twice', 'dump', 'hide', 'dump'].map(click),
+    {},
+  );
+  assert.equal(shown(steps[2], 'log'), 'cleanup 0/0 0/0 d0');
+  assert.equal(shown(steps[4], 'log'), 'cleanup 1/1 1/1 d2');
+  assert.equal(shown(steps[6], 'log'), 'destroy 3 3 | cleanup 3/3 3/3 d6');
+});

@@ -1292,6 +1292,11 @@ impl<'p> Machine<'p> {
     pub fn with_env(program: &'p Program, env: Env) -> Result<Self> {
         // Rejections of an earlier run are not this one's.
         js::clear_rejections();
+        // Teardowns read deep state as before the flush too (R5).
+        js::keep_before_images(
+            program.schedule.cleanup_reads_previous
+                && (cells_tracked(program, Tracking::Proxied) || program.has_reactive_fields()),
+        );
         let Env {
             storage,
             clipboard,
@@ -2199,6 +2204,18 @@ impl<'p> Machine<'p> {
 
     /// The value of derived `f` of `inst` (a dependency of a running tracked effect).
     fn read_derived(&mut self, inst: usize, f: usize) -> Res<Val> {
+        // A teardown computes it afresh from the values before the flush,
+        // not cached (Svelte re-executes a derived depending on old values).
+        if self.reading_previous {
+            let outer = self.tracking.take();
+            let heap_outer = js::begin_heap_reads(None);
+            let saved = std::mem::replace(&mut self.current, inst);
+            let r = self.call(f, vec![], vec![]);
+            self.current = saved;
+            js::end_heap_reads(heap_outer);
+            self.tracking = outer;
+            return r;
+        }
         self.refresh_derived(inst, f)?;
         let d = &self.instances[inst].derived[&f];
         let (value, version) = (d.value.clone(), d.version);
@@ -6975,6 +6992,7 @@ impl<'p> Machine<'p> {
         }
         self.phase = None;
         self.epochs = (js::mutation_epoch(), js::owned_epoch());
+        js::flush_ended();
         if let Some(p) = self.flush_promise.take() {
             self.settle_promise(&p, Ok(Val::Undefined));
         }
@@ -7431,8 +7449,10 @@ impl<'p> Machine<'p> {
         }
         if let Some(c) = self.instances[i].effects[e].cleanup.take() {
             self.reading_previous = self.program.schedule.cleanup_reads_previous;
+            js::set_reading_previous(self.reading_previous);
             let r = self.call_value(&c, vec![]);
             self.reading_previous = false;
+            js::set_reading_previous(false);
             if let Err(t) = r {
                 self.uncaught.push(t);
             }
@@ -7594,8 +7614,10 @@ impl<'p> Machine<'p> {
         if let Some(c) = self.roots[r].states[e].cleanup.take() {
             // (Reading the values before the writes that re-run it, as an instance's.)
             self.reading_previous = self.program.schedule.cleanup_reads_previous;
+            js::set_reading_previous(self.reading_previous);
             let result = self.call_value(&c, vec![]);
             self.reading_previous = false;
+            js::set_reading_previous(false);
             if let Err(t) = result {
                 self.uncaught.push(t);
             }

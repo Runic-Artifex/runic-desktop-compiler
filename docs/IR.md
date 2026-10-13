@@ -35,7 +35,7 @@ Schema 4 was introduced in M1 and extended additively in M2 with values, stateme
     "cleanups": "interleaved",       // or "batched": a phase's cleanups (also of destroyed instances) before its effects
     "postWritesDeferred": false,     // writes from post effects update in a later default task
     "mount": "microtask",            // when the mount's effects run: "sync" | "microtask" | "task"
-    "cleanupReadsPrevious": false,   // cleanups read state as before the running flush
+    "cleanupReadsPrevious": false,   // cleanups read state as before the running flush (proxies: as before their first write since the last flush; derived values read then are computed from those values, not cached)
     "continuous": []                 // M6: events whose updates render as a default task (React: ["scroll"])
   }
 }

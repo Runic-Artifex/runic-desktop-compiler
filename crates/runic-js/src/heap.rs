@@ -100,6 +100,9 @@ struct Storage<T> {
     /// Proxies of this array whose elements are not all taken yet (R3):
     /// changing it in place other than through them is reported.
     overlays: Cell<usize>,
+    /// A proxy's value before its first write since the last flush ended
+    /// (R5), with that flush count.
+    before: RefCell<Option<(u64, T)>>,
 }
 
 impl<T> Storage<T> {
@@ -115,14 +118,39 @@ impl<T> Storage<T> {
                 ..Counts::default()
             }),
             overlays: Cell::new(0),
+            before: RefCell::new(None),
         }
     }
 }
 
 thread_local! {
+    /// Whether proxies keep before-images (R5: programs whose teardowns read
+    /// the values before the flush).
+    static BEFORE_IMAGES: Cell<bool> = const { Cell::new(false) };
+    /// While a teardown runs: reads through proxies give before-images.
+    static READING_PREVIOUS: Cell<bool> = const { Cell::new(false) };
+    /// Flushes ended so far (before-images belong to one).
+    static FLUSHES: Cell<u64> = const { Cell::new(0) };
     /// The first behaviour the heap could not reproduce since the last
     /// [`take_heap_unsupported`].
     static UNSUPPORTED: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// Proxies keep their values before the flush for teardowns (R5 of
+/// docs/design/REACTIVITY-ALIASING.md; Svelte's `old_values`).
+pub fn keep_before_images(on: bool) {
+    BEFORE_IMAGES.with(|b| b.set(on));
+}
+
+/// Reads through proxies give their values before the flush (while a
+/// teardown runs); returns the previous setting.
+pub fn set_reading_previous(on: bool) -> bool {
+    READING_PREVIOUS.with(|r| r.replace(on))
+}
+
+/// A flush ended: the next write starts a new before-image.
+pub fn flush_ended() {
+    FLUSHES.with(|f| f.set(f.get() + 1));
 }
 
 /// An unsupported change the heap saw (reported by the runtime and the
@@ -261,6 +289,8 @@ struct Inner<T> {
     target: Option<Rc<Storage<T>>>,
     /// A proxy's slots not taken from its target yet.
     lazy: RefCell<Option<Lazy<T>>>,
+    /// A proxy's copy of its value (before-images, R5).
+    image: Option<fn(&T) -> T>,
 }
 
 /// A value read without taking a proxy's pending slots (probes).
@@ -291,7 +321,47 @@ impl<T> JsRef<T> {
             owned: false,
             target: None,
             lazy: RefCell::new(None),
+            image: None,
         }))
+    }
+    /// Keep the value before the first write since the last flush ended
+    /// (a proxy's, where teardowns read the values before the flush).
+    fn capture(&self) {
+        let Some(image) = self.0.image else {
+            return;
+        };
+        if !BEFORE_IMAGES.with(Cell::get) {
+            return;
+        }
+        let now = FLUSHES.with(Cell::get);
+        let mut before = self.0.storage.before.borrow_mut();
+        if before.as_ref().is_some_and(|(e, _)| *e == now) {
+            return;
+        }
+        let mut v = image(&self.0.storage.value.borrow());
+        // (Slots not taken yet: as a read would give them.)
+        if let Some(l) = &*self.0.lazy.borrow() {
+            let target = l.target.value.borrow();
+            for (s, pending) in l.pending.iter().enumerate() {
+                if *pending {
+                    (l.look)(&mut v, &target, s as u32);
+                }
+            }
+        }
+        *before = Some((now, v));
+    }
+    /// While a teardown runs, a proxy written since the last flush ended
+    /// reads as it was before (Svelte's `old_values`).
+    fn previous(&self) -> Option<Ref<'_, T>> {
+        if !self.0.owned || !READING_PREVIOUS.with(Cell::get) {
+            return None;
+        }
+        let now = FLUSHES.with(Cell::get);
+        let before = self.0.storage.before.borrow();
+        if !before.as_ref().is_some_and(|(e, _)| *e == now) {
+            return None;
+        }
+        Some(Ref::map(before, |b| &b.as_ref().expect("checked").1))
     }
     /// Take slot `slot` (`None`: every slot) from the target, before the
     /// program reads or changes it through this proxy.
@@ -453,12 +523,18 @@ impl<T> JsRef<T> {
     /// Shared access to the whole value; a dependency of a running tracked
     /// effect or derived value.
     pub fn borrow(&self) -> Ref<'_, T> {
+        if let Some(v) = self.previous() {
+            return v;
+        }
         self.settle(None);
         self.record_read(None);
         self.0.storage.value.borrow()
     }
     /// Shared access to read one slot (a field, the length or an element).
     pub fn read_slot(&self, slot: u32) -> Ref<'_, T> {
+        if let Some(v) = self.previous() {
+            return v;
+        }
         self.settle(Some(slot));
         self.record_read(Some(slot));
         self.0.storage.value.borrow()
@@ -466,12 +542,14 @@ impl<T> JsRef<T> {
     /// Mutable access to the whole value; records a heap mutation.
     pub fn borrow_mut(&self) -> RefMut<'_, T> {
         self.settle(None);
+        self.capture();
         self.note_raw_write();
         self.record_write(None);
         self.0.storage.value.borrow_mut()
     }
     /// Mutable access to write the given slots only.
     pub fn write_slots(&self, slots: &[u32]) -> RefMut<'_, T> {
+        self.capture();
         self.overwrite(slots);
         self.note_raw_write();
         self.record_write(Some(slots));
@@ -577,6 +655,7 @@ impl<T> JsRef<T> {
             owned: true,
             target: Some(Rc::clone(&self.0.storage)),
             lazy: RefCell::new(lazy),
+            image: Some(T::clone),
         }))
     }
 }
@@ -873,6 +952,32 @@ mod tests {
         assert!(reads[0].written_since(start) && reads[0].changed());
         // A later start point does not see the write.
         assert!(!reads[0].written_since(heap_stamp()));
+    }
+
+    #[test]
+    fn teardowns_read_proxies_as_before_the_flush() {
+        // R5: Svelte's old_values hold the value before the first write
+        // since the last flush; teardowns read them.
+        keep_before_images(true);
+        let p = JsRef::new(Item {
+            class: false,
+            inner: array(vec![1.0]),
+        })
+        .own();
+        let inner = p.read_slot(1).inner.clone();
+        flush_ended();
+        inner.borrow_mut().push(2.0);
+        inner.borrow_mut().push(3.0);
+        let was = set_reading_previous(true);
+        assert_eq!(inner.read_slot(0).len(), 1);
+        set_reading_previous(was);
+        assert_eq!(inner.read_slot(0).len(), 3);
+        // After the flush the image is gone.
+        flush_ended();
+        set_reading_previous(true);
+        assert_eq!(inner.read_slot(0).len(), 3);
+        set_reading_previous(false);
+        keep_before_images(false);
     }
 
     #[test]
