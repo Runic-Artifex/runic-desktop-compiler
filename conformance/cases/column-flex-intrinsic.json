@@ -1,0 +1,23 @@
+{
+  "description": "Auto-height column flex containers sized as Chromium 153 sizes them, by their items' hypothetical main sizes (flex base sizes clamped by min and max sizes), as shadcn-svelte's input groups with a block addon: a growing text area with field-sizing: content and a min-height (typing grows it past its min-height, deleting shrinks it back, a class switch raises the min-height), text inputs with a content flex basis and a fixed height (as tall as their inner editor's normal line), a fixed text area with an automatic flex basis, overflow-hidden scroll containers below a min-height and above a max-height, and an item with min-height: 0 that contributes its flex basis and overflows its group",
+  "fixtures": ["column-flex-intrinsic-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["comment-group", "end-group", "start-group", "fixed-group", "scroll-group", "basis-group"],
+  "actions": [
+    { "kind": "click", "id": "comment" },
+    { "kind": "type", "text": "Hello" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "type", "text": "there" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "type", "text": "world" },
+    { "kind": "press", "key": "Control+a" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "query" },
+    { "kind": "type", "text": "abc" },
+    { "kind": "click", "id": "toggle" }
+  ]
+}
