@@ -22,13 +22,18 @@ function state(lower: Lowerer) {
   return s;
 }
 
-/** Whether `t` is svelte's `Component` type (any props). */
+/**
+ * Whether `t` is svelte's `Component` type (any props), also under an alias
+ * of it (svelte-sonner's `AnyComponent = Component<any, any, string>`).
+ */
 export function isComponentType(t: ts.Type): boolean {
-  const s = t.aliasSymbol ?? t.getSymbol();
-  if (!s || s.getName() !== 'Component') return false;
-  return (s.declarations ?? []).some(d =>
-    /[\\/]svelte[\\/]types[\\/]index\.d\.ts$/.test(d.getSourceFile().fileName),
-  );
+  const svelte = (s: ts.Symbol | undefined) =>
+    !!s &&
+    s.getName() === 'Component' &&
+    (s.declarations ?? []).some(d =>
+      /[\\/]svelte[\\/]types[\\/]index\.d\.ts$/.test(d.getSourceFile().fileName),
+    );
+  return svelte(t.aliasSymbol) || svelte(t.getSymbol());
 }
 
 /** The record of component values. */
