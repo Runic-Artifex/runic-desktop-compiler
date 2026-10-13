@@ -3670,6 +3670,23 @@ export class Classes {
   }
 
   /**
+   * `x instanceof C` for a value of IR type `t`, where the type alone
+   * decides it: false for primitives, null and undefined and instances of
+   * no class that is `C` or a subclass, true where every class `t` holds is
+   * (and it is not nullable). Undefined where it depends on the value, or
+   * where `t` is not of these kinds.
+   */
+  instanceTruth(info: ClassInfo, t: Type): boolean | undefined {
+    const inner = maybeInner(t) ?? t;
+    if (inner === 'number' || inner === 'string' || inner === 'boolean') return false;
+    const classes = this.classesOf(inner);
+    if (classes === undefined) return undefined;
+    const yes = classes.filter(c => this.extendsClass(c, info));
+    if (!yes.length) return false;
+    return yes.length === classes.length && maybeInner(t) === undefined ? true : undefined;
+  }
+
+  /**
    * `x instanceof C`: decided by the static type of `x` where it can be (a
    * class record, or a class reference whose classes all are or all are
    * not `C` or a subclass), else by a match over its classes.
@@ -3677,14 +3694,24 @@ export class Classes {
   instanceOf(info: ClassInfo, left: ts.Expression, b: FnBuilder): Expr {
     const lower = this.lower;
     this.ensureDeclared(info, left.parent);
-    if (lower.checker.getTypeAtLocation(left).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+    const v = lower.expr(left, b);
+    const t = lower.irType(v, b);
+    const inner = maybeInner(t) ?? t;
+    // An operand TypeScript types `any` or `unknown` (an untyped package
+    // function's parameter, specialised per call site: bits-ui's
+    // `isCalendarDateTime(dateValue)` called with a `DateValue`) is decided
+    // where its IR type is: a class instance carries its class, and a
+    // primitive (or null or undefined) is no instance of any class. Other
+    // values of unknown type (caught exceptions, dynamic values) are not.
+    if (
+      lower.checker.getTypeAtLocation(left).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) &&
+      this.classesOf(inner) === undefined &&
+      !['number', 'string', 'boolean'].includes(inner as string)
+    )
       return this.fail(
         left,
         'instanceof needs an operand whose static type decides it (values of unknown type, such as caught exceptions, are unsupported)',
       );
-    const v = lower.expr(left, b);
-    const t = lower.irType(v, b);
-    const inner = maybeInner(t) ?? t;
     const classes = this.classesOf(inner) ?? [];
     const yes = classes.filter(c => this.extendsClass(c, info));
     const maybe = maybeInner(t) !== undefined;

@@ -1551,6 +1551,37 @@ export class Lowerer {
           return (loose || only === lit) === eq;
         }
       }
+      // `x instanceof Date` of a local or member the IR type decides, and
+      // `x instanceof C` of one TypeScript types `any` (untyped JavaScript
+      // specialised per call site: bits-ui's `getDaysInMonth(date)` given a
+      // `DateValue`): one branch, as for `typeof` above; the other may not
+      // be typable for this type.
+      if (op === K.InstanceOfKeyword && ts.isIdentifier(e.right)) {
+        const cls = this.binding(e.right);
+        const date = this.globalName(e.right) === 'Date';
+        const untyped = !!(
+          this.checker.getTypeAtLocation(e.left).flags &
+          (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+        );
+        if (date || (cls?.kind === 'class' && untyped)) {
+          readEffect = undefined;
+          const t = typeOfLocal(e.left);
+          const inner = t === undefined ? undefined : (maybeInner(t) ?? t);
+          const known =
+            t === undefined || inner === 'dyn'
+              ? undefined
+              : date
+                ? inner !== 'date'
+                  ? false
+                  : maybeInner(t) === undefined || undefined
+                : this.classes.instanceTruth((cls as { cls: ClassInfo }).cls, t);
+          if (known !== undefined) {
+            if (readEffect) effects.push(readEffect);
+            return known;
+          }
+        }
+        return undefined;
+      }
       // A prop that takes one value at every site (a discriminant, bits-ui's
       // `type`) compared with a string.
       if ((eq || ne) && ts.isStringLiteralLike(e.right)) {
@@ -7492,6 +7523,25 @@ export class Lowerer {
     if (op === K.InstanceOfKeyword && ts.isIdentifier(e.right)) {
       const cls = this.binding(e.right);
       if (cls?.kind === 'class') return this.classes.instanceOf(cls.cls, e.left, b);
+      // `x instanceof Date`: decided by the IR type of `x`, as values of
+      // the `date` type are the Date objects and no other value is one
+      // (bits-ui's `getDaysInMonth(date)` of a `Date | DateValue`, given a
+      // class instance). A dynamic value says nothing statically.
+      if (this.globalName(e.right) === 'Date') {
+        const v = this.expr(e.left, b);
+        const t = this.irType(v, b);
+        const inner = maybeInner(t) ?? t;
+        if (inner === 'dyn')
+          return this.fail(e, 'E_EXPRESSION', 'instanceof Date of a dynamic value is unsupported');
+        if (inner === 'date' && maybeInner(t) !== undefined)
+          return {
+            op: 'not',
+            arg: { op: 'builtin', name: 'maybe.is-nullish', args: [v], type: BOOLEAN },
+          };
+        // (Evaluated for its effects; the answer is static.)
+        const tmp = b.local('$instanceof', t);
+        return { op: 'with', local: tmp, value: v, body: { op: 'lit', value: inner === 'date' } };
+      }
       // bits-ui's isHTMLElement: an element value is an HTMLElement unless it
       // is in the SVG namespace (an event target).
       // Every element value is an Element (and a Node).
