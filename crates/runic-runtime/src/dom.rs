@@ -257,6 +257,17 @@ pub(crate) struct Listeners {
     /// (React, Vue and Svelte skip writes of a value they set before, so
     /// one that differs is reported unsupported).
     script_attrs: HashMap<NodeId, Vec<String>>,
+    /// Nodes script created (M6 script DOM, docs/design/M6-SCRIPT-DOM.md,
+    /// ownership): script places, moves and removes them and changes their
+    /// child lists; the framework never touches them.
+    pub(crate) script_nodes: std::collections::HashSet<NodeId>,
+    /// Elements the template renders without children (rule O3a): no
+    /// framework ever inserts into them, so script owns their child lists.
+    pub(crate) script_hosts: std::collections::HashSet<NodeId>,
+    /// The body holds whitespace around the container in the browser's page
+    /// (an app's HTML template, SvelteKit's app.html): node-level traversal
+    /// of the body is then reported unsupported.
+    pub(crate) body_whitespace: bool,
     /// Inputs whose value was set by script before their editor existed: the
     /// caret moves to the end once the editor is created (as `input.value = v`).
     pending_caret: Vec<NodeId>,
@@ -570,8 +581,13 @@ impl Host {
                 self.0.attr(name.into())
             }
         }
+        // (The document as a node value searches the whole document, M6
+        // script DOM; the window has no descendants.)
+        let Some(scope_id) = self.script_node(&dom, node) else {
+            return vec![];
+        };
         let doc = &*dom.doc;
-        let Some(scope) = doc.get_node(NodeId::from_u64(node)) else {
+        let Some(scope) = doc.get_node(scope_id) else {
             return vec![];
         };
         // The scope's element ancestors, from the root.
@@ -892,21 +908,29 @@ impl Host {
     /// `parent.appendChild(child)` (M6, bits-ui's Command sorting its
     /// items): `child`, a child of `parent`, moves to its end. Another child,
     /// or one holding focus (Chromium blurs it), is reported unsupported.
-    pub fn append_child(&self, parent: u64, child: u64) {
-        let Some(dom) = self.dom() else { return };
-        let (parent, child) = (NodeId::from_u64(parent), NodeId::from_u64(child));
+    /// M6 script DOM: a node script created is placed at the end of a child
+    /// list script owns (`insert_before`).
+    pub fn append_child(&self, parent: u64, child: u64) -> Result<(), runic_js::Throw> {
+        let Some(dom) = self.dom() else { return Ok(()) };
+        let child_id = self.node_arg(&dom, child, "appendChild")?;
+        if dom.listeners.script_nodes.contains(&child_id) {
+            drop(dom);
+            return self.insert_before(parent, child, None, "appendChild");
+        }
+        let parent = self.node_arg(&dom, parent, "appendChild")?;
+        let child = child_id;
         if dom.doc.get_node(child).and_then(|n| n.parent) != Some(parent) {
-            crate::unsupported(
-                "appendChild of a node that is not a child of the element (reordering is covered)",
-            );
-            return;
+            return Err(Self::unsupported_err(
+                "appendChild of a node the framework renders that is not a child of the element (reordering is covered)".into(),
+            ));
         }
         if let Some(focused) = dom.doc.get_focussed_node_id() {
             let mut at = Some(focused);
             while let Some(n) = at {
                 if n == child {
-                    crate::unsupported("appendChild of an element holding focus");
-                    return;
+                    return Err(Self::unsupported_err(
+                        "appendChild of an element holding focus".into(),
+                    ));
                 }
                 at = dom.doc.get_node(n).and_then(|x| x.parent);
             }
@@ -916,6 +940,7 @@ impl Host {
         // (Blitz's append detaches the child first, as the DOM moves it,
         // keeping its subtree in the document.)
         dom.doc.mutate().append_children(parent, &[child]);
+        Ok(())
     }
 
     /// `element.setAttribute(name, value)` from script (M6, bits-ui's
@@ -941,6 +966,452 @@ impl Host {
             names.push(name.clone());
         }
         dom.doc.mutate().set_attribute(node, attr(&name), value);
+    }
+
+    // --- Script DOM (M6, docs/design/M6-SCRIPT-DOM.md) ---
+
+    /// The node a handle stands for: the document's root node for the
+    /// document; none for the window and the visual viewport, which are not
+    /// nodes.
+    fn script_node(&self, dom: &Dom, n: u64) -> Option<NodeId> {
+        let e = runic_js::Element(n);
+        if e == runic_js::Element::WINDOW || e == runic_js::Element::VISUAL_VIEWPORT {
+            return None;
+        }
+        if e == runic_js::Element::DOCUMENT {
+            return Some(dom.doc.root_node().id);
+        }
+        Some(NodeId::from_u64(n))
+    }
+
+    /// A node handle for a node operation: the node, or a thrown error for
+    /// the window (WebIDL: not a Node) and a report for a node that no
+    /// longer exists (one inside a subtree the framework removed).
+    fn node_arg(&self, dom: &Dom, n: u64, method: &str) -> Result<NodeId, runic_js::Throw> {
+        let Some(id) = self.script_node(dom, n) else {
+            return Err(runic_js::Throw::new(
+                "TypeError",
+                format!(
+                    "Failed to execute '{method}' on 'Node': parameter 1 is not of type 'Node'."
+                ),
+            ));
+        };
+        if dom.doc.get_node(id).is_none() {
+            let what = format!(
+                "{method} of a node inside a subtree the framework removed (the runtime frees such nodes)"
+            );
+            crate::unsupported(&what);
+            return Err(runic_js::Throw::new("RunicUnsupportedError", what));
+        }
+        Ok(id)
+    }
+
+    /// Whether script may change the child list of `parent` (rules O1, O3a):
+    /// a node script created, an element the template renders without
+    /// children, or the body (outside the container, which stays in place).
+    fn script_child_list(&self, dom: &Dom, parent: NodeId) -> bool {
+        dom.listeners.script_nodes.contains(&parent)
+            || dom.listeners.script_hosts.contains(&parent)
+            || dom.listeners.body == Some(parent)
+    }
+
+    fn unsupported_err(what: String) -> runic_js::Throw {
+        crate::unsupported(&what);
+        runic_js::Throw::new("RunicUnsupportedError", what)
+    }
+
+    /// Checks that script may place `node` into `parent` (before
+    /// `before`): the DOM standard's pre-insertion validity (an ancestor
+    /// into its descendant, a node into a text node, a reference child of
+    /// another parent), and the ownership rules (only nodes script created
+    /// move; only child lists script owns change).
+    fn check_insert(
+        &self,
+        dom: &Dom,
+        parent: NodeId,
+        node: NodeId,
+        before: Option<NodeId>,
+        method: &str,
+    ) -> Result<(), runic_js::Throw> {
+        let hierarchy = |m: &str| {
+            runic_js::Throw::new(
+                "HierarchyRequestError",
+                format!("Failed to execute '{method}' on 'Node': {m}"),
+            )
+        };
+        let Some(p) = dom.doc.get_node(parent) else {
+            return Err(Self::unsupported_err(format!(
+                "{method} into a node inside a subtree the framework removed"
+            )));
+        };
+        if p.is_text_node() || matches!(p.data, blitz_dom::NodeData::Comment { .. }) {
+            return Err(hierarchy("This node type does not support this method."));
+        }
+        let mut at = Some(parent);
+        while let Some(a) = at {
+            if a == node {
+                return Err(hierarchy("The new child element contains the parent."));
+            }
+            at = dom.doc.get_node(a).and_then(|x| x.parent);
+        }
+        if let Some(b) = before {
+            if dom.doc.get_node(b).and_then(|x| x.parent) != Some(parent) {
+                return Err(runic_js::Throw::new(
+                    "NotFoundError",
+                    format!(
+                        "Failed to execute '{method}' on 'Node': The node before which the new node is to be inserted is not a child of this node."
+                    ),
+                ));
+            }
+        }
+        if parent == dom.doc.root_node().id {
+            return Err(Self::unsupported_err(format!(
+                "{method} into the document (it holds only the html element)"
+            )));
+        }
+        if !dom.listeners.script_nodes.contains(&node) {
+            return Err(Self::unsupported_err(format!(
+                "{method} of a node the framework renders (only nodes script created move)"
+            )));
+        }
+        if !self.script_child_list(dom, parent) {
+            return Err(Self::unsupported_err(format!(
+                "{method} into an element the framework renders children into (its blocks are placed by anchors the runtime does not keep)"
+            )));
+        }
+        Self::check_focus_free(dom, node, method)
+    }
+
+    /// Moving or removing a subtree that holds focus blurs it in Chromium,
+    /// which script node moves do not model yet.
+    fn check_focus_free(dom: &Dom, node: NodeId, method: &str) -> Result<(), runic_js::Throw> {
+        if let Some(focused) = dom.doc.get_focussed_node_id() {
+            let mut at = Some(focused);
+            while let Some(n) = at {
+                if n == node {
+                    return Err(Self::unsupported_err(format!(
+                        "{method} of a node holding focus"
+                    )));
+                }
+                at = dom.doc.get_node(n).and_then(|x| x.parent);
+            }
+        }
+        Ok(())
+    }
+
+    /// `document.createElement(tag)`: an element in the HTML namespace,
+    /// owned by script (the frontend gives a lowercase tag of the IR's
+    /// allow-list).
+    pub fn create_element(&self, tag: &str) -> u64 {
+        let Some(mut dom) = self.dom() else { return 0 };
+        let id = dom.element(&tag.to_ascii_lowercase());
+        dom.listeners.script_nodes.insert(id);
+        id.as_u64()
+    }
+
+    /// A text node owned by script.
+    fn create_text(dom: &mut Dom, text: &str) -> NodeId {
+        let id = dom.doc.mutate().create_text_node(text);
+        dom.listeners.script_nodes.insert(id);
+        id
+    }
+
+    /// Detach `node` from its parent, keeping it (script may hold it).
+    fn detach(dom: &mut Dom, node: NodeId) {
+        if let Some(parent) = dom.doc.get_node(node).and_then(|n| n.parent) {
+            dom.listeners.child_mutations.push(parent);
+            dom.doc.mutate().remove_node(node);
+        }
+    }
+
+    /// `parent.insertBefore(node, before)` (`appendChild` without a
+    /// reference): moves `node` there, out of its old parent.
+    pub fn insert_before(
+        &self,
+        parent: u64,
+        node: u64,
+        before: Option<u64>,
+        method: &str,
+    ) -> Result<(), runic_js::Throw> {
+        let Some(mut dom) = self.dom() else {
+            return Ok(());
+        };
+        let parent = self.node_arg(&dom, parent, method)?;
+        let node = self.node_arg(&dom, node, method)?;
+        let before = match before {
+            Some(b) => Some(self.node_arg(&dom, b, method)?),
+            None => None,
+        };
+        // Inserting a node before itself leaves it in place.
+        if before == Some(node) {
+            return self.check_insert(&dom, parent, node, None, method);
+        }
+        self.check_insert(&dom, parent, node, before, method)?;
+        Self::detach(&mut dom, node);
+        dom.listeners.child_mutations.push(parent);
+        let mut m = dom.doc.mutate();
+        match before {
+            Some(b) => m.insert_nodes_before(b, &[node]),
+            None => m.append_children(parent, &[node]),
+        }
+        drop(m);
+        dom.radios_connected(&[node]);
+        Ok(())
+    }
+
+    /// `parent.replaceChildren(...nodes)`: the children are removed (kept
+    /// for script that holds them) and `nodes` appended in order.
+    pub fn replace_children(&self, parent: u64, nodes: &[u64]) -> Result<(), runic_js::Throw> {
+        let Some(mut dom) = self.dom() else {
+            return Ok(());
+        };
+        let method = "replaceChildren";
+        let parent = self.node_arg(&dom, parent, method)?;
+        let mut ids = Vec::with_capacity(nodes.len());
+        for &n in nodes {
+            let id = self.node_arg(&dom, n, method)?;
+            self.check_insert(&dom, parent, id, None, method)?;
+            ids.push(id);
+        }
+        if !self.script_child_list(&dom, parent) {
+            return Err(Self::unsupported_err(format!(
+                "{method} of an element the framework renders children into"
+            )));
+        }
+        let children: Vec<NodeId> = dom
+            .doc
+            .get_node(parent)
+            .map_or(vec![], |p| p.children.to_vec());
+        if dom.listeners.body == Some(parent) {
+            return Err(Self::unsupported_err(format!(
+                "{method} of the body (it holds the app's container)"
+            )));
+        }
+        for &c in &children {
+            Self::check_focus_free(&dom, c, method)?;
+        }
+        for c in children {
+            Self::detach(&mut dom, c);
+        }
+        for &id in &ids {
+            Self::detach(&mut dom, id);
+        }
+        dom.listeners.child_mutations.push(parent);
+        if !ids.is_empty() {
+            dom.doc.mutate().append_children(parent, &ids);
+            dom.radios_connected(&ids);
+        }
+        Ok(())
+    }
+
+    /// `node.remove()`: nothing for a node without a parent.
+    pub fn remove_node(&self, node: u64) -> Result<(), runic_js::Throw> {
+        let Some(mut dom) = self.dom() else {
+            return Ok(());
+        };
+        let method = "remove";
+        let node = self.node_arg(&dom, node, method)?;
+        let Some(parent) = dom.doc.get_node(node).and_then(|n| n.parent) else {
+            return Ok(());
+        };
+        if !dom.listeners.script_nodes.contains(&node) {
+            return Err(Self::unsupported_err(format!(
+                "{method} of a node the framework renders (only nodes script created move)"
+            )));
+        }
+        if !self.script_child_list(&dom, parent) {
+            return Err(Self::unsupported_err(format!(
+                "{method} from an element the framework renders children into"
+            )));
+        }
+        Self::check_focus_free(&dom, node, method)?;
+        Self::detach(&mut dom, node);
+        Ok(())
+    }
+
+    /// Replace the children of `node` by `nodes` made by `make` (the
+    /// `textContent` and `innerText` setters), where script owns its child
+    /// list.
+    fn replace_text(
+        &self,
+        node: u64,
+        method: &str,
+        make: impl FnOnce(&mut Dom) -> Vec<NodeId>,
+    ) -> Result<(), runic_js::Throw> {
+        let Some(mut dom) = self.dom() else {
+            return Ok(());
+        };
+        let node = self.node_arg(&dom, node, method)?;
+        let Some(n) = dom.doc.get_node(node) else {
+            return Ok(());
+        };
+        // A text or comment node's data (`textContent` of a character data node).
+        if n.is_text_node() || matches!(n.data, blitz_dom::NodeData::Comment { .. }) {
+            if !dom.listeners.script_nodes.contains(&node) {
+                return Err(Self::unsupported_err(format!(
+                    "{method} of a text node the framework renders"
+                )));
+            }
+            let mut parts = make(&mut dom);
+            // (One text node was made: its data is the new data.)
+            let text = parts
+                .pop()
+                .and_then(|t| {
+                    dom.doc
+                        .get_node(t)
+                        .and_then(|x| x.text_data())
+                        .map(|d| d.content.clone())
+                })
+                .unwrap_or_default();
+            dom.doc.mutate().set_node_text(node, &text);
+            return Ok(());
+        }
+        if node == dom.doc.root_node().id || dom.listeners.body == Some(node) {
+            return Err(Self::unsupported_err(format!(
+                "{method} of the document or the body (they hold the app)"
+            )));
+        }
+        if !self.script_child_list(&dom, node) {
+            return Err(Self::unsupported_err(format!(
+                "{method} of an element the framework renders children into"
+            )));
+        }
+        let children: Vec<NodeId> = n.children.to_vec();
+        for &c in &children {
+            Self::check_focus_free(&dom, c, method)?;
+        }
+        for c in children {
+            Self::detach(&mut dom, c);
+        }
+        let parts = make(&mut dom);
+        dom.listeners.child_mutations.push(node);
+        if !parts.is_empty() {
+            dom.doc.mutate().append_children(node, &parts);
+        }
+        Ok(())
+    }
+
+    /// `node.textContent = text`: one text node, none for the empty string.
+    pub fn set_text_content(&self, node: u64, text: &str) -> Result<(), runic_js::Throw> {
+        self.replace_text(node, "textContent", |dom| {
+            if text.is_empty() {
+                vec![]
+            } else {
+                vec![Self::create_text(dom, text)]
+            }
+        })
+    }
+
+    /// `element.innerText = text` (the HTML standard's setter): text nodes,
+    /// with a `<br>` for each line break (CR LF, LF or CR).
+    pub fn set_inner_text(&self, node: u64, text: &str) -> Result<(), runic_js::Throw> {
+        self.replace_text(node, "innerText", |dom| {
+            let mut out = vec![];
+            for part in runic_js::script_dom::inner_text_parts(text) {
+                match part {
+                    Some(t) => out.push(Self::create_text(dom, &t)),
+                    None => {
+                        let br = dom.element("br");
+                        dom.listeners.script_nodes.insert(br);
+                        out.push(br);
+                    }
+                }
+            }
+            out
+        })
+    }
+
+    /// `node.firstChild` (rule O5): exact for nodes script created, elements
+    /// the template renders without children, and the body (where the
+    /// browser page has nothing before the container).
+    pub fn first_child(&self, node: u64) -> Result<Option<u64>, runic_js::Throw> {
+        let Some(dom) = self.dom() else {
+            return Ok(None);
+        };
+        let node = self.node_arg(&dom, node, "firstChild")?;
+        if dom.listeners.body == Some(node) && dom.listeners.body_whitespace {
+            return Err(Self::unsupported_err(
+                "firstChild of the body of an HTML template (its whitespace is not in the native document)".into(),
+            ));
+        }
+        if !self.script_child_list(&dom, node) {
+            return Err(Self::unsupported_err(
+                "firstChild of an element the framework renders children into (its anchors are not in the native document)".into(),
+            ));
+        }
+        let first = dom
+            .doc
+            .get_node(node)
+            .and_then(|n| n.children.first().copied());
+        // (Text and comment nodes as values come with their own members:
+        // docs/design/M6-SCRIPT-DOM.md, slice 2.)
+        if first.is_some_and(|c| {
+            dom.doc
+                .get_node(c)
+                .is_some_and(|x| x.element_data().is_none())
+        }) {
+            return Err(Self::unsupported_err(
+                "firstChild that is a text node (text nodes as values are not covered yet)".into(),
+            ));
+        }
+        Ok(first.map(NodeId::as_u64))
+    }
+
+    /// `element.childElementCount`: frameworks add no elements of their
+    /// own, so the count is exact for every element.
+    pub fn child_element_count(&self, node: u64) -> Result<f64, runic_js::Throw> {
+        let Some(dom) = self.dom() else {
+            return Ok(0.0);
+        };
+        let node = self.node_arg(&dom, node, "childElementCount")?;
+        Ok(dom.doc.get_node(node).map_or(0, |n| {
+            n.children
+                .iter()
+                .filter(|&&c| {
+                    dom.doc
+                        .get_node(c)
+                        .is_some_and(|x| x.element_data().is_some())
+                })
+                .count()
+        }) as f64)
+    }
+
+    /// Script writing attribute `name` of an element the framework renders
+    /// is recorded, so that the framework writing it again is checked.
+    fn record_script_attr(dom: &mut Dom, node: NodeId, name: &str) {
+        if dom.listeners.script_nodes.contains(&node) {
+            return;
+        }
+        let names = dom.listeners.script_attrs.entry(node).or_default();
+        if !names.iter().any(|n| n == name) {
+            names.push(name.to_owned());
+        }
+    }
+
+    /// `element.removeAttribute(name)`.
+    pub fn remove_attribute(&self, node: u64, name: &str) {
+        let Some(mut dom) = self.dom() else { return };
+        let node = NodeId::from_u64(node);
+        let name = name.to_ascii_lowercase();
+        Self::record_script_attr(&mut dom, node, &name);
+        dom.doc.mutate().clear_attribute(node, attr(&name));
+    }
+
+    /// `element.style.cssText = css`: the style attribute becomes the
+    /// serialization of the declarations `css` holds (an empty attribute
+    /// for none). A declaration the style engine drops, which Chromium
+    /// keeps, is reported unsupported.
+    pub fn style_set_text(&self, node: u64, css: &str) {
+        let Some(mut dom) = self.dom() else { return };
+        let node = NodeId::from_u64(node);
+        let text = runic_css::css_text(css);
+        if let Some(dropped) = runic_css::dropped_declaration(css) {
+            crate::unsupported(&format!(
+                "style.cssText with {dropped}, which the style engine drops (Chromium keeps it)"
+            ));
+        }
+        Self::record_script_attr(&mut dom, node, "style");
+        dom.doc.mutate().set_attribute(node, attr("style"), &text);
     }
 
     pub fn parent_element(&self, node: u64) -> Option<u64> {
@@ -1573,6 +2044,8 @@ impl Dom<'_> {
             freed,
             reordered,
             script_attrs,
+            script_nodes,
+            script_hosts,
             ..
         } = &mut *self.listeners;
         self.doc
@@ -1587,7 +2060,18 @@ impl Dom<'_> {
                 freed.extend(custom.remove(&gone).into_iter().flatten());
                 reordered.remove(&gone);
                 script_attrs.remove(&gone);
+                // (Script nodes inside a removed script host go with it: a
+                // handle script still holds finds no node, which the script
+                // operations report.)
+                script_nodes.remove(&gone);
+                script_hosts.remove(&gone);
             });
+    }
+
+    /// Element `node` is rendered by its template without children (rule
+    /// O3a, docs/design/M6-SCRIPT-DOM.md): script owns its child list.
+    pub fn script_host(&mut self, node: NodeId) {
+        self.listeners.script_hosts.insert(node);
     }
 
     /// Chromium blurs the focused element when it, or an ancestor, is removed
@@ -2390,13 +2874,80 @@ mod tests {
         let mut fx = Fixture::new();
         let (p, a, b) = (fx.p, fx.a, fx.b);
         let host = Host::attach(&mut fx.dom());
-        host.append_child(p.as_u64(), a.as_u64());
+        host.append_child(p.as_u64(), a.as_u64()).unwrap();
         assert_eq!(fx.elements(p), [b, a]);
         assert!(fx.doc.get_node(a).unwrap().flags.is_in_document());
         // Another element's child is not moved (reported unsupported).
         let host = Host::attach(&mut fx.dom());
-        host.append_child(a.as_u64(), b.as_u64());
+        assert!(host.append_child(a.as_u64(), b.as_u64()).is_err());
         assert_eq!(fx.elements(p), [b, a]);
+    }
+
+    /// Script DOM (M6, docs/design/M6-SCRIPT-DOM.md): nodes script creates
+    /// move within child lists script owns, under the DOM's pre-insertion
+    /// validity; the framework's own nodes and child lists are not changed.
+    #[test]
+    fn script_nodes_move_within_child_lists_script_owns() {
+        let mut fx = Fixture::new();
+        let (p, a) = (fx.p, fx.a);
+        let body = fx.doc.get_node(p).unwrap().parent.unwrap();
+        fx.listeners.body = Some(body);
+        fx.dom().script_host(a);
+        let host = Host::attach(&mut fx.dom());
+        let region = host.create_element("div");
+        let log = host.create_element("div");
+        host.append_child(region, log).unwrap();
+        // At the start of the body, before the framework's content.
+        let first = host.first_child(body.as_u64()).unwrap();
+        assert_eq!(first, Some(p.as_u64()));
+        host.insert_before(body.as_u64(), region, first, "insertBefore")
+            .unwrap();
+        assert_eq!(
+            fx.doc.get_node(body).unwrap().children[0],
+            NodeId::from_u64(region)
+        );
+        let host = Host::attach(&mut fx.dom());
+        // An ancestor into its descendant, and a reference child elsewhere.
+        let err = host.append_child(log, region).unwrap_err();
+        assert_eq!(err.name.to_rust(), "HierarchyRequestError");
+        // (The ancestor check comes first, as in the DOM standard.)
+        let err = host
+            .insert_before(log, region, Some(a.as_u64()), "insertBefore")
+            .unwrap_err();
+        assert_eq!(err.name.to_rust(), "HierarchyRequestError");
+        let other = host.create_element("div");
+        let err = host
+            .insert_before(log, other, Some(a.as_u64()), "insertBefore")
+            .unwrap_err();
+        assert_eq!(err.name.to_rust(), "NotFoundError");
+        // innerText: text with a <br> per line break; textContent: one node.
+        host.set_inner_text(log, "Two\nlines").unwrap();
+        assert_eq!(host.text_content(region), "Twolines");
+        assert_eq!(host.child_element_count(log).unwrap(), 1.0);
+        host.set_text_content(log, "one").unwrap();
+        assert_eq!(host.child_element_count(log).unwrap(), 0.0);
+        // A script host's children are script's; the framework's are not.
+        let line = host.create_element("p");
+        host.insert_before(a.as_u64(), line, None, "appendChild")
+            .unwrap();
+        assert_eq!(host.first_child(a.as_u64()).unwrap(), Some(line));
+        host.replace_children(a.as_u64(), &[]).unwrap();
+        assert_eq!(host.first_child(a.as_u64()).unwrap(), None);
+        assert!(host.first_child(p.as_u64()).is_err());
+        assert!(
+            host.insert_before(p.as_u64(), line, None, "appendChild")
+                .is_err()
+        );
+        assert!(host.remove_node(a.as_u64()).is_err());
+        // Removing keeps the node for script that holds it.
+        host.remove_node(region).unwrap();
+        assert!(!host.is_connected(region));
+        assert_eq!(host.text_content(region), "one");
+        // The window is not a node.
+        let err = host
+            .append_child(log, runic_js::Element::WINDOW.0)
+            .unwrap_err();
+        assert_eq!(err.name.to_rust(), "TypeError");
     }
 
     #[test]

@@ -98,6 +98,14 @@ export function compareTraces(browser, native, { pixels = false, pixelRegions = 
         'portals',
         step.dom,
       );
+    // Script content in the body before the container (M6 script DOM).
+    if (b.preceding || nv.preceding)
+      diffTree(
+        canonical({ tag: 'body', children: b.preceding ?? [] }),
+        canonical({ tag: 'body', children: nv.preceding ?? [] }),
+        'preceding',
+        step.dom,
+      );
     // The document element's attributes (theming: class, data-*, style).
     if (JSON.stringify(b.document ?? {}) !== JSON.stringify(nv.document ?? {}))
       step.dom.push({ at: 'document', browser: b.document ?? {}, native: nv.document ?? {} });

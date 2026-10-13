@@ -432,6 +432,47 @@ function returnedLiteral(fn: ts.FunctionDeclaration): ts.VariableDeclaration | u
 }
 
 /**
+ * The functions a function declares in its body and returns as members of
+ * the object literal its last statement returns (`return { announce }`, or
+ * `announce: announce`), with their member names; none where another
+ * statement of the function (outside nested functions) returns.
+ */
+function returnedFunctions(fn: ts.FunctionDeclaration): [string, ts.FunctionDeclaration][] {
+  const body = fn.body!.statements;
+  const last = body.at(-1);
+  if (!last || !ts.isReturnStatement(last) || !last.expression) return [];
+  const literal = last.expression;
+  if (!ts.isObjectLiteralExpression(literal)) return [];
+  let returns = 0;
+  const visit = (n: ts.Node): void => {
+    if (ts.isFunctionLike(n)) return;
+    if (ts.isReturnStatement(n)) returns++;
+    ts.forEachChild(n, visit);
+  };
+  body.forEach(visit);
+  if (returns !== 1) return [];
+  const declared = new Map(
+    body
+      .filter(
+        (s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && !!s.name && !!s.body,
+      )
+      .map(s => [s.name!.text, s]),
+  );
+  const out: [string, ts.FunctionDeclaration][] = [];
+  for (const p of literal.properties) {
+    const name = p.name && ts.isIdentifier(p.name) ? p.name.text : undefined;
+    const ref = ts.isShorthandPropertyAssignment(p)
+      ? p.name.text
+      : ts.isPropertyAssignment(p) && ts.isIdentifier(p.initializer)
+        ? p.initializer.text
+        : undefined;
+    const target = ref && declared.get(ref);
+    if (name && target && !target.typeParameters) out.push([name, target]);
+  }
+  return out;
+}
+
+/**
  * The virtual module of package module `file`: its JavaScript with type
  * annotations from its declaration file and `inferred` field types.
  */
@@ -538,6 +579,15 @@ export function annotate(
         // `style.left = …`, `return style`) is of its declared result type.
         const built = named ? undefined : returnedLiteral(stmt);
         if (built) add(built.name.end, `: ReturnType<${f}>`);
+        // Functions it returns as members of an object literal (bits-ui's
+        // `getAnnouncer(doc)`: `function announce(value, kind = "assertive",
+        // …)`, then `return { announce }`) take the declared member's type.
+        if (!named)
+          for (const [member, fn] of returnedFunctions(stmt)) {
+            const m = `ReturnType<${f}>[${JSON.stringify(member)}]`;
+            params(fn, i => `Parameters<${m}>[${i}]`);
+            result(fn, `ReturnType<${m}>`);
+          }
         continue;
       }
       // Overloads (`createId(uid)`, `createId(prefix, uid)`): each parameter
@@ -1664,6 +1714,78 @@ export function inferFields(
       ts.forEachChild(n, localListeners);
     };
     localListeners(sf);
+    // A local arrow function returned only as a member of the object literal
+    // a function returns, and called only through that member (bits-ui's
+    // announcer: `const getLog = (kind) => …; return { getLog }`, then
+    // `announcer.getLog(kind)`): each untyped parameter takes the one type
+    // the calls pass.
+    const memberCalls = (n: ts.Node) => {
+      ts.forEachChild(n, memberCalls);
+      if (
+        !ts.isVariableDeclaration(n) ||
+        !ts.isIdentifier(n.name) ||
+        !n.initializer ||
+        !ts.isArrowFunction(skipParensOf(n.initializer)) ||
+        !(n.parent.flags & ts.NodeFlags.Const)
+      )
+        return;
+      const fn = skipParensOf(n.initializer) as ts.ArrowFunction;
+      const sym = checker.getSymbolAtLocation(n.name);
+      if (!sym || !fn.parameters.some(p => !p.type && ts.isIdentifier(p.name))) return;
+      let escapes = false;
+      const members: ts.ShorthandPropertyAssignment[] = [];
+      const uses = (x: ts.Node) => {
+        // (A shorthand member names the property; its value is the constant.)
+        if (
+          ts.isShorthandPropertyAssignment(x) &&
+          checker.getShorthandAssignmentValueSymbol(x) === sym
+        ) {
+          if (ts.isObjectLiteralExpression(x.parent) && ts.isReturnStatement(x.parent.parent))
+            members.push(x);
+          else escapes = true;
+          return;
+        }
+        if (ts.isIdentifier(x) && x !== n.name && checker.getSymbolAtLocation(x) === sym) {
+          const p = x.parent;
+          if (!(ts.isCallExpression(p) && p.expression === x)) escapes = true;
+        }
+        ts.forEachChild(x, uses);
+      };
+      uses(sf);
+      if (escapes || members.length !== 1) return;
+      const calls: ts.CallExpression[] = [];
+      const through = (x: ts.Node) => {
+        if (ts.isPropertyAccessExpression(x) && x.name.text === members[0].name.text) {
+          const s = checker.getSymbolAtLocation(x.name);
+          if (s?.declarations?.includes(members[0])) {
+            if (ts.isCallExpression(x.parent) && x.parent.expression === x) calls.push(x.parent);
+            else escapes = true;
+          }
+        }
+        ts.forEachChild(x, through);
+      };
+      through(sf);
+      if (escapes || !calls.length) return;
+      fn.parameters.forEach((p, i) => {
+        if (p.type || p.dotDotDotToken || !ts.isIdentifier(p.name)) return;
+        const texts = new Set<string>();
+        let open = false;
+        for (const c of calls) {
+          const a = c.arguments[i];
+          const t = a && !ts.isSpreadElement(a) ? checker.getTypeAtLocation(a) : undefined;
+          const text = t && !(t.flags & ts.TypeFlags.Any) ? print(t, a!) : undefined;
+          if (text === undefined) open = true;
+          else texts.add(text);
+        }
+        const end = p.name.end;
+        const seg = m.segments.find(g => end >= g.synth && end <= g.synth + g.length);
+        if (open || texts.size !== 1 || !seg) return;
+        const key = `param:${seg.orig + (end - seg.synth)}`;
+        const text = [...texts][0];
+        if (next.get(key) !== text) next.set(key, text);
+      });
+    };
+    memberCalls(sf);
     // A function returning `x || null` (or `?? null`, `|| undefined`) of an
     // `x` TypeScript types as never nullish (bits-ui's `tabbables[0] ||
     // null` of an array that may be empty): TypeScript drops the null; the

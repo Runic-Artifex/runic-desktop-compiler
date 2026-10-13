@@ -895,6 +895,154 @@ pub struct Machine<'p> {
     /// How many top-level nodes of the last tree the root rendered (the
     /// rest is mounted content in the body).
     root_len: usize,
+    /// Nodes script created (M6 script DOM, docs/design/M6-SCRIPT-DOM.md).
+    script: ScriptDom,
+    /// Elements the last render rendered from template elements without
+    /// children (rule O3a): script owns their child lists.
+    script_hosts: HashSet<u64>,
+}
+
+/// The interpreter's nodes created by script (M6 script DOM): an arena
+/// beside the rendered tree, whose element ids it never shares.
+#[derive(Default)]
+struct ScriptDom {
+    nodes: HashMap<u64, ScriptNode>,
+    next: u64,
+    /// Script nodes in the body before the container, in order.
+    preceding: Vec<u64>,
+    /// The children script placed in rendered elements without template
+    /// children, by element id.
+    hosts: HashMap<u64, Vec<u64>>,
+}
+
+struct ScriptNode {
+    kind: ScriptKind,
+    parent: Option<ScriptParent>,
+    children: Vec<u64>,
+}
+
+enum ScriptKind {
+    Element {
+        tag: String,
+        attrs: BTreeMap<String, String>,
+    },
+    Text(String),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ScriptParent {
+    Node(u64),
+    /// A rendered element (rule O3a).
+    Host(u64),
+    /// The body, before the container.
+    Body,
+}
+
+/// The first id of script-created nodes (rendered elements count up from 1).
+const SCRIPT_IDS: u64 = 1 << 48;
+/// The container as a node handle in the interpreter (the body's child
+/// after the script nodes placed before it).
+const CONTAINER: js::Element = js::Element(u64::MAX - 5);
+
+impl ScriptDom {
+    fn create(&mut self, kind: ScriptKind) -> u64 {
+        let id = SCRIPT_IDS + self.next;
+        self.next += 1;
+        self.nodes.insert(
+            id,
+            ScriptNode {
+                kind,
+                parent: None,
+                children: vec![],
+            },
+        );
+        id
+    }
+
+    fn is_script(&self, id: u64) -> bool {
+        self.nodes.contains_key(&id)
+    }
+
+    /// The node as the snapshot shows it.
+    fn vnode(&self, id: u64) -> VNode {
+        let n = &self.nodes[&id];
+        match &n.kind {
+            ScriptKind::Text(t) => VNode::Text(t.clone()),
+            ScriptKind::Element { tag, attrs } => VNode::Element {
+                tag: tag.clone(),
+                attrs: attrs.clone(),
+                value: None,
+                checked: None,
+                id,
+                listeners: vec![],
+                children: n.children.iter().map(|&c| self.vnode(c)).collect(),
+            },
+        }
+    }
+
+    fn list_mut(&mut self, parent: ScriptParent) -> &mut Vec<u64> {
+        match parent {
+            ScriptParent::Node(p) => &mut self.nodes.get_mut(&p).expect("script node").children,
+            ScriptParent::Host(h) => self.hosts.entry(h).or_default(),
+            ScriptParent::Body => &mut self.preceding,
+        }
+    }
+
+    fn detach(&mut self, id: u64) {
+        if let Some(parent) = self.nodes.get_mut(&id).and_then(|n| n.parent.take()) {
+            self.list_mut(parent).retain(|&c| c != id);
+        }
+    }
+
+    /// Insert `id` into `parent`'s child list before `before` (appended
+    /// without one).
+    fn insert(&mut self, parent: ScriptParent, id: u64, before: Option<u64>) {
+        self.detach(id);
+        let list = self.list_mut(parent);
+        let at = before
+            .and_then(|b| list.iter().position(|&c| c == b))
+            .unwrap_or(list.len());
+        list.insert(at, id);
+        self.nodes.get_mut(&id).expect("script node").parent = Some(parent);
+    }
+
+    /// Whether `ancestor` is `id` or one of its script ancestors.
+    fn inclusive_ancestor(&self, ancestor: u64, id: u64) -> bool {
+        let mut at = Some(id);
+        while let Some(n) = at {
+            if n == ancestor {
+                return true;
+            }
+            at = match self.nodes.get(&n).and_then(|x| x.parent) {
+                Some(ScriptParent::Node(p)) => Some(p),
+                _ => None,
+            };
+        }
+        false
+    }
+
+    /// The outermost script ancestor's parent of `id` (where its tree is
+    /// attached), if any.
+    fn attachment(&self, id: u64) -> Option<ScriptParent> {
+        let mut at = id;
+        loop {
+            match self.nodes.get(&at)?.parent? {
+                ScriptParent::Node(p) => at = p,
+                other => return Some(other),
+            }
+        }
+    }
+
+    fn text(&self, id: u64) -> String {
+        match &self.nodes[&id].kind {
+            ScriptKind::Text(t) => t.clone(),
+            ScriptKind::Element { .. } => self.nodes[&id]
+                .children
+                .iter()
+                .map(|&c| self.text(c))
+                .collect(),
+        }
+    }
 }
 
 use js::BOOLEAN_PROPERTIES;
@@ -1170,6 +1318,8 @@ impl<'p> Machine<'p> {
             rendered_ids: HashSet::new(),
             mounted: vec![],
             root_len: 0,
+            script: ScriptDom::default(),
+            script_hosts: HashSet::new(),
         };
         for g in &program.globals {
             let v = m.eval(&g.init, &Frame::new(0)).map_err(throw_diag)?;
@@ -2862,7 +3012,13 @@ impl<'p> Machine<'p> {
                 let selector = js::parse_selector(&a[0].string().to_rust()).map_err(|m| {
                     Throw::new("RunicUnsupportedError", format!("querySelector: {m}"))
                 })?;
-                match document_query(&self.last_tree, self.root_len, &selector)? {
+                let preceding: Vec<VNode> = self
+                    .script
+                    .preceding
+                    .iter()
+                    .map(|&c| self.script.vnode(c))
+                    .collect();
+                match document_query(&self.last_tree, self.root_len, &preceding, &selector)? {
                     Some(e) => Val::Element(js::Element(e)),
                     None => Val::Null,
                 }
@@ -3025,18 +3181,197 @@ impl<'p> Machine<'p> {
                     _ => Val::Null,
                 }
             }
+            // Script DOM (M6, docs/design/M6-SCRIPT-DOM.md): nodes script
+            // created, and the child lists of rendered elements without
+            // template children; the rendered tree itself needs the native
+            // DOM (below).
+            ("document", "node") => Val::Element(js::Element::DOCUMENT),
+            ("window", "node") => Val::Element(js::Element::WINDOW),
+            ("document", "createElement") => {
+                let tag = a[0].string().to_rust().to_ascii_lowercase();
+                Val::Element(js::Element(self.script.create(ScriptKind::Element {
+                    tag,
+                    attrs: BTreeMap::new(),
+                })))
+            }
+            ("element", "setAttribute" | "removeAttribute" | "style-set-text")
+                if self.script_element(&a[0]).is_some() =>
+            {
+                let id = self.script_element(&a[0]).expect("script element");
+                let value = match name.split_once('.').map(|x| x.1) {
+                    Some("style-set-text") => {
+                        let css = a[1].string().to_rust();
+                        if let Some(d) = runic_css::dropped_declaration(&css) {
+                            let what = format!(
+                                "style.cssText with {d}, which the style engine drops (Chromium keeps it)"
+                            );
+                            self.unsupported.get_or_insert(what.clone());
+                            return Err(Throw::new("RunicUnsupportedError", what));
+                        }
+                        Some(("style".to_owned(), runic_css::css_text(&css)))
+                    }
+                    Some("setAttribute") => Some((
+                        a[1].string().to_rust().to_ascii_lowercase(),
+                        a[2].string().to_rust(),
+                    )),
+                    _ => None,
+                };
+                if let Some(ScriptKind::Element { attrs, .. }) =
+                    self.script.nodes.get_mut(&id).map(|n| &mut n.kind)
+                {
+                    match value {
+                        Some((k, v)) => {
+                            attrs.insert(k, v);
+                        }
+                        None => {
+                            attrs.remove(&a[1].string().to_rust().to_ascii_lowercase());
+                        }
+                    }
+                }
+                self.regraft();
+                Val::Undefined
+            }
+            ("element", "insertBefore" | "appendChild") => {
+                let method = name.split_once('.').map_or("", |x| x.1);
+                let before = match (method, a.get(2)) {
+                    ("insertBefore", Some(Val::Element(b))) => Some(*b),
+                    _ => None,
+                };
+                let node = a[1].clone();
+                self.script_insert(&a[0], &a[1], before, method)?;
+                node
+            }
+            ("element", "replaceChildren") => {
+                let Val::Array(items) = &a[1] else {
+                    panic!("validated array")
+                };
+                let items: Vec<Val> = items.borrow().clone();
+                let parent = self.script_parent(&a[0], "replaceChildren")?;
+                for it in &items {
+                    self.script_check_insert(parent, it, None, "replaceChildren")?;
+                }
+                if parent == ScriptParent::Body {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        "replaceChildren of the body (it holds the app's container)",
+                    ));
+                }
+                for c in self.script.list_mut(parent).clone() {
+                    self.script.detach(c);
+                }
+                for it in items {
+                    let Val::Element(e) = it else { continue };
+                    self.script.insert(parent, e.0, None);
+                }
+                self.regraft();
+                Val::Undefined
+            }
+            ("element", "remove") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                if !self.script.is_script(e.0) {
+                    return Err(Throw::new(
+                        "RunicLayoutError",
+                        "remove() of a rendered node needs the native DOM, which the interpreter does not have",
+                    ));
+                }
+                self.script.detach(e.0);
+                self.regraft();
+                Val::Undefined
+            }
+            ("element", m @ ("set-textContent" | "set-innerText")) => {
+                let text = a[1].string().to_rust();
+                let parent = self.script_parent(&a[0], m)?;
+                if parent == ScriptParent::Body {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        "textContent of the body (it holds the app)",
+                    ));
+                }
+                // (A text node's data.)
+                if let ScriptParent::Node(id) = parent {
+                    if let ScriptKind::Text(t) = &mut self.script.nodes.get_mut(&id).unwrap().kind {
+                        *t = text;
+                        self.regraft();
+                        return Ok(Val::Undefined);
+                    }
+                }
+                for c in self.script.list_mut(parent).clone() {
+                    self.script.detach(c);
+                }
+                let parts = if m == "set-innerText" {
+                    js::script_dom::inner_text_parts(&text)
+                } else if text.is_empty() {
+                    vec![]
+                } else {
+                    vec![Some(text)]
+                };
+                for part in parts {
+                    let kind = match part {
+                        Some(t) => ScriptKind::Text(t),
+                        None => ScriptKind::Element {
+                            tag: "br".into(),
+                            attrs: BTreeMap::new(),
+                        },
+                    };
+                    let id = self.script.create(kind);
+                    self.script.insert(parent, id, None);
+                }
+                self.regraft();
+                Val::Undefined
+            }
+            ("element", "firstChild") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                if *e == js::Element::BODY {
+                    return Ok(match self.script.preceding.first() {
+                        Some(&c) => Val::Element(js::Element(c)),
+                        None => Val::Element(CONTAINER),
+                    });
+                }
+                let parent = self.script_parent(&a[0], "firstChild")?;
+                match self.script.list_mut(parent).first().copied() {
+                    Some(c) if matches!(self.script.nodes[&c].kind, ScriptKind::Text(_)) => {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            "firstChild that is a text node (text nodes as values are not covered yet)",
+                        ));
+                    }
+                    Some(c) => Val::Element(js::Element(c)),
+                    None => Val::Null,
+                }
+            }
+            ("element", "childElementCount") => {
+                let Val::Element(e) = &a[0] else {
+                    panic!("validated element")
+                };
+                let count = if self.script.is_script(e.0) {
+                    self.script.nodes[&e.0]
+                        .children
+                        .iter()
+                        .filter(|c| matches!(self.script.nodes[c].kind, ScriptKind::Element { .. }))
+                        .count()
+                } else {
+                    match chain_nodes(&self.last_tree, e.0).and_then(|c| c.last().copied()) {
+                        Some(VNode::Element { children, .. }) => children
+                            .iter()
+                            .filter(|c| matches!(c, VNode::Element { .. }))
+                            .count(),
+                        _ => 0,
+                    }
+                };
+                Val::Num(count as f64)
+            }
             // The interpreter renders the templates: script moving their
             // nodes (M6, bits-ui's Command) needs the native DOM.
-            ("element", "setAttribute") => {
+            ("element", "setAttribute" | "removeAttribute" | "style-set-text") => {
                 return Err(Throw::new(
                     "RunicLayoutError",
-                    "element.setAttribute needs the native DOM, which the interpreter does not have",
-                ));
-            }
-            ("element", "appendChild") => {
-                return Err(Throw::new(
-                    "RunicLayoutError",
-                    "element.appendChild needs the native DOM, which the interpreter does not have",
+                    format!(
+                        "{name} of a rendered element needs the native DOM, which the interpreter does not have"
+                    ),
                 ));
             }
             // The interpreter models no selection (input actions carry
@@ -3088,7 +3423,10 @@ impl<'p> Machine<'p> {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
                 };
-                Val::Bool(chain_nodes(&self.last_tree, e.0).is_some())
+                Val::Bool(match self.script_tree(e.0) {
+                    Some(_) => self.script.attachment(e.0) == Some(ScriptParent::Body),
+                    None => chain_nodes(&self.last_tree, e.0).is_some(),
+                })
             }
             ("element", m @ ("querySelectorAll" | "querySelector")) => {
                 let Val::Element(e) = &a[0] else {
@@ -3097,7 +3435,40 @@ impl<'p> Machine<'p> {
                 let selector = js::parse_selector(&a[1].string().to_rust()).map_err(|m| {
                     Throw::new("RunicUnsupportedError", format!("querySelector: {m}"))
                 })?;
-                let found = query_selector_all(&self.last_tree, e.0, &selector);
+                // (The document as a node value: `document.querySelector`;
+                // all matches are not modelled here.)
+                if *e == js::Element::DOCUMENT {
+                    if m == "querySelectorAll" {
+                        return Err(Throw::new(
+                            "RunicUnsupportedError",
+                            "querySelectorAll of the document, which the interpreter does not model",
+                        ));
+                    }
+                    let preceding: Vec<VNode> = self
+                        .script
+                        .preceding
+                        .iter()
+                        .map(|&c| self.script.vnode(c))
+                        .collect();
+                    return Ok(
+                        match document_query(&self.last_tree, self.root_len, &preceding, &selector)?
+                        {
+                            Some(n) => Val::Element(js::Element(n)),
+                            None => Val::Null,
+                        },
+                    );
+                }
+                let found = match self.script_tree(e.0) {
+                    Some(tree) => {
+                        let outer: &[(&'static str, Option<(&'static str, &'static str)>)] =
+                            match self.script.attachment(e.0) {
+                                Some(ScriptParent::Body) => &[("html", None), ("body", None)],
+                                _ => &[],
+                            };
+                        query_selector_all_in(&tree, e.0, &selector, outer)
+                    }
+                    None => query_selector_all(&self.last_tree, e.0, &selector),
+                };
                 if m == "querySelector" {
                     found
                         .first()
@@ -3133,7 +3504,7 @@ impl<'p> Machine<'p> {
                 };
                 Val::Bool(
                     e.is_element()
-                        && chain_nodes(&self.last_tree, e.0)
+                        && chain_nodes(&self.tree_for(e.0), e.0)
                             .and_then(|n| match n.last() {
                                 Some(VNode::Element { tag, .. }) => {
                                     Some(!crate::validate::SVG_TAGS.contains(&tag.as_str()))
@@ -3149,6 +3520,12 @@ impl<'p> Machine<'p> {
                 };
                 let selector = js::parse_selector(&a[1].string().to_rust())
                     .map_err(|m| Throw::new("RunicUnsupportedError", format!("closest: {m}")))?;
+                if self.script_tree(e.0).is_some() {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        "closest of a script node outside the rendered tree, which the interpreter does not model",
+                    ));
+                }
                 closest(&self.last_tree, self.root_len, e.0, &selector)?
                     .map_or(Val::Null, |n| Val::Element(js::Element(n)))
             }
@@ -3165,7 +3542,7 @@ impl<'p> Machine<'p> {
                 };
                 let name = a[1].string().to_rust().to_ascii_lowercase();
                 Val::Bool(
-                    chain_nodes(&self.last_tree, e.0)
+                    chain_nodes(&self.tree_for(e.0), e.0)
                         .and_then(|n| match n.last() {
                             Some(VNode::Element { attrs, .. }) => Some(attrs.contains_key(&name)),
                             _ => None,
@@ -3178,7 +3555,7 @@ impl<'p> Machine<'p> {
                     panic!("validated element")
                 };
                 let name = a[1].string().to_rust().to_ascii_lowercase();
-                match chain_nodes(&self.last_tree, e.0).and_then(|n| match n.last() {
+                match chain_nodes(&self.tree_for(e.0), e.0).and_then(|n| match n.last() {
                     Some(VNode::Element { attrs, .. }) => attrs.get(&name).cloned(),
                     _ => None,
                 }) {
@@ -3190,7 +3567,7 @@ impl<'p> Machine<'p> {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
                 };
-                match chain_nodes(&self.last_tree, e.0).and_then(|n| n.last().copied()) {
+                match chain_nodes(&self.tree_for(e.0), e.0).and_then(|n| n.last().copied()) {
                     Some(VNode::Element { tag, .. }) => Val::Str(JsString::from(tag.as_str())),
                     _ => Val::Str(JsString::new()),
                 }
@@ -3209,7 +3586,11 @@ impl<'p> Machine<'p> {
                     }
                 }
                 let mut out = String::new();
-                if let Some(n) = chain_nodes(&self.last_tree, e.0).and_then(|n| n.last().copied()) {
+                if self.script.is_script(e.0) {
+                    out = self.script.text(e.0);
+                } else if let Some(n) =
+                    chain_nodes(&self.last_tree, e.0).and_then(|n| n.last().copied())
+                {
                     text(n, &mut out);
                 }
                 Val::Str(JsString::from(out.as_str()))
@@ -3219,6 +3600,12 @@ impl<'p> Machine<'p> {
                 let (Val::Element(a0), Val::Element(b0)) = (&a[0], &a[1]) else {
                     panic!("validated elements")
                 };
+                if self.script_tree(b0.0).is_some() || self.script_tree(a0.0).is_some() {
+                    return Err(Throw::new(
+                        "RunicUnsupportedError",
+                        "contains of a script node outside the rendered tree, which the interpreter does not model",
+                    ));
+                }
                 let chain = chain_nodes(&self.last_tree, b0.0);
                 Val::Bool(
                     a0 == b0
@@ -3230,6 +3617,15 @@ impl<'p> Machine<'p> {
                 let Val::Element(e) = &a[0] else {
                     panic!("validated element")
                 };
+                if let Some(n) = self.script.nodes.get(&e.0) {
+                    return Ok(match n.parent {
+                        Some(ScriptParent::Node(p) | ScriptParent::Host(p)) => {
+                            Val::Element(js::Element(p))
+                        }
+                        Some(ScriptParent::Body) => Val::Element(js::Element::BODY),
+                        None => Val::Null,
+                    });
+                }
                 let chain = chain_nodes(&self.last_tree, e.0).unwrap_or_default();
                 match chain
                     .len()
@@ -4157,6 +4553,7 @@ impl<'p> Machine<'p> {
         let previous = std::mem::take(&mut self.refs);
         self.rendered_elements.clear();
         self.rendered_ids.clear();
+        self.script_hosts.clear();
         let mut result = self.render_instance(0, &mut out, &mut visited);
         // Mounted instances (M6), each the body's last children at its mount.
         let mut portals: Vec<Vec<VNode>> = vec![];
@@ -5085,6 +5482,14 @@ impl<'p> Machine<'p> {
                 for c in children {
                     self.render_node(c, frame, path, &mut kids, visited)?;
                 }
+                // An element without template children (rule O3a, M6 script
+                // DOM): script owns its child list.
+                if children.is_empty() && script_host_tag(tag) {
+                    self.script_hosts.insert(id);
+                    if let Some(list) = self.script.hosts.get(&id) {
+                        kids.extend(list.iter().map(|&c| self.script.vnode(c)));
+                    }
+                }
                 if let Some(t) = text_content.or(spread_text) {
                     kids.push(VNode::Text(t));
                 }
@@ -5151,6 +5556,184 @@ impl<'p> Machine<'p> {
         Ok(())
     }
 
+    // --- Script DOM (M6, docs/design/M6-SCRIPT-DOM.md) ---
+
+    /// The id of a script-created element `v` holds, if it is one.
+    fn script_element(&self, v: &Val) -> Option<u64> {
+        let Val::Element(e) = v else { return None };
+        match self.script.nodes.get(&e.0)?.kind {
+            ScriptKind::Element { .. } => Some(e.0),
+            ScriptKind::Text(_) => None,
+        }
+    }
+
+    /// The child list of node `v` that script may change: a script node's,
+    /// a rendered element's without template children (rule O3a), or the
+    /// body's before the container. Other rendered elements need the
+    /// native DOM.
+    fn script_parent(&self, v: &Val, method: &str) -> Res<ScriptParent> {
+        let Val::Element(e) = v else {
+            panic!("validated element")
+        };
+        if *e == js::Element::WINDOW || *e == js::Element::VISUAL_VIEWPORT {
+            return Err(Throw::new(
+                "TypeError",
+                format!(
+                    "Failed to execute '{method}' on 'Node': parameter 1 is not of type 'Node'."
+                ),
+            ));
+        }
+        if self.script.is_script(e.0) {
+            return Ok(ScriptParent::Node(e.0));
+        }
+        if *e == js::Element::BODY {
+            return Ok(ScriptParent::Body);
+        }
+        if self.script_hosts.contains(&e.0) {
+            return Ok(ScriptParent::Host(e.0));
+        }
+        Err(Throw::new(
+            "RunicLayoutError",
+            format!(
+                "{method} of the children of a rendered element needs the native DOM, which the interpreter does not have"
+            ),
+        ))
+    }
+
+    /// The DOM standard's pre-insertion validity and the ownership rules
+    /// (as the native runtime's `Host::check_insert`).
+    fn script_check_insert(
+        &self,
+        parent: ScriptParent,
+        node: &Val,
+        before: Option<js::Element>,
+        method: &str,
+    ) -> Res<()> {
+        let Val::Element(n) = node else {
+            panic!("validated element")
+        };
+        let hierarchy = |m: &str| {
+            Err(Throw::new(
+                "HierarchyRequestError",
+                format!("Failed to execute '{method}' on 'Node': {m}"),
+            ))
+        };
+        if let ScriptParent::Node(p) = parent {
+            if matches!(self.script.nodes[&p].kind, ScriptKind::Text(_)) {
+                return hierarchy("This node type does not support this method.");
+            }
+            if self.script.inclusive_ancestor(n.0, p) {
+                return hierarchy("The new child element contains the parent.");
+            }
+        }
+        if let Some(b) = before {
+            let ok = match parent {
+                ScriptParent::Body => b == CONTAINER || self.script.preceding.contains(&b.0),
+                ScriptParent::Node(p) => self.script.nodes[&p].children.contains(&b.0),
+                ScriptParent::Host(h) => {
+                    self.script.hosts.get(&h).is_some_and(|l| l.contains(&b.0))
+                }
+            };
+            if !ok {
+                return Err(Throw::new(
+                    "NotFoundError",
+                    format!(
+                        "Failed to execute '{method}' on 'Node': The node before which the new node is to be inserted is not a child of this node."
+                    ),
+                ));
+            }
+        }
+        if !self.script.is_script(n.0) {
+            return Err(Throw::new(
+                "RunicLayoutError",
+                format!(
+                    "{method} of a rendered node needs the native DOM, which the interpreter does not have"
+                ),
+            ));
+        }
+        if parent == ScriptParent::Body && before.is_none() {
+            return Err(Throw::new(
+                "RunicLayoutError",
+                format!(
+                    "{method} after the container: the interpreter models the body's script content before the container only"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    fn script_insert(
+        &mut self,
+        parent: &Val,
+        node: &Val,
+        before: Option<js::Element>,
+        method: &str,
+    ) -> Res<()> {
+        let p = self.script_parent(parent, method)?;
+        let Val::Element(n) = node else {
+            panic!("validated element")
+        };
+        if before == Some(*n) {
+            return self.script_check_insert(p, node, None, method);
+        }
+        self.script_check_insert(p, node, before, method)?;
+        let before = before.filter(|b| *b != CONTAINER).map(|b| b.0);
+        self.script.insert(p, n.0, before);
+        self.regraft();
+        Ok(())
+    }
+
+    /// Show the current script children of rendered elements without
+    /// template children in the last rendered tree, so that reads of it
+    /// see script's changes before the next render.
+    fn regraft(&mut self) {
+        fn walk(nodes: &mut [VNode], script: &ScriptDom, hosts: &HashSet<u64>) {
+            for n in nodes {
+                if let VNode::Element { id, children, .. } = n {
+                    if hosts.contains(id) {
+                        *children = script
+                            .hosts
+                            .get(id)
+                            .map(|l| l.iter().map(|&c| script.vnode(c)).collect())
+                            .unwrap_or_default();
+                    } else {
+                        walk(children, script, hosts);
+                    }
+                }
+            }
+        }
+        let mut tree = std::mem::take(&mut self.last_tree);
+        walk(&mut tree, &self.script, &self.script_hosts);
+        self.last_tree = tree;
+    }
+
+    /// The tree of script node `id` (its outermost script ancestor's), for
+    /// reads of a node that the rendered tree does not hold: one before the
+    /// container, or one not in the document.
+    fn script_tree(&self, id: u64) -> Option<Vec<VNode>> {
+        if !self.script.is_script(id) {
+            return None;
+        }
+        let mut top = id;
+        while let Some(ScriptParent::Node(p)) = self.script.nodes[&top].parent {
+            top = p;
+        }
+        match self.script.nodes[&top].parent {
+            // (Inside a rendered element: the rendered tree holds it.)
+            Some(ScriptParent::Host(_)) => None,
+            _ => Some(vec![self.script.vnode(top)]),
+        }
+    }
+
+    /// The tree holding node `id`: its script tree outside the rendered
+    /// tree, or the rendered tree.
+    fn tree_for(&self, id: u64) -> std::borrow::Cow<'_, [VNode]> {
+        match self.script_tree(id) {
+            Some(t) => std::borrow::Cow::Owned(t),
+            None => std::borrow::Cow::Borrowed(&self.last_tree),
+        }
+    }
+
     /// Cells of the root instance and the DOM; other live instances follow in
     /// tree order under `instances` (omitted when there are none).
     pub fn snapshot(&mut self) -> Json {
@@ -5167,6 +5750,16 @@ impl<'p> Machine<'p> {
         let mut state = json!({ "cells": cells, "dom": dom });
         if !portals.is_empty() {
             state["portals"] = Json::Array(portals);
+        }
+        // Script content in the body before the container (M6 script DOM).
+        if !self.script.preceding.is_empty() {
+            let nodes = self
+                .script
+                .preceding
+                .iter()
+                .map(|&c| self.script.vnode(c))
+                .collect();
+            state["preceding"] = Json::Array(normalize(nodes).iter().map(VNode::to_json).collect());
         }
         if !self.root.attrs().is_empty() {
             state["document"] = json!(self.root.attrs());
@@ -8655,6 +9248,29 @@ fn select_options(
     Some((options, value.clone()))
 }
 
+/// Whether an element of `tag` rendered without template children is a
+/// script host (rule O3a, docs/design/M6-SCRIPT-DOM.md): not a control,
+/// a void element or SVG, whose children the runtime or the renderer own.
+pub fn script_host_tag(tag: &str) -> bool {
+    !matches!(
+        tag,
+        "textarea"
+            | "select"
+            | "option"
+            | "input"
+            | "img"
+            | "br"
+            | "hr"
+            | "col"
+            | "colgroup"
+            | "table"
+            | "thead"
+            | "tbody"
+            | "tfoot"
+            | "tr"
+    ) && !crate::validate::SVG_TAGS.contains(&tag)
+}
+
 /// The text of a node.
 fn text_of(n: &VNode) -> String {
     match n {
@@ -8705,6 +9321,28 @@ fn element_by_id(tree: &[VNode], id: &str) -> Option<u64> {
 /// in tree order. Paths start at `<html>`, `<body>` and the root container
 /// (as in the document the runtime builds).
 fn query_selector_all(tree: &[VNode], id: u64, selector: &js::Selector) -> Vec<u64> {
+    query_selector_all_in(
+        tree,
+        id,
+        selector,
+        &[
+            ("html", None),
+            ("body", None),
+            ("div", Some(("id", "root"))),
+        ],
+    )
+}
+
+/// `query_selector_all` in a tree whose top-level nodes have the ancestors
+/// `outer` (M6 script DOM: a script tree before the container has the html
+/// and body elements; one not in the document none).
+#[allow(clippy::type_complexity)]
+fn query_selector_all_in(
+    tree: &[VNode],
+    id: u64,
+    selector: &js::Selector,
+    outer: &[(&'static str, Option<(&'static str, &'static str)>)],
+) -> Vec<u64> {
     enum View<'a> {
         Outer(&'static str, Option<(&'static str, &'static str)>),
         Node(&'a VNode),
@@ -8745,11 +9383,7 @@ fn query_selector_all(tree: &[VNode], id: u64, selector: &js::Selector) -> Vec<u
     let Some(chain) = chain_nodes(tree, id) else {
         return vec![];
     };
-    let mut path = vec![
-        View::Outer("html", None),
-        View::Outer("body", None),
-        View::Outer("div", Some(("id", "root"))),
-    ];
+    let mut path: Vec<View> = outer.iter().map(|(t, a)| View::Outer(t, *a)).collect();
     path.extend(chain.iter().map(|n| View::Node(n)));
     let mut out = vec![];
     if let Some(VNode::Element { children, .. }) = chain.last() {
@@ -8835,6 +9469,7 @@ fn closest(
 fn document_query(
     tree: &[VNode],
     root_len: usize,
+    preceding: &[VNode],
     selector: &js::Selector,
 ) -> std::result::Result<Option<u64>, Throw> {
     struct Outer(&'static str, Option<(&'static str, &'static str)>);
@@ -8892,6 +9527,11 @@ fn document_query(
     let body = || View::Outer(Outer("body", None));
     if selector.matches(&[html(), body()]) {
         return Ok(Some(js::Element::BODY.0));
+    }
+    // Script content before the container (M6 script DOM).
+    let mut path = vec![html(), body()];
+    if let Some(found) = first(preceding, &mut path, selector) {
+        return Ok(Some(found));
     }
     let container = View::Outer(Outer("div", Some(("id", "root"))));
     let mut path = vec![html(), body(), container];

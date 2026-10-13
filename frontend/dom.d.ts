@@ -24,7 +24,62 @@ interface HTMLElement {
   readonly parentElement: HTMLElement | null;
   readonly nextElementSibling: HTMLElement | null;
   readonly previousElementSibling: HTMLElement | null;
-  appendChild(child: HTMLElement): HTMLElement;
+  /**
+   * M6 script DOM (docs/design/M6-SCRIPT-DOM.md): nodes script created move
+   * within child lists script owns (theirs, the body's outside the
+   * container, an element the template renders without children); a
+   * child of this element moves to its end (bits-ui's Command).
+   */
+  appendChild(child: Node): Node;
+  insertBefore(node: Node, child: Node | null): Node;
+  replaceChildren(...nodes: Node[]): void;
+  remove(): void;
+  /** The first child node: of nodes script created, script hosts and the body. */
+  readonly firstChild: ChildNode | null;
+  readonly childElementCount: number;
+  /** Writes replace the children by text (with `<br>` for line breaks); reads are not covered. */
+  innerText: string;
+  className: string;
+  role: string | null;
+  ariaAtomic: string | null;
+  ariaAutoComplete: string | null;
+  ariaBusy: string | null;
+  ariaChecked: string | null;
+  ariaColCount: string | null;
+  ariaColIndex: string | null;
+  ariaColSpan: string | null;
+  ariaCurrent: string | null;
+  ariaDescription: string | null;
+  ariaDisabled: string | null;
+  ariaExpanded: string | null;
+  ariaHasPopup: string | null;
+  ariaHidden: string | null;
+  ariaInvalid: string | null;
+  ariaKeyShortcuts: string | null;
+  ariaLabel: string | null;
+  ariaLevel: string | null;
+  ariaLive: string | null;
+  ariaModal: string | null;
+  ariaMultiLine: string | null;
+  ariaMultiSelectable: string | null;
+  ariaOrientation: string | null;
+  ariaPlaceholder: string | null;
+  ariaPosInSet: string | null;
+  ariaPressed: string | null;
+  ariaReadOnly: string | null;
+  ariaRelevant: string | null;
+  ariaRequired: string | null;
+  ariaRoleDescription: string | null;
+  ariaRowCount: string | null;
+  ariaRowIndex: string | null;
+  ariaRowSpan: string | null;
+  ariaSelected: string | null;
+  ariaSetSize: string | null;
+  ariaSort: string | null;
+  ariaValueMax: string | null;
+  ariaValueMin: string | null;
+  ariaValueNow: string | null;
+  ariaValueText: string | null;
   releasePointerCapture(pointerId: number): void;
   // Layout reads and scrolling (CSSOM View), from the native layout.
   getBoundingClientRect(): DOMRect;
@@ -57,6 +112,8 @@ interface HTMLElement {
   getAttribute(name: string): string | null;
   /** M6 (bits-ui's Command): checked against the framework's writes at run time. */
   setAttribute(name: string, value: string): void;
+  /** M6 script DOM: checked against the framework's writes as `setAttribute` is. */
+  removeAttribute(name: string): void;
   readonly localName: string;
   readonly style: ElementInlineStyle;
   getAnimations(): Animation[];
@@ -65,9 +122,9 @@ interface HTMLElement {
   // M6 (bits-ui's roving focus): the id attribute; descendants matching a
   // selector (a subset: tags, #id, .class, [attr], [attr=value], :not(),
   // descendant and child combinators), a static list.
-  readonly id: string;
+  id: string;
   /** M6 overlays (bits-ui's typeahead): the text of its descendant text nodes. */
-  readonly textContent: string;
+  textContent: string;
   querySelectorAll(selectors: string): HTMLElement[];
   querySelector(selectors: string): HTMLElement | null;
   /** M6 overlays: whether the node is this element or one of its descendants. */
@@ -220,6 +277,13 @@ declare var Document: { prototype: HostDocument };
 /** The document's type where declaration files name it (svelte-toolbelt's `getDocument(…): Document`). */
 type Document = HostDocument;
 declare var Node: { prototype: Element };
+/**
+ * M6 script DOM (docs/design/M6-SCRIPT-DOM.md): nodes are handles of one
+ * IR type; slice 1 types them as elements (text, comment and fragment
+ * interfaces follow with their members).
+ */
+type Node = HTMLElement;
+type ChildNode = HTMLElement;
 /**
  * An event target where declaration files name one (bits-ui's
  * `CustomEventDispatcher.listen(element: EventTarget, …)`): an element value
@@ -494,8 +558,13 @@ interface HostDocument extends HostEventTarget {
   getElementById(id: string): HTMLElement | null;
   /** M6 overlays: the body (where imperative mounts append). */
   readonly body: HTMLElement;
-  /** M6 overlays: a literal selector, `body` or `#id`. */
+  /** M6 overlays: a selector of the subset; the first match in tree order. */
   querySelector(selectors: string): HTMLElement | null;
+  /**
+   * M6 script DOM: an element script owns, of a literal tag of the static
+   * elements (docs/design/M6-SCRIPT-DOM.md).
+   */
+  createElement(tagName: string): HTMLElement;
   /** M6 overlays: the focused element (the body when none is). */
   readonly activeElement: HTMLElement | null;
   /** M6 overlays: whether the element is in the document. */

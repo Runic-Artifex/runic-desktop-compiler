@@ -20,6 +20,7 @@ export function checkExpectedText(steps, expectations = []) {
     };
     find(snapshot?.dom);
     for (const portal of snapshot?.portals ?? []) find(portal);
+    for (const node of snapshot?.preceding ?? []) find(node);
     const text = node => 'text' in node ? node.text : (node.children ?? []).map(text).join('');
     const actual = matches.length === 1 ? text(matches[0]) : null;
     if (!snapshot || matches.length !== 1 || actual !== expected.text)

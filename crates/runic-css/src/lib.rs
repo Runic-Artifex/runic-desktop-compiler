@@ -60,6 +60,69 @@ pub fn css_text(css: &str) -> String {
     text(&block(css))
 }
 
+/// The first declaration of `css` (as written, `name: value`) that the
+/// style engine does not parse, if any. `cssText` drops such a declaration;
+/// whether Chromium keeps it is not known here, so the script DOM reports
+/// it (docs/design/M6-SCRIPT-DOM.md) instead of serializing without it.
+pub fn dropped_declaration(css: &str) -> Option<String> {
+    // Declarations end at `;` outside parentheses, brackets and strings.
+    let mut parts = vec![];
+    let (mut depth, mut quote, mut start) = (0i32, None::<char>, 0usize);
+    let mut chars = css.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        match (quote, c) {
+            (Some(_), '\\') => {
+                chars.next();
+            }
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(' | '[' | '{') => depth += 1,
+            (None, ')' | ']' | '}') => depth -= 1,
+            (None, ';') if depth == 0 => {
+                parts.push(&css[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&css[start..]);
+    for part in parts {
+        let decl = part.trim();
+        if decl.is_empty() {
+            continue;
+        }
+        let Some((name, value)) = decl.split_once(':') else {
+            return Some(decl.to_owned());
+        };
+        let value = value.trim();
+        let (value, _) = match value.strip_suffix("!important") {
+            Some(v) => (v.trim_end(), true),
+            None => (value, false),
+        };
+        let Some(id) = property(name.trim()) else {
+            return Some(decl.to_owned());
+        };
+        let mut source = SourcePropertyDeclaration::default();
+        if parse_one_declaration_into(
+            &mut source,
+            id,
+            value,
+            Origin::Author,
+            &url_data(),
+            None,
+            ParsingMode::DEFAULT,
+            QuirksMode::NoQuirks,
+            CssRuleType::Style,
+        )
+        .is_err()
+        {
+            return Some(decl.to_owned());
+        }
+    }
+    None
+}
+
 /// `style.setProperty(name, value, priority)` on the declarations `css`:
 /// the new serialization, or `None` when the value is invalid (nothing
 /// changes). An empty value removes the property; a value of whitespace is

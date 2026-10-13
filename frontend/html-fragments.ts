@@ -17,7 +17,7 @@ import { parseFragment } from 'parse5';
 import type { Fragment, FragmentNode } from './ir.ts';
 
 /** The elements a fragment may hold. */
-const FRAGMENT_TAGS = new Set([
+export const FRAGMENT_TAGS = new Set([
   'div',
   'span',
   'p',

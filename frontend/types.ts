@@ -813,17 +813,12 @@ export class TypeMapper {
     if (t.getProperty('__runicMediaQuery')) return 'media-query';
     // A CSS animation or transition (frontend/dom.d.ts), read through built-ins.
     if (t.getProperty('__runicAnimation')) return 'animation';
-    // The document and the window (frontend/dom.d.ts) are host objects, not
-    // values: they are accepted where the program knows the value is that
-    // object (`Lowerer.hostName`). Reported where the program needs the
-    // type, not at the host declarations' members.
-    const host = this.hostOf(t);
-    if (host)
-      this.fail(
-        at,
-        'E_TYPE_UNSUPPORTED',
-        `The ${host} is not a value here (a ${host === 'document' ? 'Document' : 'Window'} value that may be another object or null): the ${host} is accepted where the value is known to be it (the global, a parameter every call passes it for, a function returning it, a field holding it once assigned)`,
-      );
+    // The document and the window (frontend/dom.d.ts) are node handles (M6
+    // script DOM, docs/design/M6-SCRIPT-DOM.md): a program can create no
+    // other document or window, so a value of either type is that object
+    // (or nullish). Where the program knows which (`Lowerer.hostName`) no
+    // value is read at all.
+    if (this.hostOf(t)) return 'element';
     // An image object (frontend/dom.d.ts), read and written through built-ins.
     if (t.getProperty('__runicImage')) return 'image';
     // A computed style declaration stands for its element (frontend/dom.d.ts).

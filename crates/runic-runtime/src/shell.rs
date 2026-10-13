@@ -132,6 +132,7 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
     let mut listeners = Listeners::default();
     listeners.container = Some(mount);
     listeners.body = Some(body);
+    listeners.body_whitespace = A::CONTAINER_ATTRS.is_some();
     app.mount(
         &mut Dom {
             doc: &mut doc,

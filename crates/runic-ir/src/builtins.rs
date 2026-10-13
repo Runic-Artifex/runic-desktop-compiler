@@ -698,6 +698,13 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
         ("document", "body") => arity(args, 0, 0).map(|_| Element),
         // The document element as an element value (M6: getComputedStyle).
         ("document", "element") => arity(args, 0, 0).map(|_| Element),
+        // Script DOM (M6, docs/design/M6-SCRIPT-DOM.md): the document and
+        // the window as node handles, and elements script creates.
+        ("document", "node") | ("window", "node") => arity(args, 0, 0).map(|_| Element),
+        ("document", "createElement") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &s, "tag").map(|_| Element)
+        }
         // The runtime's user agent (M6: bits-ui's platform checks).
         ("navigator", "user-agent") => arity(args, 0, 0).map(|_| s.clone()),
         ("focus", "current") => arity(args, 0, 0).map(|_| Maybe(Box::new(Element))),
@@ -1013,6 +1020,36 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             arity(args, 2, 2)?;
             expect(&args[0], &Element, "receiver")?;
             expect(&args[1], &Element, "child").map(|_| Element)
+        }
+        // Script DOM (M6, docs/design/M6-SCRIPT-DOM.md): child lists script
+        // owns, text, attributes and the inline style text.
+        ("element", "insertBefore") => {
+            arity(args, 3, 3)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Element, "node")?;
+            expect(&args[2], &Maybe(Box::new(Element)), "child").map(|_| Element)
+        }
+        ("element", "replaceChildren") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &Type::array(Element), "nodes").map(|_| Void)
+        }
+        ("element", "remove") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Void)
+        }
+        ("element", "firstChild") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| Maybe(Box::new(Element)))
+        }
+        ("element", "childElementCount") => {
+            arity(args, 1, 1)?;
+            expect(&args[0], &Element, "receiver").map(|_| n.clone())
+        }
+        ("element", "set-textContent" | "set-innerText" | "style-set-text" | "removeAttribute") => {
+            arity(args, 2, 2)?;
+            expect(&args[0], &Element, "receiver")?;
+            expect(&args[1], &s, "value").map(|_| Void)
         }
         // `getComputedStyle(e).getPropertyValue(name)` of a property whose
         // resolved value is its computed value (the frontend checks).

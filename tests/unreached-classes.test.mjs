@@ -290,7 +290,8 @@ test('a prop whose default is undefined stays nullish where a site leaves it out
   );
 });
 
-test('the document as a value that may be null is rejected where the program needs its type', async () => {
+// (M6 script DOM, docs/design/M6-SCRIPT-DOM.md: the document is a value.)
+test('the document as a value that may be null', async () => {
   await withApp(
     {
       'App.svelte': `<script lang="ts">
@@ -303,10 +304,10 @@ test('the document as a value that may be null is rejected where the program nee
 <p>{before} {after}</p>
 `,
     },
-    root =>
-      assert.rejects(
-        lowered(root),
-        failWith('E_TYPE_UNSUPPORTED', 'App.svelte', /^The document is not a value here/),
-      ),
+    async root => {
+      const { ir } = await lowered(root);
+      const [step] = interpret(ir, []);
+      assert.deepEqual(step.state.dom, [{ tag: 'p', attrs: {}, children: ['absent present'] }]);
+    },
   );
 });
