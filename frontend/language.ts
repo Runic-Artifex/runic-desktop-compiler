@@ -5539,6 +5539,9 @@ export class Lowerer {
   }
 
   expr(e: ts.Expression, b: FnBuilder): Expr {
+    const override = this.overrides.get(e);
+    if (override) return override.expr;
+    // (An await the async transform has resolved is overridden by its value.)
     if (ts.isAwaitExpression(e))
       return this.fail(
         e,
@@ -5546,8 +5549,6 @@ export class Lowerer {
         'await is supported in async functions as a statement, an initialiser, an assignment or a return value',
       );
     const K = ts.SyntaxKind;
-    const override = this.overrides.get(e);
-    if (override) return override.expr;
     const groups = this.groupsAccess(e, b);
     if (groups) return groups;
     if (ts.isOptionalChain(e)) {

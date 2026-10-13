@@ -217,3 +217,48 @@ test('a union reached by a string and an array stays rejected', async () => {
       ),
   );
 });
+
+// shadcn-svelte's UseClipboard (docs/src/lib/hooks/use-clipboard.svelte.ts):
+// `copy(text: string | number)` copies `text.toString()` and assigns the
+// awaited status to a private field.
+test('a string or a number copied as text, its await result assigned to a field', async () => {
+  await withApp(
+    {
+      'clipboard.svelte.ts': `async function copyText(text: string): Promise<'success' | 'failure'> {
+  return text.length > 0 ? 'success' : 'failure';
+}
+export class Clipboard {
+  #status = $state<'success' | 'failure'>();
+  copiedText = $state('');
+  async copy(text: string | number): Promise<'success' | 'failure'> {
+    this.copiedText = text.toString();
+    this.#status = await copyText(text.toString());
+    return this.#status;
+  }
+  get status(): string {
+    return this.#status ?? 'none';
+  }
+}
+`,
+      'App.svelte': `<script lang="ts">
+  import { Clipboard } from './clipboard.svelte';
+  const clipboard = new Clipboard();
+</script>
+
+<button id="n" onclick={() => clipboard.copy(42)}>n</button>
+<button id="e" onclick={() => clipboard.copy('')}>e</button>
+<p id="c">{clipboard.copiedText} {clipboard.status}</p>
+`,
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const steps = interpret(ir, [
+        { kind: 'click', id: 'n' },
+        { kind: 'click', id: 'e' },
+      ]);
+      assert.equal(shown(steps[0], 'c'), ' none');
+      assert.equal(shown(steps[1], 'c'), '42 success');
+      assert.equal(shown(steps[2], 'c'), ' failure');
+    },
+  );
+});
