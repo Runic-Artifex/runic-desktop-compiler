@@ -15,6 +15,7 @@ use style::stylesheets::{CssRuleType, Origin, UrlExtraData};
 use style_traits::{CssStringWriter, ParsingMode};
 
 pub mod check;
+pub mod inline;
 pub mod unmatched;
 
 fn url_data() -> UrlExtraData {
