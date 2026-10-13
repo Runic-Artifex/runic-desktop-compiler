@@ -2640,6 +2640,42 @@ export function implementationOf(
   };
 }
 
+/**
+ * Whether a class a package's declaration file declares has no instances in
+ * the program: the package is compiled from source (`sourceDirs`, its
+ * directories), the class is defined by the JavaScript file next to the
+ * declaration file, and the program does not reach that module. Instances
+ * are created only by code that runs, and the reached modules
+ * (`reachedPackageModules`, from every component and local module, through
+ * every value import) hold all package code that can run; code elsewhere
+ * that could hold the class value would import its module, reaching it.
+ * bits-ui's Calendar root context is typed `RangeCalendarRootState |
+ * CalendarRootState` (calendar.svelte.d.ts) for both calendars; in a program
+ * without a RangeCalendar, range-calendar.svelte.js is not reached and only
+ * CalendarRootState values reach the context.
+ */
+export function unreachedClassOf(
+  modules: Map<string, PackageModule>,
+  sourceDirs: Iterable<string>,
+): (sym: ts.Symbol) => boolean {
+  const dirs = [...sourceDirs];
+  return sym => {
+    const decl = sym.valueDeclaration ?? sym.declarations?.[0];
+    const sf = decl?.getSourceFile();
+    if (!decl || !sf?.isDeclarationFile || !ts.isClassDeclaration(decl) || !decl.name) return false;
+    const js = sf.fileName.replace(/\.d\.(m?)ts$/, '.$1js');
+    if (js === sf.fileName || modules.has(js) || !existsSync(js)) return false;
+    // (A file of a package nested in the source package's node_modules is
+    // another package's.)
+    return dirs.some(d => {
+      const rel = path.relative(d, js);
+      return (
+        !rel.startsWith('..') && !path.isAbsolute(rel) && !/(^|[\\/])node_modules[\\/]/.test(rel)
+      );
+    });
+  };
+}
+
 /** A path relative to `root`, with packages named from their `node_modules` directory. */
 export function displayPath(root: string, file: string): string {
   const i = file.lastIndexOf(`${path.sep}node_modules${path.sep}`);

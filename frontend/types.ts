@@ -25,6 +25,12 @@ export class TypeMapper {
   /** The IR type of a union of class instance types (a class reference). */
   classUnion?: (parts: ts.Type[], at: ts.Node) => Type;
   /**
+   * Whether class type `t` has no instances in the program (a class of a
+   * package compiled from source whose module the program does not reach,
+   * `Lowerer.unreachedClass`): a union member holding nothing.
+   */
+  uninhabited?: (t: ts.Type) => boolean;
+  /**
    * The IR type a type parameter is bound to (a generic class's one
    * instantiation, frontend/classes.ts), if any.
    */
@@ -714,7 +720,14 @@ export class TypeMapper {
     // (`"text" | (string & {})`, svelte/elements' HTMLInputTypeAttribute: string.)
     const parts = members.map(p => this.emptyIntersected(p) ?? p);
     const nullish = parts.filter(p => p.flags & (F.Null | F.Undefined | F.Void));
-    const rest = parts.filter(p => !(p.flags & (F.Null | F.Undefined | F.Void)));
+    let rest = parts.filter(p => !(p.flags & (F.Null | F.Undefined | F.Void)));
+    // Classes without instances in the program hold nothing (bits-ui's
+    // Calendar root context `RangeCalendarRootState | CalendarRootState`
+    // where no RangeCalendar is reached): the other members type the union.
+    // Where they are all such classes, it holds null or undefined only.
+    const inhabited = rest.filter(p => !(this.sourceClass(p) && this.uninhabited?.(p)));
+    if (inhabited.length) rest = inhabited;
+    else if (rest.length && nullish.length) return { maybe: 'void' };
     let base: Type;
     if (rest.length === 0) return 'void';
     if (rest.every(p => p.flags & (F.Boolean | F.BooleanLiteral))) base = 'boolean';

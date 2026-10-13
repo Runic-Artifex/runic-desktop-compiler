@@ -49,6 +49,7 @@ import {
   inferFields,
   portModule,
   reachedPackageModules,
+  unreachedClassOf,
   type PackageModule,
 } from '../package-modules.ts';
 import { PropDomains, type PropDecl, type Site, type SiteValue } from '../domains.ts';
@@ -2515,6 +2516,10 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     jsonBinding(lower, symbol, graph.modules) ??
     packageLazy(symbol);
   lower.implementation = implementationOf(program, packageModules);
+  lower.unreachedClass = unreachedClassOf(
+    packageModules,
+    new Set([...graph.modules.values()].flatMap(m => (m.package ? [m.package.dir] : []))),
+  );
   /** A component's `<script module>` statements in its virtual module. */
   const moduleStatements = (u: Unit) => {
     const sf = program.getSourceFile(u.virtual)!;

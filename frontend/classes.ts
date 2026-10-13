@@ -800,6 +800,17 @@ export class Classes {
       this.bySymbol.set(sym, info);
       return info;
     }
+    // (A class of a package compiled from source whose module the program
+    // does not reach has no instances; in a union with a class it reaches,
+    // it holds nothing, `TypeMapper.union`.)
+    if (decl.getSourceFile().isDeclarationFile && this.lower.unreachedClass?.(sym))
+      return this.fail(
+        at,
+        `${sym.name} has no instances in this program (the program does not reach its package module ${decl
+          .getSourceFile()
+          .fileName.replace(/^.*[\\/]node_modules[\\/]/, '')
+          .replace(/\.d\.(m?)ts$/, '.$1js')}); a value typed only by it is unsupported`,
+      );
     if (decl.getSourceFile().isDeclarationFile)
       return this.fail(
         at,
