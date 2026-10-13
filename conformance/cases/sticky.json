@@ -1,0 +1,26 @@
+{
+  "description": "position: sticky as Chromium 153 lays out, paints and hit-tests it while scrolling (the shadcn-svelte site's header, docs sidebar and table of contents, Bootstrap's sticky-top): a site header stuck to the document's top, a sidebar below it scrolling on its own with a sticky fade at its bottom (a negative bottom), a table of contents clipping its content with a sticky title, a data table with a sticky header row and a sticky first column in a pane scrolled both ways, a dialog body with a sticky footer, a sticky box in a grid area, nested scroll containers with a sticky header each, a strip with a sticky end (right), the sidebar and contents pushed by the end of their containing block; clicks on sticky buttons after scrolling",
+  "fixtures": ["sticky-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["site-header", "sidebar", "table-pane", "dialog", "grid", "outer", "strip", "toc"],
+  "actions": [
+    { "kind": "wheel", "id": "table-pane", "deltaY": 60 },
+    { "kind": "wheel", "id": "table-pane", "deltaX": 120 },
+    { "kind": "wheel", "id": "sidebar", "deltaY": 200 },
+    { "kind": "click", "id": "header-button" },
+    { "kind": "wheel", "id": "site-header", "deltaY": 300 },
+    { "kind": "wheel", "id": "dialog", "deltaY": 120 },
+    { "kind": "click", "id": "dialog-cancel" },
+    { "kind": "wheel", "id": "site-header", "deltaY": 300 },
+    { "kind": "wheel", "id": "inner", "deltaY": 50 },
+    { "kind": "wheel", "id": "outer", "deltaY": 80 },
+    { "kind": "wheel", "id": "site-header", "deltaY": 300 },
+    { "kind": "wheel", "id": "strip", "deltaX": 200 },
+    { "kind": "wheel", "id": "site-header", "deltaY": 1000 },
+    { "kind": "click", "id": "header-button" },
+    { "kind": "wheel", "id": "site-header", "deltaY": -2000 }
+  ]
+}

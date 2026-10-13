@@ -154,6 +154,82 @@ const cases = {
       { kind: 'html', selector: '#caption', value: 'Longer caption<br>with two lines' },
     ],
   },
+  // CSS compatibility slice 1: what the shadcn-svelte site, Bootstrap and
+  // data tables need from sticky positioning, beyond the reductions above.
+  sticky_padding: {
+    html: `<div id="table" data-scroll style="${pane};padding:14px 10px 18px"><section id="section" style="height:300px"><div style="height:40px">Before</div><div id="sticky" style="${sticky};top:0">Padded top</div><div style="height:150px">Middle</div><div id="end" style="${sticky};bottom:0">Padded bottom</div></section><div style="height:100px">After</div></div>`,
+    viewports,
+    regions: ['sticky', 'end'],
+    actions: [scroll(30), scroll(90), scroll(230)],
+  },
+  sticky_percent: {
+    html: `<div id="table" data-scroll style="${pane};padding:10px"><section id="section" style="height:400px;width:500px"><div style="height:40px">Before</div><div id="sticky" style="${sticky};width:90px;top:10%;left:5%">Percent</div></section></div>`,
+    viewports,
+    regions: ['sticky'],
+    actions: [scroll(70, 40), scroll(200, 120)],
+  },
+  sticky_margins: {
+    html: `<div id="table" data-scroll style="${pane}"><section id="section" style="height:200px;padding:6px;border:3px solid #999"><div style="height:30px">Before</div><div id="sticky" style="${sticky};top:4px;margin:12px 20px 16px">Margins</div><div style="height:40px">Below</div></section><div style="height:200px">After</div></div>`,
+    viewports,
+    regions: ['sticky'],
+    actions: [scroll(40), scroll(120), scroll(170), scroll(210)],
+  },
+  sticky_flex_grid: {
+    html: `<div id="table" data-scroll style="${pane}"><div id="row" style="display:flex;gap:8px;align-items:flex-start"><div id="sticky" style="${sticky};top:6px;width:80px">Flex</div><div style="height:300px;flex:1">Tall</div><div id="stretch" style="position:sticky;top:6px;width:40px;background:#fde">S</div></div><div id="grid" style="display:grid;grid-template-columns:90px 1fr;gap:6px"><div id="cell" style="position:sticky;top:10px;align-self:start;height:30px;background:#dfe">Grid</div><div style="height:260px">Tall cell</div></div><div style="height:120px">After</div></div>`,
+    viewports,
+    regions: ['sticky', 'stretch', 'cell'],
+    actions: [scroll(100), scroll(260), scroll(420)],
+  },
+  sticky_thead: {
+    html: `<div id="pane" data-scroll style="${pane}"><table id="table" style="border-collapse:separate;border-spacing:0;width:420px"><thead id="sticky" style="position:sticky;top:0;background:#dde8ff"><tr id="header"><th id="corner" style="position:sticky;left:0;background:#bcd">Key</th><th>Alpha</th><th>Beta</th><th>Gamma</th></tr></thead><tbody>${Array.from({ length: 10 }, (_, i) => `<tr id="row${i}"><th id="first${i}" style="position:sticky;left:0;background:#eee">Row ${i}</th><td>${i * 11}</td><td>${i * 23}</td><td>${i * 37}</td></tr>`).join('')}</tbody></table></div>`,
+    viewports,
+    regions: ['sticky', 'corner'],
+    actions: [scroll(50, 0, '#pane'), scroll(80, 90, '#pane'), scroll(400, 400, '#pane')],
+  },
+  sticky_thead_collapse: {
+    // shadcn-svelte's data table: a sticky header row group with a
+    // background in a collapsed-border table whose rows have bottom borders.
+    html: `<div id="pane" data-scroll style="${pane}"><table id="table" style="border-collapse:collapse;width:100%"><thead id="sticky" style="position:sticky;top:0;z-index:10;background:#dde8ff"><tr id="header" style="border-bottom:1px solid #889"><th>Key</th><th>Value</th></tr></thead><tbody>${Array.from({ length: 10 }, (_, i) => `<tr id="row${i}" style="border-bottom:1px solid #ccd"><td>${i}</td><td>Entry ${i}</td></tr>`).join('')}</tbody></table></div>`,
+    viewports,
+    regions: ['sticky', 'pane'],
+    actions: [scroll(45, 0, '#pane'), scroll(130, 0, '#pane')],
+  },
+  sticky_transformed: {
+    html: `<div id="frame" style="margin:20px 0 0 30px;width:310px;transform:rotate(3deg) scale(1.2);transform-origin:0 0"><div id="table" data-scroll style="${pane}"><section id="section" style="height:300px"><div style="height:40px">Before</div><div id="sticky" style="${sticky};top:8px;left:4px;width:150px">Transformed</div></section><div style="height:100px">After</div></div></div>`,
+    viewports,
+    regions: ['frame'],
+    actions: [scroll(60), scroll(200)],
+  },
+  sticky_no_overflow: {
+    html: `<div id="table" data-scroll style="${pane}"><div style="height:10px"></div><div id="sticky" style="${sticky};top:20px">No overflow</div><div id="low" style="${sticky};bottom:30px">Bottom</div></div>`,
+    viewports,
+    regions: ['sticky', 'low'],
+    actions: [],
+  },
+  sticky_in_sticky: {
+    html: `<div id="table" data-scroll style="${pane}"><section id="section" style="height:500px"><div style="height:20px">Before</div><div id="outer-sticky" style="position:sticky;top:4px;height:90px;background:#eef"><div style="height:30px">Head</div><div id="sticky" style="${sticky};top:10px">Inner</div></div><div style="height:300px">Middle</div></section></div>`,
+    viewports,
+    regions: ['outer-sticky'],
+    actions: [scroll(40), scroll(150), scroll(420)],
+  },
+  sticky_negative_bottom: {
+    html: `<div id="table" data-scroll style="${pane}"><div style="height:300px">Links</div><div id="sticky" style="${sticky};bottom:-4px;height:24px;opacity:.9">Fade</div></div>`,
+    viewports,
+    regions: ['sticky'],
+    actions: [scroll(60), scroll(200)],
+  },
+  sticky_right: {
+    html: `<div id="table" data-scroll style="${pane};white-space:nowrap"><span style="display:inline-block;width:500px">Chips</span><span id="sticky" style="position:sticky;right:0;display:inline-block;width:60px;background:#fdd">End</span></div>`,
+    viewports,
+    regions: ['sticky'],
+    actions: [scroll(0, 120), scroll(0, 400)],
+  },
+  sticky_fractional: {
+    html: `<div id="table" data-scroll style="${pane}"><section id="section" style="height:300.5px"><div style="height:40.25px">Before</div><div id="sticky" style="${sticky};top:7.5px">Fractional</div></section><div style="height:100px">After</div></div>`,
+    viewports,
+    regions: ['sticky'],
+    actions: [scroll(60.5), scroll(150.75), scroll(277.25)],
+  },
   scroll_into_view: {
     html: `<div id="outer" data-scroll style="width:340px;height:180px;overflow:auto;scrollbar-width:none"><div style="height:100px">Before</div><div id="table" data-scroll style="${pane}"><div style="height:220px">Before</div><div id="target" style="height:30px;background:#dde8ff">Target</div><div style="height:120px">After</div></div><div style="height:200px">After</div></div>`,
     viewports,
