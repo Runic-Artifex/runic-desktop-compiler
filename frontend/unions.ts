@@ -701,7 +701,15 @@ export class Unions {
     const sf = decl.getSourceFile();
     if (!key || this.propsPattern(sf)?.byKey.get(key) !== decl) return false;
     if (!decl.initializer && this.mayBeAbsent(sf, key, 0)) return false;
-    const t = this.trace(e, [], 0, true);
+    // (A value the trace does not follow, such as an `{#each}` item's
+    // field: its TypeScript type, which the IR types it by.)
+    this.typedLeaves = true;
+    let t: ts.Type[] | undefined;
+    try {
+      t = this.trace(e, [], 0, true);
+    } finally {
+      this.typedLeaves = false;
+    }
     return (
       !!t &&
       t.length > 0 &&
@@ -751,6 +759,9 @@ export class Unions {
     }
     return out;
   }
+
+  /** `present`: values the trace does not follow count by their TypeScript type. */
+  private typedLeaves = false;
 
   /** Unions whose census is being taken. */
   private readonly counting = new Set<string>();
@@ -840,6 +851,7 @@ export class Unions {
       }
       // A value typed by a union nothing but null and undefined reaches.
       if (!strict && this.empty(this.declaredType(e))) return [];
+      if (this.typedLeaves) return [this.checker.getTypeAtLocation(e)];
       return undefined;
     }
     if (path[0] !== 'current') return this.traceEntry(e, path, depth, strict);

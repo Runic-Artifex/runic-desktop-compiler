@@ -1206,8 +1206,9 @@ impl<A: App> Handler<'_, A> {
 
     /// Follow a link after its click (the click's default action): a
     /// fragment navigation (`popstate` at once, `hashchange` as a task when
-    /// the fragment changed). Scrolling to and focusing an element the
-    /// fragment names, and links to other documents, are unsupported.
+    /// the fragment changed), scrolling to the element the fragment names
+    /// or to the top of the document. Named anchors (`<a name>`) and links
+    /// to other documents are unsupported.
     fn follow_link(&mut self, doc: &mut BaseDocument, link: NodeId) {
         let Some(href) = doc
             .get_node(link)
@@ -1218,10 +1219,35 @@ impl<A: App> Handler<'_, A> {
         };
         if let Some(name) = href.strip_prefix('#') {
             let decoded = percent_decode(name);
-            if decoded.is_empty() || decoded.eq_ignore_ascii_case("top") {
-                crate::unsupported(&format!(
-                    "following the link {href:?} (scrolling to the top of the document)"
-                ));
+            // The HTML standard's "find a potential indicated element": an
+            // empty fragment is the top of the document; otherwise the
+            // element of that id, else an `<a>` of that name, else, for
+            // "top" (ASCII case-insensitive), the top of the document.
+            let top = decoded.is_empty()
+                || (decoded.eq_ignore_ascii_case("top")
+                    && doc.get_element_by_id(&decoded).is_none()
+                    && !named_anchor(doc, &decoded));
+            if top {
+                // Chromium's ElementFragmentAnchor with the document as its
+                // anchor: the document element scrolled into view (block
+                // start, inline nearest), and no focus change (`needs_focus_`
+                // is false for the document node).
+                match crate::history::follow_fragment(&href.as_str().into()) {
+                    Ok(changed) => {
+                        self.window(doc, Event::Popstate);
+                        if let Some(root) = doc.try_root_element().map(|r| r.id) {
+                            for moved in
+                                crate::layout::scroll_into_view(doc, root, "start", "nearest")
+                            {
+                                self.listeners.scrolled(Some(moved));
+                            }
+                        }
+                        if changed {
+                            self.app.hashchange();
+                        }
+                    }
+                    Err(e) => crate::unsupported(&e.message.to_rust()),
+                }
                 return;
             }
             if named_anchor(doc, &decoded) && doc.get_element_by_id(&decoded).is_none() {

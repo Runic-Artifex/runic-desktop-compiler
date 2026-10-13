@@ -1,0 +1,12 @@
+{
+  "description": "bits-ui's global id counter (globalThis.bitsIdCounter, useId) shared by components mounted, unmounted and mounted again: an id in the root's script; per section, a field whose value prop a template literal calls useId for (Svelte's memoized prop, computed when the field's $.prop reads it, before the field's own useId) and two bits-ui Command groups through shadcn-svelte's CommandGroup pattern without a heading (`value ?? heading ?? `----${useId()}``, data-value). Sections unmounted and mounted again by {#if} take fresh ids in Chromium's order; the ones that stay keep theirs",
+  "fixtures": ["id-counter-svelte"],
+  "viewports": [[800, 600], [420, 600]],
+  "actions": [
+    { "kind": "click", "id": "second" },
+    { "kind": "click", "id": "third" },
+    { "kind": "click", "id": "second" },
+    { "kind": "click", "id": "third" },
+    { "kind": "click", "id": "third" }
+  ]
+}

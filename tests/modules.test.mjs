@@ -274,12 +274,12 @@ test('<svelte:element> and links need finite, supported values', async () => {
       ),
       'E_TEMPLATE',
     ],
-    // An open href; the document top; a fragment naming an element.
+    // An open href; another document; a fragment naming an element (#top
+    // too, where an element has that id).
     [svelte("let h = $state('#a' as string);", '<a href={h}>x</a>'), 'E_TEMPLATE'],
-    [svelte('', '<a href="#top">x</a>'), 'E_TEMPLATE'],
-    [svelte('', '<a href="#">x</a>'), 'E_TEMPLATE'],
     [svelte('', '<a href="/other">x</a>'), 'E_TEMPLATE'],
     [svelte('', '<a href="#here">x</a><p id="here">y</p>'), 'E_TEMPLATE'],
+    [svelte('', '<a href="#top">x</a><p id="top">y</p>'), 'E_TEMPLATE'],
   ];
   for (const [source, code] of cases)
     await withApp({ 'App.svelte': source }, root =>
@@ -315,5 +315,59 @@ test('<svelte:element> and links need finite, supported values', async () => {
               e => e.code === 'E_CSS' && /SVG child/.test(e.message) && e.source.line === 1,
             )
           : lowered(root),
+    );
+});
+
+test('an href from spread attributes: its values checked as an explicit one', async () => {
+  // shadcn-svelte's BreadcrumbLink: `<a {...attrs}>` over a derived bag
+  // holding the href prop (followed to its sites) and the rest props.
+  const link = svelte(
+    `import type { Snippet } from 'svelte';
+  import type { HTMLAnchorAttributes } from 'svelte/elements';
+  let { href = undefined, children, ...restProps }: HTMLAnchorAttributes & { children?: Snippet } = $props();
+  const attrs = $derived({ 'data-slot': 'link', href, ...restProps });`,
+    '<a {...attrs}>{@render children?.()}</a>',
+  );
+  await withApp(
+    {
+      'Link.svelte': link,
+      'App.svelte': svelte(
+        "import Link from './Link.svelte';\n  let h = $state('#q' as string);",
+        `<Link id="l1" href="#a">A</Link>
+<Link id="l2" href="#">B</Link>
+<Link id="l3" href="#top">C</Link>
+<Link id="l4">D</Link>
+<a id="l5" {...{ href: '#b' }}>E</a>
+<a id="l6" {...{ href: h }} href="#c">F</a>`,
+      ),
+    },
+    async root => {
+      const { ir } = await lowered(root);
+      const [step] = interpret(ir, []);
+      assert.deepEqual(
+        ['l1', 'l2', 'l3', 'l4', 'l5', 'l6'].map(id => byId(step, id).attrs.href ?? null),
+        ['#a', '#', '#top', null, '#b', '#c'],
+      );
+    },
+  );
+  // Another document, an open value: rejected at the spread; a fragment
+  // naming an element, at the site giving it.
+  const uses = "import Link from './Link.svelte';";
+  const cases = [
+    [svelte(uses, '<Link href="/other">x</Link>'), 'Link.svelte', /"\/other" \(from this spread\)/],
+    [
+      svelte(`${uses}\n  let h = $state('#a' as string);`, '<Link href={h}>x</Link>'),
+      'Link.svelte',
+      /this spread may give the <a> is open/,
+    ],
+    [
+      svelte(uses, '<Link href="#here">x</Link><p id="here">y</p>'),
+      'Link.svelte',
+      /#here names an element/,
+    ],
+  ];
+  for (const [app, file, pattern] of cases)
+    await withApp({ 'Link.svelte': link, 'App.svelte': app }, root =>
+      assert.rejects(lowered(root), failWith('E_TEMPLATE', file, pattern)),
     );
 });

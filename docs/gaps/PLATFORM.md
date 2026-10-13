@@ -34,6 +34,7 @@ Part of the [gap register](../GAPS.md). Rendering details of Blitz, Stylo and Ta
 | Members of script-created events beyond the basic set; `pointerId`/`pointerType` of non-pointer events; event interfaces outside the table; `keyCode` other than the 229 test; `touches`, `dataTransfer`, `clipboardData`, `composedPath()` beyond index 0 | run time / E_EVENT | Uncovered members remain unmodelled; focus and accepted pointer/mouse boundary events carry nullable element `relatedTarget`, not arbitrary synthetic event support | Per member and event interface | event.rs; frontend/dom.d.ts; language.ts |
 | Listener options beyond the covered `once`/`capture`/`passive` forms (`signal`, `once` with a named function) | E_EVENT | — | — | language.ts:8785-8823 |
 | `new PointerEvent`, `new Proxy`, `releasePointerCapture`; pointer capture never happens | run time | Not modelled | — | CONTRACT; language.ts:9642,10861 |
+| Focus scrolling the focused element into view: Tab and Shift+Tab to an element outside the viewport or its scroll containers, and `element.focus()` (whose `preventScroll` the runtime ignores). Reproduction (2026-10-13, fixture `link-spreads-svelte` at 800x600): a wheel turn of 600 on `#hash` scrolls the viewport to 405, then Tab focuses `#far` (page y 124). Chromium scrolls it into view (the viewport back to 0); natively `#far` is focused and the viewport stays at 405, every element 405 px higher | run time | `move_focus` only moves focus and fires the focus events | Scroll on focus as Chromium's `Element::focus` does (centre if needed, `preventScroll` honoured) | events.rs:1344 (`move_focus`) |
 
 ## Script DOM (P3)
 
@@ -50,7 +51,7 @@ Part of the [gap register](../GAPS.md). Rendering details of Blitz, Stylo and Ta
 | `MutationObserver` beyond child lists; `IntersectionObserver` with element roots, `scrollMargin`, targets under non-translation transforms or `clip-path`; Chromium's notification order | run time / E_CALL | Not covered | Per option | builtins.rs:678; layout.rs:340-355 |
 | `next/previousElementSibling` or `firstNonCommentChild` reaching the container or a text node (except the covered data-read case) | run time | Script values are elements | Node values | dom.rs:745-791 |
 | Tab navigation right after a reorder continues from the moved element, not Chromium's live range | known gap | Exact framework move sequence | Live-range model (M8) | case `reorder-navigation` |
-| Links: to other documents, to `#`/`#top`, to named anchors, to fragments naming elements (outside Kit) | run time / E_TEMPLATE | Navigation and scrolling to targets not modelled | Scroll and focus targets | events.rs:1142-1195; svelte.ts:2827 |
+| Links: to other documents (shadcn-svelte's breadcrumb-ellipsis, -separator and -dropdown: `href="/"`), to named anchors, to fragments naming elements (outside Kit). A link that Tab focuses outside the viewport is not scrolled into view (the focus row under P2) | run time / E_TEMPLATE | Navigation and scrolling to targets not modelled | Document navigation; scroll and focus targets | events.rs:1212; svelte.ts:5389 (`linkTargets`) |
 
 ## CSS and rendering (P4)
 

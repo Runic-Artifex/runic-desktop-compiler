@@ -777,8 +777,16 @@ export function valueSet(ctx: SetCtx, e: ts.Expression): unknown[] | undefined {
       return o;
     });
   }
+  // (The name of a shorthand property, `{ href }`: the variable it reads,
+  // not the property.)
   if (ts.isIdentifier(node))
-    return identifierSet(ctx, node, lower.checker.getSymbolAtLocation(node));
+    return identifierSet(
+      ctx,
+      node,
+      ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node
+        ? lower.checker.getShorthandAssignmentValueSymbol(node.parent)
+        : lower.checker.getSymbolAtLocation(node),
+    );
   // A build-time constant indexed by a key of a known set (bits-ui's
   // Pagination: `paginationAttrs[this.opts.type]`, the type "prev" or
   // "next"): its member for each key.

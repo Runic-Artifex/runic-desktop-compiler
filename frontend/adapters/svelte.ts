@@ -56,6 +56,7 @@ import { svelteReactivityImport } from '../svelte-reactivity.ts';
 import { svelteContextImport } from '../svelte-context.ts';
 import { openOrigin, valueSet } from '../packs/choice.ts';
 import { ABSENT, BagShapes, emptyShape, mayHold, openShape, union, type Shape } from '../bags.ts';
+import { counterWrites, derivedOf, escapes, namesGlobals } from '../memo-props.ts';
 import { packageBindings } from '../package-bindings.ts';
 import { componentBinding, componentGlobal, knownComponentRecord } from '../component-values.ts';
 import { jsonBinding, reexportsJson } from '../json-modules.ts';
@@ -3006,6 +3007,13 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   const siteCells = new Map<number, number>();
   /** Prop cells (`component:cell`) whose default no site lets take effect, so not lowered. */
   const unusedDefaults = new Set<string>();
+  /**
+   * Props (`component:name`) the child reads where its `$props()` declares
+   * them, with a default or `$bindable` (Svelte's `$.prop`).
+   */
+  const eagerProps = new Set<string>();
+  /** Props whose value writes module state, as derived values (frontend/memo-props.ts). */
+  const memoSites: { globals: Set<number>; at: Source }[] = [];
   let lowering: number | undefined;
   const domains = new PropDomains(lower, propDecls, sites, (component, _b) => {
     if (component !== lowering) fail('E_INTERNAL', 'A site index was read outside its component');
@@ -3508,6 +3516,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             runeName(el.initializer) === '$bindable' &&
             !(el.initializer as ts.CallExpression).arguments.length
           );
+        if (el.initializer) eagerProps.add(`${u.index}:${key}`);
         const inMember = member && propTypeIn(member, key, el, defaulted);
         let type =
           types.overridden(el.name) ??
@@ -4061,6 +4070,21 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
      */
     const localSnippets: Map<string, SNode>[] = [];
     const rendering = new Set<SNode>();
+    /**
+     * Blocks Svelte may render again around the node being lowered (`{#if}`,
+     * `{#each}`, `{#key}`, snippets passed to children, dynamic tags): what
+     * Svelte creates in them, such as a component's memoized props, is
+     * created again with each render.
+     */
+    let blockDepth = 0;
+    const inBlock = <T>(f: () => T): T => {
+      blockDepth++;
+      try {
+        return f();
+      } finally {
+        blockDepth--;
+      }
+    };
     const children = (fragment: SNode, parent?: string): Node[] => {
       // An <svg>'s content is in the SVG namespace.
       if (parent === 'svg') inSvg++;
@@ -4238,7 +4262,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           out.push(element(n));
         } else if (n.type === 'SvelteElement') {
           flush();
-          out.push(...dynamicElement(n));
+          out.push(...inBlock(() => dynamicElement(n)));
         } else if (n.type === 'IfBlock' && decidedTest(u, n.test) !== undefined) {
           // A test the props' values decide: the branch that renders.
           flush();
@@ -4255,19 +4279,19 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             kind: 'if',
             test:
               snippet || typeOf(testNode, tv) === 'boolean' ? tv : { op: 'to-boolean', arg: tv },
-            then: children(n.consequent),
-            ...(n.alternate ? { else: children(n.alternate) } : {}),
+            then: inBlock(() => children(n.consequent)),
+            ...(n.alternate ? { else: inBlock(() => children(n.alternate)) } : {}),
             source: loc(n),
           });
         } else if (n.type === 'EachBlock') {
           flush();
-          out.push(each(n));
+          out.push(inBlock(() => each(n)));
         } else if (n.type === 'Component') {
           flush();
           out.push(component(n));
         } else if (n.type === 'RunicDynamic') {
           flush();
-          out.push(...dynamicComponent(n));
+          out.push(...inBlock(() => dynamicComponent(n)));
         } else if (n.type === 'HtmlTag') {
           flush();
           out.push(htmlTag(n));
@@ -4315,7 +4339,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             items: { op: 'array', type: { array: t }, items: [v] },
             item: local,
             key: { op: 'local', local },
-            body: children(n.fragment),
+            body: inBlock(() => children(n.fragment)),
             source: loc(n),
           });
         } else if (n.type === 'AwaitBlock')
@@ -4808,6 +4832,66 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         if (cell < 0) fail('E_PROPS', `${n.name} has no prop ${a.name}`, loc(a));
         return cell;
       };
+      /**
+       * A prop value that writes module state (bits-ui's id counter): the
+       * derived value Svelte memoizes it in, where the IR evaluates it where
+       * Svelte does (frontend/memo-props.ts); otherwise rejected. Values
+       * that do not both write and read module state are left as they are.
+       */
+      let memo: { name: string; call: Expr } | undefined;
+      const memoized = (a: SNode, e: ts.Expression, v: Expr): Expr => {
+        const writes = counterWrites(v, {
+          functions: lower.functions,
+          globals: lower.globals,
+          records: lower.types.records,
+        });
+        if (!writes || ![...writes.writes].some(g => writes.reads.has(g))) return v;
+        const why = (reason: string): never =>
+          fail(
+            'E_REACTIVITY',
+            `The value of ${n.name}'s prop ${a.name} changes module state (${[...writes.writes]
+              .map(g => lower.globals[g].name)
+              .join(
+                ', ',
+              )}); Svelte computes it once, in a derived value, when ${n.name} first reads the prop, which the compiler models only where it can show that nothing changes that state in between: ${reason}`,
+            loc(a),
+          );
+        // Svelte memoizes an attribute with a call (has_call).
+        const call = (x: ts.Node): boolean =>
+          ts.isCallExpression(x) ||
+          ts.isTaggedTemplateExpression(x) ||
+          !!ts.forEachChild(x, c => call(c) || undefined);
+        if (!call(e))
+          why('the value has no call, so Svelte computes it again at every read of the prop');
+        if (blockDepth)
+          why(
+            `${n.name} is inside a block that may render again ({#if}, {#each}, {#key}, a snippet), which creates the derived value again`,
+          );
+        if (memo) why(`${n.name} is passed another such value (${memo.name})`);
+        const cell = propCell(a);
+        if (!eagerProps.has(`${child.index}:${a.name}`))
+          why(
+            `${n.name} declares ${a.name} without a default, so it reads the prop later, where it first uses it`,
+          );
+        const before = namesGlobals(
+          target.cells.slice(0, cell).map(c => c.init),
+          writes.writes,
+          lower.functions,
+        );
+        if (before) why(`${n.name}'s code before its declaration of ${a.name} ${before}`);
+        const index = lower.reserve();
+        lower.functions[index] = derivedOf(
+          v,
+          `${n.name}.${a.name}$derived`,
+          COMPONENT,
+          lower.irType(v, tb),
+          tb.locals,
+        );
+        memoSites.push({ globals: writes.writes, at: loc(a) });
+        const out: Expr = { op: 'call', function: index, args: [] };
+        memo = { name: a.name, call: out };
+        return out;
+      };
       // Spreads of attribute bags (frontend/bags.ts): a bag sets the declared
       // props it holds (a later attribute or spread wins, as Svelte merges
       // props) and the rest go into the child's rest props. Each declared
@@ -5022,6 +5106,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
                 `${n.name}'s prop ${a.name} is passed objects of other fields than its type's (${shownRecords(have, lower.types.records)} for ${shownRecords(want, lower.types.records)})`,
                 loc(a),
               );
+            v = memoized(a, e, v);
           }
           const w = writers.get(a.name);
           if (w) w.push({ explicit: v });
@@ -5178,6 +5263,14 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         }
         passed.push({ name: key, value: sure ? { op: 'unwrap', value: acc } : acc });
       }
+      // (A later spread that may hold the prop reads the value only where it
+      // lacks it.)
+      if (memo && !passed.some(p => p.value === memo!.call))
+        fail(
+          'E_REACTIVITY',
+          `The value of ${n.name}'s prop ${memo.name} changes module state, and a later spread may hold ${memo.name}, so Svelte may never compute it; this is not modelled`,
+          loc(n),
+        );
       if (bag.length) passed.push({ name: '...', value: { op: 'attrs', items: bag } });
       // The index of this instantiation site (frontend/domains.ts).
       if (siteCells.has(child.index)) {
@@ -5235,7 +5328,11 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         // The arguments it does not name.
         for (const t of (decl.params ?? []).slice(params.length))
           params.push(tb.local('$unused', t));
-        defs.push({ name, ...(params.length ? { params } : {}), body: children(sn.body) });
+        defs.push({
+          name,
+          ...(params.length ? { params } : {}),
+          body: inBlock(() => children(sn.body)),
+        });
       }
       const content = n.fragment.nodes.filter((c: SNode) => c.type !== 'SnippetBlock');
       if (content.some((c: SNode) => c.type !== 'Text' || c.data.trim())) {
@@ -5245,7 +5342,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         defs.push({
           name: 'children',
           ...(params.length ? { params } : {}),
-          body: children({ nodes: content }),
+          body: inBlock(() => children({ nodes: content })),
         });
       }
       // Snippets this component received through its rest props, forwarded
@@ -5288,22 +5385,55 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
     /**
      * A link's `href` values: following a link is a fragment navigation of
      * this document (`#name`); the values must be known (literals, finite
-     * sets), name no element (scrolling to and focusing a fragment's target
-     * are not modelled) and not be the document top (`#`, `#top`).
+     * sets) and name no element (scrolling to and focusing a fragment's
+     * target are not modelled here); `#` and `#top` are the top of the
+     * document, which the runtime scrolls to (HTML's "find a potential
+     * indicated element"). An href a spread gives is checked the same way:
+     * the bag's values (frontend/bags.ts), from the last spread after the
+     * attribute.
      */
     const linkTargets = (n: SNode) => {
-      const at = n.attributes.find((a: SNode) => a.type === 'Attribute' && a.name === 'href');
-      for (const a of n.attributes)
-        if (
-          a.type === 'SpreadAttribute' &&
-          mayHold(shapes.of(nodeIn(u, a.expression) as ts.Expression), 'href')
-        )
+      const what =
+        'links are supported to fragments of this document (#name) that name no element and to its top (#, #top), with a finite set of values';
+      const check = (values: unknown[], at: SNode, from: string) => {
+        for (const v of values) {
+          // No attribute: not a link.
+          if (v === undefined || v === null || v === ABSENT) continue;
+          const name =
+            typeof v === 'string' && v.startsWith('#') ? decodeFragment(v.slice(1)) : undefined;
+          if (name === undefined)
+            fail('E_TEMPLATE', `The <a> may link to ${JSON.stringify(v)}${from}: ${what}`, loc(at));
+          // (An empty fragment is the top of the document; `#top` is where
+          // no element has that id or, as an <a>, that name, checked below.)
+          if (name) linkFragments.push({ name: name!, at: loc(at) });
+        }
+      };
+      const hrefAt = n.attributes.findLastIndex(
+        (a: SNode) => a.type === 'Attribute' && a.name === 'href',
+      );
+      // Spreads after the attribute, from the last (a later one wins, as
+      // Svelte's attributes merge): each one's values (frontend/bags.ts),
+      // checked as an explicit href's; one that may lack href leaves it to
+      // those before it.
+      const later = n.attributes
+        .slice(hrefAt + 1)
+        .filter((a: SNode) => a.type === 'SpreadAttribute')
+        .reverse();
+      for (const spread of later) {
+        const bag = nodeIn(u, spread.expression) as ts.Expression;
+        if (!mayHold(shapes.of(bag), 'href')) continue;
+        const values = shapes.values(bag, 'href');
+        if (!values)
           fail(
             'E_TEMPLATE',
-            'A link whose href may come from spread attributes is not supported; pass href explicitly',
-            loc(n),
+            `The href this spread may give the <a> is open: ${what}; or set href as an attribute after the spread`,
+            loc(spread),
           );
-      if (!at) return;
+        check(values!, spread, ' (from this spread)');
+        if (!values!.includes(ABSENT)) return;
+      }
+      if (hrefAt < 0) return;
+      const at = n.attributes[hrefAt];
       const values: unknown[] | undefined =
         at.value === true
           ? ['']
@@ -5312,17 +5442,8 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
               ? [at.value[0].data]
               : undefined
             : valueSet({ lower, label: '<a href>' }, exprNode(at.value.expression));
-      const what =
-        'links are supported to fragments of this document (#name) that name no element, with a finite set of values';
       if (!values) fail('E_TEMPLATE', `The href of this <a> is open: ${what}`, loc(at));
-      for (const v of values!) {
-        if (v === undefined || v === null) continue;
-        const name =
-          typeof v === 'string' && v.startsWith('#') ? decodeFragment(v.slice(1)) : undefined;
-        if (name === undefined || name === '' || name.toLowerCase() === 'top')
-          fail('E_TEMPLATE', `The <a> may link to ${JSON.stringify(v)}: ${what}`, loc(at));
-        linkFragments.push({ name: name!, at: loc(at) });
-      }
+      check(values!, at, '');
     };
     /**
      * An image's sources (M6 images, docs/design/M6-IMAGES.md): every value
@@ -5923,6 +6044,27 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   lower.widenRecords(ir);
   lower.checkStyleSpreads(ir);
   lower.checkKeyOrders();
+  // Props memoized as derived values that write module state: no alias of
+  // that state, and derived values that track no plain objects (codegen's
+  // `owned_only`: the program has `$state` or reactive fields), so the
+  // derived values never compute again (frontend/memo-props.ts).
+  for (const site of memoSites) {
+    if (escapes(ir, site.globals))
+      fail(
+        'E_REACTIVITY',
+        'This prop value changes module state that the program also uses as a value (an alias may change it elsewhere); only reads and writes of its fields are modelled',
+        site.at,
+      );
+    if (
+      !components.some(c => c.cells.some(x => x.tracking === 'proxied')) &&
+      !types.records.some(r => r.fields.some(f => f.reactive))
+    )
+      fail(
+        'E_REACTIVITY',
+        'This prop value changes module state; a program without $state or reactive class fields tracks plain objects in derived values, which Svelte does not',
+        site.at,
+      );
+  }
   /**
    * Whether `value`, written in function `fn`, is the parameter of a function
    * that a pack only ever calls with present values (svelte-toolbelt's box
