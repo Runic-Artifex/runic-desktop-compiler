@@ -45,6 +45,7 @@ import { Classes, type ClassInfo } from './classes.ts';
 import { Unions } from './unions.ts';
 import { bindPackConstant, packType } from './packs.ts';
 import { newSvelteMap, svelteMapEntries, svelteMapType } from './svelte-reactivity.ts';
+import { symbolUseMessage } from './svelte-context.ts';
 import { componentValueType, knownComponentRecord } from './component-values.ts';
 import { elementAttributesType } from './svelte-elements.ts';
 import {
@@ -183,6 +184,12 @@ export type Binding =
   | { kind: 'props'; values: Map<string, Expr> }
   /** A handler's event parameter. */
   | { kind: 'event'; handler: FnBuilder }
+  /**
+   * A module constant `Symbol(description?)` used only as a key of svelte's
+   * setContext, getContext and hasContext (frontend/svelte-context.ts): its
+   * context key, a compile-time identity. It has no runtime value.
+   */
+  | { kind: 'symbol'; key: string; name: string }
   /**
    * An export of a mapping pack (frontend/packs.ts): calls lower through the
    * pack; other uses (and components, which templates expand) are rejected.
@@ -6805,6 +6812,8 @@ export class Lowerer {
         );
       case 'event':
         return this.eventValue(binding.handler, b);
+      case 'symbol':
+        return this.fail(id, 'E_TYPE_UNSUPPORTED', symbolUseMessage(binding.name));
       case 'pack':
         return this.fail(
           id,
