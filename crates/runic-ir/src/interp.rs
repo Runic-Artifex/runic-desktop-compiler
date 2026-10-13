@@ -354,10 +354,18 @@ impl js::OwnFields for RecordData {
     fn proxied(&self) -> bool {
         !self.class
     }
-    fn own_fields(&mut self) {
+    fn overlay(&self) -> js::Overlay {
+        js::Overlay::Fields(self.fields.len())
+    }
+    fn take_slot(&mut self, target: &Self, slot: u32) {
         use js::Own;
-        for f in self.fields.iter_mut() {
-            *f = f.clone().own();
+        if let Some(v) = target.fields.get(slot as usize) {
+            self.fields[slot as usize] = v.clone().own();
+        }
+    }
+    fn look_slot(&mut self, target: &Self, slot: u32) {
+        if let Some(v) = target.fields.get(slot as usize) {
+            self.fields[slot as usize] = v.clone();
         }
     }
     fn mark_fields(&self) {
@@ -6689,6 +6697,11 @@ impl<'p> Machine<'p> {
     /// A handler added to a promise after its rejection was reported:
     /// Chromium revokes the report, which console lines do not model.
     fn late_rejection_handlers(&mut self) {
+        // (Also what the heap could not reproduce: R3's arrays changed in
+        // place under a proxy.)
+        if let Some(what) = js::take_heap_unsupported() {
+            self.unsupported.get_or_insert(what);
+        }
         if let Some(t) = js::take_late_handled() {
             self.unsupported.get_or_insert(format!(
                 "a handler added to a promise after its rejection ({t}) was reported as unhandled"
@@ -10523,13 +10536,15 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Num(n) => json!(runic_js::number_to_string(*n)),
         Val::Str(s) => json!(s.to_rust()),
         // A value that contains itself shows as "[Circular]".
+        // (Read without taking a proxy's pending slots: snapshots must not
+        // change what later reads see.)
         Val::Array(a) => match a.visit() {
             None => json!("[Circular]"),
-            Some(_v) => Json::Array(a.borrow().iter().map(cell_json).collect()),
+            Some(_v) => Json::Array(a.probe().iter().map(cell_json).collect()),
         },
         Val::Record(r) => match r.visit() {
             None => json!("[Circular]"),
-            Some(_v) => Json::Array(r.borrow().fields.iter().map(cell_json).collect()),
+            Some(_v) => Json::Array(r.probe().fields.iter().map(cell_json).collect()),
         },
         Val::Map(m) => match m.visit() {
             None => json!("[Circular]"),

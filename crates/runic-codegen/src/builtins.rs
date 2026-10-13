@@ -1070,7 +1070,7 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         // svelte-toolbelt's styleToString of a style record or map.
         ("attrs", "style-text") => match &types[0] {
             Type::Record(r) => format!(
-                "{{ let o = {}.peek(); js::style_to_string(&[{}]) }}",
+                "{{ let o = {}.peek_settled(); js::style_to_string(&[{}]) }}",
                 t[0],
                 cx.style_props(*r)
             ),

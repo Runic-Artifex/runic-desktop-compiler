@@ -16,8 +16,8 @@ Adversarial fixtures, first run in Chromium and the reference interpreter
 | `alias-reads` (Svelte) | every alias of the context's `$state` object updates | interpreter agrees; native: every reader but the owner stays 0 (7 elements) | fixed, step 1 |
 | `alias-vue` | every alias of a deep ref's proxy updates | interpreter agrees | covered by step 1 (deep refs) |
 | `alias-writes` (Svelte), writes through `const ctx = getContext(…)` | owner and readers update | `E_REACTIVITY` (`ctx is mutated in place`) | gap (R8) |
-| `proxy-target` | `$state(INITIAL)` leaves `INITIAL` untouched; a reset to it shows the original items; defaults and nested raw objects stay | interpreter (and native: same heap model) write through to the raw object | step 3 (R3) |
-| `proxy-lazy` | a raw write after the proxy read the property stays invisible | interpreter shows it at the next render | step 3 (R3) |
+| `proxy-target` | `$state(INITIAL)` leaves `INITIAL` untouched; a reset to it shows the original items; defaults and nested raw objects stay | interpreter (and native: same heap model) write through to the raw object | fixed, step 4 (R3) |
+| `proxy-lazy` | a raw write after the proxy read the property stays invisible | interpreter shows it at the next render | fixed, step 4 (R3) |
 | `effect-self` (Svelte) | effects writing what they read re-run: `len 5 \| … \| len 4 \| … \| len 3`, also through proxies; one writing back the value it read runs once more | cells re-run, proxies never (`len 5`, values `4 3 4`) | fixed, step 2 (R4) |
 | `push-effect` (Svelte) | an effect pushing to a `$state` array runs again (`push` reads the length) until it stops pushing | ran once | fixed, step 2 (R4) |
 | `effect-self` (Vue) | a `watchEffect` does not re-run for its own writes | rejected by the Vue adapter (`E_EFFECT`), as designed | expected rejection |
@@ -141,3 +141,24 @@ Chromium and the interpreter first, kept as regression cases:
 Conformance with pixels at 800x600 and 420x600: all pass
 (`artifacts/reactivity/step23`, `step23-staleness`, `step23-collections`);
 the differential of their fixtures is in step 2.
+
+## Step 4: proxies as overlays (R3)
+
+`JsRef::proxy` makes an object with its own storage and signals, taking a
+field (an element) of the value it was made of at its first access and
+never writing that value; probes and snapshots read without taking; an array
+changed in place other than through its proxy while elements are pending is
+reported (`RunicUnsupportedError`, the interpreter `E_UNSUPPORTED`).
+
+- `proxy-target`: the raw array, the defaults object and a nested raw object
+  keep their values; a reset to the raw array shows its original items
+  (before: `3 true`, `a+,b,c`, `Ada! 2` in the interpreter, natively the
+  same heap model).
+- `proxy-lazy`: a raw write after the proxy read the property stays
+  invisible (before: `first*`).
+- `ownership-cycles`: a raw object reached again through a cycle is a new
+  proxy, as in Svelte; the case's known gap is gone.
+- `tests/reactivity.test.mjs` checks both cases in the interpreter and the
+  report of an array changed in place under its proxy; `npm test` 486/486,
+  `cargo test --workspace` (181) pass after rebasing onto main 092e1ca.
+  Native conformance and the differential: with steps 5 and 6 (step 6).

@@ -1,0 +1,99 @@
+{
+  "description": "Svelte proxies never write their target (docs/design/REACTIVITY-ALIASING.md, R3): a raw array, a defaults object and a nested raw object stored in $state keep their values when the state is changed through it, so a reset to the raw array shows its original items and a reset to the defaults their original values. Before R3 natively (and in the interpreter) the writes reached the raw values.",
+  "fixtures": [
+    "proxy-target-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "show"
+    },
+    {
+      "kind": "click",
+      "id": "add"
+    },
+    {
+      "kind": "click",
+      "id": "toggle"
+    },
+    {
+      "kind": "click",
+      "id": "show"
+    },
+    {
+      "kind": "click",
+      "id": "reset"
+    },
+    {
+      "kind": "click",
+      "id": "show"
+    },
+    {
+      "kind": "click",
+      "id": "edit"
+    },
+    {
+      "kind": "click",
+      "id": "show"
+    },
+    {
+      "kind": "click",
+      "id": "reset-form"
+    },
+    {
+      "kind": "click",
+      "id": "deep"
+    },
+    {
+      "kind": "click",
+      "id": "show"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 1,
+      "id": "shown",
+      "text": "2 false Ada 1 1 false"
+    },
+    {
+      "step": 3,
+      "id": "todos",
+      "text": "a+,b,c"
+    },
+    {
+      "step": 4,
+      "id": "shown",
+      "text": "2 false Ada 1 1 false"
+    },
+    {
+      "step": 5,
+      "id": "todos",
+      "text": "a,b"
+    },
+    {
+      "step": 7,
+      "id": "form",
+      "text": "Ada! xy"
+    },
+    {
+      "step": 8,
+      "id": "shown",
+      "text": "2 false Ada 1 1 false"
+    },
+    {
+      "step": 9,
+      "id": "form",
+      "text": "Ada x"
+    },
+    {
+      "step": 10,
+      "id": "outer",
+      "text": "2"
+    },
+    {
+      "step": 11,
+      "id": "shown",
+      "text": "2 false Ada 1 1 false"
+    }
+  ]
+}

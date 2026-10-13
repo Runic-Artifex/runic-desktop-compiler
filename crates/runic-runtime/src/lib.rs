@@ -58,6 +58,14 @@ pub fn unsupported(what: &str) {
     eprintln!("runic: unsupported: {what}");
 }
 
+/// What the heap could not reproduce: an array stored in `$state` changed in
+/// place other than through its proxy (docs/design/REACTIVITY-ALIASING.md, R3).
+pub fn heap_reports() {
+    if let Some(what) = runic_js::take_heap_unsupported() {
+        unsupported(&what);
+    }
+}
+
 /// A reaction added to a promise whose rejection the console already
 /// reported as unhandled: Chromium revokes the report, which console lines
 /// do not model.

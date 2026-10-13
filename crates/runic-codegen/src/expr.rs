@@ -486,7 +486,7 @@ impl<'a> FnCtx<'a> {
                                 Type::Maybe(i) if matches!(**i, Type::Record(_)) => {
                                     let Type::Record(r) = **i else { unreachable!() };
                                     format!(
-                                        "match {x} {{ Maybe::Some(r) => {{ let o = r.peek(); js::AttrValue::Style(vec![{}], Some(Rc::new(r.clone()) as Rc<dyn std::any::Any>)) }}, Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}",
+                                        "match {x} {{ Maybe::Some(r) => {{ let o = r.peek_settled(); js::AttrValue::Style(vec![{}], Some(Rc::new(r.clone()) as Rc<dyn std::any::Any>)) }}, Maybe::Null => js::AttrValue::Null, Maybe::Undefined => js::AttrValue::Absent }}",
                                         self.style_props(r)
                                     )
                                 }
@@ -557,7 +557,7 @@ impl<'a> FnCtx<'a> {
                                 Type::Record(r) => {
                                     let props = self.style_props(*r);
                                     format!(
-                                        "{{ let r = {x}; let o = r.peek(); js::AttrValue::Style(vec![{props}], Some(Rc::new(r.clone()) as Rc<dyn std::any::Any>)) }}"
+                                        "{{ let r = {x}; let o = r.peek_settled(); js::AttrValue::Style(vec![{props}], Some(Rc::new(r.clone()) as Rc<dyn std::any::Any>)) }}"
                                     )
                                 }
                                 other => unreachable!("validated bag entry {other:?}"),

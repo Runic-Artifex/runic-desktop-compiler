@@ -71,7 +71,7 @@ For every template expression of an accepted program: whenever the value it comp
 1. **R1/R2**: reactive-heap guards for template bindings; remove `shares_mutated_proxy` (cases `alias-reads`, `alias-vue`). Done ([results](../../conformance/results/reactivity.md#step-1-reads-through-aliases-r1r2)).
 2. **R4**: self-invalidation through write stamps, cells and heap (case `effect-self`; the Vue fixture is an expected rejection, `tests/reactivity.test.mjs`). Done ([results](../../conformance/results/reactivity.md#step-2-effects-writing-what-they-read-r4)).
 3. **R6/R7**: proxied props from raw sources, raw targets of Vue refs and untracked template reads (fixtures `prop-raw-svelte`, `raw-target-vue`, `untrack-template-svelte` as expected rejections). Done ([results](../../conformance/results/reactivity.md#step-3-raw-props-raw-ref-targets-and-untracked-template-reads-r6-r7)).
-4. **R3**: overlays in `runic_js::heap`, for the interpreter and generated code alike (cases `proxy-target`, `proxy-lazy`; `ownership`, `ownership-cycles` without its known gap).
+4. **R3**: overlays in `runic_js::heap`, for the interpreter and generated code alike (cases `proxy-target`, `proxy-lazy`; `ownership`, `ownership-cycles` without its known gap). Done ([results](../../conformance/results/reactivity.md#step-4-proxies-as-overlays-r3)).
 5. **R5**: before-images for teardowns (case `teardown-proxy`).
 6. **R8**: aliases of deep state as proxies (case `alias-writes`).
 7. React and Vue audit (below; case `staleness` for React).

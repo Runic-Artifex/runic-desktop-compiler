@@ -143,3 +143,66 @@ test("writes through a constant holding a context's $state object stay rejected 
     failWith('E_REACTIVITY', 'Writer.svelte', /ctx is mutated in place/),
   );
 });
+
+test('proxies never write their target and take its properties lazily (R3)', async () => {
+  // Svelte 5.57.1 in Chromium (case proxy-target): $state(INITIAL) leaves
+  // INITIAL as it was, so a reset to it shows the original items.
+  const target = interpret(
+    (await lowered('fixtures/proxy-target-svelte')).ir,
+    [
+      'show',
+      'add',
+      'toggle',
+      'show',
+      'reset',
+      'show',
+      'edit',
+      'show',
+      'reset-form',
+      'deep',
+      'show',
+    ].map(click),
+    {},
+  );
+  assert.equal(shown(target[1], 'shown'), '2 false Ada 1 1 false');
+  assert.equal(shown(target[3], 'todos'), 'a+,b,c');
+  assert.equal(shown(target[4], 'shown'), '2 false Ada 1 1 false');
+  assert.equal(shown(target[5], 'todos'), 'a,b');
+  assert.equal(shown(target[8], 'shown'), '2 false Ada 1 1 false');
+  assert.equal(shown(target[9], 'form'), 'Ada x');
+  assert.equal(shown(target[11], 'shown'), '2 false Ada 1 1 false');
+  // Case proxy-lazy: a raw write after the first read stays invisible, one
+  // right after storing is visible.
+  const lazy = interpret(
+    (await lowered('fixtures/proxy-lazy-svelte')).ir,
+    ['raw-write', 'touch', 'push-write', 'later-write', 'touch'].map(click),
+    {},
+  );
+  assert.equal(shown(lazy[2], 'held'), 'first');
+  assert.equal(shown(lazy[3], 'items'), 'touch 0,renamed');
+  assert.equal(shown(lazy[5], 'items'), 'touch 0,renamed,touch 2');
+});
+
+test('changing an array in place under a proxy is reported (R3)', async () => {
+  await withApp(
+    'raw-array',
+    {
+      'App.svelte': `<script lang="ts">
+  const initial = [1, 2];
+  let list = $state(initial);
+  let n = $state(0);
+</script>
+<p id="list">{list.length} {n}</p>
+<button id="raw" onclick={() => { initial.push(3); n += 1; }}>raw</button>
+`,
+    },
+    async root => {
+      const steps = interpret((await lowered(root)).ir, [click('raw')], {});
+      assert.equal(steps[1].outcome.rejected?.code, 'E_UNSUPPORTED');
+      assert.match(
+        steps[1].outcome.rejected.message,
+        /changed in place other than through its proxy/,
+      );
+    },
+  );
+});

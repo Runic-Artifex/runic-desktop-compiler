@@ -1,11 +1,8 @@
 {
-  "description": "Cyclic objects stored into Svelte $state: no failure, values readable through the cycle. Svelte proxies lazily, so an object reached back through a cycle is a new proxy (identity differs); natively nested values are proxied once, eagerly (recorded M3 deviation: lazy proxy snapshots)",
+  "description": "Cyclic objects stored into Svelte $state: no failure, values readable through the cycle. Svelte proxies lazily, so an object reached back through a cycle is a new proxy (identity differs), natively too since proxies are overlays (docs/design/REACTIVITY-ALIASING.md, R3; before, nested values were proxied once, eagerly, a recorded known gap)",
   "fixtures": [
     "ownership-svelte"
   ],
-  "knownGaps": {
-    "semantics": "Identity through a cycle back-reference: Svelte creates a new proxy on each lazy access path, the native proxy is shared (lazy proxy snapshots are not modelled)"
-  },
   "actions": [
     {
       "kind": "click",
@@ -15,5 +12,9 @@
       "kind": "click",
       "id": "cycle"
     }
+  ],
+  "expectedText": [
+    { "step": 1, "id": "log", "text": "cycle leaf 0 parent=root back=false" },
+    { "step": 2, "id": "log", "text": "cycle leaf 1 parent=root back=false" }
   ]
 }

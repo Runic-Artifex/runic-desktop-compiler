@@ -1787,9 +1787,14 @@ fn records(p: &Program) -> String {
                 .enumerate()
                 .filter(|(_, f)| !f.is_derived())
         };
-        let owns: String = values()
-            .map(|(i, _)| format!("self.f{i} = js::Own::own(self.f{i}.clone()); "))
+        // A proxy takes a field from its target at its first access (R3).
+        let takes: String = values()
+            .map(|(i, _)| format!("{i} => self.f{i} = js::Own::own(target.f{i}.clone()), "))
             .collect();
+        let looks: String = values()
+            .map(|(i, _)| format!("{i} => self.f{i} = target.f{i}.clone(), "))
+            .collect();
+        let slots = rec.fields.len();
         let marks: String = values()
             .map(|(i, _)| format!("js::Own::mark(&self.f{i}); "))
             .collect();
@@ -1801,7 +1806,7 @@ fn records(p: &Program) -> String {
             "/// {}\n#[derive(Clone)]\npub struct R{r} {{ {fields}}}\n\
              impl Default for R{r} {{ fn default() -> Self {{ R{r} {{ {defaults}}} }} }}\n\
              impl js::HeapToString for R{r} {{ fn heap_to_string(&self) -> JsString {{ JsString::from(\"[object Object]\") }} }}\n\
-             impl js::OwnFields for R{r} {{ const PROXIED: bool = {proxied}; fn own_fields(&mut self) {{ {owns}}} fn mark_fields(&self) {{ {marks}}} }}\n\
+             impl js::OwnFields for R{r} {{ const PROXIED: bool = {proxied}; fn overlay(&self) -> js::Overlay {{ js::Overlay::Fields({slots}) }} fn take_slot(&mut self, target: &Self, slot: u32) {{ match slot {{ {takes}_ => {{}} }} }} fn look_slot(&mut self, target: &Self, slot: u32) {{ match slot {{ {looks}_ => {{}} }} }} fn mark_fields(&self) {{ {marks}}} }}\n\
              impl std::fmt::Debug for R{r} {{ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{ f.write_str({}) }} }}",
             rec.name.replace('\n', " "),
             rust_str(&rec.name)
@@ -1867,7 +1872,7 @@ fn records(p: &Program) -> String {
             .collect();
         let _ = writeln!(
             out,
-            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let Some(_v) = v.visit() else {{ return runic_runtime::Json::String(\"[Circular]\".into()); }}; let b = v.borrow(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
+            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let Some(_v) = v.visit() else {{ return runic_runtime::Json::String(\"[Circular]\".into()); }}; let b = v.probe(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
              #[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n"
         );
     }
@@ -1923,7 +1928,7 @@ fn probe_json(t: &Type, v: &str) -> String {
             probe_json(i, "(*x)")
         ),
         Type::Array(i) => format!(
-            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().iter().map(|x| {}).collect()) }})",
+            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.probe().iter().map(|x| {}).collect()) }})",
             probe_json(i, "(*x)")
         ),
         Type::Record(r) => format!("probe_r{r}(&{v})"),
@@ -3450,7 +3455,7 @@ pub fn generate(
          if !self.cx.defer {{ while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }} }}\n\
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          self.cx.dom = Default::default();\n\
-         runic_runtime::late_rejection_handlers();\n\
+         runic_runtime::late_rejection_handlers(); runic_runtime::heap_reports();\n\
          result\n}}\n\
          fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }} dom.settle_selects(); self.cx.jobs.queue_rejections(); }}\n\
          fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
@@ -3539,7 +3544,7 @@ pub fn generate(
          {mount_timing}\n\
          self.checkpoint(dom);\n\
          while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
-         runic_runtime::late_rejection_handlers();\n}}\n\
+         runic_runtime::late_rejection_handlers(); runic_runtime::heap_reports();\n}}\n\
          fn dispatch(&mut self, dom: &mut Dom, deliveries: &[runic_runtime::Delivery]) -> Result<(), String> {{\n\
          // Listeners are resolved before any runs (a flush may free and reuse their slots).\n\
          let resolved: Vec<(Lst, js::Event, u64)> = deliveries.iter().filter_map(|d| self.cx.listeners.get(d.listener as usize).cloned().flatten().map(|f| (f, d.event.clone(), d.current))).collect();\n\
@@ -3642,7 +3647,7 @@ pub fn generate(
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          self.free(dom);\n\
          self.cx.dom = Default::default();\n\
-         runic_runtime::late_rejection_handlers();\n}}\n\
+         runic_runtime::late_rejection_handlers(); runic_runtime::heap_reports();\n}}\n\
          fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
          fn now(&self) -> f64 {{ self.cx.timers.now }}\n\
          fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\
