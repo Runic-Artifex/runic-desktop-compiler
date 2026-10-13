@@ -1,0 +1,21 @@
+{
+  "description": "shadcn-svelte's checkbox examples basic, description (checked), disabled, invalid (aria-invalid under a data-invalid Field) and group (a Field.Set with a legend and four checkboxes, two checked) over bits-ui's Checkbox compiled from its published source, through the unmodified checkbox, label and field wrappers; every Checkbox passes a name, so bits-ui's `name = undefined` default never runs. Toggled by clicks on the boxes and by Space on the focused box, Tab to the next box (its :focus-visible ring), the disabled box ignoring a click; aria-checked, data-state and the hidden inputs' checked property, at 800 and 420 px wide",
+  "fixtures": ["bits-checkbox-examples-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["basic", "description", "disabled", "invalid", "group"],
+  "actions": [
+    { "kind": "click", "id": "terms-checkbox-basic" },
+    { "kind": "click", "id": "terms-checkbox-desc" },
+    { "kind": "click", "id": "toggle-checkbox-disabled" },
+    { "kind": "click", "id": "terms-checkbox-invalid" },
+    { "kind": "click", "id": "finder-pref-9k2-cds-dvds-fzt-checkbox" },
+    { "kind": "click", "id": "finder-pref-9k2-hard-disks-ljj-checkbox" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "press", "key": "Tab" },
+    { "kind": "press", "key": "Space" },
+    { "kind": "hover", "id": "terms-checkbox-basic" }
+  ]
+}

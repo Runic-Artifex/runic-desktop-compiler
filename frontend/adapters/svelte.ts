@@ -40,6 +40,7 @@ import { sameType, TypeMapper } from '../types.ts';
 import { lowerModules, ModuleResolver } from '../modules.ts';
 import {
   annotate,
+  declarationOverrides,
   displayPath,
   DTS_PREFIX,
   exportAllDeclarations,
@@ -1371,7 +1372,7 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         );
     for (const m of packageModules.values()) {
       files.set(m.virtual, m.text);
-      if (m.dts) files.set(m.dts, exportAllDeclarations(m.dts));
+      if (m.dts) files.set(m.dts, exportAllDeclarations(m.dts, declarationOverrides(m.inferred)));
     }
     // A SvelteKit app's generated modules that are imported for types only.
     for (const [f, code] of graph.kit?.typeFiles ?? []) if (!files.has(f)) files.set(f, code);
@@ -3522,10 +3523,16 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         // lowered: it never runs, and it may be of a member of the prop's
         // union that no value of the program reaches (bits-ui's
         // FloatingLayerContent `style = {}` under a Popover, which always
-        // passes a style string).
+        // passes a style string). So is that of a prop typed by the values
+        // its sites pass (bits-ui's Checkbox `name = undefined`, typed
+        // `any`, under checkboxes that each pass a name): the default
+        // never runs, so it says nothing about the prop's type.
         if (
           fallback &&
-          lower.unions.narrowed(checker.getNonNullableType(checker.getTypeAtLocation(el.name))) &&
+          (fromSites ||
+            lower.unions.narrowed(
+              checker.getNonNullableType(checker.getTypeAtLocation(el.name)),
+            )) &&
           lower.unions.unusedDefault(el)
         ) {
           fallback = undefined;

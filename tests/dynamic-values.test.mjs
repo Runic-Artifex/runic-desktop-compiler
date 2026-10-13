@@ -279,20 +279,22 @@ test('with the opt-in, a value no static rule types is dynamic', async () => {
 test('a prop typed `any` with an `undefined` default: valid IR or a located rejection', async () => {
   // (bits-ui's Checkbox `name = undefined` of `name?: any`: the default once
   // took the dynamic contextual type, an initialiser of another type than
-  // the cell's, invalid IR.)
+  // the cell's, invalid IR. A site leaves the name out, so the default
+  // runs.)
   await withApp(
     {
       'Box.svelte': `<script lang="ts">
   let { name = undefined }: { name?: any } = $props();
 </script>
 
-<input type="checkbox" {name} />
+<input {name} />
 `,
       'App.svelte': `<script lang="ts">
   import Box from './Box.svelte';
 </script>
 
 <Box name="terms" />
+<Box />
 `,
     },
     async root => {

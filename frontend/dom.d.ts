@@ -575,6 +575,77 @@ declare function matchMedia(query: string): MediaQueryList;
 
 declare function setTimeout(handler: () => void, timeout?: number): number;
 declare function setInterval(handler: () => void, timeout?: number): number;
+/**
+ * The timer handle of @types/node, which packages built with Node's types
+ * write in their declaration files for what `setTimeout` and `setInterval`
+ * return (bits-ui's announcer, svelte-toolbelt's `afterSleep`). A program
+ * runs on the browser's timers, whose handles are numbers (HTML: a positive
+ * integer); Node's handle object never exists in it.
+ */
+declare namespace NodeJS {
+  type Timeout = number;
+}
+// The autofill tokens of lib.dom (TypeScript 5.9.3, the same declarations): svelte/elements
+// types the `autocomplete` attribute by them (`FullAutoFill`).
+type AutoFill =
+  | AutoFillBase
+  | `${OptionalPrefixToken<AutoFillSection>}${OptionalPrefixToken<AutoFillAddressKind>}${AutoFillField}${OptionalPostfixToken<AutoFillCredentialField>}`;
+type AutoFillField =
+  AutoFillNormalField | `${OptionalPrefixToken<AutoFillContactKind>}${AutoFillContactField}`;
+type AutoFillSection = `section-${string}`;
+type OptionalPostfixToken<T extends string> = ` ${T}` | '';
+type OptionalPrefixToken<T extends string> = `${T} ` | '';
+type AutoFillAddressKind = 'billing' | 'shipping';
+type AutoFillBase = '' | 'off' | 'on';
+type AutoFillContactField =
+  | 'email'
+  | 'tel'
+  | 'tel-area-code'
+  | 'tel-country-code'
+  | 'tel-extension'
+  | 'tel-local'
+  | 'tel-local-prefix'
+  | 'tel-local-suffix'
+  | 'tel-national';
+type AutoFillContactKind = 'home' | 'mobile' | 'work';
+type AutoFillCredentialField = 'webauthn';
+type AutoFillNormalField =
+  | 'additional-name'
+  | 'address-level1'
+  | 'address-level2'
+  | 'address-level3'
+  | 'address-level4'
+  | 'address-line1'
+  | 'address-line2'
+  | 'address-line3'
+  | 'bday-day'
+  | 'bday-month'
+  | 'bday-year'
+  | 'cc-csc'
+  | 'cc-exp'
+  | 'cc-exp-month'
+  | 'cc-exp-year'
+  | 'cc-family-name'
+  | 'cc-given-name'
+  | 'cc-name'
+  | 'cc-number'
+  | 'cc-type'
+  | 'country'
+  | 'country-name'
+  | 'current-password'
+  | 'family-name'
+  | 'given-name'
+  | 'honorific-prefix'
+  | 'honorific-suffix'
+  | 'name'
+  | 'new-password'
+  | 'one-time-code'
+  | 'organization'
+  | 'postal-code'
+  | 'street-address'
+  | 'transaction-amount'
+  | 'transaction-currency'
+  | 'username';
 declare function clearTimeout(id: number | undefined): void;
 declare function clearInterval(id: number | undefined): void;
 declare function requestAnimationFrame(callback: (time: number) => void): number;

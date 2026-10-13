@@ -230,11 +230,35 @@ function declarations(dts: string): Declared {
  * declarations (`__dts.C["opts"]`), also of classes and interfaces the
  * declaration file does not export (bits-ui's `ToggleGroupBaseState`).
  * Exporting more names changes no other module's types.
+ *
+ * `overrides` (the second pass's `dts:<position>:<path>` entries, `inferFields`)
+ * replace `any` keywords at those positions of the file with the types the
+ * program gives the properties they declare.
  */
-export function exportAllDeclarations(dts: string): string {
+export function exportAllDeclarations(dts: string, overrides?: Map<string, string>): string {
+  return virtualDeclarations(dts, overrides).text;
+}
+
+/** The `dts:<position>:<path>` overrides among a module's inferred types. */
+export function declarationOverrides(inferred: Map<string, string>): Map<string, string> {
+  return new Map([...inferred].filter(([key]) => key.startsWith('dts:')));
+}
+
+/**
+ * The text of `exportAllDeclarations`, and where a position of the
+ * declaration file is in it.
+ */
+function virtualDeclarations(
+  dts: string,
+  overrides: Map<string, string> = new Map(),
+): { text: string; position: (pos: number) => number } {
   const text = readFileSync(dts, 'utf8');
   const sf = ts.createSourceFile(dts, text, ts.ScriptTarget.Latest, true);
-  const at: number[] = [];
+  const edits: { at: number; remove: number; insert: string }[] = [];
+  for (const [key, type] of overrides) {
+    const at = Number(key.split(':')[1]);
+    if (text.startsWith('any', at)) edits.push({ at, remove: 3, insert: type });
+  }
   for (const stmt of sf.statements) {
     const declaration =
       ts.isClassDeclaration(stmt) ||
@@ -248,10 +272,23 @@ export function exportAllDeclarations(dts: string): string {
       ?.some(
         m => m.kind === ts.SyntaxKind.ExportKeyword || m.kind === ts.SyntaxKind.DefaultKeyword,
       );
-    if (declaration && !exported) at.push(stmt.getStart(sf));
+    if (declaration && !exported)
+      edits.push({ at: stmt.getStart(sf), remove: 0, insert: 'export ' });
   }
-  let out = text;
-  for (const pos of at.reverse()) out = out.slice(0, pos) + 'export ' + out.slice(pos);
+  edits.sort((a, b) => a.at - b.at);
+  let out = '';
+  let from = 0;
+  for (const e of edits) {
+    out += text.slice(from, e.at) + e.insert;
+    from = e.at + e.remove;
+  }
+  out += text.slice(from);
+  const position = (pos: number) => {
+    let shift = 0;
+    for (const e of edits)
+      if (e.at < pos || (e.at === pos && e.remove === 0)) shift += e.insert.length - e.remove;
+    return pos + shift;
+  };
   // Its imports too (generic classes' annotations name them: `__dts.AnyFn`).
   const imported: string[] = [];
   for (const stmt of sf.statements) {
@@ -263,7 +300,7 @@ export function exportAllDeclarations(dts: string): string {
       for (const el of bindings.elements) imported.push(el.name.text);
   }
   if (imported.length) out += `\nexport { ${imported.join(', ')} };\n`;
-  return out;
+  return { text: out, position };
 }
 
 /** The declaration file next to a JavaScript module (`x.js` → `x.d.ts`). */
@@ -896,6 +933,7 @@ export function inferFields(
     visit(decl.type);
     return forwards ? fn : undefined;
   };
+  const declaredAny = declaredAnyTypes(modules, program, print);
   for (const m of modules.values()) {
     // A pack's port is typed as written.
     if (m.port) continue;
@@ -903,6 +941,11 @@ export function inferFields(
     if (!sf) continue;
     const attachments = attachmentFields(sf);
     const next = new Map(m.inferred);
+    // (Map order is kept: a key set again keeps its place.)
+    const anyTypes = declaredAny.get(m) ?? new Map<string, string>();
+    for (const key of [...next.keys()])
+      if (key.startsWith('dts:') && !anyTypes.has(key)) next.delete(key);
+    for (const [key, text] of anyTypes) next.set(key, text);
     for (const stmt of sf.statements) {
       if (!ts.isClassDeclaration(stmt) || !stmt.name) continue;
       const cls = stmt.name.text;
@@ -2184,6 +2227,297 @@ export function inferFields(
     }
   }
   return changed;
+}
+
+/**
+ * Properties that a reached module's declaration file types `any` (bits-ui's
+ * PinInput state options `pattern: any`, which hold getter boxes of the
+ * Root's `pattern` prop): each takes the one type of the values the program
+ * gives it, literals widened, where every value is found. A value is given by an object literal whose contextual
+ * type holds the property, also through a mapped type
+ * (`ReadableBoxedValues<{ pattern: any }>` holds `ReadableBox<any>`: the
+ * `any` is that alias's argument, which the value's box type gives), or by
+ * a write of the property. The property stays `any`, and is rejected where
+ * it is used, as before, where some value may come from elsewhere (it fails
+ * closed): a spread or computed key into such a literal, a literal without
+ * its own contextual type giving a property of its name, an object of
+ * another type passed, returned or assigned where the property's type is
+ * expected, a compound write, a write of its `current`; or where the values
+ * have several types, or a type with `any` in it.
+ *
+ * Returns, per module, the `dts:<position>:<path>` entries for its
+ * declaration file: the `any` keyword at that position of the file becomes
+ * the type (`path` is `=` for the property's own type, or the index of the
+ * alias argument the `any` is).
+ */
+function declaredAnyTypes(
+  modules: Map<string, PackageModule>,
+  program: ts.Program,
+  print: (t: ts.Type, at: ts.Node) => string | undefined,
+): Map<PackageModule, Map<string, string>> {
+  const checker = program.getTypeChecker();
+  const out = new Map<PackageModule, Map<string, string>>();
+  interface Candidate {
+    m: PackageModule;
+    pos: number;
+    name: string;
+    /** The path an earlier pass found. */
+    path?: string;
+  }
+  const candidates = new Map<ts.Declaration, Candidate>();
+  const names = new Set<string>();
+  for (const m of modules.values()) {
+    if (m.port || !m.dts) continue;
+    const sf = program.getSourceFile(m.dts);
+    if (!sf) continue;
+    const overrides = declarationOverrides(m.inferred);
+    const paths = new Map<number, string>();
+    for (const key of overrides.keys()) {
+      const [, pos, path] = key.split(':');
+      paths.set(Number(pos), path);
+    }
+    const original = ts.createSourceFile(
+      m.dts,
+      readFileSync(m.dts, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const { position } = virtualDeclarations(m.dts, overrides);
+    const at = new Map<number, number>();
+    const property = (n: ts.Node): n is ts.PropertySignature | ts.PropertyDeclaration =>
+      (ts.isPropertySignature(n) ||
+        (ts.isPropertyDeclaration(n) &&
+          !ts.getModifiers(n)?.some(x => x.kind === ts.SyntaxKind.StaticKeyword))) &&
+      !!n.type &&
+      ts.isIdentifier(n.name);
+    const visit = (n: ts.Node) => {
+      if (property(n) && n.type!.kind === ts.SyntaxKind.AnyKeyword) {
+        const pos = n.type!.getStart(original);
+        at.set(position(pos), pos);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(original);
+    if (!at.size) continue;
+    const find = (n: ts.Node) => {
+      if (property(n)) {
+        const pos = at.get(n.type!.getStart(sf));
+        if (pos !== undefined) {
+          const name = (n.name as ts.Identifier).text;
+          candidates.set(n, { m, pos, name, path: paths.get(pos) });
+          names.add(name);
+        }
+      }
+      ts.forEachChild(n, find);
+    };
+    find(sf);
+  }
+  if (!candidates.size) return out;
+
+  const F = ts.TypeFlags;
+  const declOf = (s: ts.Symbol | undefined) => s && (s.valueDeclaration ?? s.declarations?.[0]);
+  const partsOf = (t: ts.Type) => (t.isUnion() ? t.types : [t]);
+  /** The candidates `ctx` holds by `name`, with the type it holds there. */
+  const slots = (ctx: ts.Type, name: string) =>
+    partsOf(ctx).flatMap(t => {
+      const p = checker.getPropertyOfType(t, name);
+      const d = declOf(p);
+      return p && d && candidates.has(d) ? [{ decl: d, type: checker.getTypeOfSymbol(p) }] : [];
+    });
+  const given = new Map<ts.Declaration, { type: ts.Type; slot: ts.Type }[]>();
+  const open = new Set<ts.Declaration>();
+  const untyped = new Set<string>();
+  const give = (d: ts.Declaration, type: ts.Type, slot: ts.Type) => {
+    const list = given.get(d) ?? [];
+    list.push({ type, slot });
+    given.set(d, list);
+  };
+  const typedContext = (t: ts.Type | undefined): t is ts.Type =>
+    !!t && !(t.flags & (F.Any | F.Unknown | F.TypeParameter));
+  /**
+   * The declared type of the class field (or variable) whose `$derived(e)`
+   * or `$derived.by(() => e)` initialiser has `e` as a value (bits-ui's
+   * `inputProps = $derived.by(() => ({ … }))`, annotated from the
+   * declaration file): the value is the field's. (TypeScript's contextual
+   * type for `e` is inferred from `e` itself, through the rune's type
+   * parameter.)
+   */
+  const derivedTarget = (e: ts.Expression): ts.Type | undefined => {
+    let at: ts.Node = e;
+    while (ts.isParenthesizedExpression(at.parent)) at = at.parent;
+    let call: ts.Node | undefined;
+    const parent = at.parent;
+    if (ts.isCallExpression(parent) && parent.arguments[0] === at) call = parent;
+    else {
+      // (The arrow's result: its expression body, or a return in its body.)
+      let fn: ts.Node | undefined;
+      if (ts.isArrowFunction(parent) && parent.body === at) fn = parent;
+      else if (ts.isReturnStatement(parent)) {
+        fn = parent.parent;
+        while (fn && !ts.isFunctionLike(fn)) fn = fn.parent;
+      }
+      if (fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))) {
+        let inner: ts.Node = fn;
+        while (ts.isParenthesizedExpression(inner.parent)) inner = inner.parent;
+        if (ts.isCallExpression(inner.parent) && inner.parent.arguments[0] === inner)
+          call = inner.parent;
+      }
+    }
+    if (!call || !ts.isCallExpression(call)) return undefined;
+    const rune = call.expression.getText();
+    if (rune !== (call.arguments[0] === at ? '$derived' : '$derived.by')) return undefined;
+    const holder = call.parent;
+    if (
+      !(ts.isPropertyDeclaration(holder) || ts.isVariableDeclaration(holder)) ||
+      holder.initializer !== call ||
+      !holder.type
+    )
+      return undefined;
+    return checker.getTypeAtLocation(holder.name);
+  };
+  /** A value of a non-literal expression where `ctx` is expected. */
+  const flows = (e: ts.Expression) => {
+    const x = skipParensOf(e);
+    if (ts.isObjectLiteralExpression(x)) return;
+    const ctx = derivedTarget(e) ?? checker.getContextualType(e);
+    if (!typedContext(ctx)) return;
+    for (const name of names)
+      for (const s of slots(ctx, name)) {
+        // (The same declared type passed on: the values it holds are counted
+        // where they are given.)
+        const own = checker.getNonNullableType(checker.getTypeAtLocation(x));
+        const held = partsOf(own).map(t => declOf(checker.getPropertyOfType(t, name)));
+        if (!held.length || held.some(d => d !== s.decl)) open.add(s.decl);
+      }
+  };
+  for (const f of program.getSourceFiles()) {
+    if (f.isDeclarationFile) continue;
+    const visit = (n: ts.Node) => {
+      if (ts.isObjectLiteralExpression(n)) {
+        const ctx = derivedTarget(n) ?? checker.getContextualType(n);
+        for (const p of n.properties) {
+          if (ts.isSpreadAssignment(p) || (p.name && ts.isComputedPropertyName(p.name))) {
+            if (typedContext(ctx))
+              for (const name of names) for (const s of slots(ctx, name)) open.add(s.decl);
+            continue;
+          }
+          const name =
+            p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))
+              ? p.name.text
+              : undefined;
+          if (!name || !names.has(name)) continue;
+          // (A contextual type the literal gives itself, such as a generic
+          // callee's inferred parameter: no declaration's.)
+          const self = typedContext(ctx) && declOf(checker.getPropertyOfType(ctx, name)) === p;
+          if (!typedContext(ctx) || self) {
+            untyped.add(name);
+            continue;
+          }
+          for (const s of slots(ctx, name)) {
+            if (ts.isPropertyAssignment(p))
+              give(s.decl, checker.getTypeAtLocation(p.initializer), s.type);
+            else if (ts.isShorthandPropertyAssignment(p)) {
+              const v = checker.getShorthandAssignmentValueSymbol(p);
+              if (v) give(s.decl, checker.getTypeOfSymbolAtLocation(v, p), s.type);
+              else open.add(s.decl);
+            } else open.add(s.decl);
+          }
+        }
+      } else if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+      ) {
+        const left = skipParensOf(n.left);
+        if (ts.isPropertyAccessExpression(left)) {
+          const s = checker.getSymbolAtLocation(left.name);
+          const d = declOf(s);
+          if (s && d && candidates.has(d)) {
+            if (n.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+              give(d, checker.getTypeAtLocation(n.right), checker.getTypeOfSymbol(s));
+            else open.add(d);
+          }
+          // (A write into what the property holds: a box's `current`.)
+          if (ts.isPropertyAccessExpression(left.expression)) {
+            const inner = declOf(checker.getSymbolAtLocation(left.expression.name));
+            if (inner && candidates.has(inner)) open.add(inner);
+          }
+        } else if (
+          ts.isElementAccessExpression(left) &&
+          (!ts.isStringLiteralLike(left.argumentExpression) ||
+            names.has(left.argumentExpression.text))
+        ) {
+          for (const [d, c] of candidates)
+            if (
+              !ts.isStringLiteralLike(left.argumentExpression) ||
+              c.name === left.argumentExpression.text
+            )
+              open.add(d);
+        }
+        if (n.operatorToken.kind === ts.SyntaxKind.EqualsToken) flows(n.right);
+      } else if (ts.isCallExpression(n) || ts.isNewExpression(n)) n.arguments?.forEach(flows);
+      else if (ts.isReturnStatement(n) && n.expression) flows(n.expression);
+      else if ((ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n)) && n.initializer)
+        flows(n.initializer);
+      else if (ts.isPropertyAssignment(n)) flows(n.initializer);
+      else if (ts.isArrowFunction(n) && !ts.isBlock(n.body)) flows(n.body);
+      ts.forEachChild(n, visit);
+    };
+    visit(f);
+  }
+
+  const same = (a: ts.Type, b: ts.Type) =>
+    checker.isTypeAssignableTo(a, b) && checker.isTypeAssignableTo(b, a);
+  for (const [d, c] of candidates) {
+    const list = given.get(d);
+    if (open.has(d) || untyped.has(c.name) || !list?.length) continue;
+    let route = c.path;
+    let type: ts.Type | undefined;
+    let ok = true;
+    for (const g of list) {
+      const holders = partsOf(g.slot).filter(t => !(t.flags & (F.Undefined | F.Null)));
+      // The path of the `any` in the slot's type (an earlier pass's, once
+      // the property is typed).
+      let here: string | undefined;
+      if (route !== undefined) here = route;
+      else if (holders.length === 1 && holders[0].flags & F.Any) here = '=';
+      else if (holders.length === 1) {
+        const args = holders[0].aliasTypeArguments ?? [];
+        const at = args.flatMap((a, i) => (a.flags & F.Any ? [i] : []));
+        if (at.length === 1) here = String(at[0]);
+      }
+      if (here === undefined || (route !== undefined && here !== route)) {
+        ok = false;
+        break;
+      }
+      route = here;
+      let value: ts.Type | undefined = g.type;
+      if (route !== '=') {
+        const alias = holders.length === 1 ? holders[0].aliasSymbol : undefined;
+        const box = partsOf(g.type).filter(t => !(t.flags & (F.Undefined | F.Null)));
+        value =
+          alias && box.length === 1 && box[0].aliasSymbol === alias
+            ? box[0].aliasTypeArguments?.[Number(route)]
+            : undefined;
+      }
+      if (!value || value.flags & (F.Any | F.Unknown | F.Never)) {
+        ok = false;
+        break;
+      }
+      value = checker.getBaseTypeOfLiteralType(value);
+      if (type && !same(type, value)) {
+        ok = false;
+        break;
+      }
+      type ??= value;
+    }
+    const text = ok && type ? print(type, d) : undefined;
+    if (text === undefined || route === undefined) continue;
+    const map = out.get(c.m) ?? new Map<string, string>();
+    map.set(`dts:${c.pos}:${route}`, text);
+    out.set(c.m, map);
+  }
+  return out;
 }
 
 function skipParensOf(e: ts.Expression): ts.Expression {
