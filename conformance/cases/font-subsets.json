@@ -1,0 +1,13 @@
+{
+  "description": "A family split into @font-face subsets by unicode-range, as @fontsource-variable/geist ships Geist (cyrillic, latin-ext, latin faces in that order, the cyrillic face without digits): text inputs at the default size, size=1 and size=2 sized from the primary font (the first face, latest defined first, whose range includes U+0020: the latin face), and Latin, Latin Extended, Cyrillic and mixed text at weights 400 and 600, each character from the latest-defined face whose range includes it (U+2020 is in the latin-ext and latin ranges). The input's value and a paragraph change at run time",
+  "fixtures": ["font-subsets-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["default", "size-1", "size-2", "sample", "latin", "latin-ext", "cyrillic", "mixed", "sample-text"],
+  "actions": [
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" }
+  ]
+}

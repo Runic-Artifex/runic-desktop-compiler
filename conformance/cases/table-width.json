@@ -1,0 +1,13 @@
+{
+  "description": "Automatic tables whose width differs from their columns' max-content widths, distributed as Chromium 153 does (Blink's DistributeInlineSizeToComputedInlineSizeAuto): an invoice table with a 100px header cell at width 100% (the excess goes to the auto columns in proportion to their max-content widths; the fixed column keeps its width), automatic, and narrower than its columns (at their minimum), switched at run time; two fixed columns only (they take the excess in proportion to their widths); a 25% column beside an auto and a fixed column; and a <col> width",
+  "fixtures": ["table-width-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["invoices", "fixed-only", "percent", "cols"],
+  "actions": [
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "next" }
+  ]
+}
