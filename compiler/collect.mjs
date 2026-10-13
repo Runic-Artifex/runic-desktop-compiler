@@ -1643,18 +1643,9 @@ function checkRules(css, file, pending) {
           column: decl.source.start.column,
         }),
       );
-    // Blitz lays sticky boxes out as relative ones and never moves them while
-    // their scroll container scrolls (docs/BLITZ-GAPS.md).
-    if (decl.prop === 'position' && possibleKeywords(decl.value, values).has('sticky'))
-      return defer(
-        pending,
-        decl,
-        new Diagnostic(
-          'E_CSS_PROPERTY',
-          'Unsupported CSS declaration position: sticky: Blitz lays sticky boxes out as relative ones and does not keep them in view while scrolling',
-          { file, line: decl.source.start.line, column: decl.source.start.column },
-        ),
-      );
+    // `position: sticky` is laid out, painted and hit-tested as in Chromium 153
+    // by the Blitz fork, which reports the one form it keeps in flow (a sticky
+    // ordinary inline box) when it lays one out (docs/CONTRACT.md).
     // Blitz generates the strings of `content` only (docs/BLITZ-GAPS.md).
     if (
       decl.prop === 'content' &&

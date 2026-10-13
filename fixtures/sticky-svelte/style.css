@@ -1,0 +1,58 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+:root { --header-height: 48px; }
+html, body { margin: 0; background: #eae6dc; color: #252c28; font-family: RunicFixture; font-size: 13px; line-height: 18px; }
+p { margin: 0 0 8px; }
+button { font-family: RunicFixture; font-size: 12px; line-height: 16px; padding: 3px 8px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+
+/* The site header: shadcn-svelte's `sticky top-0 z-50 w-full`, Bootstrap's .sticky-top. */
+.site-header { position: sticky; top: 0; z-index: 50; width: 100%; height: var(--header-height); display: flex; align-items: center; gap: 8px; padding: 0 12px; background: #faf8f1; border-bottom: 1px solid #b7b7a9; }
+
+.layout { display: flex; align-items: flex-start; gap: 10px; padding: 10px; }
+
+/* The docs sidebar: sticky below the header, scrolling on its own, with a
+   sticky fade at its bottom (`sticky -bottom-1`). */
+.sidebar { position: sticky; top: calc(var(--header-height) + 0.6rem); flex: none; width: 110px; height: calc(100svh - 10rem); overflow-y: auto; scrollbar-width: none; background: #f3f0e6; border: 1px solid #c8c4b6; border-radius: 8px; }
+.sidebar .item { display: block; padding: 4px 8px; border-bottom: 1px solid #ddd8ca; }
+.sidebar-fade { position: sticky; bottom: -4px; height: 24px; background: #c9d3c4; opacity: 0.9; }
+
+.content { flex: 1; min-width: 0; }
+.section { margin: 0 0 12px; padding: 8px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 8px; }
+.tall { height: 260px; background: repeating-linear-gradient(#faf8f1 0 18px, #efece2 18px 36px); }
+
+/* A data table: a sticky header row and a sticky first column in a pane
+   that scrolls both ways. */
+.table-pane { height: 150px; overflow: auto; scrollbar-width: none; border: 1px solid #b7b7a9; background: #ffffff; }
+table { border-collapse: separate; border-spacing: 0; width: 520px; }
+th, td { padding: 4px 8px; border-bottom: 1px solid #ddd8ca; text-align: left; white-space: nowrap; }
+thead.sticky-head { position: sticky; top: 0; z-index: 10; background: #dfe6dc; }
+.first { position: sticky; left: 0; background: #f3f0e6; }
+thead .first { z-index: 11; background: #cfd9cc; }
+
+/* A dialog body with a sticky footer. */
+.dialog { max-height: 170px; overflow-y: auto; scrollbar-width: none; border: 1px solid #b7b7a9; border-radius: 8px; background: #ffffff; }
+.dialog .body { padding: 8px; }
+.dialog-footer { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 6px; padding: 6px 8px; background: #efece2; border-top: 1px solid #c8c4b6; }
+
+/* Sticky in a grid, held by its grid area. */
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.grid .cell { height: 220px; padding: 6px; background: #f3f0e6; border: 1px solid #ddd8ca; }
+.grid .pin { position: sticky; top: calc(var(--header-height) + 8px); align-self: start; height: 40px; background: #c9d3c4; border: 1px solid #52665b; }
+
+/* Nested scroll containers, each with its own sticky header. */
+.outer { height: 200px; overflow-y: auto; scrollbar-width: none; border: 1px solid #b7b7a9; background: #ffffff; }
+.outer-head { position: sticky; top: 0; z-index: 2; padding: 4px 8px; background: #dfe6dc; }
+.inner { height: 110px; margin: 8px; overflow-y: auto; scrollbar-width: none; border: 1px solid #c8c4b6; }
+.inner-head { position: sticky; top: 4px; padding: 3px 6px; background: #f0d9c4; }
+
+/* A horizontal strip with a sticky label at its right end. */
+.strip { overflow-x: auto; scrollbar-width: none; white-space: nowrap; border: 1px solid #b7b7a9; background: #ffffff; }
+.strip .chip { display: inline-block; width: 90px; margin: 4px; padding: 4px; background: #f3f0e6; }
+.strip .end { position: sticky; right: 0; display: inline-block; width: 60px; padding: 4px; background: #d7a49a; }
+
+/* The table of contents: sticky below the header, clipping its own
+   content, with a sticky title (`sticky top-0`). */
+.toc { position: sticky; top: calc(var(--header-height) + 1px); flex: none; width: 96px; max-height: 70svh; overflow: hidden; display: flex; flex-direction: column; gap: 4px; padding: 4px; background: #f3f0e6; border: 1px solid #c8c4b6; border-radius: 8px; }
+.toc-title { position: sticky; top: 0; height: 24px; margin: 0; background: #faf8f1; font-weight: 700; }
+.toc .entry { padding: 2px 4px; }
+.footer { height: 120px; margin: 0 10px 10px; background: #dfe6dc; border-radius: 8px; }

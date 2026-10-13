@@ -207,6 +207,12 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       '@container card (width > 10px) { p { color: blue } }\n@container (min-width: 20rem) { p { color: red } }',
     undefined,
   );
+  // Sticky positioning is laid out as Chromium does (the Blitz fork reports
+  // the sticky ordinary inline box it keeps in flow at run time).
+  await check(
+    'header { position: sticky; top: 0 }\n:root { --p: sticky }\nnav { position: var(--p); bottom: -4px }',
+    undefined,
+  );
   // Reported, with the line of the rule or declaration.
   await check('p { color: red }\n@container style(--x: 1) { p { color: blue } }', 'E_CSS', 2);
   await check('p { color: red }\np { container-type: scroll-state }', 'E_CSS_PROPERTY', 2);
