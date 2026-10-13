@@ -1,0 +1,29 @@
+@font-face { font-family: RunicFixture; src: url('./assets/DejaVuSans.woff2') format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+html, body { margin: 0; font-family: RunicFixture; }
+html, body { background: #eae6dc; color: #252c28; font-size: 16px; }
+body { padding: 8px; }
+main { max-width: 520px; margin: 0 auto; padding: 12px 16px; background: #faf8f1; border: 1px solid #b7b7a9; border-radius: 12px; }
+.controls { display: flex; gap: 8px; margin: 0 0 8px; }
+button { font-family: RunicFixture; font-size: 13px; line-height: 16px; padding: 3px 8px; border: 1px solid #52665b; border-radius: 6px; background: #e2e8df; color: #252c28; }
+.row { margin: 0 0 8px; font-size: 15px; line-height: 20px; }
+.box { margin: 0 0 8px; }
+/* The email input starts at a whole pixel: Blitz draws a text input's text at
+   a fractional x up to a pixel left of Chromium's (docs/BLITZ-GAPS.md, "Text
+   input text at a fractional x"). */
+.flex { display: flex; align-items: center; gap: 6px; }
+.label { width: 52px; }
+/* Explicit line heights: a text input's `normal` line box is fractional in
+   Blitz (docs/BLITZ-GAPS.md, "Text input line height"). */
+input, textarea { font-family: RunicFixture; font-size: 15px; line-height: 20px; margin: 0; padding: 3px 6px; border: 1px solid #52665b; border-radius: 4px; background: #ffffff; color: #252c28; resize: none; vertical-align: middle; }
+input:focus, textarea:focus { outline: none; border-color: #101010; }
+::placeholder { color: #7a8079; }
+.content { field-sizing: content; }
+/* A fixed text area without `cols` is 300px wide in Blitz and 20 average
+   characters wide in Chromium (docs/BLITZ-GAPS.md, "Textarea default width"). */
+.fixed { field-sizing: fixed; width: 240px; }
+.limits { min-width: 48px; max-width: 220px; }
+.message { width: 100%; min-height: 64px; padding: 8px 12px; }
+.narrow { max-width: 160px; }
+.short { max-height: 52px; overflow: hidden; }
+.tall { min-height: 48px; min-width: 96px; }

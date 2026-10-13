@@ -1,0 +1,29 @@
+{
+  "description": "field-sizing: content as Chromium 153 lays it out: text inputs (a placeholder-only one with min- and max-width, an email input with a value) and text areas (empty, a placeholder wrapped at a percentage width with a min-height, rows and cols ignored under a max-width, a max-height with hidden overflow, a min-width and min-height) are sized by their text, or their placeholder while that is shown; typing grows them (the name input up to its max-width, then scrolled to the caret) and deleting shrinks them, and a class switch to field-sizing: fixed gives the text area its rows and cols size again. The text following each control shows its width",
+  "fixtures": ["field-sizing-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": ["name-row", "email-row", "notes-box", "message-box", "wide-box", "limited-box", "toggled-box"],
+  "actions": [
+    { "kind": "click", "id": "name" },
+    { "kind": "type", "text": "Jo" },
+    { "kind": "type", "text": "hn Smith from the northern valley" },
+    { "kind": "press", "key": "Control+a" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "click", "id": "notes" },
+    { "kind": "type", "text": "abc" },
+    { "kind": "press", "key": "Enter" },
+    { "kind": "type", "text": "de" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "click", "id": "message" },
+    { "kind": "type", "text": "Hi there" },
+    { "kind": "press", "key": "Control+a" },
+    { "kind": "press", "key": "Backspace" },
+    { "kind": "click", "id": "toggle" },
+    { "kind": "click", "id": "toggle" }
+  ]
+}

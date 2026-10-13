@@ -210,7 +210,9 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   // Reported, with the line of the rule or declaration.
   await check('p { color: red }\n@container style(--x: 1) { p { color: blue } }', 'E_CSS', 2);
   await check('p { color: red }\np { container-type: scroll-state }', 'E_CSS_PROPERTY', 2);
-  await check('p { color: red }\np::before { field-sizing: content }', 'E_CSS_PROPERTY', 2);
+  await check('p { color: red }\np::before { line-clamp: 2 }', 'E_CSS_PROPERTY', 2);
+  // `field-sizing` does not apply to pseudo-elements.
+  await check('p { color: red }\np::before { field-sizing: content }', undefined);
   // A declaration Stylo drops from a rule with matchable selectors is a
   // guard the app reports once the selector matches an element.
   const guards = css =>
@@ -220,9 +222,31 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       { 's.css': css },
     );
   assert.deepEqual(
-    (await guards('p { color: red }\n.a, .b > p { field-sizing: content }')).map(g => g.selector),
+    (await guards('p { color: red }\n.a, .b > p { line-clamp: 2 }')).map(g => g.selector),
     ['.a, .b > p'],
   );
+  // Blitz sizes text areas and text-like inputs by their content; the other
+  // controls Chromium sizes are reported where the rule matches one, unless
+  // a later rule fixes their size.
+  const unsized =
+    'select, input[type=search i], input[type=number i], input[type=password i], input[type=file i]';
+  assert.deepEqual(
+    (await guards('.a, .b > textarea { field-sizing: content }')).map(g => g.selector),
+    [`.a:is(${unsized}), .b > textarea:is(${unsized})`],
+  );
+  assert.deepEqual(
+    (await guards(':root { --s: content }\n.a { field-sizing: var(--s) }')).map(g => g.selector),
+    [`.a:is(${unsized})`],
+  );
+  assert.deepEqual(
+    (await guards('.a { field-sizing: content }\n.a { field-sizing: fixed }')).map(g => g.unless),
+    ['.a'],
+  );
+  assert.match(
+    (await guards('.a { field-sizing: content }'))[0].message,
+    /field-sizing: content \(s\.css, line 1\) applies to a select, search, number, password or file input through \.a,/,
+  );
+  assert.deepEqual((await guards('.a { field-sizing: fixed }')) ?? [], []);
   assert.match(
     (await guards('p { -webkit-line-clamp: 2 }'))[0].message,
     /-webkit-line-clamp: 2 \(s\.css, line 1\)/,
