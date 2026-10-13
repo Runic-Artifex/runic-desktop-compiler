@@ -55,7 +55,7 @@
 import ts from 'typescript';
 import type { Expr, Fn, Local, Stmt, Type } from '../ir.ts';
 import { skipParens, type FnBuilder, type Lowerer } from '../language.ts';
-import type { Pack } from '../packs.ts';
+import { reportPresentArgs, type Pack } from '../packs.ts';
 import { ABSENT, emptyShape, mayHold, union, type Shape } from '../bags.ts';
 import { maybeInner } from '../irtype.ts';
 
@@ -65,6 +65,28 @@ const fnType = (params: Type[], result: Type): Type => ({ fn: { params, result }
 
 /** Box records by value type, per program. */
 const boxes = new WeakMap<Lowerer, Map<string, number>>();
+
+/**
+ * What the program passes box setters, per program: `setters` maps the
+ * function of each setter written inline (`boxWith(get, (v) => …)`, so the
+ * box holds the only reference to it) to its box record, and `absent` holds
+ * the box records some code may assign a nullish value to (`current = x`
+ * of a nullable `x`, attachRef's null). A setter whose record is not in
+ * `absent` is only ever called with present values.
+ */
+const setterArgs = new WeakMap<Lowerer, { setters: Map<number, number>; absent: Set<number> }>();
+const settersOf = (lower: Lowerer) => {
+  let s = setterArgs.get(lower);
+  if (!s) {
+    const created = { setters: new Map<number, number>(), absent: new Set<number>() };
+    setterArgs.set(lower, (s = created));
+    reportPresentArgs(lower, fn => {
+      const record = created.setters.get(fn);
+      return record !== undefined && !created.absent.has(record);
+    });
+  }
+  return s;
+};
 
 /** The record of boxes holding values of type `t` (created with its members). */
 export function boxRecord(lower: Lowerer, t: Type): number {
@@ -124,6 +146,7 @@ export function boxRecord(lower: Lowerer, t: Type): number {
       const have = lower.irType(value, b);
       const v: Expr =
         maybeInner(t) && !maybeInner(have) && have !== 'void' ? { op: 'some', value } : value;
+      if (v.op !== 'some' && maybeInner(t)) settersOf(lower).absent.add(record);
       return [
         {
           op: 'expr',
@@ -308,10 +331,17 @@ function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
       },
     };
   }
-  const set: Expr = setter
-    ? { op: 'some', value: functionArg(setter, b, lower, fnType([t], 'void')) }
+  const record = (box as { record: number }).record;
+  const setFn = setter && functionArg(setter, b, lower, fnType([t], 'void'));
+  const inline =
+    setter &&
+    (ts.isArrowFunction(skipParens(setter)) || ts.isFunctionExpression(skipParens(setter)));
+  if (setFn && inline && setFn.op === 'closure')
+    settersOf(lower).setters.set(setFn.function, record);
+  const set: Expr = setFn
+    ? { op: 'some', value: setFn }
     : { op: 'undefined', type: { maybe: fnType([t], 'void') } };
-  return { op: 'record', record: (box as { record: number }).record, fields: [get, set] };
+  return { op: 'record', record, fields: [get, set] };
 }
 
 /** The declaration of the option property an object literal gives `node` to. */
@@ -580,6 +610,8 @@ function attachRef(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr 
     lower.fail(ref, 'E_PACK', `${LABEL}: attachRef takes a box of an element or null`);
   if (boxed === undefined && JSON.stringify(refType) !== JSON.stringify(fnType([element], 'void')))
     lower.fail(ref, 'E_PACK', `${LABEL}: attachRef takes a box or a setter of an element or null`);
+  // (It writes null through the box's setter.)
+  if (boxed !== undefined) settersOf(lower).absent.add((refType as { record: number }).record);
   const changeType = fnType([element], 'void');
   const change = onChange ? functionArg(onChange, b, lower, changeType) : undefined;
   // Captures: [ref, onChange?]; the attachment's parameter is the element.

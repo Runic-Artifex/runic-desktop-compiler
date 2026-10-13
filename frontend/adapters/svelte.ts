@@ -75,6 +75,7 @@ import {
   packPorts,
   PackError,
   usePack,
+  presentArgs,
   type Edge,
   type Pack,
   type PackAttr,
@@ -387,6 +388,11 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   const order: Unit[] = [];
   /** Optional props bound to variables of the present type (`bind:` on components). */
   const presentWrites: { component: number; cell: number; name: string; at: Source }[] = [];
+  /**
+   * Nullable variables bound to props with defaults (`bind:` on components):
+   * each must never hold undefined.
+   */
+  const neverAbsent: { component: number; cell: number; name: string; at: Source }[] = [];
   /** `bind:` setters (function index) by the child component and prop cell they follow. */
   const bindSetters = new Map<number, { component: number; cell: number }>();
   /**
@@ -5019,9 +5025,24 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
           // `value = $bindable()`): the child must never write undefined to it
           // (checked once every function is lowered, `presentWrites`).
           const present = !!maybeInner(want) && have === JSON.stringify(maybeInner(want));
-          if (have !== JSON.stringify(want) && !present)
+          // A nullable variable bound to a prop with a default (shadcn-svelte's
+          // DropdownMenu.RadioGroup binding its `value = $bindable()` to
+          // bits-ui's `value = $bindable("")`): Svelte reads the default
+          // while the variable is undefined, but throws
+          // `props_invalid_value` if it is undefined when the child is
+          // created; the child writes values of the prop's type. Accepted
+          // where the variable never holds undefined (checked once every
+          // component is lowered, `neverAbsent`).
+          const defaulted =
+            !present &&
+            !!target.cells[propCell(a)].undefinedDefault &&
+            !maybeInner(want) &&
+            have === JSON.stringify({ maybe: want });
+          if (have !== JSON.stringify(want) && !present && !defaulted)
             fail('E_TEMPLATE', `bind:${a.name} needs a $state variable of the prop's type`, loc(a));
           const own = (b as { cell: number }).cell;
+          if (defaulted)
+            neverAbsent.push({ component: u.index, cell: own, name: a.name, at: loc(a) });
           if (present)
             presentWrites.push({
               component: child.index,
@@ -5038,7 +5059,17 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             params: [{ name: 'v', type: want }],
             locals: [],
             result: 'void',
-            body: [{ op: 'set', cell: own, value: present ? { op: 'unwrap', value: arg } : arg }],
+            body: [
+              {
+                op: 'set',
+                cell: own,
+                value: present
+                  ? { op: 'unwrap', value: arg }
+                  : defaulted
+                    ? { op: 'some', value: arg }
+                    : arg,
+              },
+            ],
           };
           passed.push({
             name: a.name,
@@ -5856,6 +5887,38 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
   lower.widenRecords(ir);
   lower.checkStyleSpreads(ir);
   lower.checkKeyOrders();
+  /**
+   * Whether `value`, written in function `fn`, is the parameter of a function
+   * that a pack only ever calls with present values (svelte-toolbelt's box
+   * setters written inline, `presentArgs`), and that neither the function
+   * nor a closure it creates reassigns.
+   */
+  const setterParamPresent = (fn: number, value: unknown): boolean => {
+    const f = lower.functions[fn];
+    const param = f?.captures?.length ?? 0;
+    const v = value as { op?: string; local?: number } | undefined;
+    if (!f || f.params.length !== 1 || v?.op !== 'local' || v.local !== param) return false;
+    if (!presentArgs(lower, fn)) return false;
+    let reassigned = false;
+    const visit = (n: unknown) => {
+      if (reassigned || !n || typeof n !== 'object') return;
+      const o = n as {
+        op?: string;
+        local?: number;
+        captures?: unknown;
+        catch?: { local?: number };
+      };
+      if (
+        (o.op !== 'local' && o.local === param) ||
+        o.catch?.local === param ||
+        (o.op === 'closure' && Array.isArray(o.captures) && o.captures.includes(param))
+      )
+        reassigned = true;
+      for (const c of Array.isArray(n) ? n : Object.values(n)) visit(c);
+    };
+    visit(f.body);
+    return !reassigned;
+  };
   // A bound optional prop the child writes: only present values (`some`),
   // which the parent's variable of the present type can hold.
   // A `bind:` setter passes on what its own child writes.
@@ -5869,13 +5932,15 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       const x = v as { op?: string; cell?: number; value?: { op?: string; local?: number } };
       if (x.op === 'set' && x.cell === cell && x.value?.op !== 'some') {
         const follows = fn !== undefined ? bindSetters.get(fn) : undefined;
-        if (
-          !follows ||
-          x.value?.op !== 'local' ||
-          x.value.local !== 0 ||
-          !writesPresent(follows.component, follows.cell, seen)
-        )
-          absent = true;
+        const passesOn =
+          follows &&
+          x.value?.op === 'local' &&
+          x.value.local === 0 &&
+          writesPresent(follows.component, follows.cell, seen);
+        // A box setter's parameter (bits-ui's `boxWith(() => value, (v) =>
+        // { value = v; … })`) where every assignment to the box's `current`
+        // is of a present value.
+        if (!passesOn && !(fn !== undefined && setterParamPresent(fn, x.value))) absent = true;
       }
       for (const c of Array.isArray(v) ? v : Object.values(v)) visit(c, fn);
     };
@@ -5888,6 +5953,39 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
       fail(
         'E_TEMPLATE',
         `bind:${w.name} binds a variable that cannot be undefined to a prop its component may set to undefined; declare the variable with undefined in its type`,
+        w.at,
+      );
+  }
+  // A variable never holds undefined when it starts present (a `$state`
+  // with a present value; a prop every site passes a present value, the
+  // component never mounted imperatively nor the root) and every write to it
+  // is present.
+  const isSome = (e: Expr | undefined): boolean =>
+    !!e && (e.op === 'some' || (e.op === 'upcast' && isSome(e.value)));
+  const sitesPresent = (component: number, prop: string): boolean => {
+    if (
+      component === ir.root ||
+      components.some(c => c.mounts?.some(m => m.component === component))
+    )
+      return false;
+    let ok = true;
+    const visit = (v: unknown) => {
+      if (!ok || !v || typeof v !== 'object') return;
+      const n = v as { kind?: string; component?: number; props?: { name: string; value: Expr }[] };
+      if (n.kind === 'component' && n.component === component)
+        ok = isSome(n.props?.find(p => p.name === prop)?.value);
+      for (const c of Array.isArray(v) ? v : Object.values(v)) visit(c);
+    };
+    visit(components);
+    return ok;
+  };
+  for (const w of neverAbsent) {
+    const c = components[w.component].cells[w.cell];
+    const starts = c.prop ? sitesPresent(w.component, c.prop) : isSome(c.init);
+    if (!starts || !writesPresent(w.component, w.cell, new Set()))
+      fail(
+        'E_TEMPLATE',
+        `bind:${w.name} binds ${c.name}, which may be undefined, to a prop with a default; Svelte throws if it is undefined when the component is created`,
         w.at,
       );
   }

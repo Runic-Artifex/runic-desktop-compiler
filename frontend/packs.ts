@@ -275,6 +275,25 @@ export function usePack(lower: Lowerer, pack: Pack): void {
   for (const p of pack.requires ?? []) usePack(lower, p);
 }
 
+const presentArgTests = new WeakMap<Lowerer, ((fn: number) => boolean)[]>();
+
+/**
+ * Report a test of the functions a pack calls only with present (neither
+ * null nor undefined) arguments: svelte-toolbelt's box setters written
+ * inline, where no code assigns the box a nullish value. Tests are asked
+ * once the whole program is lowered.
+ */
+export function reportPresentArgs(lower: Lowerer, test: (fn: number) => boolean): void {
+  let l = presentArgTests.get(lower);
+  if (!l) presentArgTests.set(lower, (l = []));
+  l.push(test);
+}
+
+/** Whether a pack reports that function `fn` is only called with present arguments. */
+export function presentArgs(lower: Lowerer, fn: number): boolean {
+  return (presentArgTests.get(lower) ?? []).some(t => t(fn));
+}
+
 /** The packs a program used, for `meta.mappings` (format version 1, the pack module's hash). */
 export function packMappings(lower: Lowerer): { id: string; version: number; sha256: string }[] {
   return [...(used.get(lower) ?? new Map<string, Pack>())]
