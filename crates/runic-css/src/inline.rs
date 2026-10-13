@@ -503,6 +503,24 @@ pub fn problems(css: &str, element: Element<'_>) -> Vec<Problem> {
                 "none" | "initial" | "inherit" | "unset" | "revert" | "revert-layer"
             )
         };
+        // collect.mjs `MULTICOL`: Blitz lays out no multi-column layout.
+        if matches!(name.as_str(), "columns" | "column-count" | "column-width")
+            && !matches!(
+                lower.split_whitespace().collect::<Vec<_>>()[..],
+                ["auto"]
+                    | ["auto", "auto"]
+                    | ["initial"]
+                    | ["unset"]
+                    | ["revert"]
+                    | ["revert-layer"]
+            )
+        {
+            out.push(report(
+                &written,
+                "Blitz does not lay out multi-column layout",
+            ));
+            continue;
+        }
         if name == "text-shadow" && !none(&lower) {
             out.push(report(&written, "Blitz does not paint text shadows"));
             continue;
@@ -564,6 +582,17 @@ mod tests {
                 (Kind::Report, "width: -webkit-max-content".into()),
                 (Kind::Report, "word-break: break-word".into()),
                 (Kind::Report, "transform: translate(NaNpx)".into()),
+            ]
+        );
+        // Multi-column layout.
+        assert_eq!(
+            kinds(
+                "columns: 2; column-width: 12em; column-count: auto; columns: auto auto",
+                div
+            ),
+            [
+                (Kind::Report, "columns: 2".into()),
+                (Kind::Report, "column-width: 12em".into()),
             ]
         );
         assert_eq!(

@@ -950,6 +950,36 @@ function checkWithStylo(code, file, pending) {
       message: `${message} applies to an element matching ${d.parent.selector}`,
     });
   }
+  // Blitz lays out no multi-column layout (column boxes): `columns`,
+  // `column-count` and `column-width` other than `auto` are reported where
+  // their rule matches an element, rejected in keyframes. The other column
+  // properties take effect only in a multi-column container.
+  for (const d of decls.filter(
+    d =>
+      !invalid.has(d) &&
+      MULTICOL.test(d.prop) &&
+      !EQUIVALENT_DROPPED_RULE.test(d.parent.selector) &&
+      !NO_MULTICOL.test(d.value.trim()),
+  )) {
+    if (!styleRuleOf(d)) {
+      defer(
+        pending,
+        d,
+        new Diagnostic(
+          'E_CSS_PROPERTY',
+          `Unsupported CSS declaration ${d.prop}: ${d.value}: Blitz does not lay out multi-column layout`,
+          at(d.source.start.line, d.source.start.column),
+        ),
+      );
+      continue;
+    }
+    const unless = overriding(d);
+    guards.push({
+      selector: withoutPseudoElements(fullSelectors(d.parent)),
+      ...(unless ? { unless } : {}),
+      message: `Blitz does not lay out multi-column layout (${d.prop}: ${d.value}, ${file}, line ${d.source.start.line}) applies to an element matching ${d.parent.selector}`,
+    });
+  }
   guards.push(...preferenceGuards(css, file));
   for (const d of reported) {
     const unsupported = invalid.has(d)
@@ -1010,6 +1040,11 @@ function checkWithStylo(code, file, pending) {
   }
   return guards;
 }
+
+// Multi-column layout (runic_css::inline mirrors these): the properties
+// that make a multi-column container, and their values that do not.
+const MULTICOL = /^(columns|column-count|column-width)$/i;
+const NO_MULTICOL = /^(auto(\s+auto)?|initial|unset|revert|revert-layer)$/i;
 
 /** Selectors joined, each without its pseudo-elements (`*` for one that had only those). */
 function withoutPseudoElements(selectors) {

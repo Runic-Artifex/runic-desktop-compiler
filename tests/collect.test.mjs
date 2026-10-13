@@ -346,6 +346,19 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
     ],
   );
   await check('@keyframes k { to { text-shadow: 0 0 2px red } }', 'E_CSS_PROPERTY', 1);
+  // Blitz lays out no multi-column layout: reported where the rule applies.
+  assert.deepEqual(
+    (
+      await guards(
+        '.a { columns: 2 }\n.b { column-count: 3 }\n.c { column-width: 10em }\n.d { columns: auto; column-gap: 1rem }',
+      )
+    ).map(g => [g.selector, /^Blitz does not lay out multi-column layout/.test(g.message)]),
+    [
+      ['.a', true],
+      ['.b', true],
+      ['.c', true],
+    ],
+  );
   // `@charset "UTF-8"` changes nothing for a stylesheet read as UTF-8.
   await check('@charset "UTF-8";\np { color: red }', undefined);
   await check('@charset "iso-8859-15";\np { color: red }', 'E_CSS', 1);
