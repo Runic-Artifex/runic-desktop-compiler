@@ -36,7 +36,7 @@ Clusters (see [GAPS](../GAPS.md#clusters)): **V1** unions, **V2** untyped values
 | Converting Map, Set, functions, class instances, mixed tuples to strings; non-primitives other than Date to numbers | E_IR / E_CLASS | `toString` not dispatched | Dispatch | validate.rs:618-679 |
 | Throwing non-Error values; non-Error catch bindings | E_IR | Errors are records | A dynamic tier | validate.rs:1594-1617 |
 | `JSON.stringify` with a replacer, of Map/Set/Date/class instances; `JSON.parse` without a declared type | E_BUILTIN | Typed JSON | Replacers; dynamic parse | builtins.rs:345-362,1571-1595 |
-| `Object.keys/values` of class instances or mixed records; `structuredClone` of Dates and class instances; `Array.from` over Maps, iterables, `{length}` (the last located in the frontend, language.ts:9486); `flat(depth)`; number methods beyond toFixed/toString/toPrecision/toExponential | E_BUILTIN | Not in the catalogue | Catalogue entries with vectors | builtins.rs:367-386,1423-1468,1596-1614,1975 |
+| `Object.keys/values` of class instances or mixed records; `structuredClone` of Dates and class instances; `Array.from` over Maps, iterables, array-like objects other than `{ length: n }` with a mapping arrow; `flat(depth)`; number methods beyond toFixed/toString/toPrecision/toExponential | E_BUILTIN | Not in the catalogue | Catalogue entries with vectors | builtins.rs:367-386,1423-1468,1596-1614,1975 |
 
 ### Dynamic values (opt-in spike)
 
@@ -74,7 +74,7 @@ With `runic.json` `"dynamicValues": true` ([design](../design/M6-DYNAMIC-VALUES.
 | Function properties assigned other than right after the declaration | E_FUNCTION_PROPERTY | — | — | language.ts:3465-3518 |
 | Tagged templates, class expressions, `import()`, `import.meta` (except `glob`), `new.target`, `eval`/`new Function` (zod probes it) | E_EXPRESSION | No JS engine for `eval` | Per kind; `eval` never | language.ts:5288; research/M6-SVELTEKIT |
 | RegExp `v` flag, RegExp statics, match-array properties beyond index/input/groups, possibly-undefined captures, replacer rest/groups parameters, `matchAll` outside for-of | E_REGEXP | Verified subset | Vectors | language.ts:12921-13336; validate.rs:254-284 |
-| `setTimeout` extra arguments; spread arguments into host methods or into calls with unknown parameters | E_CALL / E_HOST | — | — | language.ts:7001,7058,10404-10420 |
+| `setTimeout` extra arguments; spread arguments into host methods or into calls with unknown parameters; `Math.min/max/hypot` spreading iterables other than arrays, arrays of objects, or arguments of another type than the spread's elements | E_CALL / E_HOST / E_EXPRESSION | Object arguments convert through `valueOf`/`toString`, with side effects | Spread over the iteration protocol; ToNumber of objects | language.ts:7001,7058,10404-10420; `mathSpread` |
 | `break`/`continue`/`return` out of `try/finally` | E_CODEGEN | Codegen | Labelled blocks | runic-codegen expr.rs:1118-1138 |
 
 ## Classes (V3)
