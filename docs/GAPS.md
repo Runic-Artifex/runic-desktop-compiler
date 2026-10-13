@@ -78,5 +78,5 @@ These are decisions, listed so that they are not mistaken for missing work. Chan
 - Exact package versions with hashes; no patched copies (`E_DEPENDENCY`, `E_PACK_VERSION`).
 - Builds never run app configs or generation steps; generation is a separate recorded command.
 - `E_REACTIVITY`/`E_READONLY` where the frameworks' update granularity would show, instead of modelling it.
-- No run-time HTML parsing; no server code at run time.
+- No run-time HTML parsing by default (an opt-in `"htmlParsing": true` capability is planned, user decision 2026-10-13, [design](design/M6-SCRIPT-DOM.md#4-html-strings)); no server code at run time.
 - Behaviour is never approximated: a model that would differ from Chromium is a rejection or a run-time report.
