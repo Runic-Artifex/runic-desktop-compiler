@@ -87,13 +87,13 @@ A cell of type `{"maybe": "element"}` can be bound to an element: `{ "kind": "el
 
 ## Svelte deep-state ownership
 
-Svelte `$state` proxies plain objects and arrays. A proxy has its own identity but wraps the raw object; properties are read from the raw object until the proxy has read them once. Native code models proxies as *wrappers* (`JsRef::proxy`): a new identity sharing the raw value's storage.
+Svelte `$state` proxies plain objects and arrays. A proxy has its own identity but wraps the raw object; properties are read from the raw object until the proxy has read them once. Native code models proxies as *overlays* (`JsRef::proxy`, since 2026-10-13: [REACTIVITY-ALIASING](REACTIVITY-ALIASING.md), R3): a new identity with its own storage, which takes each property from the raw value at its first access and never writes the raw value. (Until then proxies were wrappers sharing the raw value's storage, so writes through a proxy reached the raw object.)
 
-- Storing a raw object or array into proxied state (a `set` of a `proxied` cell, an `assign` into a proxy, or an item inserted into a proxied array) stores a proxy of it; nested plain objects and arrays are proxied in place. Values read from state are proxies already and keep their identity.
-- Consequences match Svelte: `items.push(x); items.includes(x)` is false; storing the same raw object twice gives two distinct proxies; a raw write right after storing (`items.push(x); x.name = …`) is visible, because both share storage.
+- Storing a raw object or array into proxied state (a `set` of a `proxied` cell, an `assign` into a proxy, or an item inserted into a proxied array) stores a proxy of it; a nested plain object or array is proxied when its property is first accessed through the proxy. Values read from state are proxies already and keep their identity.
+- Consequences match Svelte: `items.push(x); items.includes(x)` is false; storing the same raw object twice gives two distinct proxies; a raw write right after storing (`items.push(x); x.name = …`) is visible, because the proxy has not read the property yet; the raw object keeps its values whatever is written through the proxy (case `proxy-target`).
 - Only mutations through proxies make `proxied` cells dirty (Svelte's raw writes are not reactive).
 - `Map`, `Set` and class instances are never proxied (Svelte requires `SvelteMap`/`SvelteSet`, M6); Vue keeps `deep` tracking.
-- Not modelled: Svelte's lazy per-property snapshot. A raw write in a *later* handler stays visible natively, while Svelte hides it for properties its proxy has already read (recorded deviation).
+- Svelte's lazy per-property snapshot is modelled since R3: a raw write after the proxy read the property stays invisible (case `proxy-lazy`). An array keeps its length and elements from when it was proxied; changing it in place afterwards other than through the proxy is reported at run time.
 
 The ownership rule is the `proxied` tracking mode, which only the Svelte adapter selects.
 

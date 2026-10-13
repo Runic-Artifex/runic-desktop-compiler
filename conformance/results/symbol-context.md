@@ -33,9 +33,11 @@ itself (the carousel's `carouselState`) and read it as
 `const tone = getTone()`: Chromium updated the counts after each click, the
 native app kept showing 0. The constant is identity-tracked, so native
 templates did not re-read it when the proxy was mutated, while Svelte tracks
-reads through the proxy. The validator now rejects such constants
-(`E_REACTIVITY`, `validate.rs` `shares_mutated_proxy`; docs/gaps/FRAMEWORKS.md);
-the fixture shares getters, the toggle group's verified pattern.
+reads through the proxy. The validator then rejected such constants
+(`E_REACTIVITY`, `shares_mutated_proxy`); the fixture shares getters, the
+toggle group's verified pattern. Since the reactivity workstream's first
+step, reads through a proxy are dependencies wherever it is held and the
+guard is gone (case `alias-reads`, [results](reactivity.md)).
 
 ## Census
 

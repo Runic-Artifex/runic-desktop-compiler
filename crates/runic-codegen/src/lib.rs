@@ -125,41 +125,101 @@ fn derived_reads(
     }
 }
 
-/// Whether `e` (typed in `component` with `locals`) reads a reactive class
-/// field itself; the functions it calls are added to `calls`.
+/// Whether `e` (typed in `component` with `locals`) reads a signal of the
+/// heap itself: a reactive class field, or a slot of a value that may be a
+/// proxy of deep state or a reactive object, however the value was reached
+/// (docs/design/REACTIVITY-ALIASING.md, R2). The functions it calls or makes
+/// closures of (built-ins call them) are added to `calls`.
 fn reactive_refs(
     p: &Program,
+    heap: &runic_ir::reactive::ReactiveHeap,
     component: Option<usize>,
     locals: &[Local],
     e: &Expr,
     calls: &mut BTreeSet<usize>,
 ) -> bool {
+    let ty = |x: &Expr| runic_ir::validate::infer_in(p, component, locals, None, x);
     let mut found = false;
     match e {
         Expr::Get { object, field } => {
-            if let Some(r) = p.field_record(&runic_ir::validate::infer_in(
-                p, component, locals, None, object,
-            )) {
+            let t = ty(object);
+            if let Some(r) = p.field_record(&t) {
                 found = p.records[r].fields[*field].reactive.is_some();
             }
+            found |= heap.is(p, &t);
         }
-        Expr::Call { function, .. } => {
+        Expr::Index { array, .. } if !heap.is_empty() => found = heap.is(p, &ty(array)),
+        Expr::ToString { arg } if !heap.is_empty() => found = heap.reachable(p, &ty(arg)),
+        Expr::Builtin { args, .. } if !heap.is_empty() => {
+            found = args.iter().any(|a| heap.reachable(p, &ty(a)))
+        }
+        Expr::Array { items, .. } if !heap.is_empty() => {
+            found = items.iter().any(|i| match i {
+                ArrayItem::Spread { spread } => heap.reachable(p, &ty(spread)),
+                ArrayItem::Item(_) => false,
+            })
+        }
+        Expr::Call { function, .. } | Expr::Closure { function, .. } => {
             calls.insert(*function);
         }
         _ => {}
     }
     for c in e.children() {
-        found |= reactive_refs(p, component, locals, c, calls);
+        found |= reactive_refs(p, heap, component, locals, c, calls);
     }
     found
 }
 
-/// Whether each function may read a reactive class field, directly or
-/// through the functions it calls (calls through function values make a
-/// binding's dependencies unknown anyway).
-fn function_reactive_reads(p: &Program) -> Vec<bool> {
+/// Whether a statement of `body` iterates (`for-of`) over a value that may
+/// hold a reactive heap object.
+fn reactive_iteration(
+    p: &Program,
+    heap: &runic_ir::reactive::ReactiveHeap,
+    component: Option<usize>,
+    locals: &[Local],
+    body: &[Stmt],
+) -> bool {
+    body.iter().any(|s| match s {
+        Stmt::ForOf { iterable, body, .. } => {
+            heap.reachable(
+                p,
+                &runic_ir::validate::infer_in(p, component, locals, None, iterable),
+            ) || reactive_iteration(p, heap, component, locals, body)
+        }
+        Stmt::If {
+            then, otherwise, ..
+        } => {
+            reactive_iteration(p, heap, component, locals, then)
+                || reactive_iteration(p, heap, component, locals, otherwise)
+        }
+        Stmt::While { body, update, .. } => {
+            reactive_iteration(p, heap, component, locals, body)
+                || reactive_iteration(p, heap, component, locals, update)
+        }
+        Stmt::Try {
+            body,
+            catch,
+            finally,
+        } => {
+            reactive_iteration(p, heap, component, locals, body)
+                || catch
+                    .as_ref()
+                    .is_some_and(|c| reactive_iteration(p, heap, component, locals, &c.body))
+                || finally
+                    .as_ref()
+                    .is_some_and(|f| reactive_iteration(p, heap, component, locals, f))
+        }
+        _ => false,
+    })
+}
+
+/// Whether each function may read a signal of the heap (a reactive class
+/// field, a slot of a proxy or reactive object), directly or through the
+/// functions it calls (calls through function values make a binding's
+/// dependencies unknown anyway).
+fn function_reactive_reads(p: &Program, heap: &runic_ir::reactive::ReactiveHeap) -> Vec<bool> {
     let n = p.functions.len();
-    if !p.has_reactive_fields() {
+    if !p.has_reactive_fields() && heap.is_empty() {
         return vec![false; n];
     }
     let mut direct = vec![];
@@ -176,9 +236,10 @@ fn function_reactive_reads(p: &Program) -> Vec<bool> {
             stmt_exprs(s, &mut exprs);
         }
         let mut calls = BTreeSet::new();
-        let mut found = false;
+        let mut found =
+            !heap.is_empty() && reactive_iteration(p, heap, f.component, &locals, &f.body);
         for e in exprs {
-            found |= reactive_refs(p, f.component, &locals, e, &mut calls);
+            found |= reactive_refs(p, heap, f.component, &locals, e, &mut calls);
         }
         direct.push((found, calls));
     }
@@ -623,8 +684,11 @@ struct Gen<'a> {
     p: &'a Program,
     optimize: bool,
     reads: Vec<Option<BTreeSet<usize>>>,
-    /// Per function: whether it may read a reactive class field.
+    /// Per function: whether it may read a signal of the heap (a reactive
+    /// class field, a slot of a proxy or reactive object).
     reactive: Vec<bool>,
+    /// The types whose values may be proxies or reactive objects.
+    heap: runic_ir::reactive::ReactiveHeap,
     /// Whether instances may create effects at run time (`effect.pre`, `effect.post`).
     dynamic_fx: bool,
 }
@@ -681,16 +745,18 @@ impl Gen<'_> {
         Some(cells)
     }
 
-    /// Whether template expressions of component `k` may read a reactive
-    /// class field, directly or through the functions they call.
+    /// Whether template expressions of component `k` may read a signal of
+    /// the heap (a reactive class field, a slot of a proxy or reactive
+    /// object, wherever they reached it), directly or through the functions
+    /// they call.
     fn reads_reactive(&self, k: usize, exprs: &[&Expr]) -> bool {
-        if !self.p.has_reactive_fields() {
+        if !self.p.has_reactive_fields() && self.heap.is_empty() {
             return false;
         }
         let locals = &self.p.components[k].template_locals;
         exprs.iter().any(|e| {
             let mut calls = BTreeSet::new();
-            reactive_refs(self.p, Some(k), locals, e, &mut calls)
+            reactive_refs(self.p, &self.heap, Some(k), locals, e, &mut calls)
                 || calls.iter().any(|&f| self.reactive[f])
         })
     }
@@ -1721,9 +1787,14 @@ fn records(p: &Program) -> String {
                 .enumerate()
                 .filter(|(_, f)| !f.is_derived())
         };
-        let owns: String = values()
-            .map(|(i, _)| format!("self.f{i} = js::Own::own(self.f{i}.clone()); "))
+        // A proxy takes a field from its target at its first access (R3).
+        let takes: String = values()
+            .map(|(i, _)| format!("{i} => self.f{i} = js::Own::own(target.f{i}.clone()), "))
             .collect();
+        let looks: String = values()
+            .map(|(i, _)| format!("{i} => self.f{i} = target.f{i}.clone(), "))
+            .collect();
+        let slots = rec.fields.len();
         let marks: String = values()
             .map(|(i, _)| format!("js::Own::mark(&self.f{i}); "))
             .collect();
@@ -1735,7 +1806,7 @@ fn records(p: &Program) -> String {
             "/// {}\n#[derive(Clone)]\npub struct R{r} {{ {fields}}}\n\
              impl Default for R{r} {{ fn default() -> Self {{ R{r} {{ {defaults}}} }} }}\n\
              impl js::HeapToString for R{r} {{ fn heap_to_string(&self) -> JsString {{ JsString::from(\"[object Object]\") }} }}\n\
-             impl js::OwnFields for R{r} {{ const PROXIED: bool = {proxied}; fn own_fields(&mut self) {{ {owns}}} fn mark_fields(&self) {{ {marks}}} }}\n\
+             impl js::OwnFields for R{r} {{ const PROXIED: bool = {proxied}; fn overlay(&self) -> js::Overlay {{ js::Overlay::Fields({slots}) }} fn take_slot(&mut self, target: &Self, slot: u32) {{ match slot {{ {takes}_ => {{}} }} }} fn look_slot(&mut self, target: &Self, slot: u32) {{ match slot {{ {looks}_ => {{}} }} }} fn mark_fields(&self) {{ {marks}}} }}\n\
              impl std::fmt::Debug for R{r} {{ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{ f.write_str({}) }} }}",
             rec.name.replace('\n', " "),
             rust_str(&rec.name)
@@ -1801,7 +1872,7 @@ fn records(p: &Program) -> String {
             .collect();
         let _ = writeln!(
             out,
-            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let Some(_v) = v.visit() else {{ return runic_runtime::Json::String(\"[Circular]\".into()); }}; let b = v.borrow(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
+            "#[allow(dead_code, unused_parens)]\nfn probe_r{r}(v: &JsRef<R{r}>) -> runic_runtime::Json {{ let Some(_v) = v.visit() else {{ return runic_runtime::Json::String(\"[Circular]\".into()); }}; let b = v.probe(); runic_runtime::Json::Array(vec![{probes}]) }}\n\
              #[allow(dead_code, unused_parens)]\nfn clone_r{r}(v: &JsRef<R{r}>) -> JsRef<R{r}> {{ let b = v.borrow(); JsRef::new(R{r} {{ {clones}}}) }}\n"
         );
     }
@@ -1857,7 +1928,7 @@ fn probe_json(t: &Type, v: &str) -> String {
             probe_json(i, "(*x)")
         ),
         Type::Array(i) => format!(
-            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().iter().map(|x| {}).collect()) }})",
+            "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.probe().iter().map(|x| {}).collect()) }})",
             probe_json(i, "(*x)")
         ),
         Type::Record(r) => format!("probe_r{r}(&{v})"),
@@ -2196,6 +2267,7 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
     /// Run effect `e` of root `r`, tracking what it reads (its cleanup already ran).
     fn run_root_effect(&mut self, r: usize, e: usize) {
         let f = Rc::clone(&self.roots[r].dfx[e].1);
+        let start = self.jobs.run_start();
         let outer = std::mem::replace(&mut self.tracking, Some(Vec::new()));
         let heap_outer = js::begin_heap_reads(Some(OWNED_ONLY));
         let effect_outer = std::mem::replace(&mut self.in_effect, true);
@@ -2205,6 +2277,8 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
         let mut deps = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
         deps.extend(runic_runtime::Dep::heap(heap));
         let st = &mut self.roots[r].fx[e];
+        // (An effect writing what it read is due again: R4.)
+        st.rerun = runic_runtime::self_invalidated(start, &st.deps, &deps);
         st.deps = deps;
         st.started = true;
         match res {
@@ -2217,8 +2291,10 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
         if let Some(c) = self.roots[r].fx[e].cleanup.take() {
             // (Reading the values before the writes that re-run it, as an instance's.)
             self.reading_previous = CLEANUP_READS_PREVIOUS;
+            js::set_reading_previous(CLEANUP_READS_PREVIOUS);
             let result = c(self);
             self.reading_previous = false;
+            js::set_reading_previous(false);
             if let Err(err) = result {
                 eprintln!("runic: uncaught exception in a cleanup: {err}");
             }
@@ -2232,7 +2308,7 @@ const INSTANCE_SERVICES: &str = r#"impl Cx {
                     if !self.roots[r].alive || self.roots[r].dfx[e].0 != pre {
                         continue;
                     }
-                    let due = !self.roots[r].fx[e].started || {
+                    let due = !self.roots[r].fx[e].started || self.roots[r].fx[e].rerun || {
                         let deps = self.roots[r].fx[e].deps.clone();
                         deps.iter().any(|d| d.changed(self))
                     };
@@ -2531,6 +2607,8 @@ fn component_derived(p: &Program, k: usize, out: &mut String) {
              else {{ let version = cx.jobs.version(); inst.borrow_mut().dv{f} = Some(runic_runtime::Derived {{ cached: v, deps, version }}); }}\n\
              Ok(())\n}}\n\
              #[allow(unused_variables)]\nfn dget_{f}(cx: &mut Cx, inst: &I{k}) -> JsResult<{t}> {{\n\
+             // A teardown computes it afresh from the values before the flush (not cached).\n\
+             if cx.reading_previous {{ let outer = cx.tracking.take(); let heap_outer = js::begin_heap_reads(None); let snap = {{ let s = Rc::clone(&inst.borrow().snap); s }}; let r = f{f}(cx, inst, &snap); js::end_heap_reads(heap_outer); cx.tracking = outer; return r; }}\n\
              dref_{f}(cx, inst)?;\n\
              let (v, version) = {{ let st = inst.borrow(); let d = st.dv{f}.as_ref().expect(\"derived value\"); (d.cached.clone(), d.version) }};\n\
              if let Some(t) = cx.tracking.as_mut() {{ let i2 = Rc::clone(inst); t.push(runic_runtime::Dep {{ cells: None, cell: 0, refresh: Some(Rc::new(move |cx: &mut Cx| {{ let _ = dref_{f}(cx, &i2); i2.borrow().dv{f}.as_ref().map_or(u64::MAX, |d| d.version) }})), version, heap: None }}); }}\n\
@@ -2597,7 +2675,7 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
             EffectDeps::Once => "!started".to_string(),
             EffectDeps::Always => "!started || updated".to_string(),
             EffectDeps::Tracked => {
-                "!started || { let deps = inst.borrow().fx[e].deps.clone(); deps.iter().any(|d| d.changed(cx)) }".to_string()
+                "!started || inst.borrow().fx[e].rerun || { let deps = inst.borrow().fx[e].deps.clone(); deps.iter().any(|d| d.changed(cx)) }".to_string()
             }
             EffectDeps::Values { initial, .. } => format!(
                 "{{ let new = {tuple}; let changed = match &inst.borrow().fxv{e} {{ Some(o) => !({same}), None => true }}; if !started && !{initial} {{ let mut st = inst.borrow_mut(); st.fxv{e} = Some(new); st.fx[e].started = true; return false; }} changed }}"
@@ -2632,7 +2710,7 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
         let tracked = effect.deps == EffectDeps::Tracked;
         let begin = if tracked {
             format!(
-                "let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({})); let effect_outer = std::mem::replace(&mut cx.in_effect, true);",
+                "let start = cx.jobs.run_start(); let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({})); let effect_outer = std::mem::replace(&mut cx.in_effect, true);",
                 owned_only(p)
             )
         } else {
@@ -2640,7 +2718,7 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
                 .to_string()
         };
         let end = if tracked {
-            "cx.in_effect = effect_outer; let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); inst.borrow_mut().fx[e].deps = deps;"
+            "cx.in_effect = effect_outer; let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); let again = { let st = inst.borrow(); runic_runtime::self_invalidated(start, &st.fx[e].deps, &deps) }; { let mut st = inst.borrow_mut(); st.fx[e].deps = deps; st.fx[e].rerun = again; }"
         } else {
             "js::end_heap_reads(heap_outer); cx.tracking = outer;"
         };
@@ -2664,8 +2742,8 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
     }
     let previous = if p.schedule.cleanup_reads_previous {
         (
-            "cx.reading_previous = true; ",
-            "cx.reading_previous = false; ",
+            "cx.reading_previous = true; js::set_reading_previous(true); ",
+            "cx.reading_previous = false; js::set_reading_previous(false); ",
         )
     } else {
         ("", "")
@@ -2679,9 +2757,9 @@ fn component_effects(p: &Program, k: usize, dynamic_fx: bool, out: &mut String) 
             format!(
                 "std::borrow::Cow::Owned(FX{k}.iter().copied().chain(self.0.borrow().dfx.iter().map(|(pre, _)| if *pre {{ (0u8, true, false) }} else {{ (2u8, true, true) }})).collect())"
             ),
-            "_ if e >= S => { !started || { let deps = inst.borrow().fx[e].deps.clone(); deps.iter().any(|d| d.changed(cx)) } }\n".to_string(),
+            "_ if e >= S => { !started || inst.borrow().fx[e].rerun || { let deps = inst.borrow().fx[e].deps.clone(); deps.iter().any(|d| d.changed(cx)) } }\n".to_string(),
             format!(
-                "_ if e >= S => {{ let f = Rc::clone(&inst.borrow().dfx[e - S].1); let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({})); let effect_outer = std::mem::replace(&mut cx.in_effect, true); let r = f(cx); cx.in_effect = effect_outer; let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); {{ let mut st = inst.borrow_mut(); st.fx[e].deps = deps; st.fx[e].started = true; }} match r {{ Ok(Some(c)) => inst.borrow_mut().fx[e].cleanup = Some(c), Ok(None) => {{}} Err(err) => eprintln!(\"runic: uncaught exception in an effect: {{err}}\"), }} }}\n",
+                "_ if e >= S => {{ let f = Rc::clone(&inst.borrow().dfx[e - S].1); let start = cx.jobs.run_start(); let outer = std::mem::replace(&mut cx.tracking, Some(Vec::new())); let heap_outer = js::begin_heap_reads(Some({})); let effect_outer = std::mem::replace(&mut cx.in_effect, true); let r = f(cx); cx.in_effect = effect_outer; let heap = js::end_heap_reads(heap_outer); let mut deps = std::mem::replace(&mut cx.tracking, outer).unwrap_or_default(); deps.extend(runic_runtime::Dep::heap(heap)); {{ let again = {{ let st = inst.borrow(); runic_runtime::self_invalidated(start, &st.fx[e].deps, &deps) }}; let mut st = inst.borrow_mut(); st.fx[e].deps = deps; st.fx[e].rerun = again; st.fx[e].started = true; }} match r {{ Ok(Some(c)) => inst.borrow_mut().fx[e].cleanup = Some(c), Ok(None) => {{}} Err(err) => eprintln!(\"runic: uncaught exception in an effect: {{err}}\"), }} }}\n",
                 owned_only(p)
             ),
         )
@@ -2737,11 +2815,13 @@ pub fn generate(
     // Animation objects (M6): the runtime tracks the document's animations.
     let tracks_animations = uses_builtin(p, &["element.getAnimations"]);
     crate::builtins::TRACKS_ANIMATIONS.set(tracks_animations);
+    let heap = runic_ir::reactive::ReactiveHeap::of(p);
     let g = Gen {
         p,
         optimize: options.optimize,
         reads,
-        reactive: function_reactive_reads(p),
+        reactive: function_reactive_reads(p, &heap),
+        heap,
         dynamic_fx,
     };
     let mut planner = Planner::new(p);
@@ -3153,6 +3233,8 @@ pub fn generate(
     };
     let owned_only_v = owned_only(p);
     let cleanup_previous_v = p.schedule.cleanup_reads_previous;
+    // Teardowns read deep state as before the flush too (R5).
+    let before_images = cleanup_previous_v && owned_only(p);
     let _ = writeln!(
         out,
         "pub type Lst = Rc<dyn Fn(&mut Cx) -> JsResult<()>>;\n\
@@ -3223,6 +3305,7 @@ pub fn generate(
          impl runic_runtime::Microtasks for Cx {{ fn queue_microtask(&mut self, job: Lst) {{ self.jobs.queue(job); }} }}\n\
          /// Effects track the heap objects they read only where references are owned (proxied state, signal fields).\nconst OWNED_ONLY: bool = {owned_only_v};\n\
          /// Cleanups read the values before the writes that re-run their effects (`schedule.cleanupReadsPrevious`).\nconst CLEANUP_READS_PREVIOUS: bool = {cleanup_previous_v};\n\
+         /// Proxies keep their values before the flush for teardowns (R5).\nconst KEEP_BEFORE_IMAGES: bool = {before_images};\n\
          impl Cx {{\n\
          fn new() -> Self {{ Cx {{ force_sync: false, payload: None, event: None, root: runic_runtime::css::Root::with_attrs([{document_attrs}]), body: runic_runtime::css::Root::with_attrs([{body_attrs}]), media: runic_runtime::media_env(), host: Vec::new(), element_host: Vec::new(), custom_host: Vec::new(), viewport_host: Vec::new(), capture_host: Vec::new(), media_host: Vec::new(), listeners: Vec::new(), listener_generations: Vec::new(), free: Vec::new(), dom: Default::default(), timers: runic_runtime::Timers::new(runic_runtime::clock_origin()), jobs: runic_runtime::Jobs::new({event_microtask}, {tracks_deep}, {tracks_owned}, {post_deferred}), stable: std::collections::HashMap::new(), tracking: None, flush_promise: None, storage: runic_runtime::Storage::open(<App as runic_runtime::App>::TITLE), random: runic_runtime::Random::new(), host_tasks: Default::default(), reading_previous: false, rh: false, defer: false, updated: std::collections::HashMap::new(), destroyed: Vec::new(), uids: 0, creating: Vec::new(), via: Vec::new(), attach_queue: Vec::new(), detached: Vec::new(), mounted: Vec::new(), roots: Vec::new(), root_stack: Vec::new(), in_effect: false, running_fx: Vec::new(), {resize_init}{io_init}{mo_init}{anim_init}{img_init}{live_init}{globals_init}}} }}\n\
          fn listen(&mut self, f: Lst) -> u32 {{ match self.free.pop() {{ Some(k) => {{ self.listeners[k as usize] = Some(f); self.listener_generations[k as usize] += 1; k }} None => {{ self.listeners.push(Some(f)); self.listener_generations.push(0); (self.listeners.len() - 1) as u32 }} }} }}\n\
@@ -3379,7 +3462,7 @@ pub fn generate(
          if !self.cx.defer {{ while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }} }}\n\
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          self.cx.dom = Default::default();\n\
-         runic_runtime::late_rejection_handlers();\n\
+         runic_runtime::late_rejection_handlers(); runic_runtime::heap_reports();\n\
          result\n}}\n\
          fn checkpoint(&mut self, dom: &mut Dom) {{ while let Some(job) = self.cx.jobs.next_microtask() {{ self.run_job(dom, job); }} if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }} dom.settle_selects(); self.cx.jobs.queue_rejections(); }}\n\
          fn run_job(&mut self, dom: &mut Dom, job: runic_runtime::Job<Lst>) {{\n\
@@ -3402,15 +3485,15 @@ pub fn generate(
          self.cx.jobs.note_mutations();\n\
          if !self.cx.jobs.again {{ break; }}\n\
          }}\n\
-         self.cx.jobs.flush_ended();\n\
+         self.cx.jobs.flush_ended(); js::flush_ended();\n\
          if let Some(p) = self.cx.flush_promise.take() {{ runic_runtime::promises::settle(&mut self.cx, &p, Ok(())); }}\n\
          }}\n\
          /// One pass: commit the state, update the DOM (pre effects run as each instance updates), tear down destroyed instances, then layout and post effects children first.\n\
          fn flush_pass(&mut self, dom: &mut Dom) {{\n\
          self.cx.jobs.phase = Some(runic_runtime::Phase::Pre);\n\
          let (deep, owned) = self.cx.jobs.take_mutated();\n\
-         // Signal fields of class instances (or deep state through proxies) written since the last pass: bindings that may read them re-evaluate.\n\
-         self.cx.rh = js::take_signal_writes();\n\
+         // Signal fields of class instances, deep state through proxies or (deep cells) the heap written since the last pass: bindings that may read them, however they reached them, re-evaluate.\n\
+         self.cx.rh = js::take_signal_writes() || ({tracks_deep} && deep);\n\
          {end}\
          {begin}\
          let tree = self.walk();\n\
@@ -3457,18 +3540,18 @@ pub fn generate(
          const IR_HASH: &'static str = {hash};\n\
          {template_attrs}\
          const CHANGE_WITH_CLICK: bool = {change_with_click};\n\
-         fn new() -> Self {{\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx, None);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
+         fn new() -> Self {{\njs::keep_before_images(KEEP_BEFORE_IMAGES);\nlet mut cx = Cx::new();\n(|| -> JsResult<()> {{ let cx = &mut cx; {init_globals}Ok(()) }})().expect(\"module constants\");\nlet inst = new_i{ri}(&mut cx, None);\ninit_i{ri}(&mut cx, &inst).expect(\"initial state\");\n{root_pre}App {{ cx, inst, t: Rc::new(RefCell::new(T{ri}::default())), root: None }}\n}}\n\
          fn mount(&mut self, dom: &mut Dom, parent: NodeId) {{\n\
          self.cx.dom = runic_runtime::Host::attach(dom);\n\
          {container}match mount_s{root}(&mut self.cx, dom, &self.inst, &self.t, parent, None) {{\n\
          Ok(s) => self.root = Some((parent, s)),\n\
          Err(e) => runic_runtime::render_error(&e),\n}}\n\
          self.free(dom);\n\
-         self.cx.jobs.flush_ended();\n\
+         self.cx.jobs.flush_ended(); js::flush_ended();\n\
          {mount_timing}\n\
          self.checkpoint(dom);\n\
          while let Some(job) = self.cx.jobs.next_default() {{ self.run_job(dom, job); self.checkpoint(dom); }}\n\
-         runic_runtime::late_rejection_handlers();\n}}\n\
+         runic_runtime::late_rejection_handlers(); runic_runtime::heap_reports();\n}}\n\
          fn dispatch(&mut self, dom: &mut Dom, deliveries: &[runic_runtime::Delivery]) -> Result<(), String> {{\n\
          // Listeners are resolved before any runs (a flush may free and reuse their slots).\n\
          let resolved: Vec<(Lst, js::Event, u64)> = deliveries.iter().filter_map(|d| self.cx.listeners.get(d.listener as usize).cloned().flatten().map(|f| (f, d.event.clone(), d.current))).collect();\n\
@@ -3571,7 +3654,7 @@ pub fn generate(
          if self.cx.root.take_dirty() {{ dom.apply_root(&self.cx.root); }} if self.cx.body.take_dirty() {{ dom.apply_body(&self.cx.body); }}\n\
          self.free(dom);\n\
          self.cx.dom = Default::default();\n\
-         runic_runtime::late_rejection_handlers();\n}}\n\
+         runic_runtime::late_rejection_handlers(); runic_runtime::heap_reports();\n}}\n\
          fn next_timer(&self) -> Option<f64> {{ self.cx.timers.next_due() }}\n\
          fn now(&self) -> f64 {{ self.cx.timers.now }}\n\
          fn cells_json(&self) -> runic_runtime::Json {{ cells_json_i{ri}(&self.inst) }}\n\
@@ -3605,4 +3688,66 @@ pub fn generate(
     // Views of the static values boxed into dynamic ones (M6 spike).
     out.push_str(&crate::dynamic::views(p));
     Ok(out)
+}
+
+#[cfg(test)]
+mod reactive_guard_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// One component: `state` (cell 0, `state_tracking`) holding a plain
+    /// record that a click handler mutates in place, and `alias` (cell 1,
+    /// identity, initialised with `state`), whose field the template shows.
+    fn program(state_tracking: &str) -> Program {
+        let state = json!({"op": "cell", "cell": 0, "read": "current"});
+        serde_json::from_value(json!({
+            "schema": SCHEMA,
+            "meta": {"title": "aliases", "sourceHash": "0".repeat(64), "frontend": {}},
+            "capabilities": ["dom", "click"],
+            "styles": {"css": ""},
+            "records": [{"name": "Tone", "fields": [{"name": "count", "type": "number"}]}],
+            "components": [{
+                "name": "App",
+                "cells": [
+                    {"name": "state", "type": {"record": 0}, "tracking": state_tracking,
+                     "init": {"op": "record", "record": 0, "fields": [{"op": "lit", "value": 0}]}},
+                    {"name": "alias", "type": {"record": 0}, "tracking": "identity", "init": state}
+                ],
+                "handlers": [{"event": "click", "body": [{"op": "assign",
+                    "target": {"place": "field", "object": state, "field": 0},
+                    "value": {"op": "add", "left": {"op": "get", "object": state, "field": 0},
+                              "right": {"op": "lit", "value": 1}}}]}],
+                "template": [{"kind": "element", "tag": "button",
+                    "listeners": [{"event": "click", "handler": 0}],
+                    "children": [{"kind": "text", "parts": [{"op": "to-string", "arg": {"op": "get",
+                        "object": {"op": "cell", "cell": 1, "read": "current"}, "field": 0}}]}]}]
+            }],
+            "root": 0
+        }))
+        .unwrap()
+    }
+
+    /// The update guard of the template's text binding.
+    fn text_guard(p: &Program) -> String {
+        let code = generate(p, "0", "", &[], &Options { optimize: true }).unwrap();
+        let line = code
+            .lines()
+            .find(|l| l.starts_with("if ") && l.contains("dom.set_text"))
+            .expect("a text binding update");
+        line["if ".len()..line.find(" {").unwrap()].to_string()
+    }
+
+    #[test]
+    fn reads_through_deep_state_held_elsewhere_follow_its_writes() {
+        // `const alias = state` of a $state object (R1/R2): the binding reads
+        // the identity cell `alias` and, through it, a proxy's field.
+        let guard = text_guard(&program("proxied"));
+        assert!(guard.contains("d[1]") && guard.contains("cx.rh"), "{guard}");
+        // A Vue deep ref's contents read through a constant.
+        let guard = text_guard(&program("deep"));
+        assert!(guard.contains("cx.rh"), "{guard}");
+        // Without deep state the record is plain data: the cell suffices.
+        let guard = text_guard(&program("identity"));
+        assert_eq!(guard, "d[1]");
+    }
 }

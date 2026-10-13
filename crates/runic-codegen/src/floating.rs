@@ -83,7 +83,7 @@ pub fn glue(p: &Program, s: &FloatingShape) -> String {
             let fields: String = (0..custom_count)
                 .map(|i| {
                     format!(
-                        "f{i}: match new.map(|n| n.peek().f{i}.clone()) {{ Some(Maybe::Some(v)) => Maybe::Some(v), _ => old.map_or(Maybe::Undefined, |o| o.peek().f{i}.clone()) }}, "
+                        "f{i}: match new.map(|n| n.peek_settled().f{i}.clone()) {{ Some(Maybe::Some(v)) => Maybe::Some(v), _ => old.map_or(Maybe::Undefined, |o| o.peek_settled().f{i}.clone()) }}, "
                     )
                 })
                 .collect();
@@ -112,7 +112,7 @@ fn placement(s: &str) -> fl::Placement {{
 fn padding(o: &R{o}) -> fl::Padding {{
     match &o.f9 {{
         Maybe::Some(sides) => {{
-            let s = sides.peek();
+            let s = sides.peek_settled();
             fl::Padding::Sides {{ top: opt(&s.f0), right: opt(&s.f1), bottom: opt(&s.f2), left: opt(&s.f3) }}
         }}
         _ => fl::Padding::All(opt(&o.f8).unwrap_or(0.0)),
@@ -121,7 +121,7 @@ fn padding(o: &R{o}) -> fl::Padding {{
 fn overflow(o: &R{o}) -> fl::DetectOverflowOptions<u64> {{
     fl::DetectOverflowOptions {{
         boundary: match &o.f10 {{
-            Maybe::Some(list) => fl::Boundary::Elements(list.peek().iter().map(|e| e.0).collect()),
+            Maybe::Some(list) => fl::Boundary::Elements(list.peek_settled().iter().map(|e| e.0).collect()),
             _ => fl::Boundary::ClippingAncestors,
         }},
         root_boundary: if opt_s(&o.f11).as_deref() == Some("document") {{ fl::RootBoundary::Document }} else {{ fl::RootBoundary::Viewport }},
@@ -143,9 +143,9 @@ fn limiter(l: &R{l}) -> fl::LimitShiftOptions {{
 }}
 fn middleware(list: &JsArray<JsRef<R{m}>>, customs: &mut Vec<CustomFn>, applies: &mut Vec<ApplyFn>) -> Vec<fl::Middleware<u64>> {{
     let mut out = Vec::new();
-    for item in list.peek().iter() {{
-        let mw = item.peek();
-        let o = mw.f2.peek();
+    for item in list.peek_settled().iter() {{
+        let mw = item.peek_settled();
+        let o = mw.f2.peek_settled();
         out.push(match mw.f1 as u8 {{
             {OFFSET} => match opt(&o.f0) {{
                 Some(v) => fl::Middleware::Offset(fl::OffsetOptions::Value(v)),
@@ -154,13 +154,13 @@ fn middleware(list: &JsArray<JsRef<R{m}>>, customs: &mut Vec<CustomFn>, applies:
             {SHIFT} => fl::Middleware::Shift(fl::ShiftOptions {{
                 main_axis: opt_b(&o.f4).unwrap_or(true),
                 cross_axis: opt_b(&o.f5).unwrap_or(false),
-                limiter: match &o.f7 {{ Maybe::Some(l) => Some(limiter(&l.peek())), _ => None }},
+                limiter: match &o.f7 {{ Maybe::Some(l) => Some(limiter(&l.peek_settled())), _ => None }},
                 overflow: overflow(&o),
             }}),
             {FLIP} => fl::Middleware::Flip(fl::FlipOptions {{
                 main_axis: opt_b(&o.f4).unwrap_or(true),
                 cross_axis: if opt_b(&o.f6) == Some(true) {{ fl::FlipCrossAxis::Alignment }} else if opt_b(&o.f5).unwrap_or(true) {{ fl::FlipCrossAxis::True }} else {{ fl::FlipCrossAxis::False }},
-                fallback_placements: match &o.f14 {{ Maybe::Some(list) => Some(list.peek().iter().map(|s| placement(&s.to_rust())).collect()), _ => None }},
+                fallback_placements: match &o.f14 {{ Maybe::Some(list) => Some(list.peek_settled().iter().map(|s| placement(&s.to_rust())).collect()), _ => None }},
                 fallback_strategy: if opt_s(&o.f15).as_deref() == Some("initialPlacement") {{ fl::FallbackStrategy::InitialPlacement }} else {{ fl::FallbackStrategy::BestFit }},
                 fallback_axis_side_direction: match opt_s(&o.f16).as_deref() {{ Some("start") => fl::FallbackAxisSideDirection::Start, Some("end") => fl::FallbackAxisSideDirection::End, _ => fl::FallbackAxisSideDirection::None }},
                 flip_alignment: opt_b(&o.f17).unwrap_or(true),
@@ -228,7 +228,7 @@ impl fl::Platform<u64, FlD> for Host<'_> {{
     fn call_custom(&mut self, id: usize, s: &fl::MiddlewareState<u64, FlD>) -> JsResult<fl::MiddlewareReturn<FlD>> {{
         let f = Rc::clone(&self.customs[id]);
         let r = f(self.cx, JsRef::new(state(s)))?;
-        let r = r.peek();
+        let r = r.peek_settled();
         Ok(fl::MiddlewareReturn {{ x: opt(&r.f0), y: opt(&r.f1), data: match &r.f2 {{ Maybe::Some(v) => Some(v.clone()), _ => None }}, reset: None }})
     }}
     fn apply_size(&mut self, id: usize, s: &fl::MiddlewareState<u64, FlD>, w: f64, h: f64) -> JsResult<()> {{

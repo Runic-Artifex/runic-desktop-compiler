@@ -1,0 +1,65 @@
+{
+  "description": "Svelte deep state mutated through aliases (docs/design/REACTIVITY-ALIASING.md, R8): a context's $state object (set through a module function's parameter, read through another's result) written through a constant and a constant of it updates its owner and every reader. Before R8 the writes were rejected as mutations of a constant (E_REACTIVITY).",
+  "fixtures": [
+    "alias-writes-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "bump"
+    },
+    {
+      "kind": "click",
+      "id": "add"
+    },
+    {
+      "kind": "click",
+      "id": "bump"
+    },
+    {
+      "kind": "click",
+      "id": "add"
+    },
+    {
+      "kind": "click",
+      "id": "clear"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 1,
+      "id": "owner",
+      "text": "1 "
+    },
+    {
+      "step": 1,
+      "id": "seen",
+      "text": "1 0"
+    },
+    {
+      "step": 2,
+      "id": "owner",
+      "text": "1 1"
+    },
+    {
+      "step": 4,
+      "id": "owner",
+      "text": "2 1,2"
+    },
+    {
+      "step": 4,
+      "id": "seen",
+      "text": "2 2"
+    },
+    {
+      "step": 5,
+      "id": "owner",
+      "text": "2 "
+    },
+    {
+      "step": 5,
+      "id": "seen",
+      "text": "2 0"
+    }
+  ]
+}

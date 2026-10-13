@@ -1,0 +1,12 @@
+{
+  "description": "A Svelte effect pushing to a $state array: push reads the length, so the effect runs again",
+  "fixtures": [
+    "push-effect-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "bump"
+    }
+  ]
+}

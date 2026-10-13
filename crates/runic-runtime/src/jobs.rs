@@ -221,6 +221,12 @@ impl<C> Jobs<C> {
         self.clock
     }
 
+    /// The point an effect run starts at: the last cell version and heap
+    /// write stamp (see [`self_invalidated`]).
+    pub fn run_start(&self) -> (u64, u64) {
+        (self.clock, runic_js::heap_stamp())
+    }
+
     /// Drop queued jobs (a task whose writes were rolled back).
     pub fn clear(&mut self) {
         self.microtasks.clear();
@@ -281,6 +287,20 @@ impl<X> Dep<X> {
         })
     }
 
+    /// Whether the cell or heap slot read was changed after `start` (see
+    /// [`Jobs::run_start`]). Derived values are not written.
+    pub fn written_since(&self, start: (u64, u64)) -> bool {
+        if self.refresh.is_some() {
+            return false;
+        }
+        if let Some(h) = &self.heap {
+            return h.written_since(start.1);
+        }
+        self.cells
+            .as_ref()
+            .is_some_and(|c| c.version(self.cell) > start.0)
+    }
+
     /// Whether the cell was written (or, for deep state, the heap mutated)
     /// since, or the derived value changed.
     pub fn changed(&self, cx: &mut X) -> bool {
@@ -315,9 +335,19 @@ impl<T: Clone, X> Clone for Derived<T, X> {
     }
 }
 
+/// Whether a tracked effect run that started at `start` changed a cell or
+/// heap slot it read in this run or in its previous one (`previous`): it is
+/// due again, as an effect writing what it reads is in Svelte
+/// (docs/design/REACTIVITY-ALIASING.md, R4).
+pub fn self_invalidated<X>(start: (u64, u64), previous: &[Dep<X>], now: &[Dep<X>]) -> bool {
+    previous.iter().chain(now).any(|d| d.written_since(start))
+}
+
 /// The run state of one effect of an instance.
 pub struct Fx<C, X> {
     pub started: bool,
+    /// Its last run changed what it read (R4): due again.
+    pub rerun: bool,
     pub cleanup: Option<C>,
     pub deps: Vec<Dep<X>>,
     /// The effect whose run created this one: destroyed before that one
@@ -331,6 +361,7 @@ impl<C, X> Default for Fx<C, X> {
     fn default() -> Self {
         Fx {
             started: false,
+            rerun: false,
             cleanup: None,
             deps: Vec::new(),
             parent: None,

@@ -1,0 +1,60 @@
+{
+  "description": "Svelte proxies take a property of their target at its first access (R3): a raw write after the proxy read the property stays invisible (also after other state changes), one right after storing an object, before any read, is visible",
+  "fixtures": [
+    "proxy-lazy-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "raw-write"
+    },
+    {
+      "kind": "click",
+      "id": "touch"
+    },
+    {
+      "kind": "click",
+      "id": "push-write"
+    },
+    {
+      "kind": "click",
+      "id": "later-write"
+    },
+    {
+      "kind": "click",
+      "id": "touch"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 1,
+      "id": "held",
+      "text": "first"
+    },
+    {
+      "step": 2,
+      "id": "held",
+      "text": "first"
+    },
+    {
+      "step": 3,
+      "id": "items",
+      "text": "touch 0,renamed"
+    },
+    {
+      "step": 4,
+      "id": "items",
+      "text": "touch 0,renamed"
+    },
+    {
+      "step": 5,
+      "id": "items",
+      "text": "touch 0,renamed,touch 2"
+    },
+    {
+      "step": 5,
+      "id": "held",
+      "text": "first"
+    }
+  ]
+}

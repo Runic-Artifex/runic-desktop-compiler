@@ -354,10 +354,18 @@ impl js::OwnFields for RecordData {
     fn proxied(&self) -> bool {
         !self.class
     }
-    fn own_fields(&mut self) {
+    fn overlay(&self) -> js::Overlay {
+        js::Overlay::Fields(self.fields.len())
+    }
+    fn take_slot(&mut self, target: &Self, slot: u32) {
         use js::Own;
-        for f in self.fields.iter_mut() {
-            *f = f.clone().own();
+        if let Some(v) = target.fields.get(slot as usize) {
+            self.fields[slot as usize] = v.clone().own();
+        }
+    }
+    fn look_slot(&mut self, target: &Self, slot: u32) {
+        if let Some(v) = target.fields.get(slot as usize) {
+            self.fields[slot as usize] = v.clone();
         }
     }
     fn mark_fields(&self) {
@@ -620,6 +628,8 @@ struct RootScope {
 struct EffectState {
     /// Dependencies are recorded (the effect is mounted).
     started: bool,
+    /// Its last run changed what it read: due again (R4).
+    rerun: bool,
     /// The effect whose run created this one (M6 overlays: bits-ui's
     /// `TimeoutFn` made in a `watch` callback): destroyed before that one
     /// runs again or is destroyed.
@@ -1295,6 +1305,11 @@ impl<'p> Machine<'p> {
     pub fn with_env(program: &'p Program, env: Env) -> Result<Self> {
         // Rejections of an earlier run are not this one's.
         js::clear_rejections();
+        // Teardowns read deep state as before the flush too (R5).
+        js::keep_before_images(
+            program.schedule.cleanup_reads_previous
+                && (cells_tracked(program, Tracking::Proxied) || program.has_reactive_fields()),
+        );
         let Env {
             storage,
             clipboard,
@@ -2202,6 +2217,18 @@ impl<'p> Machine<'p> {
 
     /// The value of derived `f` of `inst` (a dependency of a running tracked effect).
     fn read_derived(&mut self, inst: usize, f: usize) -> Res<Val> {
+        // A teardown computes it afresh from the values before the flush,
+        // not cached (Svelte re-executes a derived depending on old values).
+        if self.reading_previous {
+            let outer = self.tracking.take();
+            let heap_outer = js::begin_heap_reads(None);
+            let saved = std::mem::replace(&mut self.current, inst);
+            let r = self.call(f, vec![], vec![]);
+            self.current = saved;
+            js::end_heap_reads(heap_outer);
+            self.tracking = outer;
+            return r;
+        }
         self.refresh_derived(inst, f)?;
         let d = &self.instances[inst].derived[&f];
         let (value, version) = (d.value.clone(), d.version);
@@ -2244,9 +2271,14 @@ impl<'p> Machine<'p> {
                 Val::Record(r) => {
                     let reactive = self.program.records[r.peek().record].fields[*field].reactive;
                     match reactive {
+                        // (A proxy's field already `===` the value: nothing
+                        // changes, as in Svelte's sources.)
                         Option::None => {
                             let v = js::own_into(&r, v);
-                            r.write_slots(&[*field as u32]).fields[*field] = v
+                            if !r.unchanged(*field as u32, |b| strict_equal(&b.fields[*field], &v))
+                            {
+                                r.write_slots(&[*field as u32]).fields[*field] = v
+                            }
                         }
                         // A reactive class field: `$state` proxies plain objects
                         // and arrays; a value `===` the old one changes nothing.
@@ -2269,7 +2301,14 @@ impl<'p> Machine<'p> {
                 let a = self.eval(array, f)?.array();
                 let i = self.eval(index, f)?.num();
                 let v = js::own_into(&a, v);
-                js::array_ops::set(&a, i, v)?;
+                let same = js::array_ops::element_index(i).is_some_and(|k| {
+                    a.unchanged(k as u32 + 1, |b| {
+                        b.get(k).is_some_and(|x| strict_equal(x, &v))
+                    })
+                });
+                if !same {
+                    js::array_ops::set(&a, i, v)?;
+                }
             }
         }
         Ok(())
@@ -6702,6 +6741,11 @@ impl<'p> Machine<'p> {
     /// A handler added to a promise after its rejection was reported:
     /// Chromium revokes the report, which console lines do not model.
     fn late_rejection_handlers(&mut self) {
+        // (Also what the heap could not reproduce: R3's arrays changed in
+        // place under a proxy.)
+        if let Some(what) = js::take_heap_unsupported() {
+            self.unsupported.get_or_insert(what);
+        }
         if let Some(t) = js::take_late_handled() {
             self.unsupported.get_or_insert(format!(
                 "a handler added to a promise after its rejection ({t}) was reported as unhandled"
@@ -6975,6 +7019,7 @@ impl<'p> Machine<'p> {
         }
         self.phase = None;
         self.epochs = (js::mutation_epoch(), js::owned_epoch());
+        js::flush_ended();
         if let Some(p) = self.flush_promise.take() {
             self.settle_promise(&p, Ok(Val::Undefined));
         }
@@ -7378,7 +7423,7 @@ impl<'p> Machine<'p> {
             EffectDeps::Once => !started,
             EffectDeps::Always => !started || updated.get(i).copied().unwrap_or(true),
             EffectDeps::Tracked => {
-                !started || {
+                !started || self.instances[i].effects[e].rerun || {
                     let state = &self.instances[i].effects[e];
                     let reads = state.reads.clone();
                     state.heap.iter().any(js::HeapRead::changed)
@@ -7431,12 +7476,32 @@ impl<'p> Machine<'p> {
         }
         if let Some(c) = self.instances[i].effects[e].cleanup.take() {
             self.reading_previous = self.program.schedule.cleanup_reads_previous;
+            js::set_reading_previous(self.reading_previous);
             let r = self.call_value(&c, vec![]);
             self.reading_previous = false;
+            js::set_reading_previous(false);
             if let Err(t) = r {
                 self.uncaught.push(t);
             }
         }
+    }
+
+    /// Whether a tracked effect run that started at `start` (the version
+    /// clock and the heap write stamp) changed a cell or a heap slot it read
+    /// in that run or in its previous one: it is due again, as an effect
+    /// writing what it reads is in Svelte (docs/design/REACTIVITY-ALIASING.md,
+    /// R4). Derived values are not written.
+    fn self_invalidated<'a>(
+        &self,
+        start: (u64, u64),
+        mut reads: impl Iterator<Item = &'a Read_>,
+        mut heap: impl Iterator<Item = &'a js::HeapRead>,
+    ) -> bool {
+        reads.any(|r| {
+            r.derived.is_none()
+                && r.field.is_none()
+                && self.instances[r.instance].versions[r.cell] > start.0
+        }) || heap.any(|h| h.written_since(start.1))
     }
 
     /// Run effect `e` of instance `i` (its cleanup already ran).
@@ -7477,6 +7542,7 @@ impl<'p> Machine<'p> {
             self.tracking.take()
         };
         let heap_outer = js::begin_heap_reads(tracked.then_some(self.tracks_owned));
+        let start = (self.version_clock, js::heap_stamp());
         let saved = std::mem::replace(&mut self.current, i);
         let saved_snap = self.snap.take();
         let effect_outer = std::mem::replace(&mut self.in_effect, tracked);
@@ -7491,11 +7557,21 @@ impl<'p> Machine<'p> {
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);
         let reads = std::mem::replace(&mut self.tracking, outer);
+        let reads = reads.unwrap_or_default();
+        let again = tracked && {
+            let state = &self.instances[i].effects[e];
+            self.self_invalidated(
+                start,
+                state.reads.iter().chain(&reads),
+                state.heap.iter().chain(&heap),
+            )
+        };
         let state = &mut self.instances[i].effects[e];
         state.started = true;
         if tracked {
             state.heap = heap;
-            state.reads = reads.unwrap_or_default();
+            state.reads = reads;
+            state.rerun = again;
         }
         match result {
             Ok(Val::Closure(c)) => state.cleanup = Some(Val::Closure(c)),
@@ -7531,6 +7607,7 @@ impl<'p> Machine<'p> {
         let run = self.roots[r].effects[e].1.clone();
         let outer = self.tracking.replace(vec![]);
         let heap_outer = js::begin_heap_reads(Some(self.tracks_owned));
+        let start = (self.version_clock, js::heap_stamp());
         let saved = std::mem::replace(&mut self.current, self.roots[r].current);
         let saved_snap = self.snap.take();
         let effect_outer = std::mem::replace(&mut self.in_effect, true);
@@ -7539,11 +7616,20 @@ impl<'p> Machine<'p> {
         self.current = saved;
         self.snap = saved_snap;
         let heap = js::end_heap_reads(heap_outer);
-        let reads = std::mem::replace(&mut self.tracking, outer);
+        let reads = std::mem::replace(&mut self.tracking, outer).unwrap_or_default();
+        let again = {
+            let state = &self.roots[r].states[e];
+            self.self_invalidated(
+                start,
+                state.reads.iter().chain(&reads),
+                state.heap.iter().chain(&heap),
+            )
+        };
         let state = &mut self.roots[r].states[e];
         state.started = true;
         state.heap = heap;
-        state.reads = reads.unwrap_or_default();
+        state.reads = reads;
+        state.rerun = again;
         match result {
             Ok(Val::Closure(c)) => state.cleanup = Some(Val::Closure(c)),
             Ok(_) => {}
@@ -7555,8 +7641,10 @@ impl<'p> Machine<'p> {
         if let Some(c) = self.roots[r].states[e].cleanup.take() {
             // (Reading the values before the writes that re-run it, as an instance's.)
             self.reading_previous = self.program.schedule.cleanup_reads_previous;
+            js::set_reading_previous(self.reading_previous);
             let result = self.call_value(&c, vec![]);
             self.reading_previous = false;
+            js::set_reading_previous(false);
             if let Err(t) = result {
                 self.uncaught.push(t);
             }
@@ -7573,7 +7661,7 @@ impl<'p> Machine<'p> {
                         continue;
                     }
                     let state = &self.roots[r].states[e];
-                    let due = !state.started || {
+                    let due = !state.started || state.rerun || {
                         let reads = state.reads.clone();
                         state.heap.iter().any(js::HeapRead::changed)
                             || reads.iter().any(|x| self.read_changed(x))
@@ -10497,13 +10585,15 @@ pub fn cell_json(v: &Val) -> Json {
         Val::Num(n) => json!(runic_js::number_to_string(*n)),
         Val::Str(s) => json!(s.to_rust()),
         // A value that contains itself shows as "[Circular]".
+        // (Read without taking a proxy's pending slots: snapshots must not
+        // change what later reads see.)
         Val::Array(a) => match a.visit() {
             None => json!("[Circular]"),
-            Some(_v) => Json::Array(a.borrow().iter().map(cell_json).collect()),
+            Some(_v) => Json::Array(a.probe().iter().map(cell_json).collect()),
         },
         Val::Record(r) => match r.visit() {
             None => json!("[Circular]"),
-            Some(_v) => Json::Array(r.borrow().fields.iter().map(cell_json).collect()),
+            Some(_v) => Json::Array(r.probe().fields.iter().map(cell_json).collect()),
         },
         Val::Map(m) => match m.visit() {
             None => json!("[Circular]"),

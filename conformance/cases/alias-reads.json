@@ -1,0 +1,25 @@
+{
+  "description": "Svelte deep state read through aliases (docs/design/REACTIVITY-ALIASING.md, R1/R2): a $state object set as a context (string key) and read through a constant, a constant of that constant, a $state.raw, a class instance's plain field, a Map value, a plain array iterated by {#each}, derived values and a function; clicks mutate it through its owner (a count and an array's length) and every reader updates. Before the fix natively every reader but the owner stayed at 0.",
+  "fixtures": ["alias-reads-svelte"],
+  "actions": [
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "add" }
+  ],
+  "expectedText": [
+    { "step": 0, "id": "ctx", "text": "0" },
+    { "step": 1, "id": "ctx", "text": "1" },
+    { "step": 1, "id": "raw", "text": "1" },
+    { "step": 1, "id": "holder", "text": "1" },
+    { "step": 1, "id": "map", "text": "1" },
+    { "step": 1, "id": "list", "text": "1" },
+    { "step": 1, "id": "derived", "text": "2 0" },
+    { "step": 1, "id": "fn", "text": "1" },
+    { "step": 2, "id": "alias", "text": "1" },
+    { "step": 2, "id": "derived", "text": "2 1" },
+    { "step": 4, "id": "owner", "text": "2 2" },
+    { "step": 4, "id": "alias", "text": "2" },
+    { "step": 4, "id": "derived", "text": "4 2" }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "description": "Vue deep refs read through aliases (docs/design/REACTIVITY-ALIASING.md, R1/R2): the reactive proxy a deep ref holds, kept in a constant, in a plain object's field and read by a function, updates every reader when it is mutated through the ref",
+  "fixtures": ["alias-vue"],
+  "actions": [
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "add" },
+    { "kind": "click", "id": "bump" },
+    { "kind": "click", "id": "add" }
+  ],
+  "expectedText": [
+    { "step": 1, "id": "alias", "text": "1 0" },
+    { "step": 1, "id": "holder", "text": "1" },
+    { "step": 1, "id": "fn", "text": "1" },
+    { "step": 4, "id": "owner", "text": "2 2" },
+    { "step": 4, "id": "alias", "text": "2 2" },
+    { "step": 4, "id": "holder", "text": "2" }
+  ]
+}

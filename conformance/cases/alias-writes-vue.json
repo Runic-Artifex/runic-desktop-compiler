@@ -1,0 +1,84 @@
+{
+  "description": "Vue deep refs written through aliases (docs/design/REACTIVITY-ALIASING.md, R8): the reactive proxy a deep ref holds, written through a constant, a function's parameter and a function's result, updates the ref's readers; after the ref is given a new object the constant keeps the old one, whose writes update its own readers only. Before, the writes were rejected as mutations of a constant (E_REACTIVITY).",
+  "fixtures": [
+    "alias-writes-vue"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "bump"
+    },
+    {
+      "kind": "click",
+      "id": "add"
+    },
+    {
+      "kind": "click",
+      "id": "twice"
+    },
+    {
+      "kind": "click",
+      "id": "replace"
+    },
+    {
+      "kind": "click",
+      "id": "bump"
+    },
+    {
+      "kind": "click",
+      "id": "add"
+    }
+  ],
+  "expectedText": [
+    {
+      "step": 1,
+      "id": "owner",
+      "text": "1 "
+    },
+    {
+      "step": 1,
+      "id": "alias",
+      "text": "1 0"
+    },
+    {
+      "step": 2,
+      "id": "owner",
+      "text": "1 1"
+    },
+    {
+      "step": 3,
+      "id": "owner",
+      "text": "2 1"
+    },
+    {
+      "step": 4,
+      "id": "owner",
+      "text": "10 7"
+    },
+    {
+      "step": 4,
+      "id": "alias",
+      "text": "2 1"
+    },
+    {
+      "step": 5,
+      "id": "owner",
+      "text": "10 7"
+    },
+    {
+      "step": 5,
+      "id": "alias",
+      "text": "3 1"
+    },
+    {
+      "step": 6,
+      "id": "owner",
+      "text": "10 7,10"
+    },
+    {
+      "step": 6,
+      "id": "alias",
+      "text": "3 1"
+    }
+  ]
+}

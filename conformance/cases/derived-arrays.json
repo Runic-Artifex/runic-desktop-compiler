@@ -1,0 +1,40 @@
+{
+  "description": "Svelte derived values over arrays changed in place: a filter, the array itself, a sorted copy, a sum and a counted length, through push, splice, sort and an element write",
+  "fixtures": [
+    "derived-arrays-svelte"
+  ],
+  "actions": [
+    {
+      "kind": "click",
+      "id": "show"
+    },
+    {
+      "kind": "click",
+      "id": "push"
+    },
+    {
+      "kind": "click",
+      "id": "remove"
+    },
+    {
+      "kind": "click",
+      "id": "sort"
+    },
+    {
+      "kind": "click",
+      "id": "first"
+    },
+    {
+      "kind": "click",
+      "id": "show"
+    },
+    {
+      "kind": "click",
+      "id": "push"
+    },
+    {
+      "kind": "click",
+      "id": "show"
+    }
+  ]
+}
