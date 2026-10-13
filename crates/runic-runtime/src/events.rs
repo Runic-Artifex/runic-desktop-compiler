@@ -616,6 +616,8 @@ impl<A: App> Native<A> {
         let resized = env != crate::media_env()
             && (env.width != crate::media_env().width || env.height != crate::media_env().height);
         crate::set_media_env(env);
+        self.doc
+            .set_media_preferences(crate::media_preferences(&env));
         let scheme = if env.dark {
             blitz_traits::shell::ColorScheme::Dark
         } else {

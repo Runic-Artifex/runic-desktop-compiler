@@ -98,11 +98,11 @@ async function splitStyleSource(root, splits) {
 // What Stylo (Blitz's preferences) drops and Chromium applies differently is
 // reported; these drops are verified equivalent in Chromium 153
 // (docs/research/M6-CSS.md): vendor pseudo-classes and pseudo-elements
-// (scrollbar and form-control internals Blitz has no parts for), media
-// features Stylo does not know whose Chromium default is false, and vendor
+// (scrollbar and form-control internals Blitz has no parts for), and vendor
 // properties without effect on desktop or next to their standard property.
-const EQUIVALENT_DROPPED_RULE =
-  /::?-(webkit|moz)-|\((forced-colors|prefers-contrast|prefers-reduced-motion)\b/;
+// (`prefers-reduced-motion`, `prefers-contrast` and `forced-colors` are
+// evaluated by the Stylo fork; see preferenceGuards.)
+const EQUIVALENT_DROPPED_RULE = /::?-(webkit|moz)-/;
 // Stylo parses `-webkit-line-clamp`, `-webkit-box-orient` and `display:
 // -webkit-box` as Chromium 153 does, and Blitz lays out the line clamp roots
 // they make as Chromium does and reports the rest when it constructs their
@@ -920,12 +920,44 @@ function checkWithStylo(code, file, pending) {
       message: `the CSS declaration ${d.prop}: ${d.value} (${file}, line ${d.source.start.line}) applies to a select, search, number, password or file input through ${selectors.join(', ')}, and Blitz does not size that control by its content as Chromium does`,
     });
   }
+  // Blitz paints no text shadows (blitz-paint never reads `text-shadow`), so
+  // a shadow is reported where its rule matches an element (pseudo-elements:
+  // their element); in keyframes it is rejected.
+  for (const d of decls.filter(
+    d =>
+      !invalid.has(d) &&
+      d.prop.toLowerCase() === 'text-shadow' &&
+      !EQUIVALENT_DROPPED_RULE.test(d.parent.selector) &&
+      !/^(none|initial|inherit|unset|revert|revert-layer)$/i.test(d.value.trim()),
+  )) {
+    const message = `Blitz does not paint text shadows (text-shadow: ${d.value}, ${file}, line ${d.source.start.line})`;
+    if (!styleRuleOf(d)) {
+      defer(
+        pending,
+        d,
+        new Diagnostic(
+          'E_CSS_PROPERTY',
+          `Unsupported CSS declaration text-shadow: ${d.value}: Blitz does not paint text shadows`,
+          at(d.source.start.line, d.source.start.column),
+        ),
+      );
+      continue;
+    }
+    const unless = overriding(d);
+    guards.push({
+      selector: withoutPseudoElements(fullSelectors(d.parent)),
+      ...(unless ? { unless } : {}),
+      message: `${message} applies to an element matching ${d.parent.selector}`,
+    });
+  }
+  guards.push(...preferenceGuards(css, file));
   for (const d of reported) {
     const unsupported = invalid.has(d)
       ? "Blitz's style engine (Stylo) does not support"
       : "Chromium ignores and Blitz's style engine (Stylo) applies";
     if (EQUIVALENT_DROPPED_PROPERTY.has(d.prop)) continue;
     if (EQUIVALENT_DROPPED_VALUE.get(d.prop) === d.value.trim().toLowerCase()) continue;
+    if (invalid.has(d) && (chromiumDrops(d.prop) || overriddenInRule(d, invalid))) continue;
     // Blitz draws no resize grip whatever `resize` says; Chromium's default
     // (`both`) already differs, a gap recorded in docs/BLITZ-GAPS.md.
     if (d.prop === 'resize') continue;
@@ -976,6 +1008,130 @@ function checkWithStylo(code, file, pending) {
     );
   }
   return guards;
+}
+
+/** Selectors joined, each without its pseudo-elements (`*` for one that had only those). */
+function withoutPseudoElements(selectors) {
+  return selectors
+    .map(
+      s =>
+        s
+          .replace(/::[-\w]+(\((?:[^()]|\([^()]*\))*\))?/g, '')
+          .replace(/:(before|after|first-line|first-letter)\b/gi, '')
+          .trim() || '*',
+    )
+    .join(', ');
+}
+
+// The media features whose value Chromium 153 on Linux takes from the
+// desktop: `prefers-reduced-motion` (GTK's gtk-enable-animations,
+// ui/gfx/animation/animation_linux.cc) and `prefers-contrast` (`more` for a
+// GTK theme whose name contains "high" and "contrast",
+// ui/gtk/os_settings_provider_gtk.cc). `forced-colors` is not one of them:
+// Chromium on Linux never forces colors, and Stylo evaluates it as `none`.
+const DESKTOP_MEDIA_FEATURE = /\b(prefers-reduced-motion|prefers-contrast)\b/i;
+
+/**
+ * Guards of the rules whose media queries test a desktop preference
+ * (DESKTOP_MEDIA_FEATURE). The Stylo fork evaluates them as Chromium does
+ * without the preference set, as the harness's Chromium runs, and probes
+ * set them as their actions emulate; a native app cannot read the desktop's
+ * setting, so it reports such a rule once it matches an element (`when:
+ * "native"`). Rules of other kinds inside the query (keyframes, font faces)
+ * are reported at once (`:root`).
+ */
+function preferenceGuards(css, file) {
+  const guards = [];
+  css.walkAtRules(/^media$/i, at => {
+    const feature = DESKTOP_MEDIA_FEATURE.exec(at.params)?.[1].toLowerCase();
+    if (!feature) return;
+    const selectors = new Set();
+    let anywhere = false;
+    let outer = at.parent;
+    while (outer && outer.type === 'atrule') outer = outer.parent;
+    if (outer?.type === 'rule' && styleRuleOf(outer))
+      selectors.add(withoutPseudoElements(fullSelectors(outer)));
+    at.walk(n => {
+      if (n.type === 'rule' && styleRuleOf(n)) {
+        // Rules Stylo drops for vendor parts Blitz lacks apply in neither
+        // engine (EQUIVALENT_DROPPED_RULE).
+        if (!EQUIVALENT_DROPPED_RULE.test(n.selector))
+          selectors.add(withoutPseudoElements(fullSelectors(n)));
+      } else if (n.type === 'atrule' && !/^(media|supports|layer|container)$/i.test(n.name))
+        anywhere = true;
+    });
+    if (anywhere) selectors.add(':root');
+    const message = `the CSS rule @media ${at.params} (${file}, line ${at.source.start.line}) depends on the desktop's ${feature} setting, which the runtime cannot read`;
+    for (const selector of selectors)
+      guards.push({ selector, when: 'native', message: `${message}, and applies to ${selector}` });
+  });
+  return guards;
+}
+
+/**
+ * Whether Chromium 153 drops every declaration of the property `prop`: Blink
+ * defines no `-moz-`, `-o-` or `-ms-` property (css_properties.json5 at
+ * 153.0.8010.12; measured: `CSS.supports` is false for each of its longhands
+ * with these prefixes). A declaration both engines drop is equivalent.
+ */
+function chromiumDrops(prop) {
+  return /^-(moz|o|ms)-/i.test(prop);
+}
+
+// `-webkit-` properties Chromium 153 keeps apart from their standard
+// property (measured: both are computed properties); every other `-webkit-X`
+// it parses aliases X.
+const WEBKIT_DISTINCT = new Set([
+  'box-decoration-break',
+  'line-break',
+  'ruby-position',
+  'text-orientation',
+  'writing-mode',
+]);
+// Legacy logical `-webkit-` aliases, as Chromium 153 expands them (measured).
+const WEBKIT_LOGICAL = new Map(
+  ['margin', 'padding', 'border'].flatMap(box =>
+    [
+      ['start', 'inline-start'],
+      ['end', 'inline-end'],
+      ['before', 'block-start'],
+      ['after', 'block-end'],
+    ].flatMap(([old, side]) =>
+      (box === 'border' ? ['', '-color', '-style', '-width'] : ['']).map(part => [
+        `-webkit-${box}-${old}${part}`,
+        `${box}-${side}${part}`,
+      ]),
+    ),
+  ),
+);
+
+/**
+ * Whether the declaration `d`, which Stylo drops, is overridden in Chromium
+ * by a later declaration of its own rule that Stylo parses: one of the same
+ * property (`position: -webkit-sticky` before `position: sticky`), or of the
+ * standard property a vendor property names (`-o-object-fit` before
+ * `object-fit`), at least as important. Chromium drops the vendor form or
+ * aliases it to that property, so the later declaration wins in both.
+ */
+function overriddenInRule(d, invalid) {
+  const prop = d.prop.toLowerCase();
+  const standard =
+    WEBKIT_LOGICAL.get(prop) ??
+    (/^-webkit-/.test(prop) && !WEBKIT_DISTINCT.has(prop.slice(8))
+      ? prop.slice(8)
+      : /^-(moz|o|ms)-/.test(prop)
+        ? prop.replace(/^-(moz|o|ms)-/, '')
+        : prop);
+  const siblings = d.parent?.nodes ?? [];
+  return siblings
+    .slice(siblings.indexOf(d) + 1)
+    .some(
+      e =>
+        e.type === 'decl' &&
+        !invalid.has(e) &&
+        [prop, standard].includes(e.prop.toLowerCase()) &&
+        (e.important || !d.important),
+    );
 }
 
 /** The axis a scroll padding property pads: `block`, `inline` or `both`. */
@@ -1269,15 +1425,7 @@ export function skipUnmatchedRules(pending, ir) {
     if (guarded.has(key)) continue;
     guarded.add(key);
     // The rule's elements without pseudo-elements: the safety net.
-    const selector = splitTopLevel(key, /,/)
-      .map(
-        s =>
-          s
-            .replace(/::[-\w]+(\((?:[^()]|\([^()]*\))*\))?/g, '')
-            .replace(/:(before|after|first-line|first-letter)\b/gi, '')
-            .trim() || '*',
-      )
-      .join(', ');
+    const selector = withoutPseudoElements(splitTopLevel(key, /,/));
     const at = source ? ` (${source.file}, line ${source.line})` : '';
     ir.styles.guards.push({
       selector,
@@ -1385,6 +1533,16 @@ function svgChildState(selector) {
 function checkRules(css, file, pending) {
   const at = rule => ({ file, line: rule.source.start.line, column: rule.source.start.column });
   css.walkAtRules(rule => {
+    // `@charset "UTF-8"` changes nothing for a stylesheet read as UTF-8, as
+    // the collector and Chromium read it; another encoding would.
+    if (rule.name === 'charset') {
+      if (/^"utf-8"$/i.test(rule.params.trim())) return;
+      throw new Diagnostic(
+        'E_CSS',
+        `Unsupported CSS @charset ${rule.params}: stylesheets are read as UTF-8`,
+        at(rule),
+      );
+    }
     if (
       !['font-face', 'media', 'layer', 'property', 'supports', 'keyframes', 'container'].includes(
         rule.name,

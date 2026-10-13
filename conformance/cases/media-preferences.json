@@ -1,0 +1,24 @@
+{
+  "description": "Media queries on user preferences in the stylesheet, as Chromium 153 evaluates them (Bootstrap 5.3's and Tailwind's motion-safe rules): prefers-reduced-motion, prefers-contrast and forced-colors with and without values and under `not`, without a preference (the harness's Chromium), then with reduced motion and more contrast emulated, then without them again; a @charset \"UTF-8\" rule",
+  "fixtures": ["media-preferences-svelte"],
+  "viewports": [
+    [800, 600],
+    [420, 600]
+  ],
+  "pixelRegions": [
+    "motion-safe",
+    "motion-reduce",
+    "motion-any",
+    "contrast-none",
+    "contrast-more",
+    "contrast-any",
+    "forced-none",
+    "forced-active",
+    "not-reduce"
+  ],
+  "actions": [
+    { "kind": "emulate", "reducedMotion": "reduce" },
+    { "kind": "emulate", "contrast": "more" },
+    { "kind": "emulate", "reducedMotion": "no-preference", "contrast": "no-preference" }
+  ]
+}

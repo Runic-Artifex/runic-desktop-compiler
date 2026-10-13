@@ -121,8 +121,11 @@ pub(crate) fn document<A: App>(width: u32, height: u32) -> Native<A> {
         m.append_children(html, &[head, body]);
         m.append_children(root, &[html]);
     }
-    // Media queries evaluated while the app starts see this viewport.
+    // Media queries evaluated while the app starts see this viewport and the
+    // user preferences (a probe's emulated ones; natively no preference, and
+    // the rules that test one are reported).
     crate::set_media_viewport(width as f64, height as f64);
+    doc.set_media_preferences(crate::media_preferences(&crate::media_env()));
     // The document loads at the session history's current entry.
     crate::history::begin_document();
     let mut app = A::new();
