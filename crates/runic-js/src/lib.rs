@@ -15,6 +15,7 @@ mod number;
 mod promise;
 mod selector;
 mod string;
+mod union;
 mod value;
 
 pub mod array_ops;
@@ -60,4 +61,5 @@ pub use promise::{
 pub use regexp::RegExp;
 pub use selector::{SelElement, Selector, parse_selector};
 pub use string::JsString;
+pub use union::{NoRecord, Union, union_message};
 pub use value::*;

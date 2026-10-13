@@ -1856,6 +1856,22 @@ fn probe_json(t: &Type, v: &str) -> String {
         ),
         Type::Record(r) => format!("probe_r{r}(&{v})"),
         Type::Dyn => format!("runic_runtime::probe_dyn(&{v})"),
+        // A union probes as its member (the interpreter's values are untagged).
+        Type::Union(ms) => {
+            let arms: String = ms
+                .iter()
+                .map(|m| {
+                    format!(
+                        "js::Union::{}(x) => {}, ",
+                        crate::types::union_variant(m),
+                        probe_json(m, "(*x)")
+                    )
+                })
+                .collect();
+            format!(
+                "{{ #[allow(unreachable_patterns)] let j = match &{v} {{ {arms}_ => unreachable!(\"validated union\") }}; j }}"
+            )
+        }
         Type::Class(_) | Type::Classes(_) => format!("probe_obj(&{v})"),
         Type::Map(k, x) => format!(
             "(match {v}.visit() {{ None => runic_runtime::Json::String(\"[Circular]\".into()), Some(_v) => runic_runtime::Json::Array({v}.borrow().entries.values().map(|(k, x)| runic_runtime::Json::Array(vec![{}, {}])).collect()) }})",

@@ -346,7 +346,27 @@ export function asyncBody(
         ts.isAwaitExpression(skip(e.right)) &&
         !containsAwait(e.left)
       ) {
-        assignTo(e.left, awaitValue((skip(e.right) as ts.AwaitExpression).expression));
+        const awaited = skip(e.right) as ts.AwaitExpression;
+        // `this.field = await e` (shadcn-svelte's UseClipboard: `this.#copiedStatus
+        // = await copyText(…)`): JavaScript evaluates the base `this` before
+        // the await, and `this` cannot change, so the assignment is lowered
+        // as written once the value is there, the awaited value standing in
+        // for the await.
+        const left = skip(e.left);
+        if (
+          ts.isPropertyAccessExpression(left) &&
+          left.expression.kind === ts.SyntaxKind.ThisKeyword
+        ) {
+          const v = awaitValue(awaited.expression);
+          emit(
+            ...lower.withOverrides(
+              new Map([[awaited, { expr: v, type: lower.irType(v, s) }]]),
+              () => lower.statement(st, s),
+            ),
+          );
+          return;
+        }
+        assignTo(e.left, awaitValue(awaited.expression));
         return;
       }
       // `x op= await e` reads x before the await, as JavaScript does.

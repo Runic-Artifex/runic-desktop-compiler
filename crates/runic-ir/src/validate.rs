@@ -622,6 +622,32 @@ impl<'a> Scope<'a> {
                 }
                 Ok(())
             }
+            // A union (M6): two or more members of different kinds, by rank
+            // (number, string, boolean, element, one record that is no tuple).
+            Type::Union(ms) => {
+                let ranks: Vec<Option<u8>> = ms.iter().map(Type::union_rank).collect();
+                let ok = ms.len() >= 2
+                    && ranks.iter().all(Option::is_some)
+                    && ranks.windows(2).all(|w| w[0] < w[1])
+                    && ms.iter().all(|m| match m {
+                        Type::Record(r) => p
+                            .records
+                            .get(*r)
+                            .is_some_and(|rec| !rec.tuple && !rec.class),
+                        _ => true,
+                    });
+                if !ok {
+                    return err(
+                        "E_IR",
+                        format!(
+                            "{} must list two or more of number, string, boolean, element and one plain record (no class, no tuple), in that order",
+                            t.name()
+                        ),
+                        src,
+                    );
+                }
+                ms.iter().try_for_each(|m| self.check_type(m, src))
+            }
             Type::Maybe(i) | Type::Array(i) | Type::Set(i) => self.check_type(i, src),
             Type::Map(k, v) => self.check_type(k, src).and(self.check_type(v, src)),
             Type::Fn(f) => {
@@ -699,6 +725,13 @@ impl<'a> Scope<'a> {
             }
             ToString { arg } => {
                 let t = self.infer(arg, d, src)?;
+                // (A union converts as its member: M6 unions; its members
+                // are primitives, elements and plain records.)
+                if matches!(&t, Type::Union(_))
+                    || matches!(&t, Type::Maybe(i) if matches!(**i, Type::Union(_)))
+                {
+                    return Ok(Type::String);
+                }
                 // (A dynamic value converts with a check: M6 dynamic values.)
                 if t == Type::Dyn || t == Type::Array(Box::new(Type::Dyn)) {
                     return Ok(Type::String);
@@ -754,7 +787,7 @@ impl<'a> Scope<'a> {
             }
             ToNumber { arg } => {
                 let t = self.infer(arg, d, src)?;
-                // A Date converts through valueOf.
+                // A Date converts through valueOf; a union of primitives as its member.
                 if !primitive(&t) && t != Type::Date {
                     return err(
                         "E_IR",
@@ -1311,6 +1344,18 @@ impl<'a> Scope<'a> {
                 self.check_type(ty, src)?;
                 let t = self.infer(value, d, src)?;
                 let (from, to) = class_pair(&t, ty);
+                // A member value (or a narrower union) as a union (M6 unions).
+                if let Some(want) = to.union_members() {
+                    let have = from.union_members().unwrap_or(std::slice::from_ref(from));
+                    if from == to || !have.iter().all(|m| want.contains(m)) {
+                        return err(
+                            "E_IR",
+                            format!("Upcast of {} to {}", t.name(), ty.name()),
+                            src,
+                        );
+                    }
+                    return Ok(ty.clone());
+                }
                 let p = self.program;
                 match (p.class_members(from), to) {
                     (Some(have), Type::Class(_) | Type::Classes(_)) if from != to => {
@@ -1337,6 +1382,19 @@ impl<'a> Scope<'a> {
                 self.check_type(ty, src)?;
                 let t = self.infer(value, d, src)?;
                 let (from, to) = class_pair(&t, ty);
+                // A union as one of its members or a narrower union (M6
+                // unions): a TypeError where the value is of another member.
+                if let Some(have) = from.union_members() {
+                    let want = to.union_members().unwrap_or(std::slice::from_ref(to));
+                    if from == to || !want.iter().all(|m| have.contains(m)) {
+                        return err(
+                            "E_IR",
+                            format!("Downcast of {} to {}", t.name(), ty.name()),
+                            src,
+                        );
+                    }
+                    return Ok(ty.clone());
+                }
                 let p = self.program;
                 let ok = matches!(from, Type::Class(_) | Type::Classes(_))
                     && from != to
@@ -1352,6 +1410,77 @@ impl<'a> Scope<'a> {
                     );
                 }
                 ty.clone()
+            }
+            MatchUnion {
+                value,
+                cases,
+                otherwise,
+            } => {
+                let t = self.infer(value, d, src)?;
+                let Some(members) = t.union_members().map(<[Type]>::to_vec) else {
+                    return err("E_IR", format!("match-union on {}", t.name()), src);
+                };
+                let mut result: Option<Type> = None;
+                let mut seen: Vec<&Type> = vec![];
+                for c in cases {
+                    if !members.contains(&c.ty) || seen.contains(&&c.ty) {
+                        return err(
+                            "E_IR",
+                            format!(
+                                "match-union case {} is not a member of {}",
+                                c.ty.name(),
+                                t.name()
+                            ),
+                            src,
+                        );
+                    }
+                    seen.push(&c.ty);
+                    if self.local(c.local, src)?.ty != c.ty {
+                        return err("E_IR", "match-union local has the wrong type", src);
+                    }
+                    let r = self.infer(&c.body, d, src)?;
+                    match &result {
+                        Some(want) if *want != r => {
+                            return err(
+                                "E_IR",
+                                format!(
+                                    "match-union branches have types {} and {}",
+                                    want.name(),
+                                    r.name()
+                                ),
+                                src,
+                            );
+                        }
+                        _ => result = Some(r),
+                    }
+                }
+                match otherwise {
+                    Some(e) => {
+                        let r = self.infer(e, d, src)?;
+                        if let Some(want) = &result {
+                            if *want != r {
+                                return err(
+                                    "E_IR",
+                                    format!(
+                                        "match-union branches have types {} and {}",
+                                        want.name(),
+                                        r.name()
+                                    ),
+                                    src,
+                                );
+                            }
+                        }
+                        result = Some(r);
+                    }
+                    None if seen.len() < members.len() => {
+                        return err("E_IR", "match-union does not cover every member", src);
+                    }
+                    None => {}
+                }
+                match result {
+                    Some(r) => r,
+                    None => return err("E_IR", "match-union without cases", src),
+                }
             }
             MatchClass {
                 value,
@@ -1758,6 +1887,7 @@ fn primitive(t: &Type) -> bool {
     match t {
         Type::Number | Type::String | Type::Boolean => true,
         Type::Maybe(i) => primitive(i),
+        Type::Union(ms) => ms.iter().all(primitive),
         _ => false,
     }
 }
@@ -3821,6 +3951,12 @@ impl Origins<'_> {
                 self.bind(c.local, o);
             }
         }
+        if let Expr::MatchUnion { value, cases, .. } = e {
+            let o = self.origin(value);
+            for c in cases {
+                self.bind(c.local, o);
+            }
+        }
         for c in e.children() {
             self.expr(c);
         }
@@ -4195,6 +4331,11 @@ fn class_records(p: &Program, t: &Type, seen: &mut HashSet<usize>, out: &mut Vec
                 class_records(p, &Type::Record(r), seen, out);
             }
         }
+        Type::Union(ms) => {
+            for m in ms {
+                class_records(p, m, seen, out);
+            }
+        }
         Type::Record(r) if seen.insert(*r) => {
             if p.records[*r].class {
                 out.push(*r);
@@ -4220,6 +4361,11 @@ fn records_in(p: &Program, t: &Type, seen: &mut HashSet<usize>, out: &mut Vec<us
         Type::Class(_) | Type::Classes(_) => {
             for r in p.class_members(t).unwrap_or_default() {
                 records_in(p, &Type::Record(r), seen, out);
+            }
+        }
+        Type::Union(ms) => {
+            for m in ms {
+                records_in(p, m, seen, out);
             }
         }
         Type::Record(r) if seen.insert(*r) => {
@@ -4259,6 +4405,7 @@ fn exposes(
         Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
             exposes(p, t, inner, proxied, seen)
         }
+        Type::Union(ms) => ms.iter().any(|m| exposes(p, m, inner, proxied, seen)),
         Type::Map(k, v) => {
             exposes(p, k, inner, proxied, seen) || exposes(p, v, inner, proxied, seen)
         }
@@ -4299,6 +4446,7 @@ fn exposes_read(
         Type::Maybe(t) | Type::Array(t) | Type::Set(t) | Type::Promise(t) => {
             exposes_read(p, t, inner, read, seen)
         }
+        Type::Union(ms) => ms.iter().any(|m| exposes_read(p, m, inner, read, seen)),
         Type::Map(k, v) => {
             exposes_read(p, k, inner, read, seen) || exposes_read(p, v, inner, read, seen)
         }
@@ -4319,9 +4467,18 @@ fn exposes_read(
 }
 
 /// Whether values of types `a` and `b` can be the same value: equal
-/// types, or class types with a class in common (M6 inheritance).
+/// types, class types with a class in common (M6 inheritance), or a union
+/// and one of its members (or another union sharing one: M6 unions).
 fn same_value_type(p: &Program, a: &Type, b: &Type) -> bool {
+    let members = |t: &Type| {
+        t.union_members()
+            .map_or_else(|| vec![t.clone()], <[Type]>::to_vec)
+    };
     a == b
+        || ((a.union_members().is_some() || b.union_members().is_some())
+            && members(a)
+                .iter()
+                .any(|x| members(b).iter().any(|y| same_value_type(p, x, y))))
         || match (p.class_members(a), p.class_members(b)) {
             (Some(x), Some(y)) => x.iter().any(|r| y.contains(r)),
             _ => false,
@@ -4343,6 +4500,7 @@ fn holds(p: &Program, outer: &Type, inner: &Type, seen: &mut HashSet<usize>) -> 
             .into_iter()
             .any(|r| holds(p, &Type::Record(r), inner, seen)),
         Type::Map(k, v) => holds(p, k, inner, seen) || holds(p, v, inner, seen),
+        Type::Union(ms) => ms.iter().any(|m| holds(p, m, inner, seen)),
         Type::Record(r) => {
             seen.insert(*r)
                 && p.records[*r]
@@ -5077,5 +5235,193 @@ mod asset_tests {
             });
             assert_eq!(crate::load(&raw.to_string()).unwrap_err().code, "E_IR");
         }
+    }
+}
+
+#[cfg(test)]
+mod union_tests {
+    use super::*;
+    use serde_json::{Value as Json, json};
+
+    /// A program of one function `f(x: param) -> result` returning `value`
+    /// (locals after the parameter: `locals`).
+    fn program(param: Json, locals: Json, result: Json, value: Json) -> Program {
+        serde_json::from_value(json!({
+            "schema": SCHEMA,
+            "meta": {"title": "unions", "sourceHash": "0".repeat(64), "frontend": {}},
+            "capabilities": [],
+            "styles": {"css": ""},
+            "records": [
+                {"name": "Plain", "fields": [{"name": "a", "type": "number"}]},
+                {"name": "Klass", "fields": [{"name": "a", "type": "number"}], "class": true}
+            ],
+            "functions": [{
+                "name": "f", "params": [{"name": "x", "type": param}], "locals": locals,
+                "result": result,
+                "body": [{"op": "return", "value": value}]
+            }],
+            "components": [{"name": "App", "template": []}],
+            "root": 0
+        }))
+        .unwrap()
+    }
+
+    fn x() -> Json {
+        json!({"op": "local", "local": 0})
+    }
+
+    fn num_str() -> Json {
+        json!({"union": ["number", "string"]})
+    }
+
+    fn accepts(param: Json, locals: Json, result: Json, value: Json) {
+        validate(&program(param, locals, result, value)).unwrap();
+    }
+
+    fn rejects(param: Json, locals: Json, result: Json, value: Json, text: &str) {
+        let e = validate(&program(param, locals, result, value)).unwrap_err();
+        assert!(e.message.contains(text), "{e}");
+    }
+
+    #[test]
+    fn union_types_list_distinct_members_in_order() {
+        accepts(num_str(), json!([]), num_str(), x());
+        let wide = json!({"union": ["string", "element", {"record": 0}]});
+        accepts(wide.clone(), json!([]), wide, x());
+        for bad in [
+            json!({"union": ["number"]}),
+            json!({"union": ["string", "number"]}),
+            json!({"union": ["number", "number"]}),
+            json!({"union": ["number", {"record": 1}]}),
+            json!({"union": ["number", {"array": "number"}]}),
+            json!({"union": ["number", {"maybe": "string"}]}),
+        ] {
+            rejects(bad.clone(), json!([]), bad, x(), "two or more");
+        }
+    }
+
+    #[test]
+    fn members_upcast_and_downcast() {
+        accepts(
+            json!("number"),
+            json!([]),
+            num_str(),
+            json!({"op": "upcast", "value": x(), "type": num_str()}),
+        );
+        accepts(
+            num_str(),
+            json!([]),
+            json!("string"),
+            json!({"op": "downcast", "value": x(), "type": "string"}),
+        );
+        accepts(
+            json!({"maybe": "number"}),
+            json!([]),
+            json!({"maybe": num_str()}),
+            json!({"op": "upcast", "value": x(), "type": {"maybe": num_str()}}),
+        );
+        rejects(
+            json!("boolean"),
+            json!([]),
+            num_str(),
+            json!({"op": "upcast", "value": x(), "type": num_str()}),
+            "Upcast",
+        );
+        rejects(
+            num_str(),
+            json!([]),
+            json!("boolean"),
+            json!({"op": "downcast", "value": x(), "type": "boolean"}),
+            "Downcast",
+        );
+        // A union value meets a member only through an upcast.
+        rejects(
+            num_str(),
+            json!([]),
+            json!("boolean"),
+            json!({"op": "eq", "left": x(), "right": {"op": "lit", "value": 1}}),
+            "",
+        );
+        accepts(
+            num_str(),
+            json!([]),
+            json!("boolean"),
+            json!({"op": "eq", "left": x(), "right": {"op": "upcast", "value": {"op": "lit", "value": 1}, "type": num_str()}}),
+        );
+    }
+
+    #[test]
+    fn operations_carry_the_members() {
+        accepts(
+            num_str(),
+            json!([]),
+            json!("string"),
+            json!({"op": "to-string", "arg": x()}),
+        );
+        accepts(
+            num_str(),
+            json!([]),
+            json!("number"),
+            json!({"op": "to-number", "arg": x()}),
+        );
+        accepts(
+            num_str(),
+            json!([]),
+            json!("string"),
+            json!({"op": "typeof", "arg": x()}),
+        );
+        // No number conversion of a union with an element member.
+        rejects(
+            json!({"union": ["number", "element"]}),
+            json!([]),
+            json!("number"),
+            json!({"op": "to-number", "arg": x()}),
+            "",
+        );
+    }
+
+    #[test]
+    fn match_union_covers_its_members() {
+        let case = |ty: &str, local: usize, value: Json| json!({"type": ty, "local": local, "body": value});
+        let locals = json!([{"name": "n", "type": "number"}, {"name": "s", "type": "string"}]);
+        let s = json!({"op": "local", "local": 2});
+        let n = json!({"op": "lit", "value": "n"});
+        accepts(
+            num_str(),
+            locals.clone(),
+            json!("string"),
+            json!({"op": "match-union", "value": x(), "cases": [
+                case("number", 1, n.clone()), case("string", 2, s.clone())
+            ]}),
+        );
+        accepts(
+            num_str(),
+            locals.clone(),
+            json!("string"),
+            json!({"op": "match-union", "value": x(), "cases": [case("string", 2, s.clone())], "else": n.clone()}),
+        );
+        rejects(
+            num_str(),
+            locals.clone(),
+            json!("string"),
+            json!({"op": "match-union", "value": x(), "cases": [case("string", 2, s.clone())]}),
+            "",
+        );
+        rejects(
+            num_str(),
+            locals.clone(),
+            json!("string"),
+            json!({"op": "match-union", "value": x(), "cases": [
+                case("number", 2, n.clone()), case("string", 2, s.clone())
+            ]}),
+            "wrong type",
+        );
+        rejects(
+            num_str(),
+            locals,
+            json!("string"),
+            json!({"op": "match-union", "value": x(), "cases": [case("boolean", 1, n.clone())], "else": n}),
+            "not a member",
+        );
     }
 }

@@ -173,7 +173,16 @@ test('a function whose result no code reads returns nothing, its returns evaluat
 });
 
 test('a function returning an empty literal whose result is read stays rejected', async () => {
+  // (Its result, `number | never[]` the census narrows, is its returns'
+  // type, and `[]` has no array return to take its element from.)
   await withApp(defaults('const first = handleDefaultValue();', 'multiple'), root =>
-    assert.rejects(lowered(root), failWith('E_TYPE_UNSUPPORTED', 'App.svelte', /type never/)),
+    assert.rejects(
+      lowered(root),
+      failWith(
+        'E_TYPE_UNSUPPORTED',
+        'App.svelte',
+        /type never|returning \[\] needs another return/,
+      ),
+    ),
   );
 });

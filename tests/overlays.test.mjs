@@ -283,7 +283,7 @@ test('a union outside the value model takes the member of the values that reach 
   );
 });
 
-test('a union reached by values of two members is rejected, naming a site of each', async () => {
+test('a union reached by values of two members holds either', async () => {
   const files = sites => ({
     'Target.svelte': `<script lang="ts">
   type Target = HTMLElement | string;
@@ -302,13 +302,17 @@ test('a union reached by values of two members is rejected, naming a site of eac
 ${sites}
 `,
   });
-  // The default (a site without \`to\`) and an element.
-  await withApp(files('<Target />\n{#if el}<Target to={el} />{/if}'), root =>
-    assert.rejects(
-      lowered(root),
-      failWith('E_TYPE_UNION', 'Target.svelte', /outside the value model/),
-    ),
-  );
+  // The default (a site without \`to\`) and an element: the prop holds an IR
+  // union of both (M6 unions), \`typeof\` testing the member it holds.
+  await withApp(files('<Target />\n{#if el}<Target to={el} />{/if}'), async root => {
+    const { ir } = await lowered(root);
+    assert.ok(JSON.stringify(ir).includes('{"union":["string","element"]}'));
+    const dom = interpret(ir, []).at(-1).state.dom;
+    assert.deepEqual(dom.filter(n => typeof n !== 'string' && n.tag === 'p').map(text), [
+      'body',
+      'element',
+    ]);
+  });
   // Only elements: the default never applies, so the prop holds an element,
   // which the nullable `el` is where `{#if el}` narrowed it (M6).
   await withApp(files('{#if el}<Target to={el} />{/if}'), async root => {
@@ -676,8 +680,13 @@ ${site}
     const p = s => steps[s].state.dom.find(n => typeof n !== 'string' && n.attrs.id === 'o');
     assert.equal(text(p(1)), 'element');
   });
-  // A selector passed at the outer site reaches it through both components.
+  // A selector passed at the outer site reaches it through both components:
+  // the outer prop holds an IR union of a string and an element (M6
+  // unions), which attribute bags do not carry yet.
   await withApp(files('<Outer id="o" customAnchor="#x" />'), root =>
-    assert.rejects(lowered(root), failWith('E_TYPE_UNION', 'Inner.svelte', /HTMLElement at/)),
+    assert.rejects(
+      lowered(root),
+      failWith('E_ATTRS', 'Outer.svelte', /customAnchor: values of type \{"union"/),
+    ),
   );
 });

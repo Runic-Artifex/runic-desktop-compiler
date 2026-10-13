@@ -414,6 +414,13 @@ pub enum Type {
     /// `dyn.*` built-ins; static values are boxed (`dyn.from`) and unboxed
     /// with a check (`dyn.to`).
     Dyn,
+    /// A value of one of several member types, carrying which (M6 unions,
+    /// docs/IR.md): two or more of `number`, `string`, `boolean`,
+    /// `element` and one record type, in that order. JavaScript tells
+    /// them apart by `typeof` and `instanceof`, so every value knows its
+    /// member: `upcast` makes one from a member value, `downcast` and
+    /// `match-union` take it apart.
+    Union(Vec<Type>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -447,6 +454,10 @@ impl Type {
             Type::Animation => "animation".into(),
             Type::Image => "image".into(),
             Type::Dyn => "dyn".into(),
+            Type::Union(ms) => format!(
+                "union<{}>",
+                ms.iter().map(Type::name).collect::<Vec<_>>().join(" | ")
+            ),
             Type::Class(c) => format!("class#{c}"),
             Type::Classes(cs) => format!(
                 "classes#{}",
@@ -466,6 +477,25 @@ impl Type {
             ),
         }
     }
+    /// The rank of a union member's kind (`Type::Union` lists its members
+    /// by rank, one of each): number, string, boolean, element, record.
+    pub fn union_rank(&self) -> Option<u8> {
+        match self {
+            Type::Number => Some(0),
+            Type::String => Some(1),
+            Type::Boolean => Some(2),
+            Type::Element => Some(3),
+            Type::Record(_) => Some(4),
+            _ => None,
+        }
+    }
+    /// The members of a union type (`None` for other types).
+    pub fn union_members(&self) -> Option<&[Type]> {
+        match self {
+            Type::Union(ms) => Some(ms),
+            _ => None,
+        }
+    }
     pub fn maybe(t: Type) -> Type {
         Type::Maybe(Box::new(t))
     }
@@ -482,6 +512,7 @@ impl Type {
             | Type::Class(_)
             | Type::Classes(_) => true,
             Type::Maybe(t) => t.is_reference(),
+            Type::Union(ms) => ms.iter().any(Type::is_reference),
             _ => false,
         }
     }
@@ -1672,6 +1703,16 @@ pub enum Expr {
         #[serde(rename = "else", default, skip_serializing_if = "Option::is_none")]
         otherwise: Option<Box<Expr>>,
     },
+    /// Branch on the member a union value holds (M6 unions): the case of
+    /// its member binds the value (typed as that member) to `local` and
+    /// evaluates `body`; `else` covers the members without a case and
+    /// is required unless the cases cover every member.
+    MatchUnion {
+        value: Box<Expr>,
+        cases: Vec<UnionCase>,
+        #[serde(rename = "else", default, skip_serializing_if = "Option::is_none")]
+        otherwise: Option<Box<Expr>>,
+    },
     /// Whether the running instance's parent provides content for its slot
     /// `name` (a declared slot of the component; M6).
     SlotProvided {
@@ -1699,6 +1740,16 @@ pub enum Expr {
 pub struct MountProp {
     pub name: String,
     pub value: Expr,
+}
+
+/// One case of `match-union`: a member type of the union.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnionCase {
+    #[serde(rename = "type")]
+    pub ty: Type,
+    pub local: usize,
+    pub body: Expr,
 }
 
 /// One case of `match-class`: an exact class.
@@ -1802,6 +1853,14 @@ impl Expr {
             With { value, body, .. } => vec![value, body],
             Upcast { value, .. } | Downcast { value, .. } => vec![value],
             MatchClass {
+                value,
+                cases,
+                otherwise,
+            } => std::iter::once(&**value)
+                .chain(cases.iter().map(|c| &c.body))
+                .chain(otherwise.as_deref())
+                .collect(),
+            MatchUnion {
                 value,
                 cases,
                 otherwise,

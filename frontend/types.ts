@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import type { RecordField, RecordType, Type } from './ir.ts';
-import { maybeInner } from './irtype.ts';
+import { maybeInner, unionRank } from './irtype.ts';
 
 /** Where pack ports live (frontend/packs.ts, `PackPort`). */
 const PACKS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'packs') + path.sep;
@@ -44,7 +44,13 @@ export class TypeMapper {
    * The member a union outside the value model is narrowed to by the values
    * that reach it (frontend/unions.ts), or a failure through `fail`.
    */
-  narrow?: (parts: ts.Type[], at: ts.Node, fail: Fail, dynamic: boolean) => ts.Type;
+  narrow?: (
+    parts: ts.Type[],
+    at: ts.Node,
+    fail: Fail,
+    dynamic: boolean,
+    unite: (found: ts.Type[]) => boolean,
+  ) => ts.Type | ts.Type[];
   /**
    * Whether only null and undefined reach the property declared by `decl`,
    * which TypeScript types `unknown` (frontend/unions.ts).
@@ -674,6 +680,35 @@ export class TypeMapper {
   /** Unions being mapped (recursion guard). */
   private readonly unions = new Set<ts.Type>();
 
+  /**
+   * The IR union type (M6 unions) of TypeScript types `parts` (the members
+   * whose values reach a union, frontend/unions.ts), if the value model
+   * holds it: each maps to a number, a string, a boolean, an element or a
+   * plain record (no class, no tuple), at most one of each, ordered so.
+   */
+  unionType(parts: ts.Type[], at: ts.Node): Type | undefined {
+    const members: Type[] = [];
+    for (const p of parts) {
+      const t = this.tryMap(p, at);
+      if (t === undefined) return undefined;
+      const rank = unionRank(t);
+      if (rank === undefined) return undefined;
+      if (typeof t === 'object' && 'record' in t) {
+        const r = this.records[t.record];
+        if (!r || r.class || this.isTuple(t.record)) return undefined;
+      }
+      const same = members.find(m => unionRank(m) === rank);
+      if (same !== undefined) {
+        // (`true | false` are both booleans.)
+        if (JSON.stringify(same) !== JSON.stringify(t)) return undefined;
+        continue;
+      }
+      members.push(t);
+    }
+    if (members.length < 2) return undefined;
+    return { union: members.sort((a, b) => unionRank(a)! - unionRank(b)!) };
+  }
+
   private union(members: ts.Type[], at: ts.Node): Type {
     const F = ts.TypeFlags;
     // (`"text" | (string & {})`, svelte/elements' HTMLInputTypeAttribute: string.)
@@ -725,8 +760,17 @@ export class TypeMapper {
       else if (widest >= 0) base = mapped[widest]!;
       // Narrowed by the values that reach it (frontend/unions.ts). (With
       // dynamic values, a union the census rejects is dynamic: `map`.)
-      else if (this.narrow) base = this.map(this.narrow(rest, at, this.fail, this.dynamic), at);
-      else
+      else if (this.narrow) {
+        // (Values of several members a union type holds: that union.)
+        const m = this.narrow(
+          rest,
+          at,
+          this.fail,
+          this.dynamic,
+          found => this.unionType(found, at) !== undefined,
+        );
+        base = Array.isArray(m) ? this.unionType(m, at)! : this.map(m, at);
+      } else
         return this.fail(
           at,
           'E_TYPE_UNION',

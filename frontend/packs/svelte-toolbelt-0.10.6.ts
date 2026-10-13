@@ -173,16 +173,18 @@ function boxValue(lower: Lowerer, t: Type): Type | undefined {
 function functionArg(e: ts.Expression, b: FnBuilder, lower: Lowerer, want: Type): Expr {
   // An inline function whose parameters TypeScript types wider than the
   // value model (a setter of a union TypeScript infers from a prop a
-  // discriminant narrowed): the wanted parameter types.
+  // discriminant narrowed): the wanted parameter types. (Also a union the
+  // census narrowed program-wide, `boxWith`.)
   const fn = skipParens(e);
   const untyped =
     (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) &&
     typeof want === 'object' &&
     'fn' in want &&
     fn.parameters.length === want.fn.params.length &&
-    fn.parameters.some(
-      p => lower.types.tryMap(lower.checker.getTypeAtLocation(p), p) === undefined,
-    );
+    fn.parameters.some(p => {
+      const t = lower.checker.getTypeAtLocation(p);
+      return lower.types.tryMap(t, p) === undefined || lower.unions.narrowedToOne(t);
+    });
   const v = untyped
     ? lower.closure(
         fn as ts.ArrowFunction,
@@ -229,13 +231,16 @@ function boxWith(node: ts.CallExpression, b: FnBuilder, lower: Lowerer): Expr {
     return lower.fail(node, 'E_PACK', `${LABEL}: boxWith takes a getter and an optional setter`);
   // A box of a value TypeScript types `any` or wider than the value model (a
   // prop typed from its sites, or narrowed by a discriminant): the getter's
-  // result type.
+  // result type. (Also a union the census narrowed program-wide, which the
+  // getter's value may hold another member of: bits-ui's Slider boxes its
+  // `value`, `number | number[]` given `number` by its `step`.)
   const current = lower.checker.getTypeAtLocation(node).getProperty('current');
   const currentType = current && lower.checker.getTypeOfSymbolAtLocation(current, node);
   const untyped =
     currentType &&
     (currentType.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) ||
-      lower.types.tryMap(currentType, node) === undefined);
+      lower.types.tryMap(currentType, node) === undefined ||
+      lower.unions.narrowedToOne(currentType));
   let box: Type;
   if (untyped) {
     const g = lower.expr(getter, b);

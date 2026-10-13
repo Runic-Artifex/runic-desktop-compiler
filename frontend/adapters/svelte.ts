@@ -3932,7 +3932,14 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
             // (An unannotated variable whose value has dynamic values in it
             // holds it with that type: M6 dynamic values.)
             const own = lower.valueType(v);
-            if (!d.type && containsDyn(own) && JSON.stringify(own) !== JSON.stringify(type)) {
+            // (So does one of a type mentioning a union the census narrowed,
+            // whose value may be of another member: `unions.mentionsNarrowed`.)
+            if (
+              !d.type &&
+              (containsDyn(own) ||
+                lower.unions.mentionsNarrowed(checker.getTypeAtLocation(d.name))) &&
+              JSON.stringify(own) !== JSON.stringify(type)
+            ) {
               cells[cell].type = own;
               type = own;
             }

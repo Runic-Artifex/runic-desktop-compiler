@@ -89,6 +89,7 @@ Part of the [gap register](../GAPS.md). Rendering details of Blitz, Stylo and Ta
 | `localStorage.key()`, `length`, the `storage` event (runed `PersistedState`); `document.cookie` | E_* | — | A cookie jar like localStorage (M7) | CONTRACT |
 | Console format strings, non-primitive arguments, methods beyond log/info/warn/error/debug | E_BUILTIN | Chromium previews objects | — | validate.rs:196-218; language.ts:7076-7113 |
 | Overlapping clipboard operations; clipboard beyond `writeText`/`readText` | run time / E_CALL | Ordering | — | lib.rs:2107 |
+| `navigator.clipboard` as a value: shadcn-svelte's `copyText` tests `navigator.clipboard && window.isSecureContext` before `writeText` and falls back to a `textarea` with `document.execCommand("copy")` (input-group-button-demo, since 2026-10-13 its first blocker) | E_MEMBER | Only the clipboard's methods are lowered | The presence test as the native runtime's answer (and `isSecureContext`), or the fallback's `execCommand` | language.ts:8451; docs/src/lib/hooks/use-clipboard.svelte.ts:87 |
 | `matchMedia` features beyond prefers-color-scheme, contrast, reduced-motion, width, height, orientation; OS preferences ignored natively | E_BUILTIN | Assumed Chromium defaults | Desktop-input track | validate.rs:1064 |
 | Window title and size at run time; multiple windows | — | M8 packaging | — | ROADMAP |
 | A rejection handler added after the unhandled report | run time | Chromium revokes the report | — | lib.rs:58-67 |

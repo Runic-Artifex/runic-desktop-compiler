@@ -61,6 +61,7 @@ Types follow the value model (D16, [M2-VALUES](design/M2-VALUES.md)). Unit types
 | array | `{"array": T}` | `JsRef<Vec<T>>`: shared, mutable, identity equality |
 | record | `{"record": i}` | generated struct behind `JsRef` (index into `records`) |
 | class reference | `{"class": c}`, `{"classes": [c…]}` | `Obj`: the program's enum of instances by class (a variant per concrete class record holding its `JsRef`); identity equality (M6) |
+| union | `{"union": [T…]}` | `js::Union<R>`: a value of one of two or more members, which it knows, as a JavaScript value does; members in this order, at most one of each: `number`, `string`, `boolean`, `element`, one plain record (no class, no tuple; `R` is its `JsRef`, `js::NoRecord` without one) (M6, below) |
 | map / set | `{"map": [K, V]}` / `{"set": T}` | insertion-ordered, SameValueZero keys |
 | function | `{"fn": {"params": [T…], "result": T}}` | reference-counted closure (a component function's closure keeps its instance) |
 | element | `"element"` | opaque element handle (refs), identity equality |
@@ -92,6 +93,13 @@ Types follow the value model (D16, [M2-VALUES](design/M2-VALUES.md)). Unit types
 - **Dispatch.** `match-class {value, cases: [{record, local, body}], else?}` evaluates the class reference `value`, binds it to the `local` of the case for its exact class (typed as that record) and evaluates its `body`; otherwise `else`, which may be omitted when the cases cover every concrete class. All branches have one type, the result. Frontends call an overridden method through a match over the receiver's classes, each case calling the override its class resolves to; members all classes resolve alike are called directly.
 - **Fields.** `get` and field `assign` accept a class reference when every one of its classes has the same field at that index.
 - Methods of a class with subclasses take the class reference `{"class": c}` as their instance; so do derived field functions declared there, for every subclass's copy of the field.
+
+**Unions** (M6): `{"union": [T…]}` holds values of several members that carry which member they are, so every operation is the member's:
+
+- **Conversions.** `upcast {value, type}` widens a value of a member (or of a union of some of the members) to the union; `downcast {value, type}` narrows a union value to one member or to a union of some members and throws a `TypeError` (`A number where the static type expects string`) when the value is of another member. Both also convert a Maybe of one into a Maybe of the other, where nullish values pass. Frontends upcast wherever a member value meets the union and downcast where TypeScript narrowed one (`typeof`, `instanceof`, null tests): a downcast fails only where the source's static types were unsound.
+- **Dispatch.** `match-union {value, cases: [{type, local, body}], else?}` evaluates the union value, binds it to the `local` of the case for its member (typed as that member) and evaluates its `body`; otherwise `else`, which may be omitted when the cases cover every member. All branches have one type, the result. Frontends lower a method call, a member read, an operator or an `instanceof` test on a union value as a match over its members, each case the construct on that member.
+- **Operations on the union itself** are those of the member it holds: `typeof`, `to-boolean`, `to-string` (also `String(x)`), and `eq`/`ne` (both operands of the union's type: values of different members are never equal; elements and records by identity). `to-number` (also `Number(x)`) and `isNaN`/`isFinite` take a union of primitives only. A union value is stored into deep state as its member is (a record member is proxied).
+- **Dynamic values** box and unbox a union as its member.
 
 Literal values (`lit`) are numbers, strings and booleans. String literals are Unicode text; a literal containing a lone surrogate is rejected by the frontend (`E_STRING`), although computed strings may contain one.
 
@@ -180,8 +188,9 @@ Every expression has a statically known type, which the validator infers and che
 | `closure {function, captures, stable?}` | fn | A function value; `captures` are the caller's local indices. `stable`: one function object per instance (or program), for script-level functions of Svelte and Vue and module functions |
 | `builtin {name, args, type}` | `type` | A catalogue built-in (below) |
 | `with {local, value, body}` | type of `body` | Bind `value` to `local`, then evaluate `body` |
-| `upcast {value, type}`, `downcast {value, type}` | `type` | A class instance as a wider class reference; a class reference as a narrower class type (`TypeError` when it is not; M6) |
+| `upcast {value, type}`, `downcast {value, type}` | `type` | A class instance as a wider class reference; a class reference as a narrower class type (`TypeError` when it is not; M6). Also a member value as a union, and a union value as some of its members (M6 unions) |
 | `match-class {value, cases, else?}` | type of the branches | A branch per exact class of a class reference, binding the instance to the case's `local` (M6) |
+| `match-union {value, cases, else?}` | type of the branches | A branch per member of a union value (`cases: [{type, local, body}]`), binding the value as that member to the case's `local` (M6) |
 | `mapped {rule, guard, fast, reference}` | type of `reference` | Only in migrated schema 3 programs |
 | `slot-provided {name}` | boolean | Whether the running instance was given content for its slot `name` (M6: a snippet prop tested for presence) |
 | `mount {site, target, props?, context?}` | mounted | Mount an instance of mount site `site` of the running function's component (M6, see [components](#components-and-instances)) |

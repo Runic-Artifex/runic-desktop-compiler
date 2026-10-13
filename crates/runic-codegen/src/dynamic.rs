@@ -44,6 +44,22 @@ pub fn box_expr(t: &Type, v: &str, p: &Program) -> String {
             box_expr(i, "x", p)
         ),
         Type::Array(i) if **i == Type::Dyn => format!("js::Dyn::Array({v})"),
+        // A union boxes its member (M6 unions).
+        Type::Union(ms) => {
+            let arms: String = ms
+                .iter()
+                .map(|m| {
+                    format!(
+                        "js::Union::{}(x) => {}, ",
+                        crate::types::union_variant(m),
+                        box_expr(m, "x", p)
+                    )
+                })
+                .collect();
+            format!(
+                "{{ #[allow(unreachable_patterns)] let d = match {v} {{ {arms}_ => unreachable!(\"validated union\") }}; d }}"
+            )
+        }
         Type::Fn(f) => {
             let params: String = f
                 .params
@@ -90,6 +106,30 @@ pub fn unbox_expr(t: &Type, v: &str, p: &Program) -> String {
             unbox_expr(i, "x", p)
         ),
         Type::Array(i) if **i == Type::Dyn => format!("js::dynamic::expect_array(&{v})"),
+        // A union takes a value of one of its members: a primitive, or an
+        // element or record boxed with its own type (never a copy).
+        Type::Union(ms) => {
+            let mut arms = String::new();
+            let ctor = crate::types::union_new(ms);
+            for m in ms {
+                let n = crate::types::union_variant(m);
+                let arm = match m {
+                    Type::Number => format!("js::Dyn::Num(x) => Ok({ctor}::{n}(*x)), "),
+                    Type::String => format!("js::Dyn::Str(x) => Ok({ctor}::{n}(x.clone())), "),
+                    Type::Boolean => format!("js::Dyn::Bool(x) => Ok({ctor}::{n}(*x)), "),
+                    other => format!(
+                        "js::Dyn::Boxed(b) if b.as_any().downcast_ref::<DynV{}>().is_some() => Ok({ctor}::{n}(b.as_any().downcast_ref::<DynV{}>().expect(\"checked\").0.clone())), ",
+                        view(other),
+                        view(other)
+                    ),
+                };
+                arms.push_str(&arm);
+            }
+            format!(
+                "(match &{v} {{ {arms}other => Err(js::dynamic::mismatch({:?}, other)) }})",
+                describe(t, p)
+            )
+        }
         Type::Fn(f) => {
             let n = view(t);
             let params: String = f

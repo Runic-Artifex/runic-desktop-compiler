@@ -689,6 +689,64 @@ impl<'a> FnCtx<'a> {
                 }
             }
             Builtin { name, args, ty } => crate::builtins::emit(self, name, args, ty),
+            // A member value (or a narrower union) as a union (M6 unions).
+            Upcast { value, ty }
+                if matches!(ty, Type::Union(_))
+                    || matches!(ty, Type::Maybe(t) if matches!(**t, Type::Union(_))) =>
+            {
+                let from = self.ty(value);
+                let v = self.expr(value);
+                match (&from, ty) {
+                    (Type::Maybe(a), Type::Maybe(b)) => format!(
+                        "(match {v} {{ Maybe::Some(x) => Maybe::Some({}), Maybe::Null => Maybe::Null, Maybe::Undefined => Maybe::Undefined }})",
+                        crate::types::union_widen(a, b.union_members().expect("union"), "x")
+                    ),
+                    (a, b) => crate::types::union_widen(a, b.union_members().expect("union"), &v),
+                }
+            }
+            Downcast { value, ty }
+                if {
+                    let from = self.ty(value);
+                    matches!(from, Type::Union(_))
+                        || matches!(from, Type::Maybe(ref t) if matches!(**t, Type::Union(_)))
+                } =>
+            {
+                let from = self.ty(value);
+                let v = self.expr(value);
+                let r = match (&from, ty) {
+                    (Type::Maybe(a), Type::Maybe(b)) => format!(
+                        "(match {v} {{ Maybe::Some(x) => ({}).map(Maybe::Some), Maybe::Null => Ok(Maybe::Null), Maybe::Undefined => Ok(Maybe::Undefined) }})",
+                        crate::types::union_narrow(a.union_members().expect("union"), b, "x")
+                    ),
+                    (a, b) => crate::types::union_narrow(a.union_members().expect("union"), b, &v),
+                };
+                let result = rust_type(ty);
+                self.q(&format!("{{ let r: JsResult<{result}> = {r}; r }}"))
+            }
+            MatchUnion {
+                value,
+                cases,
+                otherwise,
+            } => {
+                let v = self.expr(value);
+                let mut arms = String::new();
+                for c in cases {
+                    let assign = self.assign_local(c.local, "x");
+                    let body = self.expr(&c.body);
+                    let _ = write!(
+                        arms,
+                        "js::Union::{}(x) => {{ {assign} {body} }} ",
+                        crate::types::union_variant(&c.ty)
+                    );
+                }
+                let rest = match otherwise {
+                    Option::Some(e) => format!("_ => {{ {} }}", self.expr(e)),
+                    Option::None => "_ => unreachable!(\"validated union\"), ".into(),
+                };
+                format!(
+                    "{{ #[allow(unreachable_patterns)] let u = match {v} {{ {arms}{rest}}}; u }}"
+                )
+            }
             Upcast { value, ty } => {
                 let from = self.ty(value);
                 let v = self.expr(value);

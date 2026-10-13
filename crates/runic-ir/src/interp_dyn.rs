@@ -55,6 +55,11 @@ pub fn box_val(t: &Type, v: Val, records: &Rc<Vec<RecordType>>) -> Val {
             other => box_val(i, other, records),
         },
         Type::Array(i) if **i == Type::Dyn => v,
+        // A union boxes its member (M6 unions).
+        Type::Union(ms) => match ms.iter().find(|m| super::val_is(&v, m)) {
+            Some(m) => box_val(m, v, records),
+            None => unreachable!("validated union value"),
+        },
         _ => {
             let kind = match t {
                 Type::Record(r) if !records[*r].class => BoxKind::Object(
@@ -106,6 +111,15 @@ pub fn unbox_val(t: &Type, v: &Val, records: &Rc<Vec<RecordType>>) -> Res<Val> {
         Type::Array(i) if **i == Type::Dyn => match v {
             Val::Array(_) => Ok(v.clone()),
             _ => fail("an array of dynamic values"),
+        },
+        // A union takes a value of one of its members: a primitive, or an
+        // element or record boxed with its own type (never a copy).
+        Type::Union(ms) => match v {
+            Val::Num(_) if ms.contains(&Type::Number) => Ok(v.clone()),
+            Val::Str(_) if ms.contains(&Type::String) => Ok(v.clone()),
+            Val::Bool(_) if ms.contains(&Type::Boolean) => Ok(v.clone()),
+            Val::Boxed(b) if ms.contains(&b.ty) => Ok(b.value.clone()),
+            _ => fail(&describe(t, records)),
         },
         Type::Fn(f) => match v {
             // The function boxed from this very static type: itself (the
