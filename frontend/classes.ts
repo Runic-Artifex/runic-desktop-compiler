@@ -1660,6 +1660,7 @@ export class Classes {
             },
           });
           info.statics.set(name, { kind: 'cell', global, type, decl: m });
+          if (lower.inPackage(m)) lower.packageGlobals.add(global);
           if (m.initializer)
             pending.push(() => {
               lower.globals[global].init = {
@@ -1679,6 +1680,7 @@ export class Classes {
           init: { op: 'undefined', type: { maybe: 'number' } },
         });
         info.statics.set(name, { kind: 'field', global, decl: m });
+        if (lower.inPackage(m)) lower.packageGlobals.add(global);
         pending.push(() => {
           lower.globals[global].init = lower.value(
             m.initializer!,

@@ -170,6 +170,7 @@ export function packageBindings(
     }
     const global = lower.globals.length;
     lower.globals.push({ name, type, init: value });
+    lower.packageGlobals.add(global);
     const binding: Binding = { kind: 'value', expr: { op: 'global', global } };
     lower.bindings.set(symbol, binding);
     return binding;

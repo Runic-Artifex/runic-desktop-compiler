@@ -4037,6 +4037,8 @@ export async function lowerReact(graph: Graph): Promise<Lowering> {
     for (const value of Object.values(node)) stripEventInstanceOf(value);
   };
   stripEventInstanceOf(ir);
+  // Package globals before the globals that reach them (`orderGlobals`).
+  lower.orderGlobals(ir);
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   // The image URLs image objects can load (M6 images, `new Image()`).
   return lower.imageUrls.length ? { ir, imageUrls: lower.imageUrls } : { ir };

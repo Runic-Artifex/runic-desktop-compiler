@@ -6183,6 +6183,8 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
         w.at,
       );
   }
+  // Package globals before the globals that reach them (`orderGlobals`).
+  lower.orderGlobals(ir);
   (ir as Program & { irHash?: string }).irHash = hash(ir);
   imageUrls.push(...lower.imageUrls);
   return imageUrls.length ? { ir, imageUrls } : { ir };
