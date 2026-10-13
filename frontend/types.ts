@@ -480,7 +480,7 @@ export class TypeMapper {
         const f = fnOf(first);
         const compatible = parts.slice(1).every(p => {
           const sig = p.getCallSignatures()[0];
-          const params = sig.parameters.map(q => this.tryMap(this.checker.getTypeOfSymbol(q), at));
+          const params = sig.parameters.map(q => this.tryMap(this.paramType(q), at));
           const result = sig.getReturnType();
           return (
             !!f &&
@@ -609,6 +609,21 @@ export class TypeMapper {
    * tuple of required items, or a union of such tuples of the same item
    * types (bits-ui's `...args: Parameters<T> | []` with T = `() => void`).
    */
+  /**
+   * The type of signature parameter `p` as callers pass it. A parameter
+   * with a default may be passed undefined (or left out), which takes the
+   * default: TypeScript's type of it is the one inside the body, without
+   * undefined, so it is added (as TypeScript's own `getTypeOfParameter`
+   * does for calls).
+   */
+  paramType(p: ts.Symbol, at?: ts.Node): ts.Type {
+    const t = at ? this.checker.getTypeOfSymbolAtLocation(p, at) : this.checker.getTypeOfSymbol(p);
+    const d = p.valueDeclaration;
+    return d && ts.isParameter(d) && defaulted(d)
+      ? this.checker.getNullableType(t, ts.TypeFlags.Undefined)
+      : t;
+  }
+
   restParams(t: ts.Type, at: ts.Node): Type[] | undefined {
     const parts = t.isUnion() ? t.types : [t];
     const items = parts.map(p => this.tupleItems(p, at));
@@ -961,7 +976,7 @@ export class TypeMapper {
           // (A host function, returning the window or the document: calls
           // of it are that object, `Lowerer.hostName`; it returns nothing.)
           params: sig.parameters.flatMap(p => {
-            const pt = this.checker.getTypeOfSymbolAtLocation(p, at);
+            const pt = this.paramType(p, at);
             // A rest parameter of a tuple type: one parameter per item, as
             // functions declaring it are lowered.
             const decl = p.valueDeclaration;
@@ -1106,9 +1121,7 @@ export class TypeMapper {
         name: '()',
         type: {
           fn: {
-            params: call.parameters.map(p =>
-              this.map(this.checker.getTypeOfSymbolAtLocation(p, at), at),
-            ),
+            params: call.parameters.map(p => this.map(this.paramType(p, at), at)),
             result: this.map(call.getReturnType(), at),
           },
         },
@@ -1553,6 +1566,16 @@ const cssSpread = (t: ts.Type): boolean => {
 };
 
 export const sameType = (a: Type, b: Type) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Whether parameter `p` has a default (`x = 1`; not a rest parameter). */
+export const defaulted = (p: ts.ParameterDeclaration) => !!p.initializer && !p.dotDotDotToken;
+
+/**
+ * The IR type of a parameter as callers pass it, from `t`, its type inside
+ * the function: one with a default may be undefined (`maybe<T>`).
+ */
+export const passedType = (t: Type, p: ts.ParameterDeclaration): Type =>
+  defaulted(p) && maybeInner(t) === undefined ? { maybe: t } : t;
 
 /**
  * Whether TypeScript's type `t` has `any` (or `unknown`) in it: itself, a

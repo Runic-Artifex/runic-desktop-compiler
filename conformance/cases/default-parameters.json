@@ -1,0 +1,13 @@
+{
+  "description": "Parameters with defaults (shared language): direct calls leaving them out or passing undefined (the default, evaluated at call time, left to right, reading earlier parameters; null kept), an arrow's default with an effect run per call, a function value of a type taking fewer arguments, an array callback whose default the index always fills, methods, constructors and super(…) leaving them out, and (Svelte) a runed watch callback whose previous value starts undefined; instanceof of the @internationalized/date classes in untyped helpers given the pack's class union (bits-ui's date utils: hasTime, isZonedDateTime), undefined, and instanceof Date deciding getDaysInMonth's branch for a Date and for a CalendarDate (Svelte, React)",
+  "fixtures": ["default-parameters-svelte", "default-parameters-react"],
+  "actions": [
+    { "kind": "click", "id": "kind" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "kind" },
+    { "kind": "click", "id": "next" },
+    { "kind": "click", "id": "kind" },
+    { "kind": "click", "id": "kind" },
+    { "kind": "click", "id": "next" }
+  ]
+}

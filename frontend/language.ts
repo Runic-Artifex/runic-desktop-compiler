@@ -20,7 +20,7 @@ import {
   type Stmt,
   type Type,
 } from './ir.ts';
-import { containsAny, sameType, TypeMapper, type Fail } from './types.ts';
+import { containsAny, defaulted, passedType, sameType, TypeMapper, type Fail } from './types.ts';
 import {
   arrayElement,
   builtinType,
@@ -779,6 +779,7 @@ export class Lowerer {
       type: Type;
       name: string;
       initializer?: ts.Expression;
+      inner?: Type;
       pattern?: ts.BindingPattern;
       restOf?: ts.Symbol;
     }[] = [];
@@ -836,30 +837,29 @@ export class Lowerer {
         });
         continue;
       }
-      const type =
-        paramTypes?.[pending.length] ?? this.types.map(this.checker.getTypeAtLocation(p), p);
+      // An overridden parameter type also holds where the parameter is read.
+      const given = paramTypes?.[pending.length];
+      const { type, inner } = this.parameterTypes(p, given);
       // A destructured parameter: an unnamed parameter, destructured on entry.
       if (ts.isObjectBindingPattern(p.name) || ts.isArrayBindingPattern(p.name)) {
         pending.push({
           type,
           name: `$param${pending.length}`,
-          initializer: p.initializer,
+          ...(inner !== undefined ? { initializer: p.initializer, inner } : {}),
           pattern: p.name,
         });
         continue;
       }
-      // An overridden parameter type also holds where the parameter is read.
-      const given = paramTypes?.[pending.length];
       // A parameter property (class constructors) also declares a field: the body reads the parameter.
       const symbol = ts.isParameterPropertyDeclaration(p, p.parent)
         ? this.checker.getSymbolsOfParameterPropertyDeclaration(p, p.name.text)[0]
         : this.checker.getSymbolAtLocation(p.name);
-      if (given && symbol) this.types.override(symbol, given);
+      if (given && symbol) this.types.override(symbol, inner ?? given);
       pending.push({
         symbol,
         type,
         name: p.name.text,
-        initializer: p.initializer,
+        ...(inner !== undefined ? { initializer: p.initializer, inner } : {}),
       });
     }
     if (options?.self) {
@@ -1031,50 +1031,139 @@ export class Lowerer {
       type: Type;
       name: string;
       initializer?: ts.Expression;
+      /** With `initializer`: the type of the name in the body (`parameterTypes`). */
+      inner?: Type;
       pattern?: ts.BindingPattern;
       restOf?: ts.Symbol;
     }[],
     lower: () => Stmt[],
   ): Stmt[] {
-    // Lower once to discover captures without registering anything else.
     const params: { index: number; p: (typeof pending)[number] }[] = [];
     for (const p of pending) {
-      const index = b.param(p.name, p.type, !!p.symbol && b.boxed.has(p.symbol));
+      // (A parameter with a default: its name is a local holding the
+      // default or the argument, below.)
+      const defaulted = p.initializer !== undefined && p.inner !== undefined;
+      const index = b.param(p.name, p.type, !defaulted && !!p.symbol && b.boxed.has(p.symbol));
       params.push({ index, p });
-      if (p.symbol) this.bindings.set(p.symbol, { kind: 'local', owner: b, local: index });
+      if (p.symbol && !defaulted)
+        this.bindings.set(p.symbol, { kind: 'local', owner: b, local: index });
       if (p.restOf) {
         const known = this.bindings.get(p.restOf);
         if (known?.kind === 'rest' && known.owner === b) known.locals.push(index);
         else this.bindings.set(p.restOf, { kind: 'rest', owner: b, locals: [index] });
       }
     }
+    // Parameters are initialised left to right, as JavaScript does: a
+    // default is evaluated when the call runs, only where the argument is
+    // undefined (left out or passed), and may read the parameters before it.
     const body: Stmt[] = [];
-    for (const { index, p } of params) {
-      if (p.initializer) {
-        // Default parameter: if (param === undefined) param = default.
-        body.push({
-          op: 'if',
-          test: {
-            op: 'builtin',
-            name: 'maybe.is-undefined',
-            args: [{ op: 'local', local: index }],
-            type: BOOLEAN,
-          },
-          then: [
-            {
-              op: 'assign',
-              target: { place: 'local', local: index },
-              value: this.fitValue(this.expr(p.initializer, b), p.type, b),
-            },
-          ],
-        });
+    for (const [i, { index, p }] of params.entries()) {
+      let value: Expr = { op: 'local', local: index };
+      let type = p.type;
+      if (p.initializer !== undefined && p.inner !== undefined) {
+        this.parameterTdz(
+          p.initializer,
+          params.slice(i).flatMap(({ p: q }) => (q.symbol ? [q.symbol] : [])),
+        );
+        type = p.inner;
+        value = this.defaultValue(value, p.type, p.inner, p.initializer, b);
+        const local = b.local(p.name, type, !!p.symbol && b.boxed.has(p.symbol));
+        body.push({ op: 'let', local, value });
+        value = { op: 'local', local };
+        if (p.symbol) this.bindings.set(p.symbol, { kind: 'local', owner: b, local });
       }
+      if (p.pattern) body.push(...this.destructure(p.pattern, value, type, b));
     }
-    for (const { index, p } of params)
-      if (p.pattern)
-        body.push(...this.destructure(p.pattern, { op: 'local', local: index }, p.type, b));
     body.push(...lower());
     return body;
+  }
+
+  /**
+   * The IR types of parameter `p` (`given`: the type its callers pass,
+   * where they fix it): `type`, the parameter's, and, for one with a
+   * default that may apply, `inner`, the type of its name in the body,
+   * where it holds the argument or the default (TypeScript's type there,
+   * without undefined). Callers may leave out or pass undefined for such a
+   * parameter, so its type is nullable; where `given` is not, it is never
+   * undefined and the default never applies.
+   */
+  parameterTypes(p: ts.ParameterDeclaration, given?: Type): { type: Type; inner?: Type } {
+    if (!defaulted(p) || (given === undefined && this.passedPresent(p)))
+      return { type: given ?? this.types.map(this.checker.getTypeAtLocation(p), p) };
+    if (given === undefined) {
+      const inner = this.types.map(this.checker.getTypeAtLocation(p), p);
+      return { type: passedType(inner, p), inner };
+    }
+    const g = maybeInner(given);
+    if (g === undefined) return { type: given };
+    const t = this.checker.getTypeAtLocation(p);
+    const body =
+      t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown) ? undefined : this.types.tryMap(t, p);
+    return {
+      type: given,
+      inner: body !== undefined && (sameType(body, g) || sameType(body, given)) ? body : given,
+    };
+  }
+
+  /**
+   * Whether parameter `p` of a function expression is always passed a value
+   * that is not undefined: its context's function type has it, of a type
+   * without undefined (`[…].map((x, i = 0) => …)`, whose index is a number).
+   * Its default never applies then.
+   */
+  private passedPresent(p: ts.ParameterDeclaration): boolean {
+    const fn = p.parent;
+    if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false;
+    const sigs = this.checker.getContextualType(fn)?.getCallSignatures();
+    if (sigs?.length !== 1) return false;
+    const i = fn.parameters.indexOf(p);
+    const q = sigs[0].parameters[i];
+    const d = q?.valueDeclaration;
+    if (!q || (d && ts.isParameter(d) && (d.dotDotDotToken || d.questionToken))) return false;
+    const t = this.types.paramType(q, p);
+    const loose =
+      ts.TypeFlags.Undefined | ts.TypeFlags.Void | ts.TypeFlags.Any | ts.TypeFlags.Unknown;
+    return !(t.isUnion() ? t.types : [t]).some(x => x.flags & loose);
+  }
+
+  /**
+   * The value of a parameter with a default (`arg`, of type `type`) as its
+   * name holds it (of type `inner`): the default where it is undefined
+   * (not where it is null), else the argument.
+   */
+  defaultValue(arg: Expr, type: Type, inner: Type, initializer: ts.Expression, b: FnBuilder): Expr {
+    const fallback = this.fitValue(this.coerce(initializer, b, inner), inner, b);
+    return {
+      op: 'cond',
+      test: { op: 'builtin', name: 'maybe.is-undefined', args: [arg], type: BOOLEAN },
+      then: fallback,
+      // (Null where the name's type holds none only where the static types
+      // were unsound: a TypeError.)
+      else:
+        maybeInner(inner) === undefined && maybeInner(type) !== undefined
+          ? { op: 'unwrap', value: arg }
+          : arg,
+    };
+  }
+
+  /**
+   * A default reading its own parameter or a later one (`(a = b, b) => …`)
+   * reads it before it is initialised: a ReferenceError in JavaScript. (A
+   * function in the default reads it when it is called, later.)
+   */
+  private parameterTdz(initializer: ts.Expression, later: ts.Symbol[]): void {
+    const visit = (n: ts.Node, inner: boolean): void => {
+      if (ts.isIdentifier(n) && later.includes(this.checker.getSymbolAtLocation(n)!))
+        this.fail(
+          n,
+          'E_FUNCTION',
+          inner
+            ? `A function in the default refers to ${n.text}, a parameter after it (unsupported: it would read the parameter once it is initialised)`
+            : `The default reads ${n.text} before it is initialised (a ReferenceError in JavaScript)`,
+        );
+      ts.forEachChild(n, c => visit(c, inner || ts.isFunctionLike(n)));
+    };
+    visit(initializer, false);
   }
 
   functionBody(decl: ts.FunctionLikeDeclaration, b: FnBuilder): Stmt[] {
@@ -1550,6 +1639,37 @@ export class Lowerer {
           if (!ts.isIdentifier(other)) effects.push(other);
           return (loose || only === lit) === eq;
         }
+      }
+      // `x instanceof Date` of a local or member the IR type decides, and
+      // `x instanceof C` of one TypeScript types `any` (untyped JavaScript
+      // specialised per call site: bits-ui's `getDaysInMonth(date)` given a
+      // `DateValue`): one branch, as for `typeof` above; the other may not
+      // be typable for this type.
+      if (op === K.InstanceOfKeyword && ts.isIdentifier(e.right)) {
+        const cls = this.binding(e.right);
+        const date = this.globalName(e.right) === 'Date';
+        const untyped = !!(
+          this.checker.getTypeAtLocation(e.left).flags &
+          (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
+        );
+        if (date || (cls?.kind === 'class' && untyped)) {
+          readEffect = undefined;
+          const t = typeOfLocal(e.left);
+          const inner = t === undefined ? undefined : (maybeInner(t) ?? t);
+          const known =
+            t === undefined || inner === 'dyn'
+              ? undefined
+              : date
+                ? inner !== 'date'
+                  ? false
+                  : maybeInner(t) === undefined || undefined
+                : this.classes.instanceTruth((cls as { cls: ClassInfo }).cls, t);
+          if (known !== undefined) {
+            if (readEffect) effects.push(readEffect);
+            return known;
+          }
+        }
+        return undefined;
       }
       // A prop that takes one value at every site (a discriminant, bits-ui's
       // `type`) compared with a string.
@@ -6106,21 +6226,40 @@ export class Lowerer {
       maybeInner(t.result) !== undefined &&
       maybeInner(f.result) === undefined &&
       sameType(f.result, maybeInner(t.result)!);
+    // (Also a function whose parameters may be undefined where the expected
+    // type passes values (`(x: number, y = 1) => …` as `(x: number) =>
+    // number`), and fewer of them: those left out are undefined, as when
+    // JavaScript calls it with fewer arguments, and take their defaults.)
+    const optional = (p: Type, i: number) =>
+      i < t.params.length
+        ? sameType(p, t.params[i]) ||
+          (maybeInner(p) !== undefined &&
+            maybeInner(t.params[i]) === undefined &&
+            sameType(maybeInner(p)!, t.params[i]))
+        : maybeInner(p) !== undefined;
+    const exact =
+      f.params.length <= t.params.length && f.params.every((p, i) => sameType(p, t.params[i]));
+    if (!f.params.every(optional)) return undefined;
     if (
-      f.params.length > t.params.length ||
-      (f.params.length === t.params.length &&
-        !(t.result === 'void' && f.result !== 'void') &&
-        !undefinedResult &&
-        !widened)
+      exact &&
+      f.params.length === t.params.length &&
+      !(t.result === 'void' && f.result !== 'void') &&
+      !undefinedResult &&
+      !widened
     )
       return undefined;
-    if (!f.params.every((p, i) => sameType(p, t.params[i]))) return undefined;
     if (!(sameType(f.result, t.result) || t.result === 'void' || undefinedResult || widened))
       return undefined;
     const call: Expr = {
       op: 'call-value',
       callee: { op: 'local', local: 0 },
-      args: f.params.map((_, i) => ({ op: 'local', local: i + 1 }) as Expr),
+      args: f.params.map((p, i) =>
+        i >= t.params.length
+          ? ({ op: 'undefined', type: p } as Expr)
+          : sameType(p, t.params[i])
+            ? ({ op: 'local', local: i + 1 } as Expr)
+            : ({ op: 'some', value: { op: 'local', local: i + 1 } } as Expr),
+      ),
     };
     const adapter = this.reserve();
     this.functions[adapter] = {
@@ -6164,6 +6303,11 @@ export class Lowerer {
   recordView(e: ts.Expression, v: Expr, t: Type, target: Type, b: FnBuilder): Expr | undefined {
     const rec = (x: Type) => (typeof x === 'object' && 'record' in x ? x.record : undefined);
     const from = rec(t);
+    // (Where a nullable one is expected (an optional parameter): the view.)
+    if (maybeInner(target) !== undefined && from !== undefined) {
+      const view = this.recordView(e, v, t, maybeInner(target)!, b);
+      return view && { op: 'some', value: view };
+    }
     const to = rec(target);
     if (from === undefined || to === undefined || from === to) return undefined;
     const rf = this.types.records[from];
@@ -6187,12 +6331,25 @@ export class Lowerer {
       return pt !== undefined && JSON.stringify(pt) === JSON.stringify(rt.fields[i].type);
     };
     const unwrapped = index.map((j, i) => j >= 0 && present(j, i));
+    // (A field that is always present where the view's may be absent: its
+    // value, as a nullable one. Not for a merged record of options types,
+    // which `toMerged` copies.)
+    const wrapped = index.map(
+      (j, i) =>
+        j >= 0 &&
+        !unwrapped[i] &&
+        !this.types.merged.has(to) &&
+        maybeInner(rt.fields[i].type) !== undefined &&
+        maybeInner(rf.fields[j].type) === undefined &&
+        sameType(rf.fields[j].type, maybeInner(rt.fields[i].type)!),
+    );
     if (
       index.some(
         (j, i) =>
           j < 0 ||
           (JSON.stringify(rf.fields[j].type) !== JSON.stringify(rt.fields[i].type) &&
-            !unwrapped[i]),
+            !unwrapped[i] &&
+            !wrapped[i]),
       )
     )
       return undefined;
@@ -6252,7 +6409,11 @@ export class Lowerer {
         record: to,
         fields: index.map((j, i): Expr => {
           const read: Expr = { op: 'get', object: { op: 'local', local }, field: j };
-          return unwrapped[i] ? { op: 'unwrap', value: read } : read;
+          return unwrapped[i]
+            ? { op: 'unwrap', value: read }
+            : wrapped[i]
+              ? { op: 'some', value: read }
+              : read;
         }),
       },
     };
@@ -7492,6 +7653,25 @@ export class Lowerer {
     if (op === K.InstanceOfKeyword && ts.isIdentifier(e.right)) {
       const cls = this.binding(e.right);
       if (cls?.kind === 'class') return this.classes.instanceOf(cls.cls, e.left, b);
+      // `x instanceof Date`: decided by the IR type of `x`, as values of
+      // the `date` type are the Date objects and no other value is one
+      // (bits-ui's `getDaysInMonth(date)` of a `Date | DateValue`, given a
+      // class instance). A dynamic value says nothing statically.
+      if (this.globalName(e.right) === 'Date') {
+        const v = this.expr(e.left, b);
+        const t = this.irType(v, b);
+        const inner = maybeInner(t) ?? t;
+        if (inner === 'dyn')
+          return this.fail(e, 'E_EXPRESSION', 'instanceof Date of a dynamic value is unsupported');
+        if (inner === 'date' && maybeInner(t) !== undefined)
+          return {
+            op: 'not',
+            arg: { op: 'builtin', name: 'maybe.is-nullish', args: [v], type: BOOLEAN },
+          };
+        // (Evaluated for its effects; the answer is static.)
+        const tmp = b.local('$instanceof', t);
+        return { op: 'with', local: tmp, value: v, body: { op: 'lit', value: inner === 'date' } };
+      }
       // bits-ui's isHTMLElement: an element value is an HTMLElement unless it
       // is in the SVG namespace (an event target).
       // Every element value is an Element (and a Node).
@@ -10334,6 +10514,12 @@ export class Lowerer {
     }
     if (ts.isPropertyAccessExpression(callee)) {
       const method = callee.name.text;
+      // `[n, label, done].join(' ')`: an array literal of primitives of
+      // several types, joined at once (`literalJoin`).
+      if (method === 'join') {
+        const joined = this.literalJoin(callee, e, b);
+        if (joined) return joined;
+      }
       // A function of a build-time constant called with literal arguments
       // (bits-ui's `popoverAttrs.selector("trigger")`): called at build time,
       // as the constant was made (an import-free module's code).
@@ -12068,8 +12254,19 @@ export class Lowerer {
         args.push({ op: 'unwrap', value: v });
       else args.push(v);
     });
+    // Parameters left out that have a default TypeScript types (`= 1`):
+    // undefined, which takes the default (`withParams`).
+    for (const p of g.decl.parameters.slice(e.arguments.length)) {
+      const t = this.checker.getTypeAtLocation(p);
+      const mapped =
+        defaulted(p) && !(t.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+          ? this.types.tryMap(t, p)
+          : undefined;
+      if (mapped === undefined) break;
+      args.push({ op: 'undefined', type: passedType(mapped, p) });
+    }
     const types = args.map(a => this.irType(a, b));
-    if (e.arguments.length < g.decl.parameters.length)
+    if (args.length + inline.size < g.decl.parameters.length)
       this.fail(
         e,
         'E_TYPE_UNSUPPORTED',
@@ -12704,7 +12901,7 @@ export class Lowerer {
       if (!sig || !callee || sig.parameters.length < items.length)
         return this.fail(e, 'E_CALL', 'A rest parameter is spread into a call of known parameters');
       return sig.parameters.map((p, i) => {
-        const pt = this.types.map(this.checker.getTypeOfSymbol(p), e);
+        const pt = this.types.map(this.types.paramType(p), e);
         const arg = items[i];
         if (!arg) return { op: 'undefined', type: pt } as Expr;
         if (!('op' in arg)) return this.coerce(arg, b, pt);
@@ -12778,7 +12975,8 @@ export class Lowerer {
         });
     }
     return sig.parameters.flatMap((p, i) => {
-      let t = this.checker.getTypeOfSymbolAtLocation(p, e);
+      // (One with a default is passed undefined where it is left out.)
+      let t = this.types.paramType(p, e);
       // (A parameter declared of a bound type parameter, `detail?: T` of a
       // generic class's instantiation: the binding, `TypeMapper.typeParameter`.)
       const declared = callee && 'parameters' in callee ? callee.parameters[i]?.type : undefined;
@@ -15953,6 +16151,104 @@ export class Lowerer {
     return { op: 'closure', function: index, captures: builder.captureSources.map(c => c.local) };
   }
 
+  /**
+   * `[a, b, c].join(sep)` of an array literal whose elements are primitives
+   * of several types (`[count, label, done].join(' ')`): an IR array holds
+   * one type, but no other code sees this array, so the join is lowered as
+   * JavaScript computes it: the elements in order, then the separator (`,`
+   * where it is left out or undefined), each element converted by ToString,
+   * null and undefined as the empty string. Undefined where the literal's
+   * elements are of one type (an ordinary array) or not all primitives.
+   */
+  private literalJoin(
+    callee: ts.PropertyAccessExpression,
+    e: ts.CallExpression,
+    b: FnBuilder,
+  ): Expr | undefined {
+    const lit = skipParens(callee.expression);
+    if (
+      !ts.isArrayLiteralExpression(lit) ||
+      callee.questionDotToken ||
+      e.arguments.length > 1 ||
+      e.arguments.some(ts.isSpreadElement) ||
+      !lit.elements.length ||
+      lit.elements.some(el => ts.isSpreadElement(el) || ts.isOmittedExpression(el))
+    )
+      return undefined;
+    const F = ts.TypeFlags;
+    // The primitive kind TypeScript gives an element (null where it only
+    // holds null or undefined, undefined where it is no primitive).
+    const kindOf = (el: ts.Expression): string | null | undefined => {
+      const t = this.checker.getTypeAtLocation(el);
+      const parts = (t.isUnion() ? t.types : [t]).filter(
+        p => !(p.flags & (F.Null | F.Undefined | F.Void)),
+      );
+      if (!parts.length) return null;
+      const kinds = new Set(
+        parts.map(p =>
+          p.flags & F.StringLike
+            ? 'string'
+            : p.flags & F.NumberLike
+              ? 'number'
+              : p.flags & F.BooleanLike
+                ? 'boolean'
+                : 'other',
+        ),
+      );
+      return kinds.size === 1 && !kinds.has('other') ? [...kinds][0] : undefined;
+    };
+    const kinds = lit.elements.map(kindOf);
+    if (kinds.some(k => k === undefined) || new Set(kinds.filter(k => k !== null)).size < 2)
+      return undefined;
+    const read = (l: number): Expr => ({ op: 'local', local: l });
+    const values = lit.elements.map(el => this.expr(el, b));
+    const types = values.map(v => this.irType(v, b));
+    const locals = types.map(t => b.local('$item', t));
+    let separator: { local: number; value: Expr } | undefined;
+    const arg = e.arguments[0];
+    const bare = arg && skipParens(arg);
+    if (bare && !(ts.isIdentifier(bare) && bare.text === 'undefined' && !this.binding(bare))) {
+      const value = this.expr(arg, b);
+      if (this.irType(value, b) !== STRING)
+        return this.fail(
+          arg,
+          'E_CALL',
+          'The separator of a join of values of several types is a string here',
+        );
+      separator = { local: b.local('$separator', STRING), value };
+    }
+    const sep: Expr = separator ? read(separator.local) : { op: 'lit', value: ',' };
+    const text = (x: Expr, t: Type, at: ts.Node): Expr => {
+      if (t === STRING) return x;
+      if (t === NUMBER || t === BOOLEAN) return { op: 'to-string', arg: x };
+      const inner = maybeInner(t);
+      if (inner === 'void') return { op: 'lit', value: '' };
+      if (inner === STRING || inner === NUMBER || inner === BOOLEAN)
+        return {
+          op: 'cond',
+          test: { op: 'builtin', name: 'maybe.is-nullish', args: [x], type: BOOLEAN },
+          then: { op: 'lit', value: '' },
+          else: text({ op: 'unwrap', value: x }, inner, at),
+        };
+      return this.fail(
+        at,
+        'E_CALL',
+        `A join of values of several types converts numbers, strings and booleans (and null and undefined); this one is ${JSON.stringify(t)}`,
+      );
+    };
+    let body: Expr = text(read(locals[0]), types[0], lit.elements[0]);
+    for (let i = 1; i < locals.length; i++)
+      body = {
+        op: 'concat',
+        left: { op: 'concat', left: body, right: sep },
+        right: text(read(locals[i]), types[i], lit.elements[i]),
+      };
+    if (separator) body = { op: 'with', local: separator.local, value: separator.value, body };
+    for (let i = locals.length - 1; i >= 0; i--)
+      body = { op: 'with', local: locals[i], value: values[i], body };
+    return body;
+  }
+
   private array(e: ts.ArrayLiteralExpression, b: FnBuilder): Expr {
     const [only] = e.elements;
     if (
@@ -16058,7 +16354,20 @@ export class Lowerer {
         return { spread };
       }
       this.expected.set(skipParens(el), t.array);
-      return this.coerce(el, b, t.array);
+      const item = this.coerce(el, b, t.array);
+      // An element of another type than the array's (`[count, label]`,
+      // where the union census gave the array one member's type): an IR
+      // array holds one type, so it is rejected here (joined at once, it is
+      // lowered as a join, `literalJoin`).
+      const have = this.irType(item, b);
+      if (sameType(have, t.array)) return item;
+      const fitted = this.fitValue(item, t.array, b);
+      if (sameType(this.irType(fitted, b), t.array)) return fitted;
+      return this.fail(
+        el,
+        'E_ARRAY',
+        `An element of type ${JSON.stringify(have)} in an array of ${JSON.stringify(t.array)}: an array holds values of one type (an array literal of numbers, strings and booleans is covered where it is joined at once, [a, b].join(sep))`,
+      );
     });
     return { op: 'array', type: t, items };
   }

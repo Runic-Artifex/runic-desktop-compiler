@@ -3949,7 +3949,10 @@ export async function lowerSvelte(graph: Graph): Promise<Lowering> {
               cells[cell].type = own;
               type = own;
             }
-            cells[cell].init = coerceInit(v, own, type, lower.types.records);
+            // (A function value of a type taking fewer arguments, or values
+            // where its parameters may be undefined: `adaptFunction`.)
+            cells[cell].init =
+              lower.adaptFunction(v, own, type) ?? coerceInit(v, own, type, lower.types.records);
           });
         }
         continue;
