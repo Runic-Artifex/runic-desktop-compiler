@@ -216,7 +216,10 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   // Reported, with the line of the rule or declaration.
   await check('p { color: red }\n@container style(--x: 1) { p { color: blue } }', 'E_CSS', 2);
   await check('p { color: red }\np { container-type: scroll-state }', 'E_CSS_PROPERTY', 2);
-  await check('p { color: red }\np::before { line-clamp: 2 }', 'E_CSS_PROPERTY', 2);
+  await check('p { color: red }\np::before { -webkit-text-fill-color: red }', 'E_CSS_PROPERTY', 2);
+  // Chromium 153 does not parse the standard `line-clamp` (CSSLineClamp is
+  // off), nor properties it does not know: both engines drop them.
+  await check('p::before { line-clamp: 2; p-a-d-d-i-n-g: 2px }', undefined);
   // `field-sizing` does not apply to pseudo-elements.
   await check('p { color: red }\np::before { field-sizing: content }', undefined);
   // A declaration Stylo drops from a rule with matchable selectors is a
@@ -228,7 +231,9 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
       { 's.css': css },
     );
   assert.deepEqual(
-    (await guards('p { color: red }\n.a, .b > p { line-clamp: 2 }')).map(g => g.selector),
+    (await guards('p { color: red }\n.a, .b > p { -webkit-text-fill-color: red }')).map(
+      g => g.selector,
+    ),
     ['.a, .b > p'],
   );
   // Blitz sizes text areas and text-like inputs by their content; the other
@@ -315,8 +320,8 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   assert.deepEqual(
     (
       await guards(
-        '.a { -webkit-text-decoration-color: red !important; text-decoration-color: blue }\n' +
-          '.b { text-decoration-color: blue; -webkit-text-decoration-color: red }\n' +
+        '.a { -webkit-margin-end: 1px !important; margin-inline-end: 2px }\n' +
+          '.b { margin-inline-end: 2px; -webkit-margin-end: 1px }\n' +
           '.c { th { text-align: inherit; text-align: -webkit-match-parent } }',
       )
     ).map(g => g.selector),

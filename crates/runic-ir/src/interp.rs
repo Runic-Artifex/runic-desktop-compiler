@@ -1172,6 +1172,19 @@ fn throw_diag(t: Throw) -> Diagnostic {
 }
 
 impl<'p> Machine<'p> {
+    /// An inline style declaration outside the CSS contract is reported when
+    /// it is set (runic_css::inline), as the runtime reports it.
+    fn report_inline_style(&mut self, tag: &str, input_type: Option<&str>, css: &str) {
+        let tag = tag.to_ascii_lowercase();
+        let element = runic_css::inline::Element {
+            tag: &tag,
+            input_type,
+        };
+        if let Some(problem) = runic_css::inline::problems(css, element).first() {
+            self.unsupported.get_or_insert(problem.message());
+        }
+    }
+
     pub fn new(program: &'p Program) -> Result<Self> {
         Self::with_storage(program, vec![])
     }
@@ -5071,6 +5084,10 @@ impl<'p> Machine<'p> {
                         other => panic!("validated attribute, found {other:?}"),
                     }
                 }
+                if let Some(css) = map.get("style") {
+                    let css = css.clone();
+                    self.report_inline_style(tag, map.get("type").map(String::as_str), &css);
+                }
                 if !classes.is_empty() {
                     let value = match attrs.iter().find(|a| a.name == "class") {
                         Some(a) => self.eval(&a.value, frame)?.string(),
@@ -5122,6 +5139,14 @@ impl<'p> Machine<'p> {
                     let mut properties = vec![];
                     for p in styles {
                         properties.push((p.name.as_str(), text(self.eval(&p.value, frame)?)));
+                    }
+                    let input_type = map.get("type").cloned();
+                    for css in value.iter().flatten().cloned().chain(
+                        properties
+                            .iter()
+                            .filter_map(|(n, v)| v.as_ref().map(|v| format!("{n}: {v}"))),
+                    ) {
+                        self.report_inline_style(tag, input_type.as_deref(), &css);
                     }
                     if *style_update == StyleUpdate::Replace {
                         let (mut state, current) =
@@ -5176,6 +5201,8 @@ impl<'p> Machine<'p> {
                         // Values Svelte's spread sets otherwise (M6).
                         match (name, v) {
                             ("style", Val::Str(s)) => {
+                                let input_type = map.get("type").cloned();
+                                self.report_inline_style(tag, input_type.as_deref(), &s.to_rust());
                                 // Through the CSSOM (`style.cssText`), when the value changed.
                                 let (mut state, current) =
                                     self.style_states.remove(&id).unwrap_or_default();

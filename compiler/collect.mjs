@@ -3,7 +3,7 @@ import ts from 'typescript';
 import postcss from 'postcss';
 import valueParser from 'postcss-value-parser';
 import { readFile, realpath } from 'node:fs/promises';
-import { globSync, statSync } from 'node:fs';
+import { globSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { frontendTooling } from './adapters/tooling.mjs';
@@ -1068,14 +1068,22 @@ function preferenceGuards(css, file) {
   return guards;
 }
 
+// The properties Chromium 153 parses in a declaration block, measured
+// (crates/runic-css/src/chromium-properties.txt, shared with the inline
+// style checks of runic_css::inline).
+const CHROMIUM_PROPERTIES = new Set(
+  readFileSync(new URL('../crates/runic-css/src/chromium-properties.txt', import.meta.url), 'utf8')
+    .split('\n')
+    .filter(Boolean),
+);
+
 /**
- * Whether Chromium 153 drops every declaration of the property `prop`: Blink
- * defines no `-moz-`, `-o-` or `-ms-` property (css_properties.json5 at
- * 153.0.8010.12; measured: `CSS.supports` is false for each of its longhands
- * with these prefixes). A declaration both engines drop is equivalent.
+ * Whether Chromium 153 drops every declaration of the property `prop`: one
+ * it does not parse (every `-moz-`, `-o-` and `-ms-` property among them).
+ * A declaration both engines drop is equivalent.
  */
 function chromiumDrops(prop) {
-  return /^-(moz|o|ms)-/i.test(prop);
+  return !prop.startsWith('--') && !CHROMIUM_PROPERTIES.has(prop.toLowerCase());
 }
 
 // `-webkit-` properties Chromium 153 keeps apart from their standard

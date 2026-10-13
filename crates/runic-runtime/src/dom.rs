@@ -1404,6 +1404,7 @@ impl Host {
     pub fn style_set_text(&self, node: u64, css: &str) {
         let Some(mut dom) = self.dom() else { return };
         let node = NodeId::from_u64(node);
+        dom.check_inline_style(node, css);
         let text = runic_css::css_text(css);
         if let Some(dropped) = runic_css::dropped_declaration(css) {
             crate::unsupported(&format!(
@@ -1527,6 +1528,9 @@ impl Host {
             .get_node(node)
             .and_then(|n| n.attr("style".into()))
             .map(str::to_owned);
+        if !value.is_empty() {
+            dom.check_inline_style(node, &format!("{name}: {value}"));
+        }
         let next = if value.is_empty() {
             current
                 .as_deref()
@@ -1765,6 +1769,26 @@ fn focus_event(
     (event, kind, deliveries)
 }
 
+thread_local! {
+    static INLINE_STYLE_REPORTS: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Report an inline style problem once (runic_css::inline).
+fn report_inline_style_once(message: String) {
+    let first = INLINE_STYLE_REPORTS.with(|r| {
+        let mut r = r.borrow_mut();
+        let first = !r.contains(&message);
+        if first {
+            r.push(message.clone());
+        }
+        first
+    });
+    if first {
+        crate::unsupported(&message);
+    }
+}
+
 pub struct Dom<'a> {
     pub(crate) doc: &'a mut BaseDocument,
     pub(crate) listeners: &'a mut Listeners,
@@ -1943,6 +1967,9 @@ impl Dom<'_> {
     }
 
     pub fn set_attr(&mut self, node: NodeId, name: &str, value: &str) {
+        if name == "style" {
+            self.check_inline_style(node, value);
+        }
         self.over_script(node, name, Some(value));
         self.doc.mutate().set_attribute(node, attr(name), value);
     }
@@ -1981,6 +2008,11 @@ impl Dom<'_> {
 
     /// Optional attributes are present iff `value` is Some.
     pub fn set_opt_attr(&mut self, node: NodeId, name: &str, value: Option<&str>) {
+        if name == "style"
+            && let Some(css) = value
+        {
+            self.check_inline_style(node, css);
+        }
         self.over_script(node, name, value);
         let mut m = self.doc.mutate();
         match value {
@@ -2167,6 +2199,48 @@ impl Dom<'_> {
         self.radios_connected(nodes);
     }
 
+    /// An inline style declaration outside the CSS contract is reported
+    /// when it is set (runic_css::inline: the checks stylesheet
+    /// declarations get; the build rejects literal ones a stylesheet would
+    /// be rejected for), once each.
+    pub(crate) fn check_inline_style(&self, node: NodeId, css: &str) {
+        let Some(n) = self.doc.get_node(node) else {
+            return;
+        };
+        let Some(element) = n.element_data() else {
+            return;
+        };
+        let tag = element.name.local.to_ascii_lowercase();
+        let input_type = n.attr("type".into()).map(str::to_owned);
+        for problem in runic_css::inline::problems(
+            css,
+            runic_css::inline::Element {
+                tag: &tag,
+                input_type: input_type.as_deref(),
+            },
+        ) {
+            report_inline_style_once(problem.message());
+        }
+    }
+
+    /// `check_inline_style` for a style value and properties before they
+    /// are composed (composing drops the declarations Stylo does not parse).
+    fn check_raw_style(
+        &self,
+        node: NodeId,
+        value: Option<&str>,
+        properties: &[(&str, Option<String>)],
+    ) {
+        if let Some(css) = value {
+            self.check_inline_style(node, css);
+        }
+        for (name, value) in properties {
+            if let Some(value) = value {
+                self.check_inline_style(node, &format!("{name}: {value}"));
+            }
+        }
+    }
+
     /// Whether `node` is an element with tag `tag`.
     fn tag_is(&self, node: NodeId, tag: &str) -> bool {
         self.doc
@@ -2228,6 +2302,7 @@ impl Dom<'_> {
                     continue;
                 }
                 ("style", AttrValue::Text(t)) => {
+                    self.check_inline_style(node, &t.to_rust());
                     // `style.cssText`, when the value changed.
                     let current = self
                         .doc
@@ -2506,6 +2581,7 @@ impl Dom<'_> {
         properties: &[(&str, Option<String>)],
         state: &mut runic_css::StyleState,
     ) {
+        self.check_raw_style(node, value.as_deref(), properties);
         let current = self
             .doc
             .get_node(node)
@@ -2524,6 +2600,7 @@ impl Dom<'_> {
         properties: &[(&str, Option<String>)],
         state: &mut runic_css::StyleState,
     ) {
+        self.check_raw_style(node, None, properties);
         let current = self
             .doc
             .get_node(node)
@@ -2542,6 +2619,7 @@ impl Dom<'_> {
         value: Option<String>,
         state: &mut runic_css::ReplaceState,
     ) {
+        self.check_raw_style(node, value.as_deref(), &[]);
         if let Ok(next) = state.apply_text(value) {
             self.set_opt_attr(node, "style", next.as_deref());
         }
@@ -2554,6 +2632,7 @@ impl Dom<'_> {
         properties: &[(&str, Option<String>)],
         state: &mut runic_css::ReplaceState,
     ) {
+        self.check_raw_style(node, None, properties);
         let current = self
             .doc
             .get_node(node)

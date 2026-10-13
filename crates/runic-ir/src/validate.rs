@@ -255,6 +255,64 @@ fn err<T>(code: &str, message: impl Into<String>, source: Option<&Source>) -> Re
     Err(Diagnostic::new(code, message, source))
 }
 
+/// A string literal (also wrapped as a `maybe` value).
+fn literal_string(e: &Expr) -> Option<&str> {
+    match e {
+        Expr::Lit {
+            value: Value::String(s),
+        } => Some(s),
+        Expr::Some { value } => literal_string(value),
+        _ => None,
+    }
+}
+
+/// Inline styles get the stylesheet's CSS checks (runic_css::inline,
+/// docs/CONTRACT.md): a literal declaration a stylesheet would be rejected
+/// for is rejected here (`E_CSS_PROPERTY`); those a stylesheet would report
+/// where its rule applies, and values known only at run time, are reported
+/// by the runtime when the style is set.
+fn inline_style_check(
+    tag: &str,
+    attrs: &[Attr],
+    style_text: Option<&Expr>,
+    styles: &[Attr],
+    src: Option<&Source>,
+) -> Result<()> {
+    let tag = tag.to_ascii_lowercase();
+    let element = runic_css::inline::Element {
+        tag: &tag,
+        input_type: attrs
+            .iter()
+            .find(|a| a.name == "type")
+            .and_then(|a| literal_string(&a.value)),
+    };
+    let texts =
+        attrs
+            .iter()
+            .filter(|a| a.name == "style")
+            .filter_map(|a| literal_string(&a.value).map(str::to_owned))
+            .chain(style_text.and_then(literal_string).map(str::to_owned))
+            .chain(styles.iter().filter_map(|a| {
+                literal_string(&a.value).map(|value| format!("{}: {value}", a.name))
+            }));
+    for css in texts {
+        if let Some(problem) = runic_css::inline::problems(&css, element)
+            .into_iter()
+            .find(|p| p.kind == runic_css::inline::Kind::Reject)
+        {
+            return err(
+                "E_CSS_PROPERTY",
+                format!(
+                    "Unsupported CSS declaration {} in an inline style: {}",
+                    problem.declaration, problem.reason
+                ),
+                src,
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Literal arguments of host-service built-ins (docs/design/M5-PLATFORM.md):
 /// - a console call whose first argument is a string followed by more
 ///   arguments uses it as a format string: Chromium converts the arguments
@@ -3199,6 +3257,7 @@ impl<'p> NodeCx<'_, 'p> {
                         src,
                     );
                 }
+                inline_style_check(tag, attrs, style_text.as_ref(), styles, src)?;
                 for t in classes {
                     if s.infer(&t.value, 0, src)? != Type::Boolean {
                         return err(
