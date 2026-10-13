@@ -289,3 +289,24 @@ test('a prop whose default is undefined stays nullish where a site leaves it out
     },
   );
 });
+
+test('the document as a value that may be null is rejected where the program needs its type', async () => {
+  await withApp(
+    {
+      'App.svelte': `<script lang="ts">
+  function announcer(doc: Document | null) {
+    return doc ? 'present' : 'absent';
+  }
+  const before = announcer(null);
+  const after = announcer(document);
+</script>
+<p>{before} {after}</p>
+`,
+    },
+    root =>
+      assert.rejects(
+        lowered(root),
+        failWith('E_TYPE_UNSUPPORTED', 'App.svelte', /^The document is not a value here/),
+      ),
+  );
+});
