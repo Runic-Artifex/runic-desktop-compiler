@@ -418,6 +418,8 @@ interface HostWindow extends WindowEventTarget {
   getComputedStyle(element: HTMLElement | HostRootElement): ComputedStyle;
   /** M6 overlays (bits-ui's platform checks). */
   readonly navigator: typeof navigator;
+  /** The CSS namespace (bits-ui's PinInput `window?.CSS?.supports`). */
+  readonly CSS: typeof CSS;
   setTimeout: typeof setTimeout;
   setInterval: typeof setInterval;
   clearTimeout: typeof clearTimeout;
@@ -694,5 +696,12 @@ type ReferrerPolicy =
 /** `getComputedStyle(element)` as a global (M6 overlays: bits-ui's scroll lock). */
 declare function getComputedStyle(element: HTMLElement | HostRootElement): ComputedStyle;
 
-/** M6 (bits-ui's Command): CSSOM's `CSS.escape`. */
-declare var CSS: { escape(ident: string): string };
+/**
+ * M6 (bits-ui's Command): CSSOM's `CSS.escape`. `CSS.supports(property,
+ * value)` (bits-ui's PinInput) of constant arguments, answered at build time
+ * as Chromium does (frontend/css-supports.ts).
+ */
+declare var CSS: {
+  escape(ident: string): string;
+  supports(property: string, value: string): boolean;
+};

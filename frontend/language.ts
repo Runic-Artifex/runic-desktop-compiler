@@ -34,6 +34,7 @@ import {
   WINDOW_METRICS,
 } from './irtype.ts';
 import { DOM } from './program.ts';
+import { CSS_SUPPORTS, supportsKey } from './css-supports.ts';
 import { declarationFile } from './package-modules.ts';
 import { asyncBody, isAsync } from './async.ts';
 import { allCertain, analyze, literalParts, syntaxError, type RegexInfo } from './regexp.ts';
@@ -445,6 +446,7 @@ export class Lowerer {
     types.nothingSlot = decl => this.unions.nothingSlot(decl);
     types.nothingInBoxes = decl => this.unions.nothingInBoxes(decl);
     types.anyFnSlot = (decl, box) => this.unions.anyFnSlot(decl, box);
+    types.lateKey = key => this.lateKey(key, program);
     // Object types implemented with getters (frontend/types.ts `accessorTypes`).
     for (const sf of program.getSourceFiles()) {
       if (sf.isDeclarationFile) continue;
@@ -2129,6 +2131,24 @@ export class Lowerer {
     t: { map: [Type, Type] },
     b: FnBuilder,
   ): Expr {
+    // A style dictionary spreading others (bits-ui's Slider `{ position:
+    // "absolute", ...getRangeStyles(…) }`): a style object's entries in
+    // order (`styleObject`). (Not with a number among them, which a style
+    // object prints as a string but the program would read as a number.)
+    const numeric = (p: ts.ObjectLiteralElementLike) => {
+      if (!ts.isPropertyAssignment(p) && !ts.isShorthandPropertyAssignment(p)) return false;
+      const v = this.checker.getTypeAtLocation(ts.isPropertyAssignment(p) ? p.initializer : p.name);
+      return (v.isUnion() ? v.types : [v]).some(m => (m.flags & ts.TypeFlags.NumberLike) !== 0);
+    };
+    const styleMap =
+      t.map[0] === STRING &&
+      sameType(t.map[1], { maybe: STRING }) &&
+      e.properties.some(ts.isSpreadAssignment) &&
+      !e.properties.some(numeric);
+    if (styleMap) {
+      const v = this.styleObject(e, b);
+      if (sameType(this.irType(v, b), t)) return v;
+    }
     let out: Expr = { op: 'builtin', name: 'Map.new', args: [], type: t };
     for (const p of e.properties) {
       if (!ts.isPropertyAssignment(p))
@@ -7606,6 +7626,8 @@ export class Lowerer {
         return 'document';
       // `window.navigator` (also `window?.navigator`: the window is never nullish).
       if (name === 'navigator' && this.hostName(inner, depth + 1) === 'window') return 'navigator';
+      // `window.CSS` (also `window?.CSS`): the CSS namespace, never nullish.
+      if (name === 'CSS' && this.hostName(inner, depth + 1) === 'window') return 'CSS';
       return undefined;
     }
     if (
@@ -9110,11 +9132,15 @@ export class Lowerer {
       // (`x.dataset?.name`: an element's dataset is never nullish.)
       const dataset =
         ts.isPropertyAccessExpression(cur.expression) && cur.expression.name.text === 'dataset';
+      // (`window?.CSS?.supports`: the window and its CSS namespace are never
+      // nullish.)
+      const host = ['window', 'CSS'].includes(this.hostOf(cur.expression) ?? '');
       if (
         'questionDotToken' in cur &&
         cur.questionDotToken &&
         !plainCall &&
         !dataset &&
+        !host &&
         !this.overrides.get(cur.expression)?.link
       )
         found = cur;
@@ -9208,6 +9234,32 @@ export class Lowerer {
   private element(e: ts.ElementAccessExpression, b: FnBuilder): Expr {
     const chosen = this.constantChoice(e, b);
     if (chosen) return chosen;
+    // `e.composedPath()[0]` (bits-ui's Slider): the first entry of the
+    // event's path. Without shadow roots (the runtime has none) it is the
+    // event's target while the event is dispatched; once the dispatch is
+    // over the path is empty and the read undefined. The rest of the path
+    // is not modelled (`composedPath()` itself is rejected, `call`).
+    const path = skipParens(e.expression);
+    if (
+      ts.isCallExpression(path) &&
+      !path.arguments.length &&
+      !path.questionDotToken &&
+      !e.questionDotToken &&
+      ts.isPropertyAccessExpression(path.expression) &&
+      !path.expression.questionDotToken &&
+      path.expression.name.text === 'composedPath' &&
+      ts.isNumericLiteral(e.argumentExpression) &&
+      e.argumentExpression.text === '0'
+    ) {
+      const event = this.expr(path.expression.expression, b);
+      if (this.irType(event, b) === 'event')
+        return {
+          op: 'builtin',
+          name: 'event.path-target',
+          args: [event],
+          type: { maybe: 'element' },
+        };
+    }
     let object = this.expr(e.expression, b);
     let t = this.irType(object, b);
     // An untyped nullable value, or one TypeScript narrowed to a present one
@@ -9335,6 +9387,90 @@ export class Lowerer {
       if ((err as { code?: string }).code === 'E_TYPE_UNSUPPORTED') return undefined;
       throw err;
     }
+  }
+
+  /**
+   * `CSS.supports(property, value)` of constant strings (bits-ui's PinInput
+   * `window?.CSS?.supports("-webkit-touch-callout", "none")`): Chromium
+   * 153's answer, measured (frontend/css-supports.ts), where the native
+   * renderer agrees. Other arguments, and declarations not measured or
+   * whose native support differs, are rejected.
+   */
+  private cssSupports(e: ts.CallExpression): Expr {
+    const args = e.arguments.map(a => this.staticValue(a)?.value);
+    if (args.length !== 2 || !args.every(a => typeof a === 'string'))
+      return this.fail(
+        e,
+        'E_CALL',
+        'CSS.supports takes a property and a value that are constant strings (the answers are measured in Chromium; the condition form is not covered)',
+      );
+    const [property, value] = args as [string, string];
+    const answer = CSS_SUPPORTS[supportsKey(property, value)];
+    if (!answer)
+      return this.fail(
+        e,
+        'E_CALL',
+        `CSS.supports(${JSON.stringify(property)}, ${JSON.stringify(value)}) is not measured in Chromium (frontend/css-supports.ts)`,
+      );
+    if (answer.chromium !== answer.native)
+      return this.fail(
+        e,
+        'E_CALL',
+        `CSS.supports(${JSON.stringify(property)}, ${JSON.stringify(value)}) is ${answer.chromium} in Chromium but the native renderer ${answer.native ? 'renders' : 'drops'} the declaration`,
+      );
+    return { op: 'lit', value: answer.chromium };
+  }
+
+  /**
+   * `Math.min(...xs)` (bits-ui's Slider `Math.min(...distances)`), `max` and
+   * `hypot`, also with other arguments around the spreads: the function of
+   * the array of the arguments (`Math.min-of`), which converts each by
+   * ToNumber and returns what the variadic call does, Infinity (`min`),
+   * -Infinity (`max`) or +0 (`hypot`) for none. The spread values are
+   * arrays (spreading another iterable is rejected) of primitives or dates,
+   * whose conversion has no side effects, so the array is read once in
+   * order as the spread iterates it; other arguments share its element type.
+   */
+  private mathSpread(method: string, e: ts.CallExpression, b: FnBuilder): Expr {
+    let element: Type | undefined;
+    const items = e.arguments.map(a => {
+      const spread = ts.isSpreadElement(a);
+      const value = this.expr(spread ? a.expression : a, b);
+      const t = this.irType(value, b);
+      const el = spread ? arrayElement(t) : t;
+      if (el === undefined)
+        this.fail(
+          a,
+          'E_EXPRESSION',
+          `A spread argument of Math.${method} is an array (not a ${JSON.stringify(t)})`,
+        );
+      if (element === undefined) element = el;
+      else if (!sameType(element, el!))
+        this.fail(
+          a,
+          'E_EXPRESSION',
+          `The arguments of Math.${method} around a spread have the type of its elements (${JSON.stringify(element)}, not ${JSON.stringify(el)})`,
+        );
+      return spread ? { spread: value } : value;
+    });
+    // (Primitives and dates, which ToNumber converts without side effects.)
+    const primitive = (t: Type): boolean =>
+      t === NUMBER ||
+      t === STRING ||
+      t === BOOLEAN ||
+      (maybeInner(t) !== undefined && primitive(maybeInner(t)!));
+    if (!primitive(element!) && element !== 'date')
+      return this.fail(
+        e,
+        'E_EXPRESSION',
+        `Math.${method} of spread ${JSON.stringify(element)} values is unsupported (numbers, strings, booleans, nullable ones and dates are converted)`,
+      );
+    const only = items.length === 1 && 'spread' in (items[0] as object) ? items[0] : undefined;
+    const array: Expr =
+      only !== undefined
+        ? (only as { spread: Expr }).spread
+        : { op: 'array', type: { array: element! }, items: items as never };
+    return { op: 'builtin', name: `Math.${method}-of`, args: [array], type: NUMBER };
   }
 
   private builtinCall(
@@ -9470,6 +9606,8 @@ export class Lowerer {
     if (custom) return custom;
     const first = this.firstIteration(e, b);
     if (first) return first;
+    const counted = this.arrayFromLength(e, b);
+    if (counted) return counted;
     const callee = e.expression;
     const args = () => e.arguments.map(a => this.expr(a, b));
     if (callee.kind === ts.SyntaxKind.SuperKeyword)
@@ -9583,8 +9721,13 @@ export class Lowerer {
       if (global === 'RegExp') return this.fail(e, 'E_REGEXP', `RegExp.${method} is unsupported`);
       // `CSS.escape(s)` (M6, bits-ui's Command): CSSOM's serialization of an identifier.
       if (this.hostName(callee.expression) === 'CSS' || global === 'CSS') {
+        if (method === 'supports') return this.cssSupports(e);
         if (method !== 'escape' || e.arguments.length !== 1)
-          return this.fail(e, 'E_CALL', 'CSS.escape(value) is the CSS namespace function covered');
+          return this.fail(
+            e,
+            'E_CALL',
+            'CSS.escape(value) and CSS.supports(property, value) are the CSS namespace functions covered',
+          );
         return {
           op: 'builtin',
           name: 'css.escape',
@@ -9597,8 +9740,8 @@ export class Lowerer {
         const source = skipParens(e.arguments[0]);
         if (this.isMatchAll(source)) return this.expr(source, b);
       }
-      // (An array-like object, `Array.from({ length: 12 }, (_, i) => i + 1)`,
-      // is not an iterable the built-in takes.)
+      // (Another array-like object is not an iterable the built-in takes;
+      // `{ length: n }` with a mapping arrow is `arrayFromLength`.)
       if (
         global === 'Array' &&
         method === 'from' &&
@@ -9888,6 +10031,12 @@ export class Lowerer {
           ? this.dynBuiltin('keys', [x], { array: STRING })
           : this.builtinCall('Object.keys', [x], b, this.tsCallType(e), e);
       }
+      if (
+        global === 'Math' &&
+        MATH_SPREADABLE.includes(method) &&
+        e.arguments.some(ts.isSpreadElement)
+      )
+        return this.mathSpread(method, e, b);
       if (global && STATIC_NAMESPACES.has(global))
         return this.builtinCall(`${global}.${method}`, args(), b, this.tsCallType(e), e);
       if (global === 'Promise') {
@@ -10396,6 +10545,12 @@ export class Lowerer {
               this.expected.set(x, element);
           }
       }
+      if (kind === 'event' && method === 'composedPath')
+        return this.fail(
+          e,
+          'E_EVENT',
+          'Event composedPath() is supported read at index 0 (composedPath()[0], the target while the event is dispatched); the rest of the path is not modelled',
+        );
       if (kind)
         return this.builtinCall(
           `${kind}.${method}`,
@@ -11346,7 +11501,8 @@ export class Lowerer {
     }
     // Parameters without a type, or typed `unknown`/`any` (package
     // functions whose declarations take `unknown`: bits-ui's isHTMLElement),
-    // are specialised per call site.
+    // or arrays of them (`unknown[]`: bits-ui's `isValidIndex(index, arr)`,
+    // called with the Slider's `number[]`), are specialised per call site.
     // (Also parameters whose types use the function's type parameters: a
     // generic package function annotated from its declaration file.)
     const generic = new Set(
@@ -11357,7 +11513,8 @@ export class Lowerer {
         (generic.size > 0 &&
           usesTypeParameter(this.checker.getTypeAtLocation(p), generic, this.checker)) ||
         (!p.type && this.types.typeOrUndefined(p) === undefined) ||
-        !!(this.checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)),
+        !!(this.checker.getTypeAtLocation(p).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) ||
+        (!!p.type && this.unknownArray(this.checker.getTypeAtLocation(p))),
     );
     if (untyped) {
       this.bindings.set(sym, { kind: 'generic', decl, name, component, specs: new Map() });
@@ -11405,6 +11562,181 @@ export class Lowerer {
         body: [],
       };
     return () => this.function(decl, name, undefined, component, index);
+  }
+
+  /**
+   * `Array.from({ length: n }, f)` (bits-ui's Slider thumbs and ticks) and
+   * `Array.from({ length: n }).map(f)` (its PinInput cells), for an arrow `f`
+   * of at most two parameters: as ECMA-262 runs it over an array-like object
+   * without elements, `n` converted by ToLength (NaN and negatives 0, at
+   * most 2^53 - 1), a RangeError where an array cannot have that length
+   * (above 2^32 - 1), then `f(undefined, k)` for each index in order.
+   * Mapping the array of undefined that `Array.from({ length: n })` makes
+   * calls `f` with the same values (its third argument, that array, is not
+   * a parameter of `f`, and an arrow has no `arguments`). Undefined for
+   * other calls.
+   */
+  private arrayFromLength(e: ts.CallExpression, b: FnBuilder): Expr | undefined {
+    const fromCall = (c: ts.Expression): ts.CallExpression | undefined => {
+      c = skipParens(c);
+      return ts.isCallExpression(c) &&
+        ts.isPropertyAccessExpression(c.expression) &&
+        c.expression.name.text === 'from' &&
+        this.globalName(c.expression.expression) === 'Array' &&
+        c.arguments[0] !== undefined &&
+        ts.isObjectLiteralExpression(skipParens(c.arguments[0]))
+        ? c
+        : undefined;
+    };
+    let from = fromCall(e);
+    let mapFn: ts.Expression | undefined = from?.arguments[1];
+    if (from && from.arguments.length > 2)
+      return this.fail(
+        from.arguments[2],
+        'E_BUILTIN',
+        'Array.from with a this argument is unsupported',
+      );
+    // `Array.from({ length: n }).map(f)`.
+    if (
+      !from &&
+      ts.isPropertyAccessExpression(e.expression) &&
+      !e.expression.questionDotToken &&
+      e.expression.name.text === 'map' &&
+      e.arguments.length === 1
+    ) {
+      const inner = fromCall(e.expression.expression);
+      if (inner && inner.arguments.length === 1) {
+        from = inner;
+        mapFn = e.arguments[0];
+      }
+    }
+    if (!from) return undefined;
+    const source = skipParens(from.arguments[0]) as ts.ObjectLiteralExpression;
+    const [length] = source.properties;
+    if (
+      source.properties.length !== 1 ||
+      !ts.isPropertyAssignment(length) ||
+      !(ts.isIdentifier(length.name) || ts.isStringLiteral(length.name)) ||
+      length.name.text !== 'length'
+    )
+      return this.fail(
+        source,
+        'E_BUILTIN',
+        'Array.from over an array-like object takes { length: n } (arrays, sets and strings are iterated)',
+      );
+    const f = mapFn && skipParens(mapFn);
+    if (
+      !f ||
+      !ts.isArrowFunction(f) ||
+      f.parameters.length > 2 ||
+      f.parameters.some(p => p.dotDotDotToken || !ts.isIdentifier(p.name))
+    )
+      return this.fail(
+        mapFn ?? from,
+        'E_BUILTIN',
+        'Array.from({ length: n }) is covered with a mapping arrow of at most two named parameters (the undefined element and the index)',
+      );
+    const n = this.coerce(length.initializer, b, NUMBER);
+    const params: Type[] = (['void', NUMBER] as Type[]).slice(0, f.parameters.length);
+    // (An array expected here, a derived field's declared type: the
+    // function returns its elements.)
+    const want = this.expected.get(e);
+    const wantElement = typeof want === 'object' && 'array' in want ? want.array : undefined;
+    const closure = this.closure(f, b, 'from', params, wantElement);
+    const fnType = this.irType(closure, b);
+    const element = typeof fnType === 'object' && 'fn' in fnType ? fnType.fn.result : undefined;
+    if (element === undefined || element === 'void')
+      return this.fail(
+        f,
+        'E_BUILTIN',
+        'The mapping function of Array.from({ length: n }) returns a value',
+      );
+    const array: Type = { array: element };
+    // The helper (n, f) => a, with the locals len, a and k.
+    const local = (i: number): Expr => ({ op: 'local', local: i });
+    const num = (value: number): Expr => ({ op: 'lit', value });
+    const call: Expr[] = [{ op: 'undefined', type: 'void' }, local(4)];
+    const index = this.reserve();
+    this.functions[index] = {
+      name: 'Array.from$length',
+      params: [
+        { name: 'n', type: NUMBER },
+        { name: 'f', type: fnType },
+      ],
+      locals: [
+        { name: 'len', type: NUMBER },
+        { name: 'a', type: array },
+        { name: 'k', type: NUMBER },
+      ],
+      result: array,
+      body: [
+        {
+          op: 'let',
+          local: 2,
+          value: {
+            op: 'cond',
+            test: { op: 'gt', left: local(0), right: num(0) },
+            then: {
+              op: 'min',
+              left: { op: 'builtin', name: 'Math.trunc', args: [local(0)], type: NUMBER },
+              right: num(Number.MAX_SAFE_INTEGER),
+            },
+            else: num(0),
+          },
+        },
+        {
+          op: 'if',
+          test: { op: 'gt', left: local(2), right: num(2 ** 32 - 1) },
+          then: [
+            {
+              op: 'throw',
+              value: {
+                op: 'record',
+                record: this.errorRecord(),
+                fields: [
+                  { op: 'lit', value: 'RangeError' },
+                  { op: 'lit', value: 'Invalid array length' },
+                ],
+              },
+            },
+          ],
+        },
+        { op: 'let', local: 3, value: { op: 'array', type: array, items: [] } },
+        { op: 'let', local: 4, value: num(0) },
+        {
+          op: 'while',
+          test: { op: 'lt', left: local(4), right: local(2) },
+          body: [
+            {
+              op: 'expr',
+              value: {
+                op: 'builtin',
+                name: 'array.push',
+                args: [
+                  local(3),
+                  { op: 'call-value', callee: local(1), args: call.slice(0, params.length) },
+                ],
+                type: NUMBER,
+              },
+            },
+            {
+              op: 'assign',
+              target: { place: 'local', local: 4 },
+              value: { op: 'add', left: local(4), right: num(1) },
+            },
+          ],
+        },
+        { op: 'return', value: local(3) },
+      ],
+    };
+    return { op: 'call', function: index, args: [n, closure] };
+  }
+
+  /** Whether `t` is an array of `unknown` or `any` (`unknown[]`). */
+  private unknownArray(t: ts.Type): boolean {
+    if (!this.checker.isArrayType(t)) return false;
+    const [el] = this.checker.getTypeArguments(t as ts.TypeReference);
+    return el !== undefined && !!(el.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown));
   }
 
   /** Arguments with optional parameters widened to Maybe and missing ones as undefined. */
@@ -12185,6 +12517,8 @@ export class Lowerer {
     // floating-ui middleware) where a record is expected: that record, its
     // properties by name (a pack may build the record: `recordLiterals`).
     const want = this.expected.get(e);
+    const keyed = this.keyedRecordLiteral(e, want, b);
+    if (keyed) return keyed;
     if (
       want !== undefined &&
       typeof want === 'object' &&
@@ -13187,6 +13521,82 @@ export class Lowerer {
    * the literal's order, the record in the declaration's. Key order of such
    * records is not tracked: key-observing built-ins reject them.
    */
+  /**
+   * The build-time value of a computed key in a package's declaration file
+   * (`TypeMapper.lateKey`): `c.name` (or `c["name"]`) of a constant `c` the
+   * file declares (`declare const sliderAttrs: …`) and its module defines
+   * as a build-time constant, whose member `name` is a string.
+   */
+  private lateKey(key: ts.Expression, program: ts.Program): string | undefined {
+    key = skipParens(key);
+    const name = ts.isPropertyAccessExpression(key)
+      ? key.name.text
+      : ts.isElementAccessExpression(key) && ts.isStringLiteralLike(key.argumentExpression)
+        ? key.argumentExpression.text
+        : undefined;
+    const object = (key as ts.PropertyAccessExpression).expression;
+    if (name === undefined || !ts.isIdentifier(object)) return undefined;
+    const dts = path.resolve(key.getSourceFile().fileName);
+    const module = program.getSourceFiles().find(sf => {
+      if (!sf.fileName.endsWith('.__runic.ts')) return false;
+      const d = declarationFile(sf.fileName.replace(/\.__runic\.ts$/, ''));
+      return d !== undefined && path.resolve(d) === dts;
+    });
+    const decl = module?.statements
+      .filter(ts.isVariableStatement)
+      .filter(s => s.declarationList.flags & ts.NodeFlags.Const)
+      .flatMap(s => [...s.declarationList.declarations])
+      .find(d => ts.isIdentifier(d.name) && d.name.text === object.text);
+    const b = decl && this.binding(decl.name as ts.Identifier);
+    if (b?.kind !== 'constant' || !b.value || typeof b.value !== 'object') return undefined;
+    const v = Object.hasOwn(b.value, name) ? (b.value as Record<string, unknown>)[name] : undefined;
+    return typeof v === 'string' && v !== '__proto__' ? v : undefined;
+  }
+
+  /**
+   * The name a computed key is at build time: a string literal or a
+   * build-time constant string (`[sliderAttrs.thumb]`), other than
+   * `__proto__`.
+   */
+  private constantKey(name: ts.ComputedPropertyName): string | undefined {
+    const inner = skipParens(name.expression);
+    const c = this.staticValue(inner) ?? this.constantMember(inner);
+    return c && typeof c.value === 'string' && c.value !== '__proto__' ? c.value : undefined;
+  }
+
+  /**
+   * A literal with computed keys that are build-time constant strings where
+   * a record of those fields is expected (bits-ui's Slider `thumbsPropsArr`
+   * objects, `{ role: "slider", …, [sliderAttrs.thumb]: "" }`, whose
+   * declared type names the key by the module's constant,
+   * `TypeMapper.lateKey`): the record, its fields by name. Its values keep
+   * their types (a bag would print numbers). Undefined for other literals.
+   */
+  private keyedRecordLiteral(
+    e: ts.ObjectLiteralExpression,
+    want: Type | undefined,
+    b: FnBuilder,
+  ): Expr | undefined {
+    if (typeof want !== 'object' || !('record' in want)) return undefined;
+    if (!e.properties.some(p => p.name && ts.isComputedPropertyName(p.name))) return undefined;
+    const r = this.types.records[want.record];
+    if (r.class || this.types.accessors.has(want.record) || this.types.isTuple(want.record))
+      return undefined;
+    const names: string[] = [];
+    for (const p of e.properties) {
+      if (!ts.isPropertyAssignment(p) && !ts.isShorthandPropertyAssignment(p)) return undefined;
+      const name = ts.isComputedPropertyName(p.name)
+        ? this.constantKey(p.name)
+        : ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)
+          ? p.name.text
+          : undefined;
+      if (name === undefined || names.includes(name) || !r.fields.some(f => f.name === name))
+        return undefined;
+      names.push(name);
+    }
+    return this.byName(e, want.record, b);
+  }
+
   private byName(e: ts.ObjectLiteralExpression, record: number, b: FnBuilder): Expr {
     const r = this.types.records[record];
     /** Temporaries undefined only where the object lacks the key (`absentWhenUndefined`). */
@@ -13306,7 +13716,11 @@ export class Lowerer {
         continue;
       }
       const name =
-        p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) ? p.name.text : undefined;
+        p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name))
+          ? p.name.text
+          : p.name && ts.isComputedPropertyName(p.name) && ts.isPropertyAssignment(p)
+            ? this.constantKey(p.name)
+            : undefined;
       if (
         !name ||
         !(
@@ -14648,6 +15062,8 @@ const ARRAY_CALLBACKS = new Set([
   'sort',
   'toSorted',
 ]);
+/** The variadic Math functions a call may spread an array into (`Math.min(...xs)`). */
+const MATH_SPREADABLE = ['min', 'max', 'hypot'];
 const STATIC_NAMESPACES = new Set(['Math', 'Number', 'String', 'Array', 'Object', 'JSON']);
 /** Built-ins over plain data, which class instances are not (frontend/classes.ts). */
 const CLASS_DATA_BUILTINS = new Set([

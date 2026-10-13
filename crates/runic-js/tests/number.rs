@@ -42,6 +42,17 @@ enum Got {
     Throws(String),
 }
 
+/// A variadic Math function of the arguments, checked against its form
+/// over an array (`Math.min(...xs)`), which must give the same bits.
+fn spread(args: f64, array: f64) -> f64 {
+    assert_eq!(
+        args.to_bits(),
+        array.to_bits(),
+        "the array form differs: {args} vs {array}"
+    );
+    args
+}
+
 fn num(v: &Value) -> f64 {
     let s = v
         .as_str()
@@ -119,9 +130,18 @@ fn eval(name: &str, a: &[Value]) -> Got {
         "math_clz32" => Num(math::clz32(n(0))),
         "math_fround" => Num(math::fround(n(0))),
         "math_imul" => Num(math::imul(n(0), n(1))),
-        "math_hypot" => Num(math::hypot(&list())),
-        "math_min" => Num(math::min(&list())),
-        "math_max" => Num(math::max(&list())),
+        "math_hypot" => Num(spread(
+            math::hypot(&list()),
+            math::hypot_of(&js::JsRef::new(list())),
+        )),
+        "math_min" => Num(spread(
+            math::min(&list()),
+            math::min_of(&js::JsRef::new(list())),
+        )),
+        "math_max" => Num(spread(
+            math::max(&list()),
+            math::max_of(&js::JsRef::new(list())),
+        )),
         "math_cbrt" => Num(math::cbrt(n(0))),
         "math_exp" => Num(math::exp(n(0))),
         "math_expm1" => Num(math::expm1(n(0))),
@@ -255,4 +275,39 @@ fn documented_examples() {
     assert_eq!(math::cbrt(-8.0), -2.0);
     assert!(js::pow(1.0, f64::INFINITY).is_nan());
     assert_eq!(js::shl(1.0, 33.0), 2.0);
+}
+
+/// `Math.min(...xs)` and `max` over arrays of other primitives: each
+/// element converted by ToNumber first (values from Node 24).
+#[test]
+fn spread_arguments_convert_by_to_number() {
+    let strings = |xs: &[&str]| js::JsRef::new(xs.iter().map(|x| JsString::from(*x)).collect());
+    let bits = |x: f64| x.to_bits();
+    // Math.min(...["3", "10"]) === 3; Math.max(...["3", " 10 "]) === 10
+    assert_eq!(math::min_of(&strings(&["3", "10"])), 3.0);
+    assert_eq!(math::max_of(&strings(&["3", " 10 "])), 10.0);
+    // Math.min(...["", "1"]) === 0 ("" is 0); Math.max(...["x", "1"]) is NaN
+    assert_eq!(bits(math::min_of(&strings(&["", "1"]))), bits(0.0));
+    assert!(math::max_of(&strings(&["x", "1"])).is_nan());
+    // Math.max(...[true, false]) === 1; Math.min(...[false]) === 0
+    assert_eq!(math::max_of(&js::JsRef::new(vec![true, false])), 1.0);
+    assert_eq!(math::min_of(&js::JsRef::new(vec![false])), 0.0);
+    // Math.min(...[null, 1]) === 0; Math.min(...[undefined, 1]) is NaN
+    let maybe = |xs: Vec<Maybe<f64>>| js::JsRef::new(xs);
+    assert_eq!(
+        math::min_of(&maybe(vec![Maybe::Null, Maybe::Some(1.0)])),
+        0.0
+    );
+    assert!(math::min_of(&maybe(vec![Maybe::Undefined, Maybe::Some(1.0)])).is_nan());
+    // Empty: Infinity, -Infinity, 0
+    let none: js::JsArray<f64> = js::JsRef::new(vec![]);
+    assert_eq!(math::min_of(&none), f64::INFINITY);
+    assert_eq!(math::max_of(&none), f64::NEG_INFINITY);
+    assert_eq!(bits(math::hypot_of(&none)), bits(0.0));
+    // Math.min(...[0, -0]) and Math.min(...[-0, 0]) are -0; max is +0
+    for xs in [vec![0.0, -0.0], vec![-0.0, 0.0]] {
+        let a = js::JsRef::new(xs);
+        assert_eq!(bits(math::min_of(&a)), bits(-0.0));
+        assert_eq!(bits(math::max_of(&a)), bits(0.0));
+    }
 }

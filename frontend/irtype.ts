@@ -297,7 +297,9 @@ export function builtinType(name: string, args: Type[]): Type | undefined {
     if (typeof recv === 'object' && 'array' in recv) return recv;
     if (typeof recv === 'object' && 'set' in recv) return { array: recv.set };
   }
-  if (ns === 'event') return EVENT_MEMBERS[method];
+  if (ns === 'event')
+    // (`composedPath()[0]`: undefined once the dispatch is over.)
+    return method === 'path-target' ? { maybe: 'element' } : EVENT_MEMBERS[method];
   // RegExp members (match results depend on the pattern: the frontend
   // declares them where it lowers the call).
   if (ns === 'regexp')

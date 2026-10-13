@@ -143,6 +143,9 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
         ("Math", "SQRT1_2") => "std::f64::consts::FRAC_1_SQRT_2".into(),
         ("Math", "SQRT2") => "std::f64::consts::SQRT_2".into(),
         ("Math", m @ ("min" | "max" | "hypot")) => format!("js::math::{m}(&[{}])", t.join(", ")),
+        ("Math", m @ ("min-of" | "max-of" | "hypot-of")) => {
+            format!("js::math::{}_of(&{})", m.trim_end_matches("-of"), t[0])
+        }
         ("Math", m) => format!("js::math::{m}({})", t.join(", ")),
         ("Number", "MAX_SAFE_INTEGER") => "9007199254740991.0f64".into(),
         ("Number", "MIN_SAFE_INTEGER") => "(-9007199254740991.0f64)".into(),
@@ -1160,6 +1163,9 @@ pub fn emit(cx: &mut FnCtx, name: &str, args: &[Expr], ty: &Type) -> String {
                 "currentTarget" => {
                     format!("{e}.current_target().map_or(Maybe::Null, Maybe::Some)")
                 }
+                "path-target" => format!(
+                    "{{ if {e}.data().media {{ runic_runtime::unsupported(\"composedPath() of a MediaQueryList change event\"); }} {e}.path_target().map_or(Maybe::Undefined, Maybe::Some) }}"
+                ),
                 "defaultPrevented" => format!("{e}.default_prevented()"),
                 "preventDefault" => format!("{{ {e}.prevent_default(); }}"),
                 "stopPropagation" => format!("{{ {e}.stop_propagation(); }}"),

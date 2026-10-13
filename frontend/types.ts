@@ -59,6 +59,12 @@ export class TypeMapper {
    * one type (frontend/unions.ts).
    */
   anyFnSlot?: (decl: ts.Declaration, box?: boolean) => ts.Type | undefined;
+  /**
+   * The build-time value of a computed key a package's declaration file
+   * names with its module's constant (bits-ui's `readonly [sliderAttrs.thumb]:
+   * ""`), which TypeScript cannot bind (`sliderAttrs.thumb` is typed `string`).
+   */
+  lateKey?: (key: ts.Expression) => string | undefined;
   /** While a box property holding nothing is mapped: its `unknown` content. */
   private boxNothing = false;
   /**
@@ -960,6 +966,12 @@ export class TypeMapper {
         this.fail(at, 'E_CLASS', `Class ${cls.name} instances are unsupported here`);
       return this.classType!(cls, t, at);
     }
+    // A style object spread from a csstype one (bits-ui's Slider
+    // `{ position: "absolute", ...getRangeStyles(…) }`, whose spread
+    // TypeScript types as csstype's properties without the custom-property
+    // index signature): the style dictionary above, where every property is
+    // one of csstype's.
+    if (cssSpread(t)) return { map: ['string', { maybe: 'string' }] };
     return { record: this.record(t, at) };
   }
 
@@ -1105,6 +1117,37 @@ export class TypeMapper {
         name: p.name,
         type: accessors ? { fn: { params: [], result: mapped } } : mapped,
       });
+    }
+    // Members a declaration file's type literal names by a computed key that
+    // TypeScript cannot bind, the module's build-time constant (bits-ui's
+    // Slider thumbs, `readonly [sliderAttrs.thumb]: ""`): fields named by
+    // the key's value (`lateKey`), after the others (where the module's
+    // literals have them).
+    const typeLiteral = t.symbol?.declarations?.[0];
+    if (
+      this.lateKey &&
+      !accessors &&
+      typeLiteral &&
+      ts.isTypeLiteralNode(typeLiteral) &&
+      typeLiteral.getSourceFile().isDeclarationFile
+    ) {
+      const bound = this.checker.getPropertiesOfType(t).flatMap(p => p.declarations ?? []);
+      for (const m of typeLiteral.members) {
+        if (
+          !ts.isPropertySignature(m) ||
+          !ts.isComputedPropertyName(m.name) ||
+          !m.type ||
+          bound.includes(m)
+        )
+          continue;
+        const key = this.lateKey(m.name.expression);
+        if (key === undefined || placeholder.fields.some(f => f.name === key)) continue;
+        const mapped = this.map(this.checker.getTypeFromTypeNode(m.type), at);
+        placeholder.fields.push({
+          name: key,
+          type: m.questionToken && !maybeInner(mapped) ? { maybe: mapped } : mapped,
+        });
+      }
     }
     if (accessors) {
       this.accessors.add(index);
@@ -1400,6 +1443,47 @@ const cssType = (t: ts.Type): boolean =>
   /[\\/]node_modules[\\/]csstype[\\/]/.test(
     (t.aliasSymbol ?? t.symbol)?.declarations?.[0]?.getSourceFile().fileName ?? '',
   );
+
+/**
+ * Whether `t` is an object type of csstype's properties: a spread of a
+ * csstype style object, with properties given beside it that csstype also
+ * declares, or a declaration file's copy of one (bits-ui's
+ * `readonly rangeStyles: { accentColor?: import("csstype").Property.AccentColor
+ * | undefined; … }`). Every property is declared in csstype, or declared of a
+ * csstype property type (and `undefined`).
+ */
+const cssSpread = (t: ts.Type): boolean => {
+  const csstype = (n: ts.TypeNode): boolean =>
+    ts.isUnionTypeNode(n)
+      ? n.types.every(m => m.kind === ts.SyntaxKind.UndefinedKeyword || csstype(m))
+      : ts.isImportTypeNode(n) &&
+        ts.isLiteralTypeNode(n.argument) &&
+        ts.isStringLiteral(n.argument.literal) &&
+        n.argument.literal.text === 'csstype' &&
+        !!n.qualifier &&
+        ts.isQualifiedName(n.qualifier) &&
+        ts.isIdentifier(n.qualifier.left) &&
+        n.qualifier.left.text === 'Property';
+  const fromCsstype = (p: ts.Symbol) =>
+    !!p.declarations?.some(
+      d =>
+        /[\\/]node_modules[\\/]csstype[\\/]/.test(d.getSourceFile().fileName) ||
+        (ts.isPropertySignature(d) && !!d.type && csstype(d.type)),
+    );
+  // (Beside them, properties declared as strings: the copy's
+  // `position: string` of the literal's `position: "absolute"`.)
+  const text = (p: ts.Symbol) =>
+    !!p.declarations?.length &&
+    p.declarations.every(
+      d =>
+        ts.isPropertySignature(d) &&
+        !!d.type &&
+        (d.type.kind === ts.SyntaxKind.StringKeyword ||
+          (ts.isLiteralTypeNode(d.type) && ts.isStringLiteral(d.type.literal))),
+    );
+  const props = t.getProperties();
+  return props.some(fromCsstype) && props.every(p => fromCsstype(p) || text(p));
+};
 
 export const sameType = (a: Type, b: Type) => JSON.stringify(a) === JSON.stringify(b);
 

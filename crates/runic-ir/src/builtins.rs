@@ -862,6 +862,8 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
                 "relatedTarget" => Ok(Maybe(Box::new(Element))),
                 // Null once the dispatch is over.
                 "currentTarget" => Ok(Maybe(Box::new(Element))),
+                // `composedPath()[0]`: undefined once the dispatch is over.
+                "path-target" => Ok(Maybe(Box::new(Element))),
                 "preventDefault" | "stopPropagation" | "stopImmediatePropagation" => Ok(Void),
                 other => Err(format!("unknown event member {other}")),
             }
@@ -1409,6 +1411,20 @@ pub fn result_type(name: &str, args: &[Type], declared: &Type, records: &[Record
             all(args, &n).map(|_| n)
         }
         ("Math", m) if MATH_VARIADIC.contains(&m) => all(args, &n).map(|_| n),
+        // A call spreading an array (`Math.min(...xs)`, also with other
+        // arguments, which the frontend gathers into one array): its
+        // elements, converted by ToNumber, which for primitives and dates has
+        // no side effects.
+        ("Math", "min-of" | "max-of" | "hypot-of") => {
+            arity(args, 1, 1)?;
+            match &args[0] {
+                Array(t) if primitive(t) || **t == Type::Date => Ok(n),
+                other => Err(format!(
+                    "argument must be an array of primitives or dates, found {}",
+                    other.name()
+                )),
+            }
+        }
         ("Number", m) if NUMBER_CONSTANTS.contains(&m) => arity(args, 0, 0).map(|_| n),
         ("Number", "isNaN" | "isFinite" | "isInteger" | "isSafeInteger") => {
             arity(args, 1, 1)?;

@@ -398,6 +398,40 @@ function bagInitializer(
 }
 
 /**
+ * The untyped constant a function builds from an object literal and returns
+ * (`const style = { … }; …; return style;`): its declaration, where the
+ * body's last statement returns it and no other statement of the function
+ * (outside nested functions) returns.
+ */
+function returnedLiteral(fn: ts.FunctionDeclaration): ts.VariableDeclaration | undefined {
+  const body = fn.body!.statements;
+  const last = body.at(-1);
+  if (!last || !ts.isReturnStatement(last) || !last.expression || !ts.isIdentifier(last.expression))
+    return undefined;
+  const name = last.expression.text;
+  let returns = 0;
+  const visit = (n: ts.Node): void => {
+    if (ts.isFunctionLike(n)) return;
+    if (ts.isReturnStatement(n)) returns++;
+    ts.forEachChild(n, visit);
+  };
+  body.forEach(visit);
+  if (returns !== 1) return undefined;
+  for (const st of body)
+    if (ts.isVariableStatement(st) && st.declarationList.flags & ts.NodeFlags.Const)
+      for (const d of st.declarationList.declarations)
+        if (
+          ts.isIdentifier(d.name) &&
+          d.name.text === name &&
+          !d.type &&
+          d.initializer &&
+          ts.isObjectLiteralExpression(d.initializer)
+        )
+          return d;
+  return undefined;
+}
+
+/**
  * The virtual module of package module `file`: its JavaScript with type
  * annotations from its declaration file and `inferred` field types.
  */
@@ -499,6 +533,11 @@ export function annotate(
         const predicate = /^(\w+) is /.exec(d.overloads[0].result);
         const named = predicate && stmt.parameters.some(p => p.name.getText(sf) === predicate[1]);
         result(stmt, named ? d.overloads[0].result : `ReturnType<${f}>`);
+        // The object the function builds and returns (bits-ui's Slider
+        // `getTickStyles`: `const style = { position: "absolute" }`, then
+        // `style.left = …`, `return style`) is of its declared result type.
+        const built = named ? undefined : returnedLiteral(stmt);
+        if (built) add(built.name.end, `: ReturnType<${f}>`);
         continue;
       }
       // Overloads (`createId(uid)`, `createId(prefix, uid)`): each parameter
