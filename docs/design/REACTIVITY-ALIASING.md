@@ -85,7 +85,7 @@ What each framework does, what the native model does, and the case that detects 
 | Semantics | Svelte 5 | Vue 3.5 | React 19 | Native model | Case |
 |---|---|---|---|---|---|
 | Deep mutation seen through an alias (constant, context/inject, class field, Map, closure) | yes, per property (verified) | yes, through the reactive proxy of `ref` contents (verified) | no deep reactivity: state is replaced (`E_READONLY` on mutation) | R1/R2 | `alias-reads`, `alias-vue` |
-| Write through an alias of deep state | reactive (verified) | reactive (verified) | — | R6/R8 (rejected until R8) | `alias-writes` |
+| Write through an alias of deep state | reactive (verified) | reactive (verified) | — | R8 (rejected before) | `alias-writes`, `alias-writes-vue` |
 | Raw object after storing it in state | target untouched; per-property snapshot at first read (verified) | proxy writes through to the target; raw writes not tracked, shown at the next render (verified) | state is the object; mutation rejected | R3 (Svelte), in-place marking and R6 (Vue) | `proxy-target`, `proxy-lazy`, `raw-target-vue` |
 | Proxy identity | new proxy per raw store and per lazy path; `proxy(p) === p` | one reactive proxy per raw object (`reactiveMap`) | identity of the object | R3; Vue: shared storage | `ownership`, `ownership-cycles` |
 | Effect writing what it read | re-runs (cells and proxies; verified) | `watchEffect` does not re-run for its own writes (verified); rejected by the adapter | `useEffect` with the value in deps re-runs after the next render | R4 | `effect-self` |
@@ -94,7 +94,7 @@ What each framework does, what the native model does, and the case that detects 
 | Template granularity | per block, calls memoized (verified) | per component render | per component render (with children) | per binding, validator R7 | `untrack-template`, `prop-raw` |
 | Derived caching | `$derived`: recomputed lazily, `===` (also over arrays changed in place: verified) | `computed`: lazy, `Object.is` | render constants every render; `useMemo` rejected | derived functions | `derived-timing`, `derived-equality`, `derived-arrays` |
 | Deep reactivity through collections | `Map`/`Set` not proxied (`SvelteMap` only); mutation in `$state` rejected | Maps, Sets and arrays a deep ref holds are reactive, nested too (verified) | — | `deep` marking | `collections-vue` |
-| State shared across component instances | module `$state` and `$state` class fields: every instance updates (verified) | (module refs: not covered) | — | module state as class fields | `shared-state` |
+| State shared across component instances | module `$state` and `$state` class fields: every instance updates (verified) | module refs (a `.ts` module importing `vue`): rejected, `E_DEPENDENCY` (gap row) | — | module state as class fields | `shared-state` |
 | Shallow state | `$state.raw`: identity only | `shallowRef`: identity only (`.value` replace); in-place mutation rejected (`E_REACTIVITY`) | — | `identity` cells | `tests/reactivity.test.mjs` (`shallow-vue`) |
 | Stale closures | live reads | live reads | the render snapshot | snapshot reads | `closures` |
 | Keyed list item identity after replacing an item with the same key | block kept with its child's state, item updated; in-place sort moves blocks (verified) | vnode patched | fiber kept, props updated | locals updated, `tl` | `keyed-replace` |

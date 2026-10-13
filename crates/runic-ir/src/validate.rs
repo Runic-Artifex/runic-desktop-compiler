@@ -4828,14 +4828,18 @@ fn raw_capable_props(p: &Program, facts: &Mutations) -> HashSet<(usize, usize)> 
     }
 }
 
-/// Whether `o` is surely a proxy of deep state (R6, R8).
+/// Whether `o` is surely a proxy of deep state (R6, R8): a Svelte proxy, or
+/// what a Vue ref holds (its reactive proxy, whose writes Vue tracks).
 fn proxy_origin(p: &Program, m: &Mutations, o: Origin) -> bool {
     match o {
         Origin::Reactive => true,
         Origin::Root(Root::Cell(k, c)) => {
             let cell = &p.components[k].cells[c];
-            cell.tracking == Tracking::Proxied
-                && (cell.prop.is_none() || !m.raw_props.contains(&(k, c)))
+            match cell.tracking {
+                Tracking::Proxied => cell.prop.is_none() || !m.raw_props.contains(&(k, c)),
+                Tracking::Deep => cell.prop.is_none(),
+                Tracking::Identity | Tracking::None => false,
+            }
         }
         _ => false,
     }

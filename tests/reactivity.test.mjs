@@ -168,6 +168,28 @@ test("writes through a constant holding a context's $state object are writes thr
   );
 });
 
+test("writes through aliases of a Vue ref's contents are writes through its proxy (R8)", async () => {
+  // Vue 3.5 in Chromium (case alias-writes-vue): a constant, a parameter
+  // and a function result holding the ref's reactive proxy; after the ref
+  // is given a new object, the constant keeps the old one.
+  const steps = interpret(
+    (await lowered('fixtures/alias-writes-vue')).ir,
+    ['bump', 'add', 'twice', 'replace', 'bump', 'add'].map(click),
+    {},
+  );
+  assert.equal(shown(steps[1], 'alias'), '1 0');
+  assert.equal(shown(steps[3], 'owner'), '2 1');
+  assert.equal(shown(steps[4], 'owner'), '10 7');
+  assert.equal(shown(steps[5], 'alias'), '3 1');
+  assert.equal(shown(steps[6], 'owner'), '10 7,10');
+  // A raw object a ref holds, changed through a constant of it, stays
+  // rejected (R6).
+  await assert.rejects(
+    lowered('fixtures/raw-target-vue'),
+    failWith('E_REACTIVITY', 'App.vue', /r holds an object that raw also holds/),
+  );
+});
+
 test('proxies never write their target and take its properties lazily (R3)', async () => {
   // Svelte 5.57.1 in Chromium (case proxy-target): $state(INITIAL) leaves
   // INITIAL as it was, so a reset to it shows the original items.
