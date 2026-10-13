@@ -220,6 +220,10 @@ test('CSS that Stylo drops is reported unless verified equivalent in Chromium', 
   // Chromium 153 does not parse the standard `line-clamp` (CSSLineClamp is
   // off), nor properties it does not know: both engines drop them.
   await check('p::before { line-clamp: 2; p-a-d-d-i-n-g: 2px }', undefined);
+  // A value of one identifier Chromium does not accept for the property
+  // either (measured): both drop it. One it accepts is reported.
+  await check('p::before { z-index: undefined; width: undefinedpx }', undefined);
+  await check('p::before { word-break: break-word }', 'E_CSS_PROPERTY', 1);
   // `field-sizing` does not apply to pseudo-elements.
   await check('p { color: red }\np::before { field-sizing: content }', undefined);
   // A declaration Stylo drops from a rule with matchable selectors is a

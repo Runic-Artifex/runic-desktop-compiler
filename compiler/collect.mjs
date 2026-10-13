@@ -957,7 +957,8 @@ function checkWithStylo(code, file, pending) {
       : "Chromium ignores and Blitz's style engine (Stylo) applies";
     if (EQUIVALENT_DROPPED_PROPERTY.has(d.prop)) continue;
     if (EQUIVALENT_DROPPED_VALUE.get(d.prop) === d.value.trim().toLowerCase()) continue;
-    if (invalid.has(d) && (chromiumDrops(d.prop) || overriddenInRule(d, invalid))) continue;
+    if (invalid.has(d) && (chromiumDropsValue(d.prop, d.value) || overriddenInRule(d, invalid)))
+      continue;
     // Blitz draws no resize grip whatever `resize` says; Chromium's default
     // (`both`) already differs, a gap recorded in docs/BLITZ-GAPS.md.
     if (d.prop === 'resize') continue;
@@ -1084,6 +1085,35 @@ const CHROMIUM_PROPERTIES = new Set(
  */
 function chromiumDrops(prop) {
   return !prop.startsWith('--') && !CHROMIUM_PROPERTIES.has(prop.toLowerCase());
+}
+
+// What Chromium 153 accepts as a value of one identifier where Stylo drops
+// it, measured (crates/runic-css/src/chromium-keywords.txt, as
+// runic_css::inline::chromium_drops_value reads it): property -> [flags,
+// keywords].
+const CHROMIUM_KEYWORDS = new Map(
+  readFileSync(new URL('../crates/runic-css/src/chromium-keywords.txt', import.meta.url), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map(line => {
+      const [name, flags = '', keywords = ''] = line.split('\t');
+      return [name, [flags, new Set(keywords.split(' ').filter(Boolean))]];
+    }),
+);
+
+/**
+ * Whether Chromium 153 drops the declaration `prop: value` too where Stylo
+ * drops it: proven only for a value of one identifier Chromium does not accept
+ * for the property (runic_css::inline::chromium_drops_value).
+ */
+function chromiumDropsValue(prop, value) {
+  const name = prop.toLowerCase();
+  if (chromiumDrops(name)) return true;
+  const v = value.trim();
+  if (name.startsWith('--') || !/^-?(?:[a-z_\u0080-\uffff]|-)[-\w\u0080-\uffff]*$/i.test(v))
+    return false;
+  const entry = CHROMIUM_KEYWORDS.get(name);
+  return !entry || (!entry[0].includes('c') && !entry[1].has(v.toLowerCase()));
 }
 
 // `-webkit-` properties Chromium 153 keeps apart from their standard

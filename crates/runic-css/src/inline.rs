@@ -33,6 +33,66 @@ pub fn chromium_parses_property(name: &str) -> bool {
             .contains(name)
 }
 
+/// What Chromium 153 accepts as a value of one identifier where Stylo
+/// drops it (`node conformance/chromium-properties.mjs` measures it): per
+/// property, flags (`u`: Stylo parses no value of it; `c`: Chromium accepts
+/// any identifier, a custom ident) and keywords (with `u`, every Blink
+/// keyword Chromium accepts alone; otherwise those it accepts and Stylo
+/// drops). A property it leaves out accepts no custom ident, and no keyword
+/// Stylo drops.
+const CHROMIUM_KEYWORDS: &str = include_str!("chromium-keywords.txt");
+
+/// Whether Chromium 153 drops the declaration `name: value` too, where
+/// Stylo drops it: proven only for a value of one identifier (CSS-wide
+/// keywords included) that Chromium accepts for no property it is a keyword
+/// of here (the measured table); any other value Stylo drops may be one
+/// Chromium keeps.
+pub fn chromium_drops_value(name: &str, value: &str) -> bool {
+    type Table = std::collections::HashMap<&'static str, (&'static str, Vec<&'static str>)>;
+    static TABLE: std::sync::OnceLock<Table> = std::sync::OnceLock::new();
+    if !chromium_parses_property(name) {
+        return true;
+    }
+    let value = value.trim();
+    let mut chars = value.chars();
+    let ident_start = |c: char| c.is_ascii_alphabetic() || c == '_' || !c.is_ascii();
+    let single_ident = match chars.next() {
+        Some('-') => chars.next().is_some_and(|c| ident_start(c) || c == '-'),
+        Some(c) => ident_start(c),
+        None => false,
+    } && value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || !c.is_ascii());
+    if !single_ident || name.starts_with("--") {
+        return false;
+    }
+    let table = TABLE.get_or_init(|| {
+        CHROMIUM_KEYWORDS
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.split('\t');
+                Some((
+                    parts.next()?,
+                    (
+                        parts.next().unwrap_or(""),
+                        parts
+                            .next()
+                            .unwrap_or("")
+                            .split(' ')
+                            .filter(|k| !k.is_empty())
+                            .collect(),
+                    ),
+                ))
+            })
+            .collect()
+    });
+    let lower = value.to_ascii_lowercase();
+    match table.get(name) {
+        None => true,
+        Some((flags, keywords)) => !flags.contains('c') && !keywords.contains(&lower.as_str()),
+    }
+}
+
 /// What a problem is for a literal value at build time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -413,7 +473,7 @@ pub fn problems(css: &str, element: Element<'_>) -> Vec<Problem> {
                     .iter()
                     .any(|(p, v)| p == name && *v == lower.trim())
                 || name == "resize"
-                || !chromium_parses_property(name)
+                || chromium_drops_value(name, value)
                 || {
                     let standard = standard_name(name);
                     decls[i + 1..].iter().any(|(n, v, imp)| {
@@ -492,6 +552,20 @@ mod tests {
             tag: "div",
             input_type: None,
         };
+        // A value of one identifier both engines drop (bits-ui's floating
+        // layer spreads `z-index: undefined`); Chromium keeps keywords Stylo
+        // drops (measured) and any value Stylo cannot be shown to agree on.
+        assert_eq!(
+            kinds(
+                "z-index: undefined; width: undefinedpx; -webkit-text-fill-color: undefined; width: -webkit-max-content; word-break: break-word; transform: translate(NaNpx)",
+                div
+            ),
+            [
+                (Kind::Report, "width: -webkit-max-content".into()),
+                (Kind::Report, "word-break: break-word".into()),
+                (Kind::Report, "transform: translate(NaNpx)".into()),
+            ]
+        );
         assert_eq!(
             kinds(
                 "position: sticky; top: 0; color: red; -webkit-text-fill-color: red; text-shadow: 1px 1px red",
