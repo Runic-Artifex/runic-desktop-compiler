@@ -8,6 +8,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { frontendTooling } from './adapters/tooling.mjs';
 import { cssCheck, unmatched } from './codegen.mjs';
+import { vocabulary } from './css-vocabulary.mjs';
 import { parse as parseHTML } from 'parse5';
 import { isSourcePackage } from '../frontend/sources.ts';
 import { imageSourceInput } from './images.mjs';
@@ -1156,17 +1157,39 @@ const CHROMIUM_KEYWORDS = new Map(
     }),
 );
 
+// Where Stylo and Chromium 153 agree on values beyond one identifier,
+// measured (crates/runic-css/src/chromium-grammar.txt,
+// conformance/chromium-grammar.mjs): property -> its corpus vocabulary.
+const CHROMIUM_GRAMMAR = new Map(
+  readFileSync(new URL('../crates/runic-css/src/chromium-grammar.txt', import.meta.url), 'utf8')
+    .split('\n')
+    .filter(line => line && !line.startsWith('#'))
+    .map(line => {
+      const [name, , functions = '', units = '', idents = ''] = line.split('\t');
+      const set = l => new Set(l.split(' ').filter(Boolean));
+      return [name, { functions: set(functions), units: set(units), idents: set(idents) }];
+    }),
+);
+
 /**
  * Whether Chromium 153 drops the declaration `prop: value` too where Stylo
- * drops it: proven only for a value of one identifier Chromium does not accept
- * for the property (runic_css::inline::chromium_drops_value).
+ * drops it (runic_css::inline::chromium_drops_value): a property Chromium does
+ * not parse, a value of one identifier it does not accept for the property, or
+ * a longer value within the vocabulary of the property's agreeing corpus.
  */
 function chromiumDropsValue(prop, value) {
   const name = prop.toLowerCase();
   if (chromiumDrops(name)) return true;
   const v = value.trim();
-  if (name.startsWith('--') || !/^-?(?:[a-z_\u0080-\uffff]|-)[-\w\u0080-\uffff]*$/i.test(v))
-    return false;
+  if (name.startsWith('--')) return false;
+  if (!/^-?(?:[a-z_\u0080-\uffff]|-)[-\w\u0080-\uffff]*$/i.test(v)) {
+    // A longer value: within the vocabulary of the property's agreeing
+    // corpus (chromium-grammar.txt), as runic_css::inline decides it.
+    const entry = CHROMIUM_GRAMMAR.get(name);
+    if (!entry || /var\(|env\(|attr\(/i.test(v)) return false;
+    const words = vocabulary(v);
+    return ['functions', 'units', 'idents'].every(k => [...words[k]].every(x => entry[k].has(x)));
+  }
   const entry = CHROMIUM_KEYWORDS.get(name);
   return !entry || (!entry[0].includes('c') && !entry[1].has(v.toLowerCase()));
 }

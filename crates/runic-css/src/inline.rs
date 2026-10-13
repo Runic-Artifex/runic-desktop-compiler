@@ -42,11 +42,126 @@ pub fn chromium_parses_property(name: &str) -> bool {
 /// Stylo drops.
 const CHROMIUM_KEYWORDS: &str = include_str!("chromium-keywords.txt");
 
+/// Where Stylo and Chromium 153 agree on values beyond single identifiers
+/// (`node conformance/chromium-grammar.mjs` measures it): per property,
+/// `<name>\t<samples>\t<functions>\t<units>\t<idents>`, the vocabulary of
+/// at least 20 corpus values and their JavaScript-number mutations, on all of
+/// which both engines agree. `#` lines are comments.
+const CHROMIUM_GRAMMAR: &str = include_str!("chromium-grammar.txt");
+
+/// The vocabulary of a value over cssparser's tokens (the CSS Syntax
+/// tokenizer, as Blink's): lower-cased function names, dimension units and
+/// identifiers other than artifacts (compiler/css-vocabulary.mjs is the twin).
+#[derive(Default)]
+struct Vocabulary {
+    functions: Vec<String>,
+    units: Vec<String>,
+    idents: Vec<String>,
+}
+
+/// What JavaScript string building makes of a number in a CSS numeric
+/// position: `--25` (a written minus before a negative number), `NaNpx`,
+/// `Infinity` with a unit, `undefinedpx`, `undefined`, `null`. `nan`,
+/// `infinity` and `-infinity` alone are calc() keywords, not artifacts.
+fn artifact(lower: &str) -> bool {
+    let rest = lower.strip_prefix('-').unwrap_or(lower);
+    (rest.starts_with('-') && rest[1..].starts_with(|c: char| c.is_ascii_digit()))
+        || ["nan", "infinity", "undefined", "null"]
+            .iter()
+            .any(|w| rest.len() > w.len() && rest.starts_with(w))
+        || lower == "undefined"
+        || lower == "null"
+}
+
+fn vocabulary(value: &str) -> Vocabulary {
+    use cssparser::{Parser, Token};
+    fn walk(p: &mut Parser<'_>, v: &mut Vocabulary) {
+        while let Ok(token) = p.next_including_whitespace_and_comments() {
+            let nested = match token {
+                Token::Function(name) => {
+                    v.functions.push(name.to_ascii_lowercase());
+                    true
+                }
+                Token::Dimension { unit, .. } => {
+                    v.units.push(unit.to_ascii_lowercase());
+                    false
+                }
+                Token::Ident(name) => {
+                    let lower = name.to_ascii_lowercase();
+                    if !artifact(&lower) {
+                        v.idents.push(lower);
+                    }
+                    false
+                }
+                Token::UnquotedUrl(_) => {
+                    v.functions.push("url".into());
+                    false
+                }
+                Token::ParenthesisBlock | Token::SquareBracketBlock | Token::CurlyBracketBlock => {
+                    true
+                }
+                _ => false,
+            };
+            if nested {
+                let _ = p.parse_nested_block(|p| -> Result<(), cssparser::ParseError<()>> {
+                    walk(p, v);
+                    Ok(())
+                });
+            }
+        }
+    }
+    let mut v = Vocabulary::default();
+    walk(&mut Parser::new(value), &mut v);
+    v
+}
+
+/// Whether `name: value`, a value Stylo drops that is not one identifier,
+/// is one Chromium drops too: `name` is a property of the measured grammar
+/// table and every function, unit and identifier of the value occurs in its
+/// agreeing samples (artifact identifiers being a class the samples cover).
+fn chromium_grammar_drops(name: &str, value: &str) -> bool {
+    type Entry = (Vec<&'static str>, Vec<&'static str>, Vec<&'static str>);
+    static TABLE: std::sync::OnceLock<std::collections::HashMap<&'static str, Entry>> =
+        std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        CHROMIUM_GRAMMAR
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .filter_map(|line| {
+                let mut parts = line.split('\t');
+                let name = parts.next()?;
+                parts.next()?;
+                let mut list = || -> Vec<&'static str> {
+                    parts
+                        .next()
+                        .unwrap_or("")
+                        .split(' ')
+                        .filter(|x| !x.is_empty())
+                        .collect()
+                };
+                let functions = list();
+                let units = list();
+                let idents = list();
+                Some((name, (functions, units, idents)))
+            })
+            .collect()
+    });
+    let Some((functions, units, idents)) = table.get(name) else {
+        return false;
+    };
+    let v = vocabulary(value);
+    v.functions.iter().all(|f| functions.contains(&f.as_str()))
+        && v.units.iter().all(|u| units.contains(&u.as_str()))
+        && v.idents.iter().all(|i| idents.contains(&i.as_str()))
+}
+
 /// Whether Chromium 153 drops the declaration `name: value` too, where
-/// Stylo drops it: proven only for a value of one identifier (CSS-wide
-/// keywords included) that Chromium accepts for no property it is a keyword
-/// of here (the measured table); any other value Stylo drops may be one
-/// Chromium keeps.
+/// Stylo drops it (both measured): a property Chromium does not parse; a
+/// value of one identifier (CSS-wide keywords included) that Chromium
+/// accepts neither as a keyword of the property nor as a custom ident
+/// (chromium-keywords.txt); a longer value of a property on whose corpus the
+/// engines agree, within the vocabulary of that corpus (chromium-grammar.txt).
+/// Any other value Stylo drops may be one Chromium keeps.
 pub fn chromium_drops_value(name: &str, value: &str) -> bool {
     type Table = std::collections::HashMap<&'static str, (&'static str, Vec<&'static str>)>;
     static TABLE: std::sync::OnceLock<Table> = std::sync::OnceLock::new();
@@ -63,8 +178,13 @@ pub fn chromium_drops_value(name: &str, value: &str) -> bool {
     } && value
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || !c.is_ascii());
-    if !single_ident || name.starts_with("--") {
+    if name.starts_with("--") {
         return false;
+    }
+    if !single_ident {
+        let lower = value.to_ascii_lowercase();
+        return !["var(", "env(", "attr("].iter().any(|f| lower.contains(f))
+            && chromium_grammar_drops(name, value);
     }
     let table = TABLE.get_or_init(|| {
         CHROMIUM_KEYWORDS
@@ -572,17 +692,28 @@ mod tests {
         };
         // A value of one identifier both engines drop (bits-ui's floating
         // layer spreads `z-index: undefined`); Chromium keeps keywords Stylo
-        // drops (measured) and any value Stylo cannot be shown to agree on.
+        // drops (measured).
         assert_eq!(
             kinds(
-                "z-index: undefined; width: undefinedpx; -webkit-text-stroke: undefined; width: -webkit-max-content; word-break: break-word; transform: translate(NaNpx)",
+                "z-index: undefined; width: undefinedpx; -webkit-text-stroke: undefined; width: -webkit-max-content; word-break: break-word",
                 div
             ),
             [
                 (Kind::Report, "width: -webkit-max-content".into()),
                 (Kind::Report, "word-break: break-word".into()),
-                (Kind::Report, "transform: translate(NaNpx)".into()),
             ]
+        );
+        // Longer values both engines drop, within a property's measured
+        // vocabulary (chromium-grammar.txt): a template building a number
+        // (`translateX(-{x}%)` with x = -25: bits-ui's progress indicator
+        // past its maximum), NaN and undefined; values outside the
+        // vocabulary (a function Stylo lacks) stay reported.
+        assert_eq!(
+            kinds(
+                "transform: translateX(--25%); transform: translateX(NaNpx); margin: 0 --4px; transform: translateX(undefined%); width: calc-size(auto, size)",
+                div
+            ),
+            [(Kind::Report, "width: calc-size(auto, size)".into())]
         );
         // Multi-column layout.
         assert_eq!(

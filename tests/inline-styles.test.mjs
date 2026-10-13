@@ -138,4 +138,28 @@ test('inline declarations verified equivalent are neither rejected nor reported'
     async root =>
       assert.equal(reported((await lowered(root)).ir, [{ kind: 'click', id: 'b' }]), undefined),
   );
+  // A template building a number past its range (shadcn-svelte's progress
+  // indicator with a value above its maximum): `translateX(--25%)`, which
+  // Chromium drops too (measured, chromium-grammar.txt). A function Stylo
+  // lacks stays reported.
+  await svelte(
+    `<script lang="ts">let value = $state(50); let size = $state('10px');</script>
+<div id="a" style="transform: translateX(-{100 - value}%); width: {size}">A</div>
+<button id="b" onclick={() => (value = 125)}>B</button>
+<button id="c" onclick={() => (size = 'calc-size(auto, size)')}>C</button>`,
+    async root => {
+      const { ir } = await lowered(root);
+      assert.equal(
+        reported(ir, [
+          { kind: 'click', id: 'b' },
+          { kind: 'click', id: 'b' },
+        ]),
+        undefined,
+      );
+      assert.match(
+        reported(ir, [{ kind: 'click', id: 'c' }]),
+        /width: calc-size\(auto, size\) \(Blitz's style engine \(Stylo\) does not support it\)/,
+      );
+    },
+  );
 });
